@@ -72,7 +72,7 @@ const format = (metric: string, value: number | undefined) => {
   if (/heapUsed|rss|footprint/.test(metric)) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   return value >= 100 ? value.toFixed(0) : value.toFixed(2);
 };
-function report(verdicts: Verdict[]) {
+function report(verdicts: Verdict[], platform: string) {
   const rows = verdicts.map((v) => [
     v.status === "regressed"
       ? "FAIL"
@@ -85,7 +85,7 @@ function report(verdicts: Verdict[]) {
     format(v.metric, v.actual),
     format(v.metric, v.baseline),
     format(v.metric, v.limit),
-    v.from && v.from !== `${process.platform}-${process.arch}` ? `(vs ${v.from})` : "",
+    v.from && v.from !== platform ? `(vs ${v.from})` : "",
   ]);
   const header = ["", "metric", "actual", "baseline", "limit", ""];
   const widths = header.map((_, i) =>
@@ -101,16 +101,20 @@ function report(verdicts: Verdict[]) {
 }
 
 const results = await measure();
-const platform = `${process.platform}-${process.arch}`;
+// Saved results carry their own platform, so CI artifacts can be gated or adopted anywhere.
+const platforms = new Set(results.map((result) => result.platform));
+const [platform] = platforms;
+if (platforms.size !== 1 || !platform) throw new Error("Results must come from one platform");
 const actual = median(results.map(metricsOf));
 const baseline = Baseline.parse(JSON.parse(await readFile(baselinePath, "utf8")));
 if (argv.includes("--update-baseline")) {
-  baseline.platforms[platform] = { node: process.version, runs: results.length, metrics: actual };
+  const node = results[0]?.node ?? process.version;
+  baseline.platforms[platform] = { node, runs: results.length, metrics: actual };
   await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   process.stdout.write(`Updated the ${platform} baseline from ${results.length} run(s).\n`);
 } else {
   const verdicts = compare(actual, baseline, platform);
-  report(verdicts);
+  report(verdicts, platform);
   const regressed = verdicts.filter((v) => v.status === "regressed");
   if (regressed.length) {
     process.stdout.write(`\n${regressed.length} metric(s) regressed beyond tolerance.\n`);
