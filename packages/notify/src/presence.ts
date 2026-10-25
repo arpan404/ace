@@ -31,6 +31,9 @@ export class PresenceIndex {
       viewers.set(session, presence);
     }
   }
+  empty(): boolean {
+    return this.sessions.size === 0;
+  }
   activeDevices(now: number): ReadonlySet<DeviceId> {
     return new Set(
       [...this.sessions.values()]

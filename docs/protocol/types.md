@@ -17205,6 +17205,7 @@ Example:
 | actions | yes | array | {"maxItems":2,"items":{"type":"object","properties":{"action":{"type":"string","enum":["approve","deny"]},"optionId":{"type":"string","minLength":1,"maxLength":200}},"required":["action","optionId"]}} |
 | preview | no | string | {"maxLength":300} |
 | message | no | string | {"maxLength":300} |
+| threadIds | no | array | {"minItems":1,"maxItems":100,"items":{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]}} |
 | run | no | object | {"properties":{"outcome":{"type":"string","enum":["stopped","blocked","delivered"]},"phase":{"$ref":"https://ace.local/protocol/v1/OffshiftPhase.json"}},"required":["outcome","phase"]} |
 
 Example:
@@ -17214,7 +17215,7 @@ Example:
   "actions": [],
   "backgroundCount": 2,
   "id": "example",
-  "status": "agent_says",
+  "status": "catch_up",
   "threadId": "example",
   "title": "example"
 }
@@ -17409,6 +17410,10 @@ Example:
     "id": "example",
     "interactionId": "example",
     "preview": "example",
+    "run": {
+      "outcome": "delivered",
+      "phase": "delivery"
+    },
     "status": "background_done",
     "threadId": "example",
     "title": "example"
@@ -17591,7 +17596,7 @@ Example:
 
 [JSON Schema](schema/NotificationStatus.json), input validation.
 
-Type: ["needs_you","done","failed","unresponsive","background_done","agent_says"]. See JSON Schema for constraints.
+Type: ["needs_you","done","failed","unresponsive","background_done","agent_says","catch_up"]. See JSON Schema for constraints.
 
 Example:
 

@@ -10,7 +10,7 @@ import {
   type PresenceUpdate,
   type ThreadId,
 } from "@ace/protocol";
-import type { NotificationTransport } from "./service.ts";
+import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
   FromWorker,
   WorkerConfig,
@@ -19,6 +19,7 @@ import {
   type WorkerValue,
 } from "./worker-wire.ts";
 import { metadata, type MetadataEvent } from "./metadata.ts";
+import type { NoticeWindow } from "./sleep-boundary.ts";
 
 /** A message that claims to be a worker reply: an object with a string `type`. */
 function isWireFrame(input: unknown): boolean {
@@ -30,7 +31,15 @@ function isWireFrame(input: unknown): boolean {
 type WorkerOptionsInput = {
   path: string;
   windowMs?: number;
+  /** Events before this time raise no alerts (see `deliverableFor`). */
+  alertsFrom?: number;
   transport: NotificationTransport;
+  /** Called when the worker's next delivery deadline or idleness changes. */
+  onState?: (state: NotificationState) => void;
+  /** Called when a replacement worker is ready after a crash; replay may be behind. */
+  onRestart?: () => void;
+  /** A sleep boundary to add on open (see `NotificationOptions.sleptAfter`). */
+  sleptAfter?: { seq: number; at: number };
   signal?: AbortSignal;
   spawn?: (entry: URL, options: WorkerOptions) => Worker;
   schedule?: (delayMs: number, restart: () => void) => () => void;
@@ -61,6 +70,9 @@ export class NotificationWorker {
   private options: WorkerOptionsInput;
   private cancelRestart: (() => void) | undefined;
   private retry = 0;
+  private starts = 0;
+  /** Whether the current worker replaced one that failed. */
+  private restarted = false;
   private opened = false;
   constructor(options: WorkerOptionsInput) {
     this.options = options;
@@ -84,6 +96,7 @@ export class NotificationWorker {
   }
   private start(): Worker {
     const options = this.options;
+    this.restarted = this.starts++ > 0;
     this.failed = undefined;
     this.opened = false;
     this.ready = new Promise((resolve, reject) => {
@@ -116,8 +129,10 @@ export class NotificationWorker {
       }
       const message = parsed.data;
       if (message.type === "ready") {
+        const restarted = this.restarted;
         this.opened = true;
         this.readyResolve();
+        if (restarted) options.onRestart?.();
       } else if (message.type === "result") {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
@@ -135,6 +150,8 @@ export class NotificationWorker {
             ),
           );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
+      else if (message.type === "state")
+        options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
           this.worker.postMessage({ type: "deliveryResult", id: message.id, result: "retry" }, []);
@@ -253,6 +270,21 @@ export class NotificationWorker {
           reject(error);
         });
     });
+  }
+  /** Records a deliberate stop at the worker's cursor; call before `close` when sleeping. */
+  async sleep(): Promise<void> {
+    await this.call({ method: "sleep" });
+  }
+  /**
+   * Replay has caught up after a wake: closes the sleep window. Resolves to the spans in which
+   * queued agent notices are too old to send; call `forgetSleep` once they are acknowledged.
+   */
+  async closeSleep(): Promise<NoticeWindow[]> {
+    const value = await this.call({ method: "closeSleep" });
+    return Array.isArray(value) ? value : [];
+  }
+  async forgetSleep(): Promise<void> {
+    await this.call({ method: "forgetSleep" });
   }
   async cursor(signal?: AbortSignal): Promise<number> {
     const value = await this.call({ method: "cursor" }, signal);

@@ -2209,8 +2209,8 @@
       "sha256": "14fa8caa29caf4b27886b8e5e19150cd938587a2778b617752b395a47f000363"
     },
     "schema/Notification.json": {
-      "bytes": 2148,
-      "sha256": "d6c9ca0a5a2cf51cc0c3d5d1e9280440d02e344e96a43e61189676cc675fad49"
+      "bytes": 2497,
+      "sha256": "cdb838515950b9f610e0fa666a0ecdb1ee82f8da83619e45f0b3084b8d9c35d4"
     },
     "schema/NotificationAddress.json": {
       "bytes": 1875,
@@ -2269,8 +2269,8 @@
       "sha256": "a0147072fddec182567ed5291b17724e22799ea0b2cb242eeef54649a2615933"
     },
     "schema/NotificationStatus.json": {
-      "bytes": 270,
-      "sha256": "eba199889af6b995949b01a09a77c265404a8265a1444825d6c97f4b9f8431be"
+      "bytes": 286,
+      "sha256": "f21af532a3d718e0391778a31948ac77cf73717f20832c69df48faae9f9478ec"
     },
     "schema/NotificationUnregister.json": {
       "bytes": 389,
@@ -4357,10 +4357,10 @@
       "sha256": "0af13fd95c84501f279f78fcd7dde30731e034842ab1339df4c9d77a06eb242b"
     },
     "types.md": {
-      "bytes": 893633,
-      "sha256": "de76e1f3dbfe9eafcb6a337749be473a89edd6b67dcaaedc9f0ea008961a0f17"
+      "bytes": 893900,
+      "sha256": "49306839147beb4df357b79588fb8795ebbc91c942ba0ff3642a7d240e1625d6"
     }
   },
-  "input": "3f886e7c223690ab400233310a45473761aef1f62923958113de749d75a70ecc",
+  "input": "fcf7b59e6bc8a06d3b470d429d97d5eced23b9b4f6a4ea42fa7e35e1c7f463d5",
   "version": 1
 }
