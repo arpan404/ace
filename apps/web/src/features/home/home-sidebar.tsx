@@ -19,7 +19,11 @@ import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
-import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+import {
+  useOrganizer,
+  useOrganizerState,
+  useOverlaidMachineEntries,
+} from "@/features/organize/index.ts";
 
 /** Publish provisional titles even while the Unsent section is outside the virtual window. */
 const StartedTitlePublisher = deferredComponent(() =>
@@ -33,7 +37,7 @@ const StartedTitlePublisher = deferredComponent(() =>
  */
 export function HomeSidebar() {
   // Other machines' threads join the one flat list, each row marked with its machine.
-  const others = useMachineEntries(useHostIdentity()?.hostId);
+  const others = useOverlaidMachineEntries(useMachineEntries(useHostIdentity()?.hostId));
   const list = useHomeList(others);
   // The daemon's count of settled threads, while it still holds some back.
   const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));

@@ -24,13 +24,15 @@ const BulkMenuItems = deferredComponent(() =>
  */
 export function ThreadMenu(props: {
   entry: ThreadListEntry;
+  /** The list's id for the row (another machine's thread has its own, ADR 0100). */
+  rowId?: string | undefined;
   state: ThreadRowFlags;
   onRename(): void;
   children: ReactElement;
 }) {
   const { entry } = props;
   const selection = useHomeSelection();
-  const selected = useSelected(entry.id);
+  const selected = useSelected(props.rowId ?? entry.id);
   const [open, setOpen] = useState(false);
   // Read as the menu opens: a picked row among others speaks for all of them.
   const bulk = open && selected && selection.getState().ids.length > 1;

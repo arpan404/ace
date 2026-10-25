@@ -12,6 +12,7 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
 import { rowClass } from "./transcript-row.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 const linkButton = buttonVariants({ variant: "primary", size: "sm" });
 /** A limit's way out is an option, not the one fix: it stays quiet beside the row. */
@@ -42,6 +43,8 @@ export function ErrorRow(props: {
   const view = "text" in props.error ? describeProviderError(props.error) : props.error;
   const signIn = useSignIn();
   const signInTo = view.provider;
+  // Settings and Usage read this window's own machine: another machine's thread leaves them out.
+  const elsewhere = useScopedMachine() !== undefined;
   const [open, setOpen] = useState(false);
   const details = useId();
   const [row, setRow] = useState<HTMLDivElement | null>(null);
@@ -88,12 +91,12 @@ export function ErrorRow(props: {
               >
                 Sign in
               </Button>
-            ) : (
+            ) : elsewhere ? null : (
               <Link to="/settings/providers" className={linkButton}>
                 Sign in
               </Link>
             ))}
-          {view.action === "switch_account" && (
+          {view.action === "switch_account" && !elsewhere && (
             <Link to="/usage" className={quietLinkButton}>
               Use another account
             </Link>

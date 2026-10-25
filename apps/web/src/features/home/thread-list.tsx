@@ -1,5 +1,4 @@
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
-import { useSidebarStore } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
@@ -53,10 +52,9 @@ import { useSettledPaging } from "./settled-paging.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
-  useOrganizeOverlay,
   useOrganizer,
   useOrganizerState,
-  useThreadActions,
+  useWindowThreads,
 } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
@@ -164,9 +162,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const [announcement, setAnnouncement] = useState("");
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
-  const store = useSidebarStore();
-  const overlay = useOrganizeOverlay();
-  const actions = useThreadActions();
+  // Rows of every machine: each action runs on the row's own machine (ADR 0100).
+  const threads = useWindowThreads();
+  const { actions } = threads;
   const keys = useResolvedKeymap();
   // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer's callbacks are unstable by design.
   const virtualizer = useVirtualizer({
@@ -212,11 +210,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     if (listRef.current) roveListFocus(listRef.current, lastFocused.current);
   });
 
-  /** A thread as this window shows it, with organize actions not yet confirmed. */
-  const shownEntry = (id: string) => {
-    const found = store?.thread(id);
-    return found && overlay.apply(found);
-  };
+  /** A row's thread as this window shows it, with organize actions not yet confirmed. */
+  const shownEntry = (id: string) => threads.entry(id);
   /** What a drag or keyboard move reads and does: measured rows, the pinned group, commands. */
   const host = (): DragHost | undefined => {
     const scroller = viewport.current;

@@ -37,7 +37,8 @@ const row =
 
 /**
  * Another machine's thread (ADR 0100), drawn under that machine's client. It opens on that
- * machine and is marked with it; it can't be picked, dragged, renamed or acted on from here.
+ * machine and is marked with it; its menus and hover actions run on that machine, and it is
+ * picked, dragged and renamed under its list row id (`machine:[hostId,threadId]`).
  */
 export interface RowMachine {
   id: string;
@@ -68,18 +69,21 @@ export function ThreadRow(props: {
   settled: boolean;
   leaving?: boolean | undefined;
   machine?: RowMachine | undefined;
+  /** The list's id for the row, when it isn't the thread's own (another machine's thread). */
+  rowId?: string | undefined;
 }) {
   const { machine } = props;
   const { settled } = props;
+  const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, settled, props.leaving);
   const selection = useHomeSelection();
-  const editing = useRenameTitle(props.threadId);
+  const editing = useRenameTitle(rowId);
   const hover = useThreadHover();
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
   const started = useStartedTitle(props.threadId);
-  const selected = useSelected(props.threadId);
+  const selected = useSelected(rowId);
   const rowActive = useRowActive();
   // One of its provider subagents open as the whole chat is still this thread.
   const current = useOpenHere(props.threadId, machine?.id);
@@ -90,7 +94,7 @@ export function ThreadRow(props: {
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
   // Read under its own machine's client, the card would call that machine "this machine".
   const card = machine ? { ...titled, machine: machine.name, machineIcon: machine.icon } : titled;
-  const handle = card.flags.pinned && !renaming && !machine;
+  const handle = card.flags.pinned && !renaming;
   const details = threadDetails(card);
   // The open thread reads at full contrast; every other row is as loud as its attention level.
   const attention = currentAttention(card.attention, current);
@@ -98,7 +102,7 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  const actions = rowActive.active && !renaming && !machine;
+  const actions = rowActive.active && !renaming;
   // Three lines of 16, 20 and 16px, 4px between each, 10px above and below.
   const height = "h-[80px] py-2.5";
   const title = (
@@ -107,6 +111,7 @@ export function ThreadRow(props: {
         {renaming ? (
           <RenameField
             entry={entry}
+            rowId={rowId}
             title={editing ?? refused ?? card.title}
             onDone={() => selection.finishRename()}
           />
@@ -143,19 +148,12 @@ export function ThreadRow(props: {
       </div>
     </div>
   );
-  // Organize actions answer to this window's daemon, so another machine's row has none.
-  const menu = (trigger: ReactElement) =>
-    machine ? (
-      trigger
-    ) : (
-      <ThreadMenu
-        entry={entry}
-        state={card.flags}
-        onRename={() => selection.rename(props.threadId, card.title)}
-      >
-        {trigger}
-      </ThreadMenu>
-    );
+  const rename = () => selection.rename(rowId, card.title);
+  const menu = (trigger: ReactElement) => (
+    <ThreadMenu entry={entry} rowId={rowId} state={card.flags} onRename={rename}>
+      {trigger}
+    </ThreadMenu>
+  );
   return (
     <>
       <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
@@ -172,7 +170,7 @@ export function ThreadRow(props: {
             data-attention={attention.level}
             data-muted={attention.muted ? "" : undefined}
             // Settled rows stay out of picking and dragging, as they always have.
-            {...(settled || machine ? {} : { "data-thread-row": entry.id })}
+            {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
               <div className={cn(row, height)}>{body}</div>
@@ -208,9 +206,9 @@ export function ThreadRow(props: {
                 <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
               </button>
             )}
-            {!renaming && !machine && (
+            {!renaming && (
               <RowActions
-                onRename={() => selection.rename(props.threadId, card.title)}
+                onRename={rename}
                 onHover={() => hover.change(false)}
                 shown={actions}
                 entry={entry}

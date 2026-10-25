@@ -1,5 +1,3 @@
-import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
 import {
   listedSelection,
   noSelection,
@@ -7,7 +5,8 @@ import {
   toggleSelected,
   type ListSelection,
 } from "@ace/ui-core";
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
+import { perWindow } from "@/lib/per-window.ts";
 
 /**
  * A bulk action waiting on the person's yes: the selection bar's dialog asks. Only Delete,
@@ -21,8 +20,10 @@ interface State extends ListSelection {
 }
 
 /**
- * The Home threads picked for a bulk action, one per window (keyed by its client, like the
- * organize overlay), so the list, its selection bar and the palette share it.
+ * The Home threads picked for a bulk action, one per window, so the list, its selection bar and
+ * the palette share it. Ids are the list's row ids: another machine's thread is picked and
+ * renamed under its machine row id (`machine:[hostId,threadId]`, ADR 0100), so it never stands
+ * for a thread of this window's daemon with the same id.
  */
 export class HomeSelection {
   private state: State = { ...noSelection, confirm: undefined, rename: undefined };
@@ -63,19 +64,9 @@ export class HomeSelection {
   }
 }
 
-const selections = new WeakMap<ClientApi, HomeSelection>();
-
-export function useHomeSelection(): HomeSelection {
-  const client = useClient();
-  return useMemo(() => {
-    let selection = selections.get(client);
-    if (!selection) {
-      selection = new HomeSelection();
-      selections.set(client, selection);
-    }
-    return selection;
-  }, [client]);
-}
+const selections = perWindow(() => new HomeSelection());
+export const HomeSelectionProvider = selections.Provider;
+export const useHomeSelection = selections.use;
 
 /** The picked thread ids and any question pending about them. */
 export function useHomeSelectionState(): State {
