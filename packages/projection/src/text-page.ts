@@ -50,7 +50,10 @@ export function decodeTextPage(
   const bytes = page.bytes;
   const start = Math.min(bytes.length, partialLead(bytes, offset, encoding));
   const whole = start + wholeCharacterLength(bytes.subarray(start), encoding);
-  const end = whole > start ? whole : bytes.length;
+  // No whole character after an unaligned start: step past only the skipped bytes, so the next
+  // read begins on the character instead of consuming half of it. Otherwise keep the bytes, so
+  // reading always makes progress.
+  const end = whole > start ? whole : start > 0 && !page.eof ? start : bytes.length;
   return {
     text: (encoding === "utf-16le" ? utf16 : utf8).decode(bytes.subarray(start, end)),
     nextOffset: offset + end,
