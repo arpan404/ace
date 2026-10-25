@@ -57,6 +57,7 @@ export class TargetLaunches {
   private deps: TargetLaunchDeps;
   private queue: LaunchQueue;
   private unsubscribe: () => void;
+  private unhook: () => void;
   private cancelTimer: (() => void) | undefined;
   private pumping = false;
   private closed = false;
@@ -74,6 +75,9 @@ export class TargetLaunches {
         this.refresh(ThreadId.parse(row.thread_id));
     });
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
+    // Settle, archive and delete end a thread by writing it; its waiting launch is cancelled in
+    // that same transaction, whichever path wrote it.
+    this.unhook = deps.store.onWrite((events) => this.ended(events));
     // After a restart nothing else announces the waiting children: try once the engine is up.
     this.engineBlocked = this.queue.waiting();
     this.arm();
@@ -81,6 +85,7 @@ export class TargetLaunches {
   close() {
     this.closed = true;
     this.unsubscribe();
+    this.unhook();
     this.cancelTimer?.();
     this.cancelTimer = undefined;
   }
@@ -208,6 +213,17 @@ export class TargetLaunches {
     }
     if (freed) this.pump();
   }
+  /** Cancels the waiting launch of each thread these events settle, archive or delete. */
+  private ended(events: readonly Event[]) {
+    for (const event of events) {
+      const p = event.payload;
+      const ends =
+        (p.type === "thread.updated" && typeof p.archivedAt === "number") ||
+        (p.type === "thread.client.updated" &&
+          (typeof p.changes.settledAt === "number" || typeof p.changes.deletedAt === "number"));
+      if (ends && this.queue.has(event.threadId)) this.cancel(event.threadId);
+    }
+  }
   /** Keeps the child's slot flag current. True when it just gave its slot back. */
   private refresh(threadId: ThreadId): boolean {
     const row = this.row(threadId);
@@ -259,8 +275,11 @@ export class TargetLaunches {
     const thread = store.getThread(launch.childId);
     // A thread deleted while it waited has nothing left to start.
     if (!thread || thread.deletedAt !== undefined) return "skipped";
-    // Stopped while it waited (or its Stop was missed): it settles cancelled, never runs.
+    // Stopped, settled or archived while it waited (should its cancel have been missed): it
+    // settles cancelled and never runs.
     if (
+      thread.settledAt !== undefined ||
+      thread.archivedAt !== undefined ||
       this.row(launch.childId)?.outcome === "cancelled" ||
       this.deps.journal()?.stopped(launch.childId)
     ) {

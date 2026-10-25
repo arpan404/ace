@@ -49,10 +49,13 @@ nearest equivalent of a parent; the target's own limit applies, because the pers
 machine decides how much runs on it. Children from different calling threads, or different
 machines, never share slots.
 
-**Cancel and failure while waiting.** Cancelling a waiting remote child, from the calling machine
-or with an ordinary Stop on the target (through the delegation owner's Stop lifecycle, in the
-transaction that accepts it), removes it from the queue and settles it `cancelled` ("Stopped
-before it started.") without running; a launch also never starts once its thread is stopped. A
+**Cancel and failure while waiting.** Every way a waiting remote child can end removes it from
+the queue and settles it `cancelled` ("Stopped before it started.") without running, in the
+transaction that ends it: a cancel from the calling machine (including a Stop of the parent
+there, which cascades to it), a Stop on the target (through the delegation owner's Stop
+lifecycle), and Settle, archive or delete on the target (through a store write hook that sees
+the `settledAt`, `archivedAt` or `deletedAt` the ending writes). A launch also never starts once
+its thread is stopped, settled, archived or deleted. A
 waiting child that later fails to start for a reason other than a full engine leaves the queue and
 settles `failed` ("It could not be started.") in one transaction instead of waiting forever. Both
 outcomes are kept in `machine_child_launches` so the caller reads them on its next poll. New work

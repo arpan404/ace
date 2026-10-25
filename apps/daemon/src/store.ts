@@ -131,6 +131,7 @@ export class Store {
   private historyWriter: (() => void) | undefined;
   private readonly writes: StoreWriteGate;
   private listeners = new Set<Listener>();
+  private writeHooks = new Set<Listener>();
   private readonly threadReads: ThreadReads;
   private readonly navigation: LongThreadQueries;
   private readonly sidebarReads: SidebarReads;
@@ -386,6 +387,16 @@ export class Store {
       this.statements.set(sql, statement, 1);
     }
     return statement;
+  }
+  /**
+   * Runs `hook` inside the transaction that appends each batch of events, so whatever it writes
+   * commits or rolls back with them. It runs on every write: keep it to a cheap check.
+   */
+  onWrite(hook: Listener): () => void {
+    this.writeHooks.add(hook);
+    return () => {
+      this.writeHooks.delete(hook);
+    };
   }
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -952,6 +963,7 @@ export class Store {
     return this.transaction(() => {
       const events = this.eventWriter.append(threadId, payloads, at, envelopes);
       this.transactionEvents?.push(...events);
+      for (const hook of this.writeHooks) hook(events);
       return events;
     });
   }
