@@ -85,7 +85,11 @@ export function queuedSlotFragment(place: QueuePlace): string {
  * Why a queued subagent hasn't started, with its place when the daemon reported one. An older
  * daemon without the facts still reads as before.
  */
-export function queuedDetailFor(place: Partial<QueuePlace>): string {
+export function queuedDetailFor(place: {
+  slotLimit?: number | undefined;
+  slotsInUse?: number | undefined;
+  queuePosition?: number | undefined;
+}): string {
   if (
     place.slotLimit === undefined ||
     place.slotsInUse === undefined ||

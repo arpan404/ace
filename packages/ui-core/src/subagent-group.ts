@@ -131,14 +131,16 @@ export function readSubagentGroup(
       machine: launch?.machine?.name,
       title: launch?.title ?? agentName(agent, spawn),
       state,
-      // A launch the daemon queued carries where the child stands, so the row can say.
-      ...(launch?.slotLimit !== undefined &&
-      launch?.slotsInUse !== undefined &&
-      launch?.queuePosition !== undefined
+      // A queued launch carries where the child stands on its waiting status, so the row can
+      // say: a running launch never carries them, since statuses replace one another whole.
+      ...(launch?.status.state === "waiting" &&
+      launch?.status.slotLimit !== undefined &&
+      launch?.status.slotsInUse !== undefined &&
+      launch?.status.queuePosition !== undefined
         ? {
-            slotLimit: launch.slotLimit,
-            slotsInUse: launch.slotsInUse,
-            queuePosition: launch.queuePosition,
+            slotLimit: launch.status.slotLimit,
+            slotsInUse: launch.status.slotsInUse,
+            queuePosition: launch.status.queuePosition,
           }
         : {}),
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
