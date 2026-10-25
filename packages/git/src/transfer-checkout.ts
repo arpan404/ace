@@ -13,8 +13,12 @@ export interface CheckoutState {
   head?: string;
 }
 
-export async function checkoutState(repository: Repository, root: string): Promise<CheckoutState> {
-  const { status, branch } = await repository.state(root);
+export async function checkoutState(
+  repository: Repository,
+  root: string,
+  directoryFd?: number,
+): Promise<CheckoutState> {
+  const { status, branch } = await repository.state(root, {}, directoryFd);
   const clean =
     !status.staged.length &&
     !status.unstaged.length &&
@@ -27,24 +31,32 @@ export async function checkoutState(repository: Repository, root: string): Promi
   };
 }
 
-async function assertClean(repository: Repository, root: string): Promise<void> {
-  if (!(await checkoutState(repository, root)).clean)
+async function assertClean(
+  repository: Repository,
+  root: string,
+  directoryFd: number | undefined,
+): Promise<void> {
+  if (!(await checkoutState(repository, root, directoryFd)).clean)
     throw new GitError("dirty_worktree", "The checkout has uncommitted changes");
 }
 
-/** In a clean checkout, point branch `name` at `commit` (creating or resetting it) and switch. */
+/**
+ * In a clean checkout, point branch `name` at `commit` (creating or resetting it) and switch.
+ * With `directoryFd`, every step runs in that held directory, never entering `root` by path.
+ */
 export async function checkoutBranch(
   repository: Repository,
   root: string,
-  options: { name: string; commit: string },
+  options: { name: string; commit: string; directoryFd?: number | undefined },
 ): Promise<void> {
-  await assertBranchName(repository, root, options.name);
-  const sha = await repository.commit(root, options.commit);
-  await assertClean(repository, root);
+  const { directoryFd } = options;
+  await assertBranchName(repository, root, options.name, directoryFd);
+  const sha = await repository.commit(root, options.commit, undefined, directoryFd);
+  await assertClean(repository, root, directoryFd);
   const result = await repository.cli.call(
     root,
     ["switch", "--quiet", "--no-guess", "--no-track", "-C", options.name, sha],
-    { write: true, allowFailure: true, timeoutMs: longWriteTimeoutMs },
+    { write: true, allowFailure: true, timeoutMs: longWriteTimeoutMs, directoryFd },
   );
   if (result.exitCode === 0) return;
   if (/already (?:checked out|used by worktree)/i.test(result.stderr))

@@ -49,11 +49,13 @@ export async function verifyBundle(
   repository: Repository,
   root: string,
   bundle: string,
+  directoryFd?: number,
 ): Promise<boolean> {
   await assertBundleFile(bundle);
   const result = await repository.cli.call(root, ["bundle", "verify", bundle], {
     allowFailure: true,
     timeoutMs: longWriteTimeoutMs,
+    directoryFd,
   });
   if (result.exitCode === 0) return true;
   if (missingPrerequisites.test(result.stderr)) return false;

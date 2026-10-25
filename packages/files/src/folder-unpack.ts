@@ -217,11 +217,11 @@ export interface MergeResult {
  * Adds a folder archive's members to `destination`, an existing directory, never replacing
  * anything: a file or link whose name is taken is skipped, an existing folder is used as it is,
  * and a member whose parent there is not a folder is skipped. The same rules as unpackArchive
- * keep every write inside the destination.
+ * keep every write inside the destination; a held destination is written through as it is.
  */
 export async function mergeArchive(
   file: string,
-  destination: string,
+  destination: string | PinnedDirectory,
   options: {
     signal?: AbortSignal;
     /** Members (and, for a folder, everything under it) never written, counted as skipped. */

@@ -19,8 +19,16 @@ export async function transferOrigin(
   return url ? { url, normalized: normalizeRemoteUrl(url, root) } : undefined;
 }
 
-export async function deleteRef(repository: Repository, root: string, ref: string): Promise<void> {
-  await repository.cli.call(root, ["update-ref", "-d", transferRef(ref)], { write: true });
+export async function deleteRef(
+  repository: Repository,
+  root: string,
+  ref: string,
+  directoryFd?: number,
+): Promise<void> {
+  await repository.cli.call(root, ["update-ref", "-d", transferRef(ref)], {
+    write: true,
+    directoryFd,
+  });
 }
 
 /** Point `ref` (under `refs/`) at `commit`, so a bundle can carry a commit no branch names. */
@@ -38,9 +46,11 @@ export async function assertBranchName(
   repository: Repository,
   root: string,
   name: string,
+  directoryFd?: number,
 ): Promise<void> {
   const valid = await repository.cli.call(root, ["check-ref-format", "--branch", name], {
     allowFailure: true,
+    directoryFd,
   });
   if (!name || name.startsWith("-") || valid.exitCode !== 0)
     throw new GitError("invalid_ref", `Invalid branch name: ${name}`);
