@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillUsage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/SkillId.json"
+    },
+    "last": {
+      "properties": {
+        "at": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "maxLength": 512,
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "title",
+        "at"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "count"
+  ],
+  "type": "object"
+}

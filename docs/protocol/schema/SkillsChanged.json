@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillsChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SkillEntry.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "skills.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "entries",
+    "stale"
+  ],
+  "type": "object"
+}

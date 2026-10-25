@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillUpdateReview.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "maxLength": 262144,
+      "type": "string"
+    },
+    "before": {
+      "maxLength": 262144,
+      "type": "string"
+    },
+    "commit": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SkillUpdateFile.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "folderHash": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "skillId": {
+      "$ref": "https://ace.local/protocol/v1/SkillId.json"
+    }
+  },
+  "required": [
+    "id",
+    "skillId",
+    "commit",
+    "folderHash",
+    "files",
+    "before",
+    "after"
+  ],
+  "type": "object"
+}

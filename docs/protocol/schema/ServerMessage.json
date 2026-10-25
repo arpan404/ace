@@ -449,6 +449,12 @@
       "$ref": "https://ace.local/protocol/v1/CatalogChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SkillsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SkillsChanged.json"
+    },
+    {
       "properties": {
         "outcome": {
           "$ref": "https://ace.local/protocol/v1/AccountResetOutcome.json"
