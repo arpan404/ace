@@ -5,6 +5,7 @@ import {
 } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { refusedByHost } from "./host-refusal.ts";
+import { fatalDetail, isNoiseLine } from "./host-fatal.ts";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -51,10 +52,17 @@ export class CursorHost {
   private stopped: Promise<void> | undefined;
   private limits: CursorLimits;
   private errorMessage: string | undefined;
+  private fatalMessage: string | undefined;
+  private stopReason: string | undefined;
   private metadataFailureDetail: string | undefined;
   private metadataFailureCode: DiscoveryFailureCode | undefined;
+  /** A definite cause: the host's own fatal error, or ace's reason for stopping it. */
+  get stopCause(): string | undefined {
+    return this.fatalMessage ?? this.stopReason;
+  }
+  /** Diagnostic evidence: the definite cause, else the host's last meaningful words. */
   get failureMessage(): string | undefined {
-    return this.errorMessage;
+    return this.stopCause ?? this.errorMessage;
   }
   constructor(
     options: HostOptions,
@@ -95,10 +103,12 @@ export class CursorHost {
       maxQueuedBytes: this.limits.maxPendingBytes,
       maxPendingRequests: 16,
       onMalformed: () => {
-        void this.stop();
+        void this.fail("Cursor SDK host sent a malformed message");
       },
-      onError: () => {
-        void this.stop();
+      onError: (error: unknown) => {
+        void this.fail(
+          `Cursor SDK host connection failed: ${safeCursorErrorMessage(error, options.env)}`,
+        );
       },
     });
     const receiveFrame = async (params: unknown) => {
@@ -126,14 +136,18 @@ export class CursorHost {
           throw new Error("Unsafe login URL");
         onLoginUrl(url);
       } else if (method === "frame")
-        void receiveFrame(params).catch(() => {
-          void this.stop();
+        void receiveFrame(params).catch((error: unknown) => {
+          void this.fail(
+            `Cursor SDK host frame was rejected: ${safeCursorErrorMessage(error, options.env)}`,
+          );
         });
       else throw new Error("Unknown host notification");
     };
     // Retain only bounded, scrubbed prose. Auth workers never publish this buffer.
     this.process.stderr.on("line", (line: string) => {
-      this.errorMessage = safeCursorErrorMessage(line, options.env);
+      const fatal = fatalDetail(line);
+      if (fatal) this.fatalMessage ??= safeCursorErrorMessage(fatal, options.env);
+      else if (!isNoiseLine(line)) this.errorMessage = safeCursorErrorMessage(line, options.env);
       const code = discoveryFailureCode({ message: line });
       if (code !== "discovery_failed") this.metadataFailureCode = code;
       if (
@@ -186,6 +200,11 @@ export class CursorHost {
           },
         );
       });
+  }
+  /** ace stops the host itself; the reason survives as the stop's detail. */
+  private fail(reason: string): Promise<void> {
+    this.stopReason ??= reason;
+    return this.stop();
   }
   stop(): Promise<void> {
     this.stopped ??= (async () => {
