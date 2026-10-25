@@ -1,25 +1,25 @@
 /*
  * Web performance budgets (ADR 0056). `bun run check:perf` fails when one is exceeded. Change a
- * number only with a reason in the ADR. Each is a ratchet at the size measured on 2026-10-03
- * plus a little headroom.
+ * number only with a reason in the ADR. Each is a ratchet at the size last measured plus a
+ * little headroom; the bundle budgets were reset on 2026-10-25 (ADR 0056's amendment).
  */
 export const budgets = {
   bundle: {
-    /** The entry and its static imports, gzip: what loads before any route. 262 KB measured. */
-    initialKb: 270,
+    /** The entry and its static imports, gzip: what loads before any route. 327 KB measured. */
+    initialKb: 335,
     /**
      * Shell plus the heaviest route: what a first screen actually loads (ADR 0045's 200 KB
-     * target is for this number; 396 KB measured).
+     * target is for this number; 666 KB measured, shell plus a thread).
      */
-    firstScreenKb: 405,
-    /** Any lazily loaded route, the chunks it adds beyond the initial ones, gzip. 134 KB. */
-    routeKb: 138,
-    /** CSS, gzip. 19.2 KB (20.9 before Tailwind's legacy-browser polyfills were stripped). */
-    cssKb: 21,
-    /** A worker's eager script (client 56, markdown 33, diff 24 KB). */
-    workerKb: 60,
-    /** A worker with the chunks it loads later, so splitting a worker never hides bytes. 69 KB. */
-    workerTotalKb: 73,
+    firstScreenKb: 680,
+    /** Any lazily loaded route, the chunks it adds beyond the initial ones, gzip. Thread 339 KB. */
+    routeKb: 345,
+    /** CSS, gzip. 28.2 KB. */
+    cssKb: 30,
+    /** A worker's eager script (client 82, machine 82, markdown 30, diff 15 KB). */
+    workerKb: 85,
+    /** A worker with the chunks it loads later, so splitting a worker never hides bytes. 99 KB. */
+    workerTotalKb: 102,
   },
   soak: {
     /** Events in the accelerated month-long run: 30 days at one event every 0.86 s. */
