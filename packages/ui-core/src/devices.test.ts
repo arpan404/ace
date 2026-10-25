@@ -8,7 +8,9 @@ import {
   shownFrameSize,
   deviceRows,
   holdsControl,
+  inventoryNotes,
   leaseLeft,
+  platformFailure,
 } from "./devices.ts";
 
 const iphone = AppDevice.parse({
@@ -132,6 +134,50 @@ test("device tool failures offer a fix without exposing internal errors", () => 
     message: "Screen Recording is needed",
     hint: "Open macOS privacy settings",
   });
+});
+
+const androidMissing = {
+  code: "sdk_missing" as const,
+  platform: "android" as const,
+  message: "Android SDK platform-tools and emulator were not found",
+  hint: "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME.",
+};
+const serveSimMissing = {
+  code: "tool_missing" as const,
+  platform: "ios" as const,
+  message: "The Simulator's device tools aren't downloaded",
+  hint: "Download device tools in Devices.",
+};
+
+test("a missing Android SDK is not the failure of an open iOS device", () => {
+  const issues = [androidMissing, serveSimMissing];
+  expect(platformFailure(issues, iphone.id)).toBeUndefined();
+  expect(platformFailure(issues, "android:Pixel_API_35")).toEqual({
+    message: androidMissing.message,
+    hint: androidMissing.hint,
+  });
+});
+
+test("an open Simulator fails on its own missing Xcode, not on a tools notice", () => {
+  const xcodeMissing = {
+    code: "sdk_missing" as const,
+    platform: "ios" as const,
+    message: "Xcode tools were not found",
+    hint: "Install Xcode and select it with xcode-select.",
+  };
+  expect(platformFailure([serveSimMissing], iphone.id)).toBeUndefined();
+  expect(platformFailure([androidMissing, xcodeMissing], iphone.id)?.message).toBe(
+    "Xcode tools were not found",
+  );
+  // An issue from an older daemon names no platform: it stays a machine-wide notice.
+  expect(platformFailure([{ ...xcodeMissing, platform: undefined }], iphone.id)).toBeUndefined();
+});
+
+test("setup notices keep the platform and tool they are about, and how to fix them", () => {
+  expect(inventoryNotes([androidMissing, serveSimMissing])).toEqual([
+    { message: androidMissing.message, hint: androidMissing.hint },
+    { message: serveSimMissing.message, hint: serveSimMissing.hint },
+  ]);
 });
 
 test("a turned picture maps the pointer back into the device's own orientation", () => {

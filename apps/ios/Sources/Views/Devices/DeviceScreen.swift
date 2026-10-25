@@ -82,7 +82,12 @@ struct DeviceScreen: View {
                 // picture's own rotation, else a landscape picture means turned to the right.
                 let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
                 Group {
-                    if let look = chromeLook(info, picture: size) {
+                    if info.framed == true {
+                        // The picture wears the device's own bezel: one frame, not two.
+                        stageScreen(info, size: size)
+                            .aspectRatio(size, contentMode: .fit)
+                            .frame(maxWidth: room.width, maxHeight: room.height)
+                    } else if let look = chromeLook(info, picture: size) {
                         DeviceChromeFrameView(look: look, turn: turn, room: room, enabled: canDrive, press: { key($0) }) {
                             stageScreen(info, size: size)
                         }

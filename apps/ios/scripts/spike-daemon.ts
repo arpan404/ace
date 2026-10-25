@@ -25,6 +25,7 @@ import { seedGoal } from "./goal-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
+import { seedForks } from "./fork-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -169,6 +170,7 @@ daemon.command({
 });
 
 threadScenarios(daemon, details);
+seedForks(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));

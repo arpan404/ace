@@ -6,6 +6,7 @@ import type { AppLaunches } from "./app-launches.ts";
 import type { ScreenPolicy } from "./policy.ts";
 import type { Session } from "./session.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
+import { deviceWindow } from "./device-input-policy.ts";
 type AccessPorts = {
   sessions: Map<string, Session>;
   policy: ScreenPolicy;
@@ -66,7 +67,7 @@ export class ScreenAccessPolicy {
    * computer use on.
    */
   authorize(target: ScreenTarget): void {
-    if (target.kind === "window" && target.bundleId === "com.apple.iphonesimulator") return;
+    if (deviceWindow(target)) return;
     if (!this.ports.policy.enabled)
       throw new HelperCommandError("screen_disabled", "Screen access is disabled");
   }

@@ -133,6 +133,8 @@ struct BlockRow: Codable, Sendable, Equatable {
         var provider: String = ""
         var model: String = ""
     }
+    /// Where a fork's own work starts: the thread it was forked from.
+    struct Forked: Codable, Sendable, Equatable { let threadId: String }
     let index: Int?
     let kind: String
     let items: [String]
@@ -143,6 +145,7 @@ struct BlockRow: Codable, Sendable, Equatable {
     let ending: Ending?
     let started: Started?
     var question: Question? = nil
+    var forked: Forked? = nil
     /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
     var room: Room? = nil
     struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
