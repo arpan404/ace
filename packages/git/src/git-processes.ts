@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { probeOutput } from "@ace/provider-kit/process";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { within } from "./repository-paths.ts";
@@ -64,17 +64,20 @@ export function processGroupAlive(pid: number): boolean {
 // `git fsmonitor--daemon` lives as long as the checkout does; it never holds a mutation open.
 const longLived = (command: string) => command.includes("fsmonitor--daemon");
 
-function run(command: string, args: string[]): Promise<string | undefined> {
-  return new Promise((resolve) => {
+/** Spawned from the probe worker: a spawn under load must not hold the daemon's event loop. */
+async function run(command: string, args: string[]): Promise<string | undefined> {
+  try {
     // One output format whatever locale the daemon inherited: lsof escapes non-ASCII as bytes.
-    const env = { ...process.env, LC_ALL: "C" };
-    execFile(command, args, { timeout: 5000, maxBuffer: 4_194_304, env }, (error, stdout) => {
-      // lsof exits 1 with no output when nothing matches.
-      if (error && !(typeof error.code === "number" && error.code === 1 && stdout === ""))
-        resolve(undefined);
-      else resolve(stdout);
+    const { stdout, code } = await probeOutput(command, args, {
+      env: { LC_ALL: "C" },
+      timeoutMs: 5000,
+      maxBytes: 4_194_304,
     });
-  });
+    // lsof exits 1 with no output when nothing matches.
+    return code === 0 || (code === 1 && stdout === "") ? stdout : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const escapes: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", "\\": "\\" };

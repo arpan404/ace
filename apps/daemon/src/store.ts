@@ -21,6 +21,7 @@ import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
+import { indexThreadRows } from "./thread-row-indexes.ts";
 import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
@@ -240,6 +241,7 @@ export class Store {
       this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
       this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
+      this.atomic(indexThreadRows);
       this.history = new HistoryIndex(
         this.db,
         (sql) => this.statement(sql),
