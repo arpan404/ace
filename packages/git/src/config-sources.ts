@@ -25,9 +25,8 @@ export function listedSources(
   layout: CheckoutLayout,
   home: string | undefined,
 ): string[] | undefined {
-  const text = listing.toString("utf8");
-  if (text && !text.endsWith("\0")) return undefined;
-  const fields = text ? text.slice(0, -1).split("\0") : [];
+  if (listing.length && listing[listing.length - 1] !== 0) return undefined;
+  const fields = nulFields(listing);
   if (fields.length % 3) return undefined;
   const repositoryFiles = new Set([
     join(layout.commonDir, "config"),
@@ -55,6 +54,21 @@ export function listedSources(
     if (target) files.add(target);
   }
   return [...files];
+}
+
+/**
+ * Each NUL-terminated field decoded on its own. Splitting one decoded string would make every
+ * kept path a slice that holds the whole listing (hundreds of KB in a repository with many
+ * branches) alive for as long as the cached path lives.
+ */
+function nulFields(listing: Buffer): string[] {
+  const fields: string[] = [];
+  for (let start = 0; start < listing.length;) {
+    const end = listing.indexOf(0, start);
+    fields.push(listing.toString("utf8", start, end));
+    start = end + 1;
+  }
+  return fields;
 }
 
 /** Where an include directive points, as Git resolves it; null when that can't be known. */
