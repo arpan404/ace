@@ -2954,122 +2954,94 @@ Example:
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
+    "itemSeqs": {},
     "items": {},
     "itemsBefore": null,
     "kind": "thread",
-    "queue": {
-      "lastFailure": null,
-      "paused": true,
-      "pendingCount": 3,
-      "reason": "manual",
-      "resumeAt": 9,
-      "revision": 4
-    },
     "runs": {},
     "seq": 9,
     "thread": {
-      "activitySeq": 9,
-      "autoSettle": false,
-      "autoSettleAt": 8,
-      "capabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 2
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": false,
+          "resume": false
         },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "full",
-        "childControls": "read-only",
-        "fork": true,
-        "forkSubagents": true,
-        "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissionModes": [],
-        "planMode": false,
-        "resume": true,
-        "rewindFiles": true,
-        "steer": false,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": true,
-        "tokenUsage": true
+        "coverage": "source_profile",
+        "mcp": "http",
+        "modeSelection": true,
+        "modelSelection": true,
+        "raw": {
+          "json": "example",
+          "truncated": false
+        },
+        "subagentSessions": false,
+        "visibility": "limited"
       },
       "continuation": {
         "actionId": "thread.continue_new",
         "reason": "cursor_cli_retired",
         "state": "read_only"
       },
-      "createdAt": 1,
-      "effectiveCapabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "acp",
-          "maxInlineBytes": 9
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "none",
-        "childControls": "read-only",
-        "fork": false,
-        "imageInput": false,
-        "interruptCascades": false,
-        "launchOptions": [],
-        "planMode": false,
-        "resume": true,
-        "rewindFiles": true,
-        "sessionOptions": false,
-        "steer": true,
-        "steerTiming": "immediate",
-        "subagentTranscripts": true,
-        "tokenUsage": true
+      "createdAt": 8,
+      "deletedAt": 6,
+      "handoff": {
+        "bytes": 6,
+        "sourceThreadId": "example",
+        "truncated": false
       },
       "id": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
-      },
-      "live": {
-        "provider": "claude",
-        "step": "tests",
-        "waitingOn": 1,
-        "workingSince": 1
-      },
+      "installationId": "example",
+      "instanceId": "example",
       "permission": {
-        "effective": "auto-review",
-        "override": null,
+        "effective": null,
+        "override": "full-access",
         "pending": true
       },
-      "pinOrder": 7,
-      "prSettled": 6,
+      "pinned": true,
       "provider": "claude",
-      "snoozedUntil": 2,
+      "queue": {
+        "exited": true,
+        "lastFailure": {
+          "code": "example",
+          "title": "example"
+        },
+        "paused": true,
+        "reason": "limit",
+        "resumeAt": 4,
+        "revision": 9
+      },
+      "readAt": 0,
+      "rootAgentId": "example",
+      "run": {
+        "pendingCount": 3,
+        "phase": "verify",
+        "state": "blocked"
+      },
+      "settleWhenDone": true,
       "status": {
-        "state": "limited",
-        "until": 9
+        "agents": 5,
+        "state": "working"
       },
       "switch": {
-        "at": 4,
-        "lossy": false,
+        "at": 6,
+        "lossy": true,
         "selection": {
-          "provider": "antigravity"
+          "instanceId": "example",
+          "provider": "codex"
         },
         "state": "applied"
       },
       "title": "example",
-      "unread": false,
-      "updatedAt": 1,
+      "unread": true,
+      "updatedAt": 2,
       "workspaceId": "example"
     },
-    "usage": {}
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```

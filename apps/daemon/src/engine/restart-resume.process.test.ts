@@ -103,9 +103,12 @@ test("a turn a crash cut short continues by itself with one restart continuation
   expect(h.contexts.at(-1)?.resume).toEqual({ nativeSessionId: "native-1" });
   expect(restartNotices(recovered.store, id)).toEqual(["Interrupted by a restart. Continuing."]);
   const origins = Object.values(recovered.store.snapshotThread(id).items).flatMap((item) =>
-    item.type === "message" && item.role === "user" && item.origin ? [item.origin.kind] : [],
+    item.type === "message" && item.role === "user" && item.origin ? [item.origin] : [],
   );
-  expect(origins).toContain("restart");
+  // A real restart's continuation is not marked as resuming a crash.
+  expect(origins.filter((origin) => origin.kind === "restart")).toEqual([
+    expect.not.objectContaining({ afterExit: true }),
+  ]);
   expect(recovered.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
 });
@@ -375,6 +378,11 @@ test("a provider that dies mid-turn while ace keeps running holds its queue unti
   await h.engine.flush();
   expect(inputs(replacement)).toEqual(["Continue where you left off.", "a"]);
   expect(h.engine.queue(id).exited).toBeUndefined();
+  // The continuation is marked as resuming a crash, so it never reads "Resumed after restart".
+  const continuations = Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
+    item.type === "message" && item.origin?.kind === "restart" ? [item.origin] : [],
+  );
+  expect(continuations).toEqual([expect.objectContaining({ afterExit: true })]);
 });
 
 test("a provider crash still reads as a crash after ace restarts, and Continue still resumes it", async () => {
