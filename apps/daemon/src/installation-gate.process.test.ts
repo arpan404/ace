@@ -5,7 +5,9 @@ import { setImmediate as tick, setTimeout as pause } from "node:timers/promises"
 import { ModelCatalog, normalizeCodex, openModelStorage, type ModelInstance } from "@ace/models";
 import { ProviderKind } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
-import { installationGate } from "./installation-gate.ts";
+import { applyInstallations, installationGate } from "./installation-gate.ts";
+import { ProviderStatuses } from "./provider-status.ts";
+import { fakeCli } from "./provider-status-test-support.ts";
 import { registerDefaultModelInstances } from "./models.ts";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -111,4 +113,23 @@ test("a provider check that finishes before the CLIs register still gives discov
   await settled(catalog);
   expect(discoveries).toEqual(["0.200.0"]);
   expect(catalog.list().models.map((model) => model.id)).toEqual(["coder"]);
+});
+
+test("versions from a provider check that finished before the catalog existed reach its first discovery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-installation-early-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  await fakeCli(root, "codex", "codex-cli 0.200.0", "Logged in using ChatGPT", "login status");
+  const statuses = new ProviderStatuses(
+    { env: { HOME: root, PATH: root } },
+    { now: () => 1, schedule: () => () => {} },
+  );
+  cleanup.push(() => statuses.close());
+  // Startup order: the provider check completes while the model service is still opening.
+  await statuses.firstCheck();
+  const { catalog, discoveries, register } = await bootCatalog();
+  applyInstallations(catalog, statuses.installations());
+  await register(installationGate(statuses.firstCheck(), 10_000, () => () => {}));
+  catalog.revalidate();
+  await settled(catalog);
+  expect(discoveries).toEqual(["0.200.0"]);
 });

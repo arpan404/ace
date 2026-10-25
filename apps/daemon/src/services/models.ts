@@ -14,7 +14,7 @@ import {
 } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
-import { installationGate } from "../installation-gate.ts";
+import { applyInstallations, installationGate } from "../installation-gate.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
@@ -102,6 +102,10 @@ export async function startModels(context: ServiceContext): Promise<void> {
         ]),
       ),
   );
+  // A provider check that finished before this catalog existed reported versions it could not
+  // hand over; seed them now, before any instance registers and admits discovery.
+  if (services.providerStatuses)
+    applyInstallations(models, services.providerStatuses.installations());
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
     if (options.modelInstances === undefined)

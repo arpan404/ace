@@ -89,6 +89,10 @@ export class ProviderStatuses {
     this.runtime = runtime;
     this.first = this.refresh().catch(() => {});
   }
+  /** The installed versions the latest check reported, without starting a check. */
+  installations(): Pick<Status, "provider" | "runtime" | "version">[] {
+    return this.rows.map(({ provider, runtime, version }) => ({ provider, runtime, version }));
+  }
   /** Settles once the first check has reported every provider's installation, or failed. */
   firstCheck(): Promise<void> {
     return this.first;
