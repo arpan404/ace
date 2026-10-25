@@ -108,7 +108,9 @@ test.each(["worker", "in-process"] as const)(
 );
 
 test.each([
-  { bound: "bytes", threads: 17, items: 10, text: "x".repeat(60_000) },
+  // Each text stays under the 16 Ki-unit preview a snapshot carries whole, so the views weigh
+  // what they hold: 19 released views of ~1 MB overflow the 16 MB budget before the count cap.
+  { bound: "bytes", threads: 20, items: 30, text: "x".repeat(16_000) },
   { bound: "count", threads: 35, items: 1, text: "small" },
 ])(
   "inactive tab mirrors evict old views by $bound while a leased view stays available",
