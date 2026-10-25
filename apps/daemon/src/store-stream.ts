@@ -220,9 +220,12 @@ export class StoreStream {
           stored.push(...rows);
           renumber ||= rows.length > 1;
         }
-        // A thread whose every row was already stored committed its snapshot with them.
+        // A thread whose every row was already stored committed its snapshot with them. A thread
+        // with no rows in the batch (liveness only) has no such evidence and no delta patches
+        // to replay: its header and records are rewritten as they stand.
+        const eventful = new Set(events.map((event) => event.threadId));
         for (const [id, snapshot] of snapshots)
-          if (!recovering || written.has(id)) snapshot.persist();
+          if (!recovering || written.has(id) || !eventful.has(id)) snapshot.persist();
       },
       {
         committed: () => {

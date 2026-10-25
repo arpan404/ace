@@ -6,6 +6,7 @@ import type { Frame } from "@ace/engine-api";
 import type { Event } from "@ace/protocol";
 import { Engine, Store } from "@ace/daemon";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { z } from "zod";
 import { harness, start, end, question, ManualClock } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -249,4 +250,93 @@ test("a crash while signals are buffered recovers the last committed thread", as
   expect(errors).toEqual([]);
   // The turn was still running when the daemon died: it never reads as finished.
   expect(store.getThread(h.id)?.status.state).not.toBe("done");
+});
+
+/** Liveness times as another process reading the file would find them. */
+function storedLiveness(path: string, thread: string) {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const header = db.prepare("SELECT state FROM thread_state WHERE thread_id=?").get(thread);
+    const agents = db
+      .prepare("SELECT value FROM engine_state_records WHERE thread_id=? AND section='agents'")
+      .all(thread)
+      .map((row) => z.object({ lastSignalAt: z.number() }).parse(JSON.parse(String(row.value))));
+    const state = z
+      .object({
+        lastTransportSignalAt: z.number().optional(),
+        statusObservedAt: z.number().optional(),
+      })
+      .parse(JSON.parse(String(header?.state)));
+    return { ...state, agentSignals: agents.map((agent) => agent.lastSignalAt) };
+  } finally {
+    db.close();
+  }
+}
+/** Fail every thread state write, from another connection so the buffered batch stays pinned. */
+function blockStateWrites(path: string): () => void {
+  const exec = (sql: string) => {
+    const db = new DatabaseSync(path);
+    try {
+      db.exec(sql);
+    } finally {
+      db.close();
+    }
+  };
+  exec(
+    "CREATE TRIGGER fail_state BEFORE UPDATE ON thread_state BEGIN SELECT RAISE(ABORT, 'state unavailable'); END",
+  );
+  return () => exec("DROP TRIGGER fail_state");
+}
+
+test("a retried flush still stores buffered signals' liveness times", async () => {
+  const h = await session();
+  h.clock.advance(h.clock.time + 5_000);
+  const heard = h.clock.time;
+  const unblock = blockStateWrites(h.path);
+  await h.context.onFrame(h.frames.frame(signal));
+  h.buffer.advance(h.buffer.time + 1_000);
+  expect(h.store.liveWriteBlocked()).toBe(true);
+  unblock();
+  h.buffer.advance(h.buffer.time + 100);
+  expect(h.store.liveWriteBlocked()).toBe(false);
+  expect(storedLiveness(h.path, h.id)).toMatchObject({
+    lastTransportSignalAt: heard,
+    statusObservedAt: heard,
+    agentSignals: [heard],
+  });
+});
+
+test("a retried flush stores a quiet thread that shared the batch with another's output", async () => {
+  const h = await session();
+  const created = h.command({
+    type: "thread.create",
+    workspaceId: h.workspace,
+    provider: "claude",
+    model: "model",
+    input: [{ type: "text", text: "second" }],
+  });
+  if (!created.ok) throw new Error(created.error);
+  await h.engine.flush();
+  const busy = h.store.listThreads().find((thread) => thread.id !== h.id)?.id;
+  const busyContext = h.contexts[1];
+  if (!busy || !busyContext) throw new Error("Missing second session");
+  h.clock.advance(h.clock.time + 5_000);
+  const heard = h.clock.time;
+  const unblock = blockStateWrites(h.path);
+  await h.context.onFrame(h.frames.frame(signal));
+  await busyContext.onFrame(h.frames.frame(signal, delta("busy")));
+  h.buffer.advance(h.buffer.time + 75);
+  expect(h.store.liveWriteBlocked()).toBe(true);
+  unblock();
+  h.buffer.advance(h.buffer.time + 100);
+  expect(h.store.liveWriteBlocked()).toBe(false);
+  expect(storedLiveness(h.path, h.id)).toMatchObject({
+    lastTransportSignalAt: heard,
+    agentSignals: [heard],
+  });
+  expect(storedLiveness(h.path, busy)).toMatchObject({ lastTransportSignalAt: heard });
+  // The busy thread's text is stored once: the retry never replays a committed patch.
+  expect(h.store.readItems(busy, h.store.headSeq() + 1, 50).items).toContainEqual(
+    expect.objectContaining({ type: "message", parts: [{ type: "text", text: "busy" }] }),
+  );
 });
