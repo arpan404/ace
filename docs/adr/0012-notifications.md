@@ -93,12 +93,16 @@ count as slept through. A crash records nothing, so whatever lies between the du
 and the head after a crash replays like any downtime: pending alerts live for up to 24 hours
 and are delivered on recovery, as they always were.
 
-Within a sleep, a woken worker updates state from the events it missed but doesn't alert on
+Within a sleep, a woken worker updates state from the events it missed. It doesn't alert on
 those older than the coalescing window plus every retry at its longest jitter (about 25
-seconds). Newer ones alert as usual. Agent notices queued during the sleep and older than
-that are acknowledged unsent; those queued before it began are delivered. The boundary is
-cleared once the woken worker's replay reaches the head of the log, and revocations replay
-from the device store on each start. This cutoff is not equivalent to a running worker's
+seconds); newer ones alert as usual. An alert is judged by the event that raised it, so a
+later update inside a sleep leaves an alert raised before it alone. When the woken worker's
+replay reaches the head of the log it closes the window: the window now ends at that cursor
+and keeps that cutoff time. Agent notices queued inside the window are then acknowledged
+unsent, and those queued before it began are delivered. Only then is the window deleted, so a
+crash in between leaves it recorded and a restart treats those notices the same way.
+Revocations replay from the device store on each start, and a worker replaced after a crash
+answers recovery itself. This cutoff is not equivalent to a running worker's
 behaviour in general. It holds only for the sleep window, where no device could take an
 alert, and catch-up below covers threads that are still waiting.
 
@@ -113,8 +117,11 @@ it into needs-you. A ledger records the episode each device was told about, from
 needs-you alert or a delivered catch-up. So reconnecting again for the same wait shows
 nothing, and a thread answered before the device returns isn't named.
 
-Snoozed, archived and deleted threads are left out, and so are threads with an alert still on
-its way (a coalescing alert, or a job for this device): those arrive on their own. Nothing is
+Before every send, including retries, a queued catch-up is rebuilt from the waits it covers
+that still stand: each must still be its thread's current wait and still need the person.
+Its count and first thread follow, nothing is sent when none remain, and only the waits it
+named are marked told. Snoozed, archived and deleted threads are left out, and so are threads
+with an alert still on its way (a coalescing alert, or a job for this device): those arrive on their own. Nothing is
 sent when no thread qualifies, while an earlier catch-up for the device is still queued, or to
 a device seen for the first time. Phones keep their inbox feed instead. Desktop shows the
 alert as one plain notification that opens the first thread; the web app shows a toast, or a
