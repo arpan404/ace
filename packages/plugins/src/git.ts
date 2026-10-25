@@ -172,6 +172,21 @@ export async function readGitFile(
     await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot, runtime)
   ).toString("utf8");
 }
+/** Git tree SHA of `path` at `commit` (what the `skills` CLI records as `skillFolderHash`). */
+export async function readGitTree(
+  gitRoot: string,
+  commit: string,
+  path: string,
+  runtime: GitRuntime,
+): Promise<string> {
+  const folder = normalizePath(path);
+  const line = (
+    await git(["ls-tree", "-z", PluginCommit.parse(commit), "--", folder], gitRoot, runtime)
+  ).toString("utf8");
+  const match = /^040000 tree ([a-f0-9]{40,64})\t(.+)\0$/.exec(line);
+  if (!match || match[2] !== folder) throw new Error("Git folder missing");
+  return match[1] ?? "";
+}
 /** The repository's plugin catalog at `commit`, from the first marketplace file it has. */
 export async function readMarketplace(
   gitRoot: string,
