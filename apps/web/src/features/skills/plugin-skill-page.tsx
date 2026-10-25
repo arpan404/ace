@@ -106,42 +106,45 @@ export function PluginSkillPage(props: {
             <p className="mt-2 text-md text-muted-foreground">{skill.description}</p>
           )}
           {ownSkill && <UseInThread name={skill.name} />}
-          <div className="mt-8" />
-          <SettingSection label={isPlugin ? "Plugin" : "Details"}>
-            {!isPlugin && (
-              <SettingRow
-                inline
-                title={
-                  <Link
-                    to="/skills/$skillId"
-                    params={{ skillId: plugin.id }}
-                    className="underline-offset-4 hover:underline"
-                  >
-                    Plugin: {skillTitle(plugin)}
-                  </Link>
-                }
-                description={
-                  !plugin.enabled ? "This plugin is off. Turn it on to use its skills." : undefined
-                }
-              />
-            )}
-            {isPlugin && plugin.install && <VersionRow skill={plugin} />}
-            {(isPlugin || ownSkill) && (
-              <SettingRow
-                inline
-                title="Agents"
-                description={<AgentsLine providers={policy.providers} />}
-              >
-                <AgentsMenu
-                  agents={ProviderKind.options}
-                  chosen={policy.providers}
-                  onCommit={(providers) => change({ providers })}
+          <div className="mt-8">
+            <SettingSection label={isPlugin ? "Plugin" : "Details"}>
+              {!isPlugin && (
+                <SettingRow
+                  inline
+                  title={
+                    <Link
+                      to="/skills/$skillId"
+                      params={{ skillId: plugin.id }}
+                      className="underline-offset-4 hover:underline"
+                    >
+                      Plugin: {skillTitle(plugin)}
+                    </Link>
+                  }
+                  description={
+                    !plugin.enabled
+                      ? "This plugin is off. Turn it on to use its skills."
+                      : undefined
+                  }
                 />
-              </SettingRow>
-            )}
-          </SettingSection>
-          {isPlugin && components.length > 0 && <Contents components={components} />}
-          {skill.path && <SkillSource key={skill.id} skill={skill} />}
+              )}
+              {isPlugin && plugin.install && <VersionRow skill={plugin} />}
+              {(isPlugin || ownSkill) && (
+                <SettingRow
+                  inline
+                  title="Agents"
+                  description={<AgentsLine providers={policy.providers} />}
+                >
+                  <AgentsMenu
+                    agents={ProviderKind.options}
+                    chosen={policy.providers}
+                    onCommit={(providers) => change({ providers })}
+                  />
+                </SettingRow>
+              )}
+            </SettingSection>
+            {isPlugin && components.length > 0 && <Contents components={components} />}
+            {skill.path && <SkillSource key={skill.id} skill={skill} />}
+          </div>
         </div>
       </div>
     </Screen>
