@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceChromeResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "chrome": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/DeviceChrome.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "chrome"
+  ],
+  "type": "object"
+}

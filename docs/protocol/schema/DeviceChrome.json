@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceChrome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        },
+        "image": {
+          "$ref": "https://ace.local/protocol/v1/DeviceChromeImage.json"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "image"
+      ],
+      "type": "object"
+    },
+    "buttons": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DeviceChromeButton.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "cutout": {
+      "properties": {
+        "image": {
+          "$ref": "https://ace.local/protocol/v1/DeviceChromeImage.json"
+        },
+        "rect": {
+          "$ref": "https://ace.local/protocol/v1/DeviceChromeRect.json"
+        }
+      },
+      "required": [
+        "rect",
+        "image"
+      ],
+      "type": "object"
+    },
+    "mask": {
+      "$ref": "https://ace.local/protocol/v1/DeviceChromeImage.json"
+    },
+    "screen": {
+      "$ref": "https://ace.local/protocol/v1/DeviceChromeRect.json"
+    }
+  },
+  "required": [
+    "body",
+    "screen",
+    "buttons"
+  ],
+  "type": "object"
+}

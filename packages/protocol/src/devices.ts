@@ -59,6 +59,12 @@ export const DeviceInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;
+/**
+ * How a foldable device's hinge sits: shut on its cover screen, half open like a book, or open
+ * flat on its inner screen.
+ */
+export const DevicePosture = z.enum(["closed", "partiallyOpen", "open"]);
+export type DevicePosture = z.infer<typeof DevicePosture>;
 export const DeviceSettings = z.object({
   appearance: z.enum(["light", "dark"]).optional(),
   location: z
@@ -149,6 +155,11 @@ export const DeviceState = z.object({
   error: DeviceFailure.optional(),
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
+  /**
+   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows). Absent for every other device.
+   */
+  posture: DevicePosture.optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };
@@ -198,6 +209,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     agentId: AgentId.optional(),
   }),
   z.object({ op: z.literal("input"), ...target, input: DeviceInput }),
+  /** Fold or unfold a foldable device. Needs control, like input. */
+  z.object({ op: z.literal("posture"), ...target, posture: DevicePosture }),
   z.object({ op: z.literal("screenshot"), ...target }),
   /** The device clipboard's text, at most 4,096 characters. Needs control, like input. */
   z.object({ op: z.literal("clipboard.get"), ...target }),
