@@ -27,6 +27,7 @@ export function queuedDelegation(): Scenario[] {
     title: string,
     phase: "created" | "running",
     status: ThreadStatus,
+    queue?: { slotLimit: number; slotsInUse: number; queuePosition: number },
   ): Fact[] => [
     {
       type: "item.upsert",
@@ -41,7 +42,7 @@ export function queuedDelegation(): Scenario[] {
         title,
         role: title,
         phase,
-        status,
+        status: queue ? { ...status, ...queue } : status,
         updatedAt: 1000,
         generation: 0,
         complete: false,
@@ -82,7 +83,8 @@ export function queuedDelegation(): Scenario[] {
           ...launch(queuedDelegationIds.queued, "Clean-iOS-model-picker", "created", {
             state: "waiting",
             on: "queue",
-          }),
+          },
+          { slotLimit: 1, slotsInUse: 1, queuePosition: 1 }),
         ],
       },
     ],
@@ -114,7 +116,12 @@ export function queuedDelegation(): Scenario[] {
       title: "Clean-iOS-model-picker",
       provider: "claude",
       parentThreadId: queuedDelegationIds.parent,
-      queuedLaunch: { text: task },
+      queuedLaunch: {
+        text: task,
+        slotLimit: 1,
+        slotsInUse: 1,
+        queuePosition: 1,
+      },
     },
     steps: [],
   };
