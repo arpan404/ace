@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
-import { chmod, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { withSkillLock } from "./skill-lock.ts";
 import {
   apply,
   demo,
@@ -92,4 +93,23 @@ test("an installed folder over the size limit can't be reviewed, with a one-line
   const result = await f.library.request({ op: "prepareUpdate", id: entry.id });
   expect(errorCode(result)).toBe("limit");
   expect(result.kind === "error" && result.message).toMatch(/^[^\n]+ MB\.$/);
+});
+
+test("the skills lock makes ~/.agents itself when it's missing", async () => {
+  const f = await fixture();
+  const agents = join(f.root, "elsewhere/.agents");
+  await mkdir(dirname(agents));
+  await withSkillLock(
+    join(agents, ".ace-skills.sqlite"),
+    async () => {},
+    async () => {},
+  );
+  expect((await stat(agents)).mode & 0o777).toBe(0o755 & ~process.umask());
+  await expect(
+    withSkillLock(
+      join(f.root, "missing/parent/.agents/.ace-skills.sqlite"),
+      async () => {},
+      async () => {},
+    ),
+  ).rejects.toThrow();
 });

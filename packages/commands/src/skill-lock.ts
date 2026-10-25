@@ -1,5 +1,6 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { lstat } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { SkillError } from "./skill-errors.ts";
 
 /** Pause between attempts while another ace holds the lock; injected so tests control time. */
@@ -27,6 +28,10 @@ export async function withSkillLock<T>(
 ): Promise<T> {
   if ((await lstat(path).catch(() => undefined))?.isSymbolicLink())
     throw new SkillError("unavailable", "The skills lock is a symlink. Remove it and try again.");
+  // `~/.agents` itself, as the skills CLI makes it; never its parents.
+  await mkdir(dirname(path), { mode: 0o755 }).catch((error: unknown) => {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+  });
   const db = new DatabaseSync(path);
   try {
     // Nothing is ever written: no journal file beside the shared state, even in a read-only folder.
