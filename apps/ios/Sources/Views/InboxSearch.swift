@@ -11,7 +11,7 @@ import SwiftUI
         // Every machine searches at once; a newer query cancels them all.
         let runs = sessions.compactMap { session in
             searches[session.hostId].map { search in
-                Task { await search.search(model: session.client, text: text, kind: "message", threadId: nil) }
+                Task<Void, Never> { await search.search(model: session.client, text: text, kind: "message", threadId: nil) }
             }
         }
         await withTaskCancellationHandler {
