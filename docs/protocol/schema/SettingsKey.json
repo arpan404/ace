@@ -55,6 +55,7 @@
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",
+    "agents.maxRunningChildren",
     "generation.model",
     "generation.autoDraftCommits",
     "clients.theme",

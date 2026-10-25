@@ -1217,7 +1217,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.verifier.reasoningEffort"
+    "browser.backend"
   ],
   "requestId": "example",
   "scope": {

@@ -14,6 +14,18 @@
       },
       "type": "object"
     },
+    "agents.maxRunningChildren": {
+      "anyOf": [
+        {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "automations.enabled": {
       "type": "boolean"
     },
@@ -418,6 +430,7 @@
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",
+    "agents.maxRunningChildren",
     "generation.model",
     "generation.autoDraftCommits",
     "clients.theme",

@@ -3067,7 +3067,7 @@ Example:
 
 ```json
 {
-  "on": "background_task",
+  "on": "queue",
   "refs": [],
   "state": "blocked"
 }
@@ -3566,7 +3566,7 @@ Example:
 
 [JSON Schema](schema/BlockedReason.json), input validation.
 
-Type: ["human","subagents","background_task","rate_limit","network","upstream"]. See JSON Schema for constraints.
+Type: ["human","subagents","queue","background_task","rate_limit","network","upstream"]. See JSON Schema for constraints.
 
 Example:
 
@@ -9543,18 +9543,94 @@ Example:
 
 ```json
 {
-  "seq": 7,
+  "seq": 8,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 7,
-    "threads": {},
-    "window": {
-      "before": null,
-      "counts": [],
-      "total": 9
-    }
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "offshift": {
+      "blocker": null,
+      "criteria": [],
+      "criteriaCount": 10,
+      "endpoint": "example",
+      "id": "YxRCYA",
+      "next": "example",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 8,
+      "phase": "review",
+      "playbook": "land",
+      "revision": "example",
+      "steps": [],
+      "updatedAt": 0,
+      "version": 9
+    },
+    "runs": {},
+    "seq": 8,
+    "thread": {
+      "autoSettleAt": 4,
+      "backend": "acp",
+      "capabilities": {
+        "accessModes": [],
+        "approvals": "interactive",
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "partial",
+        "fork": false,
+        "goals": true,
+        "imageInput": true,
+        "interruptCascades": true,
+        "launchOptions": [],
+        "permissionModes": [],
+        "permissions": {
+          "modes": [],
+          "nativeAutoReview": false,
+          "toolGate": false
+        },
+        "planMode": false,
+        "resume": true,
+        "rewindFiles": false,
+        "steer": true,
+        "subagentTranscripts": true,
+        "tokenUsage": true
+      },
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
+      },
+      "createdAt": 5,
+      "deletedAt": 3,
+      "execution": {
+        "options": {},
+        "provider": "opencode"
+      },
+      "id": "example",
+      "pinned": true,
+      "provider": "opencode",
+      "readAt": 3,
+      "run": {
+        "pendingCount": 4,
+        "phase": "review",
+        "playbook": "fix",
+        "state": "open"
+      },
+      "settledReason": "inactivity",
+      "snoozedUntil": 8,
+      "status": {
+        "state": "done"
+      },
+      "title": "example",
+      "updatedAt": 7,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -10234,7 +10310,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| maxConcurrent | no | integer | {"default":4,"minimum":1,"maximum":64} |
+| maxConcurrent | no | integer | {"minimum":1,"maximum":9007199254740991} |
 | maxDepth | no | integer | {"default":8,"minimum":1,"maximum":8} |
 | coalesceMs | no | integer | {"default":50,"minimum":0,"maximum":1000} |
 
@@ -15963,6 +16039,7 @@ Example:
 | --- | --- | --- | --- |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | title | yes | string | {"maxLength":256} |
+| queued | no | boolean |  |
 
 Example:
 
@@ -22392,6 +22469,22 @@ Example:
 }
 ```
 
+## QueuedLaunch
+
+[JSON Schema](schema/QueuedLaunch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| text | yes | string |  |
+
+Example:
+
+```json
+{
+  "text": "example"
+}
+```
+
 ## QueuedMessage
 
 [JSON Schema](schema/QueuedMessage.json), input validation.
@@ -27600,7 +27693,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"devices.emulatorWindow":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"automations.enabled":{"type":"boolean"},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"devices.emulatorWindow":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":1000},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
@@ -27609,8 +27702,10 @@ Example:
   "settings": {
     "browser.downloadDefault": "example",
     "browser.profileScope": "thread",
-    "clients.theme": {},
-    "generation.autoDraftCommits": true,
+    "generation.model": {
+      "model": "example",
+      "provider": "claude"
+    },
     "host.icon": {
       "kind": "monitor"
     },
@@ -27644,7 +27739,7 @@ Example:
 
 ```json
 {
-  "key": "access.nativeModes",
+  "key": "threads.useWorktree",
   "provenance": "defaults",
   "value": true
 }
@@ -27665,7 +27760,7 @@ Example:
 
 ```json
 {
-  "key": "threads.sortBy",
+  "key": "remote.enabled",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -27676,7 +27771,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","devices.emulatorWindow","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","remote.enabled","remote.transport","remote.agentAccess","remote.hostedPairingLink","remote.relayUrl","automations.enabled","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","devices.emulatorWindow","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","remote.enabled","remote.transport","remote.agentAccess","remote.hostedPairingLink","remote.relayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -27775,7 +27870,7 @@ Example:
 
 ```json
 {
-  "key": "access.defaultMode",
+  "key": "access.nativeModes",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -27837,7 +27932,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.verifier.model"
+    "providers.verifier.tier"
   ],
   "requestId": "example",
   "scope": {},
@@ -28056,6 +28151,7 @@ Example:
 | remote.hostedPairingLink | yes | boolean |  |
 | remote.relayUrl | yes | string | {"maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]} |
 | automations.enabled | yes | boolean |  |
+| agents.maxRunningChildren | yes | union | {"anyOf":[{"type":"integer","minimum":1,"maximum":1000},{"type":"null"}]} |
 | generation.model | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]} |
 | generation.autoDraftCommits | yes | boolean |  |
 | clients.theme | yes | [JsonValue.json](schema/JsonValue.json) |  |
@@ -28067,6 +28163,7 @@ Example:
 {
   "access.defaultMode": "read-only",
   "access.nativeModes": {},
+  "agents.maxRunningChildren": 7,
   "automations.enabled": false,
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
@@ -28075,15 +28172,14 @@ Example:
   "browser.profile": "persistent",
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": null,
-  "clients.theme": null,
+  "clients.keybindings": 4,
+  "clients.theme": [],
   "computer.blockedApps": [],
   "devices.emulatorWindow": false,
   "generation.autoDraftCommits": false,
   "generation.model": {
-    "instance": "example",
     "model": "example",
-    "provider": "antigravity"
+    "provider": "cursor"
   },
   "host.displayName": "example",
   "host.icon": {
@@ -28256,8 +28352,9 @@ Example:
   "contextMeters": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
-  "itemsBefore": 9,
+  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 7,
@@ -29282,6 +29379,7 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
@@ -29344,6 +29442,16 @@ Example:
   "snoozedUntil": 7,
   "status": {
     "state": "done"
+  },
+  "switch": {
+    "at": 2,
+    "lossy": true,
+    "recommendation": "delegate_task",
+    "selection": {
+      "model": "example",
+      "provider": "pi"
+    },
+    "state": "queued"
   },
   "title": "example",
   "titleSource": "person",
@@ -29721,6 +29829,7 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
@@ -30344,13 +30453,24 @@ Example:
 | --- | --- | --- | --- |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
 Example:
 
 ```json
-{}
+{
+  "switch": {
+    "at": 3,
+    "error": "example",
+    "lossy": true,
+    "selection": {
+      "provider": "cursor"
+    },
+    "state": "applied"
+  }
+}
 ```
 
 ## ThreadView
@@ -30387,7 +30507,6 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
   "kind": "thread",
   "runs": {},
@@ -30474,14 +30593,24 @@ Example:
       "interactions": 4,
       "state": "needs_you"
     },
+    "switch": {
+      "at": 3,
+      "lossy": false,
+      "recommendation": "delegate",
+      "selection": {
+        "model": "example",
+        "options": {},
+        "provider": "opencode"
+      },
+      "state": "failed"
+    },
     "title": "example",
     "titleSource": "provider",
     "unread": true,
     "updatedAt": 1,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 
@@ -32677,12 +32806,12 @@ Example:
 
 [JSON Schema](schema/WatchedState.json), input validation.
 
-Type: ["working","needs_you","done","failed","cancelled"]. See JSON Schema for constraints.
+Type: ["working","queued","needs_you","done","failed","cancelled"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"needs_you"
+"queued"
 ```
 
 ## WatchedThread
