@@ -9,7 +9,8 @@ import type { Failure } from "./failure.ts";
 /**
  * A failed turn as one row: the failure in words from the notice that reported it, else from the
  * run, else from the agent while the turn was its latest; the action that fixes it (sign in,
- * another account, another model), or Retry on the newest turn; the provider's text in Details.
+ * another account, another model), or Retry on the newest turn unless the stop's pill already
+ * offers Continue for it; the provider's text in Details.
  */
 export function FailedTurn(props: {
   threadId: string;
@@ -17,6 +18,8 @@ export function FailedTurn(props: {
   errorId: string | undefined;
   error: Failure | undefined;
   latest: boolean;
+  /** The stop's pill offers Continue for this turn, so the row offers no Retry. */
+  held?: boolean | undefined;
   /** The thread's composer strip already says a usage or rate limit: no row for it here. */
   limitInStrip?: boolean | undefined;
 }) {
@@ -39,6 +42,7 @@ export function FailedTurn(props: {
     provider,
     model,
     latest,
+    held: props.held,
   });
   const retry = async () => {
     if (!payload) return;
@@ -56,7 +60,7 @@ export function FailedTurn(props: {
     <ErrorRow
       error={shown.error}
       heading={shown.heading}
-      onRetry={latest && payload && !shown.fixable ? () => void retry() : undefined}
+      onRetry={payload && shown.retry ? () => void retry() : undefined}
       retrying={sending}
     />
   );

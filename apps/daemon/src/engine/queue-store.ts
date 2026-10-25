@@ -24,9 +24,26 @@ export const RecoveryRecord = QueueState.extend({
   timerAction: z.enum(["resume", "snooze", "migrate", "clear"]).nullable(),
   continuation: z.string().max(16384).nullable(),
   trigger: z.enum(["restart", "limit_resume"]).nullable(),
+  exited: z.boolean(),
 });
 export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
 export const maxMessages = 256;
+/**
+ * Whether a hold reads as the provider dying on its own. It only describes a restart hold: any
+ * other hold, or none, clears it, and a restart hold set anew (a real restart) clears it unless
+ * the thread was already held for that exit, which the restart then found and kept.
+ */
+function exitedAfter(before: RecoveryRecord, patch: Partial<RecoveryRecord>): boolean {
+  const paused = patch.paused ?? before.paused;
+  const reason = patch.reason === undefined ? before.reason : patch.reason;
+  if (!paused || reason !== "restart") return false;
+  if (patch.exited !== undefined) return patch.exited;
+  return before.paused && before.reason === "restart" && before.exited;
+}
+/** Clients see `exited` only when it is true; every other hold reads as before. */
+export function exitShown(exited: boolean): { exited?: true } {
+  return exited ? { exited: true } : {};
+}
 export function isSend(payload: CommandPayload): boolean {
   return payload.type === "thread.send" || payload.type === "thread.create";
 }
@@ -41,7 +58,8 @@ export class QueueStore {
         thread_id TEXT PRIMARY KEY REFERENCES threads(id), revision INTEGER NOT NULL DEFAULT 0,
         paused INTEGER NOT NULL DEFAULT 0, reason TEXT, limited INTEGER NOT NULL DEFAULT 0,
         reset_at INTEGER, resume_at INTEGER, timer_action TEXT, continuation TEXT, trigger TEXT,
-        hold_token INTEGER NOT NULL DEFAULT 0, last_failure TEXT, preferences JSON
+        hold_token INTEGER NOT NULL DEFAULT 0, last_failure TEXT, preferences JSON,
+        exited INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS engine_queue_attachments (
         intent_id INTEGER NOT NULL REFERENCES intents(id),thread_id TEXT NOT NULL,hash TEXT NOT NULL,
@@ -55,6 +73,15 @@ export class QueueStore {
       CREATE INDEX IF NOT EXISTS intents_queue_order ON intents(thread_id,position,id) WHERE status IN ('pending','queued');
       INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state;`);
       requireEngineColumns(db, "engine_queue", ["hold_token", "last_failure", "preferences"]);
+      // Forward migration: a hold recorded before this column can't say what stopped it, so it
+      // keeps reading as a restart.
+      if (
+        !db
+          .prepare("PRAGMA table_info(engine_queue)")
+          .all()
+          .some((column) => column.name === "exited")
+      )
+        db.exec("ALTER TABLE engine_queue ADD COLUMN exited INTEGER NOT NULL DEFAULT 0");
       for (const row of db
         .prepare(
           "SELECT id,thread_id,payload FROM intents WHERE kind IN ('thread.create','thread.send') AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)",
@@ -97,6 +124,7 @@ export class QueueStore {
       timerAction: row.timer_action,
       continuation: row.continuation,
       trigger: row.trigger,
+      exited: row.exited === 1,
     });
   }
   /** The record as clients see it: a `clear` deadline lifts a limit but promises no resume. */
@@ -106,9 +134,11 @@ export class QueueStore {
   }
   set(id: ThreadId, patch: Partial<RecoveryRecord>, at: number): void {
     this.store.atomic(() => {
+      const before = this.get(id);
       const value = RecoveryRecord.parse({
-        ...this.get(id),
+        ...before,
         ...patch,
+        exited: exitedAfter(before, patch),
         ...(patch.paused === false ||
         (patch.reason !== undefined &&
           patch.reason !== "not_sent" &&
@@ -118,7 +148,7 @@ export class QueueStore {
       });
       value.revision++;
       this.sql(
-        `UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=?,last_failure=? WHERE thread_id=?`,
+        `UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=?,last_failure=?,exited=? WHERE thread_id=?`,
       ).run(
         value.revision,
         Number(value.paused),
@@ -131,10 +161,13 @@ export class QueueStore {
         value.trigger,
         value.holdToken,
         value.lastFailure ? JSON.stringify(value.lastFailure) : null,
+        Number(value.exited),
         id,
       );
+      const { exited, ...shown } = value;
       const queue = QueueState.parse({
-        ...value,
+        ...shown,
+        ...exitShown(exited),
         pendingCount: this.count(id) + (value.continuation && !this.uncertainRecovery(id) ? 1 : 0),
       });
       this.store.appendEvents(
@@ -207,8 +240,10 @@ export class QueueStore {
     const rows = this.sql(
       "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
+    const { exited, ...shown } = this.shown(id);
     return QueueSnapshot.parse({
-      ...this.shown(id),
+      ...shown,
+      ...exitShown(exited),
       threadId: id,
       messages: rows.map((row) => this.message(row.payload, row.uncertain)),
     });
@@ -243,8 +278,10 @@ export class QueueStore {
       bytes += size;
       messages.push(this.message(row.payload, row.uncertain));
     }
+    const { exited, ...shown } = queue;
     return QueuePage.parse({
-      ...queue,
+      ...shown,
+      ...exitShown(exited),
       threadId: request.threadId,
       messages,
       total: this.count(request.threadId),
