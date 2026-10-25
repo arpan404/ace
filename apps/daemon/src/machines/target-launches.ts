@@ -65,13 +65,7 @@ export class TargetLaunches {
   constructor(deps: TargetLaunchDeps) {
     this.deps = deps;
     this.queue = new LaunchQueue(deps.store, "machine_launch_queue");
-    deps.store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS machine_child_launches (
-        thread_id TEXT PRIMARY KEY, parent TEXT NOT NULL, role TEXT NOT NULL, outcome TEXT,
-        active INTEGER NOT NULL DEFAULT 0);
-        CREATE INDEX IF NOT EXISTS machine_child_launches_active
-        ON machine_child_launches(parent, active)`),
-    );
+    // The store's migrations own machine_child_launches and backfill it (machine-tables.ts).
     // Children that finished while the daemon was down give their slots back now.
     deps.store.atomic(() => {
       for (const row of deps.store

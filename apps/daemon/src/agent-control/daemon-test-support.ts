@@ -19,14 +19,16 @@ export async function daemonFixture(
 ) {
   const h = reuse ?? setup();
   /** Starts a daemon on this fixture's home, as a restart starts it again on the same data. */
+  const config = () =>
+    readConfig({
+      ...environment,
+      ACE_HOME: join(h.home, "daemon"),
+      ACE_PORT: "0",
+      ACE_LOG_LEVEL: environment["ACE_LOG_LEVEL"] ?? "silent",
+    });
   const boot = () =>
     startDaemon({
-      config: readConfig({
-        ...environment,
-        ACE_HOME: join(h.home, "daemon"),
-        ACE_PORT: "0",
-        ACE_LOG_LEVEL: environment["ACE_LOG_LEVEL"] ?? "silent",
-      }),
+      config: config(),
       engine: {
         registry: h.registry,
         clock: h.clock,
@@ -84,9 +86,13 @@ export async function daemonFixture(
   return {
     h,
     daemon,
-    /** Closes this daemon and starts a new one on the same home; the caller owns closing it. */
-    async restart() {
+    /**
+     * Closes this daemon and starts a new one on the same home; the caller owns closing it.
+     * `stopped` runs while no daemon is open, with its data directory, e.g. to rewrite its files.
+     */
+    async restart(stopped?: (dataDir: string) => void | Promise<void>) {
       await current.close();
+      await stopped?.(config().dataDir);
       current = await boot();
       await prepare(current);
       return current;

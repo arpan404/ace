@@ -65,12 +65,8 @@ export class TargetThreads {
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
     deps.store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS machine_threads (
-        thread_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, kind TEXT NOT NULL,
-        origin_host TEXT NOT NULL, origin_thread TEXT NOT NULL, created_at INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS machine_threads_origin
-        ON machine_threads(device_id, origin_host, origin_thread);
-        CREATE TABLE IF NOT EXISTS machine_thread_notices (
+      // The store's migrations own machine_threads (machine-tables.ts).
+      db.exec(`CREATE TABLE IF NOT EXISTS machine_thread_notices (
         thread_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, code TEXT NOT NULL,
         text TEXT NOT NULL)`),
     );

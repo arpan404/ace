@@ -81,8 +81,8 @@ export async function pairedMachines(
    * Restarts the target daemon on the same data. It listens on a new port, so the source's
    * saved machine is pointed there, as relinking a machine does; the pairing itself is kept.
    */
-  async function restartTarget() {
-    target.daemon = await target.restart();
+  async function restartTarget(stopped?: (dataDir: string) => void | Promise<void>) {
+    target.daemon = await target.restart(stopped);
     const { remoteUrl: url, fingerprint: print } = target.daemon;
     if (!url || !print) throw new Error("Target is not listening after its restart");
     const saved = new Profiles(join(source.h.home, "daemon"));
