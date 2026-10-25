@@ -17,12 +17,14 @@ import { readMergePatch } from "@/lib/git-diff.ts";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { ThreadLink } from "./thread-link.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
   const client = useClient();
   const meta = useThreadMeta(props.thread.id);
   const sources = useThreadSources();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const read = useCallback(
     (reader: import("@ace/client").ThreadReader) => {
       for (let at = reader.order.length - 1; at >= 0; at--) {
@@ -67,7 +69,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
         includeCode ? await readMergePatch(client, props.thread.id) : undefined,
       );
       props.onClose();
-      void navigate({ to: "/t/$threadId", params: { threadId: parent } });
+      void navigate({ to: "/t/$threadId", params: { threadId: parent }, search: machine });
     } catch (failure) {
       setError(failureMessage(failure));
       setSending(false);

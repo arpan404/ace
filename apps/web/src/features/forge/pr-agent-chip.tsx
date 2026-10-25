@@ -9,6 +9,7 @@ import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import type { ForgePrDetail } from "@ace/protocol";
 import { presenceLead, presenceWords } from "./pr-presence.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 const chip =
   "inline-flex h-6 max-w-56 min-w-0 shrink items-center gap-1.5 rounded-full px-1.5 text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-hover";
@@ -41,6 +42,7 @@ function Marks(props: { cards: readonly ThreadCard[] }) {
 export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean }) {
   const now = useNow();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const ids = props.detail.relatedThreads.filter((t) => !t.archived).map((t) => t.id);
   const entries =
     useSidebarAll((reader) =>
@@ -83,7 +85,8 @@ export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean })
       )}
     </>
   );
-  const open = (threadId: string) => void navigate({ to: "/t/$threadId", params: { threadId } });
+  const open = (threadId: string) =>
+    void navigate({ to: "/t/$threadId", params: { threadId }, search: machine });
   if (cards.length === 1)
     return (
       <Tooltip>

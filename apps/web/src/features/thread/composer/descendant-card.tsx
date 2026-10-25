@@ -5,6 +5,7 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import type { DescendantRequest } from "./descendant-request.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** The strip page a child's request takes: its interaction id, or its thread's when unloaded. */
 export function descendantKey(request: DescendantRequest): string {
@@ -25,6 +26,7 @@ export function DescendantCard(props: {
   onControlsChange(): void;
 }) {
   const { request } = props;
+  const machine = useMachineSearch();
   return (
     <>
       {request.interactionId ? (
@@ -45,6 +47,7 @@ export function DescendantCard(props: {
           <Link
             to="/t/$threadId"
             params={{ threadId: request.threadId }}
+            search={machine}
             className={buttonVariants({ variant: "ghost", size: "sm" })}
           >
             Open

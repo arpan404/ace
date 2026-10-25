@@ -4,6 +4,7 @@ import { insertTextInComposer, insertTextWhenMounted } from "@/lib/composer-inse
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { fixRequest, type AttentionItem } from "./pr-summary-model.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /**
  * "Fix with agent": the request goes into the composer of the task working on this PR (the
@@ -16,6 +17,7 @@ export function useFixWithAgent(props: {
   hostThreadId?: string | undefined;
 }) {
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const workspace = useWorkspaceActions(props.hostThreadId ?? "");
   const toast = useToast();
   const { detail } = props;
@@ -26,7 +28,7 @@ export function useFixWithAgent(props: {
     if (!target) {
       void navigate({
         to: "/new",
-        search: { project: props.workspaceId, pullRequest: detail.status.url },
+        search: { project: props.workspaceId, pullRequest: detail.status.url, ...machine },
       });
       return;
     }
@@ -35,7 +37,8 @@ export function useFixWithAgent(props: {
     if (here) workspace.setExpanded(false);
     // The request showing in the composer is the confirmation.
     if (insertTextInComposer(target.id, request)) return;
-    if (!here) void navigate({ to: "/t/$threadId", params: { threadId: target.id } });
+    if (!here)
+      void navigate({ to: "/t/$threadId", params: { threadId: target.id }, search: machine });
     // The task's composer mounts once its page shows; hand the request over then.
     void insertTextWhenMounted(target.id, request).then((inserted) => {
       if (!inserted)
