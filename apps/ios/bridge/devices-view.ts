@@ -1,5 +1,5 @@
 import type { DeviceClientSnapshot } from "@ace/client/devices";
-import type { DeviceState } from "@ace/protocol";
+import type { AppDevice, DeviceState } from "@ace/protocol";
 import {
   activityCaption,
   deviceButtons,
@@ -56,6 +56,8 @@ export interface DevicesViewInput {
   agent(holder: Holder): AgentLabel | undefined;
   /** The agent each device was taken from, so the person can hand it back. */
   previous: ReadonlyMap<string, Holder>;
+  /** The key of the device's real look the bridge has sent (`devices.chrome`), if any. */
+  chrome?: ((device: AppDevice) => string | null) | undefined;
 }
 
 export interface DeviceTile {
@@ -102,6 +104,11 @@ export interface DeviceScreenView {
   frame: { portrait: FrameGeometry; landscape: FrameGeometry };
   /** The screen's size upright, in points, until its first picture says otherwise. */
   screen: { width: number; height: number };
+  /**
+   * The key of the device's real look from its SDK (a `devices.chrome` patch), drawn instead
+   * of `frame` once Swift has it; null when there is none.
+   */
+  chrome: string | null;
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
   touch: string;
@@ -227,6 +234,7 @@ function screen(
       landscape: frameGeometry(kind, row.name, { width: portrait.height, height: portrait.width }),
     },
     screen: { width: upright.width, height: upright.height },
+    chrome: input.chrome?.(device) ?? null,
     activity: activity
       ? {
           sequence: activity.sequence,

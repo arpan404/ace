@@ -269,3 +269,10 @@ test("a machine that refuses this phone's device list says why instead of loadin
   expect(shown.offline).toEqual(refused);
   expect(view([], { refused }).offline).toBeNull();
 });
+
+test("the open device names its real look once the bridge has it, and none before", () => {
+  expect(view([live()]).device?.chrome).toBeNull();
+  const model = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro";
+  const shown = view([live()], { chrome: (device) => (device.id === iphone.id ? model : null) });
+  expect(shown.device?.chrome).toBe(model);
+});

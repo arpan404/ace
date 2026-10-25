@@ -2,16 +2,21 @@ import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
   DeviceAck,
+  DeviceChromeResult,
   DeviceOperation,
   ScreenUITreeResult,
   ThreadId,
 } from "@ace/protocol";
 import {
   deviceGesture,
+  deviceKind,
   deviceProblem,
+  deviceScreen,
   holdsControl,
   type DeviceProblem,
 } from "@ace/ui-core/devices";
+import type { AppDevice } from "@ace/protocol";
+import { phoneChrome, type PhoneChrome } from "./phone-chrome.ts";
 import { z } from "zod";
 import { appendLogs, logView, treeRows, type LogTail } from "./device-details.ts";
 import { phoneDevicesView, type AgentLabel, type Holder } from "./devices-view.ts";
@@ -71,6 +76,8 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
 type ViewWatch = Extract<z.infer<typeof NativeDeviceControl>, { type: "native.devices.view" }>;
 
 const noop = () => {};
+/** Devices of one model share a look; a device without a model is its own. */
+const chromeKey = (device: Pick<AppDevice, "id" | "model">) => device.model ?? device.id;
 /** The machine's answers that say the channel may not be used at all, not that it failed. */
 const refusals = new Set(["permission_denied", "not_supported"]);
 
@@ -130,6 +137,12 @@ export class NativeDevices {
   #claim: Promise<unknown> | undefined;
   /** Why the machine refused this screen's first reads. */
   #refused: DeviceProblem | undefined;
+  /**
+   * Each model's real look, asked once (`devices:chrome:<model>`); null when the machine has
+   * none, absent while asking or after a failed ask.
+   */
+  #chromes = new Map<string, PhoneChrome | null>();
+  #asking = new Set<string>();
   constructor(config: NativeFeatureConfig, options?: NativeDevicesOptions) {
     this.options = options;
     this.client = new DeviceClient({
@@ -298,6 +311,34 @@ export class NativeDevices {
     }
     this.#putView();
   }
+  /** Ask the machine for a model's look once, as PNG; the view names it when it arrives. */
+  #askChrome(device: AppDevice): void {
+    const key = chromeKey(device);
+    if (this.#chromes.has(key) || this.#asking.has(key)) return;
+    this.#asking.add(key);
+    this.client
+      .request({ op: "chrome", deviceId: device.id, format: "png" })
+      .then((data) => {
+        const chrome = DeviceChromeResult.parse(data).chrome;
+        const kind = deviceKind(device);
+        // A Simulator's look is in points already; a skin's pixels take the device's points.
+        const upright =
+          device.platform === "ios" && chrome ? chrome.screen : deviceScreen(kind, device.name);
+        const shaped = chrome ? (phoneChrome(chrome, kind, upright) ?? null) : null;
+        this.#chromes.set(key, shaped);
+        if (shaped)
+          this.options?.sink.put(`devices:chrome:${key}`, () => ({
+            type: "devices.chrome",
+            key,
+            chrome: shaped,
+          }));
+        this.#putView();
+      })
+      .catch(() => {
+        // Asked again when the screen next shows the device.
+      })
+      .finally(() => this.#asking.delete(key));
+  }
   #closeView(): void {
     this.#retry?.();
     this.#retry = undefined;
@@ -324,6 +365,10 @@ export class NativeDevices {
     this.#leaseTimer = ends.length
       ? scheduler.set(Math.min(...ends) + 50, () => this.#putView())
       : undefined;
+    const open = watch.deviceId
+      ? this.client.getSnapshot().devices.find((device) => device.id === watch.deviceId)
+      : undefined;
+    if (open) this.#askChrome(open);
     options.sink.put("devices:view", () => {
       const current = this.#view;
       if (!current) return undefined;
@@ -344,6 +389,7 @@ export class NativeDevices {
           now: options.now(),
           agent: options.agent,
           previous: this.#previous,
+          chrome: (device) => (this.#chromes.get(chromeKey(device)) ? chromeKey(device) : null),
         }),
       };
     });
