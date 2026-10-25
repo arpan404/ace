@@ -68,14 +68,22 @@ async function measureLongThread(): Promise<void> {
     for (let round = 0; round < limits.rounds; round++) {
       // Across days to one turn from its tick on the conversation rail, which shows a spread of
       // the thread's turns: pick the tick nearest this round's point in the thread.
-      const ticks = page
-        .getByRole("navigation", { name: "Conversation turns" })
-        .getByRole("button");
-      const count = await ticks.count();
+      const rail = page.getByRole("navigation", { name: "Conversation turns" });
+      const ticks = rail.getByRole("button");
+      // The rail spreads its ticks once it has the turn index and its height.
+      await expect.poll(() => ticks.count(), { timeout: 20_000 }).toBeGreaterThan(8);
+      // Only the synthetic turns: the live turn the worker keeps adding asks something else.
+      const turns = (
+        await ticks.evaluateAll((buttons) => buttons.map((b) => b.getAttribute("aria-label")))
+      ).map((label) => Number(label?.replace(/^Turn /, "")));
+      if (!turns.every(Number.isInteger)) throw new Error("A rail tick has no turn number");
+      const history = turns.filter((turn) => turn <= totalTurns);
       const point = (targets[round % targets.length] ?? 1) / totalTurns;
-      const tick = ticks.nth(Math.min(count - 1, Math.round(point * (count - 1))));
-      const target = Number((await tick.getAttribute("aria-label"))?.replace(/^Turn /, ""));
-      if (!Number.isInteger(target)) throw new Error("A rail tick has no turn number");
+      const index = Math.min(history.length - 1, Math.round(point * (history.length - 1)));
+      const target = history[index];
+      if (target === undefined) throw new Error("The rail shows no turns of the history");
+      // By its label: the rail re-spreads its ticks as live turns arrive.
+      const tick = rail.getByRole("button", { name: `Turn ${target}`, exact: true });
       const jumpAt = await page.evaluate(() => performance.now());
       await tick.click();
       await feed.getByText(`Migrate checkpoint ${target}, inspect files`).first().waitFor();

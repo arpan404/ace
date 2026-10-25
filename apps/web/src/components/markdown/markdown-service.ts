@@ -5,12 +5,19 @@ import { warmMathNow } from "./math-warm.ts";
 import type { StreamReply } from "./stream-registry.ts";
 import { localStreams, markdownWorker } from "./worker.ts";
 
-/** Updates `tools/web-perf` collects in `--mode perf` (`acePerf.markdown`); absent otherwise. */
-const perf: unknown = Reflect.get(globalThis, "acePerf");
-const samples =
-  typeof perf === "object" && perf !== null && "markdown" in perf && Array.isArray(perf.markdown)
+/**
+ * Updates `tools/web-perf` collects in `--mode perf` (`acePerf.markdown`); absent otherwise.
+ * Looked up per update: the perf boot sets `acePerf` after this module has loaded.
+ */
+const perfSamples = (): unknown[] | undefined => {
+  const perf: unknown = Reflect.get(globalThis, "acePerf");
+  return typeof perf === "object" &&
+    perf !== null &&
+    "markdown" in perf &&
+    Array.isArray(perf.markdown)
     ? perf.markdown
     : undefined;
+};
 
 /** The page's markdown documents, built in the markdown worker. */
 export const markdownService = new MarkdownStore({
@@ -41,5 +48,7 @@ export const markdownService = new MarkdownStore({
   // formula renders the moment its block settles. Idempotent and off the
   // critical path; the dynamic import keeps KaTeX out of the initial bundle.
   onMathSeen: () => void warmMathNow(),
-  ...(samples ? { updated: (update) => void samples.push(update) } : {}),
+  ...(import.meta.env.MODE === "perf"
+    ? { updated: (update) => void perfSamples()?.push(update) }
+    : {}),
 });
