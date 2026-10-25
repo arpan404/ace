@@ -3,6 +3,7 @@ import { launchSlots } from "@ace/orchestrator";
 import { Command, ThreadId, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
+import type { DelegationJournal } from "../agent-control/journal.ts";
 import { commandContext } from "../commands.ts";
 import { controlAdmissionError, engineFull } from "../agent-control/failure.ts";
 import {
@@ -15,6 +16,8 @@ import {
 export interface TargetLaunchDeps {
   store: Store;
   engine(): Engine | undefined;
+  /** Stop markers: a thread stopped here never starts its waiting task. */
+  journal(): Pick<DelegationJournal, "stopped"> | undefined;
   /** This machine's running-children limit, read live; undefined is no limit. */
   limit(): number | undefined;
   /** Retry timers are the shell's; this owner never reaches for a clock. */
@@ -53,6 +56,10 @@ export class TargetLaunches {
     );
     // A thread finishing frees its slot; the retry timer covers engine room freed elsewhere.
     this.unsubscribe = deps.store.subscribe((events: readonly Event[]) => {
+      // Any new run (the person's own message there, say) means it is no longer unlaunched.
+      for (const event of events)
+        if (event.payload.type === "run.started" && this.row(event.threadId)?.outcome)
+          this.reopen(event.threadId);
       if (events.some((event) => event.payload.type === "thread.updated")) this.pump();
     });
     this.arm();
@@ -206,6 +213,12 @@ export class TargetLaunches {
     const thread = store.getThread(launch.childId);
     // A thread deleted while it waited has nothing left to start.
     if (!thread || thread.deletedAt !== undefined) return;
+    // Stopped while it waited (or its Stop was missed): it settles cancelled, never runs.
+    if (
+      this.row(launch.childId)?.outcome === "cancelled" ||
+      this.deps.journal()?.stopped(launch.childId)
+    )
+      return this.settle(launch.childId, "cancelled");
     const [deviceId] = Parent.parse(JSON.parse(launch.parentId));
     const role = this.row(launch.childId)?.role;
     store.atomic(() => {

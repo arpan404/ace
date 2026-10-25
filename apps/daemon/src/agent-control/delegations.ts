@@ -875,6 +875,11 @@ export class DelegationService {
     this.arm();
   }
   onRemoteCancel: ((thread: ThreadId) => void) | undefined;
+  /**
+   * A Stop (or deletion) of `thread` itself, inside the transaction that accepted it: a thread
+   * another machine delegated here and still waiting for a slot stops before it starts.
+   */
+  onStopped: ((thread: ThreadId) => void) | undefined;
   private cancelPreparations(thread: ThreadId): void {
     this.reservationLifetimes.cancel(thread, (target, ancestor) =>
       this.journal.isDescendant(target, ancestor),
@@ -943,6 +948,7 @@ export class DelegationService {
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       this.onRemoteCancel?.(thread);
+      this.onStopped?.(thread);
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.cancelRecovery(thread);
       this.cancelPreparations(thread);

@@ -169,6 +169,10 @@ export function startMachines(context: ServiceContext): void {
     delegations.onRemoteCancel = (thread) => {
       for (const id of children.under(thread)) cancel(id);
     };
+    // The person's Stop on a thread another machine delegated here cancels its waiting launch.
+    delegations.onStopped = (thread) => {
+      threads.launches.cancel(thread);
+    };
   }
   services.machines = { caller, children };
 }

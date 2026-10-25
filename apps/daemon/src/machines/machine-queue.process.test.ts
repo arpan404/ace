@@ -1,6 +1,13 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { MonitorSnapshot, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
+import {
+  Command,
+  MonitorSnapshot,
+  ThreadId,
+  WaitResult,
+  type AgentControlOperation,
+} from "@ace/protocol";
+import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 
 const Delegated = z.object({ threadId: ThreadId });
@@ -167,4 +174,40 @@ it("a task stopped while waiting and then given new work reads working until its
     state: "done",
     result: "Did it instead.",
   });
+}, 60_000);
+
+it("the target's person stopping a waiting task there means it never runs, and the parent hears it stopped", async () => {
+  const { pair, delegate } = await limitedPair();
+  const first = await delegate("running-there");
+  const queued = await delegate("stopped-there");
+  // The person on that machine presses Stop on the waiting thread, as its composer does.
+  const engine = pair.target.daemon.engine;
+  if (!engine) throw new Error("Engine unavailable");
+  const stop = Command.parse({
+    id: "person-stop-queued",
+    deviceId: "person",
+    payload: { type: "thread.interrupt", threadId: queued },
+  });
+  const stopped = pair.target.daemon.store.recordCommand(stop.id, stop.deviceId, () =>
+    engine.handler.handle(stop, commandContext(pair.target.daemon.store)),
+  );
+  expect(stopped.ok).toBe(true);
+  expect(pair.target.daemon.store.getThread(queued)?.queuedLaunch).toBeUndefined();
+
+  const waited = await pair.source.call({
+    op: "wait",
+    threadIds: [queued],
+    mode: "all",
+    timeoutSeconds: 60,
+  });
+  expect(WaitResult.parse(waited.data).threads[0]).toMatchObject({
+    state: "cancelled",
+    result: "Stopped before it started.",
+  });
+  // The slot it waited for frees, and the stopped task still never runs.
+  await pair.finish(first, "Done there.");
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  await pair.target.daemon.engine?.flush();
+  expect(pair.target.h.contexts.get(queued)).toBeUndefined();
+  expect(pair.target.h.inputs.get(queued) ?? []).toEqual([]);
 }, 60_000);

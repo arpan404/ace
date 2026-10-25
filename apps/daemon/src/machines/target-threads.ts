@@ -427,8 +427,9 @@ export class TargetThreads {
         status: queuedStatus,
         step: queuedStep,
       };
-    // An outcome only describes a thread that has still never run.
-    const outcome = thread.status.state === "new" ? this.launches.unlaunched(thread.id) : undefined;
+    // Work admitted since (a run starting clears the outcome) is never shown as the old outcome.
+    const idle = ["new", "done", "failed"].includes(thread.status.state);
+    const outcome = idle ? this.launches.unlaunched(thread.id) : undefined;
     if (!outcome) return undefined;
     return {
       ...base,
