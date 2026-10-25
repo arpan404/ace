@@ -39,6 +39,7 @@ import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-par
 import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 import { CheckoutProblem } from "./work-card-checkout-problem.tsx";
 import { WorktreeSetupRow } from "./work-card-setup.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -88,6 +89,7 @@ function MachineRow(props: {
   const folder = useFolderActions(path);
   const workspace = useWorkspaceActions(props.thread.id);
   const navigate = useNavigate();
+  const scoped = useScopedMachine()?.id;
   const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
   const worktree = checkout?.mode === "worktree";
   const Mode = worktree ? GitForkIcon : FolderIcon;
@@ -162,7 +164,12 @@ function MachineRow(props: {
           icon={glyph(GearSixIcon)}
           onClick={() => {
             props.onClose();
-            void navigate({ to: "/settings/remote" });
+            // Another machine's thread opens that machine's own page in Fleet.
+            void navigate(
+              scoped
+                ? { to: "/settings/remote/$machine", params: { machine: scoped } }
+                : { to: "/settings/remote" },
+            );
           }}
         >
           Machine settings…

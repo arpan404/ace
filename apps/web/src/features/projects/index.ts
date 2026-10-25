@@ -8,6 +8,7 @@ export {
 export { ProjectsEmptyState } from "./projects-empty.tsx";
 export { AddProjectItem, ManageProjectItems } from "./project-menu-items.tsx";
 export { OpenFolderScreen } from "./open-folder-screen.tsx";
+export { LocationField, useLocation } from "./location-field.tsx";
 export { useNewProjectFolder } from "./new-project-folder.ts";
 export { projectFailure } from "./project-commands.ts";
 export { useOpenProject } from "./open-project.ts";
@@ -15,3 +16,4 @@ export { useNewThreadEntry } from "./new-thread-entry.ts";
 export { isAddPage, projectSources, type AddPage } from "./project-sources.ts";
 export { AddProjectSteps } from "./add-project-steps.ts";
 export type { AddTab, ProjectRequest } from "./requests.ts";
+export { MachineChip, machineChoices } from "./machine-step.tsx";

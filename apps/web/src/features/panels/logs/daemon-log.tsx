@@ -10,6 +10,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { TabViewProps } from "@/lib/workspace/index.ts";
 import { ToolbarButton } from "../terminal/toolbar.tsx";
 import { ScopeMenu, useThreadAgents } from "./log-menus.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 /*
  * The daemon scope. The daemon writes its log to files in its data directory and doesn't
@@ -84,6 +85,8 @@ export function DaemonLog(props: TabViewProps) {
  */
 function LogFolder(props: { directory: string | undefined }) {
   const toast = useToast();
+  // Advanced settings are this window's machine's; another machine's logs leave the link out.
+  const elsewhere = useScopedMachine() !== undefined;
   const { copied, copy } = useCopy(() =>
     toast.error({ title: "Couldn't copy", description: props.directory }),
   );
@@ -101,9 +104,11 @@ function LogFolder(props: { directory: string | undefined }) {
           {copied ? "Copied" : "Copy log folder path"}
         </Button>
       )}
-      <Link to="/settings/advanced" className="underline underline-offset-4">
-        Run checks or export a support bundle in Advanced settings.
-      </Link>
+      {!elsewhere && (
+        <Link to="/settings/advanced" className="underline underline-offset-4">
+          Run checks or export a support bundle in Advanced settings.
+        </Link>
+      )}
     </div>
   );
 }

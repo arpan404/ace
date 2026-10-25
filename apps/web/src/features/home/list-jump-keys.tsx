@@ -2,6 +2,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { bindingsFor, keyboardEnv, useResolvedKeymap } from "@/lib/keybindings.ts";
+import { threadOn } from "@/lib/machine-routes.ts";
+import { machineRow } from "@/lib/machine-threads.ts";
 import { holdsJumpModifiers, jumpChords } from "./list-jump.ts";
 
 /** How long the modifiers are held before the rows show their numbers. */
@@ -29,7 +31,10 @@ export function JumpKeys(props: { targets: readonly string[] }) {
       keys={keys}
       onPress={() => {
         const id = props.targets[index];
-        if (id) void navigate({ to: "/t/$threadId", params: { threadId: id } });
+        if (!id) return;
+        // Another machine's row opens its thread on that machine.
+        const other = machineRow(id);
+        void navigate(other ? threadOn(other.hostId, other.threadId) : threadOn(undefined, id));
       }}
     />
   ));

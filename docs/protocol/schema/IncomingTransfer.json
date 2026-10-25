@@ -1,0 +1,82 @@
+{
+  "$id": "https://ace.local/protocol/v1/IncomingTransfer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "hasOrigin": {
+      "type": "boolean"
+    },
+    "ignoredOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "method": {
+      "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "result": {
+      "properties": {
+        "branch": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "ignoredSkipped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "workspaceId",
+        "path"
+      ],
+      "type": "object"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/IncomingTransferState.json"
+    },
+    "transferId": {
+      "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+    }
+  },
+  "required": [
+    "transferId",
+    "state",
+    "method",
+    "offset"
+  ],
+  "type": "object"
+}

@@ -4,6 +4,7 @@ import type { TaskPrompt } from "@ace/ui-core";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Prose } from "@/components/markdown/prose.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /**
  * The prompt a thread was started with by ace rather than typed (IR-9): a delegated task, a
@@ -11,6 +12,7 @@ import { Prose } from "@/components/markdown/prose.tsx";
  * links back to the thread that started it.
  */
 export function TaskCard(props: { prompt: TaskPrompt }) {
+  const machine = useMachineSearch();
   const { prompt } = props;
   const parent = useSidebarThread(prompt.parentThreadId ?? "");
   const from = parent?.title;
@@ -34,6 +36,7 @@ export function TaskCard(props: { prompt: TaskPrompt }) {
         <Link
           to="/t/$threadId"
           params={{ threadId: prompt.parentThreadId }}
+          search={machine}
           className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
         >
           <ArrowLeftIcon aria-hidden size={12} />

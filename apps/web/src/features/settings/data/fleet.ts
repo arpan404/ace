@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { Device, FleetLink, PairingScope } from "@ace/protocol";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { fleetLinksKey, machineLinks } from "@/lib/fleet-links.ts";
 import type { Machine } from "@/lib/machines.ts";
 
 /*
@@ -29,10 +30,7 @@ export function fleetProblem(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "That machine didn't answer.";
 }
 
-export async function machineLinks(client: ClientApi): Promise<FleetLink[]> {
-  const result = await fleet(client, { op: "links" });
-  return result.kind === "links" ? result.links : [];
-}
+export { machineLinks };
 
 /** A paired device; `self` marks the one this window connects as. */
 export type PairedDevice = Device & { self?: boolean };
@@ -140,7 +138,7 @@ export async function unlinkMachine(from: Machine, to: Machine, link: FleetLink)
 }
 
 export const fleetKeys = {
-  links: (machine: string) => ["fleet", "links", machine] as const,
+  links: fleetLinksKey,
   devices: (machine: string) => ["fleet", "devices", machine] as const,
   pairings: (machine: string) => ["fleet", "pairings", machine] as const,
 };

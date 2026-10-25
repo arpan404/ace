@@ -1,4 +1,5 @@
 import {
+  DesktopIcon,
   FolderPlusIcon,
   ArrowSquareOutIcon,
   PencilSimpleIcon,
@@ -16,6 +17,8 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { useProjectDialogs } from "./projects-host.tsx";
+import { useTransferOpener } from "@/lib/transfer-opener.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 
 const DeferredOpenIn = deferredComponent(() =>
   import("./project-open-in.tsx").then((module) => module.ProjectOpenIn),
@@ -42,8 +45,20 @@ export function AddProjectItem() {
 /** Editor handoff, Edit and Remove for one project, in its menu. */
 export function ManageProjectItems(props: { projectId: string; name: string }) {
   const projects = useProjectDialogs();
+  const transfers = useTransferOpener();
+  const linked = useHasLinkedMachines();
   return (
     <>
+      {linked && (
+        <MenuItem
+          icon={<Icon icon={DesktopIcon} />}
+          onClick={() =>
+            transfers.open({ kind: "project", workspaceId: props.projectId, name: props.name })
+          }
+        >
+          Open on…
+        </MenuItem>
+      )}
       <MenuSub>
         <MenuSubTrigger icon={<Icon icon={ArrowSquareOutIcon} />}>Open in…</MenuSubTrigger>
         <MenuContent>

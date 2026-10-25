@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferProbe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accepts": {
+      "type": "boolean"
+    },
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "hostId",
+    "name",
+    "accepts"
+  ],
+  "type": "object"
+}

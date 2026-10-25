@@ -3,7 +3,7 @@ import type { ClientApi, ConnectionState } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
 import { useHostIdentity } from "./host-name.ts";
-import { useMemo } from "react";
+import { createContext, use, useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
 
 /*
@@ -34,14 +34,29 @@ const statusOf = (state: ConnectionState): MachineStatus =>
   state === "ready" ? "online" : state === "connecting" ? "connecting" : "offline";
 const noIds: readonly string[] = [];
 
+/**
+ * Set by `MachineScope` (`machine-scope.tsx`): below it `useClient()` is another machine's
+ * client, so the list read outside it is the one that stays true.
+ */
+export const ScopedMachines = createContext<
+  { machines: readonly Machine[]; machine: Machine } | undefined
+>(undefined);
+
 /** Every machine, this window's daemon first. Without a pool that is the only one. */
 export function useMachines(): readonly Machine[] {
+  const scoped = use(ScopedMachines);
   const own = usePrimaryMachine();
   const pool = useMachinePool();
   const others = usePoolMachines(pool);
-  return useMemo(() => {
+  const listed = useMemo(() => {
     return [own, ...others.filter((machine) => machine.id !== own.id)];
   }, [own, others]);
+  return scoped?.machines ?? listed;
+}
+
+/** The other machine this view runs against (inside a `MachineScope`), else undefined. */
+export function useScopedMachine(): Machine | undefined {
+  return use(ScopedMachines)?.machine;
 }
 
 function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {

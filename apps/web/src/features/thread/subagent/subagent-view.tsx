@@ -43,6 +43,7 @@ import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
 const overlays = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
@@ -72,14 +73,16 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
   // Esc steps back up to the parent, as Open parent does, once nothing above the page has it.
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   useHotkey(
     "escape",
     () =>
       void (root || !agent?.parentId
-        ? navigate({ to: "/t/$threadId", params: { threadId } })
+        ? navigate({ to: "/t/$threadId", params: { threadId }, search: machine })
         : navigate({
             to: "/t/$threadId/agents/$agentId",
             params: { threadId, agentId: agent.parentId },
+            search: machine,
           })),
     { when: () => !overlayOpen() },
   );

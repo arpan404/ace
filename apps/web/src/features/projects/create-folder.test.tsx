@@ -110,7 +110,8 @@ test("New thread's project search creates a missing folder and selects it", asyn
 
 test("Settings offers to create a missing project folder, and Enter creates and allows it", async () => {
   const made = host();
-  await made.open("/settings/general");
+  // Project folders are an Agents setting.
+  await made.open("/settings/agents");
   const box = await screen.findByRole("textbox", { name: "Folder path" });
   await userEvent.type(box, "~/work{Enter}");
   await screen.findByRole("button", { name: "Create work and add" });

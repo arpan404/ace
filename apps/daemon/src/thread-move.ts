@@ -113,3 +113,22 @@ function movable(store: Store, thread: Thread): string | undefined {
     );
   return held ? undefined : error;
 }
+
+/**
+ * Why a thread can't be continued on another machine now (ADR 0101): thread.move's checks for a
+ * live tree, pending input and live terminals. A worktree thread may go; its worktree travels.
+ */
+export function continueError(
+  store: Store,
+  id: ThreadId,
+  ownsWork: (id: ThreadId) => boolean,
+): string | undefined {
+  const thread = store.getThread(id);
+  if (!thread) return "thread_not_found";
+  const local: Thread = thread.details
+    ? { ...thread, details: { ...thread.details, mode: "local" } }
+    : thread;
+  const error = movable(store, local);
+  if (error) return error;
+  return threadHasPendingWork(store, thread.id, ownsWork) ? "thread_busy" : undefined;
+}

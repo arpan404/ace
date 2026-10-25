@@ -30,6 +30,12 @@
         }
       ]
     },
+    "continuedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
+    },
+    "continuedOn": {
+      "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
+    },
     "diff": {
       "properties": {
         "additions": {

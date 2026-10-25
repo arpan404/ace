@@ -299,10 +299,17 @@ test("the open work is loaded before New thread opens, in one request, so it sho
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const app = withOpenWork({ storage, history });
   const openWork = { op: "forge.open-work", workspaceId } as const;
+  const lists = [
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
+    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
+  ] as const;
+  const listReads = () => lists.map((list) => app.daemon.workspace.forgeReadCount(list));
   await app.open("/");
   await waitFor(() => expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1), {
     timeout: 5_000,
   });
+  // The sidebar's GitHub button counts what waits on the person from the PR list's first page.
+  await waitFor(() => expect(listReads()).toEqual([1, 0]));
   history.push("/new?project=ace");
   const work = await screen.findByRole("region", { name: "Open work" });
   expect(
@@ -314,9 +321,6 @@ test("the open work is loaded before New thread opens, in one request, so it sho
     expect.stringMatching(/^#12Tidy the settings page/),
   ]);
   expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1);
-  const lists = [
-    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
-    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
-  ] as const;
-  expect(lists.map((list) => app.daemon.workspace.forgeReadCount(list))).toEqual([0, 0]);
+  // New thread itself lists nothing more.
+  expect(listReads()).toEqual([1, 0]);
 });

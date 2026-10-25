@@ -46,3 +46,5 @@ A failed or cancelled child is not done. `agents_status` gives a compact snapsho
 ## Other machines
 
 `machines` lists the person's other paired machines that let agents in, with their projects and providers. Pass `machine` and `project` in a `delegate` task to run it there; that machine applies its own access mode and consent. `wait`, `agents_status` and `agent_cancel` cover children there too.
+
+`transfer` `{ machine, project?, thread?, includeChanges?, includeIgnored? }` carries a project (default: this thread's) to a machine whose `transfers` is true, on the same branch with uncommitted changes and, by this machine's setting, files Git ignores such as `.env` (never dependency folders). `thread: "self"` continues this thread there as a new thread with its history; the person sends its next message there. It returns a `transferId` at once and the result arrives as a new turn, so end your turn instead of polling.

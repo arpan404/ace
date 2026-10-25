@@ -4,10 +4,12 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 export function CursorContinuation({ thread }: { thread: Thread }) {
   const client = useClient();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -27,7 +29,7 @@ export function CursorContinuation({ thread }: { thread: Thread }) {
         input: [{ type: "text", text: text.trim() }],
       });
       if (!result.ok) throw new Error(result.detail ?? "Couldn't continue this thread.");
-      void navigate({ to: "/t/$threadId", params: { threadId } });
+      void navigate({ to: "/t/$threadId", params: { threadId }, search: machine });
     } catch {
       setError("Couldn't continue this thread. Sign in to Cursor and try again.");
       setSending(false);

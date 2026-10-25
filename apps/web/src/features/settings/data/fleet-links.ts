@@ -64,6 +64,26 @@ export function unlinkedWith(machine: string, gaps: readonly LinkGap[]): string[
   return [...ids];
 }
 
+/** A machine's missing links, by direction: links are kept per direction, so one can be missing. */
+export interface MachineGaps {
+  /** No link either way. */
+  unlinked: string[];
+  /** It links to these, but they hold no link back: they can't use it. */
+  notUsedBy: string[];
+  /** These link to it, but it holds no link to them: it can't use them. */
+  cantUse: string[];
+}
+
+export function machineGaps(machine: string, gaps: readonly LinkGap[]): MachineGaps {
+  const to = new Set(gaps.filter((gap) => gap.from === machine).map((gap) => gap.to));
+  const from = new Set(gaps.filter((gap) => gap.to === machine).map((gap) => gap.from));
+  return {
+    unlinked: [...to].filter((id) => from.has(id)),
+    notUsedBy: [...from].filter((id) => !to.has(id)),
+    cantUse: [...to].filter((id) => !from.has(id)),
+  };
+}
+
 /**
  * The device ids machines use to reach each other. Each machine lists these among its paired
  * devices; they are links, not phones or browsers, so the device list leaves them out.
