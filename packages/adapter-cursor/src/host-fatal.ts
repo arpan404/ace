@@ -6,15 +6,20 @@
 const tag = "ace-cursor-host fatal: ";
 const maxDetail = 2048;
 
-/** One stderr line naming the uncaught error, without its stack or any newline. */
+/**
+ * One stderr line naming the uncaught error, without its stack or any newline. `redact` sees the
+ * whole message first: shortening or joining lines before redaction could split a secret so it
+ * no longer matches.
+ */
 export function fatalLine(
   kind: "uncaughtException" | "unhandledRejection",
   error: unknown,
+  redact: (text: string) => string,
 ): string {
   const name = error instanceof Error ? error.name : undefined;
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
-  const text = `${kind}: ${name && name !== "Error" ? `${name}: ` : ""}${message}`
+  const text = `${kind}: ${name && name !== "Error" ? `${name}: ` : ""}${redact(message)}`
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxDetail);

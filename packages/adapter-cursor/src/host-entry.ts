@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { discoverCursorSdk } from "./host.ts";
 import { hostWire } from "./host-wire.ts";
 import { fatalLine } from "./host-fatal.ts";
+import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { probeCursorSandbox } from "./sandbox-support.ts";
 import { HostRuntime } from "./host-runtime.ts";
 import { snapshotInHost } from "./history.ts";
@@ -110,7 +111,16 @@ process.on("SIGINT", stop);
 // Name the uncaught error on stderr before stopping, so the parent can say why Cursor stopped.
 const fatal = (kind: "uncaughtException" | "unhandledRejection") => (error: unknown) => {
   try {
-    writeSync(2, fatalLine(kind, error));
+    writeSync(
+      2,
+      fatalLine(
+        kind,
+        error,
+        (text) =>
+          runtime?.redactError(text) ??
+          safeCursorErrorMessage(text, { CURSOR_API_KEY: process.env.CURSOR_API_KEY }),
+      ),
+    );
   } catch {
     // stderr already closed: stop anyway.
   }

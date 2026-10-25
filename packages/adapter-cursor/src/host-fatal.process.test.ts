@@ -7,21 +7,29 @@ import { ThreadId } from "@ace/protocol";
 import { openCursorSession, CursorEnvelopeSchema } from "./index.ts";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 
-const fatalModule = pathToFileURL(join(import.meta.dirname, "host-fatal.ts")).href;
+const moduleUrl = (name: string) => pathToFileURL(join(import.meta.dirname, name)).href;
+const secret = "opaque-sdk-secret-4f9a2c7e1b8d6053a9e4c1f7b2d8e6a0";
 
-/** A host that crashes on "crash": a Node warning, then its fatal line, then noise, then exit. */
-const crashingHost = `
+/**
+ * A host that crashes on "crash": a Node warning, then its fatal line (redacted the way the real
+ * host redacts it), then noise, then exit. `message` is the uncaught error's message, as JS.
+ */
+const crashingHost = (
+  message = "'Cannot read properties of undefined (reading ' + process.env.CURSOR_API_KEY + ')'",
+) => `
 import {createInterface} from 'node:readline';
-import {fatalLine} from ${JSON.stringify(fatalModule)};
+import {fatalLine} from ${JSON.stringify(moduleUrl("host-fatal.ts"))};
+import {safeCursorErrorMessage} from ${JSON.stringify(moduleUrl("sdk-failure.ts"))};
+const redact=text=>safeCursorErrorMessage(text,{CURSOR_API_KEY:process.env.CURSOR_API_KEY});
 const out=value=>process.stdout.write(JSON.stringify(value)+'\\n');
 createInterface({input:process.stdin}).on('line',line=>{
  const input=JSON.parse(line);
  if(input.method==='open') out({id:input.id,result:{agentId:'native'}});
  else if(input.method==='send') out({id:input.id,result:{runId:'native-run'}});
  else if(input.method==='crash') {
-  const error=new TypeError('Cannot read properties of undefined (reading opaque-sdk-secret)');
+  const error=new TypeError(${message});
   process.stderr.write('(node:4242) Warning: something unrelated\\n');
-  process.stderr.write(fatalLine('uncaughtException', error));
+  process.stderr.write(fatalLine('uncaughtException', error, redact));
   process.stderr.write('(Use \`node --trace-warnings ...\` to show where the warning was created)\\n',()=>process.exit(1));
  }
 });
@@ -46,7 +54,7 @@ async function crash(entrySource: string) {
       },
     },
     {
-      env: { HOME: root, CURSOR_API_KEY: "opaque-sdk-secret" },
+      env: { HOME: root, CURSOR_API_KEY: secret },
       entry,
       instanceId: "instance",
       spawn(options) {
@@ -67,7 +75,7 @@ async function crash(entrySource: string) {
 }
 
 it("a host that crashes on an uncaught error tells the person why, not its last stderr line", async () => {
-  const { exit, frame } = await crash(crashingHost);
+  const { exit, frame } = await crash(crashingHost());
   expect(exit.deliberate).toBe(false);
   expect(exit.message).toMatch(
     /^Cursor stopped unexpectedly: uncaughtException: TypeError: Cannot read properties of undefined .*\. Unfinished work needs your attention\.$/,
@@ -79,13 +87,24 @@ it("a host that crashes on an uncaught error tells the person why, not its last 
   });
   const evidence = JSON.stringify({ exit, frame });
   expect(evidence).not.toContain("trace-warnings");
-  expect(evidence).not.toContain("opaque-sdk-secret");
+  expect(evidence).not.toContain("opaque-sdk");
+});
+
+it("a credential straddling the fatal line's length cutoff never reaches the person", async () => {
+  // The key starts 10 characters before the 2,048-character cutoff of the fatal line.
+  const prefix = "uncaughtException: TypeError: ".length;
+  const { exit, frame } = await crash(
+    crashingHost(`'x'.repeat(${2048 - prefix - 10}) + process.env.CURSOR_API_KEY + ' tail'`),
+  );
+  const evidence = JSON.stringify({ exit, frame });
+  expect(evidence).not.toContain("opaque-sdk");
+  expect(evidence).not.toContain(secret.slice(0, 10));
 });
 
 it("a host that exits with only warnings on stderr keeps the plain stop message", async () => {
   const { exit, frame } = await crash(
-    crashingHost.replace(
-      "process.stderr.write(fatalLine('uncaughtException', error));",
+    crashingHost().replace(
+      "process.stderr.write(fatalLine('uncaughtException', error, redact));",
       "void error;",
     ),
   );
