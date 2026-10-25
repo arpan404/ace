@@ -16,16 +16,34 @@ export const threadColdTable = `CREATE TABLE IF NOT EXISTS thread_cold (
  */
 export function migrateThreadCold(db: DatabaseSync): void {
   db.exec(`
-    -- Delete, then insert, as sidebar_thread_update does: the writing statement's conflict
-    -- rule would replace a trigger's OR REPLACE.
-    CREATE TRIGGER IF NOT EXISTS thread_cold_insert AFTER INSERT ON thread_cold BEGIN
+    -- Every change to a cold row gives each thread it belonged to, or now belongs to, a new
+    -- revision, so no cached copy keeps a value that moved or went. Only threads that still
+    -- exist: a cold row removed or moved because its thread was deleted or renamed has no
+    -- old owner left to bump. Delete, then insert, as sidebar_thread_update does: the
+    -- writing statement's conflict rule would replace a trigger's OR REPLACE. Recreated on
+    -- every start, so older bodies are replaced.
+    SAVEPOINT thread_cold_triggers;
+    DROP TRIGGER IF EXISTS thread_cold_insert;
+    DROP TRIGGER IF EXISTS thread_cold_update;
+    DROP TRIGGER IF EXISTS thread_cold_delete;
+    CREATE TRIGGER thread_cold_insert AFTER INSERT ON thread_cold BEGIN
       DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.thread_id;
-      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
+      INSERT INTO sidebar_thread_revisions(thread_id)
+        SELECT id FROM threads WHERE id = NEW.thread_id;
     END;
-    CREATE TRIGGER IF NOT EXISTS thread_cold_update AFTER UPDATE ON thread_cold BEGIN
-      DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.thread_id;
-      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
+    CREATE TRIGGER thread_cold_update AFTER UPDATE ON thread_cold BEGIN
+      DELETE FROM sidebar_thread_revisions WHERE thread_id IN (OLD.thread_id, NEW.thread_id)
+        AND thread_id IN (SELECT id FROM threads);
+      INSERT INTO sidebar_thread_revisions(thread_id)
+        SELECT id FROM threads WHERE id IN (OLD.thread_id, NEW.thread_id);
     END;
+    CREATE TRIGGER thread_cold_delete AFTER DELETE ON thread_cold BEGIN
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = OLD.thread_id
+        AND thread_id IN (SELECT id FROM threads);
+      INSERT INTO sidebar_thread_revisions(thread_id)
+        SELECT id FROM threads WHERE id = OLD.thread_id;
+    END;
+    RELEASE thread_cold_triggers;
     -- Foreign keys cascade these; the triggers cover a connection with them off.
     CREATE TRIGGER IF NOT EXISTS thread_cold_owner_delete AFTER DELETE ON threads BEGIN
       DELETE FROM thread_cold WHERE thread_id = OLD.id;

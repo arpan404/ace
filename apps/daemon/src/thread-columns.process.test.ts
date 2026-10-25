@@ -277,7 +277,7 @@ function runSeed(seed: number) {
   };
   /** A write some other daemon path makes straight to the tables. */
   const direct = (id: ThreadId) => {
-    const kind = rng.pick(["client", "cold", "status"] as const);
+    const kind = rng.pick(["client", "cold", "cold-delete", "cold-move", "status"] as const);
     if (kind === "client")
       db.prepare(
         "UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.readAt', ?) WHERE id = ?",
@@ -286,6 +286,14 @@ function runSeed(seed: number) {
       db.prepare(
         "INSERT INTO thread_cold (thread_id, details) VALUES (?, json(?)) ON CONFLICT(thread_id) DO UPDATE SET details = excluded.details",
       ).run(id, JSON.stringify({ mode: "local", branch: `b-${time()}` }));
+    else if (kind === "cold-delete")
+      db.prepare("DELETE FROM thread_cold WHERE thread_id = ?").run(id);
+    else if (kind === "cold-move")
+      // To a thread without a cold row; one that has a row keeps it.
+      db.prepare("UPDATE OR IGNORE thread_cold SET thread_id = ? WHERE thread_id = ?").run(
+        rng.pick(ids),
+        id,
+      );
     else
       db.prepare("UPDATE threads SET status = ? WHERE id = ?").run(
         JSON.stringify(rng.pick([{ state: "done" }, { state: "failed" }])),
@@ -335,10 +343,8 @@ function runSeed(seed: number) {
     const changed = new Set<string>([id]);
     if (roll < 0.05) {
       direct(id);
-      folded.set(
-        id,
-        store.listThreads().find((thread) => thread.id === id),
-      );
+      // A direct write is outside the events; a moved cold row changes a second thread.
+      for (const thread of store.listThreads()) folded.set(thread.id, thread);
     } else if (roll < 0.09) {
       // Written, read inside the write, then rolled back: none of it may stay.
       const known = [...(items.get(id) ?? [])];

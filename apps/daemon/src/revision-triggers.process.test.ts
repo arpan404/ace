@@ -133,3 +133,49 @@ test("a database with the old revision triggers gets the safe ones on its next s
   db.prepare("UPDATE OR IGNORE threads SET title = 'Changed' WHERE id = ?").run(id);
   expect(store.getThread(id)?.title).toBe("Changed");
 });
+
+test("a thread whose cold row is deleted through SQL no longer reads its details", () => {
+  const { db, store, id } = open();
+  expect(store.getThread(id)?.details).toEqual({ mode: "local" });
+  db.prepare("DELETE FROM thread_cold WHERE thread_id = ?").run(id);
+  expect(store.getThread(id)?.details).toBeUndefined();
+  expect(store.readThread(id)?.details).toBeUndefined();
+});
+
+test("a cold row moved to another thread leaves the first and reaches the second", () => {
+  const { db, store, id, workspaceId } = open();
+  const other = ThreadId.parse("other-thread");
+  store.appendEvents(other, [
+    {
+      type: "thread.created",
+      thread: Thread.parse({
+        id: other,
+        workspaceId,
+        title: "Other",
+        provider: "codex",
+        status: { state: "done" },
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    },
+  ]);
+  expect(store.getThread(id)?.details).toEqual({ mode: "local" });
+  expect(store.getThread(other)?.details).toBeUndefined();
+  db.prepare("UPDATE thread_cold SET thread_id = ? WHERE thread_id = ?").run(other, id);
+  expect(store.getThread(id)?.details).toBeUndefined();
+  expect(store.getThread(other)?.details).toEqual({ mode: "local" });
+});
+
+test("deleting a thread with a cold row, with foreign keys on or off, leaves no trace", () => {
+  for (const keys of ["ON", "OFF"]) {
+    const { db, store, id } = open();
+    expect(store.getThread(id)?.details).toEqual({ mode: "local" });
+    db.exec(`PRAGMA foreign_keys=${keys}`);
+    db.prepare("DELETE FROM threads WHERE id = ?").run(id);
+    db.exec("PRAGMA foreign_keys=ON");
+    expect(store.getThread(id)).toBeUndefined();
+    expect(store.sidebarPage({ limit: 10 }).threads).toEqual([]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM thread_cold").get()?.n).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM sidebar_thread_revisions").get()?.n).toBe(0);
+  }
+});
