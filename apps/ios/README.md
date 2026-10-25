@@ -111,24 +111,24 @@ TEST_RUNNER_ACE_IOS_SPIKE_PORT=9882 TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT=9883 \
 Medians on the iOS 26 simulator (Perf, 2026-10-22; the last five rows 2026-10-23), with the budget
 in brackets:
 
-| Flow                                                                                                                                | Measured                                                                                             | Budget                 |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------- |
-| Launch to inbox rows on screen (XCUITest launch)                                                                                    | 1,157 ms                                                                                             | 1,700 ms               |
-| Busy inbox (300 threads, one changing every 200 ms), per 5 s                                                                        | 50 patches, 614 KB, 15 ms main thread                                                                | 400, 800 KB, 40 ms     |
-| Open the long live thread (650,000 streamed deltas) cold: ready, first rows                                                         | 317 ms, 387 ms                                                                                       | 700, 800 ms            |
-| Reopen it (kept copy): ready                                                                                                        | 280 ms                                                                                               | 500 ms                 |
-| Streaming 20 deltas a second into it, per 5 s                                                                                       | 5.4 ms main thread, 95 ms script, 7.4 KB                                                             | 30 ms, 250 ms, 40 KB   |
-| Footprint over a minute of streaming                                                                                                | flat (−1 MiB)                                                                                        | +8 MiB                 |
-| Scrolling its transcript: late-frame time during the swipes only                                                                    | 17.8 ms per s                                                                                        | 60 ms per s            |
+| Flow | Measured | Budget |
+|---|---|---|
+| Launch to inbox rows on screen (XCUITest launch) | 1,157 ms | 1,700 ms |
+| Busy inbox (300 threads, one changing every 200 ms), per 5 s | 50 patches, 614 KB, 15 ms main thread | 400, 800 KB, 40 ms |
+| Open the long live thread (650,000 streamed deltas) cold: ready, first rows | 317 ms, 387 ms | 700, 800 ms |
+| Reopen it (kept copy): ready | 280 ms | 500 ms |
+| Streaming 20 deltas a second into it, per 5 s | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
+| Footprint over a minute of streaming | flat (−1 MiB) | +8 MiB |
+| Scrolling its transcript: late-frame time during the swipes only | 17.8 ms per s | 60 ms per s |
 | Reading it 25 pages back and 5 forward (8,000 items, 400-item window): main thread per page, late frames per page, footprint growth | 4.6 ms, 252 ms, +24 MiB (58 ms, 362 ms, +60 MiB when each page replaced the whole 2,000-item window) | 25 ms, 600 ms, +50 MiB |
-| Agents and Changes sheets, asked to rows applied                                                                                    | 140, 128 ms                                                                                          | 350 ms                 |
-| Model sheet, tap to shown (mostly XCUITest waiting)                                                                                 | 1,940 ms                                                                                             | 3,000 ms               |
-| Typing 33 characters with the long thread behind (XCUITest's own pace)                                                              | 830 ms                                                                                               | 1,800 ms               |
-| Open a finished "Worked for" log (80 steps), tap to rows; its steps read ahead                                                      | 48 ms, 3.9 KB                                                                                        | 150 ms                 |
-| Open it again: shown, patches                                                                                                       | 26 ms, 1                                                                                             | 120 ms, 2              |
-| Open a group of about 60 steps                                                                                                      | 28 ms                                                                                                | 120 ms                 |
-| Open a step's diff, a thought                                                                                                       | 24, 21 ms                                                                                            | 120 ms                 |
-| Read a long thought in full (the sheet, its text at once)                                                                           | 273 ms                                                                                               | 600 ms                 |
+| Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
+| Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
+| Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
+| Open a finished "Worked for" log (80 steps), tap to rows; its steps read ahead | 48 ms, 3.9 KB | 150 ms |
+| Open it again: shown, patches | 26 ms, 1 | 120 ms, 2 |
+| Open a group of about 60 steps | 28 ms | 120 ms |
+| Open a step's diff, a thought | 24, 21 ms | 120 ms |
+| Read a long thought in full (the sheet, its text at once) | 273 ms | 600 ms |
 
 Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
