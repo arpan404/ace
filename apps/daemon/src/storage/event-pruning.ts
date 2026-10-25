@@ -154,7 +154,8 @@ export function pruneBatch(
  * Deletes what the update at `seq` replaces for its item. Candidates come from the item's own
  * indexes, not a scan of the thread: its revisions mark its updates, and the stream versions
  * of its text and output streams mark its deltas. Each candidate is checked against the event
- * row itself. A delta without a stream version is not found and simply stays.
+ * row itself (CROSS JOIN keeps SQLite from scanning the thread instead). A delta without a
+ * stream version is not found and simply stays.
  */
 function supersede(sql: Sql, thread: string, item: string, seq: number) {
   const since = previousSurvivor(sql, item, seq);
@@ -168,7 +169,7 @@ function supersede(sql: Sql, thread: string, item: string, seq: number) {
         UNION SELECT v.seq FROM history_stream_versions v JOIN streams s ON s.id=v.stream_id
           WHERE v.seq>=? AND v.seq<?
       )
-      SELECT e.seq FROM candidates c JOIN events e ON e.seq=c.seq
+      SELECT e.seq FROM candidates c CROSS JOIN events e ON e.seq=c.seq
       WHERE e.thread_id=? AND e.type IN ('item.updated','item.delta') AND json_valid(e.payload)
         AND COALESCE(json_extract(e.payload,'$.item.id'),json_extract(e.payload,'$.itemId'))=?`,
   )

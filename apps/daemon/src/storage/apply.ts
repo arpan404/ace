@@ -141,7 +141,7 @@ export const defaultCompactionLimits = (pause: () => Promise<void>): CompactionL
   chunkPages: 256,
   maxChunks: 4096,
   pause,
-  prune: { updates: 128, maxBatches: 8192, ...pruneDefaults },
+  prune: { updates: 64, maxBatches: 16384, ...pruneDefaults },
 });
 
 /**
