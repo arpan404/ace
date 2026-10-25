@@ -26,6 +26,7 @@ on:
       - native/screen-helper-windows/**
       - packages/screen/**
       - packages/browser/**
+      - packages/browser-extension/**
       - packages/provider-kit/src/windows*
       - packages/provider-kit/src/process-windows*
       - packages/terminal/**
