@@ -34,7 +34,7 @@ import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-t
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
-import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
+import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 
@@ -146,15 +146,7 @@ export class NativeServices {
           const data = await this.screen.request(screen.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
-          this.#reply(
-            id,
-            true,
-            {
-              ok: false,
-              error: { message: error instanceof Error ? error.message : "Screen request failed" },
-            },
-            "",
-          );
+          this.#reply(id, true, { ok: false, error: screenFailure(error) }, "");
         }
         return;
       }

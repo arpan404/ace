@@ -40,11 +40,12 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("badge")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN badge TEXT");
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
   if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
+  if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
 export const projectSelect =
-  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
+  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
 
 /** What a project edit changes besides its name; each omitted field keeps the saved value. */
 export interface ProjectEdit {
@@ -128,12 +129,33 @@ export class ProjectStorage {
       return this.update(workspace.id, workspace.name, { icon, defaultIcon });
     return workspace;
   }
+  /** Register a chat's folder as a hidden `chat` project (ADR 0099). */
+  registerChat(path: string, name: string): Project {
+    const workspace = this.store.atomic((db) => {
+      const id = this.store.createWorkspace(path, name, this.now());
+      db.prepare(
+        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'chat') ON CONFLICT(workspace_id) DO UPDATE SET kind='chat'",
+      ).run(id);
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "added", workspaceId: workspace.id, workspace });
+    return workspace;
+  }
+  /** Unregister a project without touching its threads; a chat's last thread already went. */
+  forget(id: WorkspaceId): void {
+    this.store
+      .statement(
+        "INSERT INTO workspace_unregistered VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET removed_at=excluded.removed_at",
+      )
+      .run(id, this.now());
+    this.emit({ type: "workspace.changed", change: "removed", workspaceId: id });
+  }
   recent(limit: number): Project[] {
     return this.store.atomic((db) =>
       db
         .prepare(`${projectSelect} JOIN workspace_recent r ON w.id=r.workspace_id
       WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
-      ORDER BY r.opened_at DESC,w.id LIMIT ?`)
+      AND m.kind IS NULL ORDER BY r.opened_at DESC,w.id LIMIT ?`)
         .all(limit)
         .map(decodeProjectRow),
     );
@@ -154,8 +176,9 @@ export class ProjectStorage {
     return this.store.atomic((db) =>
       db
         .prepare(`SELECT w.path,r.opened_at FROM workspace_recent r
-      JOIN workspaces w ON w.id=r.workspace_id WHERE NOT EXISTS
-      (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+      JOIN workspaces w ON w.id=r.workspace_id
+      LEFT JOIN workspace_metadata m ON m.workspace_id=w.id WHERE NOT EXISTS
+      (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id) AND m.kind IS NULL
       ORDER BY r.opened_at DESC,w.id LIMIT ?`)
         .all(limit)
         .map((row, index) => {
@@ -301,6 +324,7 @@ export class ProjectStorage {
 }
 
 const storedRow = Project.extend({
+  kind: Project.shape.kind.nullable().catch(null),
   badge: z.unknown().optional(),
   defaults: z.unknown().optional(),
   notes: z.unknown().optional(),
@@ -319,7 +343,7 @@ function stored<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
 
 /** Projects omit unset optional fields rather than adding null fields to their wire shape. */
 export function decodeProjectRow(row: unknown): Project {
-  const { badge, defaults, notes, ...project } = storedRow.parse(row);
+  const { badge, defaults, notes, kind, ...project } = storedRow.parse(row);
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
   const style = stored(ProjectBadgeStyle, badge);
@@ -327,6 +351,7 @@ export function decodeProjectRow(row: unknown): Project {
   const facts = stored(Project.shape.notes, notes);
   return {
     ...project,
+    ...(kind ? { kind } : {}),
     ...(style ? { badge: style } : {}),
     ...(preferences ? { defaults: preferences } : {}),
     ...(facts?.length ? { notes: facts } : {}),

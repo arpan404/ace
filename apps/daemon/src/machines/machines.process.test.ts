@@ -171,3 +171,19 @@ it("an offline machine fails clearly with what to do next", async () => {
   ]);
   expect(JSON.stringify(failure)).not.toContain(pair.credential.token);
 });
+
+it("a loosely written model name runs as the other machine's catalog model", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.source.call({ op: "machines" });
+  const started = await pair.source.call({
+    ...delegation,
+    requestId: "loose-model-on-studio",
+    role: "Review-with-loose-model-name",
+    model: "Scripted Model",
+  });
+  const { threadId } = Delegated.parse(started.data);
+  expect(pair.target.daemon.store.getThread(threadId)?.execution).toMatchObject({
+    provider: "claude",
+    model: "chosen-model",
+  });
+});

@@ -45,6 +45,7 @@ export function createEngineThread(
         id: workspaceId,
         name: project?.name ?? workspaceId,
         path: project?.path ?? cwd,
+        ...(project?.kind ? { kind: project.kind } : {}),
       },
       mode,
       ...(unprepared ? { worktree: undefined } : { worktree: cwd }),

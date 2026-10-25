@@ -46,12 +46,7 @@ import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import {
-  DeferredThreadHotkeys,
-  DeferredThreadMenu,
-  DeferredTurnsPanel,
-  preloadDeferred,
-} from "./deferred.ts";
+import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
@@ -154,7 +149,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       merge: meta?.lineage ? () => setMerging(true) : undefined,
       attachments: () => setAttachmentsOpen(true),
       find: () => findInThread(nav),
-      turns: () => nav.setTurnsOpen(!nav.turnsOpen),
     }),
     [id, forkPoint, openFork, nav, meta?.lineage],
   );
@@ -230,11 +224,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 {/* First in the area: Tab reaches an open details card straight after the header. */}
                 <WorkSide threadId={id} />
                 {drop.overlay}
-                {nav.turnsOpen && (
-                  <Suspense fallback={null}>
-                    <DeferredTurnsPanel.Component nav={nav} />
-                  </Suspense>
-                )}
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
                     text={meta.queuedLaunch.text}

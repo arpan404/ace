@@ -30,6 +30,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
     var archivedAt: Double? = nil
     var workspaceId: String? = nil
+    /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
+    var chat: Bool? = nil
     var badge: String? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
@@ -171,10 +173,16 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
+    /// A choice of the machine's Sort threads setting, worded by the shared rules.
+    struct SortOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
     /// The daemon has older threads beyond the loaded window.
     let more: Bool
     let snooze: [SnoozeOption]
+    /// The machine's `threads.sortBy` the sections are in, and the choices it offers; nil from
+    /// older bridges.
+    var sortBy: String? = nil
+    var sorts: [SortOption]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 

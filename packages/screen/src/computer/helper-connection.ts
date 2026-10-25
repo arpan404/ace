@@ -9,6 +9,7 @@ import type { Scheduler } from "../runtime.ts";
 import { ComputerError } from "./errors.ts";
 import { ReplyLines } from "./reply-lines.ts";
 import { ComputerReply } from "./wire.ts";
+import { ComputerRequestSpan, type ComputerRequestTiming } from "./timing.ts";
 
 export interface HelperConnectionOptions {
   /** Starts a helper process. */
@@ -20,6 +21,7 @@ export interface HelperConnectionOptions {
   graceMs: number;
   /** Called when nothing is queued or running any more, and when work arrives again. */
   idle: (idle: boolean) => void;
+  timing?: { now: () => number; report: (timing: ComputerRequestTiming) => void };
 }
 
 interface Job {
@@ -35,6 +37,8 @@ interface Job {
   /** Set once the request is being stopped: why, for the error it ends with. */
   ending?: "cancelled" | "timeout";
   stops: (() => void)[];
+  timing?: ComputerRequestSpan;
+  outcome?: "ok" | "error";
 }
 
 const timeoutMessage =
@@ -71,6 +75,9 @@ export class HelperConnection {
     signal: AbortSignal | undefined,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new ComputerError("closed", "Computer use stopped."));
+    const timing = this.options.timing
+      ? new ComputerRequestSpan(op, this.options.timing.now)
+      : undefined;
     const wasBusy = this.busy();
     const id = this.options.nextId();
     const promise = new Promise<unknown>((resolve, reject) => {
@@ -83,6 +90,7 @@ export class HelperConnection {
         resolve,
         reject,
         stops: [],
+        ...(timing ? { timing } : {}),
       };
       if (signal) {
         const onAbort = () => this.cancel(job, "cancelled");
@@ -114,6 +122,7 @@ export class HelperConnection {
       return;
     }
     this.current = job;
+    job.timing?.dequeue();
     void this.write(job);
   }
 
@@ -135,6 +144,7 @@ export class HelperConnection {
     // Cancelled while the helper started.
     if (this.current !== job || job.ending) return;
     job.child = child;
+    job.timing?.ready();
     job.stops.push(this.options.scheduler.after(job.deadlineMs, () => this.cancel(job, "timeout")));
     child.stdin.write(job.line, (error) => {
       if (error && job.child === child && this.current === job) this.kill();
@@ -206,6 +216,7 @@ export class HelperConnection {
   }
 
   private reply(child: ChildProcessWithoutNullStreams, text: string): void {
+    const receivedAt = this.current?.timing?.stamp();
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -216,6 +227,8 @@ export class HelperConnection {
     const job = this.current;
     if (!reply.success || !job || job.child !== child || reply.data.id !== job.id) return;
     const data = reply.data;
+    job.outcome = data.ok ? "ok" : "error";
+    if (receivedAt !== undefined) job.timing?.reply(receivedAt, data.ok ? data.result : undefined);
     this.finish(job, () => {
       if (job.ending) job.reject(endingError(job, data.ok ? data.result : undefined));
       else if (data.ok) job.resolve(data.result);
@@ -247,7 +260,14 @@ export class HelperConnection {
 
   private settle(job: Job, end: () => void): void {
     for (const stop of job.stops.splice(0)) stop();
+    const timing = job.timing?.finish(job.ending ?? job.outcome ?? "error");
     end();
+    // Diagnostics must never change whether an action succeeds or advances its queue.
+    if (timing) {
+      try {
+        this.options.timing?.report(timing);
+      } catch {}
+    }
   }
 
   private kill(): void {

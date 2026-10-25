@@ -77,6 +77,16 @@
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
+        "queuedLaunch": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/QueuedLaunch.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
         },

@@ -8,6 +8,7 @@ final class FixtureText: NSTextView {
 }
 @MainActor final class IdentityDelegate: NSObject, NSApplicationDelegate {
     var windows: [NSWindow] = []
+    var clicks = [0, 0]
     func emit(_ value: [String: Any]) {
         if let data = try? JSONSerialization.data(withJSONObject: value), let line = String(data: data, encoding: .utf8) { print(line); fflush(stdout) }
     }
@@ -26,6 +27,10 @@ final class FixtureText: NSTextView {
             let text = FixtureText(frame: NSRect(x: 10, y: 10, width: 320, height: 150))
             text.setAccessibilityLabel("Destination \(index)")
             window.contentView?.addSubview(text)
+            let button = NSButton(title: "Increment \(index)", target: self, action: #selector(increment(_:)))
+            button.tag = index
+            button.frame = NSRect(x: 10, y: 165, width: 180, height: 25)
+            window.contentView?.addSubview(button)
             window.makeFirstResponder(text)
             window.setFrameOrigin(NSPoint(x: originX, y: 200))
             window.orderFront(nil)
@@ -36,7 +41,7 @@ final class FixtureText: NSTextView {
             while let line = readLine() {
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    if line == "snapshot" { self.emit(["values": self.windows.map { ($0.contentView?.subviews.first as? NSTextView)?.string ?? "" }, "active": NSApp.isActive]) }
+                    if line == "snapshot" { self.emit(["values": self.windows.map { ($0.contentView?.subviews.first as? NSTextView)?.string ?? "" }, "active": NSApp.isActive, "clicks": self.clicks]) }
                     if line == "offdisplay" { self.windows[1].setFrameOrigin(NSPoint(x: 110000, y: 200)); self.emit(["moved": true]) }
                     if line == "quit" { NSApp.terminate(nil) }
                 }
@@ -44,6 +49,7 @@ final class FixtureText: NSTextView {
         }
     }
     @objc func signal() { emit(["menu": "signal"]) }
+    @objc func increment(_ sender: NSButton) { clicks[sender.tag] += 1 }
     func application(_ application: NSApplication, open urls: [URL]) { emit(["urls": urls.map(\.absoluteString)]) }
 }
 @objc(IdentityApplication) final class IdentityApplication: NSApplication {

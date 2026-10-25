@@ -22,8 +22,15 @@ export interface SessionFacts {
   readonly access: AccessMode | null;
   /** Enabled ace tool groups, in a stable order. */
   readonly groups: readonly string[];
-  /** Providers this thread may delegate to, with the native modes allowed under its ceiling. */
-  readonly delegates: readonly { provider: string; modes: readonly string[] }[];
+  /**
+   * Providers this thread may delegate to, with the modes allowed under its ceiling and, when a
+   * provider has more than one, the labels of its signed-in accounts.
+   */
+  readonly delegates: readonly {
+    provider: string;
+    modes: readonly string[];
+    accounts?: readonly string[];
+  }[];
   /** Other threads in this project that are working or waiting. */
   readonly liveSiblings: number;
   readonly children: readonly { id: string; label: string; state: ChildState }[];
@@ -73,16 +80,12 @@ export function renderBrief(facts: SessionFacts): string {
     // Groups gate ace's own tools only; an agent must never read them as its whole toolset.
     `ace tool groups on: ${facts.groups.join(", ") || "none beyond threads"}; your own tools are separate.`,
   ];
-  if (facts.delegates.length)
-    lines.push(
-      `Delegate (tool delegate) to: ${facts.delegates
-        .map((entry) =>
-          entry.modes.length
-            ? `${entry.provider} (${entry.modes.slice(0, 3).join(", ")})`
-            : entry.provider,
-        )
-        .join("; ")}.`,
-    );
+  if (facts.delegates.length) {
+    // Account labels go first to go when space runs short; the providers line always stays.
+    const fuller = delegateLine(facts.delegates, true);
+    const kept = fit([...lines, fuller], maxBriefChars, maxBriefLines).split("\n").length;
+    lines.push(kept > lines.length ? fuller : delegateLine(facts.delegates, false));
+  }
   const brief = fit(lines, maxBriefChars, maxBriefLines);
   if (!facts.notes.length) return brief;
   const notes = fit(
@@ -121,6 +124,21 @@ export function renderDigest(before: SessionFacts, after: SessionFacts): string 
     notes.push(`${after.liveSiblings} other thread(s) live in this project`);
   if (!notes.length) return undefined;
   return clip(`ace/changes since your last ace call: ${notes.join("; ")}.`, maxDigestChars);
+}
+
+function delegateLine(delegates: SessionFacts["delegates"], withAccounts: boolean): string {
+  const entries = delegates.map((entry) => {
+    const accounts =
+      withAccounts && entry.accounts && entry.accounts.length > 1
+        ? [`accounts ${entry.accounts.slice(0, 6).map(quote).join(", ")}`]
+        : [];
+    const parts = [
+      ...accounts,
+      ...(entry.modes.length ? [entry.modes.slice(0, 3).join(", ")] : []),
+    ];
+    return parts.length ? `${entry.provider} (${parts.join("; ")})` : entry.provider;
+  });
+  return `Delegate (tool delegate) to: ${entries.join("; ")}.`;
 }
 
 function fit(lines: string[], maxChars: number, maxLines: number): string {

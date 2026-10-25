@@ -98,12 +98,6 @@
           "minLength": 1,
           "type": "string"
         },
-        "instanceOffset": {
-          "default": 0,
-          "maximum": 64,
-          "minimum": 0,
-          "type": "integer"
-        },
         "limit": {
           "default": 10,
           "maximum": 20,
@@ -122,6 +116,11 @@
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "query": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [

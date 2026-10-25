@@ -1,4 +1,4 @@
-import type { AccountView } from "@ace/ui-core";
+import type { AccountView, HomeSort } from "@ace/ui-core";
 import {
   inboxGroupRank,
   inboxSections,
@@ -11,6 +11,7 @@ import {
 import { threadRow } from "./presentation.ts";
 import { inboxLook } from "./inbox-look.ts";
 import { rowAccount } from "./inbox-accounts.ts";
+import { inboxSortChoices } from "./inbox-sort.ts";
 
 /** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
 export interface InboxClock {
@@ -25,6 +26,8 @@ export interface RowContext {
   /** When this phone started following the machine: results finished before it count as seen. */
   baseline: number;
   accounts: readonly AccountView[];
+  /** The machine's `threads.sortBy`, which orders the sections. */
+  sortBy?: HomeSort;
 }
 
 /**
@@ -66,5 +69,8 @@ export function inboxLayout(
     })),
     more,
     snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),
+    // The machine's sort, so the menu checks the choice in force.
+    sortBy: options.sortBy ?? "activity",
+    sorts: inboxSortChoices,
   };
 }

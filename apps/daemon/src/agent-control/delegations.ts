@@ -25,6 +25,7 @@ import {
   type DelegationOutcome,
   type CommandPayload,
   type CommandResult,
+  type ProviderKind,
 } from "@ace/protocol";
 import type { Engine, EngineClock } from "../engine/index.ts";
 import type { Store } from "../store.ts";
@@ -36,10 +37,12 @@ import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
 import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
+import { MessageSenders } from "./message-senders.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
-import { delegationEffort, selectedDelegationModel } from "./models.ts";
+import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
+import { modelLoadBudget, type ModelLoadBudget } from "./model-load-budget.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
 import {
   executionModelId,
@@ -70,9 +73,12 @@ export class DelegationService {
   readonly journal: DelegationJournal;
   readonly policy: DelegationPolicy;
   readonly conversations: ConversationJournal;
+  private senders: MessageSenders;
   private launches: LaunchQueue;
   private admission: DelegationAdmission;
   private deps: DelegationDependencies;
+  /** ace's model lists finished starting: no operation waits on readiness after this. */
+  private ready = false;
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
@@ -84,9 +90,14 @@ export class DelegationService {
   readonly monitor: AgentMonitor;
   constructor(deps: DelegationDependencies) {
     this.deps = deps;
+    void Promise.resolve(deps.modelsReady).then(
+      () => (this.ready = true),
+      () => {},
+    );
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     this.conversations = new ConversationJournal(deps.store);
+    this.senders = new MessageSenders(deps.store);
     this.launches = new LaunchQueue(deps.store);
     // Upgrade old ownership metadata once without decoding prompts or transcripts.
     for (const conversation of this.conversations.unenrolledMembers()) {
@@ -246,6 +257,7 @@ export class DelegationService {
         trigger: "parent_agent",
       },
     });
+    this.senders.record(command.id, threadId, caller.threadId, this.deps.clock.now());
     // The child's new work, if this reopens it, belongs to the turn of the agent asking.
     this.requesting = caller.agentId;
     let result: CommandResult;
@@ -276,41 +288,43 @@ export class DelegationService {
     this.deps.store.atomic(() => this.journal.save(edge));
   }
   /**
-   * A parent's message to its child that didn't go in as sent (refused, kept back, uncertain or
-   * failed after the tool returned). The parent hears it the way it hears results, once per
-   * message and outcome, and agents_status shows it until the parent sends again.
+   * An agent's message that didn't go in as sent (refused, kept back, uncertain or failed after
+   * the tool returned). The thread that sent it, a delegation parent or the agent that started
+   * the thread, hears it the way a parent hears results, once per message and outcome. For a
+   * delegated child, agents_status shows it until the parent sends again.
    */
-  private noticeParent(child: ThreadId, notice: DeliveryNotice) {
+  private noticeSender(child: ThreadId, notice: DeliveryNotice) {
+    if (!this.deps.engine.messageFacts(child, CommandId.parse(notice.commandId)).fromParent) return;
     const edge = this.journal.get(child);
-    if (
-      !edge ||
-      !this.deps.engine.messageFacts(child, CommandId.parse(notice.commandId)).fromParent
-    )
-      return;
-    const text = noticeText(notice, edge.request.role, child);
-    const id = controlCommandId(edge.parentId, `${child}:${notice.commandId}`, notice.code);
+    // Messages recorded before senders were kept went to a delegated child from its parent.
+    const sender = this.senders.sender(notice.commandId, child) ?? edge?.parentId;
+    const target = this.deps.store.getThread(child);
+    if (!sender || sender === child || !this.deps.store.getThread(sender)) return;
+    const role = edge?.request.role ?? target?.title ?? "that thread";
+    const text = noticeText(notice, role, child);
+    const id = controlCommandId(sender, `${child}:${notice.commandId}`, notice.code);
     if (this.commandReceipt(id)) return;
-    this.deps.store.atomic(() => {
-      edge.messageNotice = {
-        text: text.slice(0, 400),
-        at: this.deps.clock.now(),
-        commandId: notice.commandId,
-      };
-      this.journal.save(edge);
-    });
+    if (edge)
+      this.deps.store.atomic(() => {
+        edge.messageNotice = {
+          text: text.slice(0, 400),
+          at: this.deps.clock.now(),
+          commandId: notice.commandId,
+        };
+        this.journal.save(edge);
+      });
     try {
-      const delivery = this.deps.engine.supportsSteering(edge.parentId) ? "steer" : "queue";
+      const delivery = this.deps.engine.supportsSteering(sender) ? "steer" : "queue";
       const result = this.command(id, {
         type: "thread.send",
-        threadId: edge.parentId,
+        threadId: sender,
         input: [{ type: "text", text: `[ace-origin:delegation.message_notice:${id}]\n${text}` }],
         delivery,
         trigger: "subagent_result",
         origin: { kind: "subagent_result", threadIds: [child] },
       });
       if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
-      if (delivery === "queue")
-        this.deps.engine.prioritizeSubagentResult(edge.parentId, result.commandId);
+      if (delivery === "queue") this.deps.engine.prioritizeSubagentResult(sender, result.commandId);
     } catch (error) {
       this.report(error);
     }
@@ -320,10 +334,55 @@ export class DelegationService {
     const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
     return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
   }
-  async prepareModels(caller: McpAttribution, value: DelegationRequest) {
+  /** A new operation's budget for waiting on model lists, ending early if `signal` aborts. */
+  loadBudget(signal?: AbortSignal): ModelLoadBudget {
+    return modelLoadBudget(this.deps.clock, signal);
+  }
+  /**
+   * Load the model lists of accounts in `filter` that have never loaded (or loaded empty and are
+   * due for discovery), so a model name is matched against what each account really serves. A
+   * discovery already running is shared, and one that failed keeps its retry pause, so an
+   * uninstalled provider is not probed on every request. The wait comes out of the operation's
+   * budget; slow discovery keeps running in the background and the operation matches what loaded.
+   */
+  async warmModels(
+    filter: import("@ace/protocol").ModelFilter,
+    budget: ModelLoadBudget,
+  ): Promise<void> {
+    await this.modelsReady(budget);
+    const load = this.deps.models.loadMissing?.(filter);
+    if (load) await budget.wait(load);
+  }
+  /** ace's model lists are ready, within the operation's budget; refused clearly if not. */
+  private async modelsReady(budget: ModelLoadBudget): Promise<void> {
+    if (this.ready || (await budget.wait(Promise.resolve(this.deps.modelsReady)))) return;
+    throw new AgentControlError(
+      "admission_closed",
+      "models_loading",
+      undefined,
+      "ace is still loading model lists after starting; try again in a moment.",
+    );
+  }
+  /**
+   * Check a request and load the model lists its accounts need, waiting within `budget` (the
+   * operation's own; a request with none gets a fresh one, which cannot be cancelled).
+   */
+  async prepareModels(caller: McpAttribution, value: DelegationRequest, budget?: ModelLoadBudget) {
+    const used = budget ?? this.loadBudget();
+    try {
+      return await this.prepareWithin(caller, value, used);
+    } finally {
+      if (!budget) used.end();
+    }
+  }
+  private async prepareWithin(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    budget: ModelLoadBudget,
+  ) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
-    await this.deps.modelsReady;
+    await this.modelsReady(budget);
     const account = request.accountId ? this.deps.accounts?.get(request.accountId) : undefined;
     // An added Antigravity account is stored as an ACP account but belongs to Antigravity.
     if (
@@ -349,13 +408,17 @@ export class DelegationService {
           ? { instance: request.accountId }
           : {}),
     };
-    const page = catalog.list(filter);
-    // Auto-selection can choose an account whose catalog is still cold.
-    if (
-      !page.models.length ||
-      page.instances.some((instance) => instance.refreshedAt === undefined)
-    )
-      await catalog.refresh(filter);
+    // Auto-selection can choose an account whose catalog is still cold. Loading it keeps a failed
+    // discovery's retry pause; only the person's explicit refresh forces one.
+    if (catalog.loadMissing) await this.warmModels(filter, budget);
+    else {
+      const page = catalog.list(filter);
+      if (
+        !page.models.length ||
+        page.instances.some((instance) => instance.refreshedAt === undefined)
+      )
+        await budget.wait(catalog.refresh(filter));
+    }
     return this.deps.configuredModel?.(caller, request);
   }
   prepare(
@@ -434,6 +497,36 @@ export class DelegationService {
       return child;
     });
   }
+  /**
+   * The account an agent named, by its id or by the label the person gave it ("Work"), and the
+   * provider it belongs to. A label is looked up on `provider` when one is named, else on every
+   * provider; a label two accounts share, or no account at all, is undefined and the name is
+   * left as given to be refused at admission.
+   */
+  accountNamed(
+    provider: ProviderKind | undefined,
+    name: string,
+  ): { id: string; provider: ProviderKind } | undefined {
+    try {
+      const accounts = (this.deps.accounts?.list() ?? []).map((entry) => ({
+        id: entry.instance.id,
+        label: entry.instance.label.trim().toLowerCase(),
+        provider: accountProvider(entry.instance),
+      }));
+      const byId = accounts.find((entry) => entry.id === name);
+      if (byId) return { id: byId.id, provider: byId.provider };
+      const wanted = name.trim().toLowerCase();
+      const labelled = accounts.filter(
+        (entry) => entry.label === wanted && (!provider || entry.provider === provider),
+      );
+      return labelled.length === 1 && labelled[0]
+        ? { id: labelled[0].id, provider: labelled[0].provider }
+        : undefined;
+    } catch {
+      // Account homes are still being validated: the id is checked again at admission.
+      return undefined;
+    }
+  }
   /** The name the person gave an account ("Work"), for what an agent tells them. */
   accountLabel(id: string | undefined): string | undefined {
     if (!id) return undefined;
@@ -510,13 +603,20 @@ export class DelegationService {
       throw new Error("Forbidden configuration");
     const thread = this.deps.store.getThread(operation.threadId);
     if (!thread) throw new Error("Thread missing");
-    const selection = await this.threadSelection(
-      caller,
-      thread,
-      operation.requestId,
-      operation.model,
-      operation.options,
-    );
+    const budget = this.loadBudget(signal);
+    let selection;
+    try {
+      selection = await this.threadSelection(
+        caller,
+        thread,
+        operation.requestId,
+        operation.model,
+        operation.options,
+        budget,
+      );
+    } finally {
+      budget.end();
+    }
     signal.throwIfAborted();
     const command = Command.parse({
       id: controlCommandId(caller.threadId, operation.requestId, operation.op),
@@ -538,6 +638,7 @@ export class DelegationService {
     requestId: string,
     model: string,
     launch: { effort?: string | undefined; serviceTier?: string | undefined } = {},
+    budget?: ModelLoadBudget,
   ) {
     const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
     const request = DelegationRequest.parse({
@@ -551,8 +652,13 @@ export class DelegationService {
       role: "configuration",
       task: "configure",
     });
-    await this.prepareModels(caller, request);
+    await this.prepareModels(caller, request, budget);
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
+    // A loosely written name ("opus 5.5") means the model it fits on the thread's own account.
+    if (filter) {
+      model = accountModelName(this.deps.models, filter, model);
+      request.model = model;
+    }
     const selected =
       filter && this.deps.models.resolve({ role: "configuration", ...filter, model });
     if (!selected?.ok || (!isDefaultSelection(model) && !matchesModel(selected.model, model)))
@@ -1042,7 +1148,7 @@ export class DelegationService {
     for (const event of events) {
       statuses ||= event.payload.type === "thread.updated" && !queueFactsTouch(event);
       const notice = deliveryNotice(event);
-      if (notice) this.noticeParent(event.threadId, notice);
+      if (notice) this.noticeSender(event.threadId, notice);
       if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
       if (
         event.payload.type !== "thread.updated" &&

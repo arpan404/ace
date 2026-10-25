@@ -32,10 +32,14 @@ import {
 import { messageArrival } from "../agent-control/message-arrival.ts";
 import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts";
 import { TargetRefusal } from "./target-refusal.ts";
+import { accountModelName } from "../agent-control/models.ts";
+import { AgentControlError } from "../agent-control/failure.ts";
 
 export interface TargetThreadDeps {
   store: Store;
   engine(): Engine | undefined;
+  /** This machine's model catalog, which a loosely written model name is matched against. */
+  models?(): import("@ace/models").ModelCatalogApi | undefined;
   journal(): DelegationJournal | undefined;
   now(): number;
 }
@@ -190,6 +194,7 @@ export class TargetThreads {
     if (existing && this.owner(threadId)?.device_id === device.id)
       return { threadId, title: existing.title };
     const workspaceId = this.project(call.project);
+    const model = call.model ? this.modelNamed(call.provider, call.model) : undefined;
     const command = Command.parse({
       id: `machine-delegate:${key}`,
       deviceId: device.id,
@@ -198,7 +203,7 @@ export class TargetThreads {
         threadId,
         workspaceId,
         provider: call.provider,
-        ...(call.model ? { model: call.model } : {}),
+        ...(model ? { model } : {}),
         mode: "local",
         title: clip(call.role, 256),
         trigger: "spawn",
@@ -218,6 +223,18 @@ export class TargetThreads {
       throw new TargetRefusal("unavailable", `This machine could not start it: ${result.error}`);
     this.record(device, threadId, "delegate", origin);
     return { threadId, title: this.deps.store.getThread(threadId)?.title ?? call.role };
+  }
+  /** A model the other machine named loosely ("opus 5.5"), as this machine's catalog id. */
+  private modelNamed(provider: import("@ace/protocol").ProviderKind, name: string): string {
+    const catalog = this.deps.models?.();
+    if (!catalog) return name;
+    try {
+      return accountModelName(catalog, { provider }, name);
+    } catch (error) {
+      if (error instanceof AgentControlError)
+        throw new TargetRefusal("invalid", error.publicDetail ?? error.message);
+      throw error;
+    }
   }
   cancel(device: Device, threadId: ThreadId) {
     const engine = this.deps.engine();

@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { CatalogModel, DelegationRequest } from "@ace/protocol";
+import {
+  AgentControlOperation,
+  CatalogModel,
+  DelegationRequest,
+  type ThreadId,
+} from "@ace/protocol";
 import { ModelCatalog, ModelInstance, openModelStorage, createModelDiscovery } from "@ace/models";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
@@ -179,17 +184,33 @@ test.each(["opus", "claude-opus-5-5", "opus-5.5"])(
     const { f, catalog } = await fixture();
     try {
       const parent = await f.parent();
-      const request = DelegationRequest.parse({
-        requestId: "greeter",
-        task: "Say hello",
-        role: "greet-user-choice",
-        provider: "claude",
-        model,
-      });
-      const child = f.service.delegate(parent, request);
+      const port = createAgentControlPort(f.store, f.service);
+      const operation = {
+        op: "delegate_task",
+        tasks: [
+          {
+            requestId: "greeter",
+            task: "Say hello",
+            role: "greet-user-choice",
+            provider: "claude",
+            model,
+          },
+        ],
+      } as const;
+      const delegate = async () => {
+        const result = await port.execute(
+          parent,
+          AgentControlOperation.parse(operation),
+          new AbortController().signal,
+        );
+        const [threadId] = (result.data as { threadIds: ThreadId[] }).threadIds;
+        if (!threadId) throw new Error("No child started");
+        return threadId;
+      };
+      const child = await delegate();
       await f.engine.flush();
-      expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
-      expect(f.service.delegate(parent, request).childId).toBe(child.childId);
+      expect(f.contexts.get(child)?.model).toBe("claude-opus-5-5");
+      expect(await delegate()).toBe(child);
     } finally {
       await f.close();
       await catalog.close();
@@ -197,59 +218,64 @@ test.each(["opus", "claude-opus-5-5", "opus-5.5"])(
   },
 );
 
-test("a configured user choice wins over an invalid agent guess", async () => {
+/** A greeting task for Claude, naming `model` when given. */
+function greeting(requestId: string, model?: string) {
+  return DelegationRequest.parse({
+    requestId,
+    task: "Say hello",
+    role: `greet-${requestId}`,
+    provider: "claude",
+    ...(model ? { model } : {}),
+  });
+}
+
+test("the person's role model fills an open choice but never replaces a model the agent named", async () => {
   const { f, catalog } = await fixture();
   try {
     const parent = await f.parent();
-    const child = f.service.delegate(
-      parent,
-      DelegationRequest.parse({
-        requestId: "configured",
-        task: "Say hello",
-        role: "greet-configured-choice",
-        provider: "claude",
-        model: "opus-5.5",
-      }),
-      "opus",
-    );
+    const child = f.service.delegate(parent, greeting("open-choice"), "opus");
     await f.engine.flush();
     expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
+    const before = f.store.listThreads();
+    expect(() => f.service.delegate(parent, greeting("named", "missing-model"), "opus")).toThrow(
+      expect.objectContaining({
+        message: expect.stringContaining("requested model missing-model is unavailable there"),
+        publicDetail: expect.stringContaining("Settings → Roles names claude-opus-5-5 for claude"),
+      }),
+    );
+    expect(f.store.listThreads()).toEqual(before);
   } finally {
     await f.close();
     await catalog.close();
   }
 });
 
-test("delegation resolves against the chosen account even when another account knows the guessed alias", async () => {
+test("a model the chosen account lacks is refused even when another account serves it, never swapped for the chosen account's default", async () => {
   const { f, catalog, accountDb } = await fixture(true, true);
   try {
     const parent = await f.parent();
     // Remove selected metadata to exercise a cold target alongside a warm foreign catalog.
     await catalog.invalidate({ instance: "selected" });
     const port = createAgentControlPort(f.store, f.service);
-    const result = await port.execute(
-      parent,
-      {
-        op: "delegate_task",
-        requestId: "account-scoped",
-        task: "Say hello",
-        role: "greet-account-scoped",
-        provider: "claude",
-        model: "claude-opus-5-5",
-        accountId: "selected",
-        wait: false,
-        estimatedLoad: 0,
-      },
-      new AbortController().signal,
-    );
-    expect(result.ok).toBe(true);
-    await f.engine.flush();
-    const child = f.service.journal.receipt(parent.threadId, "account-scoped");
-    if (!child) throw new Error("Missing delegated thread");
-    expect(f.contexts.get(child.childId)).toMatchObject({
-      model: "sonnet",
-      instanceId: "selected",
-    });
+    const before = f.store.listThreads();
+    await expect(
+      port.execute(
+        parent,
+        {
+          op: "delegate_task",
+          requestId: "account-scoped",
+          task: "Say hello",
+          role: "greet-account-scoped",
+          provider: "claude",
+          model: "claude-opus-5-5",
+          accountId: "selected",
+          wait: false,
+          estimatedLoad: 0,
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/account selected: requested model claude-opus-5-5 is unavailable/);
+    expect(f.store.listThreads()).toEqual(before);
   } finally {
     await f.close();
     await catalog.close();
@@ -257,7 +283,7 @@ test("delegation resolves against the chosen account even when another account k
   }
 });
 
-test("an unavailable model without a valid default reports an error before creating a child", async () => {
+test("a named model the catalog lacks is refused before creating a child", async () => {
   const { f, catalog } = await fixture(false);
   try {
     const parent = await f.parent();
@@ -278,7 +304,7 @@ test("an unavailable model without a valid default reports an error before creat
         },
         new AbortController().signal,
       ),
-    ).rejects.toThrow(/Cannot delegate to claude.*no valid configured default/);
+    ).rejects.toThrow(/Cannot delegate to claude.*requested model opus-5\.5 is unavailable/);
     expect(f.store.listThreads()).toEqual(before);
     expect(f.service.journal.reservations()).toEqual([]);
   } finally {

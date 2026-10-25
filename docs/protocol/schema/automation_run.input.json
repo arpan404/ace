@@ -3,6 +3,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "action": {
+      "default": "run",
+      "enum": [
+        "run",
+        "pause",
+        "resume"
+      ],
+      "type": "string"
+    },
     "id": {
       "description": "The automation's id, as you named it in automation_put.",
       "maxLength": 256,
@@ -10,7 +19,7 @@
       "type": "string"
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "run: any stable id; repeats run once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
@@ -19,12 +28,12 @@
     "variables": {
       "$ref": "https://ace.local/protocol/v1/TriggerVariables.json",
       "default": {},
-      "description": "Values for {{name}} placeholders in its prompt."
+      "description": "run: values for {{name}} placeholders in its prompt."
     }
   },
   "required": [
-    "id",
-    "requestId"
+    "id"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "run needs requestId."
 }

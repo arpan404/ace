@@ -30,6 +30,7 @@ struct DeviceScreen: View {
     @State private var sheet: DeviceSheet?
     @State private var confirmShutdown = false
     @State private var screenSize: CGSize?
+    @State private var pictureTurn = DeviceRotation.none
     @State private var caption: DeviceScreenInfo.Activity?
     @State private var seen: Int?
     @State private var autoStarted = false
@@ -77,12 +78,15 @@ struct DeviceScreen: View {
                 let size = screenSize ?? CGSize(width: info.screen.width, height: info.screen.height)
                 let geometry = size.width > size.height ? info.frame.landscape : info.frame.portrait
                 let room = CGSize(width: proxy.size.width - AceTheme.Spacing.xxl * 2, height: proxy.size.height - AceTheme.Spacing.lg * 2)
-                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size)) {
+                // The body's turn, as `bodyTurn` (@ace/ui-core) reads it for a Simulator: the
+                // picture's own rotation, else a landscape picture means turned to the right.
+                let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
+                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size), turn: turn) {
                     ZStack {
                         Color.black
                         if info.live {
                             DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }) { from, to in
+                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
                                 devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
                             }
                             ripple(size)

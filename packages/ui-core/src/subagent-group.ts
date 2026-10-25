@@ -100,8 +100,7 @@ export function readSubagentGroup(
     facts,
     direct.flatMap((root) => (root.agent ? [root.agent.id] : [])),
   );
-  const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {
-    const subtree = agent ? branch(agent.id) : undefined;
+  const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {    const subtree = agent ? branch(agent.id) : undefined;
     let state = subtree?.state ?? "working";
     // A child still waiting in its parent's launch queue has run nothing: its launch row is all
     // there is, and its agent's status (blocked on the queue) must not read as working.
@@ -122,7 +121,7 @@ export function readSubagentGroup(
       launch && subagentTerminal(state)
         ? Math.max(launch.updatedAt, subtree?.end ?? 0)
         : subtree?.end;
-    return {
+    const entry: SubagentEntry = {
       id,
       agentId: agent?.id,
       childThreadId: launch?.childThreadId ?? agent?.childThreadId,
@@ -131,22 +130,15 @@ export function readSubagentGroup(
       machine: launch?.machine?.name,
       title: launch?.title ?? agentName(agent, spawn),
       state,
-      // A queued launch carries where the child stands on its waiting status, so the row can
-      // say: a running launch never carries them, since statuses replace one another whole.
-      ...(launch?.status.state === "waiting" &&
-      launch?.status.slotLimit !== undefined &&
-      launch?.status.slotsInUse !== undefined &&
-      launch?.status.queuePosition !== undefined
-        ? {
-            slotLimit: launch.status.slotLimit,
-            slotsInUse: launch.status.slotsInUse,
-            queuePosition: launch.status.queuePosition,
-          }
-        : {}),
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
       endedAt: subagentTerminal(state) ? (end ?? spawn?.call.endedAt) : undefined,
       result: finalResult(launch, spawn),
     };
+    // A queued launch carries where the child stands on its waiting status, so the row can
+    // say: a running launch never carries them, since statuses replace one another whole.
+    const queue = queuePlace(launch);
+    if (queue) Object.assign(entry, queue);
+    return entry;
   });
   return {
     value,
@@ -169,6 +161,25 @@ function queuedLaunch(launch: Launch): boolean {
   return (
     launch.phase === "created" && launch.status.state === "waiting" && launch.status.on === "queue"
   );
+}
+
+/** Where a queued launch stands, from its waiting status; undefined once it runs or aged out. */
+function queuePlace(
+  launch: Launch | undefined,
+): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
+  const status = launch?.status;
+  if (
+    status?.state !== "waiting" ||
+    status.slotLimit === undefined ||
+    status.slotsInUse === undefined ||
+    status.queuePosition === undefined
+  )
+    return undefined;
+  return {
+    slotLimit: status.slotLimit,
+    slotsInUse: status.slotsInUse,
+    queuePosition: status.queuePosition,
+  };
 }
 
 /** The first line of a subagent's final result: its delegation outcome, or its spawn's reply. */

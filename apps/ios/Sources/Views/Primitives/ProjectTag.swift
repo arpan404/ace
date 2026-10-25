@@ -6,10 +6,23 @@ import SwiftUI
 struct ProjectTag: View {
     let initials: String
     var quiet = false
+    /// A chat with no project (ADR 0099) wears a speech bubble, not initials.
+    var chat = false
     @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 17
     @ScaledMetric(relativeTo: .caption2) private var width: CGFloat = 21
 
     var body: some View {
+        if chat {
+            Image(systemName: "bubble.left")
+                .font(.system(size: height * 0.62, weight: .semibold))
+                .foregroundStyle(quiet ? AceTheme.Colours.faintForeground : AceTheme.Colours.mutedForeground)
+                .frame(minWidth: width, minHeight: height, maxHeight: height)
+                .accessibilityHidden(true)
+        } else {
+            initialsTag
+        }
+    }
+    private var initialsTag: some View {
         Text(initials.uppercased())
             .font(.system(size: height * 0.62, weight: .semibold))
             .lineLimit(1)

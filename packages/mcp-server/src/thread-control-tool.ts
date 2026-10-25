@@ -35,7 +35,14 @@ const Input = z
       .boolean()
       .optional()
       .describe("rename: only replace a title ace generated, never one the person chose."),
-    model: z.string().min(1).max(256).optional().describe("configure: a model id from `models`."),
+    model: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        'configure: a model id from `models`, or its name ("opus 5.5") on the thread\'s account.',
+      ),
     effort: z.string().min(1).max(64).optional().describe("configure: reasoning effort."),
     serviceTier: z.enum(["default", "priority", "flex"]).optional().describe("configure."),
     branch: z.string().min(1).max(256).optional().describe("handoff: the new branch name."),

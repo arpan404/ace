@@ -215,7 +215,12 @@ const threadStart = controlTool({
       "Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base.",
     ),
     provider: ProviderKind.optional().describe("Default: yours."),
-    model: z.string().min(1).max(256).optional().describe("A model id from `models`."),
+    model: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe('A model id from `models`, or its name as written ("opus 5.5").'),
     effort: z.string().min(1).max(64).optional().describe("Reasoning effort, such as high."),
     access: AccessRequest.optional().describe("Default inherit; never broader than yours."),
   }),
@@ -286,7 +291,9 @@ const threadFork = controlTool({
       .min(1)
       .max(256)
       .optional()
-      .describe("Another model of the same provider, from `models`. Default: the thread's."),
+      .describe(
+        'Another model of the same provider and account: an id from `models` or its name ("opus 5.5"). Default: the thread\'s.',
+      ),
     effort: z.string().min(1).max(64).optional().describe("Reasoning effort, with model."),
   }),
   output: controlResult(z.unknown()),
