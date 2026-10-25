@@ -18,9 +18,9 @@
     "data": {
       "additionalProperties": {},
       "properties": {
-        "bytes": {
-          "description": "Base64 output bytes, when reading a stream",
-          "type": "string"
+        "eof": {
+          "description": "With streamId: true when the text ends with this page.",
+          "type": "boolean"
         },
         "items": {
           "items": {
@@ -52,6 +52,7 @@
           "type": "array"
         },
         "nextOffset": {
+          "description": "With streamId: pass back unchanged as offset for the next page.",
           "type": "number"
         },
         "omitted": {
@@ -80,6 +81,10 @@
         },
         "queue": {
           "description": "Messages waiting for the thread, oldest first."
+        },
+        "text": {
+          "description": "With streamId: this page of the part's text, decoded.",
+          "type": "string"
         },
         "thread": {
           "additionalProperties": {},

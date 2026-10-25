@@ -583,6 +583,7 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | type | yes | `"queue.updated"` |  |
 
@@ -590,10 +591,11 @@ Example:
 
 ```json
 {
+  "exited": false,
   "paused": false,
   "pendingCount": 7,
   "reason": null,
-  "resumeAt": 9,
+  "resumeAt": null,
   "revision": 4,
   "type": "queue.updated"
 }

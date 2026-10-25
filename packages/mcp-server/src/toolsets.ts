@@ -29,6 +29,24 @@ export function aceClient(header: string | null | undefined): AceClient | undefi
   return header === codexClientHeader.value ? "codex" : undefined;
 }
 
+/**
+ * How long a client lets one tool call run before it cancels the call itself, sent as whole
+ * seconds in `X-Ace-Call-Budget`. Cursor's SDK (1.0.35) cancels every MCP call after 60 seconds
+ * and offers no setting to raise it, so a `wait` of 120 seconds died at 60 and the agent read a
+ * delegation that had started as a failure. Tools that wait (`wait`, `delegate` with
+ * `waitSeconds`, `ask`) end within the budget and report a timeout the agent can wait on again.
+ */
+export const callBudgetHeader = { name: "X-Ace-Call-Budget" } as const;
+export function callBudgetSeconds(header: string | null | undefined): number | undefined {
+  if (!header || !/^\d{1,4}$/.test(header.trim())) return undefined;
+  const seconds = Number(header.trim());
+  return seconds >= 5 && seconds <= 600 ? seconds : undefined;
+}
+/** A requested wait, cut to the client's call budget when it has one. */
+export function withinCallBudget(seconds: number, budget: number | undefined): number {
+  return budget === undefined ? seconds : Math.min(seconds, budget);
+}
+
 /** The listing a client asked for; anything unrecognised lists every tool. */
 export function toolListing(header: string | null | undefined): ToolListing {
   if (header === coreToolsHeader.value) return "core";

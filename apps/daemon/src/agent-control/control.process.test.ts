@@ -397,9 +397,8 @@ test("agents page large child output and cannot substitute another thread's stre
     },
     new AbortController().signal,
   );
-  const data = z.object({ bytes: z.string(), nextOffset: z.number() }).parse(page.data);
-  expect(Buffer.from(data.bytes, "base64").toString("utf16le")).toBe("safe".repeat(100));
-  expect(data.nextOffset).toBe(800);
+  const data = z.object({ text: z.string(), eof: z.boolean() }).parse(page.data);
+  expect(data).toEqual({ text: "safe".repeat(100), eof: false });
   expect(
     await port.execute(
       parent,

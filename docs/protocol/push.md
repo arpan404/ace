@@ -2951,7 +2951,7 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
@@ -2961,115 +2961,102 @@ Example:
     "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
-    "itemSeqs": {},
     "items": {},
     "kind": "thread",
-    "queue": {
-      "lastFailure": {
-        "code": "example",
-        "title": "example"
-      },
-      "paused": true,
-      "reason": null,
-      "resumeAt": 5,
-      "revision": 0
+    "offshift": {
+      "blocker": null,
+      "criteria": [],
+      "criteriaCount": 7,
+      "endpoint": "example",
+      "id": "d5",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 2,
+      "phase": "plan",
+      "revision": "example",
+      "steps": [],
+      "updatedAt": 3,
+      "version": 8
     },
     "runs": {},
-    "seq": 9,
+    "seq": 5,
     "thread": {
+      "acpAgentId": "example",
       "acpSupport": {
         "capabilities": {
           "imageInput": true,
           "planMode": true,
-          "resume": false
+          "resume": true
         },
-        "coverage": "generic",
+        "coverage": "source_profile",
         "mcp": "http",
-        "modeSelection": false,
+        "modeSelection": true,
         "modelSelection": false,
         "raw": {
           "json": "example",
           "truncated": true
         },
-        "subagentSessions": true,
+        "subagentSessions": false,
         "visibility": "limited"
       },
-      "activitySeq": 2,
-      "archivedAt": 3,
-      "autoSettleAt": 7,
+      "autoSettle": false,
       "capabilities": {
-        "accessModes": [],
         "attachmentInput": {
           "documents": [],
-          "embeddedContext": false,
-          "format": "claude",
-          "maxInlineBytes": 8
+          "embeddedContext": true,
+          "format": "acp",
+          "maxInlineBytes": 0
         },
         "backgroundTaskControl": false,
-        "backgroundVisibility": "none",
+        "backgroundVisibility": "full",
         "childFidelity": "summary",
-        "fork": false,
-        "forkSubagents": false,
+        "fork": true,
+        "forkMode": "native",
+        "forkPoints": [],
+        "goals": true,
         "imageInput": false,
         "interruptCascades": true,
-        "launchOptions": [],
         "planMode": false,
-        "resume": true,
-        "rewindFiles": false,
+        "resume": false,
+        "rewindFiles": true,
         "steer": false,
+        "steerTiming": "after_tool",
         "subagentTranscripts": true,
-        "tokenUsage": false
+        "tokenUsage": true
       },
-      "createdAt": 1,
-      "execution": {
-        "provider": "codex"
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
       },
+      "createdAt": 2,
       "goal": {
-        "checks": 4,
-        "lastReason": "example",
+        "checks": 1,
         "objective": "example",
-        "setAt": 0,
-        "status": "active"
+        "status": "active",
+        "timeUsedSeconds": 6
       },
       "id": "example",
-      "imported": {
-        "importedAt": 8,
-        "instanceId": "example",
-        "native": {
-          "acpAgentId": "example",
-          "forkedFromNativeId": "example",
-          "instanceId": "example",
-          "provider": "acp"
-        },
-        "sourceId": "example"
-      },
-      "installationId": "example",
-      "instanceId": "example",
-      "listOrder": 6,
-      "pinOrder": 8,
-      "pinned": false,
-      "provider": "cursor",
-      "readAt": 5,
-      "run": {
-        "pendingCount": 8,
-        "phase": "review",
-        "playbook": "feature",
-        "state": "blocked"
-      },
-      "snoozedUntil": 7,
+      "provider": "acp",
+      "settledReason": "inactivity",
+      "snoozedUntil": 2,
       "status": {
         "state": "unresponsive"
       },
       "switch": {
-        "at": 8,
+        "at": 4,
+        "error": "example",
         "lossy": false,
         "selection": {
-          "provider": "codex"
+          "model": "example",
+          "provider": "pi"
         },
         "state": "applied"
       },
       "title": "example",
-      "updatedAt": 8,
+      "titleSource": "agent",
+      "updatedAt": 3,
       "workspaceId": "example"
     },
     "usage": {}

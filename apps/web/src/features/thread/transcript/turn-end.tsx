@@ -149,6 +149,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
         errorId={block.errorId}
         error={ending.error}
         latest={block.latest ?? false}
+        held={block.held}
         limitInStrip
       />
     </Suspense>
