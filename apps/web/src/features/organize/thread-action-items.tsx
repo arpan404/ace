@@ -1,3 +1,4 @@
+import { continueBlocked } from "@ace/client";
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
 import type { ThreadRowFlags } from "@ace/ui-core";
 import {
@@ -33,6 +34,7 @@ import {
 import { useThreadMover } from "./mover.ts";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
 import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions, type ThreadActions } from "./use-thread-actions.ts";
 
@@ -135,7 +137,9 @@ export function threadActions(
       label: "Continue on…",
       icon: DesktopIcon,
       section: "read",
-      ...(busy(entry) ? { disabled: "Available once the thread stops working" } : {}),
+      ...(continueBlocked(entry.status.state)
+        ? { disabled: "Available once the thread stops working" }
+        : {}),
       run: handlers.onContinueOn,
     });
   const settle = settleAction(entry, flags, actions);
@@ -171,10 +175,6 @@ export function threadActions(
   );
   return list;
 }
-
-/** Work that is still running or waiting on the person can't move to another machine yet. */
-const busy = (entry: ThreadListEntry) =>
-  ["working", "needs_you", "waiting"].includes(entry.status.state);
 
 /**
  * Settle any thread that is not working, or Unsettle a settled one; nothing while work
@@ -239,6 +239,9 @@ export function ThreadActionItems(props: {
   const mover = useThreadMover();
   const transfers = useTransferOpener();
   const linked = useHasLinkedMachines();
+  // Another machine's thread (ADR 0100): its move, archive and delete dialogs answer to this
+  // window's daemon, so they wait for that follow-up; Continue on is sent from that machine.
+  const scoped = useScopedMachine()?.id;
   const allActions = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
@@ -251,13 +254,15 @@ export function ThreadActionItems(props: {
               threadId: entry.id,
               workspaceId: entry.workspaceId,
               title: entry.title,
+              ...(scoped ? { hostId: scoped } : {}),
             }),
         }
       : {}),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
+  const here = scoped ? allActions.filter((action) => !windowOnly.has(action.id)) : allActions;
   const list = props.compact
-    ? allActions.filter((action) =>
+    ? here.filter((action) =>
         [
           "rename",
           "unread",
@@ -270,7 +275,7 @@ export function ThreadActionItems(props: {
           "delete",
         ].includes(action.id),
       )
-    : allActions.filter((action) => !action.disabled);
+    : here.filter((action) => !action.disabled);
   const section = (name: ThreadAction["section"]) =>
     list.filter((action) => action.section === name).map(renderThreadAction);
   return (
@@ -292,6 +297,9 @@ export function ThreadActionItems(props: {
     </>
   );
 }
+
+/** Actions whose dialogs only reach this window's own daemon. */
+const windowOnly = new Set(["move", "archive", "restore", "delete"]);
 
 function renderThreadAction(action: ThreadAction) {
   return (

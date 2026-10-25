@@ -143,7 +143,7 @@ export class OutgoingTransfers {
     }
     throw new TransferError(
       "machine_not_linked",
-      "This machine has no link to that one. Link them in Settings › Machines.",
+      "This machine has no link to that one. Link them in Settings › Fleet.",
     );
   }
   /** A machine by its profile name, as `machines` lists it: its host id and display name. */

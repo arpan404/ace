@@ -3,77 +3,10 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { continueOn, linkedMachines, optionsFor, strip, workspace } from "./transfer-fixture.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
-
-const workspace = { id: "weather", name: "weather", path: "/Users/dev/weather" };
-
-/**
- * This Mac with a thread in its weather project, linked to a build server (which takes
- * transfers), a studio that is offline, a laptop that doesn't allow projects and a desk that
- * takes transfers but not agents. Each transfer
- * step runs when the test says so.
- */
-function linkedMachines(options: { links?: boolean } = {}) {
-  const steps: (() => void)[] = [];
-  const app = harness({
-    machines: [
-      { hostId: "build", name: "Build server" },
-      { hostId: "studio", name: "Studio" },
-      { hostId: "laptop", name: "Old laptop" },
-      { hostId: "desk", name: "Desk" },
-    ],
-    projectScheduler: (callback) => void steps.push(callback),
-  });
-  const machine = (id: string) => {
-    const found = app.machines.get(id);
-    if (!found) throw new Error(`no ${id}`);
-    return found;
-  };
-  if (options.links !== false) {
-    app.daemon.linkTo(machine("build"));
-    app.daemon.linkTo(machine("studio"), { status: "offline" });
-    app.daemon.linkTo(machine("laptop"), { projects: false });
-    // Agents from other machines aren't let in there, but the person's transfers are.
-    app.daemon.linkTo(machine("desk"), { status: "refused", access: undefined, projects: true });
-  }
-  app.daemon.createThread({
-    id: "thread-forecast",
-    workspaceId: workspace.id,
-    title: "Fix the forecast cache",
-    provider: "claude",
-    hasSentMessage: true,
-    details: { workspace },
-  });
-  const settled = () =>
-    app.daemon.transfers
-      .list()
-      .every((each) => ["completed", "failed", "cancelled"].includes(each.phase));
-  /** Run every transfer step queued so far, and those they queue, until all have settled. */
-  const finish = async () => {
-    while (!settled()) {
-      await waitFor(() => expect(steps.length > 0 || settled()).toBe(true));
-      while (steps.length) steps.shift()?.();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  };
-  /** Run one step. */
-  const step = async () => {
-    await waitFor(() => expect(steps.length).toBeGreaterThan(0));
-    steps.shift()?.();
-  };
-  return { app, build: machine("build"), finish, step };
-}
-
-async function continueOn() {
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Continue on…" }));
-  return screen.findByRole("dialog", { name: "Continue on another machine" });
-}
-
-const strip = (words: string) =>
-  screen.findByText((text, element) => element?.getAttribute("title") === words);
 
 test("a thread continues on a linked machine: progress, then the project and a new thread there", async () => {
   const { app, build, finish, step } = linkedMachines();
@@ -146,7 +79,7 @@ test("Open on a finished transfer switches to the new thread on that machine", a
 }, 30_000);
 
 test("Cancel stops a transfer while it sends, and nothing lands on the other machine", async () => {
-  const { app, build, step } = linkedMachines();
+  const { app, build, step, drain } = linkedMachines();
   await app.open("/t/thread-forecast");
   const dialog = await continueOn();
   await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
@@ -154,14 +87,28 @@ test("Cancel stops a transfer while it sends, and nothing lands on the other mac
   await step();
   await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));
   expect(await within(dialog).findByText("Cancelled sending to Build server")).toBeTruthy();
-  await step().catch(() => undefined);
+  // Every step it would have taken runs; none of them lands anything there.
+  await drain();
+  expect(app.daemon.transfers.list()[0]?.phase).toBe("cancelled");
   expect(build.projects.list().workspaces).toEqual([]);
+  const view = build.snapshot({ kind: "threads" });
+  expect(view?.kind === "threads" ? Object.keys(view.threads) : []).toEqual([]);
+}, 30_000);
+
+test("a machine that keeps agents out still takes the person's transfer", async () => {
+  const { app, desk, finish } = linkedMachines();
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsFor("Desk");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Desk" }));
+  await finish();
+  expect(await within(dialog).findByText("Continued on Desk")).toBeTruthy();
+  expect(desk.projects.list().workspaces.map((each) => each.name)).toEqual(["weather"]);
 }, 30_000);
 
 test("a failed transfer shows the other machine's words, and Try again sends it again", async () => {
   const { app, build, finish } = linkedMachines();
   app.daemon.transfers.failWith = {
-    code: "digest_mismatch",
+    code: "transfer_corrupt",
     message: "The copy on Build server didn't match. Try again.",
   };
   await app.open("/t/thread-forecast");
@@ -248,17 +195,10 @@ test("Open on… sends a project to a linked machine from the project's menu", a
   expect(view?.kind === "threads" ? Object.keys(view.threads) : []).toEqual([]);
 }, 30_000);
 
-/** The options step for continuing the thread on the build server. */
-async function optionsForBuild() {
-  const dialog = await continueOn();
-  await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
-  return dialog;
-}
-
 test("ignored files come along by default, and turning them off sends none", async () => {
   const { app, finish } = linkedMachines();
   await app.open("/t/thread-forecast");
-  const dialog = await optionsForBuild();
+  const dialog = await optionsFor("Build server");
   const ignored = within(dialog).getByRole("switch", { name: "Bring ignored files" });
   expect(ignored.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(ignored);
@@ -273,7 +213,7 @@ test("with Bring ignored files off in Settings, the toggle starts off and can st
   const { app, finish } = linkedMachines();
   app.daemon.services.settings.write("remote.transferIgnoredFiles", false);
   await app.open("/t/thread-forecast");
-  const dialog = await optionsForBuild();
+  const dialog = await optionsFor("Build server");
   const ignored = await within(dialog).findByRole("switch", {
     name: "Bring ignored files",
     checked: false,

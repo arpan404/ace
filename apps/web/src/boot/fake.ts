@@ -148,7 +148,20 @@ export function bootFake(): {
     { path: "/home/ci/infra/terraform", git: true },
   ]);
   // One project there already, so New thread can start on the build server.
-  if (!empty) server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
+  if (!empty) {
+    const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
+    // A thread there, linked back to this Mac, so Continue on… runs from the build server too.
+    if (added?.workspace)
+      server.createThread({
+        id: "thread-build-rate-limits",
+        workspaceId: added.workspace.id,
+        title: "Add rate limits to the api",
+        provider: "claude",
+        hasSentMessage: true,
+        details: { workspace: added.workspace },
+      });
+    server.linkTo(daemon);
+  }
   seedBuildServerUsage(server, Date.now());
   // This Mac is linked to the build server, so Continue on… and Open on… can send work there,
   // and to a studio that is off, which the chooser shows as offline (ADR 0099).

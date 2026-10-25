@@ -40,7 +40,7 @@ it("refuses a machine this one has no link to", async () => {
     includeChanges: true,
   });
   expect(receipt).toMatchObject({ ok: false, error: "machine_not_linked" });
-  expect(receipt.detail).toMatch(/Settings › Machines/);
+  expect(receipt.detail).toMatch(/Settings › Fleet/);
 });
 
 it("fails a transfer whose file arrives damaged, and registers nothing there", async () => {

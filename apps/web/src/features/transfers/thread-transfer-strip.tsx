@@ -1,11 +1,13 @@
 import { transferRunning } from "@ace/client";
-import { useThreadMeta, useThreadTransfer } from "@ace/client-react";
+import { useThreadMeta, useThreadTransfer, useTransferDismissal } from "@ace/client-react";
 import type { ThreadContinuedOn, ThreadDetails, Transfer } from "@ace/protocol";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useScopedMachine } from "@/lib/machines.ts";
 import { useOpenOnMachine } from "@/lib/open-on-machine.ts";
+import { useTransferOpener, type TransferRequest } from "@/lib/transfer-opener.ts";
 import { TransferLine } from "./transfer-line.tsx";
 import { useTransferLine } from "./transfer-status.ts";
-import { useTransferActions } from "./use-transfer-actions.ts";
+import { placementOf, useTransferActions } from "./use-transfer-actions.ts";
 
 /** What the thread's strip says about where its work went or came from. Pure. */
 export type ThreadTransferState =
@@ -21,15 +23,11 @@ export type ThreadTransferState =
 export function threadTransferState(
   transfer: Transfer | undefined,
   details: Pick<ThreadDetails, "continuedOn" | "continuedFrom"> | undefined,
-  dismissed: string | undefined,
+  dismissed: boolean,
 ): ThreadTransferState | undefined {
   const on = details?.continuedOn;
   if (transfer && transferRunning(transfer)) return { kind: "transfer", transfer };
-  if (
-    transfer?.phase === "failed" &&
-    transfer.transferId !== dismissed &&
-    (!on || transfer.updatedAt > on.at)
-  )
+  if (transfer?.phase === "failed" && !dismissed && (!on || transfer.updatedAt > on.at))
     return { kind: "transfer", transfer };
   if (on) return { kind: "on", on };
   if (transfer?.phase === "completed") return { kind: "transfer", transfer };
@@ -37,14 +35,17 @@ export function threadTransferState(
   return undefined;
 }
 
-/** Whether the strip has something to say about this thread's transfers. */
+/**
+ * Whether the strip has something to say about this thread's transfers. A dismissed failure
+ * stays dismissed for as long as the window follows that machine, wherever the thread reopens.
+ */
 export function useThreadTransferState(threadId: string) {
   const transfer = useThreadTransfer(threadId);
   const details = useThreadMeta(threadId)?.details;
-  const [dismissed, setDismissed] = useState<string>();
+  const { dismissed, dismiss } = useTransferDismissal(transfer?.transferId);
   return {
     state: threadTransferState(transfer, details, dismissed),
-    dismiss: setDismissed,
+    dismiss,
   };
 }
 
@@ -89,13 +90,25 @@ function RunningLine(props: {
   const { transfer } = props;
   const title = useThreadMeta(props.threadId)?.title ?? "";
   const { start } = useTransferActions();
+  const opener = useTransferOpener();
+  const scoped = useScopedMachine()?.id;
+  const request: TransferRequest = {
+    kind: "thread",
+    threadId: props.threadId,
+    workspaceId: transfer.workspaceId,
+    title,
+    ...(scoped ? { hostId: scoped } : {}),
+  };
+  const placement = placementOf(transfer);
+  // The same choices again; a daemon that didn't echo them asks for them once more.
   const line = useTransferLine(
     transfer,
-    () =>
-      void start(
-        { kind: "thread", threadId: props.threadId, workspaceId: transfer.workspaceId, title },
-        { hostId: transfer.target.hostId, includeChanges: true },
-      ),
+    placement
+      ? async () => {
+          const started = await start(request, placement);
+          return started.ok ? undefined : started;
+        }
+      : () => opener.open({ ...request, machine: transfer.target }),
   );
   const actions =
     transfer.phase === "failed"

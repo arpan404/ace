@@ -93,7 +93,7 @@ export class AgentTransfers {
         "transfers_off",
         "transfers_off",
         undefined,
-        'This machine doesn\'t let agents move work to other machines. The person can turn on "Agents can move projects and threads to other machines" in Settings › Machines.',
+        'This machine doesn\'t let agents move work to other machines. The person can turn on "Agents can move projects and threads to other machines" in Settings › Fleet.',
       );
     const thread = store.getThread(caller.threadId);
     if (!thread) throw new AgentControlError("thread_not_found", "caller_missing");

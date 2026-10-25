@@ -26,8 +26,11 @@ export function transferStore(client: ClientApi): TransferStore {
     if (now && !ready)
       client.transfers.list().then(
         (transfers) => store.seed(transfers),
-        // A machine that can't list transfers yet still sends their pushes.
-        () => undefined,
+        // Lost with the connection: the reconnect asks again. A machine that can't list
+        // transfers still sends their pushes, so then pushes are all there is.
+        () => {
+          if (connection.getSnapshot() === "ready") store.unlisted();
+        },
       );
     ready = now;
   };
@@ -63,4 +66,24 @@ export function useProjectTransfer(workspaceId: string | undefined, client?: Cli
     [store, workspaceId],
   );
   return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/** Whether the machine's transfer list has answered, so "nothing running" can be trusted. */
+export function useTransfersSeeded(client?: ClientApi): boolean {
+  const own = useClient();
+  const store = transferStore(client ?? own);
+  return useSyncExternalStore(store.subscribe, store.seeded, store.seeded);
+}
+
+/** Whether this transfer's line was dismissed in this window, and how to dismiss it. */
+export function useTransferDismissal(transferId: string | undefined, client?: ClientApi) {
+  const own = useClient();
+  const store = transferStore(client ?? own);
+  const read = useCallback(
+    () => (transferId ? store.dismissed(transferId) : false),
+    [store, transferId],
+  );
+  const dismissed = useSyncExternalStore(store.subscribe, read, read);
+  const dismiss = useCallback((id: string) => store.dismiss(id), [store]);
+  return { dismissed, dismiss };
 }

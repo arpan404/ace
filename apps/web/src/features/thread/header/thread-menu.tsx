@@ -23,6 +23,7 @@ import {
   useThreadActions,
 } from "@/features/organize/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
@@ -124,6 +125,7 @@ export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
   const actions = useThreadActions();
   const navigate = useNavigate();
   const leave = useThreadLeave();
+  const scoped = useScopedMachine() !== undefined;
   const ready = meta !== undefined;
   useHotkey(keymap.renameThread.keys, props.onRename, { enabled: ready });
   useHotkey(keymap.pinThread.keys, () => meta && actions.setPinned(meta, meta.pinned !== true), {
@@ -134,8 +136,9 @@ export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
     () => {
       if (meta) actions.archive(meta, () => (leave ? leave(meta.id) : void navigate({ to: "/" })));
     },
-    // An archived thread is restored from its menu or the archive, never archived again.
-    { enabled: ready && meta.archivedAt === undefined },
+    // An archived thread is restored from its menu or the archive, never archived again; another
+    // machine's thread isn't archived from here yet (ADR 0100).
+    { enabled: ready && meta.archivedAt === undefined && !scoped },
   );
   return null;
 }

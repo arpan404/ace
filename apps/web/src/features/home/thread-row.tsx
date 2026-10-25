@@ -4,6 +4,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
 import type { ReactElement } from "react";
 import { threadOn } from "@/lib/machine-routes.ts";
+import { useMachines } from "@/lib/machines.ts";
 import {
   useRefusedTitle,
   useSelected,
@@ -46,11 +47,14 @@ export interface RowMachine {
 
 /** Whether the location shows `threadId` on `machine` (undefined: this window's own). */
 export function useOpenHere(threadId: string, machine: string | undefined): boolean {
+  // `?machine=` naming this window's own daemon is this window's own (ADR 0100).
+  const own = useMachines().find((each) => each.primary)?.id;
   return useLocation({
     select: (location) => {
       const search: { machine?: unknown } = location.search;
+      const shown = search.machine === own ? undefined : (search.machine ?? undefined);
       return (
-        (search.machine ?? undefined) === machine &&
+        shown === machine &&
         (location.pathname === `/t/${threadId}` ||
           location.pathname.startsWith(`/t/${threadId}/agents/`))
       );
