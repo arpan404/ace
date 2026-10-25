@@ -150,7 +150,7 @@ export function bootFake(): {
   // One project there already, so New thread can start on the build server.
   if (!empty) {
     const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
-    // A thread there, linked back to this Mac, so Continue on… runs from the build server too.
+    // A thread there, so Continue on… runs from the build server too.
     if (added?.workspace)
       server.createThread({
         id: "thread-build-rate-limits",
@@ -160,11 +160,12 @@ export function bootFake(): {
         hasSentMessage: true,
         details: { workspace: added.workspace },
       });
-    server.linkTo(daemon);
   }
   seedBuildServerUsage(server, Date.now());
-  // This Mac is linked to the build server, so Continue on… and Open on… can send work there,
-  // and to a studio that is off, which the chooser shows as offline (ADR 0099).
+  // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
+  // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
+  // that is off, which the chooser shows as offline (ADR 0099).
+  server.linkTo(daemon);
   daemon.linkTo(server);
   daemon.linkTo(
     new FakeDaemon({ clock: () => Date.now(), hostId: "studio", displayName: "Studio" }),
