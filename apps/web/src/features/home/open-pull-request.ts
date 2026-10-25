@@ -1,4 +1,4 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useSidebarThread } from "@ace/client-react";
 import type { ForgeRepository } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { openExternal } from "@/boot/open-external.ts";
@@ -13,7 +13,8 @@ import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
  */
 export function useOpenThreadPullRequest(threadId: string) {
   const navigate = useNavigate();
-  const workspaceId = useThreadMeta(threadId)?.workspaceId;
+  // From the thread list's own entry: a row must never subscribe to its whole thread.
+  const workspaceId = useSidebarThread(threadId)?.workspaceId;
   return (pr: { number: number; url: string; repo?: ForgeRepository }, click?: LinkClick) => {
     if (!workspaceId || asksForSystemBrowser(click, applePlatform)) {
       void openExternal(pr.url).catch(() => {});
