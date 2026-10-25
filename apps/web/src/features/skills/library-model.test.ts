@@ -3,6 +3,8 @@ import {
   agentsText,
   groupByHome,
   instructionsShown,
+  manualText,
+  nameTaken,
   rowMarks,
   skillBody,
   skillNameProblem,
@@ -49,6 +51,36 @@ test("a new skill's name must be a free slug", () => {
   expect(skillNameProblem("release-notes", taken)).toBe(
     "You already have a skill called release-notes.",
   );
+});
+
+test("a new name clashes only with a skill in the folder it would be saved to", () => {
+  const entries = [
+    { name: "review", scope: "builtin" },
+    { name: "deploy", scope: "plugin" },
+    { name: "notes", scope: "project" },
+    { name: "research", scope: "personal" },
+  ];
+  expect(nameTaken(entries, "review", "personal")).toBe(false);
+  expect(nameTaken(entries, "deploy", "project")).toBe(false);
+  expect(nameTaken(entries, "notes", "personal")).toBe(false);
+  expect(nameTaken(entries, "notes", "project")).toBe(true);
+  expect(nameTaken(entries, "research", "personal")).toBe(true);
+  expect(nameTaken(undefined, "research", "personal")).toBe(false);
+});
+
+test("a manual skill promises not to load by itself only for agents that honour it", () => {
+  const claude = { provider: "claude", honoursManual: true } as const;
+  const cursor = { provider: "cursor", honoursManual: true } as const;
+  const codex = { provider: "codex", honoursManual: false } as const;
+  const opencode = { provider: "opencode", honoursManual: false } as const;
+  expect(manualText([claude, cursor])).toBe("Agents never load it by themselves");
+  expect(manualText([opencode, claude, codex])).toBe(
+    "Claude Code never loads it by itself. Codex and OpenCode may still load it.",
+  );
+  expect(manualText([claude, cursor, codex])).toBe(
+    "Claude Code and Cursor never load it by themselves. Codex may still load it.",
+  );
+  expect(manualText([codex, { ...codex }])).toBe("Codex may still load it.");
 });
 
 test("instructions drop the frontmatter and a first heading that repeats the title", () => {

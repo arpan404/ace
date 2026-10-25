@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
-import { isSkillAgent, skillAgents } from "./library-model.ts";
+import { isSkillAgent, nameTaken, skillAgents } from "./library-model.ts";
 import { SkillRequestError, useCreateSkill } from "./library-source.ts";
 import { NewSkillForm, type NewSkill } from "./new-skill-form.tsx";
 import { SkillPageSkeleton } from "./skills-landing-screen.tsx";
@@ -35,7 +35,6 @@ export function NewSkillPage() {
     : statuses.isError
       ? skillAgents
       : undefined;
-  const names = new Set(library.entries?.map((entry) => entry.name));
   return (
     <Screen title="Skills">
       <div className="h-full overflow-auto">
@@ -48,7 +47,8 @@ export function NewSkillPage() {
               project={library.project?.name}
               agents={skillAgents}
               initialAgents={installed.length ? installed : skillAgents}
-              taken={(name) => names.has(name)}
+              // Only the folder the daemon writes to counts; plugin and built-in names don't clash.
+              taken={(name, scope) => nameTaken(library.entries, name, scope)}
               pathFor={pathFor}
               creating={create.isPending || !!created}
               error={error}

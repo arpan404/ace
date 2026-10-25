@@ -1,4 +1,4 @@
-import { ProviderKind, SkillAgent } from "@ace/protocol";
+import { ProviderKind, SkillAgent, type SkillPresence } from "@ace/protocol";
 import { diffTexts, providerNames, type DiffText } from "@ace/ui-core";
 
 /*
@@ -57,9 +57,37 @@ export function agentsText(providers: readonly ProviderKind[]): string {
     .map((provider) => providerNames[provider]);
   if (!names.length) return "No agent";
   if (skillAgents.every((provider) => providers.includes(provider))) return "Every agent";
-  return names.length === 1
-    ? `${names[0]} only`
-    : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return names.length === 1 ? `${names[0]} only` : namesText(names);
+}
+const namesText = (names: readonly string[]) =>
+  names.length === 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+
+/**
+ * What "Only when picked" means for the agents that have the skill. Codex and OpenCode ignore
+ * the frontmatter flag (ADR 0103 "Manual skills"), so the words never promise more than they do.
+ */
+export function manualText(agents: readonly Pick<SkillPresence, "provider" | "honoursManual">[]) {
+  const names = (honours: boolean) =>
+    orderedProviders(
+      agents.filter((agent) => agent.honoursManual === honours).map((agent) => agent.provider),
+    ).map((provider) => providerNames[provider]);
+  const honouring = names(true);
+  const ignoring = names(false);
+  if (!ignoring.length) return "Agents never load it by themselves";
+  const still = `${namesText(ignoring)} may still load it.`;
+  if (!honouring.length) return still;
+  const itself =
+    honouring.length === 1 ? "never loads it by itself" : "never load it by themselves";
+  return `${namesText(honouring)} ${itself}. ${still}`;
+}
+
+/** Whether the daemon would refuse this name: a native skill of that name in the chosen scope. */
+export function nameTaken(
+  entries: readonly { name: string; scope: string }[] | undefined,
+  name: string,
+  scope: "personal" | "project",
+): boolean {
+  return !!entries?.some((entry) => entry.name === name && entry.scope === scope);
 }
 
 /** Agent order as everywhere else in the app, whatever order they were picked in. */

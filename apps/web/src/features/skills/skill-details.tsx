@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { AgentsMenu } from "./agents-menu.tsx";
-import { homeLabel, isSkillAgent, skillAgents, timesText } from "./library-model.ts";
+import { homeLabel, isSkillAgent, manualText, skillAgents, timesText } from "./library-model.ts";
 import { useSetSkillAgents, useSkillUsage } from "./library-source.ts";
 import { AgentsLine } from "./skill-parts.tsx";
 import { SkillSourceRow } from "./skill-update.tsx";
@@ -66,9 +66,7 @@ export function SkillDetails(props: {
         inline
         title="Runs"
         description={
-          entry.manual
-            ? "Agents never load it by themselves"
-            : "Agents load it by themselves when it fits"
+          entry.manual ? manualText(entry.agents) : "Agents load it by themselves when it fits"
         }
       >
         {editable && (

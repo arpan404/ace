@@ -29,7 +29,8 @@ export function NewSkillForm(props: {
   project: string | undefined;
   agents: readonly ProviderKind[];
   initialAgents: readonly ProviderKind[];
-  taken(name: string): boolean;
+  /** A skill of that name already in `scope`. */
+  taken(name: string, scope: NewSkill["scope"]): boolean;
   pathFor(scope: NewSkill["scope"], name: string): string;
   creating: boolean;
   error: string | undefined;
@@ -46,7 +47,7 @@ export function NewSkillForm(props: {
   });
   const change = (patch: Partial<NewSkill>) => setForm((current) => ({ ...current, ...patch }));
   const name = form.name.trim();
-  const problem = skillNameProblem(name, props.taken);
+  const problem = skillNameProblem(name, (value) => props.taken(value, form.scope));
   const ready =
     !!name && !problem && !!form.description.trim() && form.providers.length > 0 && !props.creating;
   const ids = { name: useId(), description: useId(), instructions: useId(), error: useId() };
