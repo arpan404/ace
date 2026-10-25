@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceChromeButton.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "image": {
+      "$ref": "https://ace.local/protocol/v1/DeviceChromeImage.json"
+    },
+    "name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "onTop": {
+      "type": "boolean"
+    },
+    "pressed": {
+      "$ref": "https://ace.local/protocol/v1/DeviceChromeImage.json"
+    },
+    "rect": {
+      "$ref": "https://ace.local/protocol/v1/DeviceChromeRect.json"
+    },
+    "title": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "rect",
+    "image",
+    "onTop"
+  ],
+  "type": "object"
+}
