@@ -14,7 +14,7 @@ import { storageFixture } from "./test-support.ts";
 vi.setConfig({ testTimeout: 30_000 });
 /** Pruning applies to everything older than the fixture clock, right up to the head. */
 export const pruneLimits = {
-  prune: { updates: 2, maxBatches: 8192, minAgeMs: 86_400_000, headMargin: 0 },
+  prune: { updates: 2, deletions: 1024, maxBatches: 8192, minAgeMs: 86_400_000, headMargin: 0 },
 };
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 const roots: string[] = [];
@@ -194,6 +194,21 @@ test("pruning continues from its stored cursor in later runs and finds nothing l
   expect(removed).toBe(3 * 10);
   expect(events(f.store, id)).toHaveLength(total - removed);
   expect((await f.storage.prune(() => true)).events).toBe(0);
+});
+
+test("an item with more replaced rows than one batch may delete is pruned across batches to the same result", async () => {
+  const f = await open(undefined, {
+    prune: { ...pruneLimits.prune, updates: 64, deletions: 1 },
+  });
+  const id = busyThread(f.store, f.thread("budget"));
+  const head = f.store.headSeq();
+  const before = events(f.store, id);
+  const empty = createThreadView(f.store.snapshotThread(id).thread);
+  const final = shown(deliver(empty, before, head));
+  expect((await f.storage.compact("owner")).eventsPruned).toBe(3 * 10);
+  const after = events(f.store, id);
+  expect(after).toHaveLength(before.length - 3 * 10);
+  expect(shown(deliver(empty, after, head))).toEqual(final);
 });
 
 const crash = (path: string) =>

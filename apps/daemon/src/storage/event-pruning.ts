@@ -103,19 +103,23 @@ export function pruneHorizon(sql: Sql, options: PruneHorizonOptions): number {
   return Math.max(0, Math.min(...bounds));
 }
 
+export interface PruneBatchLimits {
+  /** `item.updated` events handled per batch. */
+  updates: number;
+  /** Rows deleted per batch, so one item with thousands of deltas spans several batches. */
+  deletions: number;
+}
+
 /**
- * Processes up to `updates` `item.updated` events after the cursor and below the horizon, in
- * seq order, in the caller's transaction. Invariant: once an update is processed, its item has
- * no `item.updated` or `item.delta` row before it. So for the next update only the rows since
- * the item's previous surviving update (or its creation) need looking at.
+ * Processes `item.updated` events after the cursor and below the horizon, in seq order, in the
+ * caller's transaction. Invariant: once an update is processed, its item has no `item.updated`
+ * or `item.delta` row before it. So for the next update only the rows since the item's
+ * previous surviving update (or its creation) need looking at. An update whose rows exceed the
+ * deletion budget keeps the cursor before it and continues in the next batch, oldest rows first.
  */
-export function pruneBatch(
-  sql: Sql,
-  horizon: number,
-  updates: number,
-  scanRows = updates * 64,
-): PruneBatch {
+export function pruneBatch(sql: Sql, horizon: number, limits: PruneBatchLimits): PruneBatch {
   const progress = pruneProgress(sql);
+  const scanRows = limits.updates * 64;
   // The row scan is bounded so a stretch without updates still ends the transaction quickly.
   const rows = sql(
     `SELECT seq,thread_id,CASE WHEN type='item.updated' AND json_valid(payload)
@@ -126,18 +130,32 @@ export function pruneBatch(
   let processed = 0;
   let events = 0;
   let revisions = 0;
+  let stopped = false;
   for (const raw of rows) {
     const row = Update.parse(raw);
     if (Number(raw.updated) === 1 && row.item_id !== null) {
-      if (processed === updates) break;
+      if (processed === limits.updates || events >= limits.deletions) {
+        stopped = true;
+        break;
+      }
       processed++;
-      const removed = supersede(sql, row.thread_id, row.item_id, row.seq);
+      const removed = supersede(
+        sql,
+        row.thread_id,
+        row.item_id,
+        row.seq,
+        limits.deletions - events,
+      );
       events += removed.events;
       revisions += removed.revisions;
+      if (removed.more) {
+        stopped = true;
+        break;
+      }
     }
     cursor = row.seq;
   }
-  const done = rows.length < scanRows && processed < updates;
+  const done = !stopped && rows.length < scanRows;
   if (done) cursor = Math.max(cursor, horizon - 1);
   sql(
     "UPDATE storage_event_pruning SET cursor=?,events=events+?,revisions=revisions+? WHERE id=1",
@@ -157,9 +175,9 @@ export function pruneBatch(
  * row itself (CROSS JOIN keeps SQLite from scanning the thread instead). A delta without a
  * stream version is not found and simply stays.
  */
-function supersede(sql: Sql, thread: string, item: string, seq: number) {
+function supersede(sql: Sql, thread: string, item: string, seq: number, budget: number) {
   const since = previousSurvivor(sql, item, seq);
-  if (since === undefined) return { events: 0, revisions: 0 };
+  if (since === undefined) return { events: 0, revisions: 0, more: false };
   const doomed = sql(
     `WITH streams(id) AS (
         SELECT id FROM item_text_streams WHERE item_id=?
@@ -171,11 +189,12 @@ function supersede(sql: Sql, thread: string, item: string, seq: number) {
       )
       SELECT e.seq FROM candidates c CROSS JOIN events e ON e.seq=c.seq
       WHERE e.thread_id=? AND e.type IN ('item.updated','item.delta') AND json_valid(e.payload)
-        AND COALESCE(json_extract(e.payload,'$.item.id'),json_extract(e.payload,'$.itemId'))=?`,
+        AND COALESCE(json_extract(e.payload,'$.item.id'),json_extract(e.payload,'$.itemId'))=?
+      ORDER BY e.seq LIMIT ?`,
   )
-    .all(item, item, item, since, seq, since, seq, thread, item)
+    .all(item, item, item, since, seq, since, seq, thread, item, budget)
     .map((row) => Row.parse(row).seq);
-  if (!doomed.length) return { events: 0, revisions: 0 };
+  if (!doomed.length) return { events: 0, revisions: 0, more: false };
   // The first complete revision marks when the item finished; history reads cite it.
   const completed = sql(
     "SELECT MIN(seq) AS seq FROM history_item_revisions WHERE item_id=? AND json_extract(item,'$.complete')=1",
@@ -187,7 +206,7 @@ function supersede(sql: Sql, thread: string, item: string, seq: number) {
     dropEvent.run(doomedSeq);
     if (doomedSeq !== completed) revisions += Number(dropRevision.run(item, doomedSeq).changes);
   }
-  return { events: doomed.length, revisions };
+  return { events: doomed.length, revisions, more: doomed.length === budget };
 }
 
 /**

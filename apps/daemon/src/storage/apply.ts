@@ -135,13 +135,19 @@ export interface CompactionLimits {
   /** Yields between chunks so held writers' waits and socket traffic stay bounded. */
   pause(): Promise<void>;
   /** Superseded-event pruning: updates per transaction, transactions per run, horizon. */
-  prune: { updates: number; maxBatches: number; minAgeMs: number; headMargin: number };
+  prune: {
+    updates: number;
+    deletions: number;
+    maxBatches: number;
+    minAgeMs: number;
+    headMargin: number;
+  };
 }
 export const defaultCompactionLimits = (pause: () => Promise<void>): CompactionLimits => ({
   chunkPages: 256,
   maxChunks: 4096,
   pause,
-  prune: { updates: 64, maxBatches: 16384, ...pruneDefaults },
+  prune: { updates: 64, deletions: 1024, maxBatches: 16384, ...pruneDefaults },
 });
 
 /**
@@ -166,7 +172,7 @@ export async function pruneSupersededEvents(
   let last: PruneBatch | undefined;
   for (let batch = 0; batch < limits.prune.maxBatches; batch++) {
     if (!allowed()) break;
-    last = await owner.store.write(() => pruneBatch(sql, horizon, limits.prune.updates));
+    last = await owner.store.write(() => pruneBatch(sql, horizon, limits.prune));
     await owner.afterCompactionStep?.();
     if (last.done) break;
     await limits.pause();
