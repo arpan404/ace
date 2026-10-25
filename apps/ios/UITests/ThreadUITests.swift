@@ -271,7 +271,7 @@ import XCTest
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]
         _ = row.waitForExistence(timeout: 25)
-        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
     private func launch() -> XCUIApplication {

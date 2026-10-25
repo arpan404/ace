@@ -31,7 +31,7 @@ import XCTest
         for _ in 0..<15 where !wakes {
             sleep(1)
             wakes = tree.exists && tree.label.contains("Until")
-            if !wakes { app.swipeUp() }
+            if !wakes { app.dragListUp() }
         }
         XCTAssertTrue(wakes)
         app.bringToMiddle(tree)
@@ -49,7 +49,7 @@ import XCTest
         let settled = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
         wait(for: [settled], timeout: 10)
         let settledShelf = app.buttons["inbox.settled"]
-        for _ in 0..<4 where !settledShelf.exists { app.swipeUp() }
+        for _ in 0..<4 where !settledShelf.exists { app.dragListUp() }
         XCTAssertTrue(settledShelf.exists)
         screenshot("inbox-settled")
         app.buttons["inbox.undoSettle"].tap()

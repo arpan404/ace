@@ -45,6 +45,14 @@ extension XCUIApplication {
             }
         }
     }
+    /// Drags the inbox list one screen further down, in the list's own column: beside an iPad's
+    /// open thread the middle of the window is the thread, not the list.
+    @MainActor func dragListUp() {
+        let column = buttons["inbox.settings"].exists ? buttons["inbox.settings"].frame : frame
+        let x = frame.width > 0 ? min(max(column.midX / frame.width, 0.05), 0.95) : 0.5
+        coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.75))
+            .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3)), withVelocity: .fast, thenHoldForDuration: 0)
+    }
     /// Opens Settings from the inbox, scrolled so the machine tools show.
     @MainActor func openSettings() {
         XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
