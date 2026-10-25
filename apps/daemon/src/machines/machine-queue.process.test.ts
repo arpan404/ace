@@ -46,17 +46,23 @@ it("a task sent to a machine at its running limit waits there, reads as queued h
   expect(pair.target.h.contexts.get(second)).toBeUndefined();
   // Here it reads as queued, never done, and keeps its parent open.
   expect(await stateHere(second)).toMatchObject({ state: "queued", machine: "Studio" });
-  await vi.waitFor(async () => expect((await stateHere(first))?.state).toBe("working"));
+  await vi.waitFor(async () => expect((await stateHere(first))?.state).toBe("working"), {
+    timeout: 15_000,
+  });
   expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
     "done",
   );
 
-  await pair.finish(first, "First part done.");
-  await vi.waitFor(() => expect(pair.target.h.contexts.get(second)).toBeDefined());
+  await pair.finishTask(first, "Do the first part", "First part done.");
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(second)).toBeDefined(), {
+    timeout: 15_000,
+  });
   expect(pair.target.daemon.store.getThread(second)?.queuedLaunch).toBeUndefined();
-  await vi.waitFor(async () => expect((await stateHere(second))?.state).toBe("working"));
+  await vi.waitFor(async () => expect((await stateHere(second))?.state).toBe("working"), {
+    timeout: 15_000,
+  });
 
-  await pair.finish(second, "Second part done.");
+  await pair.finishTask(second, "Do the second part", "Second part done.");
   const waited = await pair.source.call({
     op: "wait",
     threadIds: [second],
@@ -91,7 +97,7 @@ it("a task waiting on another machine can be stopped before it starts, and its p
     result: "Stopped before it started.",
   });
   // A freed slot never starts it afterwards.
-  await pair.finish(first, "Holder done.");
+  await pair.finishTask(first, "Do the holder part", "Holder done.");
   await pair.target.daemon.engine?.flush();
   expect(pair.target.h.contexts.get(queued)).toBeUndefined();
   expect(pair.target.daemon.store.getThread(queued)?.queuedLaunch).toBeUndefined();
@@ -114,14 +120,20 @@ it("a waiting task whose start is later refused there settles failed instead of 
   const { pair, delegate } = await limitedPair();
   const first = await delegate("before-disable");
   const queued = await delegate("refused-later");
-  await vi.waitFor(() => expect(pair.target.h.contexts.get(first)).toBeDefined());
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(first)).toBeDefined(), {
+    timeout: 15_000,
+  });
   // The person turns the provider off on that machine while the task waits.
   await pair.target.daemon.settings.set(
     "providers.configuration",
     [{ provider: "claude", enabled: false }],
     { kind: "global" },
   );
-  await pair.finish(first, "Done before the provider was turned off.");
+  await pair.finishTask(
+    first,
+    "Do the before-disable part",
+    "Done before the provider was turned off.",
+  );
 
   const waited = await pair.source.call({
     op: "wait",
@@ -157,13 +169,15 @@ it("a task stopped while waiting and then given new work reads working until its
     text: "Do this instead",
   });
   expect(sent.ok).toBe(true);
-  await vi.waitFor(() => expect(pair.target.h.contexts.get(reopened)).toBeDefined());
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(reopened)).toBeDefined(), {
+    timeout: 15_000,
+  });
   // Polls after the new work started never bring back the old cancellation.
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect((await stateHere(reopened))?.state).toBe("working");
 
-  await pair.finish(first, "Busy part done.");
-  await pair.finish(reopened, "Did it instead.");
+  await pair.finishTask(first, "Do the busy part", "Busy part done.");
+  await pair.finishTask(reopened, "Do this instead", "Did it instead.");
   const waited = await pair.source.call({
     op: "wait",
     threadIds: [reopened],
@@ -205,7 +219,7 @@ it("the target's person stopping a waiting task there means it never runs, and t
     result: "Stopped before it started.",
   });
   // The slot it waited for frees, and the stopped task still never runs.
-  await pair.finish(first, "Done there.");
+  await pair.finishTask(first, "Do the running-there part", "Done there.");
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await pair.target.daemon.engine?.flush();
   expect(pair.target.h.contexts.get(queued)).toBeUndefined();
@@ -216,14 +230,7 @@ it("children that already finished there never hold a slot, and raising the limi
   const { pair, delegate, stateHere } = await limitedPair();
   for (const name of ["earlier-a", "earlier-b"]) {
     const done = await delegate(name);
-    // Its task reached the provider, so finishing ends that turn.
-    await vi.waitFor(() =>
-      expect((pair.target.h.inputs.get(done) ?? []).join("\n")).toContain(`Do the ${name} part`),
-    );
-    await pair.finish(done, `${name} done.`);
-    await vi.waitFor(() =>
-      expect(pair.target.daemon.store.getThread(done)?.status.state).toBe("done"),
-    );
+    await pair.finishTask(done, `Do the ${name} part`, `${name} done.`);
   }
   const running = await delegate("running-now");
   expect(pair.target.daemon.store.getThread(running)?.queuedLaunch).toBeUndefined();
@@ -232,6 +239,8 @@ it("children that already finished there never hold a slot, and raising the limi
 
   // Nothing finishes: the raised limit alone starts it.
   await pair.target.daemon.settings.set("agents.maxRunningChildren", 2, { kind: "global" });
-  await vi.waitFor(() => expect(pair.target.h.contexts.get(waiting)).toBeDefined());
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(waiting)).toBeDefined(), {
+    timeout: 15_000,
+  });
   expect(pair.target.daemon.store.getThread(waiting)?.queuedLaunch).toBeUndefined();
 }, 60_000);

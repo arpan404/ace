@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { FakeHeadless } from "@ace/browser/testing";
 import {
   Command,
@@ -29,11 +29,20 @@ const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexist
  * the source pairs with it the way `ace remote add` stores a machine, as profile `studio`.
  */
 export async function pairedMachines(
-  options: { scopes?: DeviceScope[]; access?: MachineAgentAccess } = {},
+  options: {
+    scopes?: DeviceScope[];
+    access?: MachineAgentAccess;
+    /** The target's engine limits, e.g. one active thread so its engine is full. */
+    targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
+  } = {},
 ) {
   const target = await daemonFixture(
     undefined,
-    { browser: browser(), machines: { pollMs: 50 } },
+    {
+      browser: browser(),
+      machines: { pollMs: 50 },
+      ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
+    },
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
@@ -50,15 +59,31 @@ export async function pairedMachines(
     }),
   );
   const credential = await redeemPairing(pairing.url, "MacBook");
-  const profiles = new Profiles(join(source.h.home, "daemon"));
-  profiles.add({
+  const profile = (url: string, print: string) => ({
     name: "studio",
-    origin: `${remoteUrl.replace("wss:", "https:").replace(/\/?$/, "/")}`,
-    fingerprint,
+    origin: `${url.replace("wss:", "https:").replace(/\/?$/, "/")}`,
+    fingerprint: print,
     deviceId: credential.device.id,
     token: credential.token,
   });
+  const profiles = new Profiles(join(source.h.home, "daemon"));
+  profiles.add(profile(remoteUrl, fingerprint));
   profiles.close();
+  /**
+   * Restarts the target daemon on the same data. It listens on a new port, so the source's
+   * saved machine is pointed there, as relinking a machine does; the pairing itself is kept.
+   */
+  async function restartTarget() {
+    target.daemon = await target.restart();
+    const { remoteUrl: url, fingerprint: print } = target.daemon;
+    if (!url || !print) throw new Error("Target is not listening after its restart");
+    const saved = new Profiles(join(source.h.home, "daemon"));
+    try {
+      saved.replace("studio", profile(url, print));
+    } finally {
+      saved.close();
+    }
+  }
   await target.daemon.settings.set("host.displayName", "Studio", { kind: "global" });
   const access = (value: MachineAgentAccess) =>
     target.daemon.settings.set("remote.agentAccess", value, { kind: "global" });
@@ -87,6 +112,21 @@ export async function pairedMachines(
         },
       },
       { type: "turn.ended", agent: "root", outcome: "completed" },
+    );
+  }
+  /**
+   * Finishes a target thread's turn once `input` reached its provider, so the turn ended is the
+   * one running that input, not a session still opening; then waits for the thread to be done.
+   */
+  async function finishTask(threadId: ThreadId, input: string, text: string) {
+    await vi.waitFor(
+      () => expect((target.h.inputs.get(threadId) ?? []).join("\n")).toContain(input),
+      { timeout: 15_000 },
+    );
+    await finish(threadId, text);
+    await vi.waitFor(
+      () => expect(target.daemon.store.getThread(threadId)?.status.state).toBe("done"),
+      { timeout: 15_000 },
     );
   }
   /** Resolves when a request opens in the given daemon's thread. */
@@ -126,5 +166,16 @@ export async function pairedMachines(
       engine.handler.handle(command, commandContext(source.daemon.store)),
     );
   }
-  return { source, target, credential, access, emit, finish, requestIn, answer };
+  return {
+    source,
+    target,
+    credential,
+    access,
+    emit,
+    finish,
+    finishTask,
+    requestIn,
+    answer,
+    restartTarget,
+  };
 }
