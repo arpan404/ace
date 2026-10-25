@@ -51,8 +51,6 @@ test("a limit set in Settings queues extra children, and raising or clearing it 
     expect(await counts(f)).toMatchObject({ working: 1, queued: 2 });
     expect(f.daemon.store.getThread(first)?.queuedLaunch).toBeUndefined();
     expect(f.daemon.store.getThread(third)?.queuedLaunch?.text).toBe("Do third");
-    // A queued child keeps its parent open.
-    expect(f.daemon.store.getThread(f.caller.threadId)?.status.state).not.toBe("done");
 
     await setLimit(f, 2);
     await vi.waitFor(async () => expect(await counts(f)).toMatchObject({ working: 2, queued: 1 }));

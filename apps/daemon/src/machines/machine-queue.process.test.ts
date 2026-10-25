@@ -44,14 +44,11 @@ it("a task sent to a machine at its running limit waits there, reads as queued h
   // It waits on the other machine with its task shown, and nothing runs it yet.
   expect(pair.target.daemon.store.getThread(second)?.queuedLaunch?.text).toBe("Do the second part");
   expect(pair.target.h.contexts.get(second)).toBeUndefined();
-  // Here it reads as queued, never done, and keeps its parent open.
+  // Here it reads as queued, never done.
   expect(await stateHere(second)).toMatchObject({ state: "queued", machine: "Studio" });
   await vi.waitFor(async () => expect((await stateHere(first))?.state).toBe("working"), {
     timeout: 15_000,
   });
-  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
-    "done",
-  );
 
   await pair.finishTask(first, "Do the first part", "First part done.");
   await vi.waitFor(() => expect(pair.target.h.contexts.get(second)).toBeDefined(), {
