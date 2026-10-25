@@ -352,7 +352,8 @@ test("follow-up messages wake again on the same native thread and retries do not
     delivery: "queue",
   } satisfies import("@ace/protocol").AgentControlOperation;
   expect((await port.execute(parent, message, new AbortController().signal)).ok).toBe(true);
-  expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
+  // Until the child takes its queued message, the parent waits on it and never reads done.
+  expect(h.store.getThread(parent.threadId)?.status).toEqual({ state: "waiting", on: "queue" });
   await h.engine.flush();
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
   expect(h.contexts.get(child.childId)?.resume?.nativeSessionId).toBe(initialNativeId);
