@@ -8,7 +8,7 @@ export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue, drainLaunches, startOrQueue } from "./launch-queue.ts";
-import { childStatus, queuedStatus } from "./child-status.ts";
+import { childStatus, queuedStatus, unlaunchedResult } from "./child-status.ts";
 import { accountProvider, type AccountRegistry } from "@ace/accounts";
 import {
   CommandId,
@@ -733,7 +733,7 @@ export class DelegationService {
     const result: DelegationOutcome = {
       threadId: edge.childId,
       outcome,
-      result: outcome === "cancelled" ? "Stopped before it started." : "It could not be started.",
+      result: unlaunchedResult(outcome),
       truncated: false,
       before: null,
     };

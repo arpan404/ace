@@ -19,6 +19,7 @@ import type { EngineClock } from "../engine/actor.ts";
 import type { Store } from "../store.ts";
 import type { DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { queuedStep } from "./child-status.ts";
 import {
   agentStep,
   clip,
@@ -33,8 +34,6 @@ import {
   watchedState,
 } from "./watch-view.ts";
 
-/** What a queued child's step says, for a model reading agents_status or wait. */
-const queuedStep = "queued: starts when a running agent finishes";
 
 export interface MonitorDependencies {
   store: Store;

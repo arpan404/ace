@@ -129,7 +129,12 @@ export const MachineThreadView = WatchedThread.extend({
 });
 export type MachineThreadView = z.infer<typeof MachineThreadView>;
 export const MachineStatusResult = z.object({ threads: z.array(MachineThreadView).max(16) });
-export const MachineDelegateResult = z.object({ threadId: ThreadId, title: z.string().max(256) });
+export const MachineDelegateResult = z.object({
+  threadId: ThreadId,
+  title: z.string().max(256),
+  /** It waits there for a free slot and starts on its own; it was not refused. */
+  queued: z.boolean().optional(),
+});
 export const MachineSessionResult = z.object({ threadId: ThreadId });
 export const MachineMessageResult = z.object({ arrival: MessageArrival });
 /** A browser tool's MCP result, as the target's own registry produced it. */

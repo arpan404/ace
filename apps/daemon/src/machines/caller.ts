@@ -83,7 +83,7 @@ export class MachineCaller {
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
     };
-    let answer: { threadId: ThreadId; title: string } | undefined;
+    let answer: { threadId: ThreadId; title: string; queued?: boolean | undefined } | undefined;
     // The target keys creation by requestId, so one retry after a dropped connection is safe.
     for (let attempt = 0; !answer; attempt++) {
       try {
@@ -107,6 +107,7 @@ export class MachineCaller {
       provider: request.provider,
       model: request.model,
       title: answer.title,
+      queued: answer.queued === true,
     });
     return answer.threadId;
   }

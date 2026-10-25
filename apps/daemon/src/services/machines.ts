@@ -41,8 +41,14 @@ export function startMachines(context: ServiceContext): void {
     engine,
     journal: () => services.agentControl?.delegations.journal,
     now,
+    limit: () => services.childLimit?.current(),
+    schedule,
+    report: (error) => log.log("warn", "Machine child not started", logError(error)),
   });
   resources.own(() => threads.close());
+  // A raised or cleared limit starts children other machines left waiting here at once.
+  const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
+  if (stopFollowing) resources.own(stopFollowing);
   const browser = new TargetBrowser({
     store,
     engine,

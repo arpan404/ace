@@ -17,6 +17,7 @@ import { clip, elapsedSeconds, settledStates } from "../agent-control/watch-view
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 import { ChildOutbox } from "./child-outbox.ts";
+import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 
 const Row = z.object({
   id: ThreadId,
@@ -123,10 +124,23 @@ export class MachineChildren implements RemoteChildren {
     provider: ProviderKind;
     model?: string | undefined;
     title: string;
+    /** The other machine queued it for a slot: it reads as queued until a poll says more. */
+    queued?: boolean;
   }) {
+    const view: MachineThreadView | undefined = child.queued
+      ? {
+          threadId: child.id,
+          state: "queued",
+          title: clip(child.title, 120),
+          elapsedSeconds: 0,
+          step: queuedStep,
+          status: queuedStatus,
+          requests: [],
+        }
+      : undefined;
     this.deps.store.atomic((db) => {
       db.prepare(
-        "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view) VALUES (?,?,?,?,?,?,?,?,?,?)",
       ).run(
         child.id,
         child.requestKey,
@@ -137,6 +151,7 @@ export class MachineChildren implements RemoteChildren {
         child.provider,
         child.model ?? null,
         this.deps.now(),
+        view ? JSON.stringify(view) : null,
       );
       this.deps.engine()?.machineChild(
         {
@@ -149,7 +164,7 @@ export class MachineChildren implements RemoteChildren {
           model: child.model,
           role: child.role,
           title: child.title,
-          status: { state: "working", agents: 1 },
+          status: view?.status ?? { state: "working", agents: 1 },
           outcome: null,
         },
         "start",
