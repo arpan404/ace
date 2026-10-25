@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { rowsAround, withHeldRows } from "./held-rows.ts";
+import { rowsAround, rowsWithin, withHeldRows } from "./held-rows.ts";
 
 /** Rows of the given heights, stacked from 0. */
 function stacked(heights: readonly number[]) {
@@ -30,4 +30,26 @@ test("the virtualizer's rows are kept, and the held row's added only where they 
   expect(withHeldRows([3, 4, 5], [4, 5])).toEqual([3, 4, 5]);
   expect(withHeldRows([0, 1, 2], [40, 41])).toEqual([0, 1, 2, 40, 41]);
   expect(withHeldRows([0, 1, 2], [])).toEqual([0, 1, 2]);
+});
+
+test("short rows are drawn a screen past each edge of the view, so a fast flick finds them", () => {
+  // Forty 30px rows; rows 20 to 25 are in view, and a screen is 180px.
+  const rows = stacked(Array.from({ length: 40 }, () => 30));
+  const drawn = rowsWithin(rows, { startIndex: 20, endIndex: 25, overscan: 2 }, 180);
+  expect(drawn[0]).toBe(14);
+  expect(drawn.at(-1)).toBe(31);
+});
+
+test("tall rows keep their overscan even when it reaches past a screen", () => {
+  const rows = stacked(Array.from({ length: 40 }, () => 900));
+  expect(rowsWithin(rows, { startIndex: 20, endIndex: 20, overscan: 3 }, 600)).toEqual([
+    17, 18, 19, 20, 21, 22, 23,
+  ]);
+});
+
+test("the drawn rows stop at the ends of the list", () => {
+  const rows = stacked(Array.from({ length: 5 }, () => 30));
+  expect(rowsWithin(rows, { startIndex: 0, endIndex: 4, overscan: 12 }, 500)).toEqual([
+    0, 1, 2, 3, 4,
+  ]);
 });
