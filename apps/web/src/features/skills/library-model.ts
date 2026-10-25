@@ -9,7 +9,7 @@ import { diffTexts, providerNames, type DiffText } from "@ace/ui-core";
 /** Where a skill lives: the open project, the person's own folder, a plugin, or ace itself. */
 export type SkillHome = "project" | "personal" | "plugin" | "builtin";
 
-export const homeOrder: readonly SkillHome[] = ["project", "personal", "plugin", "builtin"];
+const homeOrder: readonly SkillHome[] = ["project", "personal", "plugin", "builtin"];
 
 /** "ace project", "Personal", "Plugins", "Built into ace". */
 export function homeLabel(home: SkillHome, project: string | undefined): string {
