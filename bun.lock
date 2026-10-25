@@ -479,6 +479,7 @@
       },
       "devDependencies": {
         "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/daemon": "workspace:*",

@@ -2,7 +2,6 @@ import { close, constants, createReadStream, fchmod, futimes, write } from "node
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
-import tar from "tar-stream";
 import { z } from "zod";
 import { checkAborted, FolderArchiveError } from "./folder-errors.ts";
 import { linkRoute, validMemberName } from "./folder-link.ts";
@@ -238,6 +237,8 @@ async function extractArchive(
 ): Promise<MergeResult> {
   const { signal, merging, exclude } = options;
   checkAborted(signal);
+  // Loaded on first use so a daemon that never unpacks never evaluates the tar parser.
+  const { default: tar } = await import("tar-stream");
   const held = typeof destination !== "string";
   const root = held ? destination : PinnedDirectory.atBoundary(destination);
   const tree = new Tree(root, merging);

@@ -14,12 +14,16 @@ export function createProbeRunner(
   const running = new Map<number, RawSupervisedProcess>();
   const run = (request: ProbeRequest) => {
     const { id } = request;
+    // The main thread sends the whole environment, already resolved against its own; this
+    // isolate's copy must not bring back what the caller unset.
+    const env: NodeJS.ProcessEnv = { ...request.env };
+    for (const key of Object.keys(process.env)) if (!Object.hasOwn(env, key)) env[key] = undefined;
     let proc: RawSupervisedProcess;
     try {
       proc = spawn({
         command: request.command,
         args: request.args,
-        env: request.env,
+        env,
         name: "cli-probe",
         maxOutputBytes: request.maxBytes,
       });
