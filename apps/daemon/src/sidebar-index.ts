@@ -1,4 +1,5 @@
 import type { SQLOutputValue } from "node:sqlite";
+import { OrderedTree } from "./ordered-tree.ts";
 
 /** One thread's sidebar facts, exactly as the sidebar SQL expressions evaluate them. */
 export interface SidebarFacts {
@@ -35,66 +36,122 @@ export interface SidebarWindowIds {
  */
 export class SidebarIndex {
   private readonly facts = new Map<string, SidebarFacts>();
-  private readonly lists = new Map<string, SortedFacts>();
+  private readonly lists = {
+    paged: new Lists("activity"),
+    active: new Lists("activity"),
+    archived: new Lists("archivedAt"),
+  };
   /** Counted threads per workspace, for live (index 0) and archived (index 1) scopes. */
-  private readonly counts = [new Map<string, Count>(), new Map<string, Count>()] as const;
+  private readonly counts = [new Counts(), new Counts()] as const;
 
   revision(id: string): number | undefined {
     return this.facts.get(id)?.revision;
+  }
+  /** Replace everything with these threads, ids unique: one sort per list, not n inserts. */
+  load(all: Iterable<SidebarFacts>): void {
+    this.clear();
+    const grouped = new Map<SortedFacts, SidebarFacts[]>();
+    for (const facts of all) {
+      if (this.facts.has(facts.id)) throw new Error("Sidebar facts repeat a thread");
+      this.facts.set(facts.id, facts);
+      this.count(facts, 1);
+      this.listsOf(facts, (list) => {
+        const items = grouped.get(list);
+        if (items) items.push(facts);
+        else grouped.set(list, [facts]);
+      });
+    }
+    for (const [list, items] of grouped) list.tree.load(items.toSorted(list.compare));
   }
   /** Insert or replace one thread's facts. */
   put(facts: SidebarFacts): void {
     this.remove(facts.id);
     this.facts.set(facts.id, facts);
-    for (const key of listKeys(facts)) this.list(key, facts).insert(facts);
-    if (!facts.deleted && facts.counted) {
-      const counts = this.counts[facts.archived ? 1 : 0];
-      const key = valueKey(facts.workspace);
-      const count = counts.get(key);
-      if (count) count.threads++;
-      else counts.set(key, { workspace: facts.workspace, threads: 1 });
-    }
+    this.listsOf(facts, (list) => list.tree.insert(facts));
+    this.count(facts, 1);
   }
   remove(id: string): void {
     const facts = this.facts.get(id);
     if (!facts) return;
     this.facts.delete(id);
-    for (const key of listKeys(facts)) this.lists.get(key)?.remove(facts);
-    if (!facts.deleted && facts.counted) {
-      const counts = this.counts[facts.archived ? 1 : 0];
-      const key = valueKey(facts.workspace);
-      const count = counts.get(key);
-      if (count && --count.threads === 0) counts.delete(key);
-    }
+    this.listsOf(facts, (list) => list.tree.remove(facts));
+    this.count(facts, -1);
   }
   clear(): void {
     this.facts.clear();
-    this.lists.clear();
+    for (const lists of Object.values(this.lists)) lists.clear();
     this.counts[0].clear();
     this.counts[1].clear();
   }
   window(scope: SidebarScope, limit: number): SidebarWindowIds {
     const archived = scope.archived === true;
-    const project = scope.project === undefined ? "*" : projectKey(scope.project);
-    const paged = this.lists.get(`${archived ? "archived" : "paged"}:${project}`);
-    const active = archived ? undefined : this.lists.get(`active:${project}`);
+    const pick = (lists: Lists) =>
+      scope.project === undefined ? lists.all : lists.projects.get(scope.project);
+    const paged = pick(archived ? this.lists.archived : this.lists.paged);
+    const active = archived ? undefined : pick(this.lists.active);
     return {
-      active: active?.ids(Infinity) ?? [],
-      page: paged?.ids(limit) ?? [],
-      more: (paged?.size ?? 0) > limit,
-      total: paged?.size ?? 0,
-      counts: [...this.counts[archived ? 1 : 0].values()]
+      active: active?.tree.first(Infinity).map((facts) => facts.id) ?? [],
+      page: paged?.tree.first(limit).map((facts) => facts.id) ?? [],
+      more: (paged?.tree.size ?? 0) > limit,
+      total: paged?.tree.size ?? 0,
+      counts: this.counts[archived ? 1 : 0]
+        .values()
         .toSorted((a, b) => compareSql(a.workspace, b.workspace))
         .map((count) => ({ id: String(count.workspace), threads: count.threads })),
     };
   }
-  private list(key: string, facts: SidebarFacts): SortedFacts {
-    let list = this.lists.get(key);
+  /** The lists a thread belongs to: its kind, in all projects and in its own project. */
+  private listsOf(facts: SidebarFacts, visit: (list: SortedFacts) => void): void {
+    if (facts.deleted) return;
+    const lists = facts.archived
+      ? this.lists.archived
+      : facts.settled === true
+        ? this.lists.paged
+        : facts.settled === false
+          ? this.lists.active
+          : undefined;
+    if (!lists) return;
+    visit(lists.all);
+    // `workspace_id = ?` binds the project as text, so only a text workspace can match it.
+    if (typeof facts.workspace === "string") visit(lists.project(facts.workspace));
+  }
+  private count(facts: SidebarFacts, delta: 1 | -1): void {
+    if (!facts.deleted && facts.counted)
+      this.counts[facts.archived ? 1 : 0].add(facts.workspace, delta);
+  }
+}
+
+/** One list's tree and its order: `ORDER BY key DESC, id ASC`. */
+interface SortedFacts {
+  tree: OrderedTree<SidebarFacts>;
+  compare: (a: SidebarFacts, b: SidebarFacts) => number;
+}
+/** One kind of list, across all projects and per project. */
+class Lists {
+  all: SortedFacts;
+  readonly projects = new Map<string, SortedFacts>();
+  private readonly key: "activity" | "archivedAt";
+  constructor(key: "activity" | "archivedAt") {
+    this.key = key;
+    this.all = this.create();
+  }
+  project(workspace: string): SortedFacts {
+    let list = this.projects.get(workspace);
     if (!list) {
-      list = new SortedFacts(facts.archived ? "archivedAt" : "activity");
-      this.lists.set(key, list);
+      list = this.create();
+      this.projects.set(workspace, list);
     }
     return list;
+  }
+  clear(): void {
+    this.all = this.create();
+    this.projects.clear();
+  }
+  private create(): SortedFacts {
+    const key = this.key;
+    const compare = (a: SidebarFacts, b: SidebarFacts) =>
+      compareSql(b[key], a[key]) || compareSql(a.id, b.id);
+    return { tree: new OrderedTree(compare), compare };
   }
 }
 
@@ -102,70 +159,27 @@ interface Count {
   workspace: SQLOutputValue;
   threads: number;
 }
-
-/** The lists a thread belongs to: its kind, in all projects and in its own project. */
-function listKeys(facts: SidebarFacts): string[] {
-  if (facts.deleted) return [];
-  const kind = facts.archived
-    ? "archived"
-    : facts.settled === true
-      ? "paged"
-      : facts.settled === false
-        ? "active"
-        : undefined;
-  if (!kind) return [];
-  // `workspace_id = ?` binds the project as text, so only a text workspace can match it.
-  return typeof facts.workspace === "string"
-    ? [`${kind}:*`, `${kind}:${projectKey(facts.workspace)}`]
-    : [`${kind}:*`];
-}
-function projectKey(project: string): string {
-  return `=${project}`;
-}
-function valueKey(value: SQLOutputValue): string {
-  if (value instanceof Uint8Array) return `b:${Buffer.from(value).toString("hex")}`;
-  return `${typeof value === "string" ? "s" : value === null ? "n" : "#"}:${String(value)}`;
-}
-
-class SortedFacts {
-  private readonly items: SidebarFacts[] = [];
-  private readonly key: "activity" | "archivedAt";
-  constructor(key: "activity" | "archivedAt") {
-    this.key = key;
+/** Per-workspace counts, grouped as `GROUP BY workspace_id` groups raw values. */
+class Counts {
+  // Map keys compare like SQLite groups here: text and numbers never match each other.
+  private readonly plain = new Map<SQLOutputValue, Count>();
+  private readonly blobs = new Map<string, Count>();
+  add(workspace: SQLOutputValue, delta: 1 | -1): void {
+    const map: Map<SQLOutputValue, Count> =
+      workspace instanceof Uint8Array ? this.blobs : this.plain;
+    const key =
+      workspace instanceof Uint8Array ? Buffer.from(workspace).toString("hex") : workspace;
+    const count = map.get(key) ?? { workspace, threads: 0 };
+    count.threads += delta;
+    if (count.threads > 0) map.set(key, count);
+    else map.delete(key);
   }
-  get size(): number {
-    return this.items.length;
+  values(): Count[] {
+    return [...this.plain.values(), ...this.blobs.values()];
   }
-  insert(facts: SidebarFacts): void {
-    this.items.splice(this.position(facts), 0, facts);
-  }
-  remove(facts: SidebarFacts): void {
-    const at = this.position(facts);
-    if (this.items[at]?.id === facts.id) this.items.splice(at, 1);
-  }
-  ids(limit: number): string[] {
-    const ids: string[] = [];
-    for (const facts of this.items) {
-      if (ids.length >= limit) break;
-      ids.push(facts.id);
-    }
-    return ids;
-  }
-  /** First index whose item does not sort before `facts`. */
-  private position(facts: SidebarFacts): number {
-    let low = 0;
-    let high = this.items.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      const item = this.items[middle];
-      if (item && this.before(item, facts)) low = middle + 1;
-      else high = middle;
-    }
-    return low;
-  }
-  private before(a: SidebarFacts, b: SidebarFacts): boolean {
-    const order = compareSql(b[this.key], a[this.key]);
-    return order < 0 || (order === 0 && compareSql(a.id, b.id) < 0);
+  clear(): void {
+    this.plain.clear();
+    this.blobs.clear();
   }
 }
 
