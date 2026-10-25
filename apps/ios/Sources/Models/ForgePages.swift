@@ -11,6 +11,7 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
         let disabled: String?
     }
     struct Method: Decodable, Sendable, Equatable, Hashable { let method: String; let label: String }
+    struct MergeCommit: Decodable, Sendable, Equatable, Hashable { var title: String; var message: String }
     struct Reviewer: Decodable, Sendable, Equatable, Hashable { let login: String; let outcome: String? }
     struct Check: Decodable, Sendable, Equatable, Hashable { let name: String; let tone: String; let word: String }
     struct File: Decodable, Sendable, Equatable, Hashable { let path: String; let additions: Int; let deletions: Int; let status: String }
@@ -32,6 +33,9 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let commits: Int
     let changedFiles: Int
     let body: String
+    let bodyBlocks: [ForgeRichBlock]
+    let tasks: Bool
+    let conversation: String
     let labels: [ForgeLabel]
     let gates: [Gate]
     let primary: String
@@ -40,6 +44,8 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let blockers: [String]
     let methods: [Method]
     let method: String
+    /// The commit a merge or squash writes, as GitHub would prefill it; nil for rebase.
+    let commit: MergeCommit?
     let reviewers: [Reviewer]
     let checks: [Check]
     let files: [File]
@@ -55,6 +61,8 @@ struct ForgeWriteTarget: Sendable, Equatable {
     let repository: ForgeRepository
     let headSha: String
     let method: String
+    /// The commit as the person edited it; GitHub's own when nil.
+    var commit: ForgePullPage.MergeCommit?
     init(action: ForgePullPage.Action, project: String, page: ForgePullPage, method: String) {
         self.action = action
         self.project = project
@@ -77,6 +85,7 @@ struct ForgeWriteTarget: Sendable, Equatable {
         case "enable-auto-merge": payload["type"] = "forge.auto-merge"; payload["action"] = "enable"
         default: payload["type"] = "forge.auto-merge"; payload["action"] = "disable"
         }
+        if let commit { payload["commit"] = ["title": commit.title, "message": commit.message] }
         return payload
     }
 }
@@ -97,6 +106,7 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
         let event: String
         let at: Double?
         let body: String?
+        let blocks: [ForgeRichBlock]
     }
     struct IssueRef: Codable, Sendable, Equatable, Hashable {
         let repository: ForgeRepository
@@ -114,11 +124,15 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let createdAt: Double?
     let updatedAt: Double?
     let body: String
+    let bodyBlocks: [ForgeRichBlock]
+    let tasks: Bool
     let labels: [ForgeLabel]
     let assignees: [String]
     let milestone: String?
     let events: [Event]
     let moreEvents: Bool
     let threads: [ForgeRelatedThread]
+    let box: ForgeBox
+    let unconfirmed: [ForgeManage.Unconfirmed]
     let start: Start
 }

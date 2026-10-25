@@ -32,6 +32,8 @@ struct ForgeHome: View {
     @State private var projectsFailed: String?
     @State private var pullsFilter = PullsFilter()
     @State private var issuesFilter = IssuesFilter()
+    @State private var notificationsFilter = NotificationsFilter()
+    @State private var creating = false
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
@@ -81,6 +83,13 @@ struct ForgeHome: View {
             }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
             .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
+            .sheet(isPresented: $creating) {
+                if let session, let chosen {
+                    ForgeNewPullSheet(client: session.client, project: chosen) { number in
+                        actions.open(ForgeRoute(kind: .pull, machineId: session.hostId, project: chosen, number: number))
+                    }
+                }
+            }
     }
 
     private var listKey: String {
@@ -107,6 +116,9 @@ struct ForgeHome: View {
             case .issues:
                 ForgeIssuesList(model: issues,
                                 open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
+            case .inbox:
+                ForgeNotificationsList(client: session.client, machineId: session.hostId, project: chosen, filter: notificationsFilter, query: query, open: actions.open)
+                    .id("\(session.hostId)|\(chosen)|\(notificationsFilter)")
             }
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
@@ -143,12 +155,30 @@ struct ForgeHome: View {
             GlassSwitch(selection: $kind, choices: [
                 .init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls"),
                 .init(value: .issues, title: "Issues", identifier: "forge.kind.issues"),
+                .init(value: .inbox, title: "Inbox", identifier: "forge.kind.inbox"),
             ])
-            ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
-                             pullList: pulls.list, issueList: issues.list)
+            if kind == .pulls, session?.client.canOperate == true, chosen != nil {
+                Button { creating = true } label: {
+                    Image(ace: .plus).frame(width: 36, height: 36).contentShape(Rectangle())
+                }
+                .accessibilityLabel("New pull request")
+                .accessibilityIdentifier("forge.newpr")
+            }
+            if kind == .inbox {
+                ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
+            } else {
+                ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
+                                 pullList: pulls.list, issueList: issues.list)
+            }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// The reasons the inbox last named, for its filter.
+    private var notificationReasons: [ForgeNotifications.Reason] {
+        guard let client = session?.client, let chosen else { return [] }
+        return client.kept(ClientModel.forgeNotificationsRead(project: chosen, filter: notificationsFilter), as: ForgeNotifications.self)?.reasons ?? []
     }
 
     private func choose(_ id: String) {
@@ -181,6 +211,9 @@ struct ForgeHome: View {
             await issues.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
+        case .inbox:
+            // The inbox reads itself (`ForgeNotificationsList`).
+            break
         }
     }
 
@@ -196,6 +229,8 @@ struct ForgeHome: View {
             await issues.more { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
+        case .inbox:
+            break
         }
     }
 }

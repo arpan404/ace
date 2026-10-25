@@ -1,12 +1,11 @@
 import { useState } from "react";
-import type { ForgeReviewState } from "@ace/protocol";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
-import { draftPlace } from "./pr-comment-model.ts";
+import { draftPlace, verdictBlocked } from "@ace/ui-core";
 import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 
 type Verdict = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -15,19 +14,6 @@ const verdicts: readonly { value: Verdict; label: string }[] = [
   { value: "APPROVE", label: "Approve" },
   { value: "REQUEST_CHANGES", label: "Request changes" },
 ];
-
-/** Why the viewer can't give a verdict here, or undefined when they can. */
-export function verdictBlocked(
-  state: Pick<ForgeReviewState, "viewer" | "canReview">,
-  author: string,
-  open: boolean,
-): string | undefined {
-  if (state.viewer === author)
-    return "You can't approve or request changes on your own pull request.";
-  if (!open) return "Only an open pull request takes an approval or a change request.";
-  if (!state.canReview) return "GitHub doesn't let this account approve this pull request.";
-  return undefined;
-}
 
 /**
  * "Review" in the pull request's header, with how many line comments wait in the review. It

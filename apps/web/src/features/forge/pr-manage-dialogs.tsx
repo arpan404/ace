@@ -17,7 +17,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
-import { lockReasonLabels } from "./pr-lock-reasons.ts";
+import { lockReasonLabels } from "@ace/ui-core";
 import { readFailureText } from "./query-state.tsx";
 
 const noReason = "none";

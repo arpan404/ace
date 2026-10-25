@@ -26,7 +26,8 @@
     "./mobile": "./src/mobile.ts",
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
-    "./byte-size": "./src/byte-size.ts"
+    "./byte-size": "./src/byte-size.ts",
+    "./forge-rich": "./src/forge-rich/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
@@ -42,6 +43,8 @@
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "marked": "^18.0.14",
+    "parse5": "^8.0.0",
     "prismjs": "^1.30.0",
     "zod": "^4.6.5"
   },

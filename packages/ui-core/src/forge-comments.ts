@@ -5,7 +5,8 @@ import type {
   ForgeReviewAnchor,
   ForgeReviewState,
 } from "@ace/protocol";
-import type { DiffRow } from "@ace/ui-core";
+import { authoredReviewComment } from "@ace/forge/review-comment-body";
+import type { DiffRow } from "./diff.ts";
 
 /** Pure rules behind the PR's comments: links, hidden state, thread placement and wording. */
 
@@ -145,4 +146,13 @@ export function suggestionBlock(rows: readonly DiffRow[], start: number, end: nu
   for (const row of rows) visit(row);
   const body = Array.from({ length: end - start + 1 }, (_, index) => lines[index] ?? "").join("\n");
   return `\`\`\`suggestion\n${body}\n\`\`\`\n`;
+}
+
+/** `body` as a Markdown quote, each line behind "> ", then a blank line to write under. */
+export function quoted(body: string): string {
+  const text = authoredReviewComment(body).trim();
+  return `${text
+    .split("\n")
+    .map((line) => (line ? `> ${line}` : ">"))
+    .join("\n")}\n\n`;
 }

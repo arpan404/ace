@@ -1,4 +1,25 @@
-import type { Change, Selection } from "./edits.ts";
+import type { ForgeIssueDetail, ForgePrDetail } from "@ace/protocol";
+
+/*
+ * `@` and `#` completion in a Markdown field, as GitHub reads mentions and references: what the
+ * caret is completing, the edit a pick makes, and how a `#` query searches. Pure; the web's
+ * editor and the phone's bridge share it.
+ */
+
+/** The text a field holds and what is selected in it; `start <= end`, offsets into `value`. */
+export interface Selection {
+  value: string;
+  start: number;
+  end: number;
+}
+
+/** One edit: replace `from`..`to` with `insert`, then select `select` (offsets in the new text). */
+export interface Change {
+  from: number;
+  to: number;
+  insert: string;
+  select: readonly [start: number, end: number];
+}
 
 /** What is being completed at the caret: a person after `@`, or an issue or PR after `#`. */
 export interface CompletionMatch {
@@ -170,4 +191,99 @@ export function referenceMatches(
     .split(" ")
     .filter(Boolean)
     .every((word) => titleWords.some((titleWord) => titleWord.startsWith(word)));
+}
+
+/** Someone `@` can name. */
+export interface CompletionPerson {
+  login: string;
+  name?: string | undefined;
+  avatarUrl?: string | undefined;
+}
+
+/** How many suggestions a list shows. */
+const most = 8;
+
+/**
+ * A search as the protocol accepts it (`ForgeCompletionQuery`): anything else becomes a space,
+ * so `acme/docs` searches `acme docs` and no search qualifier reaches GitHub. The one sanitizer
+ * before the wire.
+ */
+export function searchable(query: string): string {
+  return query
+    .replace(/[^\w .-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+function matches(person: CompletionPerson, query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    !q ||
+    person.login.toLowerCase().includes(q) ||
+    (person.name?.toLowerCase().includes(q) ?? false)
+  );
+}
+
+/**
+ * `@` suggestions in GitHub's order: the conversation's own people first (in the order given),
+ * then the repository's others, each person once.
+ */
+export function rankPeople(
+  participants: readonly CompletionPerson[],
+  found: readonly CompletionPerson[],
+  query: string,
+): CompletionPerson[] {
+  const seen = new Map<string, CompletionPerson>();
+  for (const person of [...participants.filter((p) => matches(p, query)), ...found]) {
+    const key = person.login.toLowerCase();
+    const known = seen.get(key);
+    // A search result may know the name and picture a participant's entry lacks.
+    seen.set(
+      key,
+      known
+        ? {
+            ...person,
+            ...known,
+            name: known.name ?? person.name,
+            avatarUrl: known.avatarUrl ?? person.avatarUrl,
+          }
+        : person,
+    );
+  }
+  return [...seen.values()].slice(0, most);
+}
+
+function people(entries: readonly (readonly [string, string | undefined])[]): CompletionPerson[] {
+  const seen = new Set<string>();
+  return entries.flatMap(([login, avatarUrl]) => {
+    const key = login.toLowerCase();
+    if (!login || seen.has(key)) return [];
+    seen.add(key);
+    return [{ login, ...(avatarUrl ? { avatarUrl } : {}) }];
+  });
+}
+
+/** A pull request's people: its author, reviewers, then whoever commented, latest first. */
+export function prParticipants(detail: ForgePrDetail): CompletionPerson[] {
+  const comments = detail.status.comments.toSorted((a, b) =>
+    (b.createdAt ?? b.updatedAt).localeCompare(a.createdAt ?? a.updatedAt),
+  );
+  return people([
+    [detail.author, detail.authorAvatarUrl],
+    ...detail.reviewers.map((login) => [login, detail.reviewerAvatars?.[login]] as const),
+    ...comments.map((c) => [c.author, c.authorAvatarUrl] as const),
+  ]);
+}
+
+/** An issue's people: its author, assignees, then whoever spoke in it, latest first. */
+export function issueParticipants(
+  issue: ForgeIssueDetail,
+  actors: readonly string[],
+): CompletionPerson[] {
+  return people([
+    [issue.author, issue.authorAvatarUrl ?? issue.avatars?.[issue.author]],
+    ...issue.assignees.map((login) => [login, issue.avatars?.[login]] as const),
+    ...actors.toReversed().map((login) => [login, issue.avatars?.[login]] as const),
+  ]);
 }

@@ -309,6 +309,27 @@ confirmed first. Start thread on an issue opens New thread with the issue writte
 linked (`thread.create`'s `issue`). Linked threads open on the Threads tab. Bridge behaviour is
 covered by `bridge/forge-service.test.ts` on the fake daemon.
 
+A pull request's page opens its Timeline, Files changed and Code views. The bridge answers
+`forge.pull.timeline` (the web's grouped timeline, with what this account may do to each
+comment), `forge.pull.files`, `forge.pull.file` (one file's diff with its line conversations and
+pending review comments), `forge.pull.reviewers` and `forge.pull.manage`, and the writes
+`forge.review`, `forge.manage`, `forge.task` and `forge.newpr.create`. The decisions live in
+`@ace/ui-core` (`forge-timeline`, `forge-comments`, `forge-reviewers`, `forge-review-rules`,
+`text-completions`, `forge-lifecycle-words`), shared with the web. Every write is sent once: a
+locked conversation refuses comments before sending, an edit or delete expects the text the
+phone showed, a lifecycle change names the version shown, and an answer that never came is
+shown as unconfirmed with Reconcile (review and lifecycle writes) or Send again (inbox writes,
+which set a state). `@` and `#` complete through `forge.complete` in every editor.
+
+Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
+web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
+alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
+task boxes that tick through `forge.task`. Images and videos come only through the daemon's
+media path (`forge.media`), private uploads included. SVG, WebM and mermaid draw in a small
+offline web view; `bun run generate` copies mermaid's standalone build to
+`Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
+requests and issues open in the app, from other repositories too.
+
 ## Several machines
 
 Every paired machine connects at once, each on its own runtime (VM, socket, outbox

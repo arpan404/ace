@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { mergeMethods, type MergeMethod } from "@ace/ui-core";
-import type { ForgeMergeCommit, ForgeMergeState, ForgePrDetail } from "@ace/protocol";
+import { defaultMergeCommit, mergeMethods } from "@ace/ui-core";
+import type { ForgeMergeCommit } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,28 +11,6 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import type { PrActions } from "./pr-actions.ts";
-
-/**
- * The commit a merge or squash writes, as GitHub would prefill it: its own text for this account
- * when it says, else its defaults (a merge names the PR and branch; a squash is the PR's title
- * with its number and the description below).
- */
-export function defaultMergeCommit(
-  detail: ForgePrDetail,
-  method: Exclude<MergeMethod, "rebase">,
-  state: ForgeMergeState | undefined,
-): ForgeMergeCommit {
-  const own = state?.commitMessages?.[method];
-  if (own) return own;
-  const { status } = detail;
-  const owner = detail.headRepository?.owner ?? status.ref.repository.owner;
-  return method === "merge"
-    ? {
-        title: `Merge pull request #${status.ref.number} from ${owner}/${detail.headBranch}`,
-        message: status.title,
-      }
-    : { title: `${status.title} (#${status.ref.number})`, message: detail.body };
-}
 
 /**
  * Edit the merge or squash commit before merging now or arming auto-merge. Opened with

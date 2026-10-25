@@ -6,7 +6,7 @@ import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
-import { plural, previewOf, threadPlace } from "./pr-comment-model.ts";
+import { plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";

@@ -15,7 +15,7 @@ import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
-import { prPollInterval, type GateKey } from "@ace/ui-core";
+import { prParticipants, prPollInterval, type GateKey } from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -33,7 +33,7 @@ import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
-import { ForgeCompletions, prParticipants } from "./forge-completions.tsx";
+import { ForgeCompletions } from "./forge-completions.tsx";
 import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";

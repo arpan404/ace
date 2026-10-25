@@ -1,11 +1,8 @@
 import { createContext, useContext } from "react";
 
 /** Someone `@` can mention. */
-export interface CompletionPerson {
-  login: string;
-  name?: string | undefined;
-  avatarUrl?: string | undefined;
-}
+export type { CompletionPerson } from "@ace/ui-core";
+import type { CompletionPerson } from "@ace/ui-core";
 
 /** An issue or pull request `#` can point at. */
 export interface CompletionReference {
