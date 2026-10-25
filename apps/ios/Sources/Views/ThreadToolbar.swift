@@ -71,6 +71,18 @@ struct ThreadMenu: View {
                 Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
             Section {
+                if model.canOperate, model.transfers.linked, !archived {
+                    // Shown only while this machine links to another (ADR 0101).
+                    let ready = model.transfers.thread(thread.id)?.canContinue == true
+                    Button { model.continueOn(threadId: thread.id, title: title) } label: {
+                        Label {
+                            Text("Continue on…")
+                            if !ready { Text("Available once the thread stops working") }
+                        } icon: { Image(ace: .desktop) }
+                    }
+                    .disabled(!ready)
+                    .accessibilityIdentifier("thread.continueOn")
+                }
                 if let activityRow, let hostId = model.hostId {
                     Button("Show on Lock Screen", ace: .squaresFour) {
                         do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
@@ -86,20 +98,6 @@ struct ThreadMenu: View {
                 }
                 if model.canOperate, !archived {
                     Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
-                }
-            }
-            if model.canOperate, model.transfers.linked, !archived {
-                // Shown only while this machine links to another (ADR 0101).
-                Section {
-                    let ready = model.transfers.thread(thread.id)?.canContinue == true
-                    Button { model.continueOn(threadId: thread.id, title: title) } label: {
-                        Label {
-                            Text("Continue on…")
-                            if !ready { Text("Available once the thread stops working") }
-                        } icon: { Image(ace: .desktop) }
-                    }
-                    .disabled(!ready)
-                    .accessibilityIdentifier("thread.continueOn")
                 }
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
