@@ -108,3 +108,65 @@ test.each([false, true])(
     }
   },
 );
+
+test("frames carry the account's billing mode, including a change reported mid-session", async () => {
+  const request = await homes("claude");
+  const registry = await openRegistry(request.to.homeDir + "/accounts.sqlite");
+  await registry.register(request.from);
+  let emit: ((frame: Frame) => void) | undefined;
+  const received: Frame[] = [];
+  const adapter: ProviderAdapter = {
+    provider: "claude",
+    capabilities: () => {
+      throw new Error("unused");
+    },
+    createTranslator: () => {
+      throw new Error("unused");
+    },
+    openSession: async (ctx) => {
+      emit = ctx.onFrame;
+      return {
+        nativeSessionId: "s",
+        send: async () => {},
+        interrupt: async () => {},
+        resolve: async () => {},
+        stopTask: async () => {},
+        close: async () => {},
+      };
+    },
+  };
+  const service = new AccountService({ registry, now: () => 1, timeZone: "UTC", env: {} });
+  const frame = (data: Record<string, unknown>, seq: number): Frame => {
+    const payload = new ProviderPayload(JSON.stringify(data));
+    return { seq, t: 0, dir: "recv", channel: "stdio", data: payload.data, payload };
+  };
+  try {
+    const opened = await service.openSession(
+      adapter,
+      {
+        threadId: ThreadId.parse(request.nativeSessionId),
+        cwd: request.from.homeDir,
+        signal: new AbortController().signal,
+        onFrame: (input) => received.push(input),
+        onExit: () => {},
+      },
+      { instanceId: request.from.id, role: "worker", estimatedLoad: 1 },
+    );
+    if (!emit) throw new Error("Missing source");
+    emit(frame({ type: "delta", text: "a" }, 1));
+    emit(frame({ authDetail: "claude.ai" }, 2));
+    emit(frame({ type: "delta", text: "b" }, 3));
+    emit(frame({ billingMode: "api" }, 4));
+    emit(frame({ type: "delta", text: "c" }, 5));
+    expect(received.map((input) => input.usageAccount?.billingMode)).toEqual([
+      "unknown",
+      "subscription",
+      "subscription",
+      "api",
+      "api",
+    ]);
+    await opened.session.close("shutdown");
+  } finally {
+    registry.close();
+  }
+});
