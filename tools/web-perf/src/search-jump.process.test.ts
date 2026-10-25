@@ -1,7 +1,7 @@
 import { expect as browserExpect } from "@playwright/test";
 import { inject, test } from "vitest";
 import { open, withPerfApp } from "./perf-app.ts";
-import { scrollTranscript, selectTurn, stepTurn } from "@ace/web-perf";
+import { scrollTranscript, stepTurn } from "@ace/web-perf";
 
 test.each([false, true])(
   "search brings a tool-output hit into the real transcript after historical navigation=%s",
@@ -33,12 +33,14 @@ test.each([false, true])(
           page.getByRole("button", { name: "Summarise", exact: true }),
         ).toHaveCount(0);
         if (historical) {
-          // Turns lives in the header's ⋯ menu.
-          await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
-          await page.getByRole("menuitem", { name: /^Turns/ }).click();
-          await selectTurn(page, 137);
-          await page.keyboard.press("Enter");
-          await feed.getByText("Migrate checkpoint 137, inspect files").first().waitFor();
+          // Old turns are reached from their ticks on the conversation rail: the earliest after
+          // the first is far outside the live tail.
+          const rail = page.getByRole("navigation", { name: "Conversation turns" });
+          const tick = rail.getByRole("button").nth(1);
+          const ordinal = Number((await tick.getAttribute("aria-label"))?.replace(/^Turn /, ""));
+          browserExpect(ordinal).toBeGreaterThan(1);
+          await tick.click();
+          await feed.getByText(`Migrate checkpoint ${ordinal}, inspect files`).first().waitFor();
           await page.keyboard.press("Escape");
           for (let step = 0; step < 8; step++) await scrollTranscript(page, 900, 120);
           for (let step = 0; step < 4; step++) await scrollTranscript(page, -700, 120);
