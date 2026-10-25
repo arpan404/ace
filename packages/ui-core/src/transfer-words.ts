@@ -1,11 +1,16 @@
 import type { Transfer } from "@ace/protocol";
-import { formatBytes } from "@/components/format-bytes.ts";
-import type { Refusal } from "./use-transfer-actions.ts";
+import { formatBytes } from "./byte-size.ts";
 
 /*
  * What a transfer says, in one sentence (ADR 0101): "Sending to Studio · 312 MB of 1.2 GB",
  * "Continued on Studio", or the daemon's own words when it failed. Pure.
  */
+
+/** Why the daemon refused: the receipt's code, and its own words when it gave them. */
+export interface Refusal {
+  code: string | undefined;
+  detail?: string | undefined;
+}
 
 /** The running sentence, by phase. */
 export function runningWords(transfer: Transfer): string {
