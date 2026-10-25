@@ -54,7 +54,9 @@ struct ComposerView<Top: View, Leading: View, Chips: View>: View {
                 .aceContainerShape(AceShape.field)
                 .composerGlass(in: AceShape.field)
             }
+            // The chips keep their height when a tall request and the keyboard leave little room.
             HStack(spacing: AceTheme.Spacing.xs) { chips() }
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, round + AceTheme.Spacing.sm)
                 .environment(\.composerChip, true)
         }

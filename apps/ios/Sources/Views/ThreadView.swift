@@ -57,7 +57,7 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
-    /// The question on the strip, whose card the composer's words may answer.
+    /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
@@ -164,17 +164,16 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with what floats above it: the live pill and Scroll to end, and the one strip
-    /// tucked under the composer's top edge, which holds the oldest open request (a question
+    /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
+    /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Nothing renders below the composer.
+    /// aside. Only the composer's own chips sit below its field.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
             ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
-            // The strip and the composer are one glass.
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }

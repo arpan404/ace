@@ -109,7 +109,9 @@ import XCTest
         XCTAssertTrue(app.buttons["composer.model"].isHittable)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
-        XCTAssertLessThan(abs(app.buttons["composer.model"].frame.midY - app.buttons["composer.attach"].frame.midY), 8)
+        // The model chip stays under the field and above the keyboard while writing.
+        XCTAssertGreaterThanOrEqual(app.buttons["composer.model"].frame.minY, input.frame.maxY)
+        XCTAssertLessThanOrEqual(app.buttons["composer.model"].frame.maxY, app.keyboards.firstMatch.frame.minY)
         capture("thread-keyboard", app)
         app.buttons["composer.model"].tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))

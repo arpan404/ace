@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A request's content inside the composer's strip (or, for a question, the composer's own
-/// frame): the surface is the strip's; an answer on its way taps the haptic.
+/// A request's content on the grouped surface above the composer: the surface is
+/// `StripSurface`'s; an answer on its way taps the haptic.
 struct RequestCardFrame: ViewModifier {
     let submission: ApprovalSubmission?
     func body(content: Content) -> some View {
@@ -28,7 +28,7 @@ struct ComposerFrame: ViewModifier {
 
 /// The inset surface inside a request card (a command, a plan, a choice): the page colour in
 /// dark, where the card is lighter than the page, and the faint grey in light, where both are white.
-/// Its corners are concentric with the strip or composer around it.
+/// Its corners are concentric with the surface around it.
 private struct RequestInset: ViewModifier {
     @Environment(\.colorScheme) private var colourScheme
     func body(content: Content) -> some View {

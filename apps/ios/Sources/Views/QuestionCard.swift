@@ -34,7 +34,7 @@ struct QuestionAnswers: Equatable {
     }
 }
 
-/// A question card's state while it is on the strip.
+/// A question card's state while it is above the composer.
 struct QuestionDraftState: Equatable {
     var answers = QuestionAnswers()
     var page = 0
