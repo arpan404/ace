@@ -62,7 +62,7 @@ export class SkillLibrary {
   }
   /** Self-heal after a crash mid-update, before the first request. */
   async start(): Promise<void> {
-    await this.updates?.recover(skillRoots(this.options.homes).map((root) => root.path));
+    await this.updates?.recover();
   }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);

@@ -1,3 +1,4 @@
+import { logFields } from "@ace/diagnostics";
 import { discoverClaudePlugins } from "../catalog-claude-discovery.ts";
 import { discoverCodexExtensions } from "../catalog-discovery.ts";
 import { createCatalogSession } from "./catalog.ts";
@@ -38,6 +39,7 @@ async function initializeCommands({
   now,
   signal,
   id,
+  log,
 }: ServiceContext) {
   const promptFiles = new PromptFiles({
     globalRoot: config.dataDir,
@@ -58,6 +60,7 @@ async function initializeCommands({
     pluginEntries: plugins ? () => plugins.extensions("claude") : undefined,
     options: integration.skills,
     usage: async (names) => readSkillUsage((sql) => store.statement(sql), names),
+    report: (message, path) => log.log("warn", message, logFields([["path", path]])),
     now,
     id,
   });

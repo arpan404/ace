@@ -52,6 +52,8 @@ export function createDaemonSkillLibrary(input: {
   workspace(workspaceId: string): string | undefined;
   pluginEntries?: (() => Promise<readonly CatalogEntry[]>) | undefined;
   usage?: SkillUsageReader | undefined;
+  /** Interrupted updates that recovery left in place for the person. */
+  report?: ((message: string, path: string) => void) | undefined;
   options?: DaemonSkillOptions | undefined;
   now(): number;
   id(): string;
@@ -79,6 +81,8 @@ export function createDaemonSkillLibrary(input: {
     updates: {
       fetcher: input.options?.fetcher ?? pluginSkillFetcher(),
       temporaryRoot: join(input.dataDir, "skill-updates"),
+      journalRoot: join(input.dataDir, "skill-update-journals"),
+      report: input.report,
       lockPath: join(homes.home, ".agents/.skill-lock.json"),
       now: input.now,
       id: input.id,
