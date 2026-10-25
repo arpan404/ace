@@ -70,3 +70,34 @@ test("reconnecting again for the same wait shows nothing more", async () => {
   expect(desktop.received.map((alert) => alert.status)).toEqual(["catch_up"]);
   expect(desktop.received[0]?.title).toBe("1 thread needs you");
 });
+
+test("a retried catch-up is rebuilt from the waits that still stand, and tells only those", async () => {
+  const { f, desktop } = await quitDesktop();
+  const archived = f.thread(),
+    waiting = f.thread(),
+    answered = f.thread();
+  for (const thread of [archived, waiting, answered]) f.needsYou(thread, Date.now() - 600_000);
+
+  // The first send of the catch-up fails, so it is retried a second later.
+  desktop.hold();
+  await desktop.connect();
+  await vi.waitFor(() => expect(desktop.refused()).toBe(1));
+  f.archive(archived, true);
+  f.resolved(answered);
+  desktop.release();
+  await vi.waitFor(() => expect(desktop.received).toHaveLength(1), { timeout: 4000 });
+  expect(desktop.received[0]).toMatchObject({
+    status: "catch_up",
+    title: "1 thread needs you",
+    threadId: waiting,
+    threadIds: [waiting],
+  });
+
+  // Only the wait it named counts as told: the archived thread, back and still waiting, is owed.
+  f.archive(archived, false);
+  await settle();
+  desktop.leave();
+  await desktop.connect();
+  await vi.waitFor(() => expect(desktop.received).toHaveLength(2));
+  expect(desktop.received[1]).toMatchObject({ status: "catch_up", threadIds: [archived] });
+});

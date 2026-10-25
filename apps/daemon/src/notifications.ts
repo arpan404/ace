@@ -12,7 +12,7 @@ import type { DeviceId, Notification } from "@ace/protocol";
 import { allows } from "./devices.ts";
 import { failureDelay, maySleep, wakeDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
-import { deliverIntents, dropIntents, isNotice } from "./notification-intents.ts";
+import { acceptIntents, dropIntents, isNotice } from "./notification-intents.ts";
 
 const offline = () => false;
 const nobody = (): readonly DeviceId[] => [];
@@ -68,8 +68,7 @@ interface Awake {
   worker: NotificationWorker;
   attached: ReturnType<typeof attachNotifications>;
   alertsFrom: number;
-  /** When the sleep this worker woke from began, once its replay has caught up. */
-  sleptAt?: number | undefined;
+  /** The first worker's first reply, for startup. Recovery asks whichever worker is current. */
   opened: Promise<void>;
   ready?: Promise<void>;
 }
@@ -177,7 +176,8 @@ export function createDaemonNotifications(
         // Admitted ingestion remains durable shutdown work, not cancellable startup.
         ingest: (events, coverage) => worker.ingest(events, coverage),
         drain: async () => {
-          await deliverIntents(store, worker, sleepWindow(awake));
+          await acceptIntents(store, worker, []);
+          await worker.drain();
         },
       },
       store,
@@ -197,12 +197,11 @@ export function createDaemonNotifications(
     };
     return awake;
   };
-  /** Agent notices queued while the worker slept, and too old to deliver now, are let go. */
-  const sleepWindow = (awake: Awake) =>
-    awake.sleptAt === undefined ? undefined : { after: awake.sleptAt, before: awake.alertsFrom };
   // Check after every RPC before scheduling another one, especially durable revocations.
   const catchUp = async (awake: Awake) => {
-    await awake.opened;
+    // A worker replaced after a crash has its own first reply: ask the current one.
+    await awake.worker.cursor(signal);
+    cancelled();
     for (const device of store.devices.list()) {
       if (device.revokedAt === null) continue;
       cancelled();
@@ -213,12 +212,26 @@ export function createDaemonNotifications(
       const recovered = await awake.attached.recover();
       cancelled();
       if (recovered) {
-        awake.sleptAt = await awake.worker.woke();
+        await settleSleep(awake.worker);
         return;
       }
       await setImmediate();
       cancelled();
     }
+  };
+  /**
+   * Closes the sleep window the replay caught up through, lets go of the agent notices queued
+   * inside it, and only then forgets it. A crash before that leaves the window recorded, so a
+   * restart still lets those notices go rather than delivering them late.
+   */
+  const settleSleep = async (worker: NotificationWorker) => {
+    const windows = await worker.closeSleep();
+    cancelled();
+    if (!windows.length) return;
+    while (await acceptIntents(store, worker, windows)) cancelled();
+    cancelled();
+    await worker.forgetSleep();
+    cancelled();
   };
   const awaken = async (): Promise<Awake> => {
     for (;;) {
@@ -278,8 +291,9 @@ export function createDaemonNotifications(
           });
           const caughtUp = await awake.attached.recover();
           if (closed) return;
-          if (!caughtUp || (await deliverIntents(store, awake.worker, sleepWindow(awake))))
-            again = true;
+          const more = caughtUp && (await acceptIntents(store, awake.worker, []));
+          if (caughtUp && !closed) await awake.worker.drain();
+          if (!caughtUp || more) again = true;
           failures = 0;
         } catch (error) {
           report(error);

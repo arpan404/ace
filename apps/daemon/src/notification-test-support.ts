@@ -59,6 +59,11 @@ export function notificationFixture(cleanups: (() => Promise<void> | void)[]) {
     spawn,
     needsYou,
     resolved,
+    /** Archives the thread, or brings it back. */
+    archive: (thread: ThreadId, archived: boolean) =>
+      store.appendEvents(thread, [
+        { type: "thread.updated", archivedAt: archived ? Date.now() : null },
+      ]),
     thread: () => createDevThread(store, workspace).id,
     path: join(home, "notifications.sqlite"),
   };
@@ -67,10 +72,16 @@ export function notificationFixture(cleanups: (() => Promise<void> | void)[]) {
 /** A daemon whose desktop is the only device, as the desktop app registers it. */
 export function desktopDaemon(
   f: ReturnType<typeof notificationFixture>,
-  options: { now?: () => number; quietMs?: number } = {},
+  options: {
+    now?: () => number;
+    quietMs?: number;
+    spawn?: ReturnType<typeof notificationFixture>["spawn"];
+  } = {},
 ) {
   const received: Notification[] = [];
   let connected: DeviceId[] = [];
+  let holding = false;
+  let refused = 0;
   const notifications = createDaemonNotifications(f.home, f.store, () => {}, {}, 0, {
     spawn: f.spawn,
     slept: !notificationsRetained(f.path),
@@ -78,6 +89,10 @@ export function desktopDaemon(
   });
   notifications.setSender((device, notification) => {
     if (!connected.includes(device)) return false;
+    if (holding) {
+      refused++;
+      return false;
+    }
     received.push(notification);
     return true;
   });
@@ -94,5 +109,14 @@ export function desktopDaemon(
     leave() {
       connected = [];
     },
+    /** Sends to the open socket fail until `release`, so the alert is retried. */
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+    },
+    /** Sends that failed while held. */
+    refused: () => refused,
   };
 }
