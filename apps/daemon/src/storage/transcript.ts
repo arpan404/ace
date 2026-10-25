@@ -82,16 +82,19 @@ export function transcriptQueries(db: DatabaseSync): string[] {
 /**
  * One thread's transcript bytes. Each statement covers only this thread's rows, and the loop
  * yields between statements, so a thread with a very long history never holds the event loop
- * for its whole measurement.
+ * for its whole measurement. `undefined` once `going` turns false: shutdown never waits for the
+ * rest of a measurement.
  */
 export async function transcriptBytes(
   read: (sql: string) => StatementSync,
   id: ThreadId,
   queries: readonly string[],
-): Promise<number> {
+  going: () => boolean = () => true,
+): Promise<number | undefined> {
   let bytes = 0;
   for (const sql of queries) {
     await setImmediate();
+    if (!going()) return undefined;
     bytes += Number(read(sql).get(id)?.bytes);
   }
   return bytes;
