@@ -3,13 +3,12 @@ import SwiftUI
 /// Everything the ⋯ menu opens: each destination is listed once.
 enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
 
-/// The thread's header, quiet like the web's: the native back, the title with its project under
-/// it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// The thread's header: the native back (or the split view's sidebar button), the title centred
+/// with a small "project · branch" line under it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String
-    let project: String
-    /// The project's two-letter tag, as the task list draws it.
-    let badge: String?
+    /// "project · branch" (or the machine where there is no branch).
+    let subtitle: String
     let status: StatusDisplay?
     let menu: ThreadMenu
 
@@ -25,14 +24,11 @@ struct ThreadToolbar: ToolbarContent {
     }
     private var heading: some View {
         VStack(spacing: AceTheme.Spacing.none) {
-            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .headline)
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            if !project.isEmpty {
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    if let badge, !badge.isEmpty { ProjectTag(initials: badge) }
-                    Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-                }
+            if !subtitle.isEmpty {
+                Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
             }
         }
         .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)

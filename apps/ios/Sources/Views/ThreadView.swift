@@ -40,6 +40,8 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The composer's own height (field and chips), which the page's floor sits behind.
+    @State private var composerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
@@ -55,7 +57,7 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
-    /// The question on the strip, whose card the composer's words may answer.
+    /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
@@ -73,14 +75,14 @@ struct ThreadView: View {
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
-            .modifier(FloatingBar(height: $barHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: leave))
             }
@@ -162,17 +164,16 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with what floats above it: the live pill and Scroll to end, and the one strip
-    /// tucked under the composer's top edge, which holds the oldest open request (a question
+    /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
+    /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Nothing renders below the composer.
+    /// aside. Only the composer's own chips sit below its field.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
             ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
-            // The strip and the composer are one glass.
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
@@ -194,14 +195,13 @@ struct ThreadView: View {
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: {
-                        HStack(spacing: AceTheme.Spacing.none) {
-                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
-                        }
-                    } trailing: {
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                    } chips: {
                         ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
+                        ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
                 } else {
                     ViewOnlyNote.thread
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
@@ -267,44 +267,40 @@ struct ThreadView: View {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, strip included, at its end. The transcript scrolls on
-/// behind the composer's glass and shows through it; below the composer's lower edge the page is
-/// solid, so words never show in the gap above the keyboard or behind the home indicator.
+/// the keyboard and makes room for the bar, request included, at its end. Behind the composer the
+/// page is solid, fading in just above it, so words never show around the field, in the gap above
+/// the keyboard or behind the home indicator.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
+    /// How tall the composer is, from the bar's lower edge.
+    let floor: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
-            // The composer keeps the transcript's reading width; its fade spans the window.
+            // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor() }
+                .background(alignment: .bottom) { BarFloor(height: floor) }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
-/// edge and the home indicator, and into the composer's rounded lower corners so no word shows
-/// beside them. The composer sits `sm` above the bar's bottom and `md` in from each side
-/// (`ComposerFrame`).
+/// The page colour from just above the composer on down, behind the keyboard's translucent edge
+/// and the home indicator.
 private struct BarFloor: View {
+    let height: CGFloat
     private let below = AceTheme.Dimensions.touchTarget * 8
-    private let radius = AceTheme.Radii.composer
+    private let fade = AceTheme.Spacing.lg
     var body: some View {
-        GeometryReader { box in
-            let top = AceTheme.Spacing.sm + radius
-            Path { path in
-                path.addRect(CGRect(x: 0, y: 0, width: box.size.width, height: top + below))
-                // The composer's lower edge, drawn taller so only its bottom corners cut in.
-                let composer = CGRect(x: AceTheme.Spacing.md, y: -radius, width: box.size.width - AceTheme.Spacing.md * 2, height: radius * 2)
-                path.addRoundedRect(in: composer, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
-            }
-            .fill(AceTheme.Colours.background, style: FillStyle(eoFill: true))
+        VStack(spacing: AceTheme.Spacing.none) {
+            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+            AceTheme.Colours.background
         }
-        .frame(height: AceTheme.Spacing.sm + radius + below)
+        .frame(height: height + fade + below)
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)

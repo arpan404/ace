@@ -3,6 +3,21 @@ import SwiftUI
 extension EnvironmentValues {
     /// The composer shows its controls on their own row under the words, with room for names.
     @Entry var composerRoomy = true
+    /// Drawn as a small quiet chip under the thread's composer: words only, on a soft capsule.
+    @Entry var composerChip = false
+}
+
+/// The soft capsule behind a chip under the composer, shorter than the control's touch target.
+private struct ChipBackground: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        content.background {
+            if on {
+                AceShape.capsule.fill(AceTheme.Colours.fill)
+                    .frame(height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.lg)
+            }
+        }
+    }
 }
 
 /// The composer's model control in two parts, one tap each: "◎ Opus 5.5" opens the model sheet,
@@ -18,19 +33,20 @@ struct ModelEffortChip: View {
     let effortID: String
     let openModel: () -> Void
     let openEffort: () -> Void
+    @Environment(\.composerChip) private var chip
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             Button(action: openModel) {
                 HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 15) }
+                    if !chip, let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 15) }
                     if loading { ProgressView().controlSize(.mini) }
-                    Text(model).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.tail)
+                    Text(model).foregroundStyle(chip ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading).fixedSize()
-                    if effort == nil { caret }
+                    if effort == nil && !chip { caret }
                 }
-                .padding(.leading, AceTheme.Spacing.sm)
-                .padding(.trailing, effort == nil ? AceTheme.Spacing.sm : AceTheme.Spacing.xs)
+                .padding(.leading, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm)
+                .padding(.trailing, effort == nil ? (chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm) : AceTheme.Spacing.xs)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
             }
@@ -42,9 +58,9 @@ struct ModelEffortChip: View {
                     HStack(spacing: AceTheme.Spacing.xs) {
                         Text("·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
                         Text(effort).lineLimit(1).fixedSize()
-                        caret
+                        if !chip { caret }
                     }
-                    .padding(.trailing, AceTheme.Spacing.sm)
+                    .padding(.trailing, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .contentShape(Rectangle())
                 }
@@ -55,6 +71,7 @@ struct ModelEffortChip: View {
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
+        .modifier(ChipBackground(on: chip))
     }
     private var caret: some View {
         AceIcon(queued ? .clock : .caretDown, size: 12, relativeTo: .caption)
@@ -85,6 +102,7 @@ struct AccessChip: View {
     let identifier: String
     let select: (String) -> Void
     @Environment(\.composerRoomy) private var roomy
+    @Environment(\.composerChip) private var chip
     private var risky: Bool { items.first { $0.mode == selected }?.attention == true }
 
     var body: some View {
@@ -101,15 +119,18 @@ struct AccessChip: View {
         } label: {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if loading { ProgressView().controlSize(.mini) }
-                else { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.medium) }
-                if roomy {
+                else if !chip { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.medium) }
+                if roomy || chip {
                     Text(label).lineLimit(1).fixedSize()
+                }
+                if roomy && !chip {
                     Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.xs)
+            .padding(.horizontal, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.xs)
+            .modifier(ChipBackground(on: chip))
             .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
             .contentShape(Rectangle())
         }
