@@ -19,6 +19,7 @@ import {
   type WorkerValue,
 } from "./worker-wire.ts";
 import { metadata, type MetadataEvent } from "./metadata.ts";
+import type { NoticeWindow } from "./sleep-boundary.ts";
 
 /** A message that claims to be a worker reply: an object with a string `type`. */
 function isWireFrame(input: unknown): boolean {
@@ -274,10 +275,16 @@ export class NotificationWorker {
   async sleep(): Promise<void> {
     await this.call({ method: "sleep" });
   }
-  /** Replay has caught up after a wake. Resolves to when the sleep began, if one was recorded. */
-  async woke(): Promise<number | undefined> {
-    const value = await this.call({ method: "woke" });
-    return typeof value === "number" ? value : undefined;
+  /**
+   * Replay has caught up after a wake: closes the sleep window. Resolves to the spans in which
+   * queued agent notices are too old to send; call `forgetSleep` once they are acknowledged.
+   */
+  async closeSleep(): Promise<NoticeWindow[]> {
+    const value = await this.call({ method: "closeSleep" });
+    return Array.isArray(value) ? value : [];
+  }
+  async forgetSleep(): Promise<void> {
+    await this.call({ method: "forgetSleep" });
   }
   async cursor(signal?: AbortSignal): Promise<number> {
     const value = await this.call({ method: "cursor" }, signal);

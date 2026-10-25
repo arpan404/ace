@@ -12,6 +12,7 @@ import { metadata, type MetadataEvent } from "./metadata.ts";
 import { NotificationDatabase } from "./database.ts";
 import { PresenceIndex } from "./presence.ts";
 import { isQuiet, maxRetries, retryDelay } from "./policy.ts";
+import type { NoticeWindow } from "./sleep-boundary.ts";
 
 export type DeliveryResult = "accepted" | "retry" | "gone" | "revoked" | "failed";
 export interface NotificationTransport {
@@ -80,9 +81,16 @@ export class NotificationService {
   sleep(): void {
     this.database.sleep.mark({ seq: this.database.cursor(), at: this.options.now() });
   }
-  /** Replay has caught up after a wake. Returns when the sleep began, if one was recorded. */
-  woke(): number | undefined {
-    return this.database.sleep.clear()?.at;
+  /**
+   * Replay has caught up after a wake: closes the sleep window and returns the spans in which
+   * queued agent notices are too old to send. They stay recorded until `forgetSleep`.
+   */
+  closeSleep(): NoticeWindow[] {
+    return this.database.closeSleep();
+  }
+  /** Every agent notice the sleep windows cover has been acknowledged. */
+  forgetSleep(): void {
+    this.database.sleep.forget();
   }
   ingest(events: readonly Event[], coverage?: { afterSeq: number; throughSeq: number }): void {
     const first = events[0],
@@ -193,11 +201,17 @@ export class NotificationService {
     await Promise.all(
       this.database.due(now).map(async (job) => {
         const device = this.database.device(job.device.id);
+        // A catch-up is rebuilt from the waits it covers that still stand, before every send;
+        // those checks stand in for the single-thread ones below.
+        const catchUp = job.notification.status === "catch_up";
+        const notice = catchUp ? this.database.catchUpNow(job.device.id, now) : job.notification;
         if (
           !device ||
+          !notice ||
           job.expires <= now ||
-          !this.database.current(job.notification, job.generation) ||
-          this.database.snoozed(job.notification.threadId, now) ||
+          (!catchUp &&
+            (!this.database.current(job.notification, job.generation) ||
+              this.database.snoozed(job.notification.threadId, now))) ||
           isQuiet(device.preferences, now) ||
           (job.notification.status === "agent_says" && device.preferences.agentSays === false) ||
           (device.address.platform === "phone" &&
@@ -210,10 +224,11 @@ export class NotificationService {
         this.inFlight.set(job.id, { device: device.id, address: device.address, controller });
         let result: DeliveryResult;
         try {
-          const preview = device.preferences.includePreview
-            ? this.options.preview?.(job.notification.threadId)?.slice(0, 300)
-            : undefined;
-          const notification = preview ? { ...job.notification, preview } : job.notification;
+          const preview =
+            device.preferences.includePreview && !catchUp
+              ? this.options.preview?.(notice.threadId)?.slice(0, 300)
+              : undefined;
+          const notification = preview ? { ...notice, preview } : notice;
           // A phone can be suspended with its socket open; its app catches up from this record.
           if (device.address.platform === "phone")
             this.database.inbox.record(device.id, notification, job.generation, job.expires);

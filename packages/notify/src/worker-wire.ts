@@ -19,7 +19,8 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("drain") }),
   z.object({ method: z.literal("close") }),
   z.object({ method: z.literal("sleep") }),
-  z.object({ method: z.literal("woke") }),
+  z.object({ method: z.literal("closeSleep") }),
+  z.object({ method: z.literal("forgetSleep") }),
   z.object({
     method: z.literal("ingest"),
     events: z.array(MetadataEvent).max(256),
@@ -68,7 +69,15 @@ export const FromWorker = z.discriminatedUnion("type", [
     type: z.literal("result"),
     id: seq,
     ok: z.boolean(),
-    value: z.union([seq, NotificationFeed, NotificationPreferences]).optional(),
+    value: z
+      .union([
+        seq,
+        NotificationFeed,
+        NotificationPreferences,
+        /** `closeSleep`: the spans in which queued agent notices are too old to send. */
+        z.array(z.object({ after: seq, before: seq }).strict()).max(64),
+      ])
+      .optional(),
     /** Why a call failed, so the daemon's log names the cause. */
     error: z.string().max(256).optional(),
   }),

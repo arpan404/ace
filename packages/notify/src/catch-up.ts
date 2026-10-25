@@ -69,6 +69,26 @@ export class CatchUpLedger {
       .all(now, device, device)
       .map((row) => Missed.parse(row));
   }
+  /**
+   * Rechecks what a queued catch-up covers, just before a send: each wait must still be the
+   * thread's current one and still need the person (not answered, archived, deleted or snoozed).
+   * Waits that ended are dropped from the cover, so only the ones sent are marked told.
+   */
+  recheck(device: DeviceId, now: number): Missed[] {
+    const still = this.statement(
+      `SELECT c.thread AS thread, json_extract(t.body,'$.title') AS title, c.generation AS generation
+       FROM catch_up c JOIN threads t ON t.id=c.thread
+       WHERE c.device=? AND json_extract(t.body,'$.status.state')='needs_you'
+         AND json_extract(t.body,'$.archived')=0 AND json_extract(t.body,'$.deleted')=0
+         AND json_extract(t.body,'$.generation')=c.generation
+         AND NOT EXISTS (SELECT 1 FROM snoozes s WHERE s.thread=t.id AND s.until>?)
+       ORDER BY c.generation`,
+    )
+      .all(device, now)
+      .map((row) => Missed.parse(row));
+    this.cover(device, still);
+    return still;
+  }
   /** Whether a catch-up alert for `device` is already queued. */
   queued(device: DeviceId): boolean {
     return (

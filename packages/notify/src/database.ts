@@ -14,7 +14,7 @@ import type { MetadataEvent } from "./metadata.ts";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
 import { NotificationInbox, inboxTables } from "./inbox.ts";
-import { SleepBoundary, sleepTables, type Boundary } from "./sleep-boundary.ts";
+import { SleepWindows, sleepTables, slept, type Boundary } from "./sleep-boundary.ts";
 import { CatchUpLedger, catchUpNotice, catchUpTables } from "./catch-up.ts";
 import { deliverableJobs, retainsWork } from "./retained.ts";
 import { FORMAT } from "./format.ts";
@@ -62,7 +62,7 @@ export class NotificationDatabase {
   private statements = new Map<string, StatementSync>();
   private windowMs: number;
   private alertsFrom: number;
-  readonly sleep: SleepBoundary;
+  readonly sleep: SleepWindows;
   private ledger: CatchUpLedger;
   private tracking: InteractionTracking;
   readonly inbox: NotificationInbox;
@@ -80,7 +80,7 @@ export class NotificationDatabase {
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
     this.alertsFrom = wake.alertsFrom ?? 0;
-    this.sleep = new SleepBoundary((sql) => this.statement(sql));
+    this.sleep = new SleepWindows((sql) => this.statement(sql));
     this.ledger = new CatchUpLedger((sql) => this.statement(sql));
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.inbox = new NotificationInbox((sql) => this.statement(sql));
@@ -142,7 +142,7 @@ export class NotificationDatabase {
     this.transaction(() => {
       let cursor = this.cursor();
       if (coverage && coverage.afterSeq > cursor) throw new Error(replayGap);
-      const slept = this.sleep.get();
+      const windows = this.sleep.list();
       for (const event of events) {
         if (event.seq <= cursor) continue;
         if (!coverage && event.seq !== cursor + 1) throw new Error(replayGap);
@@ -180,9 +180,10 @@ export class NotificationDatabase {
           this.windowMs,
           this.tracking.track(event),
         );
-        // Only what happened during a deliberate sleep may go unannounced.
+        // Only an alert raised during a deliberate sleep may go unannounced. Judge it by the
+        // event that raised it: a later update in the sleep leaves an earlier alert alone.
         const quiet =
-          slept !== undefined && event.seq > slept.seq && (advanced?.at ?? 0) < this.alertsFrom;
+          advanced !== undefined && slept(windows, advanced.seq, advanced.at, this.alertsFrom);
         const pending = quiet ? undefined : advanced;
         // State is compact and bounded independently of transcript length.
         this.statement("UPDATE threads SET body=? WHERE id=?").run(
@@ -480,6 +481,13 @@ export class NotificationDatabase {
       this.ledger.cover(id, missed);
     });
   }
+  /** A queued catch-up as it should read now, or undefined when none of its waits remain. */
+  catchUpNow(device: DeviceId, now: number): Notification | undefined {
+    return this.transaction(() => {
+      const still = this.ledger.recheck(device, now);
+      return still.length ? catchUpNotice(still) : undefined;
+    });
+  }
   /** A job is done with: delivered, its waiting episodes count as told to its device. */
   finish(job: Job, delivered: boolean): void {
     this.transaction(() => {
@@ -488,6 +496,10 @@ export class NotificationDatabase {
       else if (delivered && job.notification.status === "needs_you")
         this.ledger.alerted(job.device.id, job.notification.threadId, job.generation);
     });
+  }
+  /** The woken worker caught up: closes the open sleep window at the cursor (see `SleepWindows`). */
+  closeSleep() {
+    return this.sleep.close(this.cursor(), this.alertsFrom);
   }
   remove(id: number): void {
     this.statement("DELETE FROM jobs WHERE id=?").run(id);

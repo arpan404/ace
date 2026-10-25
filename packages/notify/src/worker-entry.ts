@@ -65,8 +65,11 @@ port.on("message", (input: unknown) => {
         case "sleep":
           service.sleep();
           break;
-        case "woke":
-          value = service.woke();
+        case "closeSleep":
+          value = service.closeSleep();
+          break;
+        case "forgetSleep":
+          service.forgetSleep();
           break;
         case "ingest":
           service.ingestMetadata(call.events, call);
