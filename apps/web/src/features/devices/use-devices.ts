@@ -19,6 +19,7 @@ import {
   type DeviceRow,
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
+import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDeviceSession, type DeviceSession } from "./device-session.ts";
 
@@ -133,6 +134,13 @@ export function useDevices(threadId: string, deviceId?: string) {
   // A running device shows its screen as soon as its tab opens: start the live view once per
   // device while the tab is open. A failure (a missing permission, say) waits for Try again.
   const autoStarted = useRef(new Set<string>());
+  // A channel that came back starts a view the daemon stopped meanwhile; one seen live and
+  // then stopped by hand stays stopped.
+  const liveNow = connected && state?.lifecycle === "live" ? state.device.id : undefined;
+  useEffect(() => {
+    if (!connected) autoStarted.current.clear();
+    else if (liveNow) autoStarted.current.add(liveNow);
+  }, [connected, liveNow]);
   const idle =
     connected &&
     enabled &&
@@ -303,18 +311,18 @@ export function useDevices(threadId: string, deviceId?: string) {
           deviceId: target,
         });
       }),
+    /** A still of the screen, put on the clipboard (never a download). */
     screenshot: () =>
       target &&
       act(async () => {
         if (!session) return;
         setFailed(undefined);
-        const image = await session.client.screenshot(target);
-        const url = URL.createObjectURL(new Blob([image.bytes.slice()], { type: "image/jpeg" }));
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${selected.name}.jpg`;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        // Handed over pending, so Safari keeps the click's permission while the still arrives.
+        const image = session.client
+          .screenshot(target)
+          .then((picture) => new Blob([picture.bytes.slice()], { type: "image/jpeg" }));
+        await copyImageToClipboard(image);
+        notify({ title: "Screenshot copied" });
       }),
     /**
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the

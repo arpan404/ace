@@ -157,6 +157,14 @@ export class FakeAppDevices {
       this.sessions.set(device.id, idleSession(device));
   }
 
+  /** New devices channels close before they come up, as an unreachable daemon's do. */
+  refusing = false;
+
+  /** How many devices channels are open. */
+  get openChannels(): number {
+    return this.channels.size;
+  }
+
   /** Close every devices channel, as a daemon restart or a revoked token would. */
   dropAll(): void {
     // Deleting the current entry during Set iteration is safe.
@@ -227,6 +235,10 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
+        if (this.refusing) {
+          queueMicrotask(() => events.close());
+          return;
+        }
         const opened: Channel = { events, streams: new Set<string>() };
         channel = opened;
         this.channels.add(opened);

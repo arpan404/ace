@@ -14,6 +14,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
+import { channelReconnect } from "@/lib/channel-reconnect.ts";
 import { learnRelay, type RelayRoute } from "./relay-route.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
@@ -86,7 +87,10 @@ function transportFor(
 
 /** The client's snapshot, and whether its channel has closed since it was opened. */
 export interface DeviceSessionSnapshot extends DeviceClientSnapshot {
-  /** The channel closed (dropped, refused or timed out); only a reconnect opens it again. */
+  /**
+   * The channel closed (dropped, refused or timed out) and the silent retry didn't bring it
+   * back. It keeps retrying with backoff; Reconnect tries at once.
+   */
   closed: boolean;
 }
 
@@ -104,19 +108,47 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
   const listeners = new Set<() => void>();
   let connection: DeviceConnection =
     endpoint.kind === "fake" || loopback(endpoint.target.url) ? "local" : "remote";
-  let opening = true;
+  /** Inside `connect`, which itself reports a disconnected client first. */
+  let opening = false;
+  /** An attempt is under way and hasn't come up or failed yet. */
+  let attempting = false;
+  let up = false;
+  /** A drop the next retry may heal before anyone needs to hear of it. */
+  let quiet = false;
   let snapshot: DeviceSessionSnapshot = { ...client.getSnapshot(), closed: false };
-  const stop = client.watch((next) => {
-    // `connect` itself reports a disconnected client first; later, disconnected means closed.
-    snapshot = { ...next, closed: !opening && !next.connected };
+  const publish = (next: DeviceClientSnapshot) => {
+    snapshot = { ...next, closed: !next.connected && !attempting && !quiet };
     for (const listener of listeners) listener();
+  };
+  const attempt = () => {
+    attempting = true;
+    quiet = false;
+    opening = true;
+    client.connect(
+      transportFor(endpoint, (route) => {
+        connection = route;
+      }),
+    );
+    opening = false;
+    publish(client.getSnapshot());
+  };
+  const retry = channelReconnect({ reconnect: attempt, schedule });
+  const stop = client.watch((next) => {
+    if (!opening) {
+      if (next.connected && !up) {
+        up = true;
+        attempting = false;
+        retry.up();
+      } else if (!next.connected && (up || attempting)) {
+        up = false;
+        attempting = false;
+        // At its capacity limit the channel retries by itself and says why.
+        quiet = next.error ? false : retry.down();
+      }
+    }
+    publish(next);
   });
-  client.connect(
-    transportFor(endpoint, (route) => {
-      connection = route;
-    }),
-  );
-  opening = false;
+  attempt();
   return {
     client,
     /** Which way the channel goes: the stream profile is sized for it. */
@@ -129,6 +161,7 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
     },
     get: () => snapshot,
     close() {
+      retry.dispose();
       stop();
       client.disconnect();
     },

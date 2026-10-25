@@ -123,7 +123,7 @@ export function ControlRail(props: {
       <span aria-hidden className={railDivider} />
       <IconButton
         icon={CameraIcon}
-        label="Screenshot"
+        label="Copy screenshot"
         keys={railKeys.screenshot}
         resolve={false}
         disabled={!props.live || props.pending}
