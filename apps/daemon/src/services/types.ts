@@ -115,6 +115,8 @@ export interface Services {
   providerConfigurations: import("../provider-configurations.ts").ProviderConfigurationsState;
   /** The person's role settings, for runRole and new sessions' instructions. */
   roles: import("../role-settings.ts").RoleSettingsState;
+  /** The person's limit on children one parent runs at once, read live at each launch. */
+  childLimit: import("../child-limit-setting.ts").ChildLimitSetting;
   /** Filesystem admission completes separately from lazy metadata discovery. */
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;

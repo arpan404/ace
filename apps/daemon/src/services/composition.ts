@@ -182,7 +182,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     name: "agentControl",
     phase: "listener",
     requires: ["engine"],
-    after: ["accounts", "context", "notifications"],
+    after: ["accounts", "context", "notifications", "settings"],
     start: startAgentControl,
   },
   {

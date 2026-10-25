@@ -47,10 +47,13 @@ export function startAgentControl(context: ServiceContext): void {
     },
     ...(services.accountRegistry ? { accounts: services.accountRegistry } : {}),
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
+    maxRunningChildren: () => services.childLimit?.current(),
     admitsWork: () => maintenance?.admit() ?? false,
     onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());
+  const stopFollowing = services.childLimit?.onChange(() => delegations.limitChanged());
+  if (stopFollowing) resources.own(stopFollowing);
   resources.onShutdown(() => delegations.close());
   const owners = createAgentOwners(context, delegations);
   services.threadAutomations = owners.threadAutomations;

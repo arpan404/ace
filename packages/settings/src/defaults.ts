@@ -65,6 +65,7 @@ export const defaults: SettingsValues = {
   "remote.hostedPairingLink": false,
   "remote.relayUrl": "",
   "automations.enabled": false,
+  "agents.maxRunningChildren": null,
   "generation.model": null,
   "generation.autoDraftCommits": true,
   "clients.theme": {},

@@ -7,7 +7,7 @@ import { agentSubtree } from "./agent-subtree.ts";
 export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
-import { LaunchQueue } from "./launch-queue.ts";
+import { LaunchQueue, drainLaunches, startOrQueue } from "./launch-queue.ts";
 import { childStatus, queuedStatus } from "./child-status.ts";
 import { accountProvider, type AccountRegistry } from "@ace/accounts";
 import {
@@ -60,6 +60,11 @@ export interface DelegationDependencies {
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
+  /**
+   * The person's limit on children one parent runs at once, read live at each launch; undefined
+   * sets no limit. A policy `maxConcurrent` (tests, benchmarks) wins over it.
+   */
+  maxRunningChildren?(): number | undefined;
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
@@ -619,6 +624,23 @@ export class DelegationService {
       return record;
     });
   }
+  /** Children one parent may run at once now; undefined is no limit. */
+  private limit(): number | undefined {
+    return this.policy.maxConcurrent ?? this.deps.maxRunningChildren?.();
+  }
+  /**
+   * The person changed the running-children limit: a raised or cleared limit starts waiting
+   * children at once; a lowered one only holds back later starts, never stops running ones.
+   */
+  limitChanged(): void {
+    if (this.closed) return;
+    try {
+      this.pumpAll();
+    } catch (error) {
+      this.report(error);
+    }
+    this.arm();
+  }
   /** Starts the child now when its parent has a free slot; otherwise it waits, queued. */
   launch(record: DelegationRecord, text: string): void {
     if (this.closed || this.deps.admitsWork?.() === false)
@@ -626,15 +648,10 @@ export class DelegationService {
     this.deps.store.atomic(() => {
       const current = this.journal.get(record.childId);
       if (!current || current.phase !== "created" || this.launches.has(current.childId)) return;
-      if (launchSlots(this.running(current.parentId), this.policy) > 0)
-        try {
-          this.start(current, text);
-          return;
-        } catch (error) {
-          // A full engine is a wait, not a refusal: the child queues like any other.
-          if (!engineFull(error)) throw error;
-        }
-      this.launches.add({ childId: current.childId, parentId: current.parentId, text });
+      const slots = launchSlots(this.running(current.parentId), this.limit());
+      const launch = { childId: current.childId, parentId: current.parentId, text };
+      if (startOrQueue(this.launches, launch, slots, () => this.start(current, text)) === "started")
+        return;
       // The child names its parent and its task while it waits, so its own thread is never blank.
       this.deps.store.appendEvents(current.childId, [
         {
@@ -685,30 +702,28 @@ export class DelegationService {
     if (this.closed || this.deps.admitsWork?.() === false || !this.launches.waiting()) return;
     for (const parent of this.launches.parents()) this.pump(parent);
   }
-  private pump(parent: ThreadId): void {
+  private pump(value: string): void {
     if (this.closed || this.deps.admitsWork?.() === false) return;
-    for (const child of this.launches.next(
+    const parent = ThreadId.parse(value);
+    drainLaunches(
+      this.deps.store,
+      this.launches,
       parent,
-      launchSlots(this.running(parent), this.policy),
-    )) {
-      try {
-        this.deps.store.atomic(() => {
-          const queued = this.launches.take(child);
-          const edge = this.journal.get(child);
-          if (!queued || edge?.phase !== "created") return;
-          if (this.journal.fenced(child)) return this.settleUnlaunched(edge, "cancelled");
-          this.start(edge, queued.text);
-        });
-      } catch (error) {
-        // A full engine leaves the child queued for the next retry.
-        if (engineFull(error)) return;
+      launchSlots(this.running(parent), this.limit()),
+      (queued) => {
+        const edge = this.journal.get(queued.childId);
+        if (edge?.phase !== "created") return;
+        if (this.journal.fenced(edge.childId)) return this.settleUnlaunched(edge, "cancelled");
+        this.start(edge, queued.text);
+      },
+      (child, error) => {
         // A child that can no longer start reports a failed result instead of waiting forever.
         this.report(error);
         const edge = this.journal.get(child);
         if (edge?.phase === "created")
           this.deps.store.atomic(() => this.settleUnlaunched(edge, "failed"));
-      }
-    }
+      },
+    );
   }
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
