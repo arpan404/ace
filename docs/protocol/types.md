@@ -11226,6 +11226,24 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"posture"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| posture | yes | [DevicePosture.json](schema/DevicePosture.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "op": "posture",
+  "posture": "open"
+}
+```
+
+### Variant 24
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"screenshot"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 
@@ -11233,12 +11251,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
   "op": "screenshot"
 }
 ```
 
-### Variant 24
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11249,12 +11267,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
+  "deviceId": "android:t_Eupz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgf",
   "op": "clipboard.get"
 }
 ```
 
-### Variant 25
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11266,13 +11284,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:t_Eupz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgf",
+  "deviceId": "ios:6FFAdbeCC8487c08F716Cdb-0f8aEE9fe5dA",
   "op": "clipboard.set",
   "text": "example"
 }
 ```
 
-### Variant 26
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11285,13 +11303,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:AdbeCC8487c08F716Cdb-0f8aEE9fe5dA3B7",
-  "maxDepth": 0,
+  "deviceId": "ios:CDEbfe084d9C1--D9e2-5fFE4230f781B41C",
   "op": "ui.tree"
 }
 ```
 
-### Variant 27
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11304,16 +11321,15 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:Ebfe084d9C1--D9e2-5fFE4230f781B41C-3",
+  "deviceId": "ios:B40fEfa48A196f7D740d0Cc52FEB32Af1317",
   "op": "ui.find",
   "query": {
-    "name": "example",
     "text": "example"
   }
 }
 ```
 
-### Variant 28
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11329,14 +11345,14 @@ Example:
 
 ```json
 {
-  "action": "setValue",
-  "deviceId": "android:ewdwz7_j71wtwHLbbgAVziTSemhOrSS-lP3GIw0GRFTbV1A1IO9KSAtaUZ79xBEcqmhjTzixoGQllKfDDMc6ooyGhZn-zAsjcP98FnNo_sJgqWrQEy44lLor3JP1",
+  "action": "focus",
+  "deviceId": "android:2KW8vDETGTVrztmcSXGNCzedEZHlLTwn8VAjOtVW8igj63Lmv3DxoiWIw97lsNE0yD6yshYCdAc8-M9",
   "op": "ui.act",
-  "ref": "D0CAxwUJqEocV6sL8Zo1z3TIjHxfXNGDuQPspMRM2V0KekF-"
+  "ref": "gy5rHPVNdPobbaJPdsZmXhI"
 }
 ```
 
-### Variant 29
+### Variant 30
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11347,12 +11363,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:C8AF252b2faaa02bA6e5c0fDF19D7059BEE4",
+  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
   "op": "logs.start"
 }
 ```
 
-### Variant 30
+### Variant 31
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11363,12 +11379,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
+  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
   "op": "logs.stop"
 }
 ```
 
-### Variant 31
+### Variant 32
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11380,12 +11396,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
+  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
   "op": "logs"
 }
 ```
 
-### Variant 32
+### Variant 33
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11396,12 +11412,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
+  "deviceId": "ios:a5cC6Bc5B3BfCd-d-2d3DBb3b0C9-6010a42",
   "op": "record.start"
 }
 ```
 
-### Variant 33
+### Variant 34
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11412,7 +11428,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:a5cC6Bc5B3BfCd-d-2d3DBb3b0C9-6010a42",
+  "deviceId": "ios:0fbD8263CB-3DA-ec6AFd1B5b1-6b6Bc5-5c",
   "op": "record.stop"
 }
 ```
@@ -11445,6 +11461,18 @@ Example:
   "accessibility": true,
   "screenRecording": true
 }
+```
+
+## DevicePosture
+
+[JSON Schema](schema/DevicePosture.json), input validation.
+
+Type: ["closed","partiallyOpen","open"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"open"
 ```
 
 ## DeviceScope
@@ -11528,7 +11556,8 @@ Example:
       "state": "booted"
     },
     "enabled": false,
-    "lifecycle": "starting"
+    "lifecycle": "starting",
+    "posture": "open"
   },
   "type": "devices.state"
 }
@@ -11635,6 +11664,7 @@ Example:
 | leaseExpiresAt | no | number | {"minimum":0} |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | activity | no | [DeviceActivity.json](schema/DeviceActivity.json) |  |
+| posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 
 Example:
 

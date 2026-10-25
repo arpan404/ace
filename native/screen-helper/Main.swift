@@ -8,6 +8,7 @@ import Darwin
         Responsibility.disclaimIfNeeded()
         if CommandLine.arguments.contains("--computer") { ComputerService.run() }
         if CommandLine.arguments.contains("--transcode") { Transcoder.run() }
+        if CommandLine.arguments.contains("--sim-posture") { SimPosture.run(arguments: CommandLine.arguments) }
         if let index = CommandLine.arguments.firstIndex(of: "--encode-frames"), index + 1 < CommandLine.arguments.count {
             FrameFileEncoder.run(path: CommandLine.arguments[index + 1])
         }

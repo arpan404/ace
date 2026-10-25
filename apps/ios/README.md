@@ -134,6 +134,16 @@ Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
 The simulator's display-link callbacks are not GPU frames: real-device frame rate is still owed.
 
+On iPad (iPad Pro 11, iOS 26.5, 2026-10-24) the transcript scroll test reads 38 to 49 ms per s
+against the phone's 16 to 22, with the thread list beside the transcript. The gap is the test's,
+not the layout's: XCUITest switches on accessibility in the app and reads its element tree
+around every gesture, and the list on screen makes that tree several times larger, so each read
+holds the main thread for 70 to 90 ms. Hiding the list brings the test to 13 to 29 ms per s;
+drawing the list more cheaply (opaque, no provider-mark masks, plain row backgrounds) changes
+nothing, and the list's views are not re-evaluated while the transcript scrolls. With no test
+runner attached, flinging the transcript from inside the app loses 0 to 630 ms of frames in 24 s
+on iPad with the list showing and 310 to 420 ms on the phone.
+
 Known bug: with 1,000 or more seeded deltas the open thread's streaming row stops updating on
 screen after the open; only cursor patches arrive. The streaming test expects that failure
 (`Workload.longStreamFreezes`) and fails once it is fixed, so the expectation gets removed; until

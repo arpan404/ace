@@ -10,8 +10,10 @@ import SwiftUI
     /// The composer and its strip, and the fields inside cards that take several lines: a full
     /// capsule while one line tall, then the composer's radius.
     static let field = TextCapsule(maxRadius: AceTheme.Radii.composer)
-    /// The strip tucked above the composer: the composer's top corners, an open bottom.
-    static let strip = UnevenRoundedRectangle(topLeadingRadius: AceTheme.Radii.composer, topTrailingRadius: AceTheme.Radii.composer, style: .continuous)
+    /// The composer's box (the words and its controls row): the composer's radius.
+    static let composerBox = rounded(AceTheme.Radii.composer)
+    /// The request above the composer: a grouped list at the composer's radius.
+    static let group = rounded(AceTheme.Radii.composer)
     /// The person's message: a capsule for a short line, the bubble radius once it wraps.
     static let bubble = TextCapsule(maxRadius: AceTheme.Radii.bubble)
     /// Code inside the person's message: concentric with the bubble's padding.
@@ -62,10 +64,6 @@ extension View {
     /// Marks the composer's `shape` as the container that concentric fills inside it follow on
     /// iOS 26. Earlier systems keep the fixed nested radius each fill names.
     @ViewBuilder func aceContainerShape(_ shape: TextCapsule) -> some View {
-        if #available(iOS 26, *) { self.containerShape(shape) } else { self.containerShape(shape) }
-    }
-    /// The same for the strip's open-bottomed card.
-    @ViewBuilder func aceContainerShape(_ shape: UnevenRoundedRectangle) -> some View {
         if #available(iOS 26, *) { self.containerShape(shape) } else { self.containerShape(shape) }
     }
 
