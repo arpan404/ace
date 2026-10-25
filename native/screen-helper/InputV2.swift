@@ -103,7 +103,7 @@ extension Capture {
             inputWindowId = window.windowID
         }
         guard bounds.rect.intersects(current), current.contains(CGPoint(x: bounds.rect.midX, y: bounds.rect.midY)) else { throw HelperError("Element centre is outside approved target", code: "bounds") }
-        let x = bounds.rect.midX - current.minX, y = bounds.rect.midY - current.minY
+        let x = bounds.rect.midX - current.minX, y = bounds.rect.midY - current.minY - (target?.kind == "window" ? contentInset : 0)
         var pointer = Action(kind: "click"); pointer.x = x; pointer.y = y; pointer.button = "left"
         pointer.coordinates = .windowPoints; pointer.windowId = inputWindowId
         if action == "scroll" { pointer.kind = "scroll"; pointer.deltaX = 0; pointer.deltaY = value == "up" ? 100 : -100 }

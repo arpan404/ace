@@ -9,6 +9,7 @@ import { HelperCommandError, type Helper } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
 import { bundles, ScreenPolicy, stopping, terminated, replaceableSession } from "./policy.ts";
 import { TargetBusyError } from "./target-busy.ts";
+import { deviceWindow } from "./device-input-policy.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { createSession, type Session } from "./session.ts";
 import { ScreenStopError } from "./stop-error.ts";
@@ -67,8 +68,7 @@ export class TargetSessions {
   }
   startHumanView(input: ScreenTarget, fps = 10): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
-    if (target.kind !== "window" || target.bundleId !== "com.apple.iphonesimulator")
-      throw new Error("Human device viewing requires a Simulator window");
+    if (!deviceWindow(target)) throw new Error("Human device viewing requires a Simulator window");
     const task = this.startTarget(target, fps, undefined, true);
     this.starts.add(task);
     return task.finally(() => this.starts.delete(task));
