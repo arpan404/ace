@@ -61,6 +61,8 @@ export const SimulatorChromeFile = z.object({
     left: name,
     /** The fill behind the screen, stretched over the middle. */
     screen: name.optional().catch(undefined),
+    /** The whole body in one drawing, for the screen size it was made for. */
+    composite: name.optional().catch(undefined),
     sizing: z.object({
       leftWidth: z.number().finite().min(0).max(10_000),
       rightWidth: z.number().finite().min(0).max(10_000),
@@ -207,6 +209,93 @@ async function readArt(read: ArtReader, from: "profile" | "chrome", file: string
   return bytes ? pdfArt(bytes, prefix) : undefined;
 }
 
+interface Frame {
+  body: { width: number; height: number };
+  /** Where the screen's top left corner sits in the body. */
+  origin: { x: number; y: number };
+  image: string;
+}
+
+/**
+ * How far a composite may differ from the sliced body's size and still be the drawing made for
+ * this screen (Apple's composites can sit a point inside the stretch sizes).
+ */
+const compositeSlack = 4;
+
+/**
+ * The body as the chrome's single composite drawing, when it was made for a screen this size:
+ * seamless, as Simulator shows it. The screen sits where the stretch sizes put it, scaled to the
+ * composite's own margins.
+ */
+async function compositeFrame(
+  chrome: SimulatorChromeFile,
+  screen: { width: number; height: number },
+  read: ArtReader,
+): Promise<Frame | undefined> {
+  const { composite, sizing } = chrome.images;
+  if (!composite) return undefined;
+  const art = await readArt(read, "chrome", composite, "w");
+  if (!art) return undefined;
+  const across = sizing.leftWidth + sizing.rightWidth;
+  const down = sizing.topHeight + sizing.bottomHeight;
+  const spare = { x: art.width - screen.width, y: art.height - screen.height };
+  if (
+    spare.x <= 0 ||
+    spare.y <= 0 ||
+    Math.abs(spare.x - across) > compositeSlack ||
+    Math.abs(spare.y - down) > compositeSlack
+  )
+    return undefined;
+  return {
+    body: { width: art.width, height: art.height },
+    origin: {
+      x: across > 0 ? (spare.x * sizing.leftWidth) / across : spare.x / 2,
+      y: down > 0 ? (spare.y * sizing.topHeight) / down : spare.y / 2,
+    },
+    image: artUrl(art),
+  };
+}
+
+/** The body built from the chrome's nine pieces around the screen. */
+async function slicedFrame(
+  chrome: SimulatorChromeFile,
+  screen: { width: number; height: number },
+  read: ArtReader,
+): Promise<Frame | undefined> {
+  const { sizing } = chrome.images;
+  const body = {
+    width: screen.width + sizing.leftWidth + sizing.rightWidth,
+    height: screen.height + sizing.topHeight + sizing.bottomHeight,
+  };
+  const [drawn, middle] = await Promise.all([
+    Promise.all(
+      pieces.map(async (piece, index) => {
+        const pieceArt = await readArt(read, "chrome", chrome.images[piece], `p${index}`);
+        return pieceArt ? ([piece, pieceArt] as const) : undefined;
+      }),
+    ),
+    chrome.images.screen ? readArt(read, "chrome", chrome.images.screen, "c") : undefined,
+  ]);
+  const bodyPieces = new Map(drawn.filter((entry) => entry !== undefined));
+  const piece = (key: Piece) => bodyPieces.get(key);
+  const topLeft = piece("topLeft");
+  const top = piece("top");
+  const topRight = piece("topRight");
+  const right = piece("right");
+  const bottomRight = piece("bottomRight");
+  const bottom = piece("bottom");
+  const bottomLeft = piece("bottomLeft");
+  const left = piece("left");
+  if (!topLeft || !top || !topRight || !right || !bottomRight || !bottom || !bottomLeft || !left)
+    return undefined;
+  const parts = { topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left, middle };
+  return {
+    body,
+    origin: { x: sizing.leftWidth, y: sizing.topHeight },
+    image: svgUrl(bodyArt(parts, body.width, body.height)),
+  };
+}
+
 /**
  * A Simulator's look, or undefined when its chrome can't be drawn (a piece missing or
  * unreadable). The screen mask and notch are added when the profile has them.
@@ -220,31 +309,11 @@ export async function simulatorChrome(
     width: profile.mainScreenWidth / profile.mainScreenScale,
     height: profile.mainScreenHeight / profile.mainScreenScale,
   };
-  const { sizing } = chrome.images;
-  const body = {
-    width: screen.width + sizing.leftWidth + sizing.rightWidth,
-    height: screen.height + sizing.topHeight + sizing.bottomHeight,
-  };
-  const drawn = await Promise.all(
-    pieces.map(async (piece, index) => {
-      const pieceArt = await readArt(read, "chrome", chrome.images[piece], `p${index}`);
-      return pieceArt ? ([piece, pieceArt] as const) : undefined;
-    }),
-  );
-  const bodyPieces = new Map(drawn.filter((entry) => entry !== undefined));
-  const piece = (key: Piece) => bodyPieces.get(key);
-  const topLeft = piece("topLeft");
-  const top = piece("top");
-  const topRight = piece("topRight");
-  const right = piece("right");
-  const bottomRight = piece("bottomRight");
-  const bottom = piece("bottom");
-  const bottomLeft = piece("bottomLeft");
-  const left = piece("left");
-  if (!topLeft || !top || !topRight || !right || !bottomRight || !bottom || !bottomLeft || !left)
-    return undefined;
-  const [middle, mask, sensorBar, buttons] = await Promise.all([
-    chrome.images.screen ? readArt(read, "chrome", chrome.images.screen, "c") : undefined,
+  const frame =
+    (await compositeFrame(chrome, screen, read)) ?? (await slicedFrame(chrome, screen, read));
+  if (!frame) return undefined;
+  const { body, origin } = frame;
+  const [mask, sensorBar, buttons] = await Promise.all([
     profile.framebufferMask ? readArt(read, "profile", profile.framebufferMask, "m") : undefined,
     profile.sensorBarImage ? readArt(read, "profile", profile.sensorBarImage, "s") : undefined,
     Promise.all(
@@ -266,24 +335,15 @@ export async function simulatorChrome(
     ),
   ]);
   return {
-    body: {
-      ...body,
-      image: svgUrl(
-        bodyArt(
-          { topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left, middle },
-          body.width,
-          body.height,
-        ),
-      ),
-    },
-    screen: { x: sizing.leftWidth, y: sizing.topHeight, ...screen },
+    body: { ...body, image: frame.image },
+    screen: { ...origin, ...screen },
     ...(mask ? { mask: artUrl(mask) } : {}),
     ...(sensorBar
       ? {
           cutout: {
             rect: {
-              x: sizing.leftWidth + (screen.width - sensorBar.width) / 2,
-              y: sizing.topHeight,
+              x: origin.x + (screen.width - sensorBar.width) / 2,
+              y: origin.y,
               width: sensorBar.width,
               height: sensorBar.height,
             },
