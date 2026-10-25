@@ -29,6 +29,7 @@ on:
       - packages/provider-kit/src/process-windows*
       - packages/terminal/**
       - tools/release/src/pty-assets.ts
+      - tools/release/src/archive*.ts
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
       - packages/terminal/src/shell*
