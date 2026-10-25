@@ -63,6 +63,11 @@ export interface DeviceControls {
   live: boolean;
   busy: boolean;
   cleanupRequired: boolean;
+  /**
+   * The live picture already shows the device's own body (a Simulator window): show it as it
+   * is, with no frame drawn around it, so the device never sits in two frames.
+   */
+  framed: boolean;
   /** Who drives input now. */
   controller: DeviceState["controller"];
   /** You hold an unexpired control lease. */
@@ -176,6 +181,7 @@ export function deviceControls(
     live,
     busy,
     cleanupRequired: state?.cleanupRequired === true,
+    framed: state?.framed === true,
     controller,
     inControl,
     leaseLeftMs,

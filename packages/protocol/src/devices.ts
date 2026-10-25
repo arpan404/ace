@@ -146,6 +146,11 @@ export const DeviceState = z.object({
    * Absent from older daemons.
    */
   touch: z.enum(["multi", "pointer", "gestures"]).optional(),
+  /**
+   * The live picture already shows the device's own body (a Simulator window captured without
+   * its title bar, when serve-sim isn't there): clients draw no frame of their own around it.
+   */
+  framed: z.boolean().optional(),
   controller: z.enum(["none", "human", "agent"]),
   /** Whether this authenticated connection holds the human controller lease. */
   ownedHere: z.boolean().optional(),

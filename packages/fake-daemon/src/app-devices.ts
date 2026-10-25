@@ -126,6 +126,11 @@ export class FakeAppDevices {
   toolsReady = true;
   /** Discovery reports this machine's Android SDK missing, beside its working Simulators. */
   androidSdkMissing = false;
+  /**
+   * The Simulator streams as its window (no serve-sim): the picture wears the device's own
+   * bezel, so the state says it is framed.
+   */
+  windowPictures = false;
   /** How many times a person asked for the device tools download. */
   toolDownloads = 0;
   /**
@@ -317,6 +322,9 @@ export class FakeAppDevices {
       // nothing, as an older daemon's doesn't.
       ...(session.lifecycle === "live" && session.device.platform === "android"
         ? { touch: "multi" as const }
+        : {}),
+      ...(session.lifecycle === "live" && session.device.platform === "ios" && this.windowPictures
+        ? { framed: true }
         : {}),
       controller: session.controller,
       ownedHere:

@@ -146,7 +146,8 @@ function SelectedDevice(props: { devices: Devices }) {
           session={session}
           live={live}
           interactive={live}
-          bare={bare}
+          // A Simulator window picture wears the device's own bezel: no second frame around it.
+          bare={bare || controls.framed}
           press={{
             enabled: live,
             onPress: (key) => void devices.input({ kind: "key", key }),
