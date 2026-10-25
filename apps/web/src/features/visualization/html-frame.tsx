@@ -15,6 +15,8 @@ interface SurfaceProps {
   theme: HtmlTheme;
   /** CSS height of the surface. */
   height: string;
+  /** Height changes ease in rather than land at once. */
+  ease: boolean;
   onHeight(height: number): void;
 }
 
@@ -37,6 +39,12 @@ export function HtmlFrame(props: {
   webview: boolean;
   /** The last content height, kept by the caller so an unloaded frame holds its place. */
   measured: number | undefined;
+  /**
+   * The page's height is known (it reported one, now or before): changes ease in, so a page
+   * that grows (a tab, a step) doesn't jump. Until then its first report replaces the guess at
+   * once, in one move the transcript can hold its place through.
+   */
+  settled: boolean;
   onHeight(height: number): void;
 }) {
   // A new document only for new HTML or mode; the theme then updates live.
@@ -59,6 +67,7 @@ export function HtmlFrame(props: {
       title={props.title}
       theme={props.theme}
       height={height}
+      ease={props.settled}
       onHeight={props.onHeight}
     />
   );
@@ -66,6 +75,7 @@ export function HtmlFrame(props: {
 
 /** Content height changes ease in, so a page that grows (a tab, a step) doesn't jump. */
 const resizes = "transition-[height] duration-200 ease-out motion-reduce:transition-none";
+const surface = (ease: boolean) => (ease ? resizes : "");
 
 function IframeSurface(props: SurfaceProps) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -101,7 +111,7 @@ function IframeSurface(props: SurfaceProps) {
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       onLoad={send}
-      className={`block w-full border-0 ${resizes}`}
+      className={`block w-full border-0 ${surface(props.ease)}`}
       style={{ height: props.height }}
     />
   );
@@ -158,5 +168,11 @@ function WebviewSurface(props: SurfaceProps) {
     if (ready.current && view.current)
       runInGuest(view.current, `postMessage(${JSON.stringify(themeMessage(props.theme))}, "*")`);
   }, [props.theme]);
-  return <div ref={host} className={`block w-full ${resizes}`} style={{ height: props.height }} />;
+  return (
+    <div
+      ref={host}
+      className={`block w-full ${surface(props.ease)}`}
+      style={{ height: props.height }}
+    />
+  );
 }

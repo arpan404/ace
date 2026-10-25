@@ -1,6 +1,6 @@
 import { StoppedPill } from "../long/stopped-pill.tsx";
 import type { HistoryPager } from "@ace/client-react";
-import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   memo,
   Suspense,
@@ -38,7 +38,8 @@ import type { Block } from "./blocks.ts";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
-import { useFeedScroll, useThreadScrolls, writeScroll } from "./use-feed-scroll.ts";
+import { useFeedScroll, useThreadScrolls, writeScroll, type HeldRows } from "./use-feed-scroll.ts";
+import { rowsWithin, withHeldRows } from "./held-rows.ts";
 import { rowGap } from "./row-gap.ts";
 import { useHistoryPaging, usePagingIntent } from "./use-history-paging.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
@@ -145,6 +146,9 @@ export function Feed(props: FeedProps) {
   // Part of the virtualizer's measurement memo: a new function would rebuild every row's
   // measurement on every render.
   const getItemKey = useCallback((index: number) => keys[index] ?? index, [keys]);
+  // Each row's index by key: finding a held row costs the same in a thread of any length.
+  const indexOf = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys]);
+  const heldRows = useRef<HeldRows>(undefined);
   // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -153,7 +157,8 @@ export function Feed(props: FeedProps) {
     getScrollElement: () => viewport.current,
     estimateSize: () => estimatedRowSize,
     // Rows are tall (a message, a log): a generous overscan keeps fast upward
-    // flicks covered so older history measures before it scrolls into view.
+    // flicks covered so older history measures before it scrolls into view. Short rows reach
+    // less, so the range also reaches a screen past each edge (`rowsWithin`).
     overscan: 12,
     // Scroll-driven range changes render with the next update rather than synchronously in
     // the scroll event: one commit per frame however many scroll events it brings.
@@ -167,7 +172,15 @@ export function Feed(props: FeedProps) {
     // it outside the viewport. Retain only that one row alongside the visible
     // range; the next jump or return to live replaces or clears the focus.
     rangeExtractor: (range) => {
-      const visible = defaultRangeExtractor(range);
+      // Rows that just landed above the reader's row may have moved it out of the range drawn
+      // from the old offset: its neighbours are drawn too, so they never remount.
+      // At least a screen past each edge is drawn, so a fast flick never outruns the rows.
+      const drawn = rowsWithin(
+        virtualizer.measurementsCache,
+        range,
+        viewport.current?.clientHeight ?? 0,
+      );
+      const visible = withHeldRows(drawn, heldRows.current?.(indexOf, range.overscan) ?? []);
       const target = focus ? rowOf(rows, focus.itemId) : -1;
       return target < 0 || visible.includes(target)
         ? visible
@@ -184,10 +197,13 @@ export function Feed(props: FeedProps) {
     virtualizer,
     rows,
     keys,
+    indexOf,
+    heldRowsRef: heldRows,
     total,
     detached,
     topRoom,
     dock,
+    list: feed,
     now,
     onDirection: intent.onDirection,
     restore: left.saved,
