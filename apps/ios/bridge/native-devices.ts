@@ -101,6 +101,7 @@ const controlled = new Set<DeviceOperation["op"]>([
   "open_app",
   "open_url",
   "configure",
+  "posture",
   "input",
   "record.start",
   "record.stop",
