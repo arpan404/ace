@@ -51,9 +51,7 @@ async function signInWithGoogle(app: ReturnType<typeof harness>) {
   );
   await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
   await waitFor(() =>
-    expect([...app.daemon.services.providerLogin.signIns.values()]).toEqual([
-      { method: "google" },
-    ]),
+    expect([...app.daemon.services.providerLogin.signIns.values()]).toEqual([{ method: "google" }]),
   );
   return screen.findByRole("dialog", { name: "Sign in to Antigravity" });
 }
