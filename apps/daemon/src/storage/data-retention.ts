@@ -83,8 +83,10 @@ export class DataRetention {
     let next: number;
     try {
       const result = await this.service.retain(days, allowed);
-      if (result.removed > 0 && allowed()) await this.service.compact(RETENTION_REVIEWER, allowed);
-      next = delayAfterPass(result, this.timing);
+      const pruned = await this.service.prune(allowed);
+      const removed = result.removed + pruned.events;
+      if (removed > 0 && allowed()) await this.service.compact(RETENTION_REVIEWER, allowed);
+      next = delayAfterPass({ removed, complete: result.complete && pruned.done }, this.timing);
     } catch (error) {
       this.failed(error);
       next = delayAfterPass("failed", this.timing);

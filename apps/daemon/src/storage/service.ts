@@ -17,7 +17,13 @@ import { initializeThreadCleanup } from "../thread-cleanup-journal.ts";
 import { StorageInventory } from "./inventory.ts";
 import { StorageJournal, type CleanupJournal, type CompactionJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
-import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
+import {
+  applyStorageItems,
+  compactStorage,
+  defaultCompactionLimits,
+  pruneSupersededEvents,
+  type CompactionLimits,
+} from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 
@@ -35,7 +41,7 @@ export class StorageService {
   private limits: CompactionLimits;
   constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
     this.owner = owner;
-    this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
+    this.limits = { ...defaultCompactionLimits(() => setImmediate()), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
@@ -101,6 +107,8 @@ export class StorageService {
         databaseBytesBefore: (await this.database()).databaseBytes,
         incrementalUnavailable: false,
         checkpointed: false,
+        eventsPruned: 0,
+        revisionsPruned: 0,
       };
       await this.owner.store.write(() => this.journal.saveCompaction(state));
       await compactStorage(
@@ -112,6 +120,13 @@ export class StorageService {
       );
       return this.compaction(state);
     });
+  }
+  /**
+   * Removes item events a later full update replaced, in small resumable batches. Retention runs
+   * it every pass; compaction runs it before releasing pages.
+   */
+  prune(allowed: () => boolean): Promise<{ events: number; revisions: number; done: boolean }> {
+    return this.serial(() => pruneSupersededEvents(this.owner, this.limits, allowed));
   }
   /** Stop resuming an unfinished compaction. Chunks already released stay released. */
   abandonCompaction(id: string): Promise<StorageCompaction> {
@@ -133,6 +148,8 @@ export class StorageService {
       databaseBytesBefore: state.databaseBytesBefore,
       ...(await this.database()),
       checkpointed: state.checkpointed,
+      eventsPruned: state.eventsPruned,
+      revisionsPruned: state.revisionsPruned,
     };
   }
   plan(

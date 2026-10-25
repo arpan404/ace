@@ -6,6 +6,13 @@ import type { StorageJournal, CleanupJournal, CompactionJournal } from "./journa
 import { planStorageItem } from "./planner.ts";
 import { executeStorageItem, fenceStorageItem } from "./executor.ts";
 import { StorageRefusal } from "./refusal.ts";
+import {
+  pruneBatch,
+  pruneDefaults,
+  pruneHorizon,
+  pruneProgress,
+  type PruneBatch,
+} from "./event-pruning.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -127,6 +134,48 @@ export interface CompactionLimits {
   maxChunks: number;
   /** Yields between chunks so held writers' waits and socket traffic stay bounded. */
   pause(): Promise<void>;
+  /** Superseded-event pruning: updates per transaction, transactions per run, horizon. */
+  prune: { updates: number; maxBatches: number; minAgeMs: number; headMargin: number };
+}
+export const defaultCompactionLimits = (pause: () => Promise<void>): CompactionLimits => ({
+  chunkPages: 256,
+  maxChunks: 4096,
+  pause,
+  prune: { updates: 128, maxBatches: 8192, ...pruneDefaults },
+});
+
+/**
+ * Removes superseded item events in small write transactions, outside the maintenance fence,
+ * so live writers only ever wait for one batch. Progress commits with each batch; a restart
+ * continues from the stored cursor. Returns the rows this call removed.
+ */
+export async function pruneSupersededEvents(
+  owner: StorageOwner,
+  limits: CompactionLimits,
+  allowed: () => boolean,
+): Promise<{ events: number; revisions: number; done: boolean }> {
+  const sql = (text: string) => owner.store.statement(text);
+  const horizon = await owner.store.write(() =>
+    pruneHorizon(sql, {
+      now: owner.now(),
+      minAgeMs: limits.prune.minAgeMs,
+      headMargin: limits.prune.headMargin,
+    }),
+  );
+  const start = pruneProgress(sql);
+  let last: PruneBatch | undefined;
+  for (let batch = 0; batch < limits.prune.maxBatches; batch++) {
+    if (!allowed()) break;
+    last = await owner.store.write(() => pruneBatch(sql, horizon, limits.prune.updates));
+    await owner.afterCompactionStep?.();
+    if (last.done) break;
+    await limits.pause();
+  }
+  return {
+    events: last ? last.events - start.events : 0,
+    revisions: last ? last.revisions - start.revisions : 0,
+    done: last?.done ?? false,
+  };
 }
 
 /**
@@ -143,6 +192,15 @@ export async function compactStorage(
   allowed: () => boolean,
 ): Promise<void> {
   const save = () => journal.saveCompaction(state);
+  if (state.phase === "vacuum") {
+    const pruned = await pruneSupersededEvents(owner, limits, allowed);
+    if (pruned.events || pruned.revisions) {
+      state.eventsPruned += pruned.events;
+      state.revisionsPruned += pruned.revisions;
+      await owner.store.write(save);
+    }
+    if (!pruned.done) return;
+  }
   await owner.store.maintenance(async (db) => {
     const pragma = (sql: string) => Number(Object.values(db.prepare(sql).get() ?? {})[0]);
     if (state.phase === "vacuum") {

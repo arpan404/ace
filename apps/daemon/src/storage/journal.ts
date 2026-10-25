@@ -2,6 +2,7 @@ import { StoragePlan, type StorageApply } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "../store.ts";
 import { ReviewedStorageItem } from "./types.ts";
+import { initializeEventPruning } from "./event-pruning.ts";
 
 export const CleanupJournal = z.object({
   plan: StoragePlan,
@@ -19,6 +20,9 @@ export const CompactionJournal = z.object({
   databaseBytesBefore: z.number().int().nonnegative(),
   incrementalUnavailable: z.boolean(),
   checkpointed: z.boolean(),
+  /** Superseded item events and history revisions this compaction removed. */
+  eventsPruned: z.number().int().nonnegative().default(0),
+  revisionsPruned: z.number().int().nonnegative().default(0),
 });
 export type CompactionJournal = z.infer<typeof CompactionJournal>;
 
@@ -36,6 +40,7 @@ export class StorageJournal {
         document TEXT NOT NULL);
     `),
     );
+    store.atomic(() => initializeEventPruning((sql) => store.statement(sql)));
   }
   get(id: string): CleanupJournal | undefined {
     const row = this.store.statement("SELECT document FROM storage_plans WHERE id=?").get(id);

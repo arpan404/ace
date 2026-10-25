@@ -138,6 +138,9 @@ export const StorageCompaction = z.object({
   reclaimableDatabaseBytes: bytes,
   /** False when a reader kept the WAL from being truncated. */
   checkpointed: z.boolean(),
+  /** Item events and history revisions removed because a later full update replaced them. */
+  eventsPruned: z.number().int().nonnegative().optional(),
+  revisionsPruned: z.number().int().nonnegative().optional(),
 });
 export type StorageCompaction = z.infer<typeof StorageCompaction>;
 export const StorageRequest = z.object({
