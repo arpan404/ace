@@ -12,7 +12,7 @@ import type { FileSource } from "./attachment-format.ts";
 import { UnavailableImage } from "./attachment-message.tsx";
 import { Skeleton } from "./ui/skeleton.tsx";
 
-type Source = Extract<FileSource, { kind: "artifact" }>;
+type Source = Extract<FileSource, { kind: "artifact" }> & { mimeType: string };
 const limit = 16 * 1024 * 1024;
 /** The tallest an inline artifact image stands. */
 const maxHeight = 320;

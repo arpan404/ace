@@ -35,7 +35,13 @@ function connection() {
   return { client, reads };
 }
 
-const source = { kind: "artifact", threadId: "thread", artifactId: "shot", bytes: 3 } as const;
+const source = {
+  kind: "artifact",
+  threadId: "thread",
+  artifactId: "shot",
+  bytes: 3,
+  mimeType: "image/png",
+} as const;
 const name = "Screenshot.png";
 
 /** The browser decodes the picture at its own size. */
