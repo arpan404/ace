@@ -15,12 +15,21 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
       count INTEGER NOT NULL
     );
     INSERT OR IGNORE INTO sidebar_thread_deletes(id, count) VALUES (1, 0);
-    CREATE TRIGGER IF NOT EXISTS sidebar_thread_insert AFTER INSERT ON threads BEGIN
-      INSERT OR REPLACE INTO sidebar_thread_revisions(thread_id) VALUES (NEW.id);
+    -- Delete, then insert. A statement's own conflict rule (an upsert, OR IGNORE, OR
+    -- ROLLBACK) replaces the rule of every statement its triggers run, so an OR REPLACE
+    -- here could fail or be skipped. Recreated on every start, so older bodies are replaced.
+    SAVEPOINT sidebar_revision_triggers;
+    DROP TRIGGER IF EXISTS sidebar_thread_insert;
+    DROP TRIGGER IF EXISTS sidebar_thread_update;
+    CREATE TRIGGER sidebar_thread_insert AFTER INSERT ON threads BEGIN
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.id;
+      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.id);
     END;
-    CREATE TRIGGER IF NOT EXISTS sidebar_thread_update AFTER UPDATE ON threads BEGIN
-      INSERT OR REPLACE INTO sidebar_thread_revisions(thread_id) VALUES (NEW.id);
+    CREATE TRIGGER sidebar_thread_update AFTER UPDATE ON threads BEGIN
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.id;
+      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.id);
     END;
+    RELEASE sidebar_revision_triggers;
     -- A changed id is a delete of the old one (only possible with foreign keys off).
     CREATE TRIGGER IF NOT EXISTS sidebar_thread_rekey AFTER UPDATE OF id ON threads
     WHEN OLD.id IS NOT NEW.id BEGIN
