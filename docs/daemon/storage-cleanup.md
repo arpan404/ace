@@ -215,6 +215,53 @@ before incremental vacuum reports `incrementalUnavailable` and is left untouched
 free pages are still reused by ordinary writes. Offering a rebuild would first need
 explicit INTEGER PRIMARY KEYs on every rowid-addressed table.
 
+### Superseded item events
+
+Before releasing pages, compaction removes item events that a later full update
+replaces (`storage/event-pruning.ts`). `item.updated` carries the whole item, and every
+reader replaces the item with it, keeping the creation time from `item.created`. Once
+such an update exists, the item's earlier `item.updated` and `item.delta` rows add
+nothing. They are deleted, together with their `history_item_revisions` rows. The
+item's first complete revision stays, because completion reads cite it. `item.created`
+stays, because it fixes the item's place and creation time. Rows that survive are
+never rewritten. Deltas that arrive after an item's last update, such as shell output
+after the tool call settled, have nothing that replaces them and stay.
+
+Only rows below a horizon are touched. The horizon is the lowest of: the newest event
+older than a day, the head minus 65,536, and the cursors of the long-thread index,
+search and thread search. It is zero while the long-thread range migration is still
+reading events by seq. So derived indexes have already read every removed row, and a
+rebuild of one from the log sees each item's final update. A subscription replays only
+when its cursor is within the replay limit (5,000 by default) of the head, so a client
+whose cursor is inside or before a pruned range gets a fresh snapshot. A cursor on a
+removed row also fails `replaySafe` and takes a snapshot. A cursor on a row that
+survives still replays correctly, because each item's final update is kept.
+
+Point-in-time history reads (`through` below the horizon) are the one visible change.
+An item that was still changing at `through` now reads as its creation or first
+complete revision, rather than its exact state at that seq. Text comes from stream
+versions, which are kept, so text as of `through` is unchanged. Reads at the head are
+identical.
+
+Pruning works through `item.updated` events in seq order. For each one, it deletes the
+item's rows since its previous surviving update. A batch handles 64 updates in one
+write transaction. It runs outside the maintenance fence, so a live writer waits for at
+most one batch. The cursor and counts in `storage_event_pruning` commit with the
+deletions, so a kill loses nothing and a restart continues from the cursor. The
+retention pass prunes every six hours and compacts when it removed anything. A
+compaction result reports `eventsPruned` and `revisionsPruned`. Deleted payloads are
+mostly whole overflow pages, so they come back as free pages that `incremental_vacuum`
+releases. `apps/daemon/bench/event-pruning.ts` prunes a copy of a real database. It then
+compares every thread with an untouched copy: full replay, snapshot, history pages and
+resume from sampled cursors.
+
+Measured on 2026-10-24 on a copy of a 9.3 GB database with 436 threads. Pruning removed
+411,362 of 1,803,339 events and 52,291 of 421,704 revisions in 81 s, with the event loop
+blocked for at most 267 ms (a WAL checkpoint at commit). The vacuum that followed took
+12 s, and the file went from 9,277 MB to 8,821 MB. All 436 threads matched an untouched
+copy in full replay, snapshot and history pages, as did resume from 3,484 sampled
+cursors: 2,558 replayed, 926 took a snapshot. `PRAGMA integrity_check` returned `ok`.
+
 A kill at any point leaves an intact file: every chunk is atomic, and the only trace
 is a `running` journal entry, which resumes on startup. Settings → Storage offers
 Compact database. The CLI equivalent is `ace clean --compact [--abandon ID]`.
