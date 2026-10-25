@@ -101,6 +101,10 @@ async function round(turns: number, burst: boolean) {
     for (const { frame } of turnFrames(0, seq)) await context.onFrame(frame);
     advance(2_000);
     await h.engine.flush();
+    // Hold off checkpoints, so the write-ahead log's growth is every byte the turns wrote.
+    h.store.atomic((db) => db.exec("PRAGMA wal_autocheckpoint=0"));
+    const wal: unknown = Reflect.get(h.store, "wal");
+    if (typeof wal === "object" && wal !== null) Reflect.set(wal, "wake", () => {});
     const before = { metrics: h.store.streamingMetrics(), head: h.store.headSeq() };
     const cpu = process.cpuUsage();
     for (let turn = 1; turn <= turns; turn++) {
@@ -130,6 +134,7 @@ async function round(turns: number, burst: boolean) {
       cpuMs: (used.user + used.system) / 1000,
       transactions: after.metrics.transactions - before.metrics.transactions,
       events: after.head - before.head,
+      walBytes: after.metrics.walBytes - before.metrics.walBytes,
     };
   } finally {
     await h.close();
@@ -155,5 +160,7 @@ console.log(
     cpuMsPerFrame: (cpu[0] ?? 0) / turns / recorded.length,
     transactionsPerTurn: (first?.transactions ?? 0) / turns,
     eventsPerTurn: (first?.events ?? 0) / turns,
+    cpuMsPerEvent: (cpu[0] ?? 0) / turns / ((first?.events ?? 0) / turns),
+    walBytesPerEvent: Math.round((first?.walBytes ?? 0) / (first?.events || 1)),
   }),
 );
