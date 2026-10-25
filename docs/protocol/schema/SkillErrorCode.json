@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillErrorCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "unavailable",
+    "forbidden",
+    "not_found",
+    "conflict",
+    "exists",
+    "invalid",
+    "limit",
+    "read_only",
+    "update_failed"
+  ],
+  "type": "string"
+}

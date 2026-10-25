@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceChromeRect.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "height": {
+      "exclusiveMinimum": 0,
+      "maximum": 100000,
+      "type": "number"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 100000,
+      "type": "number"
+    },
+    "x": {
+      "maximum": 100000,
+      "minimum": -100000,
+      "type": "number"
+    },
+    "y": {
+      "maximum": 100000,
+      "minimum": -100000,
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "width",
+    "height"
+  ],
+  "type": "object"
+}

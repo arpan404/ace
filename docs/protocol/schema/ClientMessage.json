@@ -910,6 +910,12 @@
       "$ref": "https://ace.local/protocol/v1/CatalogUnsubscribe.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SkillsRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SkillsUnsubscribe.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,

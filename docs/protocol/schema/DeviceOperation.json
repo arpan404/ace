@@ -103,6 +103,29 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
+        "format": {
+          "enum": [
+            "svg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "chrome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
         "op": {
           "const": "boot",
           "type": "string"

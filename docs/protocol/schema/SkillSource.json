@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "folderHash": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "updatedAt": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "url",
+    "path",
+    "folderHash"
+  ],
+  "type": "object"
+}
