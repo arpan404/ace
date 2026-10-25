@@ -59,10 +59,7 @@ async function invocation(url: string, home: string) {
 
 /** A daemon whose project actions `fill` takes up: 16 lock clears that wait until `release`. */
 async function busyDaemon() {
-  let release = () => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const f = await projectFixture({
     clearLock: async () => {
       await held;
@@ -94,7 +91,7 @@ async function busyDaemon() {
     }
   };
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-cli-home-")));
-  return { f, server, project, fill, release, home };
+  return { f, server, project, fill, release: () => release(), home };
 }
 
 const settles = (promise: Promise<unknown>, milliseconds: number) =>
