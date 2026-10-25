@@ -1,4 +1,4 @@
-import type { MachineThread } from "@ace/client/machines";
+import { machineThreadKey, type MachineThread } from "@ace/client/machines";
 import { arrayEqual, useSelection } from "@ace/client-react";
 import { ThreadId, type ThreadListEntry } from "@ace/protocol";
 import { useMemo } from "react";
@@ -15,6 +15,11 @@ const prefix = "machine:";
 /** The list's id for a pool row: its pool key (`machineThreadKey`, `[hostId, threadId]`). */
 export function machineRowId(row: MachineThread): ThreadId {
   return ThreadId.parse(`${prefix}${row.key}`);
+}
+
+/** The list's id for thread `threadId` on machine `hostId`, the id its row is listed under. */
+export function machineListId(hostId: string, threadId: string): ThreadId {
+  return ThreadId.parse(`${prefix}${machineThreadKey({ hostId, threadId })}`);
 }
 
 /** The machine, thread and pool key a list id names, when it is another machine's. */
