@@ -25,6 +25,8 @@ async function fakeClaude(hang = false) {
 const { createInterface } = require("node:readline");
 require("node:fs").writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ pid: process.pid, parent: process.ppid }));
 const hang = ${hang};
+// A hung CLI does not notice its input closing, so it outlives a helper killed outright.
+if (hang) setInterval(() => {}, 1000);
 createInterface({ input: process.stdin }).on("line", (line) => {
   const data = JSON.parse(line);
   if (data.type !== "control_request" || hang) return;
@@ -85,4 +87,19 @@ test("cancelling a question that the CLI never answers ends the helper and its C
   await vi.waitFor(() => expect([alive(pid), alive(parent)]).toEqual([false, false]), {
     timeout: 10_000,
   });
+});
+
+test("a helper killed outright does not leave its Claude CLI running", async () => {
+  const claude = await fakeClaude(true);
+  const asked = discoverClaudeModels({ ...claude.input, signal: new AbortController().signal });
+  const outcome = asked.then(
+    () => "answered",
+    () => "failed",
+  );
+  await vi.waitFor(() => claude.ran(), { timeout: 20_000 });
+  const { pid, parent } = await claude.ran();
+  // As when the daemon's own fatal exit SIGKILLs the helper: no shutdown handler of its runs.
+  process.kill(parent, "SIGKILL");
+  expect(await outcome).toBe("failed");
+  await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 10_000 });
 });

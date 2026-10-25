@@ -1,9 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { spawnSupervised } from "@ace/provider-kit/process";
+import { registerGroup, spawnSupervised, stopRetainedGroup } from "@ace/provider-kit/process";
 import { askClaude, type MetadataQueryInput } from "./metadata-query.ts";
 import { metadataQuestions, type MetadataQuestion } from "./metadata-questions.ts";
 
+/** The helper names the CLI it started before it answers. */
+const Started = z.object({ cli: z.number().int().positive() });
 const Reply = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), value: z.unknown() }),
   z.object({ ok: z.literal(false) }),
@@ -35,12 +37,24 @@ export async function askClaudeMetadata(
     maxOutputBytes: 8 * 1024 * 1024,
   });
   let reply: z.infer<typeof Reply> | undefined;
+  let cli: number | undefined;
   host.stdout.on("line", (line) => {
+    let data: unknown;
     try {
-      reply ??= Reply.safeParse(JSON.parse(line)).data;
+      data = JSON.parse(line);
     } catch {
-      // Not a reply; a missing reply fails the question below.
+      return; // Not a frame; a missing reply fails the question below.
     }
+    const started = Started.safeParse(data).data;
+    if (started && cli === undefined) {
+      // The CLI has its own process group. Owning it here (journaled, stopped on this
+      // process's exit) means a helper killed outright cannot leave it running.
+      cli = started.cli;
+      const pid = cli;
+      registerGroup(pid, (graceMs) => stopRetainedGroup(pid, graceMs), { name: "claude" });
+      return;
+    }
+    reply ??= Reply.safeParse(data).data;
   });
   // The host exits on SIGTERM and takes its CLI with it; the grace lets it do so.
   const stop = () => void host.stop({ graceMs: 2000 });
@@ -53,5 +67,7 @@ export async function askClaudeMetadata(
   } finally {
     input.signal.removeEventListener("abort", stop);
     await host.stop({ graceMs: 2000 });
+    // Normally the helper already stopped it; this ends a CLI the helper left behind.
+    if (cli !== undefined) await stopRetainedGroup(cli, 0);
   }
 }

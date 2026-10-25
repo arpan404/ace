@@ -22,7 +22,13 @@ process.stdin.resume();
 const { what, ask } = metadataQuestions[question];
 try {
   const value = await askClaude(
-    { ...target, env: process.env, signal: controller.signal },
+    {
+      ...target,
+      env: process.env,
+      signal: controller.signal,
+      // The daemon owns this CLI's group too, so it ends even if this helper is killed outright.
+      onCliProcess: (pid) => process.stdout.write(`${JSON.stringify({ cli: pid })}\n`),
+    },
     what,
     ask,
   );
