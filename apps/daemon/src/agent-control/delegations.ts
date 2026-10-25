@@ -8,7 +8,7 @@ export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue } from "./launch-queue.ts";
-import { childStatus, queuedStatus } from "./child-status.ts";
+import { childStatus, queuedChildStatus } from "./child-status.ts";
 import { accountProvider, type AccountRegistry } from "@ace/accounts";
 import {
   CommandId,
@@ -710,7 +710,7 @@ export class DelegationService {
   private showQueued(edge: DelegationRecord): void {
     const child = this.deps.store.getThread(edge.childId);
     if (!child) return;
-    const queued = { ...child, status: queuedStatus };
+    const queued = { ...child, status: queuedChildStatus(this.queueFacts(edge.childId)) };
     this.deps.engine.updateChild(edge.parentId, queued);
     this.deps.engine.delegationStarted(edge, queued);
   }
@@ -1092,7 +1092,9 @@ export class DelegationService {
       }
       const shown = {
         ...thread,
-        status: this.launches.has(edge.childId) ? queuedStatus : childStatus(edge, thread),
+        status: this.launches.has(edge.childId)
+          ? queuedChildStatus(this.queueFacts(edge.childId))
+          : childStatus(edge, thread),
       };
       this.deps.engine.updateChild(edge.parentId, shown);
       if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {

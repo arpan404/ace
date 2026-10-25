@@ -108,7 +108,6 @@ export class DelegationFacts {
     const agent = state.indexes.agentKeysById[record.parentAgentId];
     if (!agent) throw new Error("Unknown delegation parent");
     const selection = this.repo.session(child.id);
-    const queue = child.queuedLaunch;
     this.repo.apply(
       record.parentId,
       [
@@ -127,16 +126,6 @@ export class DelegationFacts {
             role: record.request.role,
             phase: record.phase,
             status: child.status,
-            // A queued child's place, so the parent's row can say where it stands.
-            ...(queue?.slotLimit !== undefined &&
-            queue?.slotsInUse !== undefined &&
-            queue?.queuePosition !== undefined
-              ? {
-                  slotLimit: queue.slotLimit,
-                  slotsInUse: queue.slotsInUse,
-                  queuePosition: queue.queuePosition,
-                }
-              : {}),
             updatedAt: this.clock.now(),
             generation: record.generation,
             complete: record.phase === "settled",
