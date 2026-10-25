@@ -109,6 +109,11 @@ test.each([false, true])(
   },
 );
 
+function quotaFrame(data: Record<string, unknown>, seq: number): Frame {
+  const payload = new ProviderPayload(JSON.stringify(data));
+  return { seq, t: 0, dir: "recv", channel: "stdio", data: payload.data, payload };
+}
+
 test("frames carry the account's billing mode, including a change reported mid-session", async () => {
   const request = await homes("claude");
   const registry = await openRegistry(request.to.homeDir + "/accounts.sqlite");
@@ -136,10 +141,6 @@ test("frames carry the account's billing mode, including a change reported mid-s
     },
   };
   const service = new AccountService({ registry, now: () => 1, timeZone: "UTC", env: {} });
-  const frame = (data: Record<string, unknown>, seq: number): Frame => {
-    const payload = new ProviderPayload(JSON.stringify(data));
-    return { seq, t: 0, dir: "recv", channel: "stdio", data: payload.data, payload };
-  };
   try {
     const opened = await service.openSession(
       adapter,
@@ -153,11 +154,11 @@ test("frames carry the account's billing mode, including a change reported mid-s
       { instanceId: request.from.id, role: "worker", estimatedLoad: 1 },
     );
     if (!emit) throw new Error("Missing source");
-    emit(frame({ type: "delta", text: "a" }, 1));
-    emit(frame({ authDetail: "claude.ai" }, 2));
-    emit(frame({ type: "delta", text: "b" }, 3));
-    emit(frame({ billingMode: "api" }, 4));
-    emit(frame({ type: "delta", text: "c" }, 5));
+    emit(quotaFrame({ type: "delta", text: "a" }, 1));
+    emit(quotaFrame({ authDetail: "claude.ai" }, 2));
+    emit(quotaFrame({ type: "delta", text: "b" }, 3));
+    emit(quotaFrame({ billingMode: "api" }, 4));
+    emit(quotaFrame({ type: "delta", text: "c" }, 5));
     expect(received.map((input) => input.usageAccount?.billingMode)).toEqual([
       "unknown",
       "subscription",
