@@ -429,6 +429,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
           upward: upward.current,
           detached,
           gliding: now() < glidingUntil.current,
+          at: now(),
         },
         el,
       );
