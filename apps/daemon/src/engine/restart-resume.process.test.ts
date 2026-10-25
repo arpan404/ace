@@ -162,6 +162,8 @@ test("a turn waiting on the person's answer shows the request again and doesn't 
   await recovered.engine.flush();
   expect(sends(replacement)).toEqual([]);
   expect(recovered.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+  // A restart stopped it, so it reads as one: no provider exit is claimed.
+  expect(recovered.engine.queue(id).exited).toBeUndefined();
   expect(restartNotices(recovered.store, id)).toEqual([
     'Interrupted by a restart while waiting for your answer to "Continue?". Continue and the agent asks again.',
   ]);
@@ -361,7 +363,10 @@ test("a provider that dies mid-turn while ace keeps running holds its queue unti
   h.contexts.at(-1)?.onExit({ deliberate: false, message: "provider died" });
   await h.engine.flush();
   expect(sends(replacement)).toEqual([]);
-  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+  // Held like a restart, but called what it was: the provider stopped on its own.
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "restart", exited: true });
+  expect(h.store.getThread(id)?.queue).toMatchObject({ reason: "restart", exited: true });
+  expect(h.store.getThread(id)?.status.state).not.toBe("done");
   dispatch(h.store, h.engine, {
     type: "thread.resume",
     threadId: id,
@@ -369,6 +374,30 @@ test("a provider that dies mid-turn while ace keeps running holds its queue unti
   });
   await h.engine.flush();
   expect(inputs(replacement)).toEqual(["Continue where you left off.", "a"]);
+  expect(h.engine.queue(id).exited).toBeUndefined();
+});
+
+test("a provider crash still reads as a crash after ace restarts, and Continue still resumes it", async () => {
+  const { h, id, replacement } = await interruptedThread([]);
+  h.contexts.at(-1)?.onExit({ deliberate: false, message: "provider died" });
+  await h.engine.flush();
+  const recovered = await crashCopy(h);
+  await recovered.engine.flush();
+  // The restart found the turn already held for the crash; nothing continues by itself.
+  expect(sends(replacement)).toEqual([]);
+  expect(recovered.engine.queue(id)).toMatchObject({
+    paused: true,
+    reason: "restart",
+    exited: true,
+  });
+  dispatch(recovered.store, recovered.engine, {
+    type: "thread.resume",
+    threadId: id,
+    expectedRevision: recovered.engine.queue(id).revision,
+  });
+  await recovered.engine.flush();
+  expect(inputs(replacement)).toHaveLength(1);
+  expect(recovered.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
 });
 
 test("a provider released after its idle window resumes with exactly the next message", async () => {
