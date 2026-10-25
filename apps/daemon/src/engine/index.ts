@@ -448,7 +448,7 @@ export class Engine {
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {
-    if (!this.readyState || this.closing || this.repo.store.getThread(id)?.settledAt === undefined)
+    if (!this.readyState || this.closing || this.repo.store.readThread(id)?.settledAt === undefined)
       return;
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
@@ -1169,13 +1169,9 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (
-      this.closing ||
-      this.repo.cleaning(id) ||
-      this.repo.store.getThread(id)?.deletedAt !== undefined ||
-      this.repo.store.getThread(id)?.continuation
-    )
-      return;
+    if (this.closing || this.repo.cleaning(id)) return;
+    const thread = this.repo.store.readThread(id);
+    if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
       if (!this.deferredWakes.has(id)) {
         this.deferredWakes.add(id);

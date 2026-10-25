@@ -1,29 +1,10 @@
-import { remoteCommand, redeemCommand } from "./remote.ts";
-import { logsCommand } from "./logs.ts";
-import { cloudCommand } from "./cloud.ts";
-import { browserCommand } from "./browser.ts";
-import { automationCommand } from "./automations.ts";
-import { controlCommand, stopCommand } from "./control.ts";
-import { providersCommand, loginCommand } from "./providers.ts";
-import { ClientError } from "@ace/client";
-import { NewerDataError, prepareDaemonHome } from "@ace/service";
 import { readConfig } from "../config.ts";
 import { option, parseArgs, type Args } from "./args.ts";
 import { CliFailure } from "./output.ts";
 import { reportFailure } from "./failure.ts";
 import { print, validateOutput } from "./io.ts";
-import { runtimeCommand } from "./runtime.ts";
-import { accessCommand } from "./access.ts";
-import { connectCli } from "./connection.ts";
-import { runCommand } from "./work.ts";
-import { listThreads, threadCommand, waitThread } from "./threads.ts";
-import { taskCommand } from "./tasks.ts";
-import { projectCommand, remoteWorkProject } from "./projects.ts";
-import { openCommand } from "./open.ts";
-import { retentionCommand } from "./retention.ts";
-import { configCommand } from "./config.ts";
-import { simCommand } from "./sim.ts";
-import { simHelp } from "./sim-args.ts";
+// Each command's module loads when that command runs: `ace start` is the daemon, and it should
+// not hold every other command's code (and the client library they use) for its whole life.
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|approve|deny|cancel|interrupt ID [TEXT]
@@ -71,7 +52,8 @@ export async function main(input: string[]): Promise<void> {
     args = parseArgs(input);
     await validateOutput(args);
     if (args.flags.help) {
-      const text = args.words[0] === "sim" ? simHelp : help.trimEnd();
+      const text =
+        args.words[0] === "sim" ? (await import("./sim-args.ts")).simHelp : help.trimEnd();
       await print(args, args.flags.json || args.flags.jq ? { help: text } : text);
       return;
     }
@@ -82,7 +64,7 @@ export async function main(input: string[]): Promise<void> {
       return await chatCommand(args, config);
     }
     if (command === "open" || (command === "project" && args.words[1] === "open"))
-      return await openCommand(args, config);
+      return await (await import("./open.ts")).openCommand(args, config);
     if (command === "accounts") {
       const { runAccountsCommand } = await import("@ace/accounts");
       const lines: string[] = [];
@@ -122,17 +104,23 @@ export async function main(input: string[]): Promise<void> {
       ["remote", "config", "cloud"].includes(command) ||
       (command === "pair" && args.words[1] === "redeem")
     )
-      prepareHome(config.dataDir);
-    if (command === "remote") return await remoteCommand(args, config.dataDir);
+      await prepareHome(config.dataDir);
+    if (command === "remote")
+      return await (await import("./remote.ts")).remoteCommand(args, config.dataDir);
     if (command === "pair" && args.words[1] === "redeem")
-      return await redeemCommand(args, config.dataDir);
-    if (command === "logs") return await logsCommand(args, config.dataDir);
-    if (command === "config") return await configCommand(args, config.dataDir);
-    if (command === "cloud") return await cloudCommand(args, config.dataDir);
-    if (command === "stop") return await stopCommand(args, config.dataDir);
-    if (["start", "serve", "service"].includes(command)) return await runtimeCommand(args, config);
+      return await (await import("./remote.ts")).redeemCommand(args, config.dataDir);
+    if (command === "logs")
+      return await (await import("./logs.ts")).logsCommand(args, config.dataDir);
+    if (command === "config")
+      return await (await import("./config.ts")).configCommand(args, config.dataDir);
+    if (command === "cloud")
+      return await (await import("./cloud.ts")).cloudCommand(args, config.dataDir);
+    if (command === "stop")
+      return await (await import("./control.ts")).stopCommand(args, config.dataDir);
+    if (["start", "serve", "service"].includes(command))
+      return await (await import("./runtime.ts")).runtimeCommand(args, config);
     if (["status", "token", "pair", "devices"].includes(command))
-      return await accessCommand(args, config.dataDir);
+      return await (await import("./access.ts")).accessCommand(args, config.dataDir);
     if (
       ![
         "run",
@@ -154,40 +142,60 @@ export async function main(input: string[]): Promise<void> {
       ].includes(command)
     )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
-    const session = await connectCli(config.dataDir, args);
+    const session = await (await import("./connection.ts")).connectCli(config.dataDir, args);
     try {
       if (command === "storage" || command === "clean")
-        await retentionCommand(args, session.client, session.signal);
+        await (
+          await import("./retention.ts")
+        ).retentionCommand(args, session.client, session.signal);
       else if (command === "add" || command === "project")
-        await projectCommand(args, session.client, session.signal, session.remote);
-      else if (command === "browser") await browserCommand(args, session.client, session.signal);
-      else if (command === "sim") await simCommand(args, session.client, session.signal);
+        await (
+          await import("./projects.ts")
+        ).projectCommand(args, session.client, session.signal, session.remote);
+      else if (command === "browser")
+        await (await import("./browser.ts")).browserCommand(args, session.client, session.signal);
+      else if (command === "sim")
+        await (await import("./sim.ts")).simCommand(args, session.client, session.signal);
       else if (command === "automation")
-        await automationCommand(args, session.client, session.signal);
+        await (
+          await import("./automations.ts")
+        ).automationCommand(args, session.client, session.signal);
       else if (command === "kill-all" || command === "mcp")
-        await controlCommand(args, session.client, session.signal);
+        await (await import("./control.ts")).controlCommand(args, session.client, session.signal);
       else if (command === "capabilities" || command === "providers")
-        await providersCommand(args, session.client, session.signal);
-      else if (command === "login") await loginCommand(args, session.client, session.signal);
+        await (
+          await import("./providers.ts")
+        ).providersCommand(args, session.client, session.signal);
+      else if (command === "login")
+        await (await import("./providers.ts")).loginCommand(args, session.client, session.signal);
       else if (command === "run") {
         const project = session.remote
-          ? await remoteWorkProject(option(args, "project"), session.client, session.signal)
+          ? await (
+              await import("./projects.ts")
+            ).remoteWorkProject(option(args, "project"), session.client, session.signal)
           : option(args, "project");
-        const id = await runCommand(args, session.client, session.signal, project);
+        const id = await (
+          await import("./work.ts")
+        ).runCommand(args, session.client, session.signal, project);
         if (args.flags.stream === "jsonl")
-          await waitThread(
+          await (
+            await import("./threads.ts")
+          ).waitThread(
             { ...args, flags: { ...args.flags, tree: true } },
             session.client,
             id,
             session.signal,
           );
-      } else if (command === "threads") await listThreads(args, session.client, session.signal);
-      else if (command === "thread") await threadCommand(args, session.client, session.signal);
-      else await taskCommand(args, session.client, session.signal);
+      } else if (command === "threads")
+        await (await import("./threads.ts")).listThreads(args, session.client, session.signal);
+      else if (command === "thread")
+        await (await import("./threads.ts")).threadCommand(args, session.client, session.signal);
+      else await (await import("./tasks.ts")).taskCommand(args, session.client, session.signal);
     } finally {
       await session.close();
     }
   } catch (error) {
+    const { ClientError } = await import("@ace/client");
     const outcome =
       error instanceof CliFailure
         ? error.outcome
@@ -203,7 +211,8 @@ export async function main(input: string[]): Promise<void> {
 }
 
 /** Settles the home's format for a command that writes there; newer data keeps its exit code. */
-function prepareHome(dataDir: string): void {
+async function prepareHome(dataDir: string): Promise<void> {
+  const { NewerDataError, prepareDaemonHome } = await import("@ace/service");
   try {
     prepareDaemonHome(dataDir);
   } catch (error) {

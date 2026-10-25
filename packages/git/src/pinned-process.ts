@@ -3,11 +3,13 @@ import { z } from "zod";
 import type { GitProcessRuntime } from "./types.ts";
 
 const require = createRequire(import.meta.url);
+/** The helper's first argument: the process listing knows the group it leads as ace's Git. */
+export const pinnedGitMarker = "ace-pinned-git";
 // This helper changes only its own cwd. The inherited fd, rather than a pathname, selects it.
 // Git and its helpers stay in this helper's supervised process group; argv never enters a shell.
 const helper = `
 const {spawn}=require("node:child_process");
-const [ffiPath,binary,...args]=process.argv.slice(1);
+const [ffiPath,binary,...args]=process.argv.slice(2);
 const ffi=require(ffiPath);
 const enter=ffi.load(null).func("int fchdir(int fd)");
 if(enter(3)!==0) process.exit(126);
@@ -25,7 +27,7 @@ export function spawnPinned(
 ) {
   return runtime.spawn(
     process.execPath,
-    ["-e", helper, require.resolve("koffi"), binary, ...args],
+    ["-e", helper, pinnedGitMarker, require.resolve("koffi"), binary, ...args],
     {
       ...options,
       cwd: "/",

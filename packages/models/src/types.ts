@@ -92,6 +92,8 @@ export interface CatalogStorage {
 export interface ModelCatalogApi {
   updatePermissionModes?(instance: string, modes: readonly NativePermissionMode[]): void;
   listen?(listener: (filter: ModelFilter) => void): () => void;
+  /** Keeps CLI-owned connections re-checked while the returned stop is not called. */
+  observeConnections?(): () => void;
   list(options?: ModelListOptions): ModelListResult;
   resolve(spec: ModelRoleSpec): ModelResolution;
   /** Resolve retained choices without scheduling discovery. Optional for embedded catalogs. */

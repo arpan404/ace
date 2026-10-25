@@ -6,6 +6,7 @@ import type {
   McpAttribution,
   MonitorSnapshot,
   MonitoredChild,
+  QueueFacts,
   Thread,
   ThreadId,
   WaitMode,
@@ -36,6 +37,15 @@ import {
 /** What a queued child's step says, for a model reading agents_status or wait. */
 const queuedStep = "queued: starts when a running agent finishes";
 
+/** The same step with the child's place, so a model sees why it waits. */
+function queuedStepText(queue: QueueFacts | undefined): string {
+  if (!queue) return queuedStep;
+  return (
+    `queued: position ${queue.queuePosition}, ` +
+    `${queue.slotsInUse} of ${queue.slotLimit} run slots in use`
+  );
+}
+
 export interface MonitorDependencies {
   store: Store;
   journal: DelegationJournal;
@@ -45,6 +55,8 @@ export interface MonitorDependencies {
   delivered(caller: McpAttribution, outcome: DelegationOutcome): void;
   /** A resume of the thread is in flight, so its paused queue is about to move. */
   resuming?(id: ThreadId): boolean;
+  /** Where a queued child stands: slot limit, slots in use and its queue place. */
+  queueFacts?(child: ThreadId): QueueFacts | undefined;
 }
 /** Children that run on other paired machines (ADR 0078), observed by their own poller. */
 export interface RemoteChildren {
@@ -159,9 +171,10 @@ export class AgentMonitor {
       const state = this.state(thread.id);
       counts[state]++;
       const needs = state === "needs_you" ? this.needs(thread) : [];
+      const queue = state === "queued" ? this.deps.queueFacts?.(edge.childId) : undefined;
       const step =
         state === "queued"
-          ? queuedStep
+          ? queuedStepText(queue)
           : state === "working" || state === "needs_you"
             ? this.step(thread)
             : undefined;
@@ -172,6 +185,7 @@ export class AgentMonitor {
         role: clip(edge.request.role, 40),
         state,
         ...(step ? { step: clip(step, 60) } : {}),
+        ...(queue ? { ...queue } : {}),
         elapsedSeconds: elapsedSeconds(
           edge.createdAt,
           settledStates.has(state) ? thread.updatedAt : now,
@@ -291,12 +305,14 @@ export class AgentMonitor {
       return { view: { ...base, result: outcome.result, truncated: outcome.truncated }, outcome };
     }
     const needs = state === "needs_you" ? this.needs(thread) : [];
-    const step = state === "queued" ? queuedStep : this.step(thread);
+    const queue = state === "queued" ? this.deps.queueFacts?.(id) : undefined;
+    const step = state === "queued" ? queuedStepText(queue) : this.step(thread);
     const last = this.lastOutput(thread, 160);
     return {
       view: {
         ...base,
         ...(step ? { step: clip(step, 120) } : {}),
+        ...(queue ? { ...queue } : {}),
         ...(last ? { last } : {}),
         ...(needs.length ? { needs } : {}),
       },

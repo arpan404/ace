@@ -1,13 +1,7 @@
 import { liveMetadata, boundedLiveModel } from "@ace/projection";
 import type { DatabaseSync } from "node:sqlite";
-import {
-  Agent,
-  BackgroundTask,
-  ThreadId,
-  ThreadClientFields,
-  type EventPayload,
-  type Thread,
-} from "@ace/protocol";
+import { encodeThreadClient } from "./thread-columns.ts";
+import { Agent, BackgroundTask, ThreadId, type EventPayload, type Thread } from "@ace/protocol";
 
 /** Indexed single-entity lookups, before the status owner replaces that entity. */
 export function liveMetadataChange(
@@ -59,9 +53,6 @@ export function migrateThreadClient(db: DatabaseSync): void {
       .some((column) => column.name === "client")
   )
     db.exec("ALTER TABLE threads ADD COLUMN client JSON");
-}
-export function encodeThreadClient(thread: Thread): string {
-  return JSON.stringify(ThreadClientFields.parse(thread));
 }
 
 /** One startup migration seeds counters from the existing materialization, never transcript history. */

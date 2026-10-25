@@ -58,6 +58,11 @@
                     "minLength": 1,
                     "type": "string"
                   },
+                  "queuePosition": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer"
+                  },
                   "queued": {
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991,
@@ -66,6 +71,16 @@
                   "role": {
                     "maxLength": 40,
                     "type": "string"
+                  },
+                  "slotLimit": {
+                    "maximum": 64,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "slotsInUse": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "state": {
                     "enum": [

@@ -2714,7 +2714,11 @@ Example:
     "interactionId": "example",
     "message": "example",
     "preview": "example",
-    "status": "unresponsive",
+    "run": {
+      "outcome": "delivered",
+      "phase": "plan"
+    },
+    "status": "background_done",
     "threadId": "example",
     "title": "example"
   },
@@ -2954,119 +2958,118 @@ Example:
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
+    "itemSeqs": {},
     "items": {},
-    "itemsBefore": null,
     "kind": "thread",
     "queue": {
-      "lastFailure": null,
+      "lastFailure": {
+        "code": "example",
+        "title": "example"
+      },
       "paused": true,
-      "pendingCount": 3,
-      "reason": "manual",
-      "resumeAt": 9,
-      "revision": 4
+      "reason": null,
+      "resumeAt": 5,
+      "revision": 0
     },
     "runs": {},
     "seq": 9,
     "thread": {
-      "activitySeq": 9,
-      "autoSettle": false,
-      "autoSettleAt": 8,
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": true,
+          "resume": false
+        },
+        "coverage": "generic",
+        "mcp": "http",
+        "modeSelection": false,
+        "modelSelection": false,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "subagentSessions": true,
+        "visibility": "limited"
+      },
+      "activitySeq": 2,
+      "archivedAt": 3,
+      "autoSettleAt": 7,
       "capabilities": {
+        "accessModes": [],
         "attachmentInput": {
           "documents": [],
           "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 2
+          "format": "claude",
+          "maxInlineBytes": 8
         },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "full",
-        "childControls": "read-only",
-        "fork": true,
-        "forkSubagents": true,
-        "imageInput": true,
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "none",
+        "childFidelity": "summary",
+        "fork": false,
+        "forkSubagents": false,
+        "imageInput": false,
         "interruptCascades": true,
         "launchOptions": [],
-        "permissionModes": [],
         "planMode": false,
         "resume": true,
-        "rewindFiles": true,
+        "rewindFiles": false,
         "steer": false,
-        "steeringMode": "interrupt-restart",
         "subagentTranscripts": true,
-        "tokenUsage": true
-      },
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
+        "tokenUsage": false
       },
       "createdAt": 1,
-      "effectiveCapabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "acp",
-          "maxInlineBytes": 9
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "none",
-        "childControls": "read-only",
-        "fork": false,
-        "imageInput": false,
-        "interruptCascades": false,
-        "launchOptions": [],
-        "planMode": false,
-        "resume": true,
-        "rewindFiles": true,
-        "sessionOptions": false,
-        "steer": true,
-        "steerTiming": "immediate",
-        "subagentTranscripts": true,
-        "tokenUsage": true
+      "execution": {
+        "provider": "codex"
+      },
+      "goal": {
+        "checks": 4,
+        "lastReason": "example",
+        "objective": "example",
+        "setAt": 0,
+        "status": "active"
       },
       "id": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
+      "imported": {
+        "importedAt": 8,
+        "instanceId": "example",
+        "native": {
+          "acpAgentId": "example",
+          "forkedFromNativeId": "example",
+          "instanceId": "example",
+          "provider": "acp"
+        },
+        "sourceId": "example"
       },
-      "live": {
-        "provider": "claude",
-        "step": "tests",
-        "waitingOn": 1,
-        "workingSince": 1
+      "installationId": "example",
+      "instanceId": "example",
+      "listOrder": 6,
+      "pinOrder": 8,
+      "pinned": false,
+      "provider": "cursor",
+      "readAt": 5,
+      "run": {
+        "pendingCount": 8,
+        "phase": "review",
+        "playbook": "feature",
+        "state": "blocked"
       },
-      "permission": {
-        "effective": "auto-review",
-        "override": null,
-        "pending": true
-      },
-      "pinOrder": 7,
-      "prSettled": 6,
-      "provider": "claude",
-      "snoozedUntil": 2,
+      "snoozedUntil": 7,
       "status": {
-        "state": "limited",
-        "until": 9
+        "state": "unresponsive"
       },
       "switch": {
-        "at": 4,
+        "at": 8,
         "lossy": false,
         "selection": {
-          "provider": "antigravity"
+          "provider": "codex"
         },
         "state": "applied"
       },
       "title": "example",
-      "unread": false,
-      "updatedAt": 1,
+      "updatedAt": 8,
       "workspaceId": "example"
     },
     "usage": {}
