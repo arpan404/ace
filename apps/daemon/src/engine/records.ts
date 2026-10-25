@@ -1,4 +1,9 @@
-import { RecordBudget, type CachedRecord, type RecordTransaction } from "./record-cache.ts";
+import {
+  RecordBudget,
+  uncachedSection,
+  type RecordSection,
+  type RecordTransaction,
+} from "./record-cache.ts";
 export { RecordBudget } from "./record-cache.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
@@ -16,11 +21,7 @@ function parseRecord<T>(schema: z.ZodType<T>, value: unknown): T {
 /** Disk-backed dictionaries return plain entities, so core can clone emitted events. */
 export class Records<T> {
   readonly values: Record<string, T>;
-  private readonly cache: {
-    get(key: string): CachedRecord<T> | undefined;
-    set(key: string, value: CachedRecord<T>, bytes: number): void;
-    delete(key: string): void;
-  };
+  private cache: RecordSection<T>;
   private readonly transaction: RecordTransaction | undefined;
   private tracking = false;
   private appendValue: { key: string; value: T } | undefined;
@@ -172,6 +173,15 @@ export class Records<T> {
     }
     if (this.tracking) this.enumerated = keys;
     return Object.keys(Object.fromEntries([...keys].map((key) => [key, true])));
+  }
+  /**
+   * Gives back this dictionary's share of the budget when its snapshot leaves the repository.
+   * Section keys are never reused, so nothing else could read those entries, and a decorated
+   * value would keep this whole snapshot alive. Unflushed changes stay; later reads use SQLite.
+   */
+  release(): void {
+    this.cache.clear();
+    this.cache = uncachedSection;
   }
   hasReplacement(key: string): boolean {
     return this.replaced.has(key);
