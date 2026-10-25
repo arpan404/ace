@@ -78,13 +78,16 @@ struct InboxStack<Destination: View>: View {
                 }
             }
         }
-        .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
         .modifier(InboxSearchField(query: $query, searching: $searching,
                                    prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
         .inboxFootBar { if ThreadColumns.sidebarHoldsTabs(sizeClass) { InboxPlaces(tab: $tab) } }
+        // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
+        .navigationTitle(pulls ? "Pull requests" : "Threads")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
     }
+
+    private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 
     @ViewBuilder private func page(_ route: InboxRoute) -> some View {
         switch route {
@@ -111,7 +114,8 @@ struct InboxStack<Destination: View>: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        // Decorative branding and the connection title share the leading slot, with no glass.
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+        // The title, its menu and the scope or connection problem under it, with no glass.
         if #available(iOS 26, *) {
             ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
         } else {
@@ -144,7 +148,8 @@ struct InboxStack<Destination: View>: View {
         }
     }
     private var title: some View {
-        InboxTitle(problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
+        InboxHeading(title: pulls ? "Pull requests" : "Threads", filters: pulls ? nil : filters,
+                     problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
             .modifier(HeaderLead())
     }
     private var settings: some View {

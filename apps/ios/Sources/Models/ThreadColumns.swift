@@ -14,7 +14,7 @@ enum ThreadColumns {
     static let sideBySideMinimum: CGFloat = 700
     /// The list column beside the thread: wide enough for the header (the wordmark clear of the
     /// window's controls, then Settings, Search and New thread) and the three-line rows.
-    static let listWidth = (min: CGFloat(300), ideal: CGFloat(330), max: CGFloat(380))
+    static let listWidth = (min: CGFloat(340), ideal: CGFloat(384), max: CGFloat(420))
 
     /// Whether the list sits beside the open thread.
     static func sideBySide(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat) -> Bool {
@@ -59,12 +59,6 @@ enum ThreadColumns {
     static func headerLead(_ sizeClass: UserInterfaceSizeClass?, windowControls: CGFloat) -> CGFloat {
         if windowControls > 0 { return AceTheme.Spacing.md }
         return sidebarHoldsTabs(sizeClass) ? AceTheme.Spacing.sm : AceTheme.Spacing.none
-    }
-
-    /// Whether the header shows the ace mark without its word: when the window's controls share
-    /// the sidebar's bar, the word would push Search and New thread into its overflow menu.
-    static func markOnly(_ sizeClass: UserInterfaceSizeClass?, windowControls: CGFloat) -> Bool {
-        sidebarHoldsTabs(sizeClass) && windowControls > 0
     }
 
     /// The tab bar shows only in a compact window, and steps aside while it shows a page.

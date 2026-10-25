@@ -26,14 +26,14 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
-                .toolbar(removing: pinned ? .sidebarToggle : nil)
+                // The thread's bar carries the sidebar button, where the list it hides was.
+                .toolbar(removing: .sidebarToggle)
                 // Room for the wordmark beside the window's controls and its three buttons.
                 .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
                 .environment(\.openForgeRow, path.first?.forge)
                 .environment(\.onSidebarGlass, onSidebarGlass)
                 .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
-                .environment(\.markOnly, ThreadColumns.markOnly(sizeClass, windowControls: windowControls))
                 // Going back to the list in a compact window closes the thread, as popping it did.
                 .onAppear {
                     if ThreadColumns.backToList(sizeClass, reported: listReported) { path = [] }
@@ -42,6 +42,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 // As a stack, the tab bar hides once a page is pushed; beside the list the
                 // sidebar's foot takes its place.
                 .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
+                .background { SidebarPlain().frame(width: 0, height: 0) }
         } detail: {
             NavigationStack(path: detail) {
                 Group {
@@ -51,6 +52,11 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                             .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
                     }
                     else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
+                }
+                .toolbar {
+                    if sizeClass == .regular {
+                        ToolbarItem(placement: .topBarLeading) { SidebarButton(visibility: $visibility) }
+                    }
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
             }
@@ -73,10 +79,10 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
             visibility = change.wanted
             settling += 1
         }
-        // Beside the thread the list stays: the split view's own late layout passes (a turn, the
-        // tab bar leaving) never hide it. Too narrow for both, the person's toggle is theirs.
+        // While a window change settles, the split view's own late layout passes (a turn, the tab
+        // bar leaving) never pick the columns; after that the sidebar button is the person's.
         .onChange(of: visibility) { _, now in
-            if (settling > 0 || pinned), now != columns { visibility = columns }
+            if settling > 0, now != columns { visibility = columns }
         }
         .task(id: settling) {
             guard settling > 0 else { return }
@@ -91,8 +97,6 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         guard #available(iOS 26, *) else { return false }
         return ThreadColumns.sidebarHoldsTabs(sizeClass)
     }
-    /// The list sits beside the thread and keeps its place there (`ThreadColumns.sideBySide`).
-    private var pinned: Bool { ThreadColumns.sideBySide(sizeClass, width: width) }
     private var columns: NavigationSplitViewVisibility {
         ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
     }
@@ -119,8 +123,6 @@ extension EnvironmentValues {
     @Entry var openThreadRow: InboxKey?
     /// How far the list's header steps in (`ThreadColumns.headerLead`).
     @Entry var headerLead: CGFloat = 0
-    /// The header shows the ace mark without its word (`ThreadColumns.markOnly`).
-    @Entry var markOnly = false
     /// The pull request or issue open beside the list.
     @Entry var openForgeRow: ForgeRoute?
     /// Closes the detail column's own thread; pages pushed over it go back instead.
@@ -133,3 +135,19 @@ struct CloseOpenThread {
 }
 
 
+
+/// Hides and shows the list beside the thread, from the thread's bar: the iPhone's list slides
+/// away and the thread recentres in its reading column.
+private struct SidebarButton: View {
+    @Binding var visibility: NavigationSplitViewVisibility
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        let hidden = visibility == .detailOnly
+        Button {
+            withAnimation(reduceMotion ? nil : .smooth) { visibility = hidden ? .all : .detailOnly }
+        } label: { Image(systemName: "sidebar.left") }
+            .accessibilityLabel(hidden ? "Show Sidebar" : "Hide Sidebar")
+            .accessibilityIdentifier("split.sidebar")
+            .keyboardShortcut("s", modifiers: [.command, .control])
+    }
+}

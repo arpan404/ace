@@ -1,37 +1,40 @@
 import SwiftUI
 
 /// Threads and Pull requests at the foot of the sidebar, where a regular window (iPad, the
-/// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: two quiet rows,
-/// the one showing filled as a selected row is. A compact window has the tab bar back.
+/// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
+/// switch, the place showing filled. A compact window has the tab bar back.
 struct InboxPlaces: View {
     @Binding var tab: InboxTab
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var fill
 
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.xxs) {
-            place("Threads", systemImage: "text.bubble", tab: .threads, id: "sidebar.threads")
-            place("Pull requests", image: "tab-pulls", tab: .pulls, id: "sidebar.pulls")
+        HStack(spacing: AceTheme.Spacing.none) {
+            place("Threads", tab: .threads, id: "sidebar.threads")
+            place("Pull requests", tab: .pulls, id: "sidebar.pulls")
         }
-        .padding(.horizontal, AceTheme.Spacing.sm)
+        .padding(3)
+        .background(AceTheme.Colours.secondaryBackground, in: AceShape.capsule)
+        .overlay(AceShape.capsule.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.vertical, AceTheme.Spacing.sm)
     }
 
-    private func place(_ title: String, systemImage: String? = nil, image: String? = nil, tab place: InboxTab, id: String) -> some View {
-        Button { tab = place } label: {
-            HStack(spacing: AceTheme.Spacing.md) {
-                Group {
-                    if let systemImage { Image(systemName: systemImage) } else if let image { Image(image) }
+    private func place(_ title: String, tab place: InboxTab, id: String) -> some View {
+        let chosen = tab == place
+        return Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { tab = place } } label: {
+            Text(title)
+                .aceFont(AceTheme.TypeStyle(size: 14, lineHeight: 19, weight: 600, tracking: 0), relativeTo: .subheadline)
+                .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - 6)
+                .background {
+                    if chosen { AceShape.capsule.fill(AceTheme.Colours.fill).matchedGeometryEffect(id: "place", in: fill) }
                 }
-                .frame(width: AceTheme.Dimensions.touchTarget / 2)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(title).aceFont(AceTheme.Typography.label, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Spacer(minLength: AceTheme.Spacing.none)
-            }
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .contentShape(AceShape.capsule)
         }
-        .buttonStyle(RowPressStyle(selected: tab == place))
-        .accessibilityAddTraits(tab == place ? .isSelected : [])
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier(id)
     }
 }

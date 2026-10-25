@@ -76,13 +76,6 @@ import SwiftUI
         #expect(ThreadColumns.headerLead(.compact, windowControls: 0) == 0)
     }
 
-    @Test func theWordmarkGivesWayOnlyWhereTheWindowsControlsShareTheSidebarsBar() {
-        #expect(ThreadColumns.markOnly(.regular, windowControls: 66))
-        // Full screen, or the phone's bar beside the controls (two buttons), keep the word.
-        #expect(!ThreadColumns.markOnly(.regular, windowControls: 0))
-        #expect(!ThreadColumns.markOnly(.compact, windowControls: 66))
-    }
-
     @Test func nextAndPreviousThreadFollowTheListAndStopAtItsEnds() {
         let order = ["a", "b", "c"].map { InboxKey(machineId: "m", id: $0) }
         #expect(ThreadColumns.neighbour(of: order[0], in: order, step: 1) == order[1])
