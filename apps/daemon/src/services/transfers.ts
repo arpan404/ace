@@ -2,6 +2,14 @@ import { TransferCommands as TransferCommandSchemas, type TransfersResult } from
 import { TransferError } from "../transfers/ports.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
+/** What a person reads when a transfer is refused before it runs. */
+const admissionDetails: Partial<Record<string, string>> = {
+  forbidden:
+    "This device can't move projects on this machine. Link it again with Projects allowed.",
+  device_mismatch: "This device's sign-in doesn't match the request. Reconnect and try again.",
+  maintenance: "New work is paused on this machine. Resume new work in ace to continue.",
+};
+
 /**
  * `workspace.transfer`, `thread.continueOn`, `transfers.request` and `transfer.progress`
  * (ADR 0099). Moving work needs `projects` on this machine, as adding a project does; continuing
@@ -31,6 +39,14 @@ export function createTransfersSession(context: SocketContext): SocketService {
     command: {
       types: TransferCommandSchemas.map((schema) => schema.shape.type.value),
       scope: () => "projects",
+      // Refused before it runs, a transfer still answers with its code and words.
+      refused: (command, code) => ({
+        commandId: command.id,
+        ok: false,
+        error: code,
+        code,
+        detail: admissionDetails[code] ?? "This machine didn't take the transfer. Try again.",
+      }),
       accept(command) {
         const transfers = options.transfers;
         const refuse = (error: string, detail: string) =>

@@ -2,6 +2,7 @@ import type {
   DeviceId,
   DeviceScope,
   Command,
+  CommandResult,
   ClientMessage,
   BrowserClientMessage,
   BrowserBackendClientMessage,
@@ -22,6 +23,11 @@ export interface CommandRegistration {
   types: readonly Command["payload"]["type"][];
   scope(command: Command): DeviceScope;
   accept(command: Command, device: DeviceId): void | Promise<void>;
+  /**
+   * The receipt for a command refused before it is accepted (scope, device, maintenance), for
+   * commands whose receipts carry their own codes and words; omitted: the generic error.
+   */
+  refused?(command: Command, code: string): CommandResult;
 }
 export interface SocketService {
   binary?(frame: Buffer): boolean;
