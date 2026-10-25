@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { OutputLimitError } from "./output-budget.ts";
 import { createProbeThread } from "./probe-thread.ts";
-import { observeProcessGroups, probeOutput } from "./process.ts";
+import { observeProcessGroups, probeOutput, stopOwnedGroups } from "./process.ts";
 
 function groupAlive(pid: number): boolean {
   try {
@@ -78,3 +78,31 @@ test("a spawn that blocks its thread leaves the main thread answering", async ()
     clearInterval(beat);
   }
 });
+
+test.each([false, true])(
+  "a global stop returns only after a probe has ended (pid reported first: %s)",
+  async (reported) => {
+    const seen: number[] = [];
+    const recorded = new Set<number>();
+    const stop = observeProcessGroups({
+      add: (pid) => {
+        seen.push(pid);
+        recorded.add(pid);
+      },
+      remove: (pid) => recorded.delete(pid),
+    });
+    try {
+      const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
+      void running.catch(() => {});
+      // Unreported, the probe is still waiting on the worker for its pid.
+      if (reported) await expect.poll(() => recorded.size).toBe(1);
+      await stopOwnedGroups(0);
+      expect(seen).toHaveLength(1);
+      expect(recorded.size).toBe(0);
+      expect(seen.map(groupAlive)).toEqual([false]);
+      await running;
+    } finally {
+      stop();
+    }
+  },
+);

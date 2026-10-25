@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
-import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
 export interface ProbeThread {
@@ -34,9 +34,20 @@ function stopGroup(pid: number): void {
   }
 }
 
+type Flight = {
+  id: number;
+  pid?: number;
+  stopping: boolean;
+  done: PromiseWithResolvers<ProbeExit>;
+  /** Settles once the worker confirms the process ended, or the worker itself is gone. */
+  settled: Promise<void>;
+  release(): void;
+};
+
 /**
- * Bounded CLI probes spawned on a worker thread. The main thread records each process group the
- * moment the worker reports its pid, so shutdown and crash recovery still own it.
+ * Bounded CLI probes spawned on a worker thread. Each one is owned from the moment it is
+ * requested: before its pid arrives a global stop waits for it, and once the worker reports the
+ * pid the main thread records the process and can kill it directly.
  */
 export function createProbeThread(
   entry = new URL("./probe-worker.ts", import.meta.url),
@@ -44,19 +55,28 @@ export function createProbeThread(
 ): ProbeThread {
   const worker = new IdleWorker(entry, { execArgv: [] }, workers);
   let next = 0;
-  const flights = new Map<
-    number,
-    { pid?: number; resolve(exit: ProbeExit): void; reject(error: Error): void }
-  >();
+  const flights = new Map<number, Flight>();
+  const stop = (flight: Flight) => {
+    flight.stopping = true;
+    if (flight.pid !== undefined) stopGroup(flight.pid);
+    try {
+      worker.postMessage({ type: "stop", id: flight.id });
+    } catch {
+      // A closed worker has already failed every flight.
+    }
+    return flight.settled;
+  };
+  const end = (flight: Flight) => {
+    flights.delete(flight.id);
+    flight.release();
+    if (flight.pid !== undefined) unregisterGroup(flight.pid);
+  };
   const fail = (error: Error) => {
     for (const flight of flights.values()) {
-      if (flight.pid !== undefined) {
-        stopGroup(flight.pid);
-        unregisterGroup(flight.pid);
-      }
-      flight.reject(error);
+      if (flight.pid !== undefined) stopGroup(flight.pid);
+      end(flight);
+      flight.done.reject(error);
     }
-    flights.clear();
   };
   worker.on("message", (input: unknown) => {
     const message = ProbeReply.safeParse(input);
@@ -64,27 +84,22 @@ export function createProbeThread(
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
-      const { pid, id } = message.data;
+      const { pid } = message.data;
       flight.pid = pid;
       try {
-        registerGroup(
-          pid,
-          () => {
-            worker.postMessage({ type: "stop", id });
-            return Promise.resolve();
-          },
-          { name: "cli-probe" },
-        );
+        registerGroup(pid, () => stop(flight), { name: "cli-probe" });
       } catch {
         // Unrecorded, it must not outlive this probe.
-        stopGroup(pid);
+        flight.stopping = true;
       }
+      // Owned by pid now; the admission that covered the gap is no longer needed.
+      flight.release();
+      if (flight.stopping) stopGroup(pid);
       return;
     }
-    const { type: _type, id, ...exit } = message.data;
-    flights.delete(id);
-    if (flight.pid !== undefined) unregisterGroup(flight.pid);
-    flight.resolve(exit);
+    const { type: _type, id: _id, ...exit } = message.data;
+    end(flight);
+    flight.done.resolve(exit);
     if (!flights.size) worker.idle();
   });
   worker.on("error", (error: Error) => fail(error));
@@ -93,21 +108,28 @@ export function createProbeThread(
     run(request, signal) {
       const id = next++;
       const done = Promise.withResolvers<ProbeExit>();
-      const flight: { pid?: number; resolve(exit: ProbeExit): void; reject(error: Error): void } = {
-        resolve: done.resolve,
-        reject: done.reject,
+      const flight: Flight = {
+        id,
+        stopping: false,
+        done,
+        settled: done.promise.then(
+          () => {},
+          () => {},
+        ),
+        release: () => {},
       };
+      flight.release = admitProcess(
+        () => stop(flight),
+        () => {},
+      );
       flights.set(id, flight);
-      const abort = () => {
-        if (flight.pid !== undefined) stopGroup(flight.pid);
-        worker.postMessage({ type: "stop", id });
-      };
+      const abort = () => void stop(flight);
       signal.addEventListener("abort", abort, { once: true });
       try {
         worker.postMessage({ type: "run", id, ...request });
         if (signal.aborted) abort();
       } catch (error) {
-        flights.delete(id);
+        end(flight);
         done.reject(error instanceof Error ? error : new Error("Probe worker unavailable"));
       }
       return done.promise.finally(() => signal.removeEventListener("abort", abort));
