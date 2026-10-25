@@ -30,7 +30,7 @@ Ids stay the same between looks, so later results are a diff: `+` lines are new,
 
 - **Click by id**: `{"type":"click","id":15}`. It presses the element directly, even when the window is covered or on another Space. `count: 2` double-clicks; `button: "right"` opens the context menu, `"middle"` middle-clicks; `modifiers: ["cmd"]` ⌘-clicks (also `shift`, `alt`, `ctrl`, `fn`); `hold_ms` long-presses.
 - **Click by x,y** only for things missing from the outline (canvases, images). The coordinates are pixels of the latest screenshot of that window, nothing else; take a new one after the window changes.
-- **Hover**: `{"type":"move","id":15}` shows tooltips and hover menus.
+- **Hover**: `{"type":"move","id":15}` posts a move to that window. Effects that depend on the real pointer, such as some tooltips, may not appear.
 - **Fields**: `set_value` replaces a field's whole value in one step and is the most reliable. `type` types at the caret, like a keyboard, for apps that react to keystrokes (search-as-you-type, chat boxes); give it an `id` to focus that field first. `select_text` selects a passage (`prefix` or `suffix` tell repeats apart), or with `cursor` places the caret before or after it, so the next `type` edits in place.
 - **Long or formatted text**: `{"type":"paste","text":"…","format":"markdown"}` keeps headings, lists, bold and links (`html` works too). The person's clipboard is put back afterwards. In a background app rich paste may land as plain text; the result says so.
 - **Keys**: `{"type":"key","key":"cmd+s"}`, `"Return"`, `"Escape"`, `"Down"` with `repeat`, `hold_ms` to hold, `id` to focus first. In a background app, ⌘ shortcuts run their menu item, and ⌘A/⌘C/⌘X/⌘V edit the focused text directly. After you copy, the result quotes what was copied.
@@ -40,7 +40,7 @@ Ids stay the same between looks, so later results are a diff: `+` lines are new,
 
 ### Fewer round trips
 
-Each look costs a turn. Batch every step whose outcome you can predict, and let the batch check for itself:
+Batch consecutive actions into one `screen_act`, up to 20 steps. Read once after the batch, rather than after every click or field. Use `wait_for` at a dependency such as navigation or a dialog, and `if` for an optional branch:
 
 - `{"type":"wait_for","text":"Saved"}` waits until that text appears (`gone: true`: until it goes, `id` for an element), up to `timeout_ms` (default 5000), instead of looking again.
 - An `if` step runs the next steps only if the element is there now, so one batch can handle a dialog that may or may not show: `{"type":"if","text":"Replace"},{"type":"click","id":31}`. `steps: 2` guards two steps; `gone: true` inverts it. Skipped steps are listed as skipped, not failed.
@@ -50,11 +50,17 @@ Add `screenshot: true` to `screen_state` or `screen_act` when the outline does n
 
 If your call is stopped, the batch stops at its next step; work already done stays done, so look before you retry.
 
-The person can watch: on a visible window a small marker shows where you act, and pressing Esc while you act stops you. `stopped_by_person` means stop and ask how to continue; `person_active` means they are using that app right now, so wait a few seconds or work elsewhere.
+The person can watch: on a visible window a small marker shows where you act, and pressing Esc while you act stops you. `stopped_by_person` means stop and ask how to continue; `person_active` means the current control conflicts with their input. Prefer another element or window; brief conflicts are waited out inside the batch. Work in a different field using its element id to preserve their caret.
 
 ### When background input does not work
 
-Some apps ignore background input. Electron and Chromium apps (Slack, Discord, VS Code) often do while their window is off-screen, minimised or on another Space. If an action reports success but nothing changed, look again with a screenshot, then add `{"type":"activate"}` as the first step and retry. `activate` brings the app to the front and interrupts the person: use it only after background actions failed, and say that you did.
+Use `set_value`, `paste`, element actions and menu paths when a posted key or click has no effect. Observe again before retrying; Electron's accessibility tree can take a moment to load. Windows on other Spaces receive events addressed to that window, without switching Spaces. Minimized windows need `window {op: restore}` for pointer input.
+
+In a shared window or tab, target fields by id with `set_value`, `type` or `paste`. The helper preserves the person's caret and refuses commands that would use their first responder. Another tab's hidden page content may not be accessible until that tab is selected; changing the selected tab also changes what the person sees.
+
+Keep the person's focus where it is. `activate` brings the app forward and interrupts their work; use it only when the person explicitly wants foreground control. If background alternatives fail, report the unsupported action.
+
+While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
 ### Limits
 

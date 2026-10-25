@@ -15,6 +15,8 @@ import {
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { setup } from "./test-support.ts";
+import { AgentControlOperation, type ThreadId } from "@ace/protocol";
+import { createAgentControlPort } from "./tools.ts";
 import { scriptedModelInstance } from "../testing/models.ts";
 
 test("explicit exhausted or mismatched accounts are rejected without creating children and eligible accounts are retained", async () => {
@@ -283,6 +285,72 @@ test("a child delegated onto an added Antigravity account runs on it; other prov
       /requires authentication/,
     );
     expect(h.store.listThreads()).toHaveLength(2);
+  } finally {
+    await h.close();
+    db.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("an agent names an added Antigravity account by its label and a loose model through delegate", async () => {
+  const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "ace-antigravity-label-")));
+  const work = join(dataDir, "account-homes", "work");
+  mkdirSync(work, { recursive: true, mode: 0o700 });
+  const db = new DatabaseSync(":memory:");
+  const accounts = new AccountRegistry(db, dataDir);
+  const h = setup({}, undefined, false, undefined, false, accounts);
+  try {
+    await accounts.register(createAntigravityInstance(h.home));
+    await accounts.register(
+      createManagedAcpInstance({
+        id: "work",
+        identity: antigravityIdentity,
+        label: "Studio login",
+        homeDir: work,
+      }),
+    );
+    accounts.recordAcpAuth("work", "logged_in", 1000);
+    const adapter = createScriptedAdapter({
+      provider: "antigravity",
+      capabilities: h.registry.get("codex").capabilities,
+      nativeSessionId: "antigravity-native",
+      createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+      steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+    });
+    h.registry.register(
+      {
+        ...adapter,
+        async openSession(context) {
+          h.contexts.set(context.threadId, context);
+          return adapter.openSession(context);
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    h.catalog.registerInstance(scriptedModelInstance("antigravity", h.home, "work"));
+    const parent = await h.parent();
+    const port = createAgentControlPort(h.store, h.service);
+    const result = await port.execute(
+      parent,
+      AgentControlOperation.parse({
+        op: "delegate_task",
+        tasks: [
+          {
+            requestId: "antigravity-label",
+            task: "work",
+            role: "antigravity-label-task",
+            accountId: "studio login",
+            model: "Scripted Model",
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ ok: true });
+    const [childId] = (result.data as { threadIds: ThreadId[] }).threadIds;
+    if (!childId) throw new Error("No child started");
+    await h.engine.flush();
+    expect(h.contexts.get(childId)).toMatchObject({ instanceId: "work", model: "chosen-model" });
   } finally {
     await h.close();
     db.close();

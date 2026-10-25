@@ -1527,7 +1527,7 @@ Example:
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
 | limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
+| query | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
@@ -1535,7 +1535,7 @@ Example:
 {
   "acpAgentId": "example",
   "instance": "example",
-  "instanceOffset": 3
+  "query": "example"
 }
 ```
 
@@ -1545,7 +1545,6 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| accessModes | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/AccessModeOffer.json"}} |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
@@ -1559,6 +1558,7 @@ Example:
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 | error | no | ["discovery_failed","timeout","persistence_failed"] |  |
+| accountId | yes | string | {"minLength":1,"maxLength":256} |
 | installed | yes | boolean |  |
 | auth | yes | ["logged_in","logged_out","unknown"] |  |
 | accountLabel | no | string | {"maxLength":256} |
@@ -1570,16 +1570,18 @@ Example:
 
 ```json
 {
-  "accessModes": [],
+  "accountId": "example",
   "acpAgentId": "example",
   "allowedAccessModes": [],
   "auth": "logged_in",
   "enabled": true,
   "error": "persistence_failed",
+  "installationId": "example",
   "installed": true,
   "instance": "example",
   "launchOptions": [],
-  "provider": "claude",
+  "provider": "opencode",
+  "refreshedAt": 5,
   "refreshing": true,
   "stale": false
 }
@@ -1629,6 +1631,7 @@ Example:
 | deprecated | yes | boolean |  |
 | isNew | no | boolean |  |
 | free | no | boolean |  |
+| accounts | no | array | {"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
 Example:
 
@@ -1667,7 +1670,7 @@ Example:
 | models | yes | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogModel.json"}} |
 | instances | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogInstance.json"}} |
 | nextOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
-| nextInstanceOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| instancesOmitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | caller | yes | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"access":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},{"type":"null"}]}},"required":["threadId","access"]} |
 
 Example:
@@ -1780,7 +1783,7 @@ Example:
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
 | limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
+| query | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 

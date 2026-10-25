@@ -5,12 +5,16 @@ The session lease identifies the calling thread and agent. Tools cannot choose
 another caller, collect provider credentials, or approve permission requests.
 
 Start with `models`. It reads the same live catalog as the composer, including
-configured models and account-specific discovery. Models expose their IDs and
-reasoning efforts. Providers expose installation, login state and the access
-modes a child may take. Those modes describe the caller's ceiling, not
-authentication or remaining quota. Admission checks those separately.
+configured models and account-specific discovery. Models expose their IDs,
+reasoning efforts and the `accountId`s of the accounts that serve them. Every page lists every
+account, with the `accountId` that `delegate` takes, its label, installation, login state and the access modes a
+child may take, so an agent never pages for accounts. Those modes describe the
+caller's ceiling, not authentication or remaining quota. Admission checks those
+separately.
 
-Page with `offset` from `nextOffset`, and filter by `provider`. Pages omit raw
+Page models with `offset` from `nextOffset`, and filter by `provider`. Pass
+`query` with a name as a person writes it ("opus 5.5", "muse spark") for the
+nearest runnable models across every provider and account. Pages omit raw
 provider data, native selectors, account homes, environment variables and
 credentials. Discovery reads retained metadata;
 it does not start a conversation to inspect capabilities.
@@ -19,8 +23,37 @@ it does not start a conversation to inspect capabilities.
 
 Use `delegate` for work whose completion belongs to the calling thread. Input is
 a batch: `{tasks: [...], waitSeconds?, waitFor?}`. Each task may choose
-`provider`, `model`, `effort`, `access` and `workspace`. The provider defaults to
-the caller's. The daemon resolves the model to an account and instance. Use a
+`provider`, `model`, `accountId`, `effort`, `access` and `workspace`. The
+provider defaults to the caller's. `model` may be a catalog id or a loosely
+written name: when no id or alias equals it, the daemon takes the nearest
+runnable model, searching the named provider, else the caller's, else every
+provider. A family name without a version means its newest current model; a
+name that fits different models equally is refused with the ids to choose from;
+a model made by its provider ranks before the same model through a gateway.
+`accountId` takes an account id or its label; the account is resolved first, and
+a loose name is then matched against that account's models alone. Without it the
+name becomes one catalog id across the provider, and the daemon picks a
+signed-in account with quota that serves that exact model. A named model the
+account lacks is refused with the reason, never swapped for the account's
+default or a role model from Settings; those fill only a task that names no
+model. A name that is not an exact id is matched only after every
+account it could run on has loaded its model list, so a cold account's closer
+match is never lost to a loaded account's weaker one. Loading shares a discovery
+already running and keeps a failed one's retry pause, so a provider that is not
+installed is not probed on every request; an account that loaded an empty list
+and is rediscovering is waited for too. Each tool call waits at most 20 seconds in
+all for ace to finish starting and for lists to load, however many steps wait on
+it; a call still waiting on startup is refused with `admission_closed`.
+Cancelling the call ends the wait (a cancelled fork starts nothing); slow discovery keeps running in the
+background. Every page of the catalog is searched. The same model through two
+upstream routes (OpenCode's `openai/…` and `azure/…`) is refused as ambiguous,
+since the route decides who runs and bills it.
+An ACP agent's own login is named by its source-qualified instance id, which
+becomes the child's ACP identity; a model several ACP logins serve is refused
+until one is named. A task for
+another machine is matched against that machine's catalog there. `thread_start`,
+`thread_fork` and `thread_control configure` take loose names the same way, the
+last two on the thread's own account. Use a
 stable `requestId` for retries.
 
 ```json

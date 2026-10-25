@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { z } from "zod";
 import {
   baselineOf,
   findLines,
@@ -9,7 +11,7 @@ import {
   stateFooter,
   stateHeader,
 } from "./outline.ts";
-import { ComputerState, type ComputerNode } from "./wire.ts";
+import { ComputerState, ComputerNode as NodeSchema, type ComputerNode } from "./wire.ts";
 
 const window: ComputerNode = { id: 1, depth: 0, role: "standard window", name: "Calculator" };
 const field: ComputerNode = { id: 5, depth: 1, role: "scroll area", name: "Edit field" };
@@ -17,6 +19,33 @@ const display: ComputerNode = { id: 6, depth: 2, role: "text", name: "0" };
 const seven: ComputerNode = { id: 23, depth: 1, role: "button", name: "7" };
 const equals: ComputerNode = { id: 56, depth: 1, role: "button", name: "Equals" };
 const calculator = [window, field, display, seven, equals];
+
+it("search rendering agrees with the native prefilter's versioned wire contract", () => {
+  const fixture = z
+    .object({
+      nodes: z.array(NodeSchema),
+      cases: z.array(
+        z.object({
+          query: z.string(),
+          expected: z.string(),
+        }),
+      ),
+    })
+    .parse(
+      JSON.parse(
+        readFileSync(
+          new URL(
+            "../../../../native/screen-helper/Tests/Fixture/ComputerSearch.json",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ),
+    );
+  for (const sample of fixture.cases) {
+    expect(findLines(outlineLines(fixture.nodes), sample.query)).toBe(sample.expected);
+  }
+});
 
 function state(nodes: ComputerNode[], extra: Record<string, unknown> = {}) {
   return ComputerState.parse({
@@ -152,6 +181,38 @@ describe("header and footer", () => {
   });
 
   it("explain an empty off-screen window instead of showing nothing", () => {
-    expect(stateFooter(state([window]), false)).toContain("activate");
+    expect(stateFooter(state([window]), false)).toContain("Observe again");
+  });
+
+  it("does not mistake a narrow native search result for missing accessibility", () => {
+    expect(stateFooter(state([window], { searchFiltered: true }), false)).not.toContain(
+      "almost no accessible content",
+    );
+  });
+
+  it("keep a locked session on accessibility without suggesting foreground recovery", () => {
+    const locked = state([window], { screenLocked: true });
+    expect(stateHeader(locked)).toContain(
+      "The Mac is locked. Only controls currently exposed through accessibility can work",
+    );
+    expect(stateHeader(locked)).toContain("Screenshots, activate and posted input are unavailable");
+    expect(stateFooter(locked, false)).not.toContain("Activating");
+  });
+});
+
+describe("unavailable desktop controls", () => {
+  it("does not tell the model to open replacement windows when locking hides them", () => {
+    const header = stateHeader(state([], { screenLocked: true, window: undefined, windows: [] }));
+    expect(header).toContain("Use another tool if controls are missing");
+    expect(header).not.toContain("Open one");
+    expect(header).not.toContain("No open windows");
+  });
+
+  it("asks for a fresh observation when the GUI session returns", () => {
+    const header = stateHeader(
+      state([], { sessionState: "unavailable", window: undefined, windows: [] }),
+    );
+    expect(header).toContain("Stop computer actions until it returns, then observe again");
+    expect(header).not.toContain("Open one");
   });
 });
