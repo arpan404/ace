@@ -646,7 +646,7 @@ export class DelegationService {
           queuedLaunch: { text: current.request.task, ...facts },
         },
       ]);
-      this.showQueued(current);
+      this.showQueued(current, facts);
     });
   }
   /**
@@ -676,14 +676,18 @@ export class DelegationService {
   }
   /**
    * After the head of a parent's queue starts, the rest move up: rewrite their queued facts so
-   * every waiting screen stays current. Only children whose facts changed are rewritten.
+   * every waiting screen stays current. One queue read and one commit for the whole parent;
+   * only children whose facts changed are rewritten.
    */
   private refreshQueue(parent: ThreadId): void {
+    const order = this.launches.ordered(parent);
+    if (!order.length) return;
     const inUse = this.running(parent);
-    for (const [index, childId] of this.launches.ordered(parent).entries()) {
+    const stale: { edge: DelegationRecord; facts: QueueFacts; text: string }[] = [];
+    for (const [index, childId] of order.entries()) {
       const edge = this.journal.get(childId);
       if (!edge || edge.phase !== "created") continue;
-      const facts = {
+      const facts: QueueFacts = {
         slotLimit: this.policy.maxConcurrent,
         slotsInUse: inUse,
         queuePosition: index + 1,
@@ -695,22 +699,26 @@ export class DelegationService {
         current?.queuePosition === facts.queuePosition
       )
         continue;
-      this.deps.store.atomic(() => {
-        this.deps.store.appendEvents(childId, [
+      stale.push({ edge, facts, text: current?.text ?? edge.request.task });
+    }
+    if (!stale.length) return;
+    this.deps.store.atomic(() => {
+      for (const { edge, facts, text } of stale) {
+        this.deps.store.appendEvents(edge.childId, [
           {
             type: "thread.updated",
-            queuedLaunch: { text: current?.text ?? edge.request.task, ...facts },
+            queuedLaunch: { text, ...facts },
           },
         ]);
-        this.showQueued(edge);
-      });
-    }
+        this.showQueued(edge, facts);
+      }
+    });
   }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
-  private showQueued(edge: DelegationRecord): void {
+  private showQueued(edge: DelegationRecord, facts?: QueueFacts | undefined): void {
     const child = this.deps.store.getThread(edge.childId);
     if (!child) return;
-    const queued = { ...child, status: queuedChildStatus(this.queueFacts(edge.childId)) };
+    const queued = { ...child, status: queuedChildStatus(facts ?? this.queueFacts(edge.childId)) };
     this.deps.engine.updateChild(edge.parentId, queued);
     this.deps.engine.delegationStarted(edge, queued);
   }
@@ -750,8 +758,9 @@ export class DelegationService {
           this.start(edge, queued.text);
         });
       } catch (error) {
-        // A full engine leaves the child queued for the next retry.
-        if (engineFull(error)) return;
+        // A full engine leaves the child queued for the next retry, after this pass refreshes
+        // the children it did move.
+        if (engineFull(error)) break;
         // A child that can no longer start reports a failed result instead of waiting forever.
         this.report(error);
         const edge = this.journal.get(child);
@@ -782,7 +791,6 @@ export class DelegationService {
     }
     this.waiters.deliver(edge.childId, result);
     this.monitor.changed([edge.childId]);
-    this.refreshQueue(edge.parentId);
   }
   private start(current: DelegationRecord, text: string): void {
     this.deps.store.atomic(() => {
@@ -983,9 +991,13 @@ export class DelegationService {
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.cancelRecovery(thread);
       this.cancelPreparations(thread);
+      // Queues touched below refresh once at the end, not once per settled child.
+      const queueParents = new Set<ThreadId>();
       const own = this.journal.get(thread);
-      if (own?.phase === "created") this.settleUnlaunched(own, "cancelled");
-      else if (own && own.phase !== "settled") {
+      if (own?.phase === "created") {
+        this.settleUnlaunched(own, "cancelled");
+        queueParents.add(own.parentId);
+      } else if (own && own.phase !== "settled") {
         own.phase = "cancelling";
         this.journal.save(own);
         const child = this.deps.store.getThread(own.childId);
@@ -995,8 +1007,10 @@ export class DelegationService {
       for (const child of children) {
         this.journal.stop(child.childId);
         this.journal.suppressWake(child.childId);
-        if (child.phase === "created") this.settleUnlaunched(child, "cancelled");
-        else {
+        if (child.phase === "created") {
+          this.settleUnlaunched(child, "cancelled");
+          queueParents.add(child.parentId);
+        } else {
           if (this.deps.store.getThread(child.childId)) {
             this.deps.engine.discardRecovery(child.childId);
             this.deps.engine.cancelDelegatedInputs(child.childId);
@@ -1005,6 +1019,8 @@ export class DelegationService {
           this.journal.save(child);
           const childThread = this.deps.store.getThread(child.childId);
           if (childThread) this.deps.engine.delegationStarted(child, childThread);
+          // A cancelled runner frees its parent's slot: the queue behind it moves up.
+          queueParents.add(child.parentId);
         }
         const result = this.command(
           controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
@@ -1016,6 +1032,7 @@ export class DelegationService {
         );
         if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       }
+      for (const parent of queueParents) this.refreshQueue(parent);
     });
   }
   private observe(events: readonly Event[]) {
@@ -1023,7 +1040,7 @@ export class DelegationService {
     let changed = false;
     let statuses = false;
     for (const event of events) {
-      statuses ||= event.payload.type === "thread.updated";
+      statuses ||= event.payload.type === "thread.updated" && !queueFactsTouch(event);
       const notice = deliveryNotice(event);
       if (notice) this.noticeParent(event.threadId, notice);
       if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
@@ -1268,4 +1285,19 @@ function launchKind(record: DelegationRecord): "automation" | "handoff" | "spawn
   const role = record.request.role;
   if (role.startsWith("automation:")) return "automation";
   return role.startsWith("handoff:") ? "handoff" : "spawn";
+}
+
+/**
+ * A touch that rewrites only queue facts: it frees no slot and starts nothing, so a batch of
+ * only such touches schedules no pump. Anything else in the batch still pumps as before.
+ */
+function queueFactsTouch(event: Event): boolean {
+  const payload = event.payload;
+  return (
+    payload.type === "thread.updated" &&
+    payload.queuedLaunch !== undefined &&
+    payload.queuedLaunch !== null &&
+    payload.status === undefined &&
+    payload.delegatedBy === undefined
+  );
 }
