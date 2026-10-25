@@ -254,13 +254,13 @@ import XCTest
             app.buttons["agents.close"].tap()
             before = app.probe["sheets"]
             app.buttons["thread.menu"].tap()
-            app.buttons["thread.changes"].tap()
+            app.threadMenuItem("thread.changes").tap()
             XCTAssertTrue(app.waitForCount("sheets", from: before, timeout: 15))
             changes.append(try XCTUnwrap(app.probeValue("sheet.changesMs")))
             app.buttons["changes.close"].tap()
             // The model sheet reads nothing; this is tap to shown, XCUITest's own time included.
             models.append(timed {
-                app.buttons["composer.model"].tap()
+                app.composerControl("composer.model").tap()
                 XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 15))
             })
             app.buttons["modelSheet.close"].tap()

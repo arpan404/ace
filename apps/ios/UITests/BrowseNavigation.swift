@@ -5,8 +5,27 @@ extension XCUIApplication {
     @MainActor func openAgents() {
         XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
         buttons["thread.menu"].tap()
-        XCTAssertTrue(buttons["thread.agents"].waitForExistence(timeout: 10))
-        buttons["thread.agents"].tap()
+        XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
+        threadMenuItem("thread.agents").tap()
+    }
+    /// One of the composer's own controls (`composer.model`, `composer.effort`, `composer.access`):
+    /// they show once the composer opens, so an at-rest composer is tapped into first.
+    @MainActor @discardableResult func composerControl(_ identifier: String, timeout: TimeInterval = 15) -> XCUIElement {
+        let control = buttons[identifier]
+        if !control.waitForExistence(timeout: 2) {
+            let input = textViews["composer.input"]
+            if input.waitForExistence(timeout: timeout) { input.tap() }
+        }
+        XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
+        return control
+    }
+    /// An item of the thread's ⋯ menu. iOS 27 drops a menu item's identifier and keeps its label,
+    /// so the item is found by either.
+    func threadMenuItem(_ identifier: String) -> XCUIElement {
+        let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
+                      "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
+        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
     }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.
     var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }

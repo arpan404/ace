@@ -94,7 +94,7 @@ import XCTest
         let app = launch()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 30))
+        app.composerControl("composer.model", timeout: 30)
         waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         let model = app.buttons["composer.model"]
