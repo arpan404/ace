@@ -24,6 +24,7 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
+import { prDetail as readDetail, scopeOf, type PrTarget as PageTarget } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
 
@@ -114,19 +115,6 @@ const checkWords = {
   unknown: { word: "Unknown", tone: "idle" },
 } as const;
 const fence = "Refresh GitHub to confirm the previous change first";
-
-type PageTarget = { project: string; number: number; repository?: ForgeRepository | undefined };
-const scopeOf = (request: PageTarget) => ({
-  workspaceId: request.project,
-  ...(request.repository ? { repository: request.repository } : {}),
-  number: request.number,
-});
-
-async function readDetail(reads: ForgeReads, request: PageTarget) {
-  const value = await reads.read({ op: "forge.pr.detail", ...scopeOf(request) }, false);
-  if (value.resource !== "prDetail") throw new ForgeRefusal("forge_invalid_data");
-  return value.value;
-}
 
 async function readMergeState(
   reads: ForgeReads,

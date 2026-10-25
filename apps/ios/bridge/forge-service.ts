@@ -6,6 +6,10 @@ import { ForgeIssueRequest, readIssue } from "./forge-issue.ts";
 import { ForgeListRequest, readIssues, readPulls } from "./forge-lists.ts";
 import { ForgePullRequest, readPull, writePull } from "./forge-pull.ts";
 import { ForgeReads, ForgeRefusal, type ForgeMemory, type ForgeOwner } from "./forge-reads.ts";
+import { ForgeFileRequest, readFile } from "./forge-code.ts";
+import type { ShownBodies } from "./forge-conversation.ts";
+import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
+import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
 
 /*
  * The phone's Pull requests and Issues as native service calls: Swift asks for a list, a page
@@ -19,6 +23,9 @@ export const ForgeRequest = z.intersection(
     ForgeListRequest,
     ForgePullRequest,
     ForgeIssueRequest,
+    ForgeTimelineRequest,
+    ForgeFileRequest,
+    ForgeReviewRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -34,14 +41,27 @@ export class ForgeService {
   #preview: Preview;
   #now: () => number;
   #stamp: () => string;
+  #newId: () => string;
   #cache = new Map<string, ForgeMemory>();
+  /** Comment bodies as last shown, which an edit or delete expects to replace. */
+  #shown: ShownBodies = new Map();
 
-  /** `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree. */
-  constructor(owner: ForgeOwner, preview: Preview, now: () => number, stamp: () => string) {
+  /**
+   * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
+   * `newId` names a pending review comment.
+   */
+  constructor(
+    owner: ForgeOwner,
+    preview: Preview,
+    now: () => number,
+    stamp: () => string,
+    newId: () => string,
+  ) {
     this.#owner = owner;
     this.#preview = preview;
     this.#now = now;
     this.#stamp = stamp;
+    this.#newId = newId;
   }
 
   /**
@@ -72,12 +92,27 @@ export class ForgeService {
         case "forge.merge":
         case "forge.auto-merge":
           return { type: "forge.write", ...(await writePull(this.#owner, reads, request)) };
+        case "forge.pull.timeline":
+          return this.#trimmed(await readTimeline(reads, request, this.#preview, this.#shown));
+        case "forge.pull.file":
+          return this.#trimmed(await readFile(reads, request, this.#preview, this.#shown));
+        case "forge.review":
+          return await writeReview(this.#owner, reads, request, this.#shown, this.#newId);
       }
     } catch (error) {
       const code =
         error instanceof ForgeRefusal || error instanceof ClientError ? error.code : undefined;
       throw new Error(actionErrorText(code), { cause: error });
     }
+  }
+
+  /** The oldest shown bodies go once the memory holds more than a few long pages' worth. */
+  #trimmed<T>(reply: T): T {
+    for (const key of this.#shown.keys()) {
+      if (this.#shown.size <= 4_000) break;
+      this.#shown.delete(key);
+    }
+    return reply;
   }
 
   /** The machine's projects, read as New thread reads them (`workspaces.list`). */

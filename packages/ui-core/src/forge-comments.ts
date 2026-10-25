@@ -5,7 +5,7 @@ import type {
   ForgeReviewAnchor,
   ForgeReviewState,
 } from "@ace/protocol";
-import type { DiffRow } from "@ace/ui-core";
+import type { DiffRow } from "./diff.ts";
 
 /** Pure rules behind the PR's comments: links, hidden state, thread placement and wording. */
 

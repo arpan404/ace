@@ -78,6 +78,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.issues":
     case "forge.pull":
     case "forge.issue":
+    case "forge.pull.timeline":
+    case "forge.pull.file":
       return "forge";
     default:
       return undefined;
@@ -105,6 +107,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return ["prompts"];
     case "forge.merge":
     case "forge.auto-merge":
+    case "forge.review":
       return ["forge"];
     default:
       return [];

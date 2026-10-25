@@ -351,3 +351,27 @@ export function prTimelineItems(
   const dated = items.filter((item) => Number.isFinite(time(item.at)));
   return [...dated.toReversed(), ...items.filter((item) => !Number.isFinite(time(item.at)))];
 }
+
+/** What a review row says after its author, and the tone a verdict that counts takes. */
+export const reviewVerdictWords: Record<PrReviewVerdict, { text: string; tone?: string }> = {
+  approved: { text: "approved", tone: "done" },
+  changes: { text: "requested changes", tone: "failed" },
+  commented: { text: "reviewed" },
+  dismissed: { text: "review dismissed" },
+  pending: { text: "review pending" },
+};
+/** What an opened, merged, closed or reopened row says after its actor. */
+export const lifecycleWords: Record<PrLifecycleState, { text: string; tone: string }> = {
+  opened: { text: "opened this pull request", tone: "done" },
+  reopened: { text: "reopened this pull request", tone: "done" },
+  merged: { text: "merged this pull request", tone: "waiting" },
+  closed: { text: "closed this pull request", tone: "failed" },
+};
+
+/** A reference row in words: "referenced this in #12 Fix the thing", "referenced this in 1a2b3c4". */
+export function referenceText(item: PrReference): string {
+  const target = item.target;
+  if (!target) return "mentioned this pull request";
+  if (target.kind === "commit") return `referenced this in ${target.sha.slice(0, 7)}`;
+  return `referenced this in #${target.number}${target.title ? ` ${target.title}` : ""}`;
+}

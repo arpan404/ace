@@ -4,7 +4,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
-import { reviewerRows, type ReviewerRow } from "./pr-reviewers-model.ts";
+import { reviewerRows, type ReviewerRow } from "@ace/ui-core";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
 
 /**

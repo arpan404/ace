@@ -219,6 +219,7 @@ async function start(json: string): Promise<void> {
       preview,
       () => host.now(),
       () => reads.stamp("forge"),
+      () => host.uuid(),
     ),
     reads,
   );

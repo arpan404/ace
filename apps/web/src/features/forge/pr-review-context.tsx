@@ -19,7 +19,7 @@ import {
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, lockedKinds, lockedText, reviewLostText } from "@ace/ui-core";
 import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
@@ -48,20 +48,7 @@ const Context = createContext<{
   /** The conversation is locked to this account: comments, reviews and reactions are refused. */
   commentsLocked: boolean;
 } | null>(null);
-/** Why the comment surfaces are off on a conversation locked to this account. */
-export const lockedText =
-  "This conversation is locked. Only collaborators who can push can comment.";
-/** What a locked conversation refuses from someone who can't push. */
-const lockedKinds: ReadonlySet<ForgeReviewAction["kind"]> = new Set([
-  "conversation",
-  "reply",
-  "line.comment",
-  "submit",
-  "draft.save",
-  "comment.edit",
-  "reaction.add",
-  "reaction.remove",
-]);
+export { lockedText };
 export function PrReviewWorkspace(props: {
   workspaceId: string;
   detail: ForgePrDetail;
@@ -140,11 +127,7 @@ export function PrReviewWorkspace(props: {
         refreshRef.current();
         return true;
       } catch (error) {
-        setMessage(
-          error instanceof CommandRefused
-            ? actionErrorText(error.code)
-            : "Couldn't confirm the action. Refresh and reconcile its result; your draft is retained.",
-        );
+        setMessage(error instanceof CommandRefused ? actionErrorText(error.code) : reviewLostText);
         void refetch();
         return false;
       } finally {
