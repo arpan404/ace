@@ -36,9 +36,9 @@ export function isNoiseLine(line: string): boolean {
   return (
     !line.trim() ||
     /^\s*at\s/.test(line) ||
-    /^node:internal\//.test(line) ||
+    line.startsWith("node:internal/") ||
     /^Node\.js v\d/.test(line) ||
     /^\(node:\d+\) /.test(line) ||
-    /^\(Use `node --trace-/.test(line)
+    line.startsWith("(Use `node --trace-")
   );
 }
