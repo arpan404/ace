@@ -47,10 +47,11 @@ struct MachineDetailView: View {
             providers
             if let client {
                 Section {
-                    ForEach(RemoteSettingsCategory.all) { category in
+                    ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
                             InsetRow(category.title, systemImage: category.symbol)
                         }
+                        .accessibilityIdentifier("machine.settings.\(category.title)")
                     }
                 } header: { InsetHeader("On this machine") }
                 .insetRowBackground()

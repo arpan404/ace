@@ -47,6 +47,8 @@ struct ThreadToolbar: ToolbarContent {
 struct ThreadMenu: View {
     let model: ClientModel
     let thread: ThreadModel
+    /// The thread's title, as Continue on… names it.
+    var title = ""
     let archived: Bool
     /// The row a Lock Screen activity starts from; nil when there is none yet.
     let activityRow: ThreadRow?
@@ -84,6 +86,20 @@ struct ThreadMenu: View {
                 }
                 if model.canOperate, !archived {
                     Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
+                }
+            }
+            if model.canOperate, model.transfers.linked, !archived {
+                // Shown only while this machine links to another (ADR 0101).
+                Section {
+                    let ready = model.transfers.thread(thread.id)?.canContinue == true
+                    Button { model.continueOn(threadId: thread.id, title: title) } label: {
+                        Label {
+                            Text("Continue on…")
+                            if !ready { Text("Available once the thread stops working") }
+                        } icon: { Image(ace: .desktop) }
+                    }
+                    .disabled(!ready)
+                    .accessibilityIdentifier("thread.continueOn")
                 }
             }
             if model.canOperate, thread.screen.controls?.canStop == true {

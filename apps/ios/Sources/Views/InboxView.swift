@@ -105,6 +105,7 @@ struct InboxView: View {
             if threadsPath.isEmpty { openThread(key) }
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
+        .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
         .overlay(alignment: .bottom) { toast }
     }
@@ -113,7 +114,17 @@ struct InboxView: View {
         tabs
         .sheet(isPresented: $showingSettings) {
             SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
+                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
         }
+    }
+
+    /// Open from a transfer's line goes to that machine's thread on the Threads tab.
+    private var otherMachines: OtherMachines {
+        OtherMachines(client: { inbox.client($0) }, open: { key in
+            guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
+            openThread(key)
+            return true
+        })
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the

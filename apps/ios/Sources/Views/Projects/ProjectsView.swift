@@ -128,8 +128,18 @@ private struct ProjectDetailView: View {
                 NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
             }
             .insetRowBackground()
+            // Shown only while this machine links to another (ADR 0101).
+            if model.canOperate, model.transfers.linked {
+                Section {
+                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: { InsetRow("Open on…", systemImage: "desktopcomputer") }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("project.openOn")
+                }
+                .insetRowBackground()
+            }
         }
         .insetGroupedList()
         .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)
+        .transferSheet(model: model, kind: "project")
     }
 }
