@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, expect, test } from "vitest";
 import { Client, webSocketTransport } from "@ace/client";
-import { DeviceId, WorkspaceId, type CommandPayload } from "@ace/protocol";
+import { CommandId, DeviceId, WorkspaceId, type CommandPayload } from "@ace/protocol";
 import { waitSelection } from "./cli/connection.ts";
 import { command } from "./cli/mutations.ts";
 import { cliStorage } from "./cli/storage.ts";
@@ -83,8 +83,8 @@ async function busyDaemon() {
       owner.send({
         type: "command",
         command: {
-          id: `held-${index}`,
-          deviceId: "owner",
+          id: CommandId.parse(`held-${index}`),
+          deviceId: DeviceId.parse("owner"),
           payload: { type: "workspace.git.lock.clear", workspaceId: id },
         },
       });
