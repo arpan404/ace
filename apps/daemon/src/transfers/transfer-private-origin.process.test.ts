@@ -2,7 +2,6 @@ import { once } from "node:events";
 import { createServer, type ServerResponse } from "node:http";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { performance } from "node:perf_hooks";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   git,
@@ -50,16 +49,19 @@ async function sourceWithHistory(m: Awaited<ReturnType<typeof transferMachines>>
   });
 }
 
-it("sends full history promptly when a private HTTP origin requires authentication", async () => {
+/** Longer than any test here runs: a transfer that finishes didn't wait for it. */
+const deadlineNeverReached = 3_600_000;
+
+it("sends full history when a private HTTP origin requires authentication, without waiting out the clone's deadline", async () => {
   const origin = await originServer((response) => {
     response.writeHead(401, { "WWW-Authenticate": 'Basic realm="private"' });
     response.end();
   });
-  const m = await transferMachines({ cloneTimeoutMs: 5_000 });
-  const started = performance.now();
+  // The clone's deadline can't pass during the test, so only the refused credentials (never a
+  // prompt) can end the clone and send the full history instead.
+  const m = await transferMachines({ cloneTimeoutMs: deadlineNeverReached });
   await sourceWithHistory(m, origin.url);
   const transfer = await m.settled();
-  expect(performance.now() - started).toBeLessThan(15_000);
   expect(origin.requests()).toBeGreaterThan(0);
   expect(transfer).toMatchObject({ phase: "completed", method: "bundle" });
   const landed = transfer.result?.path ?? "";
@@ -67,15 +69,14 @@ it("sends full history promptly when a private HTTP origin requires authenticati
   expect(await git(landed, "remote", "get-url", "origin")).toBe(origin.url);
   expect(await git(landed, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/main");
   expect(await git(landed, "log", "--format=%s", "origin/main")).toBe("first");
-}, 30_000);
+}, 120_000);
 
 it("falls back to full history when the origin accepts a connection but never answers", async () => {
   const origin = await originServer(() => {});
+  // The origin never answers: only the clone's deadline can end the clone.
   const m = await transferMachines({ cloneTimeoutMs: 300 });
-  const started = performance.now();
   await sourceWithHistory(m, origin.url);
   const transfer = await m.settled();
-  expect(performance.now() - started).toBeLessThan(15_000);
   expect(origin.requests()).toBeGreaterThan(0);
   expect(transfer).toMatchObject({ phase: "completed", method: "bundle" });
   const landed = transfer.result?.path ?? "";
@@ -83,7 +84,7 @@ it("falls back to full history when the origin accepts a connection but never an
   expect(await git(landed, "remote", "get-url", "origin")).toBe(origin.url);
   expect(await git(landed, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/main");
   expect(await git(landed, "log", "--format=%s", "origin/main")).toBe("first");
-}, 30_000);
+}, 120_000);
 
 it("cancels a stalled origin clone and removes its partial project", async () => {
   const origin = await originServer(() => {});

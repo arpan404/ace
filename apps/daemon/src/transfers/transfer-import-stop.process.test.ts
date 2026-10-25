@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, it, vi } from "vitest";
 import type { TransferTransport } from "./client.ts";
 import {
@@ -16,6 +17,33 @@ type Machines = Awaited<ReturnType<typeof transferMachines>>;
 /** Folders in a project root, without Git's own lease bookkeeping beside repositories. */
 const projectFolders = async (root: string) =>
   (await readdir(root)).filter((name) => name !== ".ace-git-mutation-leases").toSorted();
+
+/** Everything under a project root, recursively, without Git's lease bookkeeping. */
+const projectTree = async (root: string) =>
+  (await readdir(root, { recursive: true }))
+    .filter((name) => !name.startsWith(".ace-git-mutation-leases"))
+    .toSorted();
+
+/**
+ * Stops the target daemon, which waits for every import, write and Git process it started, and
+ * reads its registered projects from the store it left: nothing can change after this.
+ */
+async function stopTarget(m: Machines): Promise<string[]> {
+  await m.target.daemon.close();
+  const db = new DatabaseSync(join(m.target.h.home, "daemon", "events.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    return db
+      .prepare(
+        "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY path",
+      )
+      .all()
+      .map((row) => String(row["path"]));
+  } finally {
+    db.close();
+  }
+}
 
 /** Runs `then` with the transfer id as soon as the target answers a commit: its import is running. */
 function onCommit(then: (transferId: string) => Promise<void>) {
@@ -61,7 +89,10 @@ it("a cancel after the target registered the project undoes it, or finds the wor
         },
         { timeout: 60_000, interval: 5 },
       );
-      cancelled = there.source.daemon.transfers.outgoing.cancel(transferId);
+      // Past the cutoff the cancel is refused as too late; the transfer then completes.
+      cancelled = there.source.daemon.transfers.outgoing
+        .cancel(transferId)
+        .catch((error: unknown) => error);
     }),
   });
   machines = m;
@@ -81,17 +112,18 @@ it("a cancel after the target registered the project undoes it, or finds the wor
   );
   await cancelled;
   const transfer = await m.settled();
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const incoming = join(m.target.h.home, "daemon", "transfers", "incoming");
+  const projects = await stopTarget(m);
   if (transfer.phase === "completed") {
     // The cancel came after the cutoff: the project there is the result.
-    expect(registered(m.target)).toContain(transfer.result?.path);
+    expect(projects).toContain(transfer.result?.path);
     return;
   }
   // Whatever the import had reached, nothing of it stays, and nothing turns up afterwards.
   expect(transfer.phase).toBe("cancelled");
-  expect(registered(m.target)).toEqual(before);
+  expect(projects).toEqual(before);
   expect(await projectFolders(m.targetRoot)).toEqual([]);
-  expect(await readdir(join(m.target.h.home, "daemon", "transfers", "incoming"))).toEqual([]);
+  expect(await readdir(incoming)).toEqual([]);
 });
 
 it("the target's shutdown waits for a running import, which changes nothing after it", async () => {
@@ -118,10 +150,10 @@ it("the target's shutdown waits for a running import, which changes nothing afte
   );
   await closed;
   const projects = registered(m.target);
-  const folders = await projectFolders(m.targetRoot);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  expect(registered(m.target)).toEqual(projects);
-  expect(await projectFolders(m.targetRoot)).toEqual(folders);
+  const tree = await projectTree(m.targetRoot);
+  // Whatever an import still running would do happens before the whole daemon has stopped.
+  expect(await stopTarget(m)).toEqual(projects);
+  expect(await projectTree(m.targetRoot)).toEqual(tree);
 });
 
 it("a cancel while the target prepares the new thread's worktree leaves no thread there", async () => {
