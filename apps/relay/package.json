@@ -13,10 +13,12 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/secure-channel": "workspace:*",
+    "@workos-inc/node": "^12.0.0",
     "ws": "^8.18.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/client": "workspace:*",
     "@types/ws": "^8.18.1"
   }
 }

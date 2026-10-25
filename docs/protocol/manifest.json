@@ -128,6 +128,30 @@
       "bytes": 3387,
       "sha256": "c0a123582525b3e143a9ea154adab22e94392c430c06c9a2e26f26510c31de76"
     },
+    "schema/AceAccount.json": {
+      "bytes": 597,
+      "sha256": "5fe04a25c21d022d0beef7566b06a3ede71f5dfe43bf51710a1cbba84729d067"
+    },
+    "schema/AceAccountGrant.json": {
+      "bytes": 519,
+      "sha256": "c1be0378a4a1dc4536b371ada3798e4078a1694d85d26da058c2c2db828b9ae7"
+    },
+    "schema/AceAccountOrigin.json": {
+      "bytes": 351,
+      "sha256": "2e7a00fab5a5f11df17662f0d82de9a66c4e1a6087b5d5eb482560b039bb0b71"
+    },
+    "schema/AceAccountSession.json": {
+      "bytes": 423,
+      "sha256": "446338229cb7365025a92317cf322cb8279a87b2f338dc45e1d82292b2e7c0bf"
+    },
+    "schema/AceLogin.json": {
+      "bytes": 1009,
+      "sha256": "175bed5a413f6dd921766d38226675f08c5d30e6d0d4f2844005bc34e469c01f"
+    },
+    "schema/AceLoginStatus.json": {
+      "bytes": 666,
+      "sha256": "e0e170929f75a1a8f7ad37c997717b83cbe29602338aa7eef709b01161ce10e5"
+    },
     "schema/AcpHomeStrategy.json": {
       "bytes": 197,
       "sha256": "731c0607804be361b6fecc5524156f74b95b608beee08ca184e384a28edf31a6"
@@ -4357,10 +4381,10 @@
       "sha256": "0af13fd95c84501f279f78fcd7dde30731e034842ab1339df4c9d77a06eb242b"
     },
     "types.md": {
-      "bytes": 893633,
-      "sha256": "de76e1f3dbfe9eafcb6a337749be473a89edd6b67dcaaedc9f0ea008961a0f17"
+      "bytes": 897556,
+      "sha256": "1ff357b7efe7be4abe80511b5c9c20bd8b01ba96499edc24421a51c8d97cd80b"
     }
   },
-  "input": "3f886e7c223690ab400233310a45473761aef1f62923958113de749d75a70ecc",
+  "input": "20b039fc744ef5d7d509a48b6fbcb6276d5a87c613bf511e23b96ae25c698506",
   "version": 1
 }

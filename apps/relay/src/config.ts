@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readAccountConfig } from "./account/config.ts";
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const duration = positive.max(2147483647);
 export const HostId = z.string().regex(/^[A-Z2-7]{52}$/);
@@ -38,6 +39,7 @@ const envNumber = z
   .transform(Number)
   .optional();
 export function readRelayConfig(env: Record<string, string | undefined>) {
+  const account = readAccountConfig(env);
   const input = z
     .object({
       ACE_RELAY_PORT: envNumber,
@@ -70,6 +72,7 @@ export function readRelayConfig(env: Record<string, string | undefined>) {
     ticketTimeoutMs: input.ACE_RELAY_TICKET_TIMEOUT_MS,
   });
   return {
+    ...(account ? { account } : {}),
     port: z
       .number()
       .int()

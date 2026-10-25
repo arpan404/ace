@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Device tokens only. Pairing codes, tickets and tokens never enter SQLite, files or logs.
+/// Revocable ace and device tokens. Pairing codes, tickets and tokens never enter SQLite, files or logs.
 protocol SecretStore: Sendable {
     func get(_ key: String) throws -> String?
     func set(_ key: String, _ value: String) throws

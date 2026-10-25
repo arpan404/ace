@@ -24,6 +24,7 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    ACE_ACCOUNT_URL: ""
   configs:
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
@@ -43,6 +44,7 @@ targets:
       path: .build/Info.plist
       properties:
         CFBundleDisplayName: ace
+        AceAccountURL: $(ACE_ACCOUNT_URL)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSupportsLiveActivities: true

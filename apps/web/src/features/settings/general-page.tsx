@@ -1,15 +1,14 @@
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useEditors } from "@/lib/editors.ts";
-import { useProfileName } from "@/lib/profile.ts";
 import { usePreferredPlace, type PanelPlace } from "@/lib/workspace/index.ts";
 import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
 import { DaemonSettings } from "./daemon-settings.tsx";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { settingRow } from "./settings-index.ts";
+import { AceAccountSettings } from "./ace-account.tsx";
 
 const places: { value: PanelPlace; label: string }[] = [
   { value: "bottom", label: "Bottom panel" },
@@ -26,9 +25,7 @@ export function GeneralSettings() {
   return (
     <>
       <DesktopAppPreferences />
-      <SettingSection label="You" card scope="device">
-        <ProfileNameRow />
-      </SettingSection>
+      <AceAccountSettings />
       <SettingSection label="Workspace" card scope="device">
         <TerminalPlaceRow />
         <EditorRow />
@@ -36,26 +33,6 @@ export function GeneralSettings() {
       <BrowserDeviceSettings />
       <DaemonSettings />
     </>
-  );
-}
-
-function ProfileNameRow() {
-  const [name, setName] = useProfileName();
-  return (
-    <SettingRow {...settingRow("profile.name")} description={undefined} htmlFor="profile-name">
-      <Input
-        id="profile-name"
-        className="@[30rem]:w-52"
-        defaultValue={name}
-        placeholder="Name"
-        autoComplete="name"
-        maxLength={80}
-        onBlur={(event) => setName(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") setName(event.currentTarget.value);
-        }}
-      />
-    </SettingRow>
   );
 }
 
