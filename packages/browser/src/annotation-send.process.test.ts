@@ -1,11 +1,16 @@
 import { expect, it, vi } from "vitest";
 import { BrowserAnnotationCapture } from "@ace/protocol";
-import { annotationFixture, executablePath } from "./annotation-test-support.ts";
+import { designTokens } from "@ace/design-tokens";
+import { annotationFixture, executablePath, isColour } from "./annotation-test-support.ts";
 
 const test = it.skipIf(!executablePath);
 const overlayPresent = "document.querySelector('ace-annotation-layer') !== null";
 
-/** Where the bar's Send is on screen: the right-most accent-filled run on the bar's row. */
+/**
+ * Where the bar's Send is on screen. Annotate mode runs in the dark theme, so the bar is dark
+ * glass and Send is the pill filled with the dark accent. On a row above the labels and icons,
+ * the right-most accent run inside the glass is that pill.
+ */
 async function sendButton(
   f: Awaited<ReturnType<typeof annotationFixture>>,
   person: ReturnType<Awaited<ReturnType<typeof annotationFixture>>["connect"]>,
@@ -16,22 +21,30 @@ async function sendButton(
   const shot = Buffer.from(await f.service.screenshot("thread"));
   const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
   const scale = info.width / width;
-  // The bar sits 16 px above the bottom and is 42 px tall: its middle row.
+  // The bar sits 16 px above the bottom and is 42 px tall: its middle row. Send is 30 px tall
+  // and its 16 px icons and 13 px label leave the row 10 px above the middle clear.
   const y = height - 37;
-  const row = Math.round(y * scale);
+  const row = Math.round((y - 10) * scale);
+  const accent = designTokens.schemes.dark.colours.accent;
+  let inBar = false;
   let right = -1;
   let left = -1;
   for (let x = info.width - 1; x >= 0; x--) {
     const at = (row * info.width + x) * info.channels;
-    const [r = 0, g = 0, b = 0] = [data[at], data[at + 1], data[at + 2]];
-    const accent = b > r + 60 && b > g + 30;
-    if (accent && right < 0) right = x;
-    if (!accent && right >= 0) {
+    const rgb: [number, number, number] = [data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0];
+    if (!inBar) {
+      // The page and the bar's shadow are bright; the glass is dark.
+      inBar = Math.max(...rgb) < 128;
+      continue;
+    }
+    const fill = isColour(rgb, accent);
+    if (fill && right < 0) right = x;
+    if (!fill && right >= 0) {
       left = x + 1;
       break;
     }
   }
-  if (right < 0) throw new Error("No Send button on the bar");
+  if (right < 0 || left < 0) throw new Error("No Send button on the bar");
   return { x: (left + right) / 2 / scale, y };
 }
 

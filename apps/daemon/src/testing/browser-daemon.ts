@@ -16,6 +16,9 @@ const daemon = await startDaemon({
 const thread =
   daemon.store.listThreads()[0] ??
   createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Browser ownership"));
+// Stamped now: a thread whose last event reads as 1970 auto-settles at once, and settling closes
+// its browser under the test.
+const at = Date.now();
 if (!thread.rootAgentId)
   daemon.store.appendEvents(
     thread.id,
@@ -31,11 +34,11 @@ if (!thread.rootAgentId)
           fidelity: "full",
           cwd: process.cwd(),
           status: { state: "working", activity: "tool" },
-          createdAt: 1,
+          createdAt: at,
         }),
       },
     ],
-    1,
+    at,
   );
 process.stdout.write(`ace daemon: ${daemon.url}\nToken file: ${daemon.tokenPath}\n`);
 process.once("SIGTERM", () => {

@@ -1,6 +1,7 @@
 import { chromium, type Browser } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startPreview } from "./preview-server.ts";
@@ -12,19 +13,34 @@ import { startPreview } from "./preview-server.ts";
  */
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
+
+/**
+ * One build per process: every run here serves the same source, and a production build takes
+ * long enough that rebuilding it for each test would eat most of that test's time. It is built
+ * off the event loop and removed when the process exits.
+ */
+let build: Promise<string> | undefined;
+function perfBuild(): Promise<string> {
+  build ??= (async () => {
+    const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
+    process.once("exit", () => rmSync(out, { recursive: true, force: true }));
+    await promisify(execFile)(
+      "bunx",
+      ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"],
+      { cwd: web, maxBuffer: 64 * 1024 * 1024 },
+    );
+    return out;
+  })();
+  return build;
+}
+
 export async function withPerfApp<T>(
   run: (app: { browser: Browser; origin: string }) => Promise<T>,
   args: string[] = [],
   executablePath?: string,
 ): Promise<T> {
-  const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
-  let server: Awaited<ReturnType<typeof startPreview>> | undefined;
+  const server = await startPreview(web, await perfBuild());
   try {
-    execFileSync("bunx", ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"], {
-      cwd: web,
-      stdio: ["ignore", "ignore", "inherit"],
-    });
-    server = await startPreview(web, out);
     const browser = await chromium.launch({ args, ...(executablePath ? { executablePath } : {}) });
     try {
       return await run({ browser, origin: server.origin });
@@ -32,8 +48,7 @@ export async function withPerfApp<T>(
       await browser.close();
     }
   } finally {
-    await server?.close();
-    rmSync(out, { recursive: true, force: true });
+    await server.close();
   }
 }
 
