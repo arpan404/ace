@@ -134,8 +134,13 @@ export class FakeAppDevices {
   videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
-  /** Each device's real hardware look, as the SDK on a Mac describes it; none by default. */
+  /**
+   * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
+   * for a device without one); none by default.
+   */
   readonly chromes = new Map<string, DeviceChrome>();
+  /** Every device a client asked the look of, in order. */
+  readonly chromeAsks: string[] = [];
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
@@ -437,7 +442,11 @@ export class FakeAppDevices {
       return { ...this.permissions };
     }
     const session = this.session(operation.deviceId);
-    if (operation.op === "chrome") return { chrome: this.chromes.get(session.device.id) ?? null };
+    if (operation.op === "chrome") {
+      this.chromeAsks.push(session.device.id);
+      const key = session.device.model ?? session.device.id;
+      return { chrome: this.chromes.get(key) ?? null };
+    }
     switch (operation.op) {
       case "controller":
         if (operation.controller === "human") {

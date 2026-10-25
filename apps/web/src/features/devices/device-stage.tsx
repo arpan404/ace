@@ -103,7 +103,7 @@ export function DeviceStage({
     ? undefined
     : { buttons: deviceButtons(kind, row.name, turn), turn, press: props.press };
   // The real body from the SDK, when the daemon's machine has it; else the drawn frame.
-  const chrome = useDeviceChrome(props.session, row.id, !props.bare);
+  const chrome = useDeviceChrome(props.session, row, !props.bare);
   // Before the first picture, the chrome's own screen stands in for its shape.
   const picture = framed || !chrome ? screen : chrome.screen;
   const layout = chrome && chromeLayout(chrome, turn, picture, fit);

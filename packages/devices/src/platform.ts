@@ -313,6 +313,7 @@ export class DevicePlatform {
           name: device.name,
           state: device.state === "Booted" ? "booted" : "shutdown",
           runtime: simulatorRuntime(device.runtime),
+          ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
         }),
       );
     const outcomes = await Promise.allSettled(

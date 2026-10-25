@@ -15,6 +15,11 @@ export const AppDevice = z.object({
   state: z.enum(["booted", "shutdown", "offline", "unauthorized"]),
   runtime: z.string().max(256).optional(),
   serial: z.string().max(256).optional(),
+  /**
+   * The hardware it simulates, when known: a Simulator's device type identifier. Devices of one
+   * model share a look (`chrome`), so a client asks for it once per model.
+   */
+  model: z.string().max(256).optional(),
 });
 export type AppDevice = z.infer<typeof AppDevice>;
 const point = { x: z.number().int().min(0).max(16384), y: z.number().int().min(0).max(16384) };

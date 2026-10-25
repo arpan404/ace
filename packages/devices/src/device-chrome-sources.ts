@@ -59,7 +59,8 @@ export function deviceChromeSources(options: {
       sdkRoots: androidSdkRoots({ home, env }),
       readFile: read,
     },
-    simulatorType: (device: Device) => options.simulatorType(nativeId(device)),
+    simulatorType: async (device: Device) =>
+      device.model ?? options.simulatorType(nativeId(device)),
     avdName: (device: Device) => nativeId(device),
   };
 }
