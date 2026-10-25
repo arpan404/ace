@@ -29,6 +29,16 @@ function bindings() {
     link: library.func(
       "int linkat(int olddir, const char *oldname, int newdir, const char *newname, int flags)",
     ),
+    symlink: library.func("int symlinkat(const char *target, int directory, const char *name)"),
+    // renameatx_np (macOS) and renameat2 (Linux) take the same arguments; only flag values differ.
+    renameFlags:
+      process.platform === "darwin"
+        ? library.func(
+            "int renameatx_np(int olddir, const char *oldname, int newdir, const char *newname, unsigned int flags)",
+          )
+        : library.func(
+            "int renameat2(int olddir, const char *oldname, int newdir, const char *newname, unsigned int flags)",
+          ),
     directory: library.func(`fdopendir${suffix}`, "void *", ["int"]),
     next: library.func(`readdir${suffix}`, "void *", ["void *"]),
     close: library.func("int closedir(void *directory)"),
@@ -190,4 +200,32 @@ export async function openResolvedDirectory(
     await closeQuietly(fd);
     throw error;
   }
+}
+
+// RENAME_EXCL / RENAME_SWAP (<stdio.h>, macOS) and RENAME_NOREPLACE / RENAME_EXCHANGE (Linux).
+const renameModes =
+  process.platform === "darwin" ? { noReplace: 0x4, exchange: 0x2 } : { noReplace: 1, exchange: 2 };
+/**
+ * `noReplace` moves `from` to `to` only while `to` doesn't exist (plain renameat would replace an
+ * empty directory); `exchange` swaps the two entries atomically. Neither name is followed.
+ */
+export async function renameCommandEntryAs(
+  mode: keyof typeof renameModes,
+  fromDirectory: number,
+  from: string,
+  toDirectory: number,
+  to: string,
+): Promise<boolean> {
+  const flags = renameModes[mode];
+  return (
+    integer.parse(await call(api().renameFlags, fromDirectory, from, toDirectory, to, flags)) === 0
+  );
+}
+/** symlinkat: `name` in the pinned directory, storing `target` as text; fails if `name` exists. */
+export async function linkCommandEntry(
+  target: string,
+  directory: number,
+  name: string,
+): Promise<boolean> {
+  return integer.parse(await call(api().symlink, target, directory, name)) === 0;
 }

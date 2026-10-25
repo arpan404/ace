@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, stat, symlink, unlink } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import type { SkillFolder } from "./skill-model.ts";
 import type { SkillDisk } from "./skill-disk.ts";
 import { SkillError, sha256 } from "./skill-errors.ts";
@@ -150,27 +150,60 @@ export async function createSkill(
   }
   return join(rootReal, name);
 }
-/** A relative link `<root>/<name> -> canonical`, as the `skills` CLI lays them out. */
-export async function linkSkill(root: SkillRoot, name: string, canonical: SkillFolder) {
-  await mkdir(root.path, { recursive: true });
-  const at = join(root.path, name);
+/** A link root pinned by its resolved path for `work`. */
+async function withLinkRoot<T>(
+  disk: SkillDisk,
+  rootReal: string,
+  work: (root: number) => Promise<T>,
+): Promise<T> {
+  const root = await disk.openPath(rootReal);
+  if (root === undefined)
+    throw new SkillError("conflict", "A skill folder changed elsewhere. Reload the list.");
   try {
-    await symlink(relative(dirname(at), canonical.path), at, "dir");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST")
-      throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
-    throw error;
-  }
-  if ((await realpath(at).catch(() => undefined)) !== canonical.real) {
-    await unlink(at).catch(() => {});
-    throw new SkillError("unavailable", "The new link didn't reach this skill's folder.");
+    return await work(root);
+  } finally {
+    await disk.closeDirectory(root);
   }
 }
-/** Remove a link only if it is still a link to this skill. */
-export async function unlinkSkill(link: SkillFolder): Promise<void> {
-  const info = await lstat(link.path).catch(() => undefined);
-  if (!info) return;
-  if (!info.isSymbolicLink() || (await realpath(link.path).catch(() => "")) !== link.real)
-    throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
-  await unlink(link.path);
+/**
+ * A relative link `<root>/<name> -> canonical`, as the `skills` CLI lays them out. Made with
+ * symlinkat in the pinned root, so a root swapped for a symlink can't place it elsewhere.
+ */
+export async function linkSkill(
+  disk: SkillDisk,
+  root: SkillRoot,
+  name: string,
+  canonical: SkillFolder,
+): Promise<void> {
+  await mkdir(root.path, { recursive: true });
+  const rootReal = await realpath(root.path);
+  await withLinkRoot(disk, rootReal, async (pinned) => {
+    // Relative to the folder the link really sits in, which is where the system resolves it.
+    const target = relative(rootReal, canonical.real);
+    if (!(await disk.symlink(pinned, target, name)))
+      throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
+    if ((await realpath(join(rootReal, name)).catch(() => undefined)) !== canonical.real) {
+      if ((await disk.readLink(pinned, name)) === target) await disk.removeFile(pinned, name);
+      throw new SkillError("unavailable", "The new link didn't reach this skill's folder.");
+    }
+  });
+}
+/**
+ * Remove a link only if it is still a link to this skill. The root is pinned at the resolved path
+ * the listing saw, and the link read and removed through it (readlinkat, unlinkat), so a root
+ * swapped for a symlink before or during the removal can't redirect it.
+ */
+export async function unlinkSkill(disk: SkillDisk, link: SkillFolder): Promise<void> {
+  const rootReal = link.rootReal;
+  await withLinkRoot(disk, rootReal, async (pinned) => {
+    const target = await disk.readLink(pinned, link.name);
+    if (target === undefined) {
+      if (await disk.exists(pinned, link.name))
+        throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
+      return;
+    }
+    if ((await realpath(resolve(rootReal, target)).catch(() => "")) !== link.real)
+      throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
+    await disk.removeFile(pinned, link.name);
+  });
 }

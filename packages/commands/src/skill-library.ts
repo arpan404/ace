@@ -206,8 +206,8 @@ export class SkillLibrary {
     const { place, canonical } = await this.editable(id, workspaceId);
     const workspace = workspaceId ? this.workspace(workspaceId) : undefined;
     const plan = planAgents(place, skillRoots(this.options.homes, workspace), agents);
-    for (const link of plan.remove) await unlinkSkill(link);
-    for (const root of plan.add) await linkSkill(root, place.name, canonical);
+    for (const link of plan.remove) await unlinkSkill(this.disk, link);
+    for (const root of plan.add) await linkSkill(this.disk, root, place.name, canonical);
     return plan.kept;
   }
   private async perform(op: SkillOperation): Promise<SkillResult> {
@@ -278,7 +278,8 @@ export class SkillLibrary {
               "conflict",
               "This skill changed elsewhere. Reload it before deleting.",
             );
-          for (const link of place.members.filter((m) => m.link)) await unlinkSkill(link);
+          for (const link of place.members.filter((m) => m.link))
+            await unlinkSkill(this.disk, link);
           // Contents go through the pinned folder; the name is removed only if it is still it.
           await this.disk.empty(folder);
           await this.disk.removeEmptyDirectory(root, canonical.name);

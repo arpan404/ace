@@ -10,8 +10,10 @@ import {
   openCommandChild,
   openResolvedDirectory,
   readCommandLink,
+  linkCommandEntry,
   removeCommandEntry,
   renameCommandEntry,
+  renameCommandEntryAs,
   type OpenCommandChild,
 } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
@@ -40,6 +42,12 @@ const tooLarge = () =>
     "limit",
     `This skill folder is over ${skillFolderLimits.totalBytes / 1024 / 1024} MB or has a file over ${skillFolderLimits.fileBytes / 1024 / 1024} MB.`,
   );
+export interface DirectoryIdentity {
+  dev: number;
+  ino: number;
+}
+export const sameDirectory = (a: DirectoryIdentity | undefined, b: DirectoryIdentity | undefined) =>
+  !!a && !!b && a.dev === b.dev && a.ino === b.ino;
 /** Bytes read so far across one folder walk. */
 interface Budget {
   bytes: number;
@@ -146,6 +154,43 @@ export class SkillDisk {
   async rename(fromDirectory: number, from: string, toDirectory: number, to: string) {
     if (!(await renameCommandEntry(fromDirectory, from, toDirectory, to)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
+  }
+  /** Move `from` to `to` in one pinned directory, only while `to` is free. */
+  async move(directory: number, from: string, to: string): Promise<void> {
+    if (!(await renameCommandEntryAs("noReplace", directory, from, directory, to)))
+      throw new SkillError("unavailable", "Couldn't move this skill's files.");
+  }
+  /** Swap two entries of one pinned directory atomically: there is no moment without either. */
+  async exchange(directory: number, first: string, second: string): Promise<void> {
+    if (!(await renameCommandEntryAs("exchange", directory, first, directory, second)))
+      throw new SkillError("unavailable", "Couldn't move this skill's files.");
+  }
+  /** Device and inode of a child directory that isn't a link, or `undefined`. */
+  async identity(parent: number, name: string): Promise<DirectoryIdentity | undefined> {
+    const fd = await this.openDirectory(parent, name);
+    if (fd === undefined) return undefined;
+    try {
+      const info = await statFd(fd);
+      return { dev: info.dev, ino: info.ino };
+    } finally {
+      await closeFd(fd);
+    }
+  }
+  /** A child link's stored text; `undefined` when `name` is missing or isn't a link. */
+  async readLink(parent: number, name: string): Promise<string | undefined> {
+    return readCommandLink(parent, name).catch(() => undefined);
+  }
+  /** Whether anything at all, link or not, is called `name` in the pinned directory. */
+  async exists(parent: number, name: string): Promise<boolean> {
+    if ((await this.readLink(parent, name)) !== undefined) return true;
+    const fd = await this.openChild(parent, name, fileFlags).catch(() => undefined);
+    if (fd === undefined) return false;
+    await closeFd(fd);
+    return true;
+  }
+  /** symlinkat in the pinned directory; false when `name` already exists. */
+  async symlink(parent: number, target: string, name: string): Promise<boolean> {
+    return linkCommandEntry(target, parent, name);
   }
   closeDirectory(fd: number): Promise<void> {
     return closeFd(fd);

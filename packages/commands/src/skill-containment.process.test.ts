@@ -1,11 +1,14 @@
 import { afterEach, expect, test } from "vitest";
-import { constants } from "node:fs";
+import { constants, fstatSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
   readFile,
+  lstat,
   readdir,
+  readlink,
   realpath,
+  stat,
   rename,
   rm,
   symlink,
@@ -30,7 +33,7 @@ const decoy = original;
  * moment ace opens the skill folder, another process renames it away and leaves a symlink to the
  * outside folder in its place.
  */
-async function fixture() {
+async function fixture(options: { claudeLink?: boolean } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-swap-")));
   const home = join(root, "home");
   const skills = join(home, ".agents/skills");
@@ -41,13 +44,27 @@ async function fixture() {
   await mkdir(outside);
   await writeFile(join(outside, "SKILL.md"), decoy);
   await writeFile(join(outside, "keep.md"), "Keep me.\n");
+  const claudeSkills = join(home, ".claude/skills");
+  await mkdir(claudeSkills, { recursive: true });
+  if (options.claudeLink) await symlink("../../.agents/skills/notes", join(claudeSkills, "notes"));
+  // Outside, an entry named like the link that also resolves to the skill.
+  const outsideLinks = join(root, "outside-links");
+  await mkdir(outsideLinks);
+  await symlink(join(skills, "notes"), join(outsideLinks, "notes"));
   let armed = false;
+  let armedRoot: { ino: number } | undefined;
   const openChild: OpenCommandChild = async (directory, name, flags) => {
     const fd = await openCommandChild(directory, name, flags);
     if (armed && name === "notes" && (flags & constants.O_DIRECTORY) !== 0) {
       armed = false;
       await rename(join(skills, "notes"), join(skills, ".moved"));
       await symlink(outside, join(skills, "notes"));
+    }
+    if (armedRoot && fstatSync(fd).ino === armedRoot.ino) {
+      // Right after ace pins Claude's skill folder, it becomes a symlink to the outside folder.
+      armedRoot = undefined;
+      await rename(claudeSkills, join(home, ".claude/moved"));
+      await symlink(outsideLinks, claudeSkills);
     }
     return fd;
   };
@@ -72,6 +89,11 @@ async function fixture() {
   return {
     library,
     outside,
+    home,
+    outsideLinks,
+    async swapLinkRootNext() {
+      armedRoot = { ino: (await stat(claudeSkills)).ino };
+    },
     swapNext() {
       armed = true;
     },
@@ -136,4 +158,49 @@ test("without a race, edit and delete still change the skill", async () => {
   expect(deleted).toEqual({ kind: "deleted", id: entry.id });
   const listed = await f.library.request({ op: "list" });
   expect(listed.kind === "list" && listed.entries.some((e) => e.name === "notes")).toBe(false);
+});
+
+const allButClaude = ["codex", "opencode", "cursor", "pi"] as const;
+
+test("removing an agent raced by a link-root swap removes nothing outside the root", async () => {
+  const f = await fixture({ claudeLink: true });
+  const entry = await notes(f.library);
+  expect(entry.agents.some((agent) => agent.provider === "claude" && agent.via === "link")).toBe(
+    true,
+  );
+  await f.swapLinkRootNext();
+  await f.library.request({ op: "setAgents", id: entry.id, agents: [...allButClaude] });
+  expect((await lstat(join(f.outsideLinks, "notes"))).isSymbolicLink()).toBe(true);
+  // The removal happened in the folder ace pinned, which was moved aside.
+  await expect(lstat(join(f.home, ".claude/moved/notes"))).rejects.toThrow();
+});
+
+test("adding an agent raced by a link-root swap links nothing outside the root", async () => {
+  const f = await fixture();
+  await rm(join(f.outsideLinks, "notes"));
+  const entry = await notes(f.library);
+  await f.swapLinkRootNext();
+  const result = await f.library.request({
+    op: "setAgents",
+    id: entry.id,
+    agents: [...allButClaude, "claude"],
+  });
+  expect(await readdir(f.outsideLinks)).toEqual([]);
+  // The link landed in the pinned folder; the check afterwards saw the swap and took it back.
+  expect(result.kind).toBe("error");
+  expect(await readdir(join(f.home, ".claude/moved"))).toEqual([]);
+});
+
+test("without a race, agents are linked and unlinked in Claude's folder", async () => {
+  const f = await fixture();
+  const entry = await notes(f.library);
+  const linked = await f.library.request({
+    op: "setAgents",
+    id: entry.id,
+    agents: [...allButClaude, "claude"],
+  });
+  expect(linked.kind).toBe("skill");
+  expect(await readlink(join(f.home, ".claude/skills/notes"))).toBe("../../.agents/skills/notes");
+  await f.library.request({ op: "setAgents", id: entry.id, agents: [...allButClaude] });
+  await expect(lstat(join(f.home, ".claude/skills/notes"))).rejects.toThrow();
 });
