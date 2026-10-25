@@ -1,0 +1,109 @@
+{
+  "version": 2,
+  "tolerances": [
+    {
+      "metric": "phases.longText.transactionsPerTurn",
+      "relative": 0.2,
+      "absolute": 0,
+      "portable": true
+    },
+    {
+      "metric": "phases.*.transactionsPerTurn",
+      "relative": 0.1,
+      "absolute": 3,
+      "portable": true
+    },
+    {
+      "metric": "phases.*.cpuPerTurn",
+      "relative": 0.35,
+      "absolute": 0,
+      "portable": true
+    },
+    {
+      "metric": "idle.cpuPerMinute",
+      "relative": 0.5,
+      "absolute": 2,
+      "portable": false
+    },
+    {
+      "metric": "startup.heapUsed",
+      "relative": 0.1,
+      "absolute": 4194304,
+      "portable": false
+    },
+    {
+      "metric": "phases.*.heapUsed",
+      "relative": 0.1,
+      "absolute": 4194304,
+      "portable": false
+    },
+    {
+      "metric": "startup.rss",
+      "relative": 0.15,
+      "absolute": 16777216,
+      "portable": false
+    },
+    {
+      "metric": "phases.*.rss",
+      "relative": 0.15,
+      "absolute": 16777216,
+      "portable": false
+    },
+    {
+      "metric": "startup.footprint",
+      "relative": 0.15,
+      "absolute": 16777216,
+      "portable": false
+    },
+    {
+      "metric": "phases.*.footprint",
+      "relative": 0.15,
+      "absolute": 16777216,
+      "portable": false
+    }
+  ],
+  "platforms": {
+    "darwin-arm64": {
+      "node": "v26.8.1",
+      "runs": 3,
+      "workload": {
+        "version": 1,
+        "options": {
+          "seedThreads": 400,
+          "settleMs": 10000,
+          "idleMs": 60000,
+          "newThreads": 20,
+          "sameThreadTurns": 40,
+          "longTextTurns": 3,
+          "longTextDeltas": 1000,
+          "deltaMs": 10,
+          "speed": 20
+        },
+        "fixtures": {
+          "tool-read.jsonl": "0e9c2fa9a630c397bc11450ba66f74ed47cf0936516d8718604fa83e9003562f"
+        }
+      },
+      "metrics": {
+        "idle.cpuPerMinute": 10.177456490431691,
+        "startup.heapUsed": 65407808,
+        "startup.rss": 229736448,
+        "startup.footprint": 192668248,
+        "phases.newThreads.cpuPerTurn": 6.41396645967352,
+        "phases.newThreads.transactionsPerTurn": 138.85,
+        "phases.newThreads.heapUsed": 81371608,
+        "phases.newThreads.rss": 266043392,
+        "phases.newThreads.footprint": 236896536,
+        "phases.sameThread.cpuPerTurn": 3.6494273602796268,
+        "phases.sameThread.transactionsPerTurn": 100.025,
+        "phases.sameThread.heapUsed": 83244216,
+        "phases.sameThread.rss": 272302080,
+        "phases.sameThread.footprint": 232081344,
+        "phases.longText.cpuPerTurn": 73.35177679445705,
+        "phases.longText.transactionsPerTurn": 2119,
+        "phases.longText.heapUsed": 85185472,
+        "phases.longText.rss": 265977856,
+        "phases.longText.footprint": 224495648
+      }
+    }
+  }
+}

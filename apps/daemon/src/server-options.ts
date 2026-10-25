@@ -1,5 +1,4 @@
 import type { MaintenanceGate } from "@ace/service";
-import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService } from "@ace/accounts";
@@ -73,7 +72,7 @@ export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
-  devices?: DevicesService;
+  devices?: import("@ace/devices").DevicesService | import("./lazy-devices.ts").LazyDevices;
   accounts?: AccountService;
   accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;

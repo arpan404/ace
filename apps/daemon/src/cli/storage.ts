@@ -1,10 +1,19 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import { secureDataDir } from "../local-files.ts";
+/**
+ * How long one CLI waits for another's outbox write. Every `ace run` from one home shares this
+ * file, so concurrent commands queue behind each other instead of failing with SQLITE_BUSY.
+ */
+const busyMs = 15_000;
+
 /** Indexed record writes commit before SDK dispatch; concurrent observers share receipts. */
 export function cliStorage(home: string) {
   secureDataDir(home);
   const db = new DatabaseSync(join(home, "cli-outbox.sqlite"));
+  // WAL lets the other CLIs read while one writes; the busy wait comes first, as switching the
+  // journal mode itself needs the lock.
+  db.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL`);
   db.exec(
     "CREATE TABLE IF NOT EXISTS intents(id TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS binding(id INTEGER PRIMARY KEY,value TEXT NOT NULL)",
   );

@@ -16,6 +16,7 @@ import { NotificationRouter, type Alert } from "./notifications/router.ts";
 import { Attention } from "./os/attention.ts";
 import { StatusTray } from "./os/tray.ts";
 import { appLifetime } from "./os/lifetime.ts";
+import type { WorkSummary } from "./link/thread-watch.ts";
 
 export interface BackgroundOptions {
   userData: string;
@@ -46,7 +47,7 @@ const timers = {
  * The parts that keep working with every window closed: the daemon link (notifications,
  * badge, power save), the tray and the embedded browser backend, whose views wait in the
  * parking window while no app window shows them. It also decides when a windowless app quits
- * (`appLifetime`): never while an agent works or a thread has a native page.
+ * (`appLifetime`): never while a thread works, waits on the person or has a native page.
  *
  * The link (`@ace/client` and most protocol schemas) and the browser backend are loaded on
  * first use, so neither delays the first window: the link when a daemon is first ready, the
@@ -62,8 +63,8 @@ export class Background {
     | undefined;
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
-  /** Agents working, as the daemon link last reported. */
-  private working = 0;
+  /** Threads working or waiting on the person, as the daemon link last reported. */
+  private work: WorkSummary = { needsYou: 0, working: 0, held: 0 };
   private hadWindow = false;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;
@@ -147,8 +148,9 @@ export class Background {
       onSummary: (summary) => {
         this.attention.update(summary);
         this.tray.update({ summary });
-        if (summary.working === this.working) return;
-        this.working = summary.working;
+        // The link reports only a change of the counts. Any of them can decide the lifetime:
+        // the last working thread turning to needs-you moves two at once and must not quit.
+        this.work = summary;
         this.reviewLifetime();
       },
     });
@@ -261,7 +263,7 @@ export class Background {
       background: this.options.settings().background,
       window: this.hasWindow(),
       browserPages: this.browser?.views.count() ?? 0,
-      working: this.working,
+      work: this.work,
     });
     if (lifetime.tray) this.tray.show();
     else this.tray.hide();
@@ -322,7 +324,7 @@ export class Background {
   /** Quitting now would close browser pages that working agents just used (#952). */
   agentsBrowsing(now: number, systemShutdown: boolean): boolean {
     return quitNeedsConfirmation({
-      working: this.working,
+      working: this.work.working,
       lastAgentBrowse: this.browser?.views.lastDriven() ?? -Infinity,
       now,
       systemShutdown,

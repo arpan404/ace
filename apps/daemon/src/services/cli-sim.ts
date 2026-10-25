@@ -1,4 +1,4 @@
-import { agentOwner, callSimTool, simFailure } from "@ace/devices";
+import { agentOwner } from "@ace/devices/tools";
 import { AgentId, type AgentControlResult, type CliOperation } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 
@@ -45,9 +45,11 @@ export async function simCli(
     threadId: thread.id,
     agentId,
   };
+  // `ace sim` is someone using devices: their implementation loads here if nothing has yet.
+  const { callSimTool, simFailure } = await import("@ace/devices");
   try {
     const result = await callSimTool(
-      devices,
+      await devices.load(),
       `sim_${operation.verb}`,
       operation.args,
       actor,

@@ -225,7 +225,13 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 <WorkSide threadId={id} />
                 {drop.overlay}
                 {meta.queuedLaunch ? (
-                  <QueuedLaunch text={meta.queuedLaunch.text} parentThreadId={meta.delegatedBy} />
+                  <QueuedLaunch
+                    text={meta.queuedLaunch.text}
+                    parentThreadId={meta.delegatedBy}
+                    slotLimit={meta.queuedLaunch.slotLimit}
+                    slotsInUse={meta.queuedLaunch.slotsInUse}
+                    queuePosition={meta.queuedLaunch.queuePosition}
+                  />
                 ) : (
                   <div className="col-start-1 row-start-1 min-h-0 min-w-0">
                     <Transcript threadId={id} />

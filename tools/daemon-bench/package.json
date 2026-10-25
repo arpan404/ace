@@ -1,0 +1,21 @@
+{
+  "name": "@ace/daemon-bench",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "bench": "node src/run.ts",
+    "gate": "node src/gate.ts"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/daemon": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "ws": "^8.18.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

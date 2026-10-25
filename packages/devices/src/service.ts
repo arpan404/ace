@@ -867,7 +867,6 @@ export class DevicesService {
     if (errors.length) throw new AggregateError(errors, "Devices close cleanup failed");
   }
 }
-export function agentOwner(threadId: string, agentId: string): string {
-  return JSON.stringify([threadId, agentId]);
-}
+import { agentOwner } from "./owner.ts";
+export { agentOwner };
 export { deviceFailure } from "./failure.ts";

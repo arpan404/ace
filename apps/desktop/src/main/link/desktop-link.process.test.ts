@@ -96,7 +96,7 @@ it("attaches notifications, badge and tray once a daemon is up, after the first 
 
   // The crash restart brings the daemon up and the link attaches by itself.
   await eventually(() => expect(t.runtime.current().state).toBe("running"));
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0, held: 0 }));
 
   // A notification reaches the app: a thread that starts waiting on a usage limit.
   const daemon = t.daemons.started[0];
@@ -107,7 +107,7 @@ it("attaches notifications, badge and tray once a daemon is up, after the first 
     [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
     Date.now(),
   );
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 1 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 1, held: 0 }));
   daemon.store.appendEvents(
     thread.id,
     [{ type: "thread.updated", status: { state: "waiting", on: "rate_limit" } }],
@@ -123,7 +123,7 @@ it("keeps notifications, badge and tray working when the daemon refuses the brow
   await new Promise<void>((resolve) => t.blocker.close(() => resolve()));
   t.keeper.start();
   void t.runtime.start();
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0, held: 0 }));
   const daemon = t.daemons.started[0];
   if (!daemon) throw new Error("no daemon");
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
@@ -171,7 +171,7 @@ it("keeps notifications, badge and tray working when the daemon refuses the brow
     [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
     Date.now(),
   );
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0, held: 0 }));
 });
 
 it("reports the daemon's close code and reason when the link drops", async () => {
@@ -179,7 +179,7 @@ it("reports the daemon's close code and reason when the link drops", async () =>
   await new Promise<void>((resolve) => t.blocker.close(() => resolve()));
   t.keeper.start();
   void t.runtime.start();
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0, held: 0 }));
   const daemon = t.daemons.started[0];
   if (!daemon) throw new Error("no daemon");
   // Prove the thread subscription is live through public output before killing the
@@ -190,7 +190,7 @@ it("reports the daemon's close code and reason when the link drops", async () =>
     [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
     Date.now(),
   );
-  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0 }));
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0, held: 0 }));
   expect(t.closes).toEqual([]);
   await daemon.close();
   await eventually(() => expect(t.closes[0]).toEqual({ code: 1001, reason: "Daemon shutdown" }));

@@ -1,7 +1,6 @@
 import { fileExportSource } from "../file-export-source.ts";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
-import { connectDevices, type DevicesService } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import {
@@ -22,6 +21,7 @@ import {
 import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 import { contextScope } from "./context-scope.ts";
+import { lazyDevices } from "../lazy-devices.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 /**
  * The daemon services a relay channel may use. The daemon passes an object whose fields read its
@@ -35,7 +35,10 @@ export interface RelayServices {
   supportFiles?: FilesService | undefined;
   context?: import("../server-options.ts").ServerOptions["context"] | undefined;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces | undefined;
-  appDevices?: DevicesService | undefined;
+  appDevices?:
+    | import("@ace/devices").DevicesService
+    | import("../lazy-devices.ts").LazyDevices
+    | undefined;
   browser?: BrowserService | undefined;
   screen?: ScreenManager | undefined;
   store?: Store | undefined;
@@ -86,30 +89,48 @@ export function attachRelayService(
         channel,
         options.appDevices ? deviceAccessRefused : devicesUnavailable,
       );
-    const endpoint = connectDevices(options.appDevices, sessionId, {
-      authorize: () => authorize("admin"),
-      canReadThread: threadAccess,
-      agentExists: (threadId, agentId) =>
-        options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !== undefined,
-      send,
-      media: {
-        bufferedBytes: () => channel.bufferedBytes,
-        write: async (piece) => {
-          if (!authorize("admin")) throw new Error("Device stream access revoked");
-          await channel.sendBinary(piece);
+    // A phone opening its devices channel is someone using devices: load them now.
+    const devices = lazyDevices(options.appDevices);
+    let closed = false;
+    let endpoint: ReturnType<typeof import("@ace/devices").connectDevices> | undefined;
+    const ready = (async () => {
+      const service = await devices.load();
+      const { connectDevices } = await import("@ace/devices");
+      if (closed) return undefined;
+      endpoint = connectDevices(service, sessionId, {
+        authorize: () => authorize("admin"),
+        canReadThread: threadAccess,
+        agentExists: (threadId, agentId) =>
+          options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
+          undefined,
+        send,
+        media: {
+          bufferedBytes: () => channel.bufferedBytes,
+          write: async (piece) => {
+            if (!authorize("admin")) throw new Error("Device stream access revoked");
+            await channel.sendBinary(piece);
+          },
         },
-      },
-    });
+      });
+      return endpoint;
+    })();
+    void ready.catch(() => {});
     return {
-      accept(message: ClientMessage) {
-        if (message.type === "devices.ack") return endpoint.ack(message);
-        if (message.type !== "devices.request") throw new Error("Unexpected devices relay request");
-        return endpoint.request(message);
+      async accept(message: ClientMessage) {
+        if (message.type !== "devices.ack" && message.type !== "devices.request")
+          throw new Error("Unexpected devices relay request");
+        const peer = await ready;
+        if (!peer) throw new Error("Devices relay closed");
+        if (message.type === "devices.ack") return peer.ack(message);
+        return peer.request(message);
       },
       binary() {
         throw new Error("Device relay does not accept input binary data");
       },
-      close: endpoint.close,
+      close() {
+        closed = true;
+        endpoint?.close();
+      },
     };
   }
   if (connection.kind === "browser") {

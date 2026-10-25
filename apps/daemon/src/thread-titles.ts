@@ -27,7 +27,7 @@ export function generatedTitle(reply: string): string | undefined {
   if (!line) return undefined;
   const cleaned = line
     .replace(/^title\s*:\s*/i, "")
-    .replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, "")
+    .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
     .replace(/[.!?,;:]+$/, "")
     .trim();
   const title = provisionalTitle([{ type: "text", text: cleaned }]);

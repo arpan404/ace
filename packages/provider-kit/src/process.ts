@@ -13,6 +13,7 @@ import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
 import { toWindowsCommand } from "./windows-command.ts";
 import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -322,13 +323,31 @@ export async function probeOutput(
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
     signal?: AbortSignal;
+    /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
     spawn?: typeof spawnRawSupervised;
     schedule?: (callback: () => void, milliseconds: number) => () => void;
+    thread?: ProbeThread;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
-  const proc = (options.spawn ?? spawnRawSupervised)({
+  const schedule =
+    options.schedule ??
+    ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    });
+  // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
+  if (!options.spawn)
+    return probeOffThread(command, args, {
+      timeoutMs: options.timeoutMs ?? 30_000,
+      env: options.env ?? {},
+      maxBytes,
+      signal: options.signal,
+      schedule,
+      thread: options.thread,
+    });
+  const proc = options.spawn({
     command,
     args,
     env: options.env ?? {},
@@ -357,12 +376,6 @@ export async function probeOutput(
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
-  const schedule =
-    options.schedule ??
-    ((callback: () => void, ms: number) => {
-      const timer = setTimeout(callback, ms);
-      return () => clearTimeout(timer);
-    });
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
     void proc.stop({ graceMs: 0 });

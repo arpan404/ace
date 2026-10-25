@@ -10,6 +10,11 @@ export const NotificationStatus = z.enum([
   "unresponsive",
   "background_done",
   "agent_says",
+  /**
+   * One alert for a desktop or web device that missed some while it was away: the threads that
+   * still need the person, listed in `threadIds`. `threadId` is the longest-waiting of them.
+   */
+  "catch_up",
 ]);
 export const Notification = z.object({
   id: boundedId,
@@ -21,6 +26,8 @@ export const Notification = z.object({
   actions: z.array(z.object({ action: z.enum(["approve", "deny"]), optionId: boundedId })).max(2),
   preview: z.string().max(300).optional(),
   message: z.string().max(300).optional(),
+  /** A `catch_up` alert's threads, longest-waiting first. */
+  threadIds: z.array(ThreadId.and(boundedId)).min(1).max(100).optional(),
   /** A finished notice for a tree that settled with an Offshift run open, blocked or delivered. */
   run: z
     .object({ outcome: z.enum(["stopped", "blocked", "delivered"]), phase: OffshiftPhase })

@@ -2714,7 +2714,11 @@ Example:
     "interactionId": "example",
     "message": "example",
     "preview": "example",
-    "status": "unresponsive",
+    "run": {
+      "outcome": "delivered",
+      "phase": "plan"
+    },
+    "status": "background_done",
     "threadId": "example",
     "title": "example"
   },
@@ -2947,7 +2951,7 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
@@ -2957,91 +2961,105 @@ Example:
     "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
-    "itemSeqs": {},
     "items": {},
-    "itemsBefore": null,
     "kind": "thread",
+    "offshift": {
+      "blocker": null,
+      "criteria": [],
+      "criteriaCount": 7,
+      "endpoint": "example",
+      "id": "d5",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 2,
+      "phase": "plan",
+      "revision": "example",
+      "steps": [],
+      "updatedAt": 3,
+      "version": 8
+    },
     "runs": {},
-    "seq": 9,
+    "seq": 5,
     "thread": {
+      "acpAgentId": "example",
       "acpSupport": {
         "capabilities": {
           "imageInput": true,
-          "planMode": false,
-          "resume": false
+          "planMode": true,
+          "resume": true
         },
         "coverage": "source_profile",
         "mcp": "http",
         "modeSelection": true,
-        "modelSelection": true,
+        "modelSelection": false,
         "raw": {
           "json": "example",
-          "truncated": false
+          "truncated": true
         },
         "subagentSessions": false,
         "visibility": "limited"
+      },
+      "autoSettle": false,
+      "capabilities": {
+        "attachmentInput": {
+          "documents": [],
+          "embeddedContext": true,
+          "format": "acp",
+          "maxInlineBytes": 0
+        },
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "full",
+        "childFidelity": "summary",
+        "fork": true,
+        "forkMode": "native",
+        "forkPoints": [],
+        "goals": true,
+        "imageInput": false,
+        "interruptCascades": true,
+        "planMode": false,
+        "resume": false,
+        "rewindFiles": true,
+        "steer": false,
+        "steerTiming": "after_tool",
+        "subagentTranscripts": true,
+        "tokenUsage": true
       },
       "continuation": {
         "actionId": "thread.continue_new",
         "reason": "cursor_cli_retired",
         "state": "read_only"
       },
-      "createdAt": 8,
-      "deletedAt": 6,
-      "handoff": {
-        "bytes": 6,
-        "sourceThreadId": "example",
-        "truncated": false
+      "createdAt": 2,
+      "goal": {
+        "checks": 1,
+        "objective": "example",
+        "status": "active",
+        "timeUsedSeconds": 6
       },
       "id": "example",
-      "installationId": "example",
-      "instanceId": "example",
-      "permission": {
-        "effective": null,
-        "override": "full-access",
-        "pending": true
-      },
-      "pinned": true,
-      "provider": "claude",
-      "queue": {
-        "exited": true,
-        "lastFailure": {
-          "code": "example",
-          "title": "example"
-        },
-        "paused": true,
-        "reason": "limit",
-        "resumeAt": 4,
-        "revision": 9
-      },
-      "readAt": 0,
-      "rootAgentId": "example",
-      "run": {
-        "pendingCount": 3,
-        "phase": "verify",
-        "state": "blocked"
-      },
-      "settleWhenDone": true,
+      "provider": "acp",
+      "settledReason": "inactivity",
+      "snoozedUntil": 2,
       "status": {
-        "agents": 5,
-        "state": "working"
+        "state": "unresponsive"
       },
       "switch": {
-        "at": 6,
-        "lossy": true,
+        "at": 4,
+        "error": "example",
+        "lossy": false,
         "selection": {
-          "instanceId": "example",
-          "provider": "codex"
+          "model": "example",
+          "provider": "pi"
         },
         "state": "applied"
       },
       "title": "example",
-      "unread": true,
-      "updatedAt": 2,
+      "titleSource": "agent",
+      "updatedAt": 3,
       "workspaceId": "example"
     },
-    "usage": {},
-    "usageSnapshots": {}
+    "usage": {}
   }
 }
 ```

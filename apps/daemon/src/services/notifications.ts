@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
+import { notificationsRetained } from "@ace/notify";
 import { warmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
@@ -10,6 +12,8 @@ export async function startNotifications(context: ServiceContext): Promise<void>
     ? { channels: options.notificationChannels, close: () => {} }
     : await loadNotificationChannels();
   resources.own(configured.close);
+  // Nothing saved needs delivery while no client is connected: the worker starts when one does.
+  const retained = notificationsRetained(join(config.dataDir, "notifications.sqlite"));
   const notifications = createDaemonNotifications(
     config.dataDir,
     store,
@@ -18,23 +22,25 @@ export async function startNotifications(context: ServiceContext): Promise<void>
     5000,
     {
       signal: context.signal,
+      slept: !retained,
       ...(options.notificationWorker ? { spawn: options.notificationWorker } : {}),
     },
   );
   resources.onShutdown(notifications.stop);
   resources.own(() => notifications.close());
   // A cursor reply proves the worker has opened its store, even when the log is empty.
-  await notifications.open();
+  if (retained) await notifications.open();
   services.notifications = notifications.service;
   if ("publicKey" in configured && typeof configured.publicKey === "string")
     services.notificationPublicKey = configured.publicKey;
   onListen.push(async (server) => {
     notifications.setSender(server.notify);
+    notifications.setConnected(server.notificationDevices);
     // Clients can connect through the endpoint before feature startup completes.
     for (const device of server.notificationDevices())
       await notifications.service.connectDevice(device);
     void warmup(context, "notifications", async () => {
-      await notifications.ready();
+      if (retained) await notifications.ready();
       notifications.activate();
     });
   });

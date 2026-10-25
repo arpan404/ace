@@ -1,6 +1,11 @@
 import { detectToolchains } from "@ace/diagnostics";
 import { join } from "node:path";
-import { managedServeSim, pinnedServeSim, serveSimStatus, type ServeSimStatus } from "@ace/devices";
+import {
+  managedServeSim,
+  pinnedServeSim,
+  serveSimStatus,
+  type ServeSimStatus,
+} from "@ace/devices/tools";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Toolchain } from "@ace/protocol";
 

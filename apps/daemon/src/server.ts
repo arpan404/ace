@@ -20,6 +20,7 @@ import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
@@ -217,7 +218,8 @@ export async function startServer(options: ServerOptions): Promise<{
       runtime.now,
       encoder,
     );
-    const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
+    const send = (message: ServerMessage | PluginServerMessage) =>
+      outbox.send(busyRefusal(message));
     const fail = (
       code: string,
       message: string,
