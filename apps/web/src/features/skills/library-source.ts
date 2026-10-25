@@ -185,13 +185,12 @@ export function useEditSkill() {
 
 /** Add or remove agents; the reply names agents left in place and why. */
 export function useSetSkillAgents() {
-  return useLibraryMutation(
-    async (client, input: Target & { agents: readonly SkillAgent[] }) =>
-      skills(
-        client,
-        { op: "setAgents", id: input.id, agents: [...input.agents], ...at(input.workspaceId) },
-        "skill",
-      ),
+  return useLibraryMutation(async (client, input: Target & { agents: readonly SkillAgent[] }) =>
+    skills(
+      client,
+      { op: "setAgents", id: input.id, agents: [...input.agents], ...at(input.workspaceId) },
+      "skill",
+    ),
   );
 }
 
@@ -252,7 +251,6 @@ export function useApplySkillUpdate() {
 export function useCancelSkillUpdate() {
   const client = useClient();
   return useMutation({
-    mutationFn: (reviewId: string) =>
-      skills(client, { op: "cancelUpdate", reviewId }, "cancelled"),
+    mutationFn: (reviewId: string) => skills(client, { op: "cancelUpdate", reviewId }, "cancelled"),
   });
 }

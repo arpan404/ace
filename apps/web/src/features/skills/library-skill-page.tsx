@@ -12,12 +12,7 @@ import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { instructionsShown, skillBody } from "./library-model.ts";
-import {
-  SkillRequestError,
-  useDeleteSkill,
-  useEditSkill,
-  useSkillFile,
-} from "./library-source.ts";
+import { SkillRequestError, useDeleteSkill, useEditSkill, useSkillFile } from "./library-source.ts";
 import { SkillDetails } from "./skill-details.tsx";
 import { SkillEditForm, type SkillDraft } from "./skill-edit-form.tsx";
 import { useSkillFileActions } from "./skill-file-actions.ts";
@@ -39,7 +34,9 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
   const actions = useSkillFileActions(entry);
   const toast = useToast();
   const navigate = useNavigate();
-  const [editing, setEditing] = useState(false);
+  // What an edit started from: its hash (a save after a change elsewhere is a conflict) and
+  // its text, which a refreshed read must not swap out under the person's typing.
+  const [editing, setEditing] = useState<{ hash: string; initial: SkillDraft }>();
   const [conflict, setConflict] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const [confirming, setConfirming] = useState<Confirming>();
@@ -53,11 +50,11 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
         id: entry.id,
         workspaceId,
         // The hash of the text the draft started from: a change since then is a conflict.
-        expectedHash: file.data?.entry.hash ?? entry.hash,
+        expectedHash: editing?.hash ?? entry.hash,
         ...draft,
       },
       {
-        onSuccess: () => setEditing(false),
+        onSuccess: () => setEditing(undefined),
         onError: (error) => {
           if (error instanceof SkillRequestError && error.code === "conflict") setConflict(true);
           else
@@ -91,6 +88,15 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
       },
     );
   };
+  const startEditing = (data: { entry: SkillEntry; text: string }) =>
+    setEditing({
+      hash: data.entry.hash,
+      initial: {
+        description: data.entry.description,
+        body: skillBody(data.text),
+        manual: data.entry.manual,
+      },
+    });
   const askDelete = () =>
     setConfirming({
       title: `Delete ${title}?`,
@@ -124,10 +130,7 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
           </MenuItem>
         )}
         {actions.reveal && (
-          <MenuItem
-            icon={<Icon icon={FolderSimpleIcon} />}
-            onClick={() => void actions.reveal?.()}
-          >
+          <MenuItem icon={<Icon icon={FolderSimpleIcon} />} onClick={() => void actions.reveal?.()}>
             Reveal in Finder
           </MenuItem>
         )}
@@ -146,28 +149,24 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
-          <SkillHeading title={title} description={entry.description}>
+          <SkillHeading title={title} description={editing ? "" : entry.description}>
             {!editing && <UseInThread name={entry.name} project={workspaceId} />}
           </SkillHeading>
-          {editing && text !== undefined ? (
+          {editing ? (
             <SkillEditForm
-              key={file.data?.entry.hash}
-              initial={{
-                description: file.data?.entry.description ?? entry.description,
-                body: skillBody(text),
-                manual: file.data?.entry.manual ?? entry.manual,
-              }}
+              key={editing.hash}
+              initial={editing.initial}
               saving={edit.isPending}
               conflict={conflict}
               error={saveError}
               onCancel={() => {
-                setEditing(false);
+                setEditing(undefined);
                 setConflict(false);
                 setSaveError(undefined);
               }}
               onReload={() => {
                 setConflict(false);
-                void file.refetch();
+                void file.refetch().then((read) => read.data && startEditing(read.data));
               }}
               onSave={save}
             />
@@ -185,7 +184,11 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
                 label="Instructions"
                 actions={
                   entry.editable && text !== undefined ? (
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => file.data && startEditing(file.data)}
+                    >
                       Edit
                     </Button>
                   ) : undefined

@@ -82,9 +82,9 @@ export function useSkills() {
   const library = useSkillLibrary();
   const query = useDaemonQuery({ queryKey: key, read: readCatalog, select });
   // Each source shows as soon as it arrives; a failed one leaves the other on screen.
-  const plugins = query.data ?? (query.isError ? [] : undefined);
+  const fromPlugins = query.data ?? (query.isError ? [] : undefined);
   const native = library.entries ?? (library.failed ? [] : undefined);
-  const data = plugins && native ? withLibrary(plugins, native) : undefined;
+  const data = fromPlugins && native ? withLibrary(fromPlugins, native) : undefined;
   return {
     ...query,
     data,

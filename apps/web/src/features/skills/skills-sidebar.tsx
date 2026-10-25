@@ -214,10 +214,7 @@ function ProjectMenu() {
     <Menu>
       <MenuTrigger
         render={
-          <IconButton
-            icon={FolderSimpleIcon}
-            label={`Project: ${discovery.project?.name ?? ""}`}
-          />
+          <IconButton icon={FolderSimpleIcon} label={`Project: ${discovery.project?.name ?? ""}`} />
         }
       />
       <MenuContent align="end">

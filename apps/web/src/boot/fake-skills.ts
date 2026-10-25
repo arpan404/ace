@@ -1,4 +1,5 @@
 import type { FakeDaemon, SkillSeed } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 
 const day = 86_400_000;
 const body = (title: string, intro: string) =>
@@ -20,7 +21,11 @@ export function seedFakeSkills(daemon: FakeDaemon, now: number) {
       argumentHint: "[version]",
       usage: {
         count: 6,
-        last: { threadId: "thread-multi-day", title: "Release 0.9.4", at: now - 3 * day },
+        last: {
+          threadId: ThreadId.parse("thread-multi-day"),
+          title: "Release 0.9.4",
+          at: now - 3 * day,
+        },
       },
     },
     {
@@ -45,7 +50,11 @@ export function seedFakeSkills(daemon: FakeDaemon, now: number) {
       links: ["claude"],
       usage: {
         count: 14,
-        last: { threadId: "thread-multi-day", title: "Compare stream renderers", at: now - day },
+        last: {
+          threadId: ThreadId.parse("thread-multi-day"),
+          title: "Compare stream renderers",
+          at: now - day,
+        },
       },
     },
     {

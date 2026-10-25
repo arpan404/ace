@@ -43,7 +43,9 @@ export function SkillsLibraryProvider({ children }: { children: ReactNode }) {
   const chosen = directory.projects.find((p) => p.id === selected) ?? directory.projects[0];
   const parsed = chosen ? WorkspaceId.safeParse(chosen.id) : undefined;
   const project =
-    chosen && parsed?.success ? { id: parsed.data, name: chosen.name, path: chosen.path } : undefined;
+    chosen && parsed?.success
+      ? { id: parsed.data, name: chosen.name, path: chosen.path }
+      : undefined;
   const [snapshot, setSnapshot] = useState<{
     key: string;
     entries: readonly SkillEntry[];

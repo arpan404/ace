@@ -49,9 +49,7 @@ export function SkillSourceRow(props: { entry: SkillEntry; workspaceId: Workspac
     toast.error({
       title,
       description:
-        error instanceof SkillRequestError
-          ? error.message
-          : "Check your connection and try again.",
+        error instanceof SkillRequestError ? error.message : "Check your connection and try again.",
     });
   return (
     <>
@@ -137,7 +135,8 @@ function UpdateReviewDialog(props: {
           <DialogTitle>Update {title}</DialogTitle>
           <DialogDescription>
             {props.entry.source?.source}
-            {review && ` · ${review.files.length === 1 ? "1 file" : `${review.files.length} files`} changed`}
+            {review &&
+              ` · ${review.files.length === 1 ? "1 file" : `${review.files.length} files`} changed`}
           </DialogDescription>
         </DialogHeader>
         {review && (
@@ -149,7 +148,9 @@ function UpdateReviewDialog(props: {
                   <li key={file.path} className="flex items-baseline gap-3 py-1 text-ui">
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
                     {file.flagged && (
-                      <span className="shrink-0 font-medium text-foreground">Agents may run it</span>
+                      <span className="shrink-0 font-medium text-foreground">
+                        Agents may run it
+                      </span>
                     )}
                     <span className="w-16 shrink-0 text-right text-muted-foreground">
                       {changeWords[file.change]}
