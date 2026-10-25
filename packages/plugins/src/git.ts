@@ -172,6 +172,25 @@ export async function readGitFile(
     await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot, runtime)
   ).toString("utf8");
 }
+/** Git tree SHA of `path` at `commit` (what the `skills` CLI records as `skillFolderHash`). */
+export async function readGitTree(
+  gitRoot: string,
+  commit: string,
+  path: string,
+  runtime: GitRuntime,
+): Promise<string> {
+  const hash = (
+    await git(
+      ["rev-parse", "--verify", `${PluginCommit.parse(commit)}:${normalizePath(path)}^{tree}`],
+      gitRoot,
+      runtime,
+    )
+  )
+    .toString("utf8")
+    .trim();
+  if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error("Invalid Git tree");
+  return hash;
+}
 /** The repository's plugin catalog at `commit`, from the first marketplace file it has. */
 export async function readMarketplace(
   gitRoot: string,
