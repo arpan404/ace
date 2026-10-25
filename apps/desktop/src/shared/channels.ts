@@ -1,5 +1,6 @@
 import { BrowserPlacementReceipt } from "./contract.ts";
 import { z } from "zod";
+import { AceAccountOrigin } from "@ace/protocol/ace-account";
 import {
   AbsolutePath,
   AppInfo,
@@ -45,6 +46,17 @@ const ExternalUrl = z
 
 /** Renderer → main requests. Every request and result is parsed on both sides. */
 export const requests = {
+  "account.read": { request: AceAccountOrigin, result: z.string().nullable() },
+  "account.write": {
+    request: z.object({
+      origin: AceAccountOrigin,
+      token: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{43}$/)
+        .nullable(),
+    }),
+    result: None,
+  },
   "keymap.update": {
     request: z
       .record(z.string().max(64), z.string().max(64))

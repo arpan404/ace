@@ -1,4 +1,5 @@
 import { writableFolder } from "./browser/download-folder.ts";
+import { accountSecrets } from "./account-secrets.ts";
 import {
   app,
   BrowserWindow,
@@ -71,6 +72,7 @@ export function createHandlers(options: {
   updates: AppUpdates;
 }): Handlers {
   const { runtime, settings, background } = options;
+  const account = accountSecrets(app.getPath("userData"));
   const editorIcon = editorIcons(
     {
       forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
@@ -88,6 +90,11 @@ export function createHandlers(options: {
     return window;
   };
   return {
+    "account.read": (origin) => account.read(origin),
+    "account.write": async ({ origin, token }) => {
+      await account.write(origin, token);
+      return undefined;
+    },
     "keymap.update": (bindings) => {
       options.updateKeymap?.(bindings);
       return undefined;

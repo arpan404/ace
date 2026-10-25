@@ -1,0 +1,35 @@
+services:
+  relay:
+    build:
+      context: ../../..
+      dockerfile: apps/relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      ACE_ACCOUNT_PUBLIC_URL: https://${ACE_BACKEND_DOMAIN:?Set the backend domain}
+      WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:?Set the WorkOS client ID}
+      WORKOS_API_KEY: ${WORKOS_API_KEY:?Set the WorkOS API key}
+      ACE_ACCOUNT_ENCRYPTION_KEY: ${ACE_ACCOUNT_ENCRYPTION_KEY:?Set the account encryption key}
+      ACE_ACCOUNT_DATA_DIR: /data/accounts
+      ACE_ACCOUNT_ALLOWED_ORIGINS: ${ACE_ACCOUNT_ALLOWED_ORIGINS:?Set exact client origins}
+    volumes:
+      - accounts:/data
+    expose:
+      - "8787"
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      ACE_BACKEND_DOMAIN: ${ACE_BACKEND_DOMAIN:?Set the backend domain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - relay
+volumes:
+  accounts:
+  caddy_data:
+  caddy_config:

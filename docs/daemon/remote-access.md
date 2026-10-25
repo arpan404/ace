@@ -1,6 +1,6 @@
 # Remote access to your daemon
 
-Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. ace operates no hosted service. You may use a relay you host yourself.
+Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. The optional [ace account backend](../relay/accounts.md) handles ace login and relay transport; agent execution stays on your own machine. You may also host a relay yourself.
 
 ## Start and pair
 

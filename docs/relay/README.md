@@ -1,6 +1,10 @@
 # Self-hosted encrypted relay
 
-The relay is a fallback after LAN and Tailscale. The user runs it on infrastructure they control. ace operates no relay service and handles no provider credentials. The daemon integration worker chooses the route and validates device tokens inside the encrypted channel.
+The relay also supports the optional [WorkOS account backend](accounts.md),
+including deployment on one HTTPS/WSS endpoint. ace accounts are independent
+of paired-device grants and coding-provider accounts.
+
+The relay is a fallback after LAN and Tailscale. It can run on the user's own infrastructure or alongside the optional ace account backend. It handles no coding-provider credentials. The daemon integration worker chooses the route and validates device tokens inside the encrypted channel.
 
 ## API
 

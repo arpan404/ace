@@ -19,7 +19,8 @@
     "./access-ticket": "./src/access-ticket.ts",
     "./turn-steps": "./src/turn-steps.ts",
     "./tool-icons": "./src/tool-icons.ts",
-    "./terminal-keys": "./src/terminal-keys.ts"
+    "./terminal-keys": "./src/terminal-keys.ts",
+    "./ace-account": "./src/ace-account.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

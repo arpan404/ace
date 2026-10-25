@@ -1,5 +1,7 @@
 export { startRelay } from "./server.ts";
 export type { RelayOptions } from "./server.ts";
+export type { AccountConfig } from "./account/config.ts";
+export type { AccountProvider, AccountIdentity } from "./account/workos.ts";
 export { connectHostToRelay } from "./host.ts";
 export type { HostRelayConnection } from "./host.ts";
 export { connectClientViaRelay } from "./client.ts";

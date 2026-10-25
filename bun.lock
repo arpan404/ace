@@ -133,7 +133,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.8",
+      "version": "0.0.10",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -196,10 +196,12 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@workos-inc/node": "^12.0.0",
         "ws": "^8.18.3",
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/client": "workspace:*",
         "@types/ws": "^8.18.1",
       },
     },
@@ -2384,6 +2386,8 @@
     "@vscode/ripgrep-win32-ia32": ["@vscode/ripgrep-win32-ia32@1.18.0", "", { "os": "win32", "cpu": "ia32" }, "sha512-//rfAE+BOw5AC2EMmepmiE36jUuevtQYNQqqlw1s3m9FlRxjxEut97RkRPHAu9BG4mSojatZx+kXZXNdyI9caQ=="],
 
     "@vscode/ripgrep-win32-x64": ["@vscode/ripgrep-win32-x64@1.18.0", "", { "os": "win32", "cpu": "x64" }, "sha512-KNPvtElldqILHdnAetujPaowkNbpqJy3ssIGGN6F6Kve9Qi+nNLI2DN01O83JjCEVQbCzl8Ov3QZ9Eov3BR8Dg=="],
+
+    "@workos-inc/node": ["@workos-inc/node@12.0.0", "", {}, "sha512-ujB+xdaOHUrfHe5oMnNOrHV/g+AzZ+5VPCGayDLC4mHWTBHCZg6U5e9X8EDCmKSir8pSXAmJaJylTJNRZ+BSew=="],
 
     "@xmldom/xmldom": ["@xmldom/xmldom@0.8.15", "", {}, "sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA=="],
 

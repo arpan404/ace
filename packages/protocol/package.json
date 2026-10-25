@@ -37,7 +37,8 @@
     "./background": "./src/background.ts",
     "./agent-status": "./src/agent-status.ts",
     "./entities": "./src/entities.ts",
-    "./offshift": "./src/offshift.ts"
+    "./offshift": "./src/offshift.ts",
+    "./ace-account": "./src/ace-account.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

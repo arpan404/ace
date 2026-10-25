@@ -52,6 +52,12 @@ const entries = [
   },
   // General
   {
+    id: "account.signIn",
+    page: "/settings/general",
+    title: "Profile",
+    keywords: ["login", "sign in", "sign out", "WorkOS"],
+  },
+  {
     id: "profile.name",
     page: "/settings/general",
     title: "Your name",
