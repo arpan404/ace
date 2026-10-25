@@ -100,7 +100,8 @@ export function readSubagentGroup(
     facts,
     direct.flatMap((root) => (root.agent ? [root.agent.id] : [])),
   );
-  const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {    const subtree = agent ? branch(agent.id) : undefined;
+  const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {
+    const subtree = agent ? branch(agent.id) : undefined;
     let state = subtree?.state ?? "working";
     // A child still waiting in its parent's launch queue has run nothing: its launch row is all
     // there is, and its agent's status (blocked on the queue) must not read as working.

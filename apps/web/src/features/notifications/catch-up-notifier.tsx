@@ -33,7 +33,12 @@ export function CatchUpNotifier() {
         void current.navigate({ to: "/t/$threadId", params: { threadId: notice.threadId } });
       if (!documentVisibility.visible()) {
         if (current.prefs.browser)
-          notifyInBrowser({ title: notice.title, body: notice.message ?? "", tag: notice.id, open });
+          notifyInBrowser({
+            title: notice.title,
+            body: notice.message ?? "",
+            tag: notice.id,
+            open,
+          });
         return;
       }
       current.toast.add({

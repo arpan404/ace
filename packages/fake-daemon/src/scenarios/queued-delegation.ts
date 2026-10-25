@@ -80,11 +80,16 @@ export function queuedDelegation(): Scenario[] {
             state: "working",
             agents: 1,
           }),
-          ...launch(queuedDelegationIds.queued, "Clean-iOS-model-picker", "created", {
-            state: "waiting",
-            on: "queue",
-          },
-          { slotLimit: 1, slotsInUse: 1, queuePosition: 1 }),
+          ...launch(
+            queuedDelegationIds.queued,
+            "Clean-iOS-model-picker",
+            "created",
+            {
+              state: "waiting",
+              on: "queue",
+            },
+            { slotLimit: 1, slotsInUse: 1, queuePosition: 1 },
+          ),
         ],
       },
     ],

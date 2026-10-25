@@ -4,11 +4,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-function queuedWorld(queue?: {
-  slotLimit: number;
-  slotsInUse: number;
-  queuePosition: number;
-}) {
+function queuedWorld(queue?: { slotLimit: number; slotsInUse: number; queuePosition: number }) {
   const app = harness({ clock: () => 10 * 60_000 });
   app.daemon.createThread({
     id: "queue-parent",

@@ -218,9 +218,9 @@ test("starting one of fifty queued children updates each shifted child exactly o
     rest.map((child) => child.childId).toSorted(),
   );
   for (const [index, child] of rest.entries())
-    expect(
-      updates.find((update) => update.child === child.childId)?.facts,
-    ).toMatchObject({ queuePosition: index + 1 });
+    expect(updates.find((update) => update.child === child.childId)?.facts).toMatchObject({
+      queuePosition: index + 1,
+    });
 
   // Nothing more follows: no second round of queue writes, not even on the retry poll.
   for (let round = 0; round < 2; round++) {
@@ -252,9 +252,9 @@ test("cancelling a full queue writes no intermediate positions", async () => {
   h.service.cancelDescendants(parent.threadId);
   await h.engine.flush();
 
-  expect(
-    queued.every((child) => h.service.journal.get(child.childId)?.phase === "settled"),
-  ).toBe(true);
+  expect(queued.every((child) => h.service.journal.get(child.childId)?.phase === "settled")).toBe(
+    true,
+  );
   // Every queued child settles straight to cleared: no intermediate positions on the way out.
   expect(
     h.events.slice(baseline).filter((event) => {

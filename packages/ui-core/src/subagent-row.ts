@@ -96,13 +96,11 @@ export function queuedDetailFor(place: {
     place.queuePosition === undefined
   )
     return queuedDetail;
-  return (
-    `${queuedSlotFragment({
-      slotLimit: place.slotLimit,
-      slotsInUse: place.slotsInUse,
-      queuePosition: place.queuePosition,
-    })}. ${queuedDetail}`
-  );
+  return `${queuedSlotFragment({
+    slotLimit: place.slotLimit,
+    slotsInUse: place.slotsInUse,
+    queuePosition: place.queuePosition,
+  })}. ${queuedDetail}`;
 }
 
 /** Whether a subagent's row shows a ticking time: it runs. One still queued has not started. */
