@@ -6,7 +6,7 @@ import { FakeDaemon } from "@ace/fake-daemon";
 import { ServerMessage } from "@ace/protocol";
 
 async function browse(app: ReturnType<typeof harness>) {
-  await app.open("/new");
+  await app.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "GitHub repository" }));
 }
