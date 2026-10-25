@@ -27,7 +27,11 @@ export function targetProjects(context: ServiceContext): TargetProjects {
   const run = async (
     id: string,
     payload: unknown,
-    clone?: { signal: AbortSignal; timeoutMs: number },
+    clone?: {
+      signal: AbortSignal;
+      timeoutMs: number;
+      made?: (directory: { dev: number; ino: number }) => void;
+    },
   ): Promise<CommandResult> => {
     const result = await projects().execute(
       Command.parse({ id, deviceId: "ace-transfer", payload }),
@@ -61,13 +65,14 @@ export function targetProjects(context: ServiceContext): TargetProjects {
             "That folder isn't one this machine lets projects be made in.",
           );
         }),
-    clone: async ({ key, parent, name, url, signal }) => {
+    clone: async ({ key, parent, name, url, signal, made }) => {
       const result = await run(
         `${key}:clone`,
         { type: "workspace.clone", parent, name, url },
         {
           signal,
           timeoutMs: context.options.transfers?.cloneTimeoutMs ?? 180_000,
+          made,
         },
       );
       if (!result.workspace) throw new TransferError("clone_failed", "The clone didn't register.");

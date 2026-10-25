@@ -23,13 +23,17 @@ export interface TargetProjects {
   list(): { workspaceId: WorkspaceId; path: string }[];
   /** A folder inside the allowed roots for new projects, held open; omitted: the default. */
   parent(requested: string | undefined): Promise<TransferParent>;
-  /** `workspace.clone`, keyed so a retry runs once. */
+  /**
+   * `workspace.clone`, keyed so a retry runs once. `made` hears the new folder's identity as
+   * soon as the clone makes it, before anything is written in it.
+   */
   clone(input: {
     key: string;
     parent: string;
     name: string;
     url: string;
     signal: AbortSignal;
+    made(directory: { dev: number; ino: number }): void;
   }): Promise<WorkspaceId>;
   /** `workspace.add` of a folder this transfer made. */
   register(input: { key: string; path: string; name: string }): Promise<WorkspaceId>;
@@ -192,16 +196,32 @@ class Made {
     }
     return this.own(folder, handle);
   }
-  /** The folder `workspace.clone` made under the reserved name, held open from here. */
+  /** `workspace.clone` made the reserved folder: from here it is this landing's to remove. */
+  cloning(directory: { dev: number; ino: number }): void {
+    this.record(this.need(), folderIdentity(directory));
+  }
+  /** The folder `workspace.clone` made and filled, held open from here; never a swapped one. */
   cloned(): PinnedDirectory {
     const folder = this.need();
-    return this.own(folder, folder.parent.handle.child(folder.name));
+    const handle = folder.parent.handle.child(folder.name);
+    if (folder.id !== folderIdentity(handle.stat())) {
+      handle.closeSync();
+      throw new TransferError(
+        "import_failed",
+        "The new project's folder changed while it was made.",
+      );
+    }
+    folder.handle = handle;
+    return handle;
   }
   private own(folder: NonNullable<Made["folder"]>, handle: PinnedDirectory): PinnedDirectory {
     folder.handle = handle;
-    folder.id = folderIdentity(handle.stat());
-    this.deps.made({ createdPath: this.path, createdId: folder.id });
+    this.record(folder, folderIdentity(handle.stat()));
     return handle;
+  }
+  private record(folder: NonNullable<Made["folder"]>, id: string): void {
+    folder.id = id;
+    this.deps.made({ createdPath: this.path, createdId: id });
   }
   /** Reserves a folder made by path outside a held parent (a branch's worktree beside it). */
   reserveBeside(path: string): void {
@@ -324,6 +344,7 @@ async function land(
           name: made.name,
           url: begin.remote.url,
           signal,
+          made: (directory) => made.cloning(directory),
         });
       } catch {
         signal.throwIfAborted();

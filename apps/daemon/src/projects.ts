@@ -336,7 +336,12 @@ export class Projects {
   execute(
     input: Command,
     allowed: () => boolean = () => true,
-    transferClone?: { signal: AbortSignal; timeoutMs: number },
+    transferClone?: {
+      signal: AbortSignal;
+      timeoutMs: number;
+      /** The clone's folder was just made: its identity, before anything is written in it. */
+      made?: (directory: { dev: number; ino: number }) => void;
+    },
   ): Promise<CommandResult> {
     const existing = this.clones.get(input.id);
     if (existing)
@@ -462,6 +467,7 @@ export class Projects {
             (this.options.gitPolicy?.validateUrl ?? validateCloneUrl)(cloneUrl);
           this.store.workspaceReservations.assertAvailable(path);
           directory = await parentDirectory.destination(p.name);
+          if (p.type === "workspace.clone") transferClone?.made?.(directory.handle.stat());
           this.check(allowed);
           if (p.type === "workspace.create") {
             if (p.git) await this.git.init(path, p.git.initialBranch, directory.handle.fd);
