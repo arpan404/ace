@@ -35,7 +35,7 @@ const waitFor = async (pair: Pair, id: ThreadId) =>
 it("a finished remote child given new work stays open through a caller restart before the reply, and reports its new result", async () => {
   // The next message is taken by the target, but its reply never reaches the caller.
   let holdNextMessage = false;
-  let accepted = () => {};
+  let accepted: (() => void) | undefined;
   const taken = new Promise<void>((resolve) => {
     accepted = resolve;
   });
@@ -43,7 +43,7 @@ it("a finished remote child given new work stays open through a caller restart b
     const answer = await machineRequest(profile, body, options);
     if (body.call.op !== "message" || !holdNextMessage) return answer;
     holdNextMessage = false;
-    accepted();
+    accepted?.();
     return new Promise((_resolve, reject) => {
       options.signal?.addEventListener("abort", () => reject(new Error("aborted")));
     });
