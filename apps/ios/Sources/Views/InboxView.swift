@@ -74,12 +74,19 @@ struct InboxView: View {
             }
     }
 
+    /// The tab role the system draws as its own round button at the bar's trailing end, apart from
+    /// Threads and Pulls: iOS 27's prominent tab; before it, the search tab.
+    private static var detachedRole: TabRole {
+        if #available(iOS 27, *) { return .prominent }
+        return .search
+    }
+
     private var tabs: some View {
         TabView(selection: $tab) {
             Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
             Tab("Pulls", image: "tab-pulls", value: InboxTab.pulls) { stack(.pulls, path: $pullsPath) }
             if inbox.canStartThreads {
-                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: .search) { Color.clear }
+                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: Self.detachedRole) { Color.clear }
             }
         }
         .tint(AceTheme.Colours.foreground)

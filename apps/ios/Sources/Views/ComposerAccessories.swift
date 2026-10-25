@@ -84,6 +84,27 @@ struct ComposerSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     private var name: String { ComposerModelButton.name(screen) }
 
+    /// Effort and speed, always listed: it opens their panel when the model offers either, and
+    /// otherwise says why there is nothing to change.
+    @ViewBuilder private var effortRow: some View {
+        let summary = ComposerModelButton.tune(screen)
+        let reason = [screen.tune?.effortReason, screen.tune?.speedReason].compactMap { $0 }.first { !$0.isEmpty }
+        Button(action: openTune) {
+            InsetRow(systemImage: nil, title: "Effort and speed",
+                     subtitle: summary == nil ? (reason ?? "This model has no levels or speeds to choose") : nil) {
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    if let summary { InsetValue(text: summary) }
+                    if summary != nil {
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain).insetRowBackground()
+        .disabled(summary == nil)
+        .accessibilityIdentifier("composer.settings.effort")
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -95,18 +116,7 @@ struct ComposerSettingsSheet: View {
                     }
                     .buttonStyle(.plain).insetRowBackground()
                     .accessibilityIdentifier("composer.settings.model")
-                    if let tune = ComposerModelButton.tune(screen) {
-                        Button(action: openTune) {
-                            InsetRow(systemImage: nil, title: "Effort") {
-                                HStack(spacing: AceTheme.Spacing.xs) {
-                                    InsetValue(text: tune)
-                                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain).insetRowBackground()
-                        .accessibilityIdentifier("composer.settings.effort")
-                    }
+                    effortRow
                 } header: { InsetHeader("Model") }
                 if let access = screen.access, !access.choices.isEmpty {
                     Section {
