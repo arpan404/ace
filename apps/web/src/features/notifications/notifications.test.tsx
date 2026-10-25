@@ -216,3 +216,30 @@ test("an agent message opens its thread and respects the category toggle", async
   await screen.findByRole("feed", { name: "Transcript" });
   expect(screen.getByRole("heading", { level: 1, name: /Fix flaky checkout test/ })).toBeTruthy();
 });
+
+test("a catch-up after time away shows once and opens the longest-waiting thread", async () => {
+  const app = harness();
+  app.play(flakyCheckout()).runThrough("watcher-started");
+  await app.open("/settings/notifications");
+  await screen.findByRole("switch", { name: "Needs you" });
+  const catchUp = () =>
+    app.daemon.notify({
+      id: "c:42:2",
+      threadId: ThreadId.parse("thread-checkout"),
+      threadIds: [ThreadId.parse("thread-checkout"), ThreadId.parse("thread-billing")],
+      title: "2 threads need you",
+      status: "catch_up",
+      message: "Fix flaky checkout test, Ship billing",
+      backgroundCount: 0,
+      actions: [],
+    });
+  catchUp();
+  expect(await within(await toasts()).findByText("2 threads need you")).toBeTruthy();
+  await within(await toasts()).findByText("Fix flaky checkout test, Ship billing");
+  catchUp();
+  await app.client.request({ type: "notification.config" });
+  expect(within(await toasts()).getAllByText("2 threads need you")).toHaveLength(1);
+  await userEvent.click(within(await toasts()).getByRole("button", { name: "Open" }));
+  await screen.findByRole("feed", { name: "Transcript" });
+  expect(screen.getByRole("heading", { level: 1, name: /Fix flaky checkout test/ })).toBeTruthy();
+});

@@ -9,14 +9,25 @@ import ApplicationServices
     /// Shows the person where the agent acts, for windows they can see.
     var indicate: (CGPoint) -> Void = { _ in }
     /// Throws when the request must stop now (cancelled, stopped by the person, the person is
-    /// using the app, the screen locked). Called between sub-steps and inside every long loop.
+    /// using the app). Called between sub-steps and inside every long loop.
     var checkpoint: () throws -> Void = {}
     var poster: CUPoster { CUPoster(pid: session.pid) }
+    private(set) var skipped = false
 
-    func run(_ action: CUObject) async throws -> String {
+    mutating func run(_ action: CUObject) async throws -> String {
+        skipped = false
         guard let kind = action.string("type") else { throw CUError("bad_action", "Each action needs a type.") }
+        session.prepareAction(action)
+        try await waitForHuman()
+        session.refreshWindow()
         if let condition = try cuCondition(action["when"]) {
-            guard cuConditionHolds(condition, nodes: session.refreshNodes()) else { return "skipped \(kind): condition not met" }
+            guard cuConditionHolds(condition, nodes: session.refreshNodes()) else {
+                skipped = true
+                return "skipped \(kind): condition not met"
+            }
+        }
+        if session.window?.onScreen == true, !cuScreenLocked(), let target = session.actionTarget, let point = visibleCenter(target) {
+            indicate(point)
         }
         let copies = cuStepCopies(kind: kind, action: action)
         let clipboard = NSPasteboard.general.changeCount
@@ -25,8 +36,10 @@ import ApplicationServices
     }
 
     private func dispatch(_ kind: String, _ action: CUObject) async throws -> String {
-        // Keyboard, menus and editing act on the app's key window; make ours key first.
-        if ["type", "key", "paste", "menu", "set_value", "select_text", "focus"].contains(kind) { session.makeKey() }
+        // Keyboard input and menus act on the app's key window; make ours key first.
+        // Direct value, selection and focus setters name their AX element. They do not
+        // use the app's first responder and need no background key-window activation.
+        if ["type", "key", "paste", "menu"].contains(kind) { session.makeKey() }
         switch kind {
         case "click": return try await click(action)
         case "move": return try await move(action)
@@ -51,6 +64,18 @@ import ApplicationServices
 
     // MARK: Targets
 
+    /// Resolve brief typing conflicts inside the batch, before any side effect. A partially
+    /// executed action is never retried; its later checkpoints still stop immediately.
+    private func waitForHuman() async throws {
+        let until = cuNow() + 3_000_000_000
+        while true {
+            do { try checkpoint(); return }
+            catch let fault as CUError where fault.code == "person_active" && cuNow() < until {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+    }
+
     func element(_ action: CUObject) throws -> AXUIElement {
         guard let id = action.int("id") else { throw CUError("bad_action", "This action needs an element id.") }
         return try element(id: id)
@@ -62,6 +87,7 @@ import ApplicationServices
         }
         var role: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &role) == .invalidUIElement {
+            if cuSessionStatus() == .locked { throw cuLockedControlsError }
             throw CUError("stale_element", "Element \(id) went away (the UI changed). Observe again and use a current id.")
         }
         return element
@@ -84,7 +110,30 @@ import ApplicationServices
 
     func parent(_ element: AXUIElement) -> AXUIElement? { cuAttribute(element, "AXParent").map { $0 as! AXUIElement } }
 
-    func focusedElement() -> AXUIElement? { cuAttribute(session.element, "AXFocusedUIElement").map { $0 as! AXUIElement } }
+    func focusedElement() -> AXUIElement? {
+        if session.preserveHumanFocus { return session.agentInputFocus }
+        if cuSessionStatus() == .locked, let target = session.agentInputFocus { return target }
+        return cuElementAttribute(session.element, "AXFocusedUIElement")
+    }
+
+    func textTarget() -> CUTextTarget? { focusedElement().flatMap(CUTextTarget.init) }
+
+    func postedInputCheckpoint() throws {
+        try checkpoint()
+        try cuRequirePostedInput(cuSessionStatus())
+    }
+
+    func requireAppResponder() throws {
+        let preserve = session.preserveHumanFocus
+        let locked = cuSessionStatus() == .locked
+        switch cuResponderRefusal(preserveHumanFocus: preserve, locked: locked, chosenWindowFocused: locked && session.chosenWindowFocused) {
+        case nil: return
+        case .personFocus:
+            throw CUError("window_focus_required", "This command would use the person's focus in \(session.name). Use element ids, set_value, paste, or an element action instead.")
+        case .lockedOtherWindow:
+            throw CUError("screen_locked", "The Mac is locked and \(session.name)'s menus and shortcuts would act on a different window than the one selected. Use element ids, set_value or an element action; observe again after the person unlocks the Mac.")
+        }
+    }
 
     /// Performs an AX action. A press that opens a modal often reports "cannot complete" after
     /// it took effect (the app was busy running the modal); that counts as done when a new
@@ -133,6 +182,14 @@ import ApplicationServices
     // MARK: Simple actions
 
     func focus(_ element: AXUIElement) throws -> String {
+        if cuSessionStatus() == .locked {
+            session.rememberFocus(element)
+            return "selected \(label(element)) for accessibility input while locked"
+        }
+        if session.preserveHumanFocus {
+            session.rememberFocus(element)
+            return "selected \(label(element)) for agent input, preserving the person's window focus"
+        }
         if let window = session.window { AXUIElementSetAttributeValue(window.element, "AXMain" as CFString, kCFBooleanTrue) }
         let result = AXUIElementSetAttributeValue(element, "AXFocused" as CFString, kCFBooleanTrue)
         guard result == .success else { throw CUError("action_failed", "\(session.name) would not focus \(label(element)). Try clicking it instead.") }
@@ -148,6 +205,9 @@ import ApplicationServices
 
     /// Last resort: bring the app and its window to the front. This takes focus from the person.
     private func activate() async throws -> String {
+        guard !cuScreenLocked() else {
+            throw CUError("screen_locked", "The Mac is locked. Use background accessibility actions; bringing an app to the front requires the person to unlock it.")
+        }
         session.app.unhide()
         if let window = session.window {
             AXUIElementSetAttributeValue(window.element, "AXMinimized" as CFString, kCFBooleanFalse)

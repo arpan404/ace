@@ -133,14 +133,16 @@ test("reading far back keeps the window within its text weight", async () => {
   expect(rows.length).toBeLessThanOrEqual(14);
 });
 
+/** A frame the reading window sends, rather than the live transcript. */
+const readingFrame = (frame: Record<string, unknown>) => frame.epoch === -1;
+
 test("each page's rows reach Swift before the read says it settled", async () => {
   const { client } = await longThread(1500);
   const read = reader(client);
-  const reading = (frame: Record<string, unknown>) => frame.epoch === -1;
   for (const operation of ["older", "older", "older", "newer"] as const) {
     const mark = native.frames.length;
     await read(operation);
-    const page = native.frames.slice(mark).filter(reading);
+    const page = native.frames.slice(mark).filter(readingFrame);
     const settled = page.findLastIndex((frame) => frame.type === "reading.settled");
     expect(page.some((frame) => frame.type === "thread.item")).toBe(true);
     expect(settled).toBeGreaterThanOrEqual(0);

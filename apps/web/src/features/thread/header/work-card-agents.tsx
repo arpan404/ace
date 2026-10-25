@@ -11,6 +11,7 @@ import { useNow } from "@/lib/time.ts";
 import { useSubagentFocus } from "../subagent/focus.ts";
 import { AgentListSection, agentWords } from "./work-card-agent-list.tsx";
 import { RowButton, RowLabel, RowSub, rowIcon } from "./work-card-parts.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 type Close = () => void;
 
@@ -44,6 +45,7 @@ function ParentThreadRow(props: { threadId: string; onClose: Close }) {
   const parent = useSidebarThread(props.threadId);
   const now = useNow();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const title = parent?.title ?? "Parent thread";
   const status = parent && threadRowStatus(parent, now);
   return (
@@ -51,7 +53,11 @@ function ParentThreadRow(props: { threadId: string; onClose: Close }) {
       aria-label={`Open parent ${title}${status ? `, ${status}` : ""}`}
       onClick={() => {
         props.onClose();
-        void navigate({ to: "/t/$threadId", params: { threadId: props.threadId } });
+        void navigate({
+          to: "/t/$threadId",
+          params: { threadId: props.threadId },
+          search: machine,
+        });
       }}
     >
       <ArrowBendLeftUpIcon aria-hidden size={16} className={rowIcon} />

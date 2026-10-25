@@ -19,6 +19,8 @@ const Environment = z.object({
   ACE_SCREEN_HELPER_MANIFEST: z.string().min(1).optional(),
   /** Development only: "1" keeps macOS permissions with the launching terminal. */
   ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
+  /** Diagnostics: any value logs per-request computer-use timings to stderr (the helper reads it too). */
+  ACE_CU_TIMINGS: z.string().min(1).optional(),
   ACE_HOME: z.string().optional(),
   ACE_ATTACHMENT_FILE_BYTES: z.coerce
     .number()
@@ -98,6 +100,8 @@ export interface Config {
   screenHelperManifest?: string;
   /** Development only: the helper's macOS permissions follow the process that launched ace. */
   screenHelperInheritsResponsibility?: boolean;
+  /** Log per-request computer-use timings to stderr (ACE_CU_TIMINGS). */
+  computerUseTimings?: boolean;
 }
 export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
@@ -112,6 +116,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
     ...(settings.ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY === "1"
       ? { screenHelperInheritsResponsibility: true }
       : {}),
+    ...(settings.ACE_CU_TIMINGS ? { computerUseTimings: true } : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
     attachmentLimits: {
       ...(settings.ACE_ATTACHMENT_FILE_BYTES

@@ -42,3 +42,10 @@ export function formatUuidV7(ms: number, counter: number, tail: Uint8Array): str
   const hex = Buffer.from(bytes).toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+/** The millisecond timestamp a UUIDv7 was made at, or undefined when `id` is not one. */
+export function uuidV7Time(id: string): number | undefined {
+  const hex = id.replaceAll("-", "");
+  if (!/^[0-9a-f]{12}7[0-9a-f]{19}$/i.test(hex)) return undefined;
+  return Number.parseInt(hex.slice(0, 12), 16);
+}

@@ -10,7 +10,7 @@
       "type": "integer"
     },
     "maxConcurrent": {
-      "maximum": 9007199254740991,
+      "maximum": 64,
       "minimum": 1,
       "type": "integer"
     },

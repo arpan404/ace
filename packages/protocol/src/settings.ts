@@ -118,6 +118,16 @@ export const SettingsValues = z.object({
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
   /**
+   * Whether agents on this machine may move projects and threads to other machines (ADR 0101).
+   * The person's own transfers from the app don't depend on it.
+   */
+  "remote.agentTransfers": z.boolean(),
+  /**
+   * Whether transfers from this machine also carry files Git ignores, such as `.env`, by
+   * default (ADR 0101). Dependency and cache folders never travel; they are rebuilt there.
+   */
+  "remote.transferIgnoredFiles": z.boolean(),
+  /**
    * Whether pairing links open ace's hosted web app (https://app.acehq.dev) instead of the web
    * app this daemon serves over LAN or Tailscale. Off by default: the daemon's own web app always
    * matches its version; the hosted one may not.
@@ -151,9 +161,10 @@ export const SettingsValues = z.object({
   /**
    * Delegated children one parent runs at once on this machine; further children wait queued
    * and start as running ones finish. Null, the default, sets no limit: only engine capacity
-   * makes children wait. Children other machines delegate here count per calling thread.
+   * makes children wait. Children other machines delegate here count per calling thread. At most
+   * 64, the engine's own thread limit and the largest slot limit a queued child reports.
    */
-  "agents.maxRunningChildren": z.number().int().min(1).max(1000).nullable(),
+  "agents.maxRunningChildren": z.number().int().min(1).max(64).nullable(),
   /** Titles and commit/PR drafts; null picks one from the ready providers. */
   "generation.model": UtilityModelChoice.nullable(),
   /** The Commit dialog drafts its message as it opens. */

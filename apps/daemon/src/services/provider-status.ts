@@ -8,6 +8,7 @@ import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
+import { applyInstallations } from "../installation-gate.ts";
 import { hasUnauthenticatedOpenCodeModels } from "../provider-model-availability.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
@@ -120,9 +121,7 @@ export function startProviderStatuses(context: ServiceContext): void {
       },
       checked(rows) {
         context.options.providerStatus?.checked?.(rows);
-        for (const row of rows)
-          if (row.version)
-            context.services.models?.installationChanged(row.provider, row.version, row.runtime);
+        if (context.services.models) applyInstallations(context.services.models, rows);
         // ACP agents whose own command reports its login (Cursor) are read on the same check.
         const accounts = context.services.accountRegistry;
         const agents = context.services.agentRegistry;

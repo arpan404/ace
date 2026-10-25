@@ -17,7 +17,7 @@ With **full access** (see `context` topic `status`), you act for the person: you
 ## Read threads
 
 - `threads_find` lists and searches this project's threads, or another project's with `project` (full access); with `threadId` it searches inside one thread's transcript. Page with `cursor`.
-- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers, queued messages and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues with `streamId` and `offset`.
+- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers, queued messages and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues as plain text: pass `streamId` with `offset` 0, then each page's `nextOffset` unchanged, until `eof`.
 - `handoff_read` pages the history a handoff from another provider cites (items, or one stream with `streamId`).
 
 ## Pull requests
@@ -44,6 +44,6 @@ An automation is a saved prompt that runs as a child agent in this project, on d
 
 - `automations_list` shows them with each schedule's next run; `runs: true` shows recent runs with their threads.
 - `automation_put` creates or replaces one by `id`: `title`, `prompt`, and an optional `schedule` (`rrule` or `cron`, a timezone, and `startAt` on a whole minute).
-- `automation_run` runs one now; `automation_remove` deletes it (your provider may ask the person first).
+- `automation_run` runs one now, or pauses (`action: pause`) and resumes (`action: resume`) it; `automation_remove` deletes it (your provider may ask the person first).
 
 Mutating tools take a `requestId`: any stable id you choose. Repeating a call with the same id changes nothing twice.

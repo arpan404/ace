@@ -157,6 +157,7 @@ Example:
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | effectiveCapabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
@@ -170,41 +171,11 @@ Example:
 
 ```json
 {
-  "acpSupport": {
-    "capabilities": {
-      "imageInput": true,
-      "planMode": true,
-      "resume": false
-    },
-    "coverage": "generic",
-    "mcp": "http",
-    "modeSelection": true,
-    "modelSelection": false,
-    "raw": {
-      "json": "example",
-      "truncated": false
-    },
-    "visibility": "limited"
+  "execution": {
+    "options": {},
+    "provider": "pi"
   },
-  "archivedAt": null,
-  "goal": {
-    "checks": 3,
-    "lastReason": "example",
-    "objective": "example",
-    "status": "blocked"
-  },
-  "status": {
-    "state": "new"
-  },
-  "switch": {
-    "at": 6,
-    "lossy": false,
-    "selection": {
-      "options": {},
-      "provider": "pi"
-    },
-    "state": "applied"
-  },
+  "goal": null,
   "type": "thread.updated",
   "workspaceId": "example"
 }
@@ -612,6 +583,7 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | type | yes | `"queue.updated"` |  |
 
@@ -619,10 +591,11 @@ Example:
 
 ```json
 {
+  "exited": false,
   "paused": false,
   "pendingCount": 7,
   "reason": null,
-  "resumeAt": 9,
+  "resumeAt": null,
   "revision": 4,
   "type": "queue.updated"
 }

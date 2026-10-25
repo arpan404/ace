@@ -89,6 +89,8 @@ export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./fleet.ts";
+export * from "./transfers.ts";
+export * from "./machine-transfers.ts";
 export * from "./queue.ts";
 export * from "./context-meter.ts";
 export {
@@ -107,6 +109,11 @@ export {
   DeviceAck,
   DeviceScreenshot,
   DeviceServerMessage,
+  DeviceChrome,
+  DeviceChromeButton,
+  DeviceChromeImage,
+  DeviceChromeRect,
+  DeviceChromeResult,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";

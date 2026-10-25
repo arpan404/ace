@@ -30,15 +30,40 @@ export type MachineTransport = (
   options: MachineTransportOptions,
 ) => Promise<unknown>;
 
+/** One request's route and body, sent as this daemon's paired device. */
+export interface PinnedRequest {
+  path: string;
+  method: "POST" | "PUT";
+  body: Buffer | string;
+  contentType: string;
+}
+
 /**
  * One pinned HTTPS request to a paired machine, authenticated by this daemon's own device token
  * for it. Unreachable before connecting is `offline`; a connection lost after the request was
  * sent is `disconnected`, because the target may have acted.
  */
-export const machineRequest: MachineTransport = (profile, body, options) => {
-  const url = new URL("/v1/machine-calls", profile.origin);
+export const machineRequest: MachineTransport = (profile, body, options) =>
+  pinnedRequest(
+    profile,
+    {
+      path: "/v1/machine-calls",
+      method: "POST",
+      body: JSON.stringify(body),
+      contentType: "application/json",
+    },
+    options,
+  );
+
+/** A JSON answer from a paired machine's listener; refusals keep their authored words. */
+export function pinnedRequest(
+  profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+  route: PinnedRequest,
+  options: MachineTransportOptions,
+): Promise<unknown> {
+  const url = new URL(route.path, profile.origin);
   const agent = pinnedAgent(profile.fingerprint);
-  const data = JSON.stringify(body);
+  const data = route.body;
   const maxBytes = options.maxBytes ?? 1024 * 1024;
   return new Promise<unknown>((resolve, reject) => {
     let connected = false;
@@ -54,11 +79,11 @@ export const machineRequest: MachineTransport = (profile, body, options) => {
     };
     const lost = () => new MachineFailure(connected ? "disconnected" : "offline");
     const request = httpsRequest(url, {
-      method: "POST",
+      method: route.method,
       agent,
       headers: {
         authorization: `Bearer ${profile.token}`,
-        "content-type": "application/json",
+        "content-type": route.contentType,
         "content-length": Buffer.byteLength(data),
       },
     });
@@ -69,10 +94,6 @@ export const machineRequest: MachineTransport = (profile, body, options) => {
     const deadline = setTimeout(abort, options.timeoutMs);
     deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
-    if (options.signal?.aborted) {
-      abort();
-      return;
-    }
     request.on("socket", (socket) => {
       socket.once("secureConnect", () => {
         connected = true;
@@ -83,6 +104,11 @@ export const machineRequest: MachineTransport = (profile, body, options) => {
       if (request.socket && !request.socket.connecting) connected = true;
     });
     request.on("error", () => finish(lost()));
+    // After the error listener: destroying an aborted request reports through it.
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
     request.on("response", (response) => {
       connected = true;
       const chunks: Buffer[] = [];
@@ -123,4 +149,4 @@ export const machineRequest: MachineTransport = (profile, body, options) => {
     });
     request.end(data);
   });
-};
+}

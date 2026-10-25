@@ -10,7 +10,7 @@
       "type": "string"
     },
     "model": {
-      "description": "Another model of the same provider, from `models`. Default: the thread's.",
+      "description": "Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

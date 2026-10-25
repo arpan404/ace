@@ -1,6 +1,7 @@
-import { execFile } from "node:child_process";
+import { probeOutput } from "@ace/provider-kit/process";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { pinnedGitMarker } from "./pinned-process.ts";
 import { within } from "./repository-paths.ts";
 
 /** A live Git process on this machine and the directory it runs in. */
@@ -10,6 +11,17 @@ export interface GitProcess {
   cwd?: string | undefined;
   /** The checkout `cwd` belongs to: the nearest directory with a `.git` entry. */
   checkout?: string | undefined;
+  /**
+   * When the process started, in epoch milliseconds, rounded down so it is never later than the
+   * real start. Absent when unknown: the process may then be older than anything it touches.
+   */
+  startedAt?: number | undefined;
+  /**
+   * Whether its process group is led by a Git process, as every Git call ace starts is. `false`:
+   * a live program other than Git leads it (an agent's shell, say). Absent when unknown, as when
+   * the leader has exited.
+   */
+  gitGroup?: boolean | undefined;
 }
 /**
  * Every live Git process, or `undefined` when this platform can't list them. Callers treat
@@ -64,17 +76,20 @@ export function processGroupAlive(pid: number): boolean {
 // `git fsmonitor--daemon` lives as long as the checkout does; it never holds a mutation open.
 const longLived = (command: string) => command.includes("fsmonitor--daemon");
 
-function run(command: string, args: string[]): Promise<string | undefined> {
-  return new Promise((resolve) => {
+/** Spawned from the probe worker: a spawn under load must not hold the daemon's event loop. */
+async function run(command: string, args: string[]): Promise<string | undefined> {
+  try {
     // One output format whatever locale the daemon inherited: lsof escapes non-ASCII as bytes.
-    const env = { ...process.env, LC_ALL: "C" };
-    execFile(command, args, { timeout: 5000, maxBuffer: 4_194_304, env }, (error, stdout) => {
-      // lsof exits 1 with no output when nothing matches.
-      if (error && !(typeof error.code === "number" && error.code === 1 && stdout === ""))
-        resolve(undefined);
-      else resolve(stdout);
+    const { stdout, code } = await probeOutput(command, args, {
+      env: { LC_ALL: "C" },
+      timeoutMs: 5000,
+      maxBytes: 4_194_304,
     });
-  });
+    // lsof exits 1 with no output when nothing matches.
+    return code === 0 || (code === 1 && stdout === "") ? stdout : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const escapes: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", "\\": "\\" };
@@ -127,14 +142,104 @@ async function darwin(): Promise<GitProcess[] | undefined> {
     }
   }
   if (!found.length) return found;
-  const commands = await run("ps", ["-o", "pid=,args=", "-p", found.map((p) => p.pid).join(",")]);
+  const commands = await run("ps", [
+    "-o",
+    "pid=,pgid=,stat=,lstart=,args=",
+    "-p",
+    found.map((p) => p.pid).join(","),
+  ]);
   if (commands === undefined) return found;
   const skipped = new Set<number>();
+  const facts = new Map<number, { startedAt: number | undefined; group: number }>();
   for (const line of commands.split("\n")) {
-    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
-    if (match?.[1] && match[2] !== undefined && longLived(match[2])) skipped.add(Number(match[1]));
+    const match =
+      /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s?(.*)$/.exec(line);
+    if (!match?.[1] || !match[2] || match[3] === undefined || match[4] === undefined) continue;
+    const listed = Number(match[1]);
+    // A zombie has exited: it holds nothing.
+    if (match[3].startsWith("Z") || longLived(match[5] ?? "")) skipped.add(listed);
+    facts.set(listed, { startedAt: psStart(match[4]), group: Number(match[2]) });
   }
-  return found.filter((entry) => !skipped.has(entry.pid));
+  const groups = await darwinGitGroups([...new Set([...facts.values()].map((f) => f.group))]);
+  const alive = found.filter((entry) => !skipped.has(entry.pid));
+  for (const entry of alive) {
+    const fact = facts.get(entry.pid);
+    entry.startedAt = fact?.startedAt;
+    entry.gitGroup = fact && groups.get(fact.group);
+  }
+  return alive;
+}
+
+const gitCommand = (name: string) => name.startsWith("git");
+
+/**
+ * For each process group leader that is alive: whether it is Git, or the helper ace's pinned Git
+ * runs under. Leaders that exited or can't be inspected are left out.
+ */
+async function darwinGitGroups(leaders: readonly number[]): Promise<Map<number, boolean>> {
+  const result = new Map<number, boolean>();
+  if (!leaders.length) return result;
+  // `comm` is the executable's path, whatever the process calls itself.
+  const listed = await run("ps", ["-o", "pid=,stat=,comm=", "-p", leaders.join(",")]);
+  for (const line of listed?.split("\n") ?? []) {
+    const match = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+    // An exited leader says nothing about who its group works for.
+    if (!match?.[1] || match[3] === undefined || match[2]?.startsWith("Z")) continue;
+    result.set(Number(match[1]), gitCommand(basename(match[3].trim())));
+  }
+  const others = [...result].flatMap(([pid, git]) => (git ? [] : [pid]));
+  if (!others.length) return result;
+  const helpers = await run("ps", ["-ww", "-o", "pid=,args=", "-p", others.join(",")]);
+  if (helpers === undefined) for (const pid of others) result.delete(pid);
+  for (const line of helpers?.split("\n") ?? []) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match?.[1] && match[2]?.includes(` ${pinnedGitMarker} `))
+      result.set(Number(match[1]), true);
+  }
+  return result;
+}
+
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** `ps -o lstart` in the C locale, local time, whole seconds: "Sat Oct 24 20:34:00 2026". */
+function psStart(text: string): number | undefined {
+  const match = /^\w{3} (\w{3}) +(\d{1,2}) (\d\d):(\d\d):(\d\d) (\d{4})$/.exec(text.trim());
+  if (!match) return;
+  const month = months.indexOf(match[1] ?? "");
+  if (month < 0) return;
+  const [day, hour, minute, second, year] = match.slice(2).map(Number);
+  if ([day, hour, minute, second, year].some((part) => part === undefined)) return;
+  const at = new Date(year ?? 0, month, day, hour, minute, second).getTime();
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/** Boot time from `/proc/stat`, in epoch milliseconds. */
+async function bootTime(): Promise<number | undefined> {
+  const stat = await readFile("/proc/stat", "utf8").catch(() => "");
+  const seconds = /^btime (\d+)$/m.exec(stat)?.[1];
+  return seconds === undefined ? undefined : Number(seconds) * 1000;
+}
+
+/**
+ * State and start of a Linux process from `/proc/<pid>/stat`. The start is boot time plus the
+ * kernel's start tick (USER_HZ, 100 on every Linux ace runs on), less a second for `btime`'s
+ * whole-second rounding.
+ */
+function linuxStat(stat: string, boot: number | undefined) {
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+  const ticks = Number(fields[19]);
+  const startedAt =
+    boot !== undefined && Number.isSafeInteger(ticks) ? boot + ticks * 10 - 1000 : undefined;
+  const group = Number(fields[2]);
+  return { zombie: fields[0] === "Z", startedAt, group: Number.isSafeInteger(group) ? group : 0 };
+}
+
+async function linuxGitGroup(group: number): Promise<boolean | undefined> {
+  const leader = await readFile(`/proc/${group}/comm`, "utf8").catch(() => "");
+  if (!leader) return;
+  if (gitCommand(leader.trim())) return true;
+  const args = await readFile(`/proc/${group}/cmdline`, "utf8").catch(() => undefined);
+  if (args === undefined || args.split("\0").includes(pinnedGitMarker)) return;
+  return false;
 }
 
 async function linux(): Promise<GitProcess[] | undefined> {
@@ -145,15 +250,20 @@ async function linux(): Promise<GitProcess[] | undefined> {
     return;
   }
   const found: GitProcess[] = [];
+  const boot = await bootTime();
   for (const name of names) {
     if (!/^\d+$/.test(name)) continue;
     const command = await readFile(`/proc/${name}/comm`, "utf8").catch(() => "");
-    if (!command.trim().startsWith("git")) continue; // Not Git, or already exited.
+    if (!gitCommand(command.trim())) continue; // Not Git, or already exited.
     const args = await readFile(`/proc/${name}/cmdline`, "utf8").catch(() => "");
     if (longLived(args.replaceAll("\0", " "))) continue;
+    const stat = await readFile(`/proc/${name}/stat`, "utf8").catch(() => "");
+    const { zombie, startedAt, group } = linuxStat(stat, boot);
+    if (zombie) continue;
     // A Git process whose cwd we can't read may be working anywhere.
     const cwd = await readlink(`/proc/${name}/cwd`).catch(() => undefined);
-    found.push({ pid: Number(name), cwd });
+    const gitGroup = group ? await linuxGitGroup(group) : undefined;
+    found.push({ pid: Number(name), cwd, startedAt, gitGroup });
   }
   return found;
 }

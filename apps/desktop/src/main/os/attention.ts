@@ -8,7 +8,7 @@ import type { WorkSummary } from "../link/thread-watch.ts";
  * while agents work, and the optional power-save blocker.
  */
 export class Attention {
-  private summary: WorkSummary = { needsYou: 0, working: 0 };
+  private summary: WorkSummary = { needsYou: 0, working: 0, held: 0 };
   private blocker: number | undefined;
   private overlay: NativeImage | undefined;
   private settings: () => DesktopSettings;

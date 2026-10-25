@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn.ts";
 import type { ThreadNav } from "./nav.tsx";
 import { ThreadSearch, type SearchFilter, type SearchHit } from "./search-state.ts";
 import { useTranscriptHighlight } from "./search-highlight.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 const filters: readonly { value: SearchFilter | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -33,6 +34,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
   const { nav } = props;
   const client = useClient();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const [search] = useState(() => new ThreadSearch(client, nav.threadId));
   useEffect(() => () => search.dispose(), [search]);
   const state = useSyncExternalStore(search.subscribe, search.snapshot, search.snapshot);
@@ -77,7 +79,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
       void navigate({
         to: "/t/$threadId",
         params: { threadId: hit.threadId },
-        search: { seq: hit.seq, ...(query ? { q: query } : {}) },
+        search: { seq: hit.seq, ...(query ? { q: query } : {}), ...machine },
       });
   };
   const step = (delta: 1 | -1) => {

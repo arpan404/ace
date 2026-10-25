@@ -89,8 +89,10 @@ async function busy(
   const listing = await scan();
   if (!listing) return;
   const roots = await Promise.all(record.roots.map(canonical));
+  // Every Git call ace starts leads its own process group, so Git in a group a live non-Git
+  // program leads (an agent's shell) is never this lease's work.
   return listing
-    .filter((entry) => touches(entry, roots))
+    .filter((entry) => touches(entry, roots) && entry.gitGroup !== false)
     .map(
       (entry) => `a running Git process (pid ${entry.pid}${entry.cwd ? ` in ${entry.cwd}` : ""})`,
     );

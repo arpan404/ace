@@ -1,3 +1,4 @@
+import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
@@ -447,7 +448,7 @@ export class Engine {
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {
-    if (!this.readyState || this.closing || this.repo.store.getThread(id)?.settledAt === undefined)
+    if (!this.readyState || this.closing || this.repo.store.readThread(id)?.settledAt === undefined)
       return;
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
@@ -698,6 +699,51 @@ export class Engine {
   }
   machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
     this.delegationFacts.machineChild(...args);
+  }
+  /**
+   * A transfer an agent started (ADR 0101) holds its thread open like a background task, so the
+   * tree never reads done while the work is still moving to another machine.
+   */
+  transferHold(
+    threadId: ThreadId,
+    agentId: import("@ace/protocol").AgentId,
+    transferId: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
+    const state = this.repo.requireState(threadId);
+    const agent = state.indexes.agentKeysById[agentId];
+    if (!agent) throw new Error("Unknown transfer owner");
+    const task = `ace-transfer:${transferId}`;
+    this.repo.apply(
+      threadId,
+      [
+        "title" in hold
+          ? {
+              type: "background.started",
+              owner: "ace",
+              agent,
+              task,
+              kind: "other",
+              title: hold.title,
+              stoppable: true,
+            }
+          : { type: "background.ended", task, status: hold.status },
+      ],
+      this.clock.now(),
+    );
+    if (!("title" in hold)) this.wake(threadId);
+  }
+  /** The bounded history another machine's new thread starts from (ADR 0101). */
+  machineHandoff(threadId: ThreadId): import("@ace/protocol").PortableHandoff {
+    return captureMachineHandoff(
+      this.repo,
+      threadId,
+      this.repo.requireState(threadId).config.provider,
+    );
+  }
+  /** Keeps a carried handoff waiting on a new thread, for the person's next message there. */
+  adoptMachineHandoff(threadId: ThreadId, input: Parameters<typeof adoptMachineHandoff>[2]): void {
+    adoptMachineHandoff(this.repo, threadId, input);
   }
   delegationStarted(...args: Parameters<DelegationFacts["delegationStarted"]>): void {
     this.delegationFacts.delegationStarted(...args);
@@ -1123,13 +1169,9 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (
-      this.closing ||
-      this.repo.cleaning(id) ||
-      this.repo.store.getThread(id)?.deletedAt !== undefined ||
-      this.repo.store.getThread(id)?.continuation
-    )
-      return;
+    if (this.closing || this.repo.cleaning(id)) return;
+    const thread = this.repo.store.readThread(id);
+    if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
       if (!this.deferredWakes.has(id)) {
         this.deferredWakes.add(id);

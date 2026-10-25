@@ -13,6 +13,12 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
       "description": "Only this provider's models."
+    },
+    "query": {
+      "description": "A model name as the person wrote it, such as \"opus 5.5\" or \"gpt 6.1 sol\".",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "type": "object"

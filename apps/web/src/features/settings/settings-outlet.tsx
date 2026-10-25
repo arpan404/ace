@@ -2,7 +2,8 @@ import { Outlet, useLocation } from "@tanstack/react-router";
 import { AllMachinesScope } from "./all-machines-scope.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { MachineScope, machineUnavailableText, useSettingsMachine } from "./machine-scope.tsx";
+import { MachineScope } from "@/lib/machine-scope.tsx";
+import { machineUnavailableText, useSettingsMachine } from "./machine-scope.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { settingsPageOf, type SettingsPath } from "./settings-pages.ts";
 

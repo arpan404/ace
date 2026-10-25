@@ -242,6 +242,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     ending: null as ReturnType<typeof endingRow> | null,
     files: null as ReturnType<typeof filesRow> | null,
     started: null as { threadId: string; title: string } | null,
+    /** Where a fork's own work starts: the thread it was forked from, titled by the thread list. */
+    forked: null as { threadId: string } | null,
     /** A settled work head's root turn, which `turn.steps` reads its full steps by. */
     ordinal: null as number | null,
   };
@@ -306,6 +308,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
           : null,
       };
     }
+    case "forked":
+      return { ...base, forked: { threadId: block.threadId } };
     case "live":
       return base;
     default: {
@@ -389,9 +393,7 @@ export function followBlocks(
     const built = read(store);
     watch = new Set(built.watch);
     const next = new Map<string, Block>();
-    // The native transcript has no "Forked from" divider yet; it leaves the block out rather
-    // than drawing an empty row.
-    const shown = built.value.filter((block) => block.kind !== "forked");
+    const shown = built.value;
     const offset = anchoredOffset(
       positions,
       shown.map((block) => block.key),

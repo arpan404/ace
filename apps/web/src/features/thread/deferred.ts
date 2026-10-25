@@ -36,12 +36,9 @@ export const DeferredThreadHotkeys = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
 );
 /**
- * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
+ * The long-thread tools, loaded when first opened and warmed while idle: the turn rail,
  * search within the thread (ADR 0056: off the route's first paint).
  */
-export const DeferredTurnsPanel = deferredComponent(() =>
-  import("./long/timeline.tsx").then((module) => module.TurnsPanel),
-);
 export const DeferredTurnRail = deferredComponent(() =>
   import("./long/turn-rail.tsx").then((module) => module.TurnRail),
 );
@@ -82,7 +79,6 @@ export function preloadDeferred(): Promise<unknown> {
     threadWorkspace.load(),
     preloadComposerParts(),
     preloadComposerCards(),
-    DeferredTurnsPanel.preload(),
     DeferredTurnRail.preload(),
     DeferredSearchBar.preload(),
     DeferredGapRow.preload(),

@@ -41,7 +41,7 @@
     "import/no-unassigned-import": [
       "warn",
       {
-        "allow": ["**/*.css"]
+        "allow": ["**/*.css", "**/test-host.ts"]
       }
     ]
   },

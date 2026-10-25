@@ -34,10 +34,14 @@ import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts"
 import { TargetRefusal } from "./target-refusal.ts";
 import { TargetLaunches } from "./target-launches.ts";
 import { queuedStatus, queuedStep, unlaunchedResult } from "../agent-control/child-status.ts";
+import { accountModelName } from "../agent-control/models.ts";
+import { AgentControlError } from "../agent-control/failure.ts";
 
 export interface TargetThreadDeps {
   store: Store;
   engine(): Engine | undefined;
+  /** This machine's model catalog, which a loosely written model name is matched against. */
+  models?(): import("@ace/models").ModelCatalogApi | undefined;
   journal(): DelegationJournal | undefined;
   now(): number;
   /** This machine's running-children limit, read live; undefined is no limit. */
@@ -210,6 +214,7 @@ export class TargetThreads {
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
     const workspaceId = this.project(call.project);
+    const model = call.model ? this.modelNamed(call.provider, call.model) : undefined;
     const { store } = this.deps;
     return store.atomic(() => {
       const command = Command.parse({
@@ -220,7 +225,7 @@ export class TargetThreads {
           threadId,
           workspaceId,
           provider: call.provider,
-          ...(call.model ? { model: call.model } : {}),
+          ...(model ? { model } : {}),
           mode: "local",
           title: clip(call.role, 256) || "Task",
         },
@@ -251,6 +256,18 @@ export class TargetThreads {
         ...(state === "queued" ? { queued: true } : {}),
       };
     });
+  }
+  /** A model the other machine named loosely ("opus 5.5"), as this machine's catalog id. */
+  private modelNamed(provider: import("@ace/protocol").ProviderKind, name: string): string {
+    const catalog = this.deps.models?.();
+    if (!catalog) return name;
+    try {
+      return accountModelName(catalog, { provider }, name);
+    } catch (error) {
+      if (error instanceof AgentControlError)
+        throw new TargetRefusal("invalid", error.publicDetail ?? error.message);
+      throw error;
+    }
   }
   cancel(device: Device, threadId: ThreadId) {
     const engine = this.deps.engine();

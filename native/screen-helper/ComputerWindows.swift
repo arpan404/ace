@@ -43,6 +43,15 @@ private let cuWindowAttributes = ["AXRole", "AXSubrole", "AXTitle", "AXPosition"
         if status == .cannotComplete { return (last, true) }
         var elements = (value as? [AXUIElement]) ?? []
         var numbers = elements.map(number(of:))
+        // AXWindows may omit the app's windows on another Space or while locked.
+        // These attributes also reach windows not yet vended as remote tokens.
+        for attribute in ["AXMainWindow", "AXFocusedWindow"] {
+            guard let window = cuElementAttribute(application, attribute),
+                  !elements.contains(where: { CFEqual($0, window) }) else { continue }
+            AXUIElementSetMessagingTimeout(window, cuAXTimeout)
+            elements.append(window)
+            numbers.append(number(of: window))
+        }
         if search != .none { searchOtherSpaces(known: Set(numbers.compactMap { $0 }), deadline: deadline, requested: search == .requested) }
         for (number, element) in remote where !numbers.contains(number) {
             elements.append(element)
@@ -61,7 +70,7 @@ private let cuWindowAttributes = ["AXRole", "AXSubrole", "AXTitle", "AXPosition"
             // Gone from the window server: closed, or a remote token for a window that ended.
             if let number, row == nil, remote[number] != nil { remote.removeValue(forKey: number); continue }
             let onScreen = row?.onScreen ?? false
-            let otherSpace = !onScreen && !minimized && number.map { remote[$0] != nil } ?? false
+            let otherSpace = !onScreen && !minimized && number.map(cuWindowIsOnSomeSpace) == true
             var window = CUWindow(element: element, number: number, title: attributes["AXTitle"] as? String ?? "", frame: frame,
                                   onScreen: onScreen, minimized: minimized, main: attributes["AXMain"] as? Bool ?? false)
             window.subrole = attributes["AXSubrole"] as? String
@@ -94,6 +103,15 @@ private let cuWindowAttributes = ["AXRole", "AXSubrole", "AXTitle", "AXPosition"
         var candidates = cuOtherSpaceWindows(pid: pid).subtracting(known).subtracting(remote.keys)
         if !requested { candidates.subtract(unreachable) }
         guard !candidates.isEmpty else { return }
+        // The main and focused windows answer directly from any Space, including windows the
+        // app opened there and never listed, which no token reaches until they were vended.
+        for attribute in ["AXMainWindow", "AXFocusedWindow"] {
+            guard let window = cuElementAttribute(application, attribute), let number = cuWindowNumber(window), candidates.contains(number) else { continue }
+            AXUIElementSetMessagingTimeout(window, cuAXTimeout)
+            remote[number] = window
+            candidates.remove(number)
+        }
+        guard !candidates.isEmpty else { return }
         let ceiling: UInt64 = requested ? cuRemoteTokenCeiling : 50_000
         if scanCursor >= ceiling { scanCursor = 0 }
         let result = cuScanRemoteTokens(pid: pid, wanted: candidates, from: scanCursor, ceiling: ceiling, deadline: min(deadline, cuNow() + 600_000_000))
@@ -114,6 +132,8 @@ func cuNow() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
 struct CUServerWindow {
     let onScreen: Bool
+    /// Global points, top-left origin.
+    var frame: CGRect?
 }
 
 /// Window-server facts for specific windows, without listing every window on the Mac.
@@ -125,7 +145,8 @@ func cuServerWindowInfo(_ numbers: [CGWindowID]) -> [CGWindowID: CUServerWindow]
     var out: [CGWindowID: CUServerWindow] = [:]
     for row in rows {
         guard let number = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { continue }
-        out[number] = CUServerWindow(onScreen: (row[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue == true)
+        let bounds = (row[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+        out[number] = CUServerWindow(onScreen: (row[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue == true, frame: bounds)
     }
     return out
 }

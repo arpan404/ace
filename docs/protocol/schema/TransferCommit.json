@@ -1,0 +1,91 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferCommit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "branch": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "changes": {
+      "properties": {
+        "commit": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "commit"
+      ],
+      "type": "object"
+    },
+    "file": {
+      "properties": {
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 21474836480,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytes",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "head": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "ignored": {
+      "properties": {
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 21474836480,
+          "type": "integer"
+        },
+        "files": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bytes",
+        "sha256",
+        "files"
+      ],
+      "type": "object"
+    },
+    "op": {
+      "const": "commit",
+      "type": "string"
+    },
+    "thread": {
+      "$ref": "https://ace.local/protocol/v1/TransferThread.json"
+    },
+    "transferId": {
+      "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+    }
+  },
+  "required": [
+    "op",
+    "transferId"
+  ],
+  "type": "object"
+}

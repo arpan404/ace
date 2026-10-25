@@ -35,6 +35,7 @@ import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
 import { startAgentControl } from "./agent-control.ts";
 import { startMachines } from "./machines.ts";
+import { startTransfers } from "../transfers/service.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import { startUtility } from "./utility.ts";
@@ -191,6 +192,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine"],
     after: ["agentControl", "settings", "browser"],
     start: startMachines,
+  },
+  {
+    name: "transfers",
+    phase: "listener",
+    requires: ["engine"],
+    after: ["machines", "projects", "workspaceActions", "settings", "agentControl"],
+    start: startTransfers,
   },
   {
     name: "externalMcp",

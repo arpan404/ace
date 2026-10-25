@@ -19,6 +19,7 @@ import { useNotificationPrefs } from "./notification-prefs.ts";
 import { requestTitle } from "./request-title.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useNeedsYouCount } from "./needs-you-count.ts";
+import { CatchUpNotifier } from "./catch-up-notifier.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 
 // Automation runs and account limits are read after first paint: their toasts can wait.
@@ -44,6 +45,7 @@ export function Notifier() {
   return (
     <>
       <ThreadNotifier />
+      <CatchUpNotifier />
       <Suspense fallback={null}>
         <LaterNotifiers />
       </Suspense>

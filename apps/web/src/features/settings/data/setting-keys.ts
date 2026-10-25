@@ -38,6 +38,8 @@ export const settingKeys = {
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),
+  agentTransfers: setting("remote.agentTransfers", z.boolean(), true),
+  transferIgnoredFiles: setting("remote.transferIgnoredFiles", z.boolean(), true),
   worktree: setting("threads.useWorktree", z.boolean(), true),
   worktreePreparationTimeout: setting(
     "worktree.preparationTimeoutMs",

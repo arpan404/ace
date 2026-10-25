@@ -21,11 +21,8 @@ async function openJumped() {
   const viewport = feed.closest("[data-virtual-viewport]");
   if (!viewport) throw new Error("No transcript viewport");
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "More actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: /^Turns/ }));
-  const list = await screen.findByRole("listbox", { name: "Turns of this thread" });
-  list.focus();
-  await user.keyboard("{Home}{Enter}");
+  const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
+  await user.click(within(rail).getByRole("button", { name: "Turn 1" }));
   expect(await within(feed).findByText(ask(1))).toBeTruthy();
   const gap = await screen.findByRole("group", { name: "Gap to live" });
   return { feed, viewport, gap };

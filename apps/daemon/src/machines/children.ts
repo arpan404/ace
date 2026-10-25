@@ -241,6 +241,15 @@ export class MachineChildren implements RemoteChildren {
           role: clip(row.role, 40),
           state: view.state,
           ...(view.step ? { step: clip(view.step, 60) } : {}),
+          ...(view.slotLimit !== undefined &&
+          view.slotsInUse !== undefined &&
+          view.queuePosition !== undefined
+            ? {
+                slotLimit: view.slotLimit,
+                slotsInUse: view.slotsInUse,
+                queuePosition: view.queuePosition,
+              }
+            : {}),
           elapsedSeconds: view.elapsedSeconds,
           ...(view.needs?.[0]
             ? { needs: view.needs.length, ask: clip(view.needs[0].prompt, 100) }

@@ -18,7 +18,7 @@ and retry.
 ## Decision
 
 **A setting, no limit by default.** `agents.maxRunningChildren` (Settings → Agents → While agents
-work, "Agents a thread runs at once") is a whole number from 1 to 1000, or `null` for no limit.
+work, "Agents a thread runs at once") is a whole number from 1 to 64 (the engine's own thread limit), or `null` for no limit.
 `null` is the default. The daemon reads it at each launch and on every change: raising or
 clearing it starts waiting children at once, lowering it only holds back later starts and never
 stops a running child. `DelegationPolicy.maxConcurrent` stays for tests and benchmarks; when set

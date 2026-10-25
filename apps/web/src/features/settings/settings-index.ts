@@ -335,6 +335,18 @@ const entries = [
     keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser", "fleet"],
   },
   {
+    id: "remote.agentTransfers",
+    page: "/settings/remote",
+    title: "Agents can move projects and threads to other machines",
+    keywords: ["transfer", "continue on", "open on", "machines", "agents", "move", "fleet"],
+  },
+  {
+    id: "remote.transferIgnoredFiles",
+    page: "/settings/remote",
+    title: "Bring ignored files",
+    keywords: ["transfer", "gitignore", "ignored", ".env", "continue on", "open on", "machines"],
+  },
+  {
     id: "fleet.link",
     page: "/settings/remote",
     title: "Link machines",

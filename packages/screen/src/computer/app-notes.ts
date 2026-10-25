@@ -5,7 +5,7 @@
 const browser =
   "Browser: for web pages use browser_open and the browser_* tools, which read and act on the page directly; use this only for the browser's own windows and settings.";
 const electron = (name: string) =>
-  `${name}: an Electron app, which often exposes little while its window is off screen or covered; if the outline is nearly empty, take a screenshot, or add activate.`;
+  `${name}: an Electron app. Its accessibility tree can take a moment to load; if the outline is nearly empty, observe again or try a screenshot. Activating it would interrupt the person.`;
 
 const notes: ReadonlyMap<string, string> = new Map([
   ["com.apple.safari", browser],
@@ -41,7 +41,7 @@ const notes: ReadonlyMap<string, string> = new Map([
   ],
   [
     "com.tinyspeck.slackmacgap",
-    "Slack: Return sends the message being typed. For multi-line text use set_value on the message field, or key shift+Return between lines. The outline can lag behind new messages; take a screenshot to confirm what was sent. Off screen it may need activate.",
+    "Slack: Return sends the message being typed. For multi-line text use set_value on the message field, or key shift+Return between lines. The outline can lag behind new messages; observe again to confirm what was sent.",
   ],
   [
     "com.apple.mobilesms",

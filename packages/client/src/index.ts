@@ -58,6 +58,8 @@ export { PermissionClient, threadPermission, accessModes } from "./permissions.t
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
+export { subscribeSettings } from "./settings-subscription.ts";
+export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
 export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
@@ -82,6 +84,16 @@ export {
 } from "./file-read.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
+export {
+  TransferError,
+  TransferStore,
+  cancellablePhases,
+  continueBlocked,
+  transferCancellable,
+  transferRunning,
+  transfersApi,
+  type TransfersApi,
+} from "./transfers.ts";
 export { deferredProjectsApi, type ProjectsApi, type ProjectCallsModule } from "./projects.ts";
 export { loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 export type {

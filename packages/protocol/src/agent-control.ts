@@ -148,7 +148,7 @@ export const DelegationPolicy = z.strictObject({
    * Children one parent runs at once; further children wait queued, never refused. Unset, the
    * host's `agents.maxRunningChildren` setting decides, and no setting means no limit.
    */
-  maxConcurrent: z.number().int().min(1).optional(),
+  maxConcurrent: z.number().int().min(1).max(64).optional(),
   maxDepth: z.number().int().min(1).max(8).default(8),
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });
@@ -292,6 +292,15 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("machines") }),
+  /** Carry a project, or the calling thread, to another paired machine (ADR 0101). */
+  z.strictObject({
+    op: z.literal("transfer"),
+    machine: MachineName,
+    project: z.string().min(1).max(256).optional(),
+    thread: z.literal("self").optional(),
+    includeChanges: z.boolean().optional(),
+    includeIgnored: z.boolean().optional(),
+  }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
   z.strictObject({

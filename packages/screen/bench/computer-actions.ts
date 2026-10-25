@@ -10,12 +10,18 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
-import { ComputerClient, computerToolkit } from "../src/index.ts";
+import { ComputerClient, computerToolkit, type ComputerRequestTiming } from "../src/index.ts";
 
 const helper = process.env["ACE_COMPUTER_HELPER"];
 if (!helper) throw new Error("Set ACE_COMPUTER_HELPER");
 const rounds = Number(process.argv[2] ?? "8");
-const client = new ComputerClient({ helper: async () => helper, nextId: randomUUID });
+let activeStep = "startup";
+const requestTimings: (ComputerRequestTiming & { step: string })[] = [];
+const client = new ComputerClient({
+  helper: async () => helper,
+  nextId: randomUUID,
+  timing: { report: (timing) => requestTimings.push({ ...timing, step: activeStep }) },
+});
 const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
 computerToolkit(client).register(registry);
 const credentials = new CredentialRegistry(() => "a".repeat(64));
@@ -32,6 +38,7 @@ const lease = credentials.issue(
 const samples = new Map<string, number[]>();
 const cold = new Map<string, number>();
 async function call(label: string, round: number, name: string, args: Record<string, unknown>) {
+  activeStep = round === 0 ? `cold: ${label}` : label;
   const started = performance.now();
   const result = await registry.call(name, args, lease.principal, new AbortController().signal);
   const ms = performance.now() - started;
@@ -81,6 +88,14 @@ try {
       actions: [{ type: "key", key: "Escape" }],
       screenshot: true,
     });
+    await call("key then wait_for", round, "screen_act", {
+      app: "Calculator",
+      actions: [
+        { type: "key", key: "Escape" },
+        { type: "wait_for", text: "text 0" },
+      ],
+      observe: false,
+    });
   }
 } finally {
   client.close();
@@ -111,6 +126,7 @@ console.log(
       load: execFileSync("sysctl", ["-n", "vm.loadavg"]).toString().trim(),
       sequenceP50Ms: total,
       steps,
+      requestTimings,
     },
     null,
     2,

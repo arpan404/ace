@@ -16,6 +16,8 @@ export async function command(client: Client, payload: unknown, id: string, sign
   const parsed = CommandPayload.parse(payload);
   try {
     const receipt = await client.command(parsed, { signal }, CommandId.parse(id));
+    if (receipt.error === "action_busy")
+      throw new CliFailure("refused", "ace is busy with other work; retry the command shortly");
     if (!receipt.ok)
       throw new CliFailure(
         receipt.error?.includes("uncertain") ? "uncertain" : "refused",

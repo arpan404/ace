@@ -101,6 +101,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
         "X-Ace-Tools": "static",
+        "X-Ace-Call-Budget": "50",
       },
     },
   });

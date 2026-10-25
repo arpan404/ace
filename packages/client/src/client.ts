@@ -2,6 +2,7 @@ import { attachmentReadScope } from "./attachment-scope.ts";
 import { ClientCore } from "./client-core.ts";
 import { projectCalls } from "./project-calls.ts";
 import { projectEvents } from "./projects.ts";
+import { transfersApi, type TransfersApi } from "./transfers.ts";
 import type { ProjectsApi } from "./projects-types.ts";
 import type { ClientApi } from "./api.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
@@ -35,6 +36,8 @@ export class Client extends ClientCore implements ClientApi {
   }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
+  /** Transfers to other machines (ADR 0101), through `command`/`request` and pushes. */
+  readonly transfers: TransfersApi = transfersApi(this);
   /** Ephemeral auth requests never enter the persistent intent outbox. */
   async cursorAuth(input: CursorAuthQuery, options: RequestOptions = {}): Promise<CursorAuthEvent> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));

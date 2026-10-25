@@ -240,25 +240,16 @@ struct HandoffRow: View {
     var body: some View {
         let shown = Array(handoff.from.prefix(Self.shownSources))
         let hidden = handoff.from.count - shown.count
-        HStack(spacing: AceTheme.Spacing.md) {
-            rule
-            HStack(spacing: AceTheme.Spacing.xs) {
-                AceIcon(.arrowsLeftRight, size: 12, relativeTo: .caption)
-                Text(handoff.label).fontWeight(.medium)
-                ForEach(Array(shown.enumerated()), id: \.offset) { index, side in
-                    end(side, comma: index < shown.count - 1 || hidden > 0)
-                }
-                if hidden > 0 { Text("+\(hidden)") }
-                if !shown.isEmpty { AceIcon(.arrowRight, size: 12, relativeTo: .caption) }
-                end(handoff.to, target: true)
+        CentredDivider {
+            AceIcon(.arrowsLeftRight, size: 12, relativeTo: .caption)
+            Text(handoff.label).fontWeight(.medium)
+            ForEach(Array(shown.enumerated()), id: \.offset) { index, side in
+                end(side, comma: index < shown.count - 1 || hidden > 0)
             }
-            .lineLimit(1)
-            .layoutPriority(1)
-            rule
+            if hidden > 0 { Text("+\(hidden)") }
+            if !shown.isEmpty { AceIcon(.arrowRight, size: 12, relativeTo: .caption) }
+            end(handoff.to, target: true)
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .padding(.vertical, AceTheme.Spacing.xs)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(handoff.text)
         .accessibilityIdentifier("event.handoff")
@@ -270,9 +261,5 @@ struct HandoffRow: View {
                 .foregroundStyle(target ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 .truncationMode(.middle)
         }
-    }
-    private var rule: some View {
-        Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-            .frame(minWidth: AceTheme.Spacing.xxl).accessibilityHidden(true)
     }
 }

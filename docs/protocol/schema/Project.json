@@ -31,6 +31,9 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
     },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/ProjectKind.json"
+    },
     "name": {
       "maxLength": 256,
       "type": "string"

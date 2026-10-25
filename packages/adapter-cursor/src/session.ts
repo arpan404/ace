@@ -1,4 +1,4 @@
-import type { ProviderSession, SessionContext } from "@ace/engine-api";
+import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { z } from "zod";
@@ -20,6 +20,17 @@ export interface CursorSessionOptions extends HostOptions {
   instructions?: string;
   /** Validated, bounded checkpoint evidence; never appended as fresh live history. */
   recoverySnapshot?: Awaited<ReturnType<typeof import("./history.ts").readCursorSnapshot>>;
+}
+/** What the person reads when the host dies on its own, with its reason when one survived. */
+export function unexpectedStopMessage(detail: string | undefined): string {
+  const reason = detail
+    ?.replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.\s]+$/, "");
+  const shown = reason && reason.length > 300 ? `${reason.slice(0, 300)}…` : reason;
+  return shown
+    ? `Cursor stopped unexpectedly: ${shown}. Unfinished work needs your attention.`
+    : "Cursor stopped unexpectedly. Unfinished work needs your attention.";
 }
 const OpenReply = z.object({ agentId: z.string().min(1).max(512) });
 export async function openCursorSession(
@@ -116,23 +127,26 @@ export async function openCursorSession(
     void close("shutdown").catch(() => {});
   };
   context.signal.addEventListener("abort", abort, { once: true });
-  void host.process.exited.then(() => {
+  void host.process.exited.then((exit) => {
     exited = true;
     context.signal.removeEventListener("abort", abort);
+    const detail = host.failureMessage;
     frame(
       "note",
       "host-exit",
-      { deliberate, ...(host.failureMessage ? { detail: host.failureMessage } : {}) },
+      {
+        deliberate,
+        code: exit.code,
+        signal: exit.signal,
+        reason: exit.reason,
+        ...(detail ? { detail } : {}),
+      },
       operation,
       segment,
     );
     context.onExit({
       deliberate,
-      ...(deliberate
-        ? {}
-        : {
-            message: "Cursor stopped unexpectedly. Unfinished work needs your attention.",
-          }),
+      ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
     });
   });
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
@@ -183,23 +197,33 @@ export async function openCursorSession(
         });
       },
       async send(input: ContentPart[], delivery, commandId) {
-        if (closing || exited) throw new Error("SDK host is closed");
+        // Every refusal before the host's send request leaves the input unsent.
+        if (closing || exited) throw new InputRejected("SDK host is closed");
         if (uncertain)
-          throw new Error(
+          throw new InputRejected(
             "SDK delivery or terminal state is uncertain; close and reconcile before sending",
           );
-        if (control) throw new Error("SDK control already in flight");
-        boundedJson(input, limits.maxInputBytes);
+        if (control) throw new InputRejected("SDK control already in flight");
+        try {
+          boundedJson(input, limits.maxInputBytes);
+        } catch (error) {
+          throw rejected(error);
+        }
         // The engine serializes queued sends. SDK terminal evidence clears active via cancel.
         control = true;
         try {
           if (delivery === "steer" && active) {
             frame("send", "cancel", { replacement: true, commandId }, operation, segment);
-            await host.request("cancel");
+            await host.request("cancel").catch((error: unknown) => {
+              throw rejected(error);
+            });
             segment++;
           } else {
             // A previous run may already have settled; cancel also awaits its drain.
-            if (active) await host.request("cancel");
+            if (active)
+              await host.request("cancel").catch((error: unknown) => {
+                throw rejected(error);
+              });
             operation = commandId ?? options.operationId?.() ?? `${host.generation}:${++seq}`;
             segment = 0;
           }
@@ -216,6 +240,9 @@ export async function openCursorSession(
           } catch (error) {
             active = false;
             uncertain = !terminal;
+            // The host refused it before calling the SDK; anything else may have reached Cursor.
+            if (error instanceof Error && "refused" in error && error.refused === true)
+              throw rejected(error);
             throw error;
           }
         } finally {
@@ -261,5 +288,7 @@ export async function openCursorSession(
     throw error;
   }
 }
+const rejected = (error: unknown) =>
+  new InputRejected(error instanceof Error ? error.message : String(error), { cause: error });
 export type { CursorLimits };
 import { readCursorModelParams } from "@ace/provider-kit/cursor-selection";

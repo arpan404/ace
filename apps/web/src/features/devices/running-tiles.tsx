@@ -7,17 +7,21 @@ import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import {
   bodyTurn,
+  chromeLayout,
+  chromeTurn,
   deviceButtons,
   deviceKind,
-  defaultScreens,
+  deviceScreen,
   frameGeometry,
   framePoints,
   type Size,
 } from "@ace/ui-core/devices";
+import { ChromeFrame } from "./chrome-frame.tsx";
 import { DeviceFrame } from "./device-frame.tsx";
 import { DeviceScreen } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
 import { ControllerLabel, type Controller } from "./controller-label.tsx";
+import { useDeviceChrome } from "./use-device-chrome.ts";
 import { useElementSize, useOnScreen } from "./use-element-size.ts";
 
 /** The most running devices shown before "Show all running". */
@@ -44,7 +48,7 @@ function RunningTile(props: {
   const preview = useRef<HTMLDivElement>(null);
   const measured = useElementSize(preview);
   const visible = useOnScreen(preview);
-  const [screen, setScreen] = useState<Size>(defaultScreens[kind]);
+  const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
   const watching = visible && row.live && session !== undefined;
   useEffect(() => {
     if (!watching || !session) return;
@@ -57,6 +61,37 @@ function RunningTile(props: {
     measured.width > 0 && measured.height > 0
       ? { width: measured.width - 24, height: measured.height - 24 }
       : fallbackRoom;
+  // The real body, asked once per model for the whole list, once the tile is on screen.
+  const chrome = useDeviceChrome(session, row, visible);
+  const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
+  const layout = chrome && chromeLayout(chrome, bodyTurned, screen, room);
+  const picture =
+    watching && session ? (
+      <DeviceScreen
+        session={session}
+        deviceId={row.id}
+        name={row.name}
+        interactive={false}
+        onInput={noInput}
+        onFrame={(header) => {
+          const next = framePoints(header);
+          setScreen((before) =>
+            Math.abs(before.width / before.height - next.width / next.height) < 0.001
+              ? before
+              : next,
+          );
+        }}
+        className="pointer-events-none h-full max-h-none w-full max-w-none rounded-none shadow-none"
+      />
+    ) : (
+      <span className="grid size-full place-items-center">
+        <Icon
+          icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
+          size={20}
+          className="text-faint-foreground"
+        />
+      </span>
+    );
   return (
     <li className="min-w-0">
       <button
@@ -72,39 +107,26 @@ function RunningTile(props: {
           ref={preview}
           className="relative grid h-44 w-full place-items-center bg-(--device-stage)"
         >
-          <DeviceFrame
-            geometry={frameGeometry(kind, row.name, screen)}
-            screen={screen}
-            room={room}
-            hardware={hardware}
-          >
-            {watching && session ? (
-              <DeviceScreen
-                session={session}
-                deviceId={row.id}
-                name={row.name}
-                interactive={false}
-                onInput={noInput}
-                onFrame={(header) => {
-                  const next = framePoints(header);
-                  setScreen((before) =>
-                    Math.abs(before.width / before.height - next.width / next.height) < 0.001
-                      ? before
-                      : next,
-                  );
-                }}
-                className="pointer-events-none h-full max-h-none w-full max-w-none rounded-none shadow-none"
-              />
-            ) : (
-              <span className="grid size-full place-items-center">
-                <Icon
-                  icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
-                  size={20}
-                  className="text-faint-foreground"
-                />
-              </span>
-            )}
-          </DeviceFrame>
+          {chrome && layout ? (
+            <ChromeFrame
+              chrome={chrome}
+              layout={layout}
+              kind={kind}
+              turn={bodyTurned}
+              hardware={hardware}
+            >
+              {picture}
+            </ChromeFrame>
+          ) : (
+            <DeviceFrame
+              geometry={frameGeometry(kind, row.name, screen)}
+              screen={screen}
+              room={room}
+              hardware={hardware}
+            >
+              {picture}
+            </DeviceFrame>
+          )}
           {row.live && (
             <span className="absolute top-2 left-2 inline-flex h-5 items-center gap-1 rounded-full bg-background px-1.5 text-2xs font-medium text-foreground shadow-(--depth-raise)">
               <span aria-hidden className="size-1.5 rounded-full bg-foreground" />

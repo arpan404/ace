@@ -14,3 +14,9 @@ export { createBlobExport } from "./blob-export.ts";
 
 export { chunkFilesChannel } from "./chunk-channel.ts";
 export { attachmentChannel } from "./attachment-channel.ts";
+
+export { packFolder, packFiles, measureFolder } from "./folder-pack.ts";
+export type { FolderPrune } from "./folder-walk.ts";
+export type { PackOptions, PackResult, FolderMeasure } from "./folder-pack.ts";
+export { unpackArchive, mergeArchive } from "./folder-unpack.ts";
+export { FolderArchiveError, type FolderArchiveErrorCode } from "./folder-errors.ts";

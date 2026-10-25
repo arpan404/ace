@@ -27,7 +27,7 @@ import { keymap } from "@/lib/keymap.ts";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useIsChat, useProjectName } from "@/lib/projects.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "@/lib/folder-actions.ts";
 import type { ThreadRef } from "../sources/index.ts";
@@ -39,6 +39,7 @@ import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-par
 import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 import { CheckoutProblem } from "./work-card-checkout-problem.tsx";
 import { WorktreeSetupRow } from "./work-card-setup.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -52,13 +53,14 @@ export function WorkspaceGroup(props: {
   onClose(): void;
   onAddScript(): void;
 }) {
+  const chat = useIsChat()(props.thread.workspaceId);
   return (
     <Section label="Workspace" title="Workspace">
-      <MachineRow {...props} />
+      <MachineRow {...props} chat={chat} />
       <CheckoutProblem thread={props.thread} move={props.move} />
       <WorktreeSetupRow thread={props.thread} />
       <OpenInRow thread={props.thread} />
-      <AddScriptRow {...props} />
+      {!chat && <AddScriptRow {...props} />}
     </Section>
   );
 }
@@ -67,7 +69,13 @@ export function WorkspaceGroup(props: {
  * The machine, whether it is reachable, and its checkout: local or a worktree (its glyph beside
  * the machine's). Its menu moves the checkout and reaches the folder, a terminal and the scripts.
  */
-function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
+function MachineRow(props: {
+  thread: ThreadRef;
+  move(move: Move): void;
+  onClose(): void;
+  /** A chat runs only in its own folder: no checkout to move. */
+  chat: boolean;
+}) {
   const meta = useThreadMeta(props.thread.id);
   const saved = meta?.details?.machine;
   const identity = useMachineIdentity(saved);
@@ -81,6 +89,7 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
   const folder = useFolderActions(path);
   const workspace = useWorkspaceActions(props.thread.id);
   const navigate = useNavigate();
+  const scoped = useScopedMachine()?.id;
   const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
   const worktree = checkout?.mode === "worktree";
   const Mode = worktree ? GitForkIcon : FolderIcon;
@@ -111,27 +120,31 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
             {path ? ` · ${path}` : " · Reading checkout…"}
           </MenuLabel>
         </MenuGroup>
-        <MenuItem
-          icon={glyph(FolderIcon)}
-          disabled={!worktree || !!switchReason}
-          reason={worktree ? switchReason : undefined}
-          onClick={() => props.move({ change: { mode: "local" } })}
-        >
-          Local
-          {!worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
-        </MenuItem>
-        <MenuItem
-          icon={glyph(GitForkIcon)}
-          disabled={worktree || !!worktreeReason}
-          reason={worktree ? undefined : worktreeReason}
-          // No branch: the main checkout's branch can't be checked out twice, so the daemon
-          // makes the worktree a branch of its own from the current HEAD.
-          onClick={() => props.move({ change: { mode: "worktree" } })}
-        >
-          Worktree
-          {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
-        </MenuItem>
-        <MenuSeparator />
+        {!props.chat && (
+          <>
+            <MenuItem
+              icon={glyph(FolderIcon)}
+              disabled={!worktree || !!switchReason}
+              reason={worktree ? switchReason : undefined}
+              onClick={() => props.move({ change: { mode: "local" } })}
+            >
+              Local
+              {!worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
+            </MenuItem>
+            <MenuItem
+              icon={glyph(GitForkIcon)}
+              disabled={worktree || !!worktreeReason}
+              reason={worktree ? undefined : worktreeReason}
+              // No branch: the main checkout's branch can't be checked out twice, so the daemon
+              // makes the worktree a branch of its own from the current HEAD.
+              onClick={() => props.move({ change: { mode: "worktree" } })}
+            >
+              Worktree
+              {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
+            </MenuItem>
+            <MenuSeparator />
+          </>
+        )}
         <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
           Copy path
         </MenuItem>
@@ -151,7 +164,12 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
           icon={glyph(GearSixIcon)}
           onClick={() => {
             props.onClose();
-            void navigate({ to: "/settings/remote" });
+            // Another machine's thread opens that machine's own page in Fleet.
+            void navigate(
+              scoped
+                ? { to: "/settings/remote/$machine", params: { machine: scoped } }
+                : { to: "/settings/remote" },
+            );
           }}
         >
           Machine settings…

@@ -150,22 +150,37 @@ test("stopping recording posts a playable video to the thread", async () => {
   );
   expect(within(dialog).getByLabelText("Device recording.mp4").hasAttribute("controls")).toBe(true);
 });
-test("Screenshot saves a fresh JPEG from the selected device", async () => {
+test("Copy screenshot puts the device's screen on the clipboard as a PNG, with no download", async () => {
   const { device } = await live();
-  const downloads: string[] = [];
-  const blobs: Blob[] = [];
-  URL.createObjectURL = (blob) => {
-    if (blob instanceof Blob) blobs.push(blob);
-    return "blob:test/shot";
-  };
-  URL.revokeObjectURL = () => {};
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    downloads.push(this.download);
+  const clipboard: Blob[] = [];
+  // jsdom has no clipboard or PNG encoder: these stand in for the browser's, at its boundary.
+  class Item {
+    items: Record<string, Promise<Blob>>;
+    constructor(items: Record<string, Promise<Blob>>) {
+      this.items = items;
+    }
+  }
+  vi.stubGlobal("ClipboardItem", Item);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      write: async (items: Item[]) => {
+        for (const item of items) {
+          const png = item.items["image/png"];
+          if (png) clipboard.push(await png);
+        }
+      },
+    },
   });
-  await userEvent.click(within(device).getByRole("button", { name: "Screenshot" }));
-  await waitFor(() => expect(downloads).toEqual(["iPhone 16 Pro.jpg"]));
-  expect(blobs[0]?.type).toBe("image/jpeg");
-  expect(blobs[0]?.size).toBeGreaterThan(0);
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((done) =>
+    done(new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" })),
+  );
+  const downloads = vi.spyOn(HTMLAnchorElement.prototype, "click");
+
+  await userEvent.click(within(device).getByRole("button", { name: "Copy screenshot" }));
+
+  expect(await screen.findByText("Screenshot copied")).toBeTruthy();
+  expect(clipboard.map((blob) => blob.type)).toEqual(["image/png"]);
+  expect(downloads).not.toHaveBeenCalled();
+  Reflect.deleteProperty(navigator, "clipboard");
 });

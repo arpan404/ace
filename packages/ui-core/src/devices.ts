@@ -12,6 +12,8 @@ export interface DeviceRow {
   running: boolean;
   /** Its screen is streaming. */
   live: boolean;
+  /** The hardware it simulates (a Simulator's device type), when the daemon says. */
+  model?: string | undefined;
 }
 
 const stateWords: Record<AppDevice["state"], string> = {
@@ -44,6 +46,7 @@ export function deviceRows(
         runtime: device.runtime,
         running: device.state === "booted",
         live: state?.lifecycle === "live",
+        model: device.model,
       };
     })
     .toSorted(

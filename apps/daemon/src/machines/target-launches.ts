@@ -257,19 +257,22 @@ export class TargetLaunches {
     );
     return launchSlots(running, limit);
   }
-  private start(launch: QueuedLaunch) {
+  /** Sends the waiting task, or settles it cancelled when it may no longer run. */
+  private start(launch: QueuedLaunch): "started" | "skipped" {
     const { store } = this.deps;
     const engine = this.deps.engine();
     if (!engine) throw controlAdmissionError("engine_starting");
     const thread = store.getThread(launch.childId);
     // A thread deleted while it waited has nothing left to start.
-    if (!thread || thread.deletedAt !== undefined) return;
+    if (!thread || thread.deletedAt !== undefined) return "skipped";
     // Stopped while it waited (or its Stop was missed): it settles cancelled, never runs.
     if (
       this.row(launch.childId)?.outcome === "cancelled" ||
       this.deps.journal()?.stopped(launch.childId)
-    )
-      return this.settle(launch.childId, "cancelled");
+    ) {
+      this.settle(launch.childId, "cancelled");
+      return "skipped";
+    }
     const [deviceId] = Parent.parse(JSON.parse(launch.parentId));
     const role = this.row(launch.childId)?.role;
     store.atomic(() => {
@@ -296,6 +299,7 @@ export class TargetLaunches {
         .statement("UPDATE machine_child_launches SET active=1 WHERE thread_id=?")
         .run(launch.childId);
     });
+    return "started";
   }
   /** Only a start waiting on engine room is retried on a timer; slots announce themselves. */
   private arm() {

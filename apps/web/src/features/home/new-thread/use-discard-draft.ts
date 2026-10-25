@@ -2,6 +2,7 @@ import { useClient } from "@ace/client-react";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { undoWindowMs } from "@/features/organize/index.ts";
 import { readDraft, writeDraft } from "@/features/thread/index.ts";
 import { discardPreparation } from "./discard-preparation.ts";
@@ -21,6 +22,8 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
   const navigate = useNavigate();
   const router = useRouter();
   const toast = useToast();
+  // Another machine's draft (under its MachineScope) reopens on that machine.
+  const machine = useMachineSearch();
   return (key: string, row: Preparation): string | undefined => {
     const content = readDraft(storage, key);
     if (!discardPreparation(storage, host, key)) return refused;
@@ -30,6 +33,7 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
       void navigate({
         to: "/new",
         search: (previous) => ({
+          ...machine,
           project: row.project,
           skill: row.skill,
           issue: row.issue,

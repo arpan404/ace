@@ -35,6 +35,8 @@ export interface OriginLike {
   /** A context handoff's source models, oldest first. */
   sources?: readonly { provider: ProviderKind; model?: string | undefined }[] | undefined;
   lossy?: boolean | undefined;
+  /** A restart-kind continuation resuming a turn its provider dropped on its own. */
+  afterExit?: boolean | undefined;
 }
 
 /** A message's `origin`, read structurally so history from before the field still parses. */

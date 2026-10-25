@@ -114,6 +114,8 @@ export async function harness(
     onNamingPrompt?: EngineOptions["onNamingPrompt"];
     steer?: boolean;
     idleMs?: number;
+    /** Silence before an agent reads as unresponsive; short by default so tests reach it. */
+    silenceMs?: number;
     tick?: (now: number) => Fact[];
     nextDeadline?: () => number | undefined;
     resolveGate?: Promise<void>;
@@ -205,7 +207,7 @@ export async function harness(
     ...(options.onCommandEvent ? { onCommandEvent: options.onCommandEvent } : {}),
     clock,
     idleMs: options.idleMs ?? 30_000,
-    silenceMs: 100,
+    silenceMs: options.silenceMs ?? 100,
     onError: (error) => errors.push(error),
     ...(options.onSessionOpenFailure ? { onSessionOpenFailure: options.onSessionOpenFailure } : {}),
     ...(options.onSettleCleanupFailure

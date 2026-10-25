@@ -120,10 +120,18 @@ export const ProjectDefaults = z
   })
   .meta({ "x-ace-constraint": "`model` is present only together with `provider`." });
 export type ProjectDefaults = z.infer<typeof ProjectDefaults>;
+/**
+ * `chat` marks a hidden project ace made for one chat started with no project: its folder is
+ * an empty one under the daemon's data directory (ADR 0099). Clients leave chat projects out
+ * of every project list. Absent means an ordinary project.
+ */
+export const ProjectKind = z.enum(["chat"]);
+export type ProjectKind = z.infer<typeof ProjectKind>;
 export const Project = z.object({
   id: WorkspaceId,
   name: z.string().max(256),
   path,
+  kind: ProjectKind.optional(),
   icon: ProjectIcon.nullable().optional(),
   defaultIcon: ProjectIcon.nullable().optional(),
   badge: ProjectBadgeStyle.optional(),
@@ -201,6 +209,11 @@ export const ProjectCommands = [
    * cleanup of failed worktree starts. Fails with `git_quarantined` while an owner may be alive.
    */
   z.object({ type: z.literal("workspace.git.lock.clear"), workspaceId: WorkspaceId }),
+  /**
+   * Make a chat project: a fresh empty folder under the daemon's data directory, registered as
+   * a hidden `chat` project. The result's `workspace` is where the chat's `thread.create` goes.
+   */
+  z.object({ type: z.literal("workspace.chat.create") }),
   z.object({
     type: z.literal("workspace.remove"),
     workspaceId: WorkspaceId,

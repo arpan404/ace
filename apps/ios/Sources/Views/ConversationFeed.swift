@@ -98,6 +98,7 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
+        .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (reading.paged ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
@@ -247,6 +248,21 @@ struct ConversationFeed: View {
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
         }
+    }
+}
+
+/// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority
+/// over the rows' own (a tool group, a step, a link), so it never opens what lay under the finger.
+/// Scrolling still dismisses it interactively. With the keyboard down the gesture is off and taps,
+/// links, selection and menus reach the rows as usual.
+private struct TapPutsKeyboardAway: ViewModifier {
+    let up: Bool
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture().onEnded {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }, including: up ? .all : .subviews)
     }
 }
 

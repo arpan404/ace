@@ -38,6 +38,7 @@ import { useThreadSources } from "../sources/index.ts";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
 import { useDiscardSend } from "./use-discard-send.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
@@ -102,6 +103,7 @@ export function useSendActions(threadId: string) {
   const client = useClient();
   const toast = useToast();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const { storage } = useLayout();
   const host = useHostIdentity()?.hostId;
   const inFlight = useRef(new Set<string>());
@@ -136,6 +138,7 @@ export function useSendActions(threadId: string) {
       search: {
         project: payload.workspaceId,
         ...(payload.mode === "worktree" && payload.base ? { base: baseName(payload.base) } : {}),
+        ...machine,
       },
       replace: returned !== undefined,
     });
@@ -156,6 +159,7 @@ export function useSendActions(threadId: string) {
             void navigate({
               to: "/t/$threadId",
               params: { threadId: `pending:${commandId}:retry` },
+              search: machine,
               replace: true,
             });
         })

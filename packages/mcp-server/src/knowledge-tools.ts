@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { maxProjectNoteLength, type McpAttribution } from "@ace/protocol";
 import type { Toolkit } from "./toolkits.ts";
+import { withinCallBudget } from "./toolsets.ts";
 
 /** Project knowledge (P5), notes (P7), diagnostics (P10) and asking the person (P9). */
 export const KnowledgeTopic = z.enum(["recent", "changes", "prs", "notes", "diagnostics"]);
@@ -151,7 +152,12 @@ export function knowledgeToolkit(port: KnowledgePort): Toolkit {
       });
       registry.register({
         ...knowledgeToolCatalog[2],
-        run: (input, { caller, signal }) => port.ask(caller, input, signal),
+        run: (input, { caller, signal, callBudgetSeconds }) =>
+          port.ask(
+            caller,
+            { ...input, timeoutSeconds: withinCallBudget(input.timeoutSeconds, callBudgetSeconds) },
+            signal,
+          ),
       });
     },
   };

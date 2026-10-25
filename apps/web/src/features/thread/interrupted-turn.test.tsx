@@ -63,6 +63,27 @@ test("Continue sends one continuation and the pill leaves once a turn runs", asy
   expect(sent.filter((type) => type === "thread.send")).toHaveLength(0);
 });
 
+test("a provider that died mid-turn reads as a crash, and Continue still resumes it once", async () => {
+  const app = clocked();
+  app.play(interruptedTurn(id)).runUntilBlocked();
+  app.daemon.holdExitedTurn(id);
+  await app.open(`/t/${id}`);
+  const sent: string[] = [];
+  const command = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (value) => {
+    if ("threadId" in value.payload && value.payload.threadId === id) sent.push(value.payload.type);
+    return command(value);
+  };
+  const pill = await screen.findByRole("status", { name: "OpenCode stopped unexpectedly" });
+  expect(screen.queryByRole("status", { name: "Stopped by a restart" })).toBeNull();
+  await userEvent.click(within(pill).getByRole("button", { name: "Continue" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("status", { name: "OpenCode stopped unexpectedly" })).toBeNull(),
+  );
+  expect(sent.filter((type) => type === "thread.resume")).toHaveLength(1);
+  expect(sent.filter((type) => type === "thread.send")).toHaveLength(0);
+});
+
 test("a message typed while stopped starts the next turn at once, never queued behind the stop", async () => {
   const app = clocked();
   app.play(interruptedTurn(id)).runUntilBlocked();

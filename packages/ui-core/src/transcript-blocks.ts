@@ -1,11 +1,12 @@
 import { aceToolInput } from "@ace/core";
-import { visibleHistoryOrder } from "@ace/projection";
+import { isWorkStoppedNotice, visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
 import { isContinueInput, isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
+import { interruptionNotice } from "./system-events.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
 
@@ -117,6 +118,11 @@ export type Block =
       latest?: boolean | undefined;
       errorId?: string | undefined;
       itemIds?: string[] | undefined;
+      /**
+       * The queue holds this turn for ace's Continue (a restart or the provider's process dying
+       * cut it short): the stop's pill offers Continue, so the row offers no Retry of its own.
+       */
+      held?: boolean | undefined;
     };
 
 /** What the blocks need of a run. */
@@ -255,6 +261,11 @@ interface TurnMark {
   automatic: boolean;
   /** Its last error notice with a row of its own, with no answer after it: what a failure says. */
   failure: { index: number; itemId: string } | undefined;
+  /**
+   * Rows saying its provider's process stopped: ace's own notice ("The agent stopped
+   * unexpectedly") and the adapter's. One stop reads once (see `stopRows`).
+   */
+  stops: { own: number[]; adapter: number[] };
 }
 
 type WorkBlock = Extract<Block, { kind: "work" }>;
@@ -495,6 +506,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         paused: false,
         automatic: false,
         failure: undefined,
+        stops: { own: [], adapter: [] },
       };
       stoppedBefore(id);
       turns.set(id, found);
@@ -736,6 +748,9 @@ export function buildBlocks(source: BlockSource): Block[] {
           } else if (callId) group("work", id);
           else {
             push({ kind: "item", key: id, itemId: id }, false);
+            if (mark && interruptionNotice(item) && item.code === "agent_stopped")
+              mark.stops.own.push(blocks.length - 1);
+            else if (mark && isWorkStoppedNotice(item)) mark.stops.adapter.push(blocks.length - 1);
             // A refused agent tool is the agent's to handle, not why its turn failed.
             if (
               mark &&
@@ -936,9 +951,11 @@ export function buildBlocks(source: BlockSource): Block[] {
       place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
       for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
     }
+    for (const index of stopRows(turn, ending?.state === "failed")) absorbed.add(index);
     // A limit resume interrupts the paused turn: the pause already says why it stopped.
     if (ending?.state === "failed") {
       const end = endBlock(turn, "failed", newest === turn, ending.runId);
+      if (newest === turn && source.restartedTail) end.held = true;
       if (turn.failure) {
         absorbed.add(turn.failure.index);
         end.errorId = turn.failure.itemId;
@@ -989,10 +1006,20 @@ export function buildBlocks(source: BlockSource): Block[] {
       ending: source.stoppedTail,
       runId: undefined,
       askId: last.itemId,
-      ...(source.restartedTail ? { automatic: true } : {}),
+      ...(source.restartedTail ? { automatic: true, held: true } : {}),
       latest: true,
     });
   return result;
+}
+
+/**
+ * A provider whose process died mid-turn is reported up to three times: by its adapter, by ace's
+ * own notice, and by the turn's failure, which carries the provider's reason. It reads once: a
+ * failed turn's row says it, else ace's notice does, else the adapter's. Returns the rows to drop.
+ */
+function stopRows(turn: TurnMark, failed: boolean): number[] {
+  if (failed) return [...turn.stops.own, ...turn.stops.adapter];
+  return turn.stops.own.length ? turn.stops.adapter : [];
 }
 
 /**

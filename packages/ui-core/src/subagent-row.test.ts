@@ -1,6 +1,12 @@
 import { ItemId } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { subagentDetail, subagentElapsed, subagentMeta, subagentSpan } from "./subagent-row.ts";
+import {
+  ordinal,
+  subagentDetail,
+  subagentElapsed,
+  subagentMeta,
+  subagentSpan,
+} from "./subagent-row.ts";
 
 const working = {
   status: { state: "working", activity: "tool", itemId: ItemId.parse("i1") },
@@ -51,6 +57,34 @@ test("a finished subagent shows what it found", () => {
   ).toEqual({ detail: "Found 3 races", kind: "result" });
 });
 
+test("a queued subagent's line names its slot use and queue place, else the old line", () => {
+  expect(
+    subagentDetail(
+      { state: "queued", agentId: "a1", slotLimit: 4, slotsInUse: 4, queuePosition: 2 },
+      undefined,
+      undefined,
+      true,
+    ).detail,
+  ).toBe("4 of 4 run slots in use, 2nd in line. Starts when a running agent finishes");
+  expect(
+    subagentDetail({ state: "queued", agentId: "a1" }, undefined, undefined, true).detail,
+  ).toBe("Starts when a running agent finishes");
+});
+
+test("queue places read as people say them", () => {
+  expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23].map(ordinal)).toEqual([
+    "1st",
+    "2nd",
+    "3rd",
+    "4th",
+    "11th",
+    "12th",
+    "13th",
+    "21st",
+    "22nd",
+    "23rd",
+  ]);
+});
 test("a delegated thread's meta names it delegated, with its model and effort", () => {
   expect(
     subagentMeta({ childThreadId: "t2" }, { model: "gpt-5.5", options: { effort: "high" } }),

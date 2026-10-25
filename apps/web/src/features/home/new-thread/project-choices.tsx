@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { CheckIcon, FolderPlusIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleIcon,
+  CheckIcon,
+  FolderPlusIcon,
+  MagnifyingGlassIcon,
+} from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
 import { displayPath, projectBadge, type NewFolder } from "@ace/ui-core";
 import { ProjectMark } from "../row-parts.tsx";
@@ -12,22 +17,29 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
+  CommandShortcut,
   commandField,
 } from "@/components/ui/command.tsx";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { useKeys } from "@/lib/keybindings.ts";
+import { describeKeys } from "@/lib/keymap.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   projectFailure,
   useNewProjectFolder,
   useProjectDialogs,
 } from "@/features/projects/index.ts";
+import { chatChoice } from "./chat-project.ts";
 export interface Choice {
   id: string;
   name: string;
   path: string;
 }
 
-/** A project to pick, or the typed folder to create and add. */
-type Item = Choice | { create: NewFolder };
+/** A project to pick, a chat with no project, or the typed folder to create and add. */
+type Item = Choice | { chat: true } | { create: NewFolder };
+
+const chatLabel = "No project";
 
 export function ProjectChoices(props: {
   choices: Choice[];
@@ -38,6 +50,8 @@ export function ProjectChoices(props: {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const dialogs = useProjectDialogs();
+  const phone = usePhone();
+  const addProjectKeys = useKeys("addProject");
   const toast = useToast();
   const reachable = useConnectionState() === "ready";
   const typed = useNewProjectFolder(query);
@@ -57,7 +71,10 @@ export function ProjectChoices(props: {
     )
       ? folder
       : undefined;
+  const search = query.trim().toLocaleLowerCase();
+  const chat = !search || `${chatLabel}\nchat`.toLocaleLowerCase().includes(search);
   const groups: { value: string; items: Item[] }[] = [
+    ...(chat ? [{ value: "Chat", items: [{ chat: true as const }] }] : []),
     { value: "Projects", items: matches },
     ...(create ? [{ value: "Create", items: [{ create }] }] : []),
   ];
@@ -83,7 +100,9 @@ export function ProjectChoices(props: {
       <Command
         items={groups}
         filter={null}
-        itemToStringValue={(item: Item) => ("create" in item ? item.create.path : item.name)}
+        itemToStringValue={(item: Item) =>
+          "create" in item ? item.create.path : "chat" in item ? chatLabel : item.name
+        }
         value={query}
         onValueChange={setQuery}
       >
@@ -102,7 +121,23 @@ export function ProjectChoices(props: {
             <CommandGroup key={group.value} items={group.items}>
               <CommandCollection>
                 {(item: Item) =>
-                  "create" in item ? (
+                  "chat" in item ? (
+                    <CommandItem
+                      key="chat"
+                      value={item}
+                      aria-label={chatLabel}
+                      aria-selected={props.project === chatChoice}
+                      onClick={() => {
+                        props.onProject(chatChoice);
+                        props.onClose();
+                      }}
+                      className="h-auto min-h-9 text-ui"
+                    >
+                      <ChatCircleIcon aria-hidden size={16} />
+                      <span className="min-w-0 flex-1 truncate">{chatLabel}</span>
+                      {props.project === chatChoice && <CheckIcon aria-hidden size={14} />}
+                    </CommandItem>
+                  ) : "create" in item ? (
                     <CommandItem
                       key={`create:${item.create.path}`}
                       value={item}
@@ -155,7 +190,10 @@ export function ProjectChoices(props: {
           }}
         >
           <FolderPlusIcon aria-hidden size={16} />
-          Add project…
+          Add project
+          {!phone && (
+            <CommandShortcut className="ml-auto">{describeKeys(addProjectKeys)}</CommandShortcut>
+          )}
         </Button>
       </div>
     </>

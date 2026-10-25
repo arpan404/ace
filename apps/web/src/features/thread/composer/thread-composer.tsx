@@ -60,6 +60,7 @@ import {
   TurnStillRunning,
   type Continuation,
 } from "./continue-in-thread.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
 let sender: Promise<typeof import("./send-message.ts")> | undefined;
@@ -146,6 +147,7 @@ export function ThreadComposer({
   // A model this thread continues on in a new thread: the next message starts it there.
   const sources = useThreadSources();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const [continuation, setContinuation] = useState<Continuation>();
   const continuing = continuation?.threadId === props.thread.id ? continuation : undefined;
   const continued = {
@@ -164,7 +166,7 @@ export function ThreadComposer({
         draft,
       });
       setContinuation(undefined);
-      void navigate({ to: "/t/$threadId", params: { threadId: opened } });
+      void navigate({ to: "/t/$threadId", params: { threadId: opened }, search: machine });
       return true;
     } catch (error) {
       toast.error({

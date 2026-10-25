@@ -9,13 +9,18 @@ import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import { piNative } from "@ace/provider-kit/access-modes";
-import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
+import {
+  InputRejected,
+  type ProviderSession,
+  type SessionContext,
+  type Frame,
+} from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
-import { PiRpc } from "./rpc.ts";
+import { PiCommandRefused, PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
 import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { piInput } from "./input.ts";
@@ -341,21 +346,37 @@ export async function openPiSession(
       _commandId?: string,
       origin?: "ace",
     ) {
-      check();
-      if (origin === "ace") {
-        const content = piInput(input).message;
-        await rpc.request("prompt", {
-          message: `/ace-context ${controlSecret} ${Buffer.from(content).toString("base64")}`,
-        });
-        return;
+      // Pi took none of this send until a prompt is written and not refused. Once one prompt
+      // is accepted, a later failure leaves the send partly taken, so it may have run.
+      let requested = false;
+      let accepted = 0;
+      try {
+        check();
+        if (origin === "ace") {
+          const content = piInput(input).message;
+          requested = true;
+          await rpc.request("prompt", {
+            message: `/ace-context ${controlSecret} ${Buffer.from(content).toString("base64")}`,
+          });
+          return;
+        }
+        // Validate every admission before the first one can reach the harness.
+        const inputs = nativeCommandInputs(input).map(piInput);
+        for (const content of inputs) {
+          requested = true;
+          await rpc.request("prompt", {
+            ...content,
+            streamingBehavior: delivery === "steer" ? "steer" : "followUp",
+          });
+          accepted++;
+        }
+      } catch (error) {
+        if (accepted === 0 && (!requested || error instanceof PiCommandRefused))
+          throw new InputRejected(error instanceof Error ? error.message : String(error), {
+            cause: error,
+          });
+        throw error;
       }
-      // Validate every admission before the first one can reach the harness.
-      const inputs = nativeCommandInputs(input).map(piInput);
-      for (const content of inputs)
-        await rpc.request("prompt", {
-          ...content,
-          streamingBehavior: delivery === "steer" ? "steer" : "followUp",
-        });
     },
     async interrupt(target) {
       check();

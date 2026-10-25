@@ -7,6 +7,8 @@ const owned = new Map<
   number,
   { stop: (graceMs: number) => Promise<unknown>; destroy: () => void }
 >();
+/** Processes requested from another thread whose pid has not arrived yet. */
+const admitting = new Set<{ stop: (graceMs: number) => Promise<unknown>; destroy: () => void }>();
 let shutdownInstalled = false;
 const journals = new Set<ProcessJournal>();
 export function observeProcessGroups(journal: ProcessJournal): () => void {
@@ -53,6 +55,25 @@ function cleanup(): void {
   // Negative-pid signals are invalid on Windows; each owner registers the
   // synchronous destroy its platform actually uses to end the tree.
   for (const entry of owned.values()) entry.destroy();
+  for (const entry of admitting) entry.destroy();
+}
+const ownersSize = () => owned.size + admitting.size;
+const stoppers = () => [...owned.values(), ...admitting];
+/**
+ * Own a process another thread is starting, before its pid is known: a global stop waits for it
+ * and process exit destroys it. Dispose once the pid is registered or the request has settled.
+ */
+export function admitProcess(
+  stop: (graceMs: number) => Promise<unknown>,
+  destroy: () => void,
+): () => void {
+  const entry = { stop, destroy };
+  if (ownersSize() === 0) process.on("exit", cleanup);
+  admitting.add(entry);
+  return () => {
+    if (!admitting.delete(entry)) return;
+    if (ownersSize() === 0) process.removeListener("exit", cleanup);
+  };
 }
 export function registerGroup(
   pid: number,
@@ -67,13 +88,13 @@ export function registerGroup(
     end();
     throw error;
   }
-  if (owned.size === 0) process.on("exit", cleanup);
+  if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
 }
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
   for (const journal of journals) journal.remove(pid);
-  if (owned.size === 0) process.removeListener("exit", cleanup);
+  if (ownersSize() === 0) process.removeListener("exit", cleanup);
 }
 
 /** Opt into graceful process termination. Dispose to restore application ownership. */
@@ -92,7 +113,7 @@ export function installShutdownHandlers({
   const terminate = (signal: NodeJS.Signals) => {
     if (terminating) return;
     terminating = true;
-    void Promise.allSettled([...owned.values()].map((entry) => entry.stop(graceMs))).then(() => {
+    void Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs))).then(() => {
       dispose();
       // Incoming application handlers have run; restore default signal termination.
       process.removeAllListeners(signal);
@@ -107,7 +128,7 @@ export function installShutdownHandlers({
 }
 
 export async function stopOwnedGroups(graceMs = 500): Promise<void> {
-  const results = await Promise.allSettled([...owned.values()].map((entry) => entry.stop(graceMs)));
+  const results = await Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)));
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Some owned process groups could not be stopped");
 }

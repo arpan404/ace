@@ -62,6 +62,29 @@ export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 
 /** A thread's place in the hand-ordered list: higher leads; unplaced threads by creation, so a new one leads. */
 export const listOrderOf = (entry: ThreadListEntry): number => entry.listOrder ?? entry.createdAt;
 
+const createdAtOf = (entry: ThreadListEntry): number => entry.createdAt;
+
+/**
+ * A thread's place when Home sorts by creation or by hand: higher leads. Live state never moves
+ * a thread in these orders.
+ */
+export function homeListKey(
+  sortBy: Exclude<HomeSort, "activity">,
+): (entry: ThreadListEntry) => number {
+  return sortBy === "manual" ? listOrderOf : createdAtOf;
+}
+
+/** The sorts as every client offers them, and what each choice does. */
+export const homeSortOptions: readonly { id: HomeSort; label: string; note: string }[] = [
+  {
+    id: "activity",
+    label: "Live activity",
+    note: "Threads that need you or are working rise to the top.",
+  },
+  { id: "created", label: "Newest first", note: "Threads stay where they started; new ones lead." },
+  { id: "manual", label: "Manual", note: "Drag threads into your own order; new ones lead." },
+];
+
 const byId = (a: ThreadListEntry, b: ThreadListEntry) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
@@ -101,7 +124,7 @@ export function arrange(
   settled.sort((a, b) => activityOf(b) - activityOf(a));
   const sortBy = state.sortBy ?? "activity";
   if (sortBy !== "activity") {
-    const key = sortBy === "manual" ? listOrderOf : (entry: ThreadListEntry) => entry.createdAt;
+    const key = homeListKey(sortBy);
     const listed = active.map((row) => row.entry);
     listed.sort((a, b) => key(b) - key(a) || byId(a, b));
     return {

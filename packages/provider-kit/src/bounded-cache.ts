@@ -5,7 +5,9 @@ export class BoundedCache<K, V> {
   private evicted = 0;
   private maxEntries: number;
   private maxBytes: number;
-  constructor(maxEntries: number, maxBytes: number) {
+  private onEvict: ((key: K, value: V) => void) | undefined;
+  /** `onEvict` hears about entries the budget pushed out; explicit deletes are not reported. */
+  constructor(maxEntries: number, maxBytes: number, onEvict?: (key: K, value: V) => void) {
     if (
       !Number.isSafeInteger(maxEntries) ||
       maxEntries < 1 ||
@@ -15,6 +17,7 @@ export class BoundedCache<K, V> {
       throw new Error("Invalid cache budget");
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;
+    this.onEvict = onEvict;
   }
   get byteLength(): number {
     return this.bytes;
@@ -32,18 +35,22 @@ export class BoundedCache<K, V> {
     this.entries.set(key, entry);
     return entry.value;
   }
-  set(key: K, value: V, bytes: number): void {
+  /** False when the value alone exceeds the byte budget, so nothing was kept. */
+  set(key: K, value: V, bytes: number): boolean {
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Invalid cache weight");
     this.delete(key);
-    if (bytes > this.maxBytes) return;
+    if (bytes > this.maxBytes) return false;
     this.entries.set(key, { value, bytes });
     this.bytes += bytes;
     while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
-      const oldest = this.entries.keys().next();
+      const oldest = this.entries.entries().next();
       if (oldest.done) break;
-      this.delete(oldest.value);
+      const [evictedKey, entry] = oldest.value;
+      this.delete(evictedKey);
       this.evicted++;
+      this.onEvict?.(evictedKey, entry.value);
     }
+    return true;
   }
   delete(key: K): void {
     const entry = this.entries.get(key);

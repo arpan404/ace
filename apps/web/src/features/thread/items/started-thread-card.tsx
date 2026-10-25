@@ -9,6 +9,7 @@ import { AgentRowContents, agentRowStyles } from "./agent-row.tsx";
 import { SubagentElapsed } from "./subagent-row.tsx";
 import { StaticRow } from "./transcript-row.tsx";
 import { ThreadLink } from "../transitions/thread-link.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /**
  * The conversation an agent started with `thread_start`, as an agent row where it was started:
@@ -25,6 +26,7 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const thread = useSidebarThread(started?.threadId ?? "");
   const projectName = useProjectName();
   const live = useThreadLiveState(props.threadId);
+  const machine = useMachineSearch();
   if (!started) return null;
   if (started.forked) return <ForkedToRow threadId={started.threadId} title={started.title} />;
   const label = "New thread";
@@ -38,6 +40,7 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
       <Link
         to="/t/$threadId"
         params={{ threadId: started.threadId }}
+        search={machine}
         aria-label={`Open ${title}`}
         className={agentRowStyles.box}
       >

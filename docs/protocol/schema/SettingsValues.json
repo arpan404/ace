@@ -17,7 +17,7 @@
     "agents.maxRunningChildren": {
       "anyOf": [
         {
-          "maximum": 1000,
+          "maximum": 64,
           "minimum": 1,
           "type": "integer"
         },
@@ -281,6 +281,9 @@
       ],
       "type": "string"
     },
+    "remote.agentTransfers": {
+      "type": "boolean"
+    },
     "remote.enabled": {
       "type": "boolean"
     },
@@ -295,6 +298,9 @@
       "maxLength": 2048,
       "type": "string",
       "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
+    },
+    "remote.transferIgnoredFiles": {
+      "type": "boolean"
     },
     "remote.transport": {
       "enum": [
@@ -427,6 +433,8 @@
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",
+    "remote.agentTransfers",
+    "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",

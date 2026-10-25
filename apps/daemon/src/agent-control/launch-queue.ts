@@ -63,12 +63,11 @@ export class LaunchQueue {
     const entry = Entry.parse(row);
     return { childId: entry.child_id, parentId: entry.parent_id, text: entry.text };
   }
-  /** The oldest waiting children of one parent; an unbounded limit returns them all. */
-  next(parent: string, limit: number): ThreadId[] {
-    if (limit <= 0) return [];
+  /** Every waiting child of one parent, oldest first: positions shift as the head starts. */
+  ordered(parent: string): ThreadId[] {
     return this.store
-      .statement(`SELECT child_id FROM ${this.table} WHERE parent_id=? ORDER BY seq LIMIT ?`)
-      .all(parent, Number.isFinite(limit) ? limit : -1)
+      .statement(`SELECT child_id FROM ${this.table} WHERE parent_id=? ORDER BY seq`)
+      .all(parent)
       .map((row) => ThreadId.parse(row.child_id));
   }
   parents(): string[] {
@@ -101,25 +100,29 @@ export function startOrQueue(
 }
 
 /**
- * Starts the oldest waiting launches of one parent into its free slots. Each is taken and
- * started in one transaction, so a full engine leaves it queued and ends this drain (and says
- * so, for callers that retry only then); any other failure goes to `failed`, so a launch that
- * can never start does not wait forever.
+ * Starts the oldest waiting launches of one parent until `slots` of them have started or the
+ * engine is full. Each is taken and started in one transaction, so a full engine leaves it
+ * queued and ends the drain (and says so, for callers that retry only then). A launch that is
+ * skipped (`start` returns "skipped": stopped, gone) or fails for any other reason goes to
+ * `failed` and uses no slot, so the children queued behind it still start now.
  */
 export function drainLaunches(
   store: Store,
   queue: LaunchQueue,
   parent: string,
   slots: number,
-  start: (launch: QueuedLaunch) => void,
+  start: (launch: QueuedLaunch) => "started" | "skipped",
   failed: (child: ThreadId, error: unknown) => void,
 ): "drained" | "engine_full" {
-  for (const child of queue.next(parent, slots)) {
+  if (slots <= 0) return "drained";
+  let started = 0;
+  for (const child of queue.ordered(parent)) {
     try {
-      store.atomic(() => {
+      const outcome = store.atomic(() => {
         const launch = queue.take(child);
-        if (launch) start(launch);
+        return launch ? start(launch) : "skipped";
       });
+      if (outcome === "started" && ++started >= slots) break;
     } catch (error) {
       if (engineFull(error)) return "engine_full";
       failed(child, error);
