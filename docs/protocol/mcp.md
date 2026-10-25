@@ -596,7 +596,7 @@ Example:
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues as plain text: pass streamId with offset 0, then each page's nextOffset unchanged, until eof.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -610,8 +610,8 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
 | limit | no | integer | {"default":10,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
 | streamId | no | string | {"description":"Read a truncated part's retained output instead of the transcript.","minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
-| maxBytes | no | integer | {"default":8192,"description":"With streamId: bytes to read, up to 16384.","minimum":1,"maximum":16384} |
+| offset | no | integer | {"default":0,"description":"With streamId: 0 to start, then the previous page's nextOffset, unchanged.","minimum":0,"maximum":9007199254740991} |
+| maxBytes | no | integer | {"default":8192,"description":"With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.","minimum":1,"maximum":16384} |
 
 Example:
 
@@ -631,7 +631,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"description":"Pass as before for the previous page; null when nothing is earlier.","type":["number","null"]},"omitted":{"description":"Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).","type":"array","items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"description":"Pass as before for the previous page; null when nothing is earlier.","type":["number","null"]},"omitted":{"description":"Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).","type":"array","items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"text":{"description":"With streamId: this page of the part's text, decoded.","type":"string"},"nextOffset":{"description":"With streamId: pass back unchanged as offset for the next page.","type":"number"},"eof":{"description":"With streamId: true when the text ends with this page.","type":"boolean"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
 
 Example:
 
