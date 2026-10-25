@@ -72,8 +72,7 @@ const disabled = (item: HTMLElement) => item.getAttribute("aria-disabled") === "
  * aside on screen, in their own span, so the label is matched whole.
  */
 const armedLabel = (own: string, element: Element | null) =>
-  own.startsWith("Auto-merge on") &&
-  !!element?.textContent?.startsWith("Auto-merge on · squash");
+  own.startsWith("Auto-merge on") && !!element?.textContent?.startsWith("Auto-merge on · squash");
 
 /** Confirm the squash commit auto-merge will write, in the dialog enabling it opens. */
 async function confirmAutoMerge() {
