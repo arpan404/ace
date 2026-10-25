@@ -2,6 +2,7 @@ import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
   type DeviceActivity,
+  type DeviceChrome,
   DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
@@ -133,6 +134,13 @@ export class FakeAppDevices {
   videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
+  /**
+   * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
+   * for a device without one); none by default.
+   */
+  readonly chromes = new Map<string, DeviceChrome>();
+  /** Every device a client asked the look of, in order. */
+  readonly chromeAsks: string[] = [];
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
@@ -155,6 +163,14 @@ export class FakeAppDevices {
       }),
     ])
       this.sessions.set(device.id, idleSession(device));
+  }
+
+  /** New devices channels close before they come up, as an unreachable daemon's do. */
+  refusing = false;
+
+  /** How many devices channels are open. */
+  get openChannels(): number {
+    return this.channels.size;
   }
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
@@ -227,6 +243,10 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
+        if (this.refusing) {
+          queueMicrotask(() => events.close());
+          return;
+        }
         const opened: Channel = { events, streams: new Set<string>() };
         channel = opened;
         this.channels.add(opened);
@@ -422,6 +442,11 @@ export class FakeAppDevices {
       return { ...this.permissions };
     }
     const session = this.session(operation.deviceId);
+    if (operation.op === "chrome") {
+      this.chromeAsks.push(session.device.id);
+      const key = session.device.model ?? session.device.id;
+      return { chrome: this.chromes.get(key) ?? null };
+    }
     switch (operation.op) {
       case "controller":
         if (operation.controller === "human") {

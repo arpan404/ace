@@ -30,10 +30,9 @@ export type SDKOptions = {
   probe?: typeof probeOutput;
   after?: (ms: number, run: () => void) => () => void;
 };
-export async function resolveAndroidSDK(
-  options: SDKOptions,
-): Promise<{ adb: string; emulator: string }> {
-  const roots = [
+/** Where an Android SDK may be installed, most specific first. */
+export function androidSdkRoots(options: Pick<SDKOptions, "home" | "env">): string[] {
+  return [
     ...new Set(
       [
         options.env["ANDROID_HOME"],
@@ -43,6 +42,11 @@ export async function resolveAndroidSDK(
       ].filter((root): root is string => Boolean(root) && isAbsolute(root ?? "")),
     ),
   ];
+}
+export async function resolveAndroidSDK(
+  options: SDKOptions,
+): Promise<{ adb: string; emulator: string }> {
+  const roots = androidSdkRoots(options);
   for (const root of roots) {
     const [adb, emulator] = await Promise.all([
       findExecutable(join(root, "platform-tools/adb"), options.env),

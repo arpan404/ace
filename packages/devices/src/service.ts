@@ -389,6 +389,15 @@ export class DevicesService {
       void this.list().catch(() => {});
       return { serveSim: tools.serveSim !== undefined, scrcpy: tools.scrcpy !== undefined };
     }
+    if (operation.op === "chrome") {
+      // The inventory already read serves; a device it doesn't know yet is looked up afresh.
+      const known = (devices: readonly Device[] | undefined) =>
+        devices?.find((candidate) => candidate.id === operation.deviceId);
+      const device = known(this.inventory.current()?.devices) ?? known(await this.list());
+      if (!device)
+        throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
+      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
+    }
     if (operation.op === "states")
       return {
         states: this.states().filter(
