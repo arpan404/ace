@@ -1,5 +1,4 @@
 import { setPriority } from "node:os";
-import { serviceCommand } from "@ace/service";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readHistoryInstances } from "../history.ts";
 import { readModelInstances } from "../models.ts";
@@ -15,7 +14,9 @@ export async function runtimeCommand(args: Args, config: Config) {
     validateArgs(args, ["linger"], 2, 3);
     await result(
       args,
-      await serviceCommand(config.dataDir, [
+      await (
+        await import("@ace/service")
+      ).serviceCommand(config.dataDir, [
         ...args.words.slice(1),
         ...(args.flags.linger ? ["--linger"] : []),
       ]),

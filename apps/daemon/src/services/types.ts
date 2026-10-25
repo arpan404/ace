@@ -1,6 +1,5 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { CursorHostSlots } from "@ace/adapter-cursor";
-import type { DevicesService } from "@ace/devices";
 import type { ComputerClient, ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
@@ -80,7 +79,7 @@ export interface Services {
   computerUsing?: import("../computer-using.ts").ComputerUsingThreads;
   /** `browser_request_help` requests waiting on the person. */
   browserHelp?: import("../browser-help.ts").BrowserHelp;
-  devices?: DevicesService;
+  devices?: import("../lazy-devices.ts").LazyDevices;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;

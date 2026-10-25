@@ -14,6 +14,8 @@ export interface MetadataQueryInput {
   env: NodeJS.ProcessEnv;
   signal: AbortSignal;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
+  /** The started CLI's pid, as soon as it exists, so an outer owner can contain its group. */
+  onCliProcess?: (pid: number) => void;
 }
 
 /**
@@ -60,6 +62,7 @@ export async function askClaude<T>(
               onStderr() {},
               onProcess(handle) {
                 process = handle;
+                if (handle.pid !== undefined) input.onCliProcess?.(handle.pid);
               },
             },
           ),

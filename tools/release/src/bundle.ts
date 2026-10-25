@@ -7,7 +7,8 @@ import {
   stageTerminalGuardian,
 } from "./terminal-assets.ts";
 import { readFile, cp } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { assertAsciiScripts } from "./ascii-output.ts";
 export { stageNativeFiles } from "./native-assets.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
@@ -38,7 +39,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install|device-tools)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -85,6 +86,8 @@ export async function bundleDaemon(
                   '"./cursor-account-terminal.ts"',
                   '"./cursor-account-terminal.mjs"',
                 );
+              if (args.path.endsWith("/adapter-claude/src/metadata-host-client.ts"))
+                contents = contents.replace('"./metadata-host.ts"', '"./claude-metadata-host.mjs"');
               if (args.path.endsWith("/adapter-claude/src/fork.ts"))
                 contents = contents.replace('"./fork-worker.ts"', '"./claude-fork-worker.mjs"');
               if (args.path.endsWith("/adapter-pi/src/session.ts"))
@@ -172,6 +175,7 @@ export async function bundleDaemon(
     recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
+  const scripts = Object.keys(daemon.metafile.outputs);
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
@@ -189,6 +193,7 @@ export async function bundleDaemon(
       "opencode-mcp-ready-plugin/server.mjs",
     ],
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
+    ["packages/adapter-claude/src/metadata-host.ts", "claude-metadata-host.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
@@ -225,6 +230,9 @@ export async function bundleDaemon(
     });
     if (!helper.metafile) throw new Error("Bundle metadata is required");
     for (const input of Object.keys(helper.metafile.inputs)) inputs.add(input);
+    scripts.push(...Object.keys(helper.metafile.outputs));
   }
+  // esbuild reports output paths relative to the working directory.
+  await assertAsciiScripts(scripts.map((path) => resolve(path)));
   return [...inputs];
 }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { claudeResetCredits } from "./reset-credits.ts";
-import { askClaude, type MetadataQueryInput } from "./metadata-query.ts";
+import type { MetadataQueryInput } from "./metadata-query.ts";
+import { askClaudeMetadata } from "./metadata-host-client.ts";
+import { askUsage, type UsageQuery } from "./metadata-questions.ts";
 
 /*
  * Claude Code's plan limits through the SDK's `get_usage` control request
@@ -90,20 +92,6 @@ export function usageReading(result: unknown): Record<string, unknown> | undefin
   };
 }
 
-/** The SDK query's experimental usage read, when this SDK has it. */
-type UsageQuery = {
-  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (options?: {
-    skipBehaviors?: boolean;
-  }) => Promise<unknown>;
-};
-
-const ask = (query: UsageQuery): Promise<unknown> => {
-  const read = query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
-  return typeof read === "function"
-    ? read.call(query, { skipBehaviors: true })
-    : Promise.resolve(undefined);
-};
-
 /**
  * Ask once and emit what came back as a `note` frame the account registry folds like any
  * rate-limit report. An SDK without the method, an API-key login (no plan limits) or a failed
@@ -114,7 +102,7 @@ export function readClaudeUsage(options: {
   emit(data: Record<string, unknown>): void;
   isClosed(): boolean;
 }): void {
-  ask(options.query).then(
+  askUsage(options.query).then(
     (result) => {
       const reading = usageReading(result);
       if (reading && !options.isClosed()) options.emit(reading);
@@ -136,7 +124,7 @@ export async function readClaudePlanUsage(
   try {
     // A CLI that never answers is stopped, so a refresh never waits on it for good.
     const signal = AbortSignal.any([input.signal, AbortSignal.timeout(timeoutMs)]);
-    result = await askClaude({ ...query, signal }, "usage read", ask);
+    result = await askClaudeMetadata({ ...query, signal }, "usage");
   } catch {
     input.signal.throwIfAborted();
     throw new Error("Claude Code usage is unavailable");
