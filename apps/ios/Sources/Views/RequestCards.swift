@@ -40,13 +40,13 @@ extension View {
     func requestInset() -> some View { modifier(RequestInset()) }
 }
 
-/// The request's title (500) and one muted line under it.
+/// The request's question as a semibold line, and one muted line under it.
 struct RequestHeader: View {
     let title: String
     var detail = ""
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.semibold)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -71,7 +71,7 @@ struct RequestFooter: View {
         }
     }
 }
-/// A request card's answer: the primary choice in ink, the rest outlined.
+/// A request card's answer: plain words, the primary one in semibold ink, the rest muted.
 struct CardButton: View {
     let title: String
     var primary = false
@@ -116,11 +116,11 @@ struct PlanReviewCard: View {
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
-                    .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: AceShape.field)
+                    .padding(.vertical, AceTheme.Spacing.sm).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .overlay(alignment: .top) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
                     .accessibilityIdentifier("plan.feedback")
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            RequestActions {
                 CardButton(title: revising ? "Cancel" : "Request changes") { revising.toggle() }
                     .accessibilityIdentifier("plan.revise")
                 if revising {
@@ -159,11 +159,13 @@ struct FormRequestCard: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)
             }
             if let form, form.mode == "url", let url = URL(string: form.url), !form.url.isEmpty {
-                Link(destination: url) { Label("Open consent page", ace: .compass) }
+                Link("Open consent page", destination: url)
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             }
-            ForEach(form?.fields ?? []) { field in fieldView(field) }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            VStack(spacing: AceTheme.Spacing.none) {
+                ForEach(Array((form?.fields ?? []).enumerated()), id: \.element.id) { index, field in fieldView(field, first: index == 0) }
+            }
+            RequestActions {
                 CardButton(title: "Cancel") { answer(["kind": "form", "action": "cancel"]) }
                 CardButton(title: "Decline") { answer(["kind": "form", "action": "decline"]) }
                     .accessibilityIdentifier("form.decline")
@@ -175,26 +177,45 @@ struct FormRequestCard: View {
         }
         .modifier(RequestCardFrame(submission: submission))
     }
-    @ViewBuilder private func fieldView(_ field: FormRequest.Field) -> some View {
+    /// One field as a grouped row: its name on the left; a choice's value and chevron, or the
+    /// typed value, on the right.
+    @ViewBuilder private func fieldView(_ field: FormRequest.Field, first: Bool) -> some View {
         let value = Binding(get: { values[field.key] ?? field.initial }, set: { values[field.key] = $0 })
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(field.required ? "\(field.title) *" : field.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        GroupedRow(first: first) {
             if field.choices.isEmpty {
-                TextField(field.title, text: value)
-                    .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
+                HStack(spacing: AceTheme.Spacing.md) {
+                    Text(field.title).lineLimit(1).layoutPriority(1)
+                    TextField(field.title, text: value, prompt: Text(prompt(field)).foregroundStyle(AceTheme.Colours.subtleForeground))
+                        .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .accessibilityHint(field.detail)
+                }
             } else {
-                Picker(field.title, selection: value) {
-                    Text("Choose…").tag("")
-                    ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
-                }.pickerStyle(.menu).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                Menu {
+                    Picker(field.title, selection: value) {
+                        ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
+                    }
+                } label: {
+                    HStack(spacing: AceTheme.Spacing.md) {
+                        Text(field.title).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        GroupedValue(text: field.choices.first { $0.value == value.wrappedValue }?.label ?? (field.required ? "Choose" : "Optional"))
+                    }
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                }
+                .accessibilityLabel(field.title)
+                .accessibilityValue(field.choices.first { $0.value == value.wrappedValue }?.label ?? "Not chosen")
+                .accessibilityHint(field.detail)
             }
-            if !field.detail.isEmpty { Text(field.detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("form.field.\(field.key)")
+    }
+    /// What an empty field says: its hint ("Between 1 and 5"), else whether it must be filled.
+    private func prompt(_ field: FormRequest.Field) -> String {
+        if !field.detail.isEmpty { return field.detail }
+        return field.required ? "Required" : "Optional"
     }
     private func submitted(_ form: FormRequest?) -> [String: String] {
         var result: [String: String] = [:]
@@ -207,6 +228,18 @@ struct FormRequestCard: View {
     private func filled(_ form: FormRequest?) -> Bool {
         let given = submitted(form)
         return (form?.fields ?? []).allSatisfy { !$0.required || given[$0.key] != nil }
+    }
+}
+
+/// A request's answers on one row at the trailing edge, as an alert lays them out; on a narrow
+/// screen or at large text they stack.
+struct RequestActions<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); content() }
+            VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }
 
@@ -231,7 +264,7 @@ struct BrowserHelpCard: View {
             } else {
                 Text("The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            RequestActions {
                 CardButton(title: "Skip") { answer(["kind": "help", "outcome": "skipped"]) }
                 CardButton(title: "Done", primary: true) { answer(["kind": "help", "outcome": "done"]) }
                     .accessibilityIdentifier("help.done")

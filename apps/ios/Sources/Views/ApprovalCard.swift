@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// A permission request in the composer's strip, as the web draws it: what it asks, the command
-/// in a code block, a high or medium risk on one line, then the request's own verbs (Allow once
-/// primary, the rest secondary) and Details ›, which holds the reason and any other option the
-/// request offers.
+/// A permission request above the composer: what it asks as a semibold line, the command in a
+/// code block, a high or medium risk on one line, then Details › on the left and the request's
+/// own verbs as plain words on the right (Allow once in semibold ink). Details holds the reason
+/// and any other option the request offers.
 struct ApprovalCard: View {
     let approval: ApprovalRow
     let submission: ApprovalSubmission?
@@ -14,11 +14,7 @@ struct ApprovalCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md - AceTheme.Spacing.xxs) {
-            Text(nonEmpty(approval.heading) ?? approval.title)
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
+            RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)
             if !approval.command.isEmpty { CommandBlock(command: approval.command) }
             if let level = riskLevel, let text = nonEmpty(approval.riskText) {
                 (Text(level).fontWeight(.medium).foregroundStyle(approval.risk == "high" ? AceTheme.StatusText.failed : AceTheme.StatusText.needsYou)
@@ -31,15 +27,16 @@ struct ApprovalCard: View {
             }
             // One row when it fits; on a narrow screen or large text, Details goes under the answers.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    answerRow
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    detailsToggle
                     Spacer(minLength: AceTheme.Spacing.none)
-                    detailsToggle
-                }
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                     answerRow
+                }
+                VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) {
+                    VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { answers }.disabled(submission != nil || !canAct)
                     detailsToggle
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             if details { detailsBody }
             RequestFooter(submission: submission, canAct: canAct)
@@ -67,7 +64,7 @@ struct ApprovalCard: View {
         approval.options.filter { $0.kind == "allow_once" || $0.kind == "deny" }.sorted { $0.kind == "allow_once" && $1.kind != "allow_once" }
     }
     private var answerRow: some View {
-        HStack(spacing: AceTheme.Spacing.sm) { answers }.disabled(submission != nil || !canAct)
+        HStack(spacing: AceTheme.Spacing.xs) { answers }.disabled(submission != nil || !canAct)
     }
     @ViewBuilder private var detailsToggle: some View {
         if hasDetails {
@@ -143,34 +140,32 @@ struct CommandBlock: View {
         .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
         .fixedSize(horizontal: false, vertical: true)
         .requestInset()
-        .aceConcentricBorder(AceTheme.Colours.separator, minimum: StripMetrics.insetRadius, lineWidth: AceTheme.Dimensions.border)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Command")
         .accessibilityValue(command)
     }
 }
 
-/// A request's answer: the one primary in ink, the rest outlined so they read as buttons at rest.
-/// 44pt tall for a finger, a capsule, flat.
+/// A request's answer as plain words, as a system alert draws them: the one primary in semibold
+/// ink, the rest muted, a soft fill only while pressed. 44pt tall for a finger.
 struct RequestButtonStyle: ButtonStyle {
     var primary = false
-    /// Takes the card's full width (a question's Continue).
+    /// Takes the card's full width.
     var wide = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         let shape = AceShape.capsule
         configuration.label
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .aceFont(AceTheme.Typography.body, relativeTo: .body)
+            .fontWeight(primary ? .semibold : .regular)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
-            .foregroundStyle(primary ? AceTheme.Colours.onAccent : AceTheme.Colours.foreground)
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .frame(maxWidth: wide ? .infinity : nil, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
-            .background(primary ? AceTheme.Colours.accent : (configuration.isPressed ? AceTheme.Colours.fill : .clear), in: shape)
-            .overlay { if !primary { shape.strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border) } }
-            .opacity(enabled ? (primary && configuration.isPressed ? 0.85 : 1) : AceTheme.Opacity.disabled(scheme))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(maxWidth: wide ? .infinity : nil, minHeight: AceTheme.Dimensions.touchTarget)
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: shape)
+            .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
             .contentShape(shape)
     }
 }
