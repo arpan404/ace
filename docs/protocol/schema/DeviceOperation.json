@@ -402,6 +402,26 @@
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
         "op": {
+          "const": "posture",
+          "type": "string"
+        },
+        "posture": {
+          "$ref": "https://ace.local/protocol/v1/DevicePosture.json"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "posture"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
           "const": "screenshot",
           "type": "string"
         }

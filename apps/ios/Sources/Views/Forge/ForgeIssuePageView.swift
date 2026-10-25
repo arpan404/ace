@@ -10,15 +10,18 @@ struct ForgeIssuePageView: View {
     let actions: ForgeTabActions
     @State private var page: ForgeIssuePage?
     @State private var failure: String?
+    @State private var tickMessage: String?
+    @State private var draft = ""
+    @State private var posting = false
     @Environment(\.openURL) private var openURL
-    private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number) }
+    private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number, repository: route.repository) }
 
     /// Opens on the page this phone last saw for this issue, read again behind it.
     init(client: ClientModel, route: ForgeRoute, actions: ForgeTabActions) {
         self.client = client
         self.route = route
         self.actions = actions
-        _page = State(initialValue: client.kept(ClientModel.forgeIssueRead(project: route.project, number: route.number), as: ForgeIssuePage.self))
+        _page = State(initialValue: client.kept(ClientModel.forgeIssueRead(project: route.project, number: route.number, repository: route.repository), as: ForgeIssuePage.self))
     }
 
     var body: some View {
@@ -87,8 +90,13 @@ struct ForgeIssuePageView: View {
             .padding(.horizontal, AceTheme.Spacing.lg)
             .accessibilityIdentifier("forge.issue.header")
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: actions.openThread)
-            if !page.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownView(text: page.body).padding(.horizontal, AceTheme.Spacing.lg)
+            if !page.bodyBlocks.isEmpty {
+                ForgeRichView(blocks: page.bodyBlocks, scope: scope(page), tick: bodyTicker(page))
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                if let tickMessage {
+                    Text(tickMessage).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                        .padding(.horizontal, AceTheme.Spacing.lg)
+                }
             }
             if !page.events.isEmpty {
                 ForgeSection(title: "Conversation") {
@@ -100,8 +108,78 @@ struct ForgeIssuePageView: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .padding(.horizontal, AceTheme.Spacing.lg)
             }
+            if client.canOperate { commentBox(page) }
         }
         .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    /// The comment box at the conversation's end, and writes GitHub hasn't confirmed to check.
+    @ViewBuilder private func commentBox(_ page: ForgeIssuePage) -> some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            ForEach(page.unconfirmed, id: \.self) { change in
+                HStack {
+                    Text("\(change.label) isn't confirmed").meta()
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Button("Check GitHub") { check(page, change.id) }
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .disabled(posting)
+                }
+            }
+            ForgeEditor(text: $draft, placeholder: "Leave a comment", minLines: 2, maxLines: 8,
+                        completer: ForgeCompleter(client: client, project: route.project, repository: page.repository, on: (kind: "issue", number: page.number)))
+                .disabled(page.box.off != nil)
+            HStack {
+                if let off = page.box.off { Text(off).meta() }
+                if let tickMessage, page.box.off == nil {
+                    Text(tickMessage).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                }
+                Spacer(minLength: AceTheme.Spacing.sm)
+                Button("Comment") { post(page) }
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                    .disabled(posting || page.box.off != nil || !page.unconfirmed.isEmpty || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("forge.issue.comment")
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.lg)
+    }
+
+    private func post(_ page: ForgeIssuePage) {
+        let body = draft
+        posting = true
+        Task {
+            let outcome = await client.forgeIssueComment(project: route.project, repository: page.repository, number: page.number, body: body)
+            posting = false
+            // Text typed while it posted stays, to send next.
+            if outcome.ok, draft == body { draft = "" }
+            tickMessage = outcome.ok ? nil : outcome.message
+        }
+    }
+
+    private func check(_ page: ForgeIssuePage, _ id: String) {
+        posting = true
+        Task {
+            let outcome = await client.forgeIssueCheck(project: route.project, repository: page.repository, actionId: id)
+            posting = false
+            tickMessage = outcome.ok ? nil : outcome.message
+        }
+    }
+
+    private func scope(_ page: ForgeIssuePage) -> ForgeRichScope {
+        ForgeRichScope(client: client, project: route.project, repository: route.repository ?? page.repository)
+    }
+
+    private func bodyTicker(_ page: ForgeIssuePage) -> ((Int, Bool) -> Void)? {
+        guard page.tasks, client.canOperate else { return nil }
+        return { offset, checked in tick(page, offset, checked) }
+    }
+
+    /// Tick one box in the issue's body, in the text shown; GitHub's answer is read back.
+    private func tick(_ page: ForgeIssuePage, _ offset: Int, _ checked: Bool) {
+        Task {
+            let outcome = await client.forgeTask(project: route.project, number: page.number, repository: page.repository,
+                                                 on: ["kind": "issue"], offset: offset, checked: checked)
+            tickMessage = outcome.ok ? nil : outcome.message
+        }
     }
 
     private func people(_ page: ForgeIssuePage) -> String {
@@ -121,7 +199,7 @@ struct ForgeIssuePageView: View {
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            if let body = event.body, event.comment { MarkdownView(text: body) }
+            if event.comment, !event.blocks.isEmpty, let page { ForgeRichView(blocks: event.blocks, scope: scope(page)) }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)
@@ -136,7 +214,7 @@ struct ForgeIssuePageView: View {
     }
 
     private func load() async {
-        do { page = try await client.forgeIssue(project: route.project, number: route.number); failure = nil }
+        do { page = try await client.forgeIssue(project: route.project, number: route.number, repository: route.repository); failure = nil }
         catch is CancellationError {}
         catch { failure = error.localizedDescription }
     }

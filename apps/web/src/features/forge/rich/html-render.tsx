@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { ForgeImage, ForgeVideo } from "./forge-media.tsx";
 import { ForgeDocument, ForgeText, forgeLinkClass, scrollToAnchor } from "./forge-text.tsx";
-import type { HtmlNode } from "./html-tree.ts";
+import type { HtmlNode } from "@ace/ui-core/forge-rich";
 import { InsideCode, InsideLink } from "./scope.ts";
 
 /*

@@ -7,6 +7,10 @@ const endpoint = process.argv.at(-1);
 if (!endpoint?.startsWith("unix:")) throw new Error("Expected a Unix frame endpoint");
 const frames = connect(endpoint.slice(5));
 frames.on("error", () => process.exit(1));
+// The app showing the Simulator's window: Simulator, or newer Xcode's device tool.
+const windowBundle =
+  process.argv.find((arg) => arg.startsWith("--window-bundle="))?.slice(16) ??
+  "com.apple.iphonesimulator";
 let sessionId = "not-started";
 let sequence = 0;
 let active = false;
@@ -21,7 +25,7 @@ commands.on("line", (line) => {
     case "targets":
       data = {
         displays: [],
-        windows: [{ windowId: 42, bundleId: "com.apple.iphonesimulator", title: "iPhone" }],
+        windows: [{ windowId: 42, bundleId: windowBundle, title: "iPhone" }],
       };
       break;
     case "start":

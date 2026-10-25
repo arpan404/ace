@@ -28,6 +28,9 @@
     "error": {
       "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
     },
+    "framed": {
+      "type": "boolean"
+    },
     "holder": {
       "properties": {
         "agentId": {
@@ -59,6 +62,9 @@
     },
     "ownedHere": {
       "type": "boolean"
+    },
+    "posture": {
+      "$ref": "https://ace.local/protocol/v1/DevicePosture.json"
     },
     "recording": {
       "type": "boolean"

@@ -31,8 +31,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10))
-        app.buttons["composer.model"].tap()
+        app.composerControl("composer.model").tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")
@@ -267,11 +266,35 @@ import XCTest
         XCTAssertFalse(target.exists, "the window around the old message is gone")
         screenshot("focused-message-back-live")
     }
+    /// A fork's transcript draws "Forked from <source>" where its own work starts; the title opens
+    /// the source thread. A fork whose source the thread list doesn't know names it in plain words.
+    func testForkedFromDividerOpensTheSourceThread() {
+        let app = open("ios-fork")
+        let divider = app.buttons["transcript.forked"]
+        XCTAssertTrue(divider.waitForExistence(timeout: 30))
+        XCTAssertEqual(divider.label, "Forked from Tighten the composer spacing")
+        screenshot("thread-forked-from")
+        divider.tap()
+        XCTAssertTrue(app.navigationBars["Tighten the composer spacing"].waitForExistence(timeout: 15))
+        app.terminate()
+        let gone = open("ios-fork-gone")
+        let plain = gone.descendants(matching: .any)["transcript.forked"]
+        XCTAssertTrue(plain.waitForExistence(timeout: 30))
+        XCTAssertEqual(plain.label, "Forked from the earlier thread")
+        XCTAssertFalse(gone.buttons["transcript.forked"].exists, "a source the list doesn't know opens nothing")
+    }
+    private func open(_ threadId: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", threadId]
+        app.launch()
+        return app
+    }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]
         _ = row.waitForExistence(timeout: 25)
-        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
     private func launch() -> XCUIApplication {

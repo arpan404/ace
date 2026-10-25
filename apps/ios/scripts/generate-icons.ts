@@ -199,6 +199,7 @@ const extra = [
   "chat-teardrop-text",
   "arrows-out-simple",
   "folder-simple",
+  "git-fork",
   "git-pull-request",
   "hammer",
   "list",
@@ -208,6 +209,24 @@ const extra = [
   "sidebar-simple",
   "tree-structure",
   "user",
+  // Reactions and comment actions on pull requests and issues, as the web draws them.
+  "thumbs-up",
+  "thumbs-down",
+  "smiley",
+  "confetti",
+  "smiley-meh",
+  "heart",
+  "rocket-launch",
+  "eyes",
+  "smiley-sticker",
+  "arrow-bend-up-left",
+  "link-simple",
+  "eye-slash",
+  "bell-slash",
+  "envelope-open",
+  "lock-open",
+  "flag",
+  "play-circle",
 ];
 
 const pascal = (name: string) =>

@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
-import { commentUrl, hiddenReasons } from "./pr-comment-model.ts";
+import { commentUrl, hiddenReasons } from "@ace/ui-core";
 
 /** What the ⋯ menu of one comment can do; each is absent where it doesn't apply. */
 export interface CommentMenuActions {

@@ -125,7 +125,7 @@ import XCTest
     private func launchIntoFiles() -> XCUIApplication {
         let app = launchIntoThread()
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.files"].tap()
+        app.threadMenuItem("thread.files").tap()
         return app
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }

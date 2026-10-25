@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useOpenOnMachine } from "@/lib/open-on-machine.ts";
 import type { LineAction } from "./transfer-line.tsx";
 import { useTransferActions, type Refusal } from "./use-transfer-actions.ts";
-import { doneWords, refusalWords, runningWords } from "./transfer-words.ts";
+import { doneWords, refusalWords, runningWords } from "@ace/ui-core/transfers";
 
 /** Try again: starts it over, and says why when the daemon refused. */
 export type Retry = () => Promise<Refusal | undefined> | void;

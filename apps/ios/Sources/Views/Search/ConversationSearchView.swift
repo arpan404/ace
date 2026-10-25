@@ -20,6 +20,7 @@ struct ConversationSearchSheet: View {
                 }
             }
             .navigationTitle("Search").navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .navigationDestination(for: String.self) { id in
                 if let model, let thread = model.thread, thread.id == id {

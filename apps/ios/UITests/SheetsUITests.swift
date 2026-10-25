@@ -23,7 +23,7 @@ import XCTest
     func testChangesSheetShowsFilesADiffAndTheNextStep() throws {
         let app = launchIntoTree()
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.changes"].tap()
+        app.threadMenuItem("thread.changes").tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
         screenshot("changes")
@@ -43,7 +43,7 @@ import XCTest
     func testCommitEditorFillsTheMessageFromTheDaemonsDraft() throws {
         let app = launchIntoTree()
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.changes"].tap()
+        app.threadMenuItem("thread.changes").tap()
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
         app.buttons["changes.step"].tap()
         let field = app.textFields["changes.text"]

@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import type { PrDialog } from "./pr-dialogs.tsx";
 import { PrSection } from "./pr-section.tsx";
-import { lockReasonLabels } from "./pr-lock-reasons.ts";
+import { lockReasonLabels } from "@ace/ui-core";
 
 function Row(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (

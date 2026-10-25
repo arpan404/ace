@@ -4,8 +4,7 @@ import type { ForgePrDetail, ForgePrReviewers } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
-import { reviewOutcomes } from "./pr-reviewers-model.ts";
-import { reviewerOutcomes, type ReviewOutcome } from "@ace/ui-core";
+import { reviewOutcomes, reviewerOutcomes, type ReviewOutcome } from "@ace/ui-core";
 
 /** How long a reviewers read stands before a new reader asks GitHub again. */
 const reviewersFreshMs = 30_000;

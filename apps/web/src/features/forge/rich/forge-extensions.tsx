@@ -9,37 +9,23 @@ import {
   type TaskControl,
 } from "./forge-blocks.tsx";
 import { ForgeImage, ForgeLinkMedia } from "./forge-media.tsx";
-import { htmlPieces } from "./html-pieces.ts";
-import { safeImage } from "./html-policy.ts";
+import {
+  htmlPieces,
+  mediaLink,
+  safeImage,
+  htmlTree,
+  type RunEntry,
+  taskMarks,
+  type TaskMark,
+} from "@ace/ui-core/forge-rich";
 import { HtmlNodes } from "./html-render.tsx";
 import { MermaidDiagram } from "./mermaid-diagram.tsx";
-import { htmlTree, type RunEntry } from "./html-tree.ts";
-import { taskMarks, type TaskMark } from "./source-marks.ts";
 
 /*
  * How forge text draws what agent prose doesn't (ADR 0096), as extensions to the shared
  * renderer: raw HTML through the sanitizer, images and videos through the daemon, alerts,
  * task boxes and footnotes. One set per document (its text and edit), made by `ForgeProse`.
  */
-
-const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const attachment = new RegExp(`^/user-attachments/assets/${uuid}/?$`, "i");
-const repositoryAsset = new RegExp(`^/[^/]+/[^/]+/assets/\\d+/${uuid}/?$`, "i");
-const videoFile = /\.(mp4|mov|webm)$/i;
-
-/** A link GitHub may show as a player when it stands alone on its line. */
-export function mediaLink(href: string, host: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(href);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== "https:") return false;
-  if (url.hostname === host)
-    return attachment.test(url.pathname) || repositoryAsset.test(url.pathname);
-  return url.hostname.endsWith("githubusercontent.com") && videoFile.test(url.pathname);
-}
 
 /** A run of tokens as entries for `htmlTree`: HTML tokens split into pieces. */
 function runOf(tokens: readonly Token[]): RunEntry[] {

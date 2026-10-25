@@ -39,6 +39,7 @@ struct GoalSheet: View {
             .background(AceTheme.Colours.background)
             .navigationTitle(goal.title)
             .navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
@@ -113,6 +114,7 @@ struct QueueSheet: View {
             .background(AceTheme.Colours.background)
             .navigationTitle("Queued")
             .navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }

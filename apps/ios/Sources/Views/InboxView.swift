@@ -16,6 +16,7 @@ struct InboxUndo: Equatable {
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @Bindable var inbox: MachineInbox
     /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
@@ -73,12 +74,19 @@ struct InboxView: View {
             }
     }
 
+    /// The tab role the system draws as its own round button at the bar's trailing end, apart from
+    /// Threads and Pulls: iOS 27's prominent tab; before it, the search tab.
+    private static var detachedRole: TabRole {
+        if #available(iOS 27, *) { return .prominent }
+        return .search
+    }
+
     private var tabs: some View {
         TabView(selection: $tab) {
             Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
             Tab("Pulls", image: "tab-pulls", value: InboxTab.pulls) { stack(.pulls, path: $pullsPath) }
             if inbox.canStartThreads {
-                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: .search) { Color.clear }
+                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: Self.detachedRole) { Color.clear }
             }
         }
         .tint(AceTheme.Colours.foreground)
@@ -105,15 +113,27 @@ struct InboxView: View {
             if threadsPath.isEmpty { openThread(key) }
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
+        .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
-        .overlay(alignment: .bottom) { toast }
+        // Beside an open thread the toast sits under the list it acted on, clear of the composer.
+        .overlay(alignment: sizeClass == .regular ? .bottomLeading : .bottom) { toast }
     }
 
     private var sheets: some View {
         tabs
         .sheet(isPresented: $showingSettings) {
             SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
+                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
         }
+    }
+
+    /// Open from a transfer's line goes to that machine's thread on the Threads tab.
+    private var otherMachines: OtherMachines {
+        OtherMachines(client: { inbox.client($0) }, open: { key in
+            guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
+            openThread(key)
+            return true
+        })
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the
@@ -126,7 +146,7 @@ struct InboxView: View {
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
     private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls,
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { if !inbox.sessions.isEmpty { composing = true } }),
                    machine: $machineFilter, project: $projectFilter,
@@ -165,7 +185,7 @@ struct InboxView: View {
     }
 
     @ViewBuilder private var toast: some View {
-        if let undo, openTab == nil {
+        if let undo, openTab == nil || sizeClass == .regular {
             HStack(spacing: AceTheme.Spacing.md) {
                 Text(undo.kind == .settled ? "Settled thread" : "Archived thread").lineLimit(1)
                 Button("Undo") {
@@ -183,8 +203,9 @@ struct InboxView: View {
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
             .aceGlass(in: AceShape.capsule)
-            // Clear of the tab bar.
-            .padding(.bottom, 76)
+            // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
+            .padding(.leading, sizeClass == .regular ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
+            .padding(.bottom, ThreadColumns.sidebarHoldsTabs(sizeClass) ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 try? await Task.sleep(for: .seconds(5))

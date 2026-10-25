@@ -20,28 +20,16 @@ import { PrComment } from "./pr-comment.tsx";
 import { PrThread } from "./pr-thread.tsx";
 import {
   eventText,
-  type PrLifecycleState,
+  lifecycleWords,
+  reviewVerdictWords,
   type PrReference,
-  type PrReviewVerdict,
   type PrTimelineItem,
-} from "./pr-timeline.ts";
+} from "@ace/ui-core";
 import { WebLink } from "@/components/web-link.tsx";
 
 export type TimelineExpansion = { isOpen(id: string): boolean; toggle(id: string): void };
 
-const verdictWords: Record<PrReviewVerdict, { text: string; tone?: string }> = {
-  approved: { text: "approved", tone: "done" },
-  changes: { text: "requested changes", tone: "failed" },
-  commented: { text: "reviewed" },
-  dismissed: { text: "review dismissed" },
-  pending: { text: "review pending" },
-};
-const lifecycleWords: Record<PrLifecycleState, { text: string; tone: string }> = {
-  opened: { text: "opened this pull request", tone: "done" },
-  reopened: { text: "reopened this pull request", tone: "done" },
-  merged: { text: "merged this pull request", tone: "waiting" },
-  closed: { text: "closed this pull request", tone: "failed" },
-};
+const verdictWords = reviewVerdictWords;
 
 function Avatar(props: { name: string; url?: string | undefined; small?: boolean }) {
   return (

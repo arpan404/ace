@@ -2272,6 +2272,7 @@ Example:
     "sessionId": "TbjKia0mdk_wOvomFDW-BVn9sgXlUj",
     "target": {
       "bundleId": "example",
+      "content": false,
       "kind": "window",
       "windowId": 2
     }
@@ -2347,7 +2348,7 @@ Example:
     },
     "booting": true,
     "cleanupRequired": false,
-    "controller": "none",
+    "controller": "human",
     "device": {
       "id": "android:POLHfuLPXAX98pwromexyE4pjFSP",
       "name": "example",
@@ -2357,13 +2358,13 @@ Example:
       "state": "offline"
     },
     "enabled": true,
-    "error": {
-      "code": "timeout",
-      "hint": "example",
-      "message": "example"
+    "framed": false,
+    "holder": {
+      "agentId": "example",
+      "threadId": "example"
     },
-    "leaseExpiresAt": 0,
     "lifecycle": "live",
+    "ownedHere": true,
     "recording": true,
     "recordingNotice": "example",
     "touch": "gestures"

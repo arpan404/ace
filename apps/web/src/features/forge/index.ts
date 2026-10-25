@@ -15,7 +15,8 @@ export type {
 export { useRepoPrOptions } from "./pr-repo-options.ts";
 export { PrCompareFiles } from "./pr-compare-files.tsx";
 export { readFailureText } from "./query-state.tsx";
-export { ForgeCompletions, issueParticipants } from "./forge-completions.tsx";
+export { ForgeCompletions } from "./forge-completions.tsx";
+export { issueParticipants } from "@ace/ui-core";
 /** People's PR and issue text drawn as GitHub draws it (ADR 0096), and the page scope it reads. */
 export { ForgeProse } from "./rich/forge-prose.tsx";
 export { ForgeContentScope } from "./rich/scope.ts";

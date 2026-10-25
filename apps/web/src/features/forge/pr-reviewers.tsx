@@ -8,7 +8,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
-import { reviewerWords, type ReviewerRow } from "./pr-reviewers-model.ts";
+import { reviewerWords, type ReviewerRow } from "@ace/ui-core";
 
 /** The verdict's colour, drawn as a 2px band around the avatar. */
 const band: Record<string, string> = {
