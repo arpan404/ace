@@ -64,7 +64,7 @@ export class Background {
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
   /** Threads working or waiting on the person, as the daemon link last reported. */
-  private work: WorkSummary = { needsYou: 0, working: 0 };
+  private work: WorkSummary = { needsYou: 0, working: 0, held: 0 };
   private hadWindow = false;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;

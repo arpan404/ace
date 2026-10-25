@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { WorkTally } from "../link/thread-watch.ts";
 import { appLifetime, type LifetimeFacts } from "./lifetime.ts";
 
-const idle = { needsYou: 0, working: 0 };
+const idle = { needsYou: 0, working: 0, held: 0 };
 
 const closed: LifetimeFacts = {
   platform: "win32",
@@ -48,6 +48,13 @@ it("a thread waiting on an approval keeps a windowless app running in the tray",
     });
 });
 
+it("a thread paused at a usage limit or with a silent agent keeps a windowless app running", () => {
+  expect(appLifetime({ ...closed, platform: "linux", work: { ...idle, held: 1 } })).toEqual({
+    quit: false,
+    tray: true,
+  });
+});
+
 it("once the last page closes and no agent works, a windowless app quits", () => {
   const busy = { ...closed, browserPages: 1, work: { ...idle, working: 1 } };
   expect(appLifetime(busy).quit).toBe(false);
@@ -78,7 +85,7 @@ it("macOS keeps the app open without windows and shows the tray only by setting"
   expect(appLifetime({ ...closed, platform: "darwin" })).toEqual({ quit: false, tray: false });
   expect(appLifetime({ ...closed, platform: "darwin", browserPages: 3 }).tray).toBe(false);
   expect(
-    appLifetime({ ...closed, platform: "darwin", work: { needsYou: 2, working: 1 } }),
+    appLifetime({ ...closed, platform: "darwin", work: { needsYou: 2, working: 1, held: 0 } }),
   ).toEqual({ quit: false, tray: false });
 });
 
