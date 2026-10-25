@@ -11,11 +11,18 @@ struct RemoteSettingsCategory: Identifiable {
     let title: String
     var symbol = "slider.horizontal.3"
     let settings: [RemoteSetting]
+    /// Said under the rows, instead of the usual "Saved on this machine".
+    var footer: String? = nil
     var id: String { title }
     static let computer = RemoteSettingsCategory(title: "App access and devices", settings: [
         .init(key: "computer.blockedApps", title: "Apps agents can't use", control: .stringList),
         .init(key: "devices.emulatorWindow", title: "Show emulator window", control: .toggle),
     ])
+    /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
+    static let fleet = RemoteSettingsCategory(title: "Fleet", symbol: "point.3.connected.trianglepath.dotted", settings: [
+        .init(key: "remote.agentTransfers", title: "Agents can move projects and threads to other machines", control: .toggle),
+        .init(key: "remote.transferIgnoredFiles", title: "Bring ignored files", control: .toggle),
+    ], footer: "With Bring ignored files, local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead.")
     static let all: [RemoteSettingsCategory] = [
         .init(title: "Threads", symbol: "bubble.left.and.bubble.right", settings: [
             .init(key: "threads.followUpBehavior", title: "Follow-up delivery", control: .choices(["steer", "queue"])),
@@ -70,7 +77,7 @@ struct RemoteSettingsView: View {
             Group {
                 Section {
                     ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
-                } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+                } footer: { Text(category.footer ?? "Saved on this machine. A thread or project can override these defaults.") }
             }
             .insetRowBackground()
         }

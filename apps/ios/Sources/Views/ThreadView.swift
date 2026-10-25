@@ -80,7 +80,7 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
             }
             .navigationTitle(metadata?.title ?? "Thread")
@@ -122,6 +122,7 @@ struct ThreadView: View {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .transferSheet(model: model, kind: "thread")
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
                     GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
@@ -175,6 +176,8 @@ struct ThreadView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // A request needs the person first; the transfer's line waits under it.
+                    else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
                 }
                 .transition(.opacity)
                 if archived {
