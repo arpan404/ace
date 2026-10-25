@@ -2714,7 +2714,11 @@ Example:
     "interactionId": "example",
     "message": "example",
     "preview": "example",
-    "status": "unresponsive",
+    "run": {
+      "outcome": "delivered",
+      "phase": "plan"
+    },
+    "status": "background_done",
     "threadId": "example",
     "title": "example"
   },
@@ -2947,53 +2951,77 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
     "items": {},
-    "itemsBefore": null,
     "kind": "thread",
-    "queue": {
-      "lastFailure": null,
-      "paused": true,
-      "pendingCount": 3,
-      "reason": "manual",
-      "resumeAt": 9,
-      "revision": 4
+    "offshift": {
+      "blocker": null,
+      "criteria": [],
+      "criteriaCount": 7,
+      "endpoint": "example",
+      "id": "d5",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 2,
+      "phase": "plan",
+      "revision": "example",
+      "steps": [],
+      "updatedAt": 3,
+      "version": 8
     },
     "runs": {},
-    "seq": 9,
+    "seq": 5,
     "thread": {
-      "activitySeq": 9,
+      "acpAgentId": "example",
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": true,
+          "resume": true
+        },
+        "coverage": "source_profile",
+        "mcp": "http",
+        "modeSelection": true,
+        "modelSelection": false,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "subagentSessions": false,
+        "visibility": "limited"
+      },
       "autoSettle": false,
-      "autoSettleAt": 8,
       "capabilities": {
         "attachmentInput": {
           "documents": [],
-          "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 2
+          "embeddedContext": true,
+          "format": "acp",
+          "maxInlineBytes": 0
         },
-        "backgroundTaskControl": true,
+        "backgroundTaskControl": false,
         "backgroundVisibility": "full",
-        "childControls": "read-only",
+        "childFidelity": "summary",
         "fork": true,
-        "forkSubagents": true,
-        "imageInput": true,
+        "forkMode": "native",
+        "forkPoints": [],
+        "goals": true,
+        "imageInput": false,
         "interruptCascades": true,
-        "launchOptions": [],
-        "permissionModes": [],
         "planMode": false,
-        "resume": true,
+        "resume": false,
         "rewindFiles": true,
         "steer": false,
-        "steeringMode": "interrupt-restart",
+        "steerTiming": "after_tool",
         "subagentTranscripts": true,
         "tokenUsage": true
       },
@@ -3002,71 +3030,33 @@ Example:
         "reason": "cursor_cli_retired",
         "state": "read_only"
       },
-      "createdAt": 1,
-      "effectiveCapabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "acp",
-          "maxInlineBytes": 9
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "none",
-        "childControls": "read-only",
-        "fork": false,
-        "imageInput": false,
-        "interruptCascades": false,
-        "launchOptions": [],
-        "planMode": false,
-        "resume": true,
-        "rewindFiles": true,
-        "sessionOptions": false,
-        "steer": true,
-        "steerTiming": "immediate",
-        "subagentTranscripts": true,
-        "tokenUsage": true
+      "createdAt": 2,
+      "goal": {
+        "checks": 1,
+        "objective": "example",
+        "status": "active",
+        "timeUsedSeconds": 6
       },
       "id": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
-      },
-      "live": {
-        "provider": "claude",
-        "step": "tests",
-        "waitingOn": 1,
-        "workingSince": 1
-      },
-      "permission": {
-        "effective": "auto-review",
-        "override": null,
-        "pending": true
-      },
-      "pinOrder": 7,
-      "prSettled": 6,
-      "provider": "claude",
+      "provider": "acp",
+      "settledReason": "inactivity",
       "snoozedUntil": 2,
       "status": {
-        "state": "limited",
-        "until": 9
+        "state": "unresponsive"
       },
       "switch": {
         "at": 4,
+        "error": "example",
         "lossy": false,
         "selection": {
-          "provider": "antigravity"
+          "model": "example",
+          "provider": "pi"
         },
         "state": "applied"
       },
       "title": "example",
-      "unread": false,
-      "updatedAt": 1,
+      "titleSource": "agent",
+      "updatedAt": 3,
       "workspaceId": "example"
     },
     "usage": {}

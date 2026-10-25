@@ -50,6 +50,8 @@ export interface ToolContext {
   readonly listing?: ToolListing;
   /** The client, where it reads tools differently from its listing (`toolsets.ts`). */
   readonly client?: AceClient;
+  /** Seconds the client lets one call run before cancelling it, where it says (`toolsets.ts`). */
+  readonly callBudgetSeconds?: number;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
 }
@@ -387,7 +389,12 @@ export class ToolRegistry {
     input: unknown,
     principal: Principal,
     requestSignal: AbortSignal,
-    options: { listing?: ToolListing; client?: AceClient; session?: SessionTools } = {},
+    options: {
+      listing?: ToolListing;
+      client?: AceClient;
+      callBudgetSeconds?: number;
+      session?: SessionTools;
+    } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
@@ -399,6 +406,7 @@ export class ToolRegistry {
       signal,
       ...(options.listing ? { listing: options.listing } : {}),
       ...(options.client ? { client: options.client } : {}),
+      ...(options.callBudgetSeconds ? { callBudgetSeconds: options.callBudgetSeconds } : {}),
       ...(options.session ? { session: options.session } : {}),
     };
     const observe = this.observeCall?.(name, input, context);

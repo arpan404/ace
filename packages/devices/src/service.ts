@@ -161,6 +161,7 @@ export class DevicesService {
       recording: session.recording !== undefined,
       streamId: session.streamId,
       ...(session.capture ? { touch: deviceTouch(session.device, session.capture) } : {}),
+      ...(session.capture?.framed ? { framed: true } : {}),
       ...session.lease.status(),
       error: session.error,
       activity: session.activity,
@@ -388,6 +389,15 @@ export class DevicesService {
       // The inventory's notes drop the missing-tools one once the next read finds them.
       void this.list().catch(() => {});
       return { serveSim: tools.serveSim !== undefined, scrcpy: tools.scrcpy !== undefined };
+    }
+    if (operation.op === "chrome") {
+      // The inventory already read serves; a device it doesn't know yet is looked up afresh.
+      const known = (devices: readonly Device[] | undefined) =>
+        devices?.find((candidate) => candidate.id === operation.deviceId);
+      const device = known(this.inventory.current()?.devices) ?? known(await this.list());
+      if (!device)
+        throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
+      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
     }
     if (operation.op === "states")
       return {
@@ -867,7 +877,6 @@ export class DevicesService {
     if (errors.length) throw new AggregateError(errors, "Devices close cleanup failed");
   }
 }
-export function agentOwner(threadId: string, agentId: string): string {
-  return JSON.stringify([threadId, agentId]);
-}
+import { agentOwner } from "./owner.ts";
+export { agentOwner };
 export { deviceFailure } from "./failure.ts";

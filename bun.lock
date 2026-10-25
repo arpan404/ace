@@ -174,6 +174,7 @@
       "devDependencies": {
         "@ace/browser": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/devices": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@phosphor-icons/react": "^2.1.10",
         "@types/bun": "^1.3.10",
@@ -928,6 +929,19 @@
         "zod": "^4.6.5",
       },
     },
+    "tools/daemon-bench": {
+      "name": "@ace/daemon-bench",
+      "dependencies": {
+        "@ace/client": "workspace:*",
+        "@ace/daemon": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "ws": "^8.18.3",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
+      },
+    },
     "tools/dev": {
       "name": "@ace/dev",
       "dependencies": {
@@ -1091,6 +1105,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/daemon-bench": ["@ace/daemon-bench@workspace:tools/daemon-bench"],
 
     "@ace/design-tokens": ["@ace/design-tokens@workspace:packages/design-tokens"],
 

@@ -83,6 +83,8 @@ import QuartzCore
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
+    let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
     let reads = ReadMirror()
     @ObservationIgnored private var generation = 0
@@ -116,7 +118,7 @@ import QuartzCore
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
+        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -361,6 +363,7 @@ import QuartzCore
             case .archiveList(let list): archive.apply(list)
             case .compose(let patch): compose.apply(patch)
             case .files(let patch): files.apply(patch)
+            case .transfers(let patch): transfers.apply(patch)
             case .screen(let id, let epoch, let screen):
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)

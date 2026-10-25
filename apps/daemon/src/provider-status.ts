@@ -82,11 +82,20 @@ export class ProviderStatuses {
   private controller = new AbortController();
   private flight: Promise<void> | undefined;
   private cancelTimer?: () => void;
+  private readonly first: Promise<void>;
   constructor(options: ProviderStatusOptions, runtime: ProviderStatusRuntime) {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
     this.runtime = runtime;
-    void this.refresh();
+    this.first = this.refresh().catch(() => {});
+  }
+  /** The installed versions the latest check reported, without starting a check. */
+  installations(): Pick<Status, "provider" | "runtime" | "version">[] {
+    return this.rows.map(({ provider, runtime, version }) => ({ provider, runtime, version }));
+  }
+  /** Settles once the first check has reported every provider's installation, or failed. */
+  firstCheck(): Promise<void> {
+    return this.first;
   }
   private selection(row: Status) {
     const account = this.options.account?.(row);
@@ -298,6 +307,26 @@ export class ProviderStatuses {
         }
       });
     return this.flight;
+  }
+  /**
+   * Re-reads only the update check of installed providers, without probing their CLIs again.
+   * For when the update check itself became available later than the full check ran.
+   */
+  async refreshVersions(): Promise<void> {
+    await this.flight;
+    const versions = this.options.versions;
+    const signal = this.controller.signal;
+    if (!versions || signal.aborted) return;
+    const rows = this.rows;
+    const updated = await Promise.all(
+      rows.map(async (row) =>
+        row.installed ? { ...row, ...(await versions(row, signal).catch(() => ({}))) } : row,
+      ),
+    );
+    // A full check that finished meanwhile read the update check itself.
+    if (this.rows !== rows || signal.aborted) return;
+    this.rows = updated;
+    this.publish();
   }
   async refreshAfterMutation(): Promise<void> {
     await this.flight;

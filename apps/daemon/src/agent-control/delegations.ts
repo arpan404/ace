@@ -8,7 +8,7 @@ export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue } from "./launch-queue.ts";
-import { childStatus, queuedStatus } from "./child-status.ts";
+import { childStatus, queuedChildStatus } from "./child-status.ts";
 import { accountProvider, type AccountRegistry } from "@ace/accounts";
 import {
   CommandId,
@@ -18,6 +18,7 @@ import {
   DelegationPolicy,
   DelegationRequest,
   type DelegationRecord,
+  type QueueFacts,
   type WorkspaceId,
   type McpAttribution,
   type Event,
@@ -143,6 +144,7 @@ export class DelegationService {
       authorize: (caller, target, write) => this.authorize(caller, target, write),
       delivered: (caller, outcome) => this.delivered(caller, outcome),
       resuming: (id) => deps.engine.resuming(id),
+      queueFacts: (child) => this.queueFacts(child),
     });
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {
@@ -741,15 +743,16 @@ export class DelegationService {
           if (!engineFull(error)) throw error;
         }
       this.launches.add({ childId: current.childId, parentId: current.parentId, text });
+      const facts = this.queueFacts(current.childId);
       // The child names its parent and its task while it waits, so its own thread is never blank.
       this.deps.store.appendEvents(current.childId, [
         {
           type: "thread.updated",
           ...(launchKind(current) === "spawn" ? { delegatedBy: current.parentId } : {}),
-          queuedLaunch: { text: current.request.task },
+          queuedLaunch: { text: current.request.task, ...facts },
         },
       ]);
-      this.showQueued(current);
+      this.showQueued(current, facts);
     });
   }
   /**
@@ -765,11 +768,63 @@ export class DelegationService {
       .filter((edge) => edge.phase === "running" && this.deps.engine.heldInterrupted(edge.childId));
     return running - held.length;
   }
+  /** Where a queued child stands: the parent's slot limit, slots in use and its queue place. */
+  queueFacts(childId: ThreadId): QueueFacts | undefined {
+    const edge = this.journal.get(childId);
+    if (!edge || edge.phase !== "created" || !this.launches.has(childId)) return undefined;
+    const position = this.launches.ordered(edge.parentId).indexOf(childId) + 1;
+    if (position < 1) return undefined;
+    return {
+      slotLimit: this.policy.maxConcurrent,
+      slotsInUse: this.running(edge.parentId),
+      queuePosition: position,
+    };
+  }
+  /**
+   * After the head of a parent's queue starts, the rest move up: rewrite their queued facts so
+   * every waiting screen stays current. One queue read and one commit for the whole parent;
+   * only children whose facts changed are rewritten.
+   */
+  private refreshQueue(parent: ThreadId): void {
+    const order = this.launches.ordered(parent);
+    if (!order.length) return;
+    const inUse = this.running(parent);
+    const stale: { edge: DelegationRecord; facts: QueueFacts; text: string }[] = [];
+    for (const [index, childId] of order.entries()) {
+      const edge = this.journal.get(childId);
+      if (!edge || edge.phase !== "created") continue;
+      const facts: QueueFacts = {
+        slotLimit: this.policy.maxConcurrent,
+        slotsInUse: inUse,
+        queuePosition: index + 1,
+      };
+      const current = this.deps.store.getThread(childId)?.queuedLaunch;
+      if (
+        current?.slotLimit === facts.slotLimit &&
+        current?.slotsInUse === facts.slotsInUse &&
+        current?.queuePosition === facts.queuePosition
+      )
+        continue;
+      stale.push({ edge, facts, text: current?.text ?? edge.request.task });
+    }
+    if (!stale.length) return;
+    this.deps.store.atomic(() => {
+      for (const { edge, facts, text } of stale) {
+        this.deps.store.appendEvents(edge.childId, [
+          {
+            type: "thread.updated",
+            queuedLaunch: { text, ...facts },
+          },
+        ]);
+        this.showQueued(edge, facts);
+      }
+    });
+  }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
-  private showQueued(edge: DelegationRecord): void {
+  private showQueued(edge: DelegationRecord, facts?: QueueFacts | undefined): void {
     const child = this.deps.store.getThread(edge.childId);
     if (!child) return;
-    const queued = { ...child, status: queuedStatus };
+    const queued = { ...child, status: queuedChildStatus(facts ?? this.queueFacts(edge.childId)) };
     this.deps.engine.updateChild(edge.parentId, queued);
     this.deps.engine.delegationStarted(edge, queued);
   }
@@ -779,7 +834,10 @@ export class DelegationService {
       this.deps.store.atomic(() => {
         const queued = this.launches.take(child);
         const edge = this.journal.get(child);
-        if (queued && edge?.phase === "created") this.start(edge, queued.text);
+        if (queued && edge?.phase === "created") {
+          this.start(edge, queued.text);
+          this.refreshQueue(edge.parentId);
+        }
       });
     } catch (error) {
       // A full engine keeps the task queued; the person's own input still goes through.
@@ -806,8 +864,9 @@ export class DelegationService {
           this.start(edge, queued.text);
         });
       } catch (error) {
-        // A full engine leaves the child queued for the next retry.
-        if (engineFull(error)) return;
+        // A full engine leaves the child queued for the next retry, after this pass refreshes
+        // the children it did move.
+        if (engineFull(error)) break;
         // A child that can no longer start reports a failed result instead of waiting forever.
         this.report(error);
         const edge = this.journal.get(child);
@@ -815,6 +874,7 @@ export class DelegationService {
           this.deps.store.atomic(() => this.settleUnlaunched(edge, "failed"));
       }
     }
+    this.refreshQueue(parent);
   }
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
@@ -1037,9 +1097,13 @@ export class DelegationService {
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.cancelRecovery(thread);
       this.cancelPreparations(thread);
+      // Queues touched below refresh once at the end, not once per settled child.
+      const queueParents = new Set<ThreadId>();
       const own = this.journal.get(thread);
-      if (own?.phase === "created") this.settleUnlaunched(own, "cancelled");
-      else if (own && own.phase !== "settled") {
+      if (own?.phase === "created") {
+        this.settleUnlaunched(own, "cancelled");
+        queueParents.add(own.parentId);
+      } else if (own && own.phase !== "settled") {
         own.phase = "cancelling";
         this.journal.save(own);
         const child = this.deps.store.getThread(own.childId);
@@ -1049,8 +1113,10 @@ export class DelegationService {
       for (const child of children) {
         this.journal.stop(child.childId);
         this.journal.suppressWake(child.childId);
-        if (child.phase === "created") this.settleUnlaunched(child, "cancelled");
-        else {
+        if (child.phase === "created") {
+          this.settleUnlaunched(child, "cancelled");
+          queueParents.add(child.parentId);
+        } else {
           if (this.deps.store.getThread(child.childId)) {
             this.deps.engine.discardRecovery(child.childId);
             this.deps.engine.cancelDelegatedInputs(child.childId);
@@ -1059,6 +1125,8 @@ export class DelegationService {
           this.journal.save(child);
           const childThread = this.deps.store.getThread(child.childId);
           if (childThread) this.deps.engine.delegationStarted(child, childThread);
+          // A cancelled runner frees its parent's slot: the queue behind it moves up.
+          queueParents.add(child.parentId);
         }
         const result = this.command(
           controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
@@ -1070,6 +1138,7 @@ export class DelegationService {
         );
         if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       }
+      for (const parent of queueParents) this.refreshQueue(parent);
     });
   }
   private observe(events: readonly Event[]) {
@@ -1077,7 +1146,7 @@ export class DelegationService {
     let changed = false;
     let statuses = false;
     for (const event of events) {
-      statuses ||= event.payload.type === "thread.updated";
+      statuses ||= event.payload.type === "thread.updated" && !queueFactsTouch(event);
       const notice = deliveryNotice(event);
       if (notice) this.noticeSender(event.threadId, notice);
       if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
@@ -1146,7 +1215,9 @@ export class DelegationService {
       }
       const shown = {
         ...thread,
-        status: this.launches.has(edge.childId) ? queuedStatus : childStatus(edge, thread),
+        status: this.launches.has(edge.childId)
+          ? queuedChildStatus(this.queueFacts(edge.childId))
+          : childStatus(edge, thread),
       };
       this.deps.engine.updateChild(edge.parentId, shown);
       if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
@@ -1320,4 +1391,19 @@ function launchKind(record: DelegationRecord): "automation" | "handoff" | "spawn
   const role = record.request.role;
   if (role.startsWith("automation:")) return "automation";
   return role.startsWith("handoff:") ? "handoff" : "spawn";
+}
+
+/**
+ * A touch that rewrites only queue facts: it frees no slot and starts nothing, so a batch of
+ * only such touches schedules no pump. Anything else in the batch still pumps as before.
+ */
+function queueFactsTouch(event: Event): boolean {
+  const payload = event.payload;
+  return (
+    payload.type === "thread.updated" &&
+    payload.queuedLaunch !== undefined &&
+    payload.queuedLaunch !== null &&
+    payload.status === undefined &&
+    payload.delegatedBy === undefined
+  );
 }

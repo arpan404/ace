@@ -248,7 +248,11 @@ export class IntentDelivery {
         actor.id,
         key,
         continuation,
-        { kind: queue.trigger ?? "restart", commandId: intent.command.id },
+        {
+          kind: queue.trigger ?? "restart",
+          commandId: intent.command.id,
+          ...(queue.exited ? { afterExit: true } : {}),
+        },
         this.dependencies.clock.now(),
       );
       const input = [

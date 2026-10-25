@@ -9,7 +9,9 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { AgentControlPort } from "@ace/mcp-server";
+import { decodeTextPage } from "@ace/projection";
 import { roleTask, withRoleContext, type RoleLookup } from "./run-roles.ts";
+import { remainingWaitSeconds } from "./wait-deadline.ts";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
@@ -266,6 +268,7 @@ export function createAgentControlPort(
           ? extensions.transfer(caller, operation)
           : { ok: false, code: "unsupported" };
       case "delegate_task": {
+        const startedAt = service.now();
         /** Every refusal a task can meet before anything is created, so a batch never half-starts. */
         const check = async (request: DelegationRequest) => {
           if (request.project && !request.machine)
@@ -319,9 +322,16 @@ export function createAgentControlPort(
             operation.waitMs !== undefined || operation.wait
               ? await service.waitBounded(caller, child.childId, signal, operation.waitMs ?? 600000)
               : undefined;
+          // Whether the child started or waits for a run slot, and its queue place.
+          const queue = service.queueFacts(child.childId);
           return {
             ok: true,
-            data: { threadId: child.childId, ...(outcome ? { outcome } : {}) },
+            data: {
+              threadId: child.childId,
+              queued: queue !== undefined,
+              ...(queue ? { ...queue } : {}),
+              ...(outcome ? { outcome } : {}),
+            },
           };
         }
         // Checked first, then admitted in order. Children past the parent's free slots queue.
@@ -341,10 +351,25 @@ export function createAgentControlPort(
             (await withRoleContext(filled[index]?.role, () => create(request, configured[index])))
               .childId,
           );
-        if (!mode || mode === "none") return { ok: true, data: { threadIds } };
+        if (!mode || mode === "none")
+          return {
+            ok: true,
+            // Per child whether it started or waits for a run slot, and its queue place.
+            data: {
+              threadIds,
+              launches: threadIds.map((threadId) => {
+                const queue = service.queueFacts(threadId);
+                return { threadId, queued: queue !== undefined, ...(queue ? { ...queue } : {}) };
+              }),
+            },
+          };
         const waited = await service.monitor.wait(
           caller,
-          { threadIds, mode, timeoutSeconds: timeoutSeconds ?? 120 },
+          {
+            threadIds,
+            mode,
+            timeoutSeconds: remainingWaitSeconds(timeoutSeconds ?? 120, startedAt, service.now()),
+          },
           signal,
         );
         return { ...waited, data: { threadIds, wait: waited.data } };
@@ -430,10 +455,13 @@ export function createAgentControlPort(
       case "thread.read_output": {
         if (store.outputThread(operation.streamId) !== operation.threadId)
           return { ok: false, code: "forbidden" };
-        return {
-          ok: true,
-          data: store.readOutput(operation.streamId, operation.offset, operation.limit),
-        };
+        // Agents get text, never the stored bytes. Four bytes always hold one whole character.
+        const page = store.readOutputBytes(
+          operation.streamId,
+          operation.offset,
+          Math.max(4, operation.limit),
+        );
+        return { ok: true, data: decodeTextPage(page, operation.offset, page.encoding) };
       }
       case "thread.search": {
         // Search owns FTS and paging. Scope is enforced in its query, before ranking/pagination.

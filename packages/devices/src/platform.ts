@@ -13,7 +13,10 @@ import {
   DeviceSettings as Settings,
   type DeviceSettings,
   type DeviceFailure,
+  type DeviceChrome,
 } from "@ace/protocol/devices";
+import { DeviceChromeReader } from "./device-chrome-reader.ts";
+import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import {
   adbShell,
@@ -56,7 +59,13 @@ export type PlatformOptions = SDKOptions & {
    */
   frameEncoder?: string;
   emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
+  /** Reads the SDK's device art; tests point it at fixtures. */
+  readFile?: (path: string) => Promise<Uint8Array | undefined>;
 };
+/** An inventory issue, with the platform it concerns. */
+function tagged(issue: DeviceError, platform: Device["platform"]): DeviceFailure {
+  return { code: issue.code, message: issue.message, hint: issue.hint, platform };
+}
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
   .string()
@@ -78,19 +87,20 @@ export class DevicePlatform {
   private readonly waiters: (() => void)[] = [];
   private readonly controller = new AbortController();
   private readonly androidUI: AndroidOperations;
-  private missingSDKs: DeviceError[] = [];
+  private missingSDKs: (DeviceFailure & { platform: Device["platform"] })[] = [];
   private inputHint: DeviceError | undefined;
   private checkedInput = false;
   private toolsDownload: Promise<DeviceTools> | undefined;
   private readonly appProcesses = new Map<string, string>();
+  private readonly chromes: DeviceChromeReader;
   diagnostics(): DeviceFailure[] {
+    // Each issue says which platform it concerns, so a missing Android SDK never reads as a
+    // fault of a working Simulator.
     return [
       ...this.missingSDKs,
-      ...this.android.diagnostics(),
-      ...(this.inputHint ? [this.inputHint] : []),
-    ]
-      .slice(0, 2)
-      .map(({ code, message, hint }) => ({ code, message, hint }));
+      ...this.android.diagnostics().map((issue) => tagged(issue, "android")),
+      ...(this.inputHint ? [tagged(this.inputHint, "ios")] : []),
+    ].slice(0, 2);
   }
   constructor(options: PlatformOptions) {
     this.options = options;
@@ -105,6 +115,29 @@ export class DevicePlatform {
       this.input(device, input, undefined, authorize),
     );
     this.simulators = this.iosSimulators();
+    this.chromes = new DeviceChromeReader(
+      deviceChromeSources({
+        home: options.home,
+        env: options.env,
+        simctl: async (args) => {
+          const { xcrun } = await this.xcode();
+          return (await this.run(xcrun, ["simctl", ...args], 2 * 1024 * 1024)).stdout;
+        },
+        plutil: async (args) => (await this.run("/usr/bin/plutil", args, 256 * 1024)).stdout,
+        simulatorType: async (udid) =>
+          (await this.simulators.list()).find((device) => device.udid === udid)
+            ?.deviceTypeIdentifier,
+        ...(options.readFile ? { readFile: options.readFile } : {}),
+      }),
+    );
+  }
+  /**
+   * The device's real hardware look from the SDK on this machine: Xcode's device profile and
+   * chrome for a Simulator, the emulator skin for an AVD. Undefined when there is none.
+   */
+  async chrome(device: Device, format?: "svg" | "png"): Promise<DeviceChrome | undefined> {
+    if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
+    return this.chromes.chrome(device, format);
   }
   private iosSimulators(authorize?: () => void) {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {
@@ -284,18 +317,25 @@ export class DevicePlatform {
           name: device.name,
           state: device.state === "Booted" ? "booted" : "shutdown",
           runtime: simulatorRuntime(device.runtime),
+          ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
         }),
       );
-    const outcomes = await Promise.allSettled(
-      this.options.platform === "darwin" ? [ios(), this.android.list()] : [this.android.list()],
-    );
+    const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
+      this.options.platform === "darwin"
+        ? [
+            { platform: "ios", read: ios() },
+            { platform: "android", read: this.android.list() },
+          ]
+        : [{ platform: "android", read: this.android.list() }];
+    const outcomes = await Promise.allSettled(sources.map((source) => source.read));
     const devices: Device[] = [];
-    const missing: DeviceError[] = [];
-    for (const result of outcomes) {
+    const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
+    for (const [index, result] of outcomes.entries()) {
       if (result.status === "fulfilled") devices.push(...result.value);
-      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing")
-        missing.push(result.reason);
-      else throw result.reason;
+      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing") {
+        const { code, message, hint } = result.reason;
+        missing.push({ code, message, hint, platform: sources[index]?.platform ?? "android" });
+      } else throw result.reason;
     }
     this.missingSDKs = missing;
     const present = new Set(
@@ -316,8 +356,10 @@ export class DevicePlatform {
           "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
         );
     }
-    if (missing.length && outcomes.every((result) => result.status === "rejected"))
-      throw missing[0];
+    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
+    const [first] = outcomes;
+    if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
+      throw first.reason;
     return devices;
   }
   private async simctl(

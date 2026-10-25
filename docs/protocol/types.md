@@ -2689,6 +2689,7 @@ Example:
   },
   "notAnswered": "stopped",
   "origin": {
+    "afterExit": false,
     "interactionId": "example",
     "kind": "steer"
   },
@@ -8231,6 +8232,13 @@ Example:
 ```json
 {
   "generation": 0,
+  "outcome": {
+    "before": 6,
+    "outcome": "completed",
+    "result": "example",
+    "threadId": "example",
+    "truncated": false
+  },
   "state": "unresponsive",
   "status": {
     "on": "queue",
@@ -9551,7 +9559,7 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 3,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
@@ -9560,42 +9568,55 @@ Example:
     "backgroundTasks": {},
     "interactions": {},
     "itemOrder": [],
+    "itemSeqs": {},
     "items": {},
     "kind": "thread",
     "offshift": {
-      "blocker": null,
+      "blocker": "example",
       "criteria": [],
       "criteriaCount": 10,
       "endpoint": "example",
-      "id": "YxRCYA",
-      "next": "example",
+      "id": "HAxTe",
       "outcome": "example",
-      "outcomeTruncated": false,
+      "outcomeTruncated": true,
       "pending": [],
-      "pendingCount": 8,
-      "phase": "review",
-      "playbook": "land",
+      "pendingCount": 7,
+      "phase": "delivery",
       "revision": "example",
-      "steps": [],
-      "updatedAt": 0,
-      "version": 9
+      "updatedAt": 1,
+      "version": 1
     },
     "runs": {},
-    "seq": 8,
+    "seq": 3,
     "thread": {
-      "autoSettleAt": 4,
-      "backend": "acp",
+      "acpAgentId": "example",
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": false,
+          "resume": false
+        },
+        "coverage": "generic",
+        "mcp": "stdio",
+        "modeSelection": false,
+        "modelSelection": false,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "visibility": "limited"
+      },
+      "archivedAt": 5,
       "capabilities": {
         "accessModes": [],
         "approvals": "interactive",
         "backgroundTaskControl": true,
         "backgroundVisibility": "partial",
-        "fork": false,
-        "goals": true,
+        "fork": true,
+        "forkMode": "context-handoff",
+        "goals": false,
         "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissionModes": [],
+        "interruptCascades": false,
         "permissions": {
           "modes": [],
           "nativeAutoReview": false,
@@ -9603,42 +9624,62 @@ Example:
         },
         "planMode": false,
         "resume": true,
-        "rewindFiles": false,
+        "rewindFiles": true,
         "steer": true,
         "subagentTranscripts": true,
+        "tokenUsage": false
+      },
+      "createdAt": 8,
+      "effectiveCapabilities": {
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "none",
+        "fork": false,
+        "forkMode": "native",
+        "imageInput": true,
+        "interruptCascades": false,
+        "launchOptions": [],
+        "planMode": false,
+        "resume": false,
+        "rewindFiles": false,
+        "steer": false,
+        "subagentTranscripts": false,
         "tokenUsage": true
       },
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
-      },
-      "createdAt": 5,
-      "deletedAt": 3,
       "execution": {
+        "instanceId": "example",
+        "model": "example",
         "options": {},
-        "provider": "opencode"
+        "provider": "acp"
       },
       "id": "example",
-      "pinned": true,
-      "provider": "opencode",
-      "readAt": 3,
-      "run": {
-        "pendingCount": 4,
-        "phase": "review",
-        "playbook": "fix",
-        "state": "open"
+      "provider": "acp",
+      "queue": {
+        "lastFailure": {
+          "code": "example",
+          "title": "example"
+        },
+        "paused": false,
+        "reason": "limit",
+        "resumeAt": 4,
+        "revision": 6
       },
-      "settledReason": "inactivity",
-      "snoozedUntil": 8,
+      "queuedLaunch": {
+        "text": "example"
+      },
+      "readAt": 2,
+      "settledAt": 4,
+      "settledReason": "manual",
+      "snoozedUntil": 1,
       "status": {
         "state": "done"
       },
       "title": "example",
-      "updatedAt": 7,
+      "titleSource": "provider",
+      "updatedAt": 4,
       "workspaceId": "example"
     },
-    "usage": {}
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -16292,6 +16333,9 @@ Example:
 | title | yes | string | {"maxLength":120} |
 | elapsedSeconds | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | step | no | string | {"maxLength":120} |
+| slotLimit | no | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -16306,15 +16350,12 @@ Example:
 ```json
 {
   "elapsedSeconds": 2,
-  "notice": {
-    "code": "example",
-    "commandId": "example",
-    "text": "example"
-  },
+  "needs": [],
   "requests": [],
   "state": "working",
   "status": {
-    "state": "new"
+    "agents": 9,
+    "state": "working"
   },
   "step": "example",
   "threadId": "example",
@@ -17137,6 +17178,7 @@ Example:
 | to | no | object | {"properties":{"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"type":"string"}},"required":["provider"]} |
 | sources | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/HandoffModel.json"}} |
 | lossy | no | boolean |  |
+| afterExit | no | boolean |  |
 
 Example:
 
@@ -17233,6 +17275,9 @@ Example:
 | role | yes | string | {"maxLength":40} |
 | state | yes | [WatchedState.json](schema/WatchedState.json) |  |
 | step | no | string | {"maxLength":60} |
+| slotLimit | no | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | elapsedSeconds | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | needs | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | ask | no | string | {"maxLength":100} |
@@ -17245,8 +17290,10 @@ Example:
 
 ```json
 {
-  "elapsedSeconds": 5,
+  "elapsedSeconds": 7,
   "id": "example",
+  "machine": "example",
+  "queued": 1,
   "role": "example",
   "state": "working",
   "step": "example"
@@ -17365,6 +17412,7 @@ Example:
 | actions | yes | array | {"maxItems":2,"items":{"type":"object","properties":{"action":{"type":"string","enum":["approve","deny"]},"optionId":{"type":"string","minLength":1,"maxLength":200}},"required":["action","optionId"]}} |
 | preview | no | string | {"maxLength":300} |
 | message | no | string | {"maxLength":300} |
+| threadIds | no | array | {"minItems":1,"maxItems":100,"items":{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]}} |
 | run | no | object | {"properties":{"outcome":{"type":"string","enum":["stopped","blocked","delivered"]},"phase":{"$ref":"https://ace.local/protocol/v1/OffshiftPhase.json"}},"required":["outcome","phase"]} |
 
 Example:
@@ -17374,7 +17422,7 @@ Example:
   "actions": [],
   "backgroundCount": 2,
   "id": "example",
-  "status": "agent_says",
+  "status": "catch_up",
   "threadId": "example",
   "title": "example"
 }
@@ -17569,6 +17617,10 @@ Example:
     "id": "example",
     "interactionId": "example",
     "preview": "example",
+    "run": {
+      "outcome": "delivered",
+      "phase": "delivery"
+    },
     "status": "background_done",
     "threadId": "example",
     "title": "example"
@@ -17751,7 +17803,7 @@ Example:
 
 [JSON Schema](schema/NotificationStatus.json), input validation.
 
-Type: ["needs_you","done","failed","unresponsive","background_done","agent_says"]. See JSON Schema for constraints.
+Type: ["needs_you","done","failed","unresponsive","background_done","agent_says","catch_up"]. See JSON Schema for constraints.
 
 Example:
 
@@ -22568,11 +22620,16 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | text | yes | string |  |
+| slotLimit | no | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
+  "queuePosition": 7,
+  "slotsInUse": 5,
   "text": "example"
 }
 ```
@@ -22604,6 +22661,26 @@ Example:
     }
   ],
   "state": "uncertain"
+}
+```
+
+## QueueFacts
+
+[JSON Schema](schema/QueueFacts.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| slotLimit | yes | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "queuePosition": 5,
+  "slotLimit": 7,
+  "slotsInUse": 5
 }
 ```
 
@@ -22659,6 +22736,7 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | messages | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/QueuedMessage.json"}} |
@@ -22670,7 +22748,7 @@ Example:
 ```json
 {
   "messages": [],
-  "next": null,
+  "next": "example",
   "paused": false,
   "pendingCount": 4,
   "reason": "stopped",
@@ -22696,15 +22774,16 @@ Example:
 ```json
 {
   "queue": {
+    "exited": true,
     "messages": [],
     "next": null,
     "paused": false,
     "pendingCount": 7,
     "reason": null,
-    "resumeAt": 2,
+    "resumeAt": 8,
     "revision": 5,
     "threadId": "example",
-    "total": 3
+    "total": 9
   },
   "requestId": "example",
   "type": "queue.result"
@@ -22722,6 +22801,7 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | messages | yes | array | {"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/QueuedMessage.json"}} |
@@ -22730,6 +22810,7 @@ Example:
 
 ```json
 {
+  "exited": true,
   "lastFailure": {
     "code": "example",
     "title": "example"
@@ -22738,7 +22819,7 @@ Example:
   "paused": false,
   "pendingCount": 8,
   "reason": "model_unavailable",
-  "resumeAt": 3,
+  "resumeAt": null,
   "revision": 0,
   "threadId": "example"
 }
@@ -22755,12 +22836,14 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 
 Example:
 
 ```json
 {
+  "exited": false,
   "paused": true,
   "pendingCount": 3,
   "reason": "model_unavailable",
@@ -22780,6 +22863,7 @@ Example:
 | paused | yes | boolean |  |
 | lastFailure | no | union | {"anyOf":[{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["title","code"]},{"type":"null"}]} |
 | reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped","not_sent","model_unavailable"]},{"type":"null"}]} |
+| exited | no | boolean |  |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | type | yes | `"queue.updated"` |  |
 
@@ -22793,7 +22877,7 @@ Example:
   },
   "paused": true,
   "reason": null,
-  "resumeAt": 0,
+  "resumeAt": 4,
   "revision": 5,
   "type": "queue.updated"
 }
@@ -29480,12 +29564,10 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "archivedAt": 5,
   "autoSettle": false,
   "autoSettleAt": 4,
   "backend": "acp",
-  "createdAt": 5,
-  "delegatedBy": "example",
+  "createdAt": 0,
   "details": {
     "baseBranch": "example",
     "linkedPr": null,
@@ -29524,19 +29606,7 @@ Example:
     "subagentTranscripts": true,
     "tokenUsage": true
   },
-  "execution": {
-    "model": "example",
-    "provider": "antigravity"
-  },
   "id": "example",
-  "imported": {
-    "importedAt": 5,
-    "instanceId": "example",
-    "native": {
-      "provider": "acp"
-    },
-    "sourceId": "example"
-  },
   "installationId": "example",
   "listOrder": 1,
   "live": {
@@ -29561,10 +29631,11 @@ Example:
   "snoozedUntil": 7,
   "status": {
     "on": "queue",
+    "queuePosition": 6,
     "state": "waiting"
   },
   "title": "example",
-  "updatedAt": 3,
+  "updatedAt": 8,
   "workspaceId": "example"
 }
 ```
@@ -29997,7 +30068,6 @@ Example:
   },
   "activityAt": 4,
   "activitySeq": 2,
-  "backend": "cursor-sdk",
   "capabilities": {
     "approvals": "sandbox-only",
     "backgroundTaskControl": true,
@@ -30027,7 +30097,7 @@ Example:
   "id": "example",
   "installationId": "example",
   "pinOrder": 5,
-  "provider": "pi",
+  "provider": "codex",
   "queue": {
     "lastFailure": null,
     "paused": true,
@@ -30477,12 +30547,16 @@ Example:
 | --- | --- | --- | --- |
 | state | yes | `"waiting"` |  |
 | on | yes | ["background_task","rate_limit","network","upstream","queue"] |  |
+| slotLimit | no | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
   "on": "queue",
+  "slotsInUse": 9,
   "state": "waiting"
 }
 ```
@@ -30647,110 +30721,49 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
   "kind": "thread",
   "runs": {},
   "seq": 7,
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": false,
-        "planMode": false,
-        "resume": false
-      },
-      "coverage": "source_profile",
-      "mcp": "http",
-      "modeSelection": true,
-      "modelSelection": true,
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "subagentSessions": true,
-      "visibility": "limited"
-    },
+    "archivedAt": 5,
     "autoSettleAt": 9,
-    "createdAt": 8,
+    "backend": "acp",
+    "createdAt": 1,
     "delegatedBy": "example",
     "deletedAt": 3,
-    "effectiveCapabilities": {
-      "approvals": "sandbox-only",
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": false,
-        "format": "codex",
-        "maxInlineBytes": 9
-      },
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "childFidelity": "full",
-      "fork": true,
-      "forkPoints": [],
-      "goals": false,
-      "imageInput": false,
-      "interruptCascades": true,
-      "permissionModes": [],
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": true,
-      "sessionOptions": false,
-      "steer": true,
-      "steerTiming": "immediate",
-      "subagentTranscripts": true,
-      "tokenUsage": true
+    "execution": {
+      "instanceId": "example",
+      "model": "example",
+      "options": {},
+      "provider": "claude"
     },
     "id": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
-      }
-    },
     "listOrder": 2,
     "pinOrder": 3,
     "prSettled": 3,
-    "provider": "acp",
+    "provider": "pi",
     "queue": {
       "paused": true,
       "pendingCount": 7,
       "reason": null,
-      "resumeAt": null,
+      "resumeAt": 5,
       "revision": 4
     },
     "readAt": 0,
-    "run": {
-      "pendingCount": 8,
-      "phase": "verify",
-      "state": "delivered"
-    },
+    "rootAgentId": "example",
     "settledReason": "inactivity",
     "status": {
-      "interactions": 4,
-      "state": "needs_you"
-    },
-    "switch": {
-      "at": 3,
-      "lossy": false,
-      "recommendation": "delegate",
-      "selection": {
-        "model": "example",
-        "options": {},
-        "provider": "opencode"
-      },
       "state": "failed"
     },
     "title": "example",
-    "titleSource": "provider",
     "unread": true,
-    "updatedAt": 1,
+    "updatedAt": 9,
     "workspaceId": "example"
   },
-  "usage": {}
+  "usage": {},
+  "usageSnapshots": {}
 }
 ```
 
@@ -33349,6 +33362,9 @@ Example:
 | title | yes | string | {"maxLength":120} |
 | elapsedSeconds | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | step | no | string | {"maxLength":120} |
+| slotLimit | no | integer | {"minimum":1,"maximum":64} |
+| slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -33360,11 +33376,11 @@ Example:
 ```json
 {
   "elapsedSeconds": 5,
-  "result": "example",
+  "needs": [],
+  "slotLimit": 2,
   "state": "cancelled",
   "threadId": "example",
-  "title": "example",
-  "truncated": true
+  "title": "example"
 }
 ```
 

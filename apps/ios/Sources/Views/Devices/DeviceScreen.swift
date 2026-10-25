@@ -81,26 +81,54 @@ struct DeviceScreen: View {
                 // The body's turn, as `bodyTurn` (@ace/ui-core) reads it for a Simulator: the
                 // picture's own rotation, else a landscape picture means turned to the right.
                 let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
-                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size), turn: turn) {
-                    ZStack {
-                        Color.black
-                        if info.live {
-                            DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
-                                devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
-                            }
-                            ripple(size)
-                        } else {
-                            idle(info)
+                Group {
+                    if info.framed == true {
+                        // The picture wears the device's own bezel: one frame, not two.
+                        stageScreen(info, size: size)
+                            .aspectRatio(size, contentMode: .fit)
+                            .frame(maxWidth: room.width, maxHeight: room.height)
+                    } else if let look = chromeLook(info, picture: size) {
+                        DeviceChromeFrameView(look: look, turn: turn, room: room, enabled: canDrive, press: { key($0) }) {
+                            stageScreen(info, size: size)
+                        }
+                    } else {
+                        DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size), turn: turn) {
+                            stageScreen(info, size: size)
                         }
                     }
-                    .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel("Loading \(name)")
             }
         }
+    }
+
+    /// The live picture (or what the device is doing) inside whichever frame draws it.
+    @ViewBuilder private func stageScreen(_ info: DeviceScreenInfo, size: CGSize) -> some View {
+        ZStack {
+            Color.black
+            if info.live {
+                DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
+                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
+                    devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
+                }
+                ripple(size)
+            } else {
+                idle(info)
+            }
+        }
+        .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
+    }
+
+    /// The device's real look, when the bridge sent one and its screen is the picture's shape.
+    private func chromeLook(_ info: DeviceScreenInfo, picture: CGSize) -> DeviceChromeLook? {
+        guard let key = info.chrome, let look = devices.chromes[key], let upright = look.art.turns.first else { return nil }
+        let shown = upright.screen
+        guard shown.width > 0, picture.width > 0, picture.height > 0 else { return nil }
+        let picture = picture.width > picture.height ? CGSize(width: picture.height, height: picture.width) : picture
+        let ratio = (picture.height / picture.width) / (shown.height / shown.width)
+        return abs(ratio - 1) <= 0.05 ? look : nil
     }
 
     /// Over the dark screen when it isn't streaming: what the device is doing, and the next step.

@@ -64,6 +64,13 @@ export class HostRuntime {
     this.sdk = sdk;
     this.emit = emit;
   }
+  /** Plain error text with this host's credentials removed, the MCP lease included once open. */
+  redactError(text: string): string {
+    return safeCursorErrorMessage(text, {
+      CURSOR_API_KEY: this.env.CURSOR_API_KEY,
+      ACE_MCP_BEARER: this.options?.mcp?.bearer,
+    });
+  }
   private async frame(
     kind: CursorEnvelope["kind"],
     body: unknown,

@@ -35,7 +35,11 @@ export async function harness(
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
   const server = await startMcpServer({ registry, credentials, ...limits });
   cleanups.push(() => server.close());
-  async function connect(input = scope(), mode: "modern" | "legacy" = "modern") {
+  async function connect(
+    input = scope(),
+    mode: "modern" | "legacy" = "modern",
+    headers: Record<string, string> = {},
+  ) {
     const lifetime = new AbortController();
     const lease = credentials.issue(input, lifetime.signal);
     const client = new Client(
@@ -45,7 +49,7 @@ export async function harness(
     cleanups.push(() => client.close());
     await client.connect(
       new StreamableHTTPClientTransport(new URL(server.url), {
-        requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
+        requestInit: { headers: { ...headers, Authorization: `Bearer ${lease.bearer}` } },
       }),
     );
     return { client, lease, lifetime };

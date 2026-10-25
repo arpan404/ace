@@ -397,6 +397,18 @@ export class FakeDaemon implements Host {
     host.queue.paused = true;
     host.queue.reason = reason;
     host.queue.lastFailure = lastFailure ?? null;
+    delete host.queue.exited;
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
+
+  /** Stage a provider that died mid-turn while the daemon ran on: held like a restart, as a crash. */
+  holdExitedTurn(threadId: string): void {
+    const host = this.thread(threadId);
+    host.queue.paused = true;
+    host.queue.reason = "restart";
+    host.queue.exited = true;
+    host.queue.lastFailure = null;
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }

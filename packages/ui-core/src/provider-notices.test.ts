@@ -134,3 +134,11 @@ test("ace's own delegation result keeps its kind whatever its text", () => {
   });
   expect(systemInput(item)?.kind).toBe("subagent_result");
 });
+
+const continued = (origin: Record<string, unknown>) =>
+  line(stored("user", "Continue where you left off.", { origin }))?.text;
+
+test("Continue after a provider crash reads as resuming a stopped agent, not a restart", () => {
+  expect(continued({ kind: "restart", afterExit: true })).toBe("Resumed after the agent stopped");
+  expect(continued({ kind: "restart" })).toBe("Resumed after restart");
+});

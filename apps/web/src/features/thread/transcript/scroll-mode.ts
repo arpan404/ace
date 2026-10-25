@@ -32,7 +32,14 @@ export type ScrollEvent =
   /** A press on the view (a click, a touch starting): no direction, but the reader is there. */
   | { type: "press"; at: number }
   /** A scroll event, from any cause. `upward` is the reader's last direction. */
-  | { type: "scrolled"; atEnd: boolean; upward: boolean; detached: boolean; gliding: boolean }
+  | {
+      type: "scrolled";
+      atEnd: boolean;
+      upward: boolean;
+      detached: boolean;
+      gliding: boolean;
+      at: number;
+    }
   | {
       type: "jump";
       key: string;
@@ -81,8 +88,13 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
     case "scrolled": {
       // Only the reader releases an anchored row; code scrolling it into place never does.
       if (mode.kind === "anchoring") return { mode, cancelAim: false };
-      if (mode.kind === "following")
-        return { mode: event.atEnd || event.gliding ? mode : free, cancelAim: false };
+      // Only the reader leaves the end: a scroll that lands off it without their gesture (rows
+      // grew between a scroll and its event) keeps following. Their gesture at the end that
+      // moved the view off it (one Page Up) arrives as its scroll within the nudge window.
+      if (mode.kind === "following") {
+        const left = !event.atEnd && !event.gliding && event.at < (mode.until ?? 0);
+        return { mode: left ? free : mode, cancelAim: false };
+      }
       const back = event.atEnd && !event.upward && !event.detached;
       return { mode: back ? following : mode, cancelAim: false };
     }

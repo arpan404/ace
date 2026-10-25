@@ -2,6 +2,7 @@ import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
   type DeviceActivity,
+  type DeviceChrome,
   DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
@@ -123,6 +124,13 @@ export class FakeAppDevices {
   readonly requested: DevicePermission[] = [];
   /** Whether the device tools are downloaded; `tools.install` downloads them. */
   toolsReady = true;
+  /** Discovery reports this machine's Android SDK missing, beside its working Simulators. */
+  androidSdkMissing = false;
+  /**
+   * The Simulator streams as its window (no serve-sim): the picture wears the device's own
+   * bezel, so the state says it is framed.
+   */
+  windowPictures = false;
   /** How many times a person asked for the device tools download. */
   toolDownloads = 0;
   /**
@@ -133,6 +141,13 @@ export class FakeAppDevices {
   videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
+  /**
+   * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
+   * for a device without one); none by default.
+   */
+  readonly chromes = new Map<string, DeviceChrome>();
+  /** Every device a client asked the look of, in order. */
+  readonly chromeAsks: string[] = [];
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
@@ -155,6 +170,14 @@ export class FakeAppDevices {
       }),
     ])
       this.sessions.set(device.id, idleSession(device));
+  }
+
+  /** New devices channels close before they come up, as an unreachable daemon's do. */
+  refusing = false;
+
+  /** How many devices channels are open. */
+  get openChannels(): number {
+    return this.channels.size;
   }
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
@@ -203,17 +226,30 @@ export class FakeAppDevices {
     this.paint(session);
   }
 
-  /** The inventory's notes: the missing device tools, until they are downloaded. */
+  /** The inventory's notes: a missing Android SDK, and the device tools until they download. */
   private issues() {
-    return this.toolsReady
-      ? []
-      : [
-          {
-            code: "tool_missing" as const,
-            message: "The Simulator's device tools aren't downloaded",
-            hint: "Download device tools in Devices.",
-          },
-        ];
+    return [
+      ...(this.androidSdkMissing
+        ? [
+            {
+              code: "sdk_missing" as const,
+              platform: "android" as const,
+              message: "Android SDK platform-tools and emulator were not found",
+              hint: "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
+            },
+          ]
+        : []),
+      ...(this.toolsReady
+        ? []
+        : [
+            {
+              code: "tool_missing" as const,
+              platform: "ios" as const,
+              message: "The Simulator's device tools aren't downloaded",
+              hint: "Download device tools in Devices.",
+            },
+          ]),
+    ];
   }
 
   private known(deviceId: string): Session {
@@ -227,6 +263,10 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
+        if (this.refusing) {
+          queueMicrotask(() => events.close());
+          return;
+        }
         const opened: Channel = { events, streams: new Set<string>() };
         channel = opened;
         this.channels.add(opened);
@@ -282,6 +322,9 @@ export class FakeAppDevices {
       // nothing, as an older daemon's doesn't.
       ...(session.lifecycle === "live" && session.device.platform === "android"
         ? { touch: "multi" as const }
+        : {}),
+      ...(session.lifecycle === "live" && session.device.platform === "ios" && this.windowPictures
+        ? { framed: true }
         : {}),
       controller: session.controller,
       ownedHere:
@@ -422,6 +465,11 @@ export class FakeAppDevices {
       return { ...this.permissions };
     }
     const session = this.session(operation.deviceId);
+    if (operation.op === "chrome") {
+      this.chromeAsks.push(session.device.id);
+      const key = session.device.model ?? session.device.id;
+      return { chrome: this.chromes.get(key) ?? null };
+    }
     switch (operation.op) {
       case "controller":
         if (operation.controller === "human") {

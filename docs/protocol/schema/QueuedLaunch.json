@@ -2,6 +2,21 @@
   "$id": "https://ace.local/protocol/v1/QueuedLaunch.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "queuePosition": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "slotLimit": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "slotsInUse": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "text": {
       "type": "string"
     }

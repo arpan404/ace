@@ -81,10 +81,10 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     const before = store.snapshotThread(thread.id).itemOrder;
     expect(before.slice(0, 2)).toEqual(["ask", "reply"]);
     store.close();
-    // Schema 14 had no per-item agent column and no device expiry.
+    // Schema 14 had no per-item agent column, no device expiry and no thread_cold.
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; UPDATE schema_version SET version=14 WHERE id=1",
+      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -95,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(16);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(17);
     } finally {
       after.close();
     }
@@ -118,7 +118,7 @@ test("a current database opens without writing an upgrade backup", async () => {
   try {
     new Store(path).close();
     new Store(path).close();
-    expect(existsSync(`${path}.schema-16.backup`)).toBe(false);
+    expect(existsSync(`${path}.schema-17.backup`)).toBe(false);
     expect(existsSync(`${path}.schema-14.backup`)).toBe(false);
   } finally {
     await rm(home, { recursive: true, force: true });
@@ -134,7 +134,7 @@ test("an interrupted upgrade backup is redone instead of being kept as the backu
     store.close();
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; UPDATE schema_version SET version=14 WHERE id=1",
+      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     // A copy cut short by a crash or a full disk.

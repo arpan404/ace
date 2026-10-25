@@ -4,7 +4,7 @@ import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { loadavg } from "node:os";
 import { dirname } from "node:path";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { createStallDetector } from "./stall-detector.ts";
 import { namesStall, pausedStack, ScriptParsed, type StallReport } from "./stall-report.ts";
 
@@ -15,18 +15,19 @@ import { namesStall, pausedStack, ScriptParsed, type StallReport } from "./stall
  * (a frozen daemon may be killed before it can log) and asks the main thread for its JavaScript
  * stack through the inspector, then lets it run on.
  */
+const positive = () => z.int().check(z.positive());
 const input = z
   .object({
     heartbeat: z.instanceof(Int32Array),
-    pid: z.number().int().positive(),
-    reportPath: z.string().min(1),
-    checkMs: z.number().int().positive(),
-    thresholdMs: z.number().int().positive(),
-    repeatMs: z.number().int().positive(),
-    maxCaptures: z.number().int().positive(),
-    cooldownMs: z.number().int().nonnegative(),
-    ioEveryMs: z.number().int().positive(),
-    ioThresholdMs: z.number().int().positive(),
+    pid: positive(),
+    reportPath: z.string().check(z.minLength(1)),
+    checkMs: positive(),
+    thresholdMs: positive(),
+    repeatMs: positive(),
+    maxCaptures: positive(),
+    cooldownMs: z.int().check(z.nonnegative()),
+    ioEveryMs: positive(),
+    ioThresholdMs: positive(),
   })
   .parse(workerData);
 const port = parentPort;

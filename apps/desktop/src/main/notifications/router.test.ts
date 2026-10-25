@@ -37,6 +37,32 @@ function daemonAlert(overrides: Partial<z.input<typeof Notification>> = {}): Ale
 }
 
 describe("notification routing", () => {
+  it("shows a catch-up as one plain notification that opens the longest-waiting thread", () => {
+    const { router: routing } = router();
+    const decision = routing.route(
+      daemonAlert({
+        id: "c:42:2",
+        status: "catch_up",
+        title: "2 threads need you",
+        message: "Fix flaky checkout test, Ship billing",
+        threadIds: ["thread-1", "thread-2"],
+        interactionId: undefined,
+        preview: undefined,
+        actions: [],
+      }),
+    );
+    expect(decision).toMatchObject({
+      kind: "show",
+      notification: {
+        title: "2 threads need you",
+        body: "Fix flaky checkout test, Ship billing",
+        link: { kind: "thread", threadId: "thread-1" },
+        actions: [],
+        reply: false,
+      },
+    });
+  });
+
   it("shows an approval as an actionable notification that opens its thread", () => {
     const decision = router().router.route(daemonAlert());
     expect(decision).toMatchObject({

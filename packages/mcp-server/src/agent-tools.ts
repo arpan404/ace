@@ -24,6 +24,7 @@ import {
   fields,
 } from "./control-tool.ts";
 import { maxBatchInputBytes } from "./result-budgets.ts";
+import { withinCallBudget } from "./toolsets.ts";
 
 /** The most children one `delegate` call starts; the guide quotes this number. */
 export const maxDelegateTasks = maxWaitThreads;
@@ -102,7 +103,12 @@ const delegate = controlTool({
     control.run({
       op: "delegate_task",
       tasks,
-      ...(waitSeconds === undefined ? {} : { await: waitFor, timeoutSeconds: waitSeconds }),
+      ...(waitSeconds === undefined
+        ? {}
+        : {
+            await: waitFor,
+            timeoutSeconds: withinCallBudget(waitSeconds, control.context.callBudgetSeconds),
+          }),
     }),
 });
 
@@ -124,7 +130,12 @@ const wait = controlTool({
     timeoutSeconds: WaitTimeoutSeconds.default(120).describe("Longest wait in seconds."),
   }),
   output: controlResult(WaitResult),
-  run: (input, control) => control.run({ op: "wait", ...input }),
+  run: (input, control) =>
+    control.run({
+      op: "wait",
+      ...input,
+      timeoutSeconds: withinCallBudget(input.timeoutSeconds, control.context.callBudgetSeconds),
+    }),
 });
 
 const ChildView = z.looseObject({

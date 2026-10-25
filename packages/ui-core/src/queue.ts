@@ -1,4 +1,5 @@
-import type { ContextMeter, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import type { ContextMeter, ProviderKind, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import { providerNames } from "./providers.ts";
 import { unavailableModelNotice } from "./model-availability.ts";
 import type { ExecutionSelection } from "@ace/protocol";
 import type { LimitContext } from "./limits.ts";
@@ -47,8 +48,24 @@ export interface QueueNotice {
 
 export type QueueHold = Pick<
   QueueSnapshot,
-  "paused" | "reason" | "resumeAt" | "pendingCount" | "lastFailure"
+  "paused" | "reason" | "resumeAt" | "pendingCount" | "lastFailure" | "exited"
 >;
+
+/**
+ * What stopped a held turn, in words: "Stopped by a restart" when ace restarted, "Cursor
+ * stopped unexpectedly" when the provider's process died on its own (the provider's name when
+ * known), "Agent stopped" after the person's Stop. Undefined when no stop holds the turn.
+ */
+export function stopTitle(
+  queue: Pick<QueueHold, "paused" | "reason" | "exited"> | undefined,
+  provider?: ProviderKind,
+): string | undefined {
+  if (!queue?.paused) return undefined;
+  if (queue.reason === "stopped") return "Agent stopped";
+  if (queue.reason !== "restart") return undefined;
+  if (!queue.exited) return "Stopped by a restart";
+  return `${provider ? providerNames[provider] : "Agent"} stopped unexpectedly`;
+}
 
 /**
  * Why the queue isn't sending, and the way out; undefined while it flows. `account` is what
@@ -150,7 +167,7 @@ export function queueNotice(
     case "restart":
       return {
         kind: "restart",
-        title: "Stopped by a restart",
+        title: stopTitle(queue) ?? "Stopped by a restart",
         detail: "",
         actions: [{ id: "continue", label: "Continue" }],
       };

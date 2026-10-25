@@ -10,6 +10,9 @@ import {
   ThreadId,
 } from "@ace/protocol";
 import { z } from "zod";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { DeviceChromeReader, deviceChromeSources } from "@ace/devices";
 
 const DeviceStateMessage = z.object({ type: z.literal("devices.state"), state: DeviceState });
 import type { ServerWebSocket } from "bun";
@@ -86,8 +89,48 @@ function seedThread(daemon: FakeDaemon, details: (branch: string) => object): st
 }
 
 /** Turn devices on, give the iPhone to the thread's agent and keep it acting. */
+/** A process's output, for reading Xcode's device profiles. */
+const output = (command: string, args: readonly string[]) =>
+  new Promise<string>((resolve, reject) =>
+    execFile(command, [...args], { maxBuffer: 4 * 1024 * 1024 }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout),
+    ),
+  );
+
+/**
+ * The fake iPhone wears the real iPhone 16 Pro body from this Mac's Xcode, read and drawn by the
+ * daemon's own reader, so the phone shows what a real daemon sends. Off a Mac, or without
+ * Xcode's files, it keeps the drawn frame.
+ */
+async function seedChrome(daemon: FakeDaemon): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const reader = new DeviceChromeReader(
+    deviceChromeSources({
+      home: homedir(),
+      env: process.env,
+      simctl: (args) => output("xcrun", ["simctl", ...args]),
+      plutil: (args) => output("/usr/bin/plutil", args),
+      simulatorType: async () => undefined,
+    }),
+  );
+  const chrome = await reader
+    .chrome(
+      AppDevice.parse({
+        id: iphone,
+        platform: "ios",
+        name: "iPhone 16 Pro",
+        state: "booted",
+        model: "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+      }),
+      "png",
+    )
+    .catch(() => undefined);
+  if (chrome) daemon.appDevices.chromes.set(iphone, chrome);
+}
+
 export function spikeDevices(daemon: FakeDaemon, details: (branch: string) => object): void {
   seedDevices(daemon);
+  void seedChrome(daemon);
   const agentId = seedThread(daemon, details);
   const owner = daemon.appDevices.transport();
   // The agent acts only while it holds the iPhone: a person who took over sees no actions.

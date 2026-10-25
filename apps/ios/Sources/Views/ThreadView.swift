@@ -75,7 +75,8 @@ struct ThreadView: View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
+                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
@@ -86,7 +87,7 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: leave))
             }
             .navigationTitle(metadata?.title ?? "Thread")
@@ -134,6 +135,7 @@ struct ThreadView: View {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .transferSheet(model: model, kind: "thread")
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
                     GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
@@ -186,6 +188,8 @@ struct ThreadView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // A request needs the person first; the transfer's line waits under it.
+                    else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
                 }
                 .transition(.opacity)
                 if archived {

@@ -1,14 +1,16 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import {
-  Event,
-  ThreadProviderMetadata,
-  type EventPayload,
-  type Thread,
-  type ThreadId,
-} from "@ace/protocol";
+import { Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
 import { updateThread } from "@ace/projection";
 import { prepareRunClient } from "./run-client-storage.ts";
-import { encodeThreadClient, liveMetadataChange } from "./thread-client-storage.ts";
+import { liveMetadataChange } from "./thread-client-storage.ts";
+import {
+  threadColumnChanges,
+  threadColumnValue,
+  type ColumnValue,
+  type ThreadColumn,
+} from "./thread-columns.ts";
+import { rebuildThread } from "./thread-row.ts";
+import type { FrozenThread } from "./thread-cache.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
 import type { PayloadStore } from "./payload-store.ts";
 import type { HistoryIndex } from "./history-index.ts";
@@ -33,6 +35,22 @@ interface EventWriteSource {
   measurements: MeasurementStore;
   statement(sql: string): StatementSync;
   getThread(id: ThreadId): Thread | undefined;
+  /** The shared frozen thread and a private copy, from one cache lookup. */
+  checkoutThread(id: ThreadId): { base: FrozenThread; thread: Thread } | undefined;
+  /** This writer just wrote `written` to the thread's row, which decodes to `thread` at `revision`. */
+  rememberThread(
+    id: ThreadId,
+    revision: number,
+    thread: Thread,
+    written: Record<string, ColumnValue>,
+  ): void;
+  /** As `rememberThread`, for a thread this writer just created with every column in `row`. */
+  rememberCreatedThread(
+    id: ThreadId,
+    revision: number,
+    thread: Thread,
+    row: Record<string, ColumnValue>,
+  ): void;
   nextId(): string;
   wakeSearch(): void;
 }
@@ -55,7 +73,8 @@ export class EventWriter {
       followup = undefined;
       if (!payload) break;
       const previousSeq = seq;
-      const previous = this.source.getThread(threadId);
+      const checkout = this.source.checkoutThread(threadId);
+      const previous = checkout?.thread;
       const prepared = previous ? prepareRunClient(this.source.db, previous, payload) : payload;
       const event =
         envelope ??
@@ -84,8 +103,7 @@ export class EventWriter {
             .get(thread.workspaceId)
         )
           throw new Error("workspace_unregistered");
-        if (thread.id !== threadId || this.source.getThread(threadId))
-          throw new Error("Invalid thread creation");
+        if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
         this.source
           .statement(
             "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -108,53 +126,7 @@ export class EventWriter {
       const liveChange = liveMetadataChange(this.source.db, thread, event.payload, event.at);
       if (liveChange) followup = liveChange;
       updateThread(thread, event);
-      if (event.payload.type === "thread.created" || event.payload.type === "thread.client.updated")
-        this.source
-          .statement("UPDATE threads SET client=? WHERE id=?")
-          .run(encodeThreadClient(thread), thread.id);
-      if (event.payload.type !== "item.delta")
-        this.source
-          .statement(
-            "UPDATE threads SET workspace_id = ?, title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
-          )
-          .run(
-            thread.workspaceId,
-            thread.title,
-            JSON.stringify(thread.status),
-            thread.updatedAt,
-            thread.archivedAt ?? null,
-            thread.rootAgentId ?? null,
-            thread.provider,
-            JSON.stringify({
-              lineage: thread.lineage,
-              delegatedBy: thread.delegatedBy,
-              queuedLaunch: thread.queuedLaunch,
-              execution: thread.execution,
-              switch: thread.switch,
-            }),
-            JSON.stringify({
-              backend: thread.backend,
-              capabilities: thread.capabilities,
-              handoff: thread.handoff,
-              permission: thread.permission,
-              titleSource: thread.titleSource,
-              queue: thread.queue,
-              goal: thread.goal,
-              run: thread.run,
-            }),
-            thread.id,
-          );
-      if (
-        event.payload.type === "thread.created" ||
-        (event.payload.type === "thread.updated" &&
-          (event.payload.effectiveCapabilities !== undefined ||
-            event.payload.acpSupport !== undefined ||
-            event.payload.acp !== undefined))
-      ) {
-        this.source
-          .statement("UPDATE threads SET acp = ? WHERE id = ?")
-          .run(JSON.stringify(ThreadProviderMetadata.parse(thread)), thread.id);
-      }
+      this.writeThread(checkout?.base, thread, event.payload);
       event.payload = this.source.payloads.cap(event.payload, threadId);
       this.source.payloads.persist(event);
       this.source.history.record(event);
@@ -183,4 +155,71 @@ export class EventWriter {
     this.source.wakeSearch();
     return events;
   }
+  /**
+   * Store what this event changed in the thread's columns, and nothing when it changed none,
+   * which is most events. `previous` is what the row decoded to before (none on creation).
+   */
+  private writeThread(
+    previous: FrozenThread | undefined,
+    thread: Thread,
+    payload: EventPayload,
+  ): void {
+    const changes = threadColumnChanges(previous, thread, writtenColumns(payload));
+    if (changes.hot.length)
+      this.source
+        .statement(
+          `UPDATE threads SET ${changes.hot.map(([name]) => `${name} = ?`).join(", ")} WHERE id = ?`,
+        )
+        .run(...changes.hot.map(([, value]) => value), thread.id);
+    if (changes.cold.length) {
+      // A new cold row also needs the column that did not change.
+      const value = (name: ThreadColumn) => {
+        const change = changes.cold.find(([column]) => column === name);
+        return change ? change[1] : previous ? threadColumnValue(previous, name) : null;
+      };
+      this.source
+        .statement(
+          `INSERT INTO thread_cold (thread_id, details, capabilities) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET ${changes.cold.map(([name]) => `${name} = excluded.${name}`).join(", ")}`,
+        )
+        .run(thread.id, value("details"), value("capabilities"));
+    }
+    if (!changes.hot.length && !changes.cold.length) return;
+    const revision = this.source
+      .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
+      .get(thread.id)?.revision;
+    if (typeof revision !== "number") return;
+    const rebuilt = rebuildThread(previous, changes.row, changes.parts);
+    if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
+    else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
+  }
+}
+
+const updated: ThreadColumn[] = [
+  "workspace_id",
+  "title",
+  "status",
+  "updated_at",
+  "archived_at",
+  "root_agent_id",
+  "provider",
+  "transitions",
+  "provider_metadata",
+  "capabilities",
+  // Any event may fold client fields (a status change sets activitySeq), so all are checked.
+  "client",
+  "details",
+];
+/** The columns an event may write. Others keep their stored value, whatever it folded. */
+function writtenColumns(payload: EventPayload): ThreadColumn[] {
+  if (payload.type === "item.delta") return [];
+  const columns = [...updated];
+  if (
+    payload.type === "thread.created" ||
+    (payload.type === "thread.updated" &&
+      (payload.effectiveCapabilities !== undefined ||
+        payload.acpSupport !== undefined ||
+        payload.acp !== undefined))
+  )
+    columns.push("acp");
+  return columns;
 }

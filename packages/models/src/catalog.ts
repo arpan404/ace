@@ -118,6 +118,12 @@ export type CatalogOptions = {
     signal: AbortSignal,
     diagnostic?: (metadata: DiscoveryDiagnostics) => void,
   ) => Promise<string>;
+  /**
+   * Reads (`list`, `resolve`) re-check connections owned by the CLIs at most this often, so a
+   * login changed outside ace shows the next time someone looks, and an unread catalog spawns
+   * nothing. Without it, callers schedule `reconcileConnections` themselves.
+   */
+  connectionCheckMs?: number;
   onError?: (
     provider: ModelInstance["provider"],
     instance: string,
@@ -157,6 +163,11 @@ export class ModelCatalog implements ModelCatalogApi {
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
+  /** Latest reported installation version per `runtime:provider`. */
+  readonly #installations = new Map<string, string>();
+  #connectionsCheckedAt: number | undefined;
+  #observers = 0;
+  #cancelObservedCheck: (() => void) | undefined;
   constructor(options: CatalogOptions) {
     this.#options = options;
     this.#deletions = new PendingDeletions(options.storage);
@@ -471,6 +482,8 @@ export class ModelCatalog implements ModelCatalogApi {
     version: string,
     runtime: "cli" | "cursor-sdk" = "cli",
   ): void {
+    // Kept for instances that register after the provider check reported this version.
+    this.#installations.set(`${runtime}:${provider}`, version);
     for (const state of this.#select({ provider })) {
       if ((state.config.backend === "cursor-sdk" ? "cursor-sdk" : "cli") !== runtime) continue;
       if (state.config.installationVersion === version) continue;
@@ -495,7 +508,14 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
-    const config = ModelInstance.parse(input);
+    const parsed = ModelInstance.parse(input);
+    const installed = this.#installations.get(
+      `${parsed.backend === "cursor-sdk" ? "cursor-sdk" : "cli"}:${parsed.provider}`,
+    );
+    const config =
+      parsed.installationVersion === undefined && installed !== undefined
+        ? { ...parsed, installationVersion: installed }
+        : parsed;
     if (this.#removals.has(config.id)) throw new Error("Instance removal is still draining");
     const old = this.#states.get(config.id);
     if (!old && this.#states.size >= 64) throw new Error("Instance limit reached");
@@ -752,9 +772,47 @@ export class ModelCatalog implements ModelCatalogApi {
   revalidate(): void {
     this.#revalidate(this.#select({}));
   }
+  /**
+   * While a client shows the catalog (it is subscribed to changes), re-check the connections
+   * OpenCode and Pi own every `connectionCheckMs`, so a login changed in a terminal reaches an
+   * open model picker without another read. An unwatched catalog still checks only on reads.
+   */
+  observeConnections(): () => void {
+    if (this.#options.connectionCheckMs === undefined || this.#closed) return () => {};
+    if (++this.#observers === 1) this.#armObservedCheck();
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      if (--this.#observers > 0) return;
+      this.#cancelObservedCheck?.();
+      this.#cancelObservedCheck = undefined;
+    };
+  }
+  #armObservedCheck(): void {
+    const interval = this.#options.connectionCheckMs;
+    if (interval === undefined) return;
+    this.#cancelObservedCheck = this.#options.deadline(() => {
+      this.#cancelObservedCheck = undefined;
+      if (this.#closed || this.#observers === 0) return;
+      this.#checkConnections();
+      this.#armObservedCheck();
+    }, interval);
+  }
+  #checkConnections(): void {
+    const interval = this.#options.connectionCheckMs;
+    if (interval === undefined || this.#closed) return;
+    const now = this.#options.now();
+    const last = this.#connectionsCheckedAt;
+    if (last !== undefined && now - last < interval) return;
+    this.#connectionsCheckedAt = now;
+    // Each instance records its own probe failure and retry; nothing is left to report here.
+    void this.reconcileConnections().catch(() => {});
+  }
   list(input: ModelListOptions = {}): ModelListResult {
     const options = ModelListOptions.parse(input);
     const states = this.#select(options);
+    this.#checkConnections();
     this.#revalidate(states);
     const models: ModelListResult["models"] = [];
     let skipped = options.offset;
@@ -790,6 +848,7 @@ export class ModelCatalog implements ModelCatalogApi {
   resolve(input: ModelRoleSpec): ModelResolution {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
+    this.#checkConnections();
     this.#revalidate(states);
     return this.#resolve(input, states);
   }
@@ -1147,6 +1206,8 @@ export class ModelCatalog implements ModelCatalogApi {
     const closing = (async () => {
       this.#closed = true;
       this.#listeners.clear();
+      this.#cancelObservedCheck?.();
+      this.#cancelObservedCheck = undefined;
       for (const state of this.#states.values()) {
         state.abort?.abort();
         state.probe?.abort.abort();

@@ -79,10 +79,14 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     let frame: Frames
     /// The screen's size upright, in points, until its first picture says otherwise.
     let screen: Size
+    /// The key of the device's real look (`devices.chrome`), drawn instead of `frame` once here.
+    var chrome: String? = nil
     struct Size: Codable, Sendable, Equatable { let width: Double; let height: Double }
     let activity: Activity?
     let problem: DeviceProblem?
     let touch: String
+    /// The picture already shows the device's own body (a Simulator window): no frame around it.
+    var framed: Bool? = nil
 }
 
 /// A thread's Devices screen, whole, as the bridge shapes it.
@@ -117,16 +121,46 @@ struct DeviceTree: Codable, Sendable, Equatable {
     let truncated: Bool
 }
 
+/// A device model's real look from its SDK, shaped by `bridge/phone-chrome.ts`: PNG or WebP
+/// images as data URLs, and where everything goes for each turn in points.
+struct DeviceChromeArt: Codable, Sendable, Equatable {
+    struct Box: Codable, Sendable, Equatable { let left: Double; let top: Double; let width: Double; let height: Double }
+    struct Size: Codable, Sendable, Equatable { let width: Double; let height: Double }
+    /// A rectangle as fractions of the upright body.
+    struct Fraction: Codable, Sendable, Equatable { let x: Double; let y: Double; let width: Double; let height: Double }
+    struct Cutout: Codable, Sendable, Equatable { let image: String; let rect: Fraction }
+    struct Button: Codable, Sendable, Equatable {
+        let label: String
+        /// The key a press sends; empty for hardware ace can't press.
+        let key: String
+        let image: String
+        let pressed: String?
+        let onTop: Bool
+        let rect: Fraction
+    }
+    struct Turn: Codable, Sendable, Equatable { let box: Size; let plate: Box; let screen: Box }
+    let body: String
+    let mask: String?
+    let cutout: Cutout?
+    let buttons: [Button]
+    /// Upright, then turned a quarter, a half and three quarters clockwise.
+    let turns: [Turn]
+}
+
 enum DevicesPatch: Sendable {
     case view(threadId: String, DevicesView)
     case logs(DeviceLogs)
+    case chrome(key: String, DeviceChromeArt)
 
-    static let types: Set<String> = ["devices.view", "devices.logs"]
-    private enum Keys: String, CodingKey { case type, threadId, view }
+    static let types: Set<String> = ["devices.view", "devices.logs", "devices.chrome"]
+    private enum Keys: String, CodingKey { case type, threadId, view, key, chrome }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
-        if try box.decode(String.self, forKey: .type) == "devices.view" {
+        let type = try box.decode(String.self, forKey: .type)
+        if type == "devices.view" {
             self = .view(threadId: try box.decode(String.self, forKey: .threadId), try box.decode(DevicesView.self, forKey: .view))
+        } else if type == "devices.chrome" {
+            self = .chrome(key: try box.decode(String.self, forKey: .key), try box.decode(DeviceChromeArt.self, forKey: .chrome))
         } else {
             self = .logs(try DeviceLogs(from: decoder))
         }
@@ -138,6 +172,8 @@ enum DevicesPatch: Sendable {
 @MainActor @Observable final class DevicesModel {
     private(set) var view: DevicesView?
     private(set) var logs: DeviceLogs?
+    /// Each model's real look the bridge has sent, its images decoded once.
+    private(set) var chromes: [String: DeviceChromeLook] = [:]
     /// The newest request's failure, until the next one starts.
     var problem: DeviceProblem?
     private(set) var pending = 0
@@ -149,6 +185,8 @@ enum DevicesPatch: Sendable {
         switch patch {
         case .view(_, let next): if view != next { view = next }
         case .logs(let next): if logs != next { logs = next }
+        case .chrome(let key, let art):
+            if chromes[key]?.art != art, let look = DeviceChromeLook(art) { chromes[key] = look }
         }
     }
 

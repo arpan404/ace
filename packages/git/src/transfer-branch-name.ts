@@ -5,7 +5,7 @@ export function machineSlug(machine: string): string {
   const slug = machine
     .normalize("NFKD")
     .toLowerCase()
-    .replace(/['’]/g, "")
+    .replace(/['\u2019]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40)

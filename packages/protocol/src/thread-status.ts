@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Timestamp } from "./ids.ts";
+import { QueueFacts } from "./thread-transitions.ts";
 
 /**
  * Thread status as shown in lists. Derived by the daemon from every agent,
@@ -11,6 +12,8 @@ export const ThreadStatus = z.discriminatedUnion("state", [
   z.object({
     state: z.literal("waiting"),
     on: z.enum(["background_task", "rate_limit", "network", "upstream", "queue"]),
+    /** While queued past its parent's run slots: where the child stands. */
+    ...QueueFacts.partial().shape,
   }),
   z.object({ state: z.literal("limited"), until: Timestamp.optional() }),
   z.object({ state: z.literal("failed") }),

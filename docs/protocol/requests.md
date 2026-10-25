@@ -3113,11 +3113,10 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "baseBranch": "example",
       "input": [
         {
-          "text": "example",
-          "type": "text"
+          "path": "example",
+          "type": "file"
         }
       ],
       "issue": {
@@ -3129,6 +3128,8 @@ Example:
           "owner": "KT4/0iUdt3hm"
         }
       },
+      "mode": "worktree",
+      "options": {},
       "origin": {
         "from": {
           "provider": "codex"

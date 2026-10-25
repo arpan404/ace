@@ -1,15 +1,8 @@
 import type { VirtualItem, Virtualizer } from "@tanstack/react-virtual";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { scrollToEnd as glideToEnd } from "@/lib/motion.ts";
 import { blockItems } from "./blocks.ts";
+import { rowsAround } from "./held-rows.ts";
 import { rowOf, type Row } from "./rows.ts";
 import { listenScrollIntent } from "./scroll-intent.ts";
 import {
@@ -58,11 +51,20 @@ export interface FeedScrollOptions {
   rows: readonly Row[];
   /** The rows' keys; the same array while they are the same keys. */
   keys: readonly string[];
+  /** Each row's index by key, for `keys`. */
+  indexOf: ReadonlyMap<string, number>;
+  /**
+   * Set here, read by the virtualizer's range: the rows around the held row, by where the view
+   * will be once it follows that row (see `held-rows.ts`). `indexOf` is the render's own.
+   */
+  heldRowsRef: RefObject<HeldRows | undefined>;
   total: number;
   detached: boolean;
   /** Room kept above the first row in view (the search bar floats there). */
   topRoom: number;
   dock: RefObject<HTMLElement | null>;
+  /** The element as tall as the rows: the render sizes it to the virtualizer's total. */
+  list: RefObject<HTMLElement | null>;
   now(): number;
   /** The reader scrolled up or down by a gesture, for paging history. */
   onDirection(upward: boolean): void;
@@ -71,6 +73,9 @@ export interface FeedScrollOptions {
   /** Keeps where the reader is as the feed goes (undefined: at the live end). */
   remember(saved: SavedScroll | undefined): void;
 }
+
+/** The rows around the held row, given the rows' current index by key and the overscan. */
+export type HeldRows = (indexOf: ReadonlyMap<string, number>, overscan: number) => number[];
 
 const threadScrollsKey: SessionKey<ScrollMemory> = { name: "thread scrolls" };
 
@@ -122,6 +127,16 @@ function placed(virtualizer: FeedVirtualizer, index: number) {
   return virtualizer.measurementsCache[index];
 }
 
+/**
+ * Rows that mounted with this commit measure themselves after the render that sized the list,
+ * so until the next render the list is shorter than its rows. A scroll written before then is
+ * cut short at the old height (older history landing, the reader's row pushed far down, the view
+ * stopping turns above it): the list takes its rows' height first.
+ */
+function fitList(virtualizer: FeedVirtualizer, list: HTMLElement | null): void {
+  if (list) list.style.height = `${virtualizer.getTotalSize()}px`;
+}
+
 function toEndOf(virtualizer: FeedVirtualizer, el: HTMLElement): void {
   const end = el.scrollHeight - el.clientHeight;
   if (Math.abs(el.scrollTop - end) >= 1) placeAt(virtualizer, el, end);
@@ -153,15 +168,14 @@ function compensateBy(
 }
 
 export function useFeedScroll(options: FeedScrollOptions) {
-  const { viewport, dock, virtualizer, rows, keys, total, detached, now, onDirection } = options;
+  const { viewport, dock, list, virtualizer, rows, keys, indexOf, total, detached, now } = options;
+  const { onDirection } = options;
   const mode = useRef<ScrollMode>(detached ? { kind: "free" } : { kind: "following" });
   const [following, setFollowing] = useState(!detached);
   const held = useRef<Held | undefined>(undefined);
   const top = useRef<TopRow | undefined>(undefined);
   const upward = useRef(false);
   const glidingUntil = useRef(0);
-  // Each row's index by key: finding a held row costs the same in a thread of any length.
-  const indexOf = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys]);
 
   /** Where a row is now, by key, else by an item it shows (its key may have changed). */
   const locate = useCallback(
@@ -246,6 +260,21 @@ export function useFeedScroll(options: FeedScrollOptions) {
     latestLook.current = look;
   });
 
+  // Rows landing above the held row move it down the list before the view follows it: the
+  // render that brings them draws the rows around where it will be, so the rows on screen stay
+  // mounted (the correction below then moves the view to them).
+  const { heldRowsRef } = options;
+  useLayoutEffect(() => {
+    heldRowsRef.current = (rowIndex, overscan) => {
+      const el = viewport.current;
+      const was = held.current;
+      if (!el || !was || mode.current.kind === "following") return [];
+      const index = rowIndex.get(was.key);
+      if (index === undefined) return [];
+      return rowsAround(virtualizer.measurementsCache, index, was.top, el.clientHeight, overscan);
+    };
+  }, [heldRowsRef, viewport, virtualizer]);
+
   // The reader's gestures, before the scrolls they cause.
   useEffect(() => {
     const el = viewport.current;
@@ -301,10 +330,11 @@ export function useFeedScroll(options: FeedScrollOptions) {
     const start = at && placed(virtualizer, at.index)?.start;
     if (!at || !row || start === undefined || mode.current.kind !== "following") return;
     apply({ type: "toggle", key: row.key, itemId: blockItems(row.block)[0] }, el);
+    fitList(virtualizer, list.current);
     placeAt(virtualizer, el, start - at.offset);
     hold(el, at.index);
     compensate();
-  }, [keys, rows, viewport, virtualizer, apply, hold, compensate]);
+  }, [keys, rows, viewport, list, virtualizer, apply, hold, compensate]);
 
   // Leaving the thread keeps where the reader was, unless they were at the live end.
   const leaving = useRef({ rows, detached, remember: options.remember });
@@ -338,6 +368,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
     previous.current = { keys, total, rows, indexOf };
     const el = viewport.current;
     if (!el || (mode.current.kind === "following" ? !structural && !grew : !structural)) return;
+    fitList(virtualizer, list.current);
     const was = held.current;
     let at = was && locate(was.key, was.itemId);
     // The held row left the transcript: the row that followed it takes its place.
@@ -370,7 +401,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
         grewAtTop.current = at.key;
     }
     compensate();
-  }, [keys, total, rows, indexOf, locate, now, viewport, virtualizer, compensate]);
+  }, [keys, total, rows, indexOf, locate, now, viewport, list, virtualizer, compensate]);
 
   const isFollowing = useCallback(() => mode.current.kind === "following", []);
   const toEnd = useCallback((el: HTMLElement) => toEndOf(virtualizer, el), [virtualizer]);
@@ -398,6 +429,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
           upward: upward.current,
           detached,
           gliding: now() < glidingUntil.current,
+          at: now(),
         },
         el,
       );

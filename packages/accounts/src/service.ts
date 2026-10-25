@@ -326,9 +326,16 @@ export class AccountService {
     if (context.signal.aborted) abort();
     let released = false;
     let closer: (() => Promise<void>) | undefined;
+    // Every streamed frame carries the billing mode. Read it once, and again only after the
+    // registry reports this account's quota changed, never from SQLite per frame.
+    let billingMode: "api" | "subscription" | "unknown" | undefined;
+    const stopBilling = this.registry.subscribeQuota((id) => {
+      if (id === chosen.id) billingMode = undefined;
+    });
     const release = () => {
       if (released) return;
       released = true;
+      stopBilling();
       if (closer) this.closers.get(chosen.id)?.delete(closer);
       if (this.closers.get(chosen.id)?.size === 0) this.closers.delete(chosen.id);
       context.signal.removeEventListener("abort", abort);
@@ -397,7 +404,8 @@ export class AccountService {
             ...frame,
             usageAccount: {
               id: chosen.id,
-              billingMode: this.registry.get(chosen.id)?.quota.billingMode ?? "unknown",
+              billingMode:
+                (billingMode ??= this.registry.get(chosen.id)?.quota.billingMode) ?? "unknown",
             },
           });
         },
@@ -476,6 +484,7 @@ export class AccountService {
         },
       };
     } catch (error) {
+      stopBilling();
       if (!frameFailed) release();
       throw error;
     }

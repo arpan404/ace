@@ -6,6 +6,15 @@ const port = parentPort;
 if (!port) throw new Error("Notification worker requires a parent");
 const config = WorkerConfig.parse(workerData);
 let sequence = 0;
+let reported = "";
+/** Tells the parent when delivery next has work, so it sets one timer instead of polling. */
+const report = () => {
+  const state = service.state();
+  const key = `${state.deadline}:${state.idle}`;
+  if (key === reported) return;
+  reported = key;
+  port.postMessage({ type: "state", ...state });
+};
 const sends = new Map<number, (result: DeliveryResult) => void>();
 const service = new NotificationService({
   ...config,
@@ -53,6 +62,15 @@ port.on("message", (input: unknown) => {
         case "cursor":
           value = service.cursor();
           break;
+        case "sleep":
+          service.sleep();
+          break;
+        case "closeSleep":
+          value = service.closeSleep();
+          break;
+        case "forgetSleep":
+          service.forgetSleep();
+          break;
         case "ingest":
           service.ingestMetadata(call.events, call);
           break;
@@ -91,13 +109,19 @@ port.on("message", (input: unknown) => {
           break;
       }
       port.postMessage({ type: "result", id, ok: true, ...(value === undefined ? {} : { value }) });
-      if (call.method === "close") port.close();
+      if (call.method === "close") {
+        port.close();
+        return;
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Notification call failed";
       port.postMessage({ type: "result", id, ok: false, error: reason.slice(0, 256) });
     }
+    report();
   })();
 });
 
-// Publish readiness only after SQLite is open and the RPC handler is installed.
+// Publish readiness only after SQLite is open and the RPC handler is installed. A restarted
+// worker reports its saved deadline at once: the parent's last report died with the old one.
 port.postMessage({ type: "ready" });
+report();

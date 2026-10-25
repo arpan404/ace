@@ -4,7 +4,11 @@ export type {
   NotificationTransport,
   NotificationLog,
   DeliveryResult,
+  NotificationState,
 } from "./service.ts";
+export { notificationsRetained } from "./retained.ts";
+export { deliverableFor } from "./policy.ts";
+export type { NoticeWindow } from "./sleep-boundary.ts";
 export { createNotificationRouter } from "./router.ts";
 export type { NotificationChannels } from "./router.ts";
 export { createWebPushTransport } from "./webpush.ts";

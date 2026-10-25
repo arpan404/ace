@@ -71,6 +71,8 @@ export const MessageOrigin = z.object({
   /** A context handoff: every model whose work the new agent received, oldest first. */
   sources: z.array(HandoffModel).max(8).optional(),
   lossy: z.boolean().optional(),
+  /** A `restart` continuation resuming a turn its provider dropped on its own, not a restart. */
+  afterExit: z.boolean().optional(),
 });
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
