@@ -25,7 +25,11 @@ import { useSetAvailability } from "./skills-source.ts";
  * it, its pin and its source.
  */
 
-export function PluginSkillPage(props: { skill: Skill; plugin: Skill; components: readonly Skill[] }) {
+export function PluginSkillPage(props: {
+  skill: Skill;
+  plugin: Skill;
+  components: readonly Skill[];
+}) {
   const { skill, plugin, components } = props;
   const toast = useToast();
   const setAvailability = useSetAvailability();

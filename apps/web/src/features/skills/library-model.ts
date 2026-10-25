@@ -81,7 +81,10 @@ export function skillNameProblem(name: string, taken: (name: string) => boolean)
 export const timesText = (count: number) => (count === 1 ? "Once" : `${count} times`);
 
 /** "vercel-labs/skills · updated 23 Apr": where a skill came from and when it last changed. */
-export function sourceLine(source: { source: string; updatedAt?: string | undefined }, now: number) {
+export function sourceLine(
+  source: { source: string; updatedAt?: string | undefined },
+  now: number,
+) {
   const at = source.updatedAt ? Date.parse(source.updatedAt) : Number.NaN;
   if (Number.isNaN(at)) return source.source;
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();

@@ -13,9 +13,7 @@ test("agents read by name, and all of them as every agent", () => {
   expect(agentsText(["claude"])).toBe("Claude Code only");
   expect(agentsText(["opencode", "claude", "codex"])).toBe("Claude Code, Codex and OpenCode");
   expect(agentsText([])).toBe("No agent");
-  expect(agentsText(["claude", "codex", "cursor", "opencode", "pi"])).toBe(
-    "Every agent",
-  );
+  expect(agentsText(["claude", "codex", "cursor", "opencode", "pi"])).toBe("Every agent");
 });
 
 test("a row shows agent marks only when the skill reaches one or two agents", () => {
@@ -39,11 +37,14 @@ test("skills group by where they live, project first and built-in last, skipping
   ]);
 });
 
+const taken = (name: string) => name === "release-notes";
+
 test("a new skill's name must be a free slug", () => {
-  const taken = (name: string) => name === "release-notes";
   expect(skillNameProblem("", taken)).toBeUndefined();
   expect(skillNameProblem("release-desktop", taken)).toBeUndefined();
-  expect(skillNameProblem("Release Notes", taken)).toBe("Use lowercase letters, digits and dashes.");
+  expect(skillNameProblem("Release Notes", taken)).toBe(
+    "Use lowercase letters, digits and dashes.",
+  );
   expect(skillNameProblem("double--dash", taken)).toBe("Use lowercase letters, digits and dashes.");
   expect(skillNameProblem("release-notes", taken)).toBe(
     "You already have a skill called release-notes.",
@@ -51,7 +52,8 @@ test("a new skill's name must be a free slug", () => {
 });
 
 test("instructions drop the frontmatter and a first heading that repeats the title", () => {
-  const text = '---\nname: tdd\ndescription: "Red, green"\n---\n# TDD\n\nWrite the failing test first.\n';
+  const text =
+    '---\nname: tdd\ndescription: "Red, green"\n---\n# TDD\n\nWrite the failing test first.\n';
   expect(instructionsShown(text, "TDD")).toBe("Write the failing test first.\n");
   expect(instructionsShown(text, "Testing")).toBe("# TDD\n\nWrite the failing test first.\n");
   expect(skillBody(text)).toBe("# TDD\n\nWrite the failing test first.\n");

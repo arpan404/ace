@@ -28,7 +28,9 @@ export function NewSkillPage() {
   // Agents start ticked when they are installed on the daemon's machine.
   const installed = statuses.data
     ? skillAgents.filter((agent) =>
-        statuses.data?.some((status) => status.provider === agent && status.state !== "not_installed"),
+        statuses.data?.some(
+          (status) => status.provider === agent && status.state !== "not_installed",
+        ),
       )
     : statuses.isError
       ? skillAgents
@@ -84,4 +86,3 @@ export function NewSkillPage() {
     </Screen>
   );
 }
-

@@ -189,21 +189,19 @@ export function withLibrary(catalog: readonly Skill[], entries: readonly SkillEn
   );
   const library = entries
     .filter((entry) => !(entry.scope === "plugin" && shipped.has(entry.name)))
-    .map(
-      (entry): Skill => ({
-        id: entry.id,
-        kind: "skill",
-        home: entry.scope,
-        name: entry.name,
-        title: entry.title,
-        description: entry.description,
-        plugin: "",
-        path: entry.path,
-        enabled: true,
-        providers: entry.agents.map((agent) => agent.provider),
-        library: entry,
-      }),
-    )
+    .map((entry): Skill => ({
+      id: entry.id,
+      kind: "skill",
+      home: entry.scope,
+      name: entry.name,
+      title: entry.title,
+      description: entry.description,
+      plugin: "",
+      path: entry.path,
+      enabled: true,
+      providers: entry.agents.map((agent) => agent.provider),
+      library: entry,
+    }))
     .toSorted((a, b) => a.name.localeCompare(b.name));
   return [...library, ...catalog];
 }
