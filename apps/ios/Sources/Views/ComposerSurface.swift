@@ -17,6 +17,8 @@ struct ComposerActionButton: View {
     var saving = false
     let disabled: Bool
     let label: String
+    /// The tap area's side; the round sits a little inside it.
+    var size: CGFloat = AceTheme.Dimensions.touchTarget
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -29,10 +31,10 @@ struct ComposerActionButton: View {
                     AceIcon(.arrowUp, size: 16, weight: .bold, relativeTo: .body)
                 }
             }
-            .frame(width: AceTheme.Spacing.xxxl + AceTheme.Spacing.xs, height: AceTheme.Spacing.xxxl + AceTheme.Spacing.xs)
+            .frame(width: size - AceTheme.Spacing.sm, height: size - AceTheme.Spacing.sm)
             .foregroundStyle(foreground)
             .background(background, in: Circle())
-            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            .frame(width: size, height: size)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).disabled(disabled).accessibilityLabel(label)

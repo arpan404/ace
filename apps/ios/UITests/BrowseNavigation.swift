@@ -5,8 +5,27 @@ extension XCUIApplication {
     @MainActor func openAgents() {
         XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
         buttons["thread.menu"].tap()
-        XCTAssertTrue(buttons["thread.agents"].waitForExistence(timeout: 10))
-        buttons["thread.agents"].tap()
+        XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
+        threadMenuItem("thread.agents").tap()
+    }
+    /// One of the composer's own controls (`composer.model`, `composer.effort`, `composer.access`):
+    /// they show once the composer opens, so an at-rest composer is tapped into first.
+    @MainActor @discardableResult func composerControl(_ identifier: String, timeout: TimeInterval = 15) -> XCUIElement {
+        let control = buttons[identifier]
+        if !control.waitForExistence(timeout: 2) {
+            let input = textViews["composer.input"]
+            if input.waitForExistence(timeout: timeout) { input.tap() }
+        }
+        XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
+        return control
+    }
+    /// An item of the thread's ⋯ menu. iOS 27 drops a menu item's identifier and keeps its label,
+    /// so the item is found by either.
+    func threadMenuItem(_ identifier: String) -> XCUIElement {
+        let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
+                      "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
+        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
     }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.
     var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }
@@ -21,13 +40,18 @@ extension XCUIApplication {
     /// Drags the list without letting it coast until `element` sits clear of the floating header
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
+    /// The drag runs down the element's own column: beside an iPad's open thread the list is not
+    /// in the middle of the window.
     @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
-        let lower = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
-        let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
         for attempt in 0..<attempts {
-            // A row the lazy list hasn't loaded has no frame to read yet.
+            // A row the lazy list hasn't loaded has no frame to read yet; its list is the one
+            // under the inbox's own Settings button.
             let exists = element.exists
             let frame = exists ? element.frame : .zero
+            let column = exists ? frame : buttons["inbox.settings"].exists ? buttons["inbox.settings"].frame : self.frame
+            let x = self.frame.width > 0 ? min(max(column.midX / self.frame.width, 0.05), 0.95) : 0.5
+            let lower = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.72))
+            let upper = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.38))
             let visible = exists && frame.minY > self.frame.height * 0.2 && frame.maxY < self.frame.height * 0.82
             if visible && element.isHittable { return }
             // Above: drag down. Below: drag up. Not loaded yet: look further down the list first,
@@ -39,6 +63,14 @@ extension XCUIApplication {
                 lower.press(forDuration: 0.1, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.2)
             }
         }
+    }
+    /// Drags the inbox list one screen further down, in the list's own column: beside an iPad's
+    /// open thread the middle of the window is the thread, not the list.
+    @MainActor func dragListUp() {
+        let column = buttons["inbox.settings"].exists ? buttons["inbox.settings"].frame : frame
+        let x = frame.width > 0 ? min(max(column.midX / frame.width, 0.05), 0.95) : 0.5
+        coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.75))
+            .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3)), withVelocity: .fast, thenHoldForDuration: 0)
     }
     /// Opens Settings from the inbox, scrolled so the machine tools show.
     @MainActor func openSettings() {

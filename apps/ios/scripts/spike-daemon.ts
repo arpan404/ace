@@ -24,6 +24,8 @@ import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
+import { servePeer, transferPace } from "./transfer-peer.ts";
+import { seedForks } from "./fork-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -40,13 +42,24 @@ const port = z.coerce
 const separate = process.env.ACE_IOS_SPIKE_MACHINE === "1";
 const hostId = separate ? `ios-spike-host-${port}` : "ios-spike-host";
 const machineName = separate ? `studio-${port}` : "arpan-mbp";
+/** `ACE_IOS_SPIKE_PEER=<port>` serves a second machine this one links to (`transfer-peer.ts`). */
+const peerPort = z.coerce
+  .number()
+  .int()
+  .min(1024)
+  .max(65535)
+  .optional()
+  .parse(process.env.ACE_IOS_SPIKE_PEER);
+const paced = (run: () => void) => void setTimeout(run, transferPace);
 const daemon = new FakeDaemon({
   clock: Date.now,
   hostId,
   displayName: machineName,
   token: "ios-spike-token",
   snapshotItems: 200,
+  ...(peerPort ? { projectScheduler: paced } : {}),
 });
+const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
   branch,
@@ -157,6 +170,7 @@ daemon.command({
 });
 
 threadScenarios(daemon, details);
+seedForks(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
@@ -371,6 +385,7 @@ process.on("SIGINT", () => {
   clearInterval(timer);
   clearInterval(busyTimer);
   server.stop(true);
+  stopPeer?.();
 });
 console.log(
   `iOS spike daemon on ws://127.0.0.1:${port}. No provider processes or subscription quota.`,

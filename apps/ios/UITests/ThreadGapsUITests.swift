@@ -17,8 +17,7 @@ import XCTest
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
         // The model chip's effort part opens effort and speed, the levels in words.
-        XCTAssertTrue(app.buttons["composer.effort"].waitForExistence(timeout: 25))
-        app.buttons["composer.effort"].tap()
+        app.composerControl("composer.effort", timeout: 25).tap()
         let high = app.buttons["composer.tune.high"]
         XCTAssertTrue(high.waitForExistence(timeout: 25))
         high.tap()

@@ -161,7 +161,7 @@ import Darwin
                     // changes the cursor and the iOS app is not in Simulator's macOS AX tree.
                     // Keep process-targeted posting and every target/permission check.
                     if request.humanDeviceInput == true,
-                       capture.target?.kind == "window", capture.target?.bundleId == "com.apple.iphonesimulator",
+                       capture.target?.kind == "window", simulatorWindowBundles.contains(capture.target?.bundleId ?? ""),
                        ["input", "button.press"].contains(request.op) {
                         capture.mode = "background"
                         capture.humanDeviceInput = true

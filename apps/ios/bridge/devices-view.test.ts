@@ -203,7 +203,7 @@ test("a channel that closed says so, and missing tools are a setup note", () => 
     "Lost the connection to this machine's simulators and emulators.",
   );
   expect(shown.toolsMissing).toBe(true);
-  expect(shown.notes[0]?.message).toBe("A device tool is missing on this machine.");
+  expect(shown.notes[0]).toEqual({ message: "Device tools missing", hint: "Download them." });
   expect(shown.device).toBeNull();
 });
 
@@ -280,4 +280,38 @@ test("the open device names its real look once the bridge has it, and none befor
   const model = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro";
   const shown = view([live()], { chrome: (device) => (device.id === iphone.id ? model : null) });
   expect(shown.device?.chrome).toBe(model);
+});
+
+test("a Simulator window picture is shown in its own bezel only; a streamed screen keeps ace's frame", () => {
+  expect(view([live({ framed: true })]).device?.framed).toBe(true);
+  expect(view([live()]).device?.framed).toBe(false);
+});
+
+test("a missing Android SDK is a setup note, never the open Simulator's problem", () => {
+  const issue = {
+    code: "sdk_missing" as const,
+    platform: "android" as const,
+    message: "Android SDK platform-tools and emulator were not found",
+    hint: "Install Android Studio's Platform Tools, then set ANDROID_HOME.",
+  };
+  const shown = phoneDevicesView({
+    snapshot: {
+      connected: true,
+      inventoryLoaded: true,
+      devices: [iphone],
+      states: [live()],
+      issues: [issue],
+      enabled: true,
+    },
+    closed: false,
+    threadId: "thread-1",
+    deviceId: iphone.id,
+    query: "",
+    platform: "all",
+    now: 1_000,
+    agent: () => undefined,
+    previous: new Map(),
+  });
+  expect(shown.device?.problem).toBeNull();
+  expect(shown.notes).toEqual([{ message: issue.message, hint: issue.hint }]);
 });

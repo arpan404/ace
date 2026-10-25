@@ -210,7 +210,7 @@ import XCTest
         app.buttons["thread.ios-done"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.files"].tap()
+        app.threadMenuItem("thread.files").tap()
         XCTAssertTrue(app.buttons["file.fixtures/"].waitForExistence(timeout: 15))
         screenshot("files-root")
         app.buttons["file.fixtures/"].tap()

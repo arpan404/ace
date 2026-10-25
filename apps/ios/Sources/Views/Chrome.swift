@@ -3,10 +3,12 @@ import SwiftUI
 /// The redesign's shared chrome. System glass draws every floating control on iOS 26; iOS 18
 /// gets the regular material with a hairline edge. Content never sits on glass of its own.
 extension View {
+    /// Glass tinted toward the page, so in dark mode it reads as near-black rather than grey.
+    @available(iOS 26, *) static var darkGlass: Glass { .regular.tint(AceTheme.Colours.background.opacity(0.55)) }
     /// Glass in `shape`. `interactive` lets iOS 26 react to touches (buttons, capsules).
     @ViewBuilder func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            self.glassEffect(interactive ? Self.darkGlass.interactive() : Self.darkGlass, in: shape)
         } else {
             self.background(.regularMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
@@ -17,7 +19,7 @@ extension View {
     /// material with a hairline edge.
     @ViewBuilder func composerGlass<S: Shape>(in shape: S) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(.regular, in: shape)
+            self.glassEffect(Self.darkGlass, in: shape)
         } else {
             self.background(.thinMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))

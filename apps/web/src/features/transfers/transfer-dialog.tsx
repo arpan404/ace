@@ -27,9 +27,8 @@ import type { TransferRequest } from "@/lib/transfer-opener.ts";
 import { fleetKeys, machineLinks, settingKeys, useSetting } from "@/features/settings/index.ts";
 import { FolderChoice } from "./folder-choice.tsx";
 import { TransferLine } from "./transfer-line.tsx";
-import { transferMachines, type TransferMachine } from "./transfer-machines.ts";
 import { useTransferLine } from "./transfer-status.ts";
-import { refusalWords } from "./transfer-words.ts";
+import { refusalWords, transferMachines, type TransferMachine } from "@ace/ui-core/transfers";
 import {
   placementOf,
   useTransferActions,

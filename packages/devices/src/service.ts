@@ -165,6 +165,7 @@ export class DevicesService {
       recording: session.recording !== undefined,
       streamId: session.streamId,
       ...(session.capture ? { touch: deviceTouch(session.device, session.capture) } : {}),
+      ...(session.capture?.framed ? { framed: true } : {}),
       ...session.lease.status(),
       error: session.error,
       activity: session.activity,

@@ -27,5 +27,6 @@ export type { Scheduler } from "./runtime.ts";
 export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";
 
 export { ScreenStopError } from "./stop-error.ts";
+export { deviceWindowBundles } from "./device-input-policy.ts";
 
 export type { ScreenAccess } from "./access.ts";
