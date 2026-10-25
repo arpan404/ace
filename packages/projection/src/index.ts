@@ -437,4 +437,8 @@ export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-
 export { sidebarSettled, sidebarVisible, sidebarPage } from "./sidebar-page.ts";
 
 export { distinctRetainedInputs } from "./retained-inputs.ts";
-export { diagnosticNoticeText, isDiagnosticNotice } from "./diagnostic-notice.ts";
+export {
+  diagnosticNoticeText,
+  isDiagnosticNotice,
+  isWorkStoppedNotice,
+} from "./diagnostic-notice.ts";
