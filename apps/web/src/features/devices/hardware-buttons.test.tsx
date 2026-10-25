@@ -131,3 +131,38 @@ test("an emulator in its real skin, which draws no buttons, keeps ace's side but
     ]),
   );
 });
+
+test("a Simulator streamed as its window shows in its own bezel alone, and taps land where they are shown", async () => {
+  const { app, panel } = await openDevices();
+  app.daemon.appDevices.windowPictures = true;
+  // Even with Xcode's body on hand, the window's picture already wears one.
+  app.daemon.appDevices.chromes.set("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b", {
+    body: { width: 434, height: 888, image: svg("<rect/>") },
+    screen: { x: 22, y: 22, width: 390, height: 844 },
+    buttons: [],
+  });
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  const picture = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+
+  await waitFor(() => {
+    const screen = iphone.querySelector<HTMLElement>("[data-device-screen]");
+    expect(screen?.style.left).toBe("0px");
+    expect(screen?.style.top).toBe("0px");
+  });
+  expect(iphone.querySelector("[data-device-chrome]")).toBeNull();
+  expect(within(iphone).queryByRole("button", { name: "Side button" })).toBeNull();
+
+  await userEvent.pointer([
+    { keys: "[MouseLeft>]", target: picture, coords: { clientX: 100, clientY: 200 } },
+    { keys: "[/MouseLeft]", target: picture, coords: { clientX: 100, clientY: 200 } },
+  ]);
+  await waitFor(() =>
+    expect(app.daemon.appDevices.inputs.map((entry) => entry.input).at(-1)).toEqual({
+      kind: "pointer",
+      phase: "up",
+      x: 100,
+      y: 200,
+    }),
+  );
+});

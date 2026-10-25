@@ -7,6 +7,7 @@ import {
   deviceControls,
   deviceKind,
   deviceProblem,
+  inventoryNotes,
   deviceRows,
   deviceScreen,
   frameGeometry,
@@ -112,6 +113,8 @@ export interface DeviceScreenView {
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
   touch: string;
+  /** The picture already shows the device's own body (a Simulator window): no frame around it. */
+  framed: boolean;
 }
 
 export interface PhoneDevicesView {
@@ -245,6 +248,7 @@ function screen(
       : null,
     problem: controls.error ?? null,
     touch: state?.touch ?? "gestures",
+    framed: controls.framed,
   };
 }
 
@@ -303,7 +307,7 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     offline,
     running,
     groups,
-    notes: snapshot.issues.map((issue) => deviceProblem(issue)),
+    notes: inventoryNotes(snapshot.issues),
     toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
     device: selected ? screen(input, selected, states.get(selected.id)) : null,
   };

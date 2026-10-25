@@ -80,3 +80,19 @@ test("a person's key takes the device from the agent holding it and reaches the 
     ]),
   );
 });
+
+test("a missing Android SDK stays a setup note and never reads as the open Simulator's failure", async () => {
+  const { app, panel } = await openDevices();
+  app.daemon.appDevices.androidSdkMissing = true;
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  // The list says which SDK is missing and how to install it, once.
+  expect(
+    await within(panel).findAllByText(/Android SDK platform-tools and emulator were not found/),
+  ).toHaveLength(1);
+
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  expect(within(iphone).queryByText(/Android SDK/)).toBeNull();
+  expect(within(iphone).queryByText(/Xcode/)).toBeNull();
+  expect(within(iphone).queryByText(/isn't installed/)).toBeNull();
+});
