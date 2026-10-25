@@ -31,8 +31,14 @@ provider) is still refused at once and leaves nothing behind. It then sends the 
 same pieces local delegations use (`startOrQueue`, `drainLaunches` and `LaunchQueue` in
 `agent-control/launch-queue.ts`), with its own durable table `machine_launch_queue`. A child that
 can't start yet, because the engine is full or the limit is reached, waits there in arrival order
-with its task shown on its thread (`queuedLaunch`), and starts when a thread finishes, when the
-limit changes, or on the one-second retry. The queue survives target restarts. The target reports
+with its task shown on its thread (`queuedLaunch`). The queue survives target restarts.
+
+Each remote child's row in `machine_child_launches` records its calling thread and whether it
+holds a slot: started, not finished, and not held for the person (a queue a Stop or restart left
+waiting runs nothing, so it gives its slot away, as a local child does). The flag changes only
+when that child's status changes, so the count is one indexed query. The queue drains when one of
+these children gives its slot back or the limit changes. Only when a start hit a full engine does
+it also retry as any thread goes idle, and on a one-second timer. The target reports
 the child as `queued` with status `waiting on queue`, so the caller's parent shows it waiting,
 `agents_status` and `wait` read it as queued like a local child, and the parent never looks done.
 The delegate answer carries `queued: true` so the caller shows it queued before its first poll.
@@ -43,11 +49,15 @@ nearest equivalent of a parent; the target's own limit applies, because the pers
 machine decides how much runs on it. Children from different calling threads, or different
 machines, never share slots.
 
-**Cancel and failure while waiting.** Cancelling a waiting remote child removes it from the queue
-and settles it `cancelled` ("Stopped before it started.") without running. A waiting child that
-later fails to start for a reason other than a full engine settles `failed` ("It could not be
-started.") instead of waiting forever. Both outcomes are kept in `machine_launches` so the caller
-reads them on its next poll. The parent's own message to a waiting remote child starts it first,
+**Cancel and failure while waiting.** Cancelling a waiting remote child, from the calling machine
+or with an ordinary Stop on the target (through the delegation owner's Stop lifecycle, in the
+transaction that accepts it), removes it from the queue and settles it `cancelled` ("Stopped
+before it started.") without running; a launch also never starts once its thread is stopped. A
+waiting child that later fails to start for a reason other than a full engine leaves the queue and
+settles `failed` ("It could not be started.") in one transaction instead of waiting forever. Both
+outcomes are kept in `machine_child_launches` so the caller reads them on its next poll. New work
+for such a child (the parent's message, or a run the person starts there) clears the old outcome,
+so it reads working again. The parent's own message to a waiting remote child starts it first,
 past the limit, as it does for a local child.
 
 ## Consequences
