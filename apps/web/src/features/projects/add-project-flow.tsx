@@ -29,7 +29,8 @@ export function AddProjectFlow(props: {
   const land = useLandInProject();
   const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean }>();
   // Only machines that can take a project now make it a choice, as in New thread.
-  const online = machines.filter((each) => each.status === "online").length;
+  const reachable = machines.filter((each) => each.status === "online");
+  const online = reachable.length;
   const [picking, setPicking] = useState(online > 1);
   const [cloneUrl, setCloneUrl] = useState<{ machine: string; url: string }>();
   // This window's daemon is found by being primary: its id becomes its host id once known.
@@ -39,8 +40,12 @@ export function AddProjectFlow(props: {
   // nothing typed for it may land on a different machine.
   const machine: Machine | undefined = chosen
     ? (found ?? { ...chosen, status: "offline", client: undefined })
-    : machines[0];
-  const several = online > 1 || (chosen !== undefined && (found === undefined || !found.primary));
+    : // This machine first; when it's down, the one that can take a project now.
+      (reachable[0] ?? machines[0]);
+  // A machine other than this one always shows which, so the chip can change it.
+  const several =
+    online > 1 ||
+    (chosen === undefined ? machine?.primary === false : found === undefined || !found.primary);
   const choices = useMemo(() => machineChoices(machines, { onlineOnly: false }), [machines]);
 
   if (!machine) return null;
