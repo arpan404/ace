@@ -11,14 +11,14 @@ struct ForgeIssuePageView: View {
     @State private var page: ForgeIssuePage?
     @State private var failure: String?
     @Environment(\.openURL) private var openURL
-    private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number) }
+    private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number, repository: route.repository) }
 
     /// Opens on the page this phone last saw for this issue, read again behind it.
     init(client: ClientModel, route: ForgeRoute, actions: ForgeTabActions) {
         self.client = client
         self.route = route
         self.actions = actions
-        _page = State(initialValue: client.kept(ClientModel.forgeIssueRead(project: route.project, number: route.number), as: ForgeIssuePage.self))
+        _page = State(initialValue: client.kept(ClientModel.forgeIssueRead(project: route.project, number: route.number, repository: route.repository), as: ForgeIssuePage.self))
     }
 
     var body: some View {
@@ -136,7 +136,7 @@ struct ForgeIssuePageView: View {
     }
 
     private func load() async {
-        do { page = try await client.forgeIssue(project: route.project, number: route.number); failure = nil }
+        do { page = try await client.forgeIssue(project: route.project, number: route.number, repository: route.repository); failure = nil }
         catch is CancellationError {}
         catch { failure = error.localizedDescription }
     }

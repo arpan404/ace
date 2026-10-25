@@ -15,6 +15,7 @@ struct ForgeFiltersMenu: View {
             switch kind {
             case .pulls: pullChoices
             case .issues: issueChoices
+            case .inbox: EmptyView()
             }
         } label: { InboxChip(title: title) }
             .accessibilityIdentifier("forge.filters")
@@ -29,6 +30,8 @@ struct ForgeFiltersMenu: View {
         case .issues:
             let state = IssuesFilter.states.first { $0.0 == issues.state }?.1 ?? "Open"
             return issues.narrowing > 0 ? "\(state) · \(issues.narrowing)" : state
+        case .inbox:
+            return ""
         }
     }
 

@@ -155,19 +155,19 @@ struct ForgePullTarget: Sendable, Equatable {
 }
 
 extension ClientModel {
-    static func forgeTimelineRead(project: String, number: Int) -> [String: Any] {
-        ["type": "forge.pull.timeline", "project": project, "number": number]
+    static func forgeTimelineRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
+        on(repository, ["type": "forge.pull.timeline", "project": project, "number": number])
     }
-    static func forgeFileRead(project: String, number: Int, path: String, index: Int?) -> [String: Any] {
+    static func forgeFileRead(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?) -> [String: Any] {
         var read: [String: Any] = ["type": "forge.pull.file", "project": project, "number": number, "path": path]
         if let index { read["index"] = index }
-        return read
+        return on(repository, read)
     }
-    func forgeTimeline(project: String, number: Int) async throws -> ForgeTimeline {
-        try await read(Self.forgeTimelineRead(project: project, number: number), as: ForgeTimeline.self)
+    func forgeTimeline(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeTimeline {
+        try await read(Self.forgeTimelineRead(project: project, number: number, repository: repository), as: ForgeTimeline.self)
     }
-    func forgeFile(project: String, number: Int, path: String, index: Int?) async throws -> ForgeFileDiff {
-        try await read(Self.forgeFileRead(project: project, number: number, path: path, index: index), as: ForgeFileDiff.self)
+    func forgeFile(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?) async throws -> ForgeFileDiff {
+        try await read(Self.forgeFileRead(project: project, number: number, repository: repository, path: path, index: index), as: ForgeFileDiff.self)
     }
     /// One review write, sent once. A view-only phone never sends it.
     func forgeReview(_ target: ForgePullTarget, _ action: [String: Any]) async -> ForgeReviewOutcome {
@@ -234,16 +234,16 @@ struct ForgeCompleter {
 }
 
 extension ClientModel {
-    static func forgeFilesRead(project: String, number: Int) -> [String: Any] {
-        ["type": "forge.pull.files", "project": project, "number": number]
+    static func forgeFilesRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
+        on(repository, ["type": "forge.pull.files", "project": project, "number": number])
     }
-    static func forgeReviewersRead(project: String, number: Int) -> [String: Any] {
-        ["type": "forge.pull.reviewers", "project": project, "number": number]
+    static func forgeReviewersRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
+        on(repository, ["type": "forge.pull.reviewers", "project": project, "number": number])
     }
-    func forgeFiles(project: String, number: Int) async throws -> ForgeFilesList {
-        try await read(Self.forgeFilesRead(project: project, number: number), as: ForgeFilesList.self)
+    func forgeFiles(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeFilesList {
+        try await read(Self.forgeFilesRead(project: project, number: number, repository: repository), as: ForgeFilesList.self)
     }
-    func forgeReviewers(project: String, number: Int) async throws -> ForgeReviewers {
-        try await read(Self.forgeReviewersRead(project: project, number: number), as: ForgeReviewers.self)
+    func forgeReviewers(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeReviewers {
+        try await read(Self.forgeReviewersRead(project: project, number: number, repository: repository), as: ForgeReviewers.self)
     }
 }

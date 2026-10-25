@@ -30,6 +30,7 @@ struct ForgeHome: View {
     @State private var projectsFailed: String?
     @State private var pullsFilter = PullsFilter()
     @State private var issuesFilter = IssuesFilter()
+    @State private var notificationsFilter = NotificationsFilter()
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
@@ -96,6 +97,9 @@ struct ForgeHome: View {
             case .issues:
                 ForgeIssuesList(model: issues,
                                 open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
+            case .inbox:
+                ForgeNotificationsList(client: session.client, machineId: session.hostId, project: chosen, filter: notificationsFilter, query: query, open: actions.open)
+                    .id("\(session.hostId)|\(chosen)|\(notificationsFilter)")
             }
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
@@ -109,10 +113,10 @@ struct ForgeHome: View {
     private var chips: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Picker("List", selection: $kind) {
-                ForEach(ForgeKind.allCases, id: \.self) { Text($0 == .pulls ? "Pulls" : "Issues").tag($0) }
+                ForEach(ForgeKind.allCases, id: \.self) { Text($0.short).tag($0) }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 170)
+            .frame(maxWidth: 240)
             .accessibilityIdentifier("forge.kind")
             if inbox.showsMachineNames {
                 Menu {
@@ -131,11 +135,21 @@ struct ForgeHome: View {
                     .accessibilityIdentifier("forge.project")
             }
             Spacer(minLength: AceTheme.Spacing.none)
-            ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
-                             pullList: pulls.list, issueList: issues.list)
+            if kind == .inbox {
+                ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
+            } else {
+                ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
+                                 pullList: pulls.list, issueList: issues.list)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// The reasons the inbox last named, for its filter.
+    private var notificationReasons: [ForgeNotifications.Reason] {
+        guard let client = session?.client, let chosen else { return [] }
+        return client.kept(ClientModel.forgeNotificationsRead(project: chosen, filter: notificationsFilter), as: ForgeNotifications.self)?.reasons ?? []
     }
 
     private func choose(_ id: String) {
@@ -168,6 +182,9 @@ struct ForgeHome: View {
             await issues.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
+        case .inbox:
+            // The inbox reads itself (`ForgeNotificationsList`).
+            break
         }
     }
 
@@ -183,6 +200,8 @@ struct ForgeHome: View {
             await issues.more { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
+        case .inbox:
+            break
         }
     }
 }

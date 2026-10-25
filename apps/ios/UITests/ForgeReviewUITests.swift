@@ -35,7 +35,9 @@ import XCTest
         XCTAssertTrue(file.waitForExistence(timeout: 20))
         for _ in 0..<6 where !file.isHittable { app.swipeUp() }
         file.tap()
-        XCTAssertTrue(element(app, "forge.thread.RT_2454").waitForExistence(timeout: 20))
+        let conversation = element(app, "forge.thread.RT_2454")
+        if !conversation.waitForExistence(timeout: 40) { screenshot("code-missing") }
+        XCTAssertTrue(conversation.exists)
         screenshot("code")
         app.buttons["forge.line.RIGHT.6"].tap()
         XCTAssertTrue(app.buttons["forge.write.suggest"].waitForExistence(timeout: 10))

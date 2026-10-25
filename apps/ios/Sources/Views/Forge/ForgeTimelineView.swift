@@ -14,12 +14,12 @@ struct ForgeTimelineView: View {
     @State private var composing: ForgeCompose?
     @State private var reviewing = false
     @FocusState private var boxFocused: Bool
-    private var request: [String: Any] { ClientModel.forgeTimelineRead(project: route.project, number: route.number) }
+    private var request: [String: Any] { ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository) }
 
     init(client: ClientModel, route: ForgeRoute) {
         self.client = client
         self.route = route
-        let kept = client.kept(ClientModel.forgeTimelineRead(project: route.project, number: route.number), as: ForgeTimeline.self)
+        let kept = client.kept(ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository), as: ForgeTimeline.self)
         _timeline = State(initialValue: kept)
         _desk = State(initialValue: kept.map { ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: $0.number, repository: $0.repository)) })
     }
@@ -142,7 +142,7 @@ struct ForgeTimelineView: View {
 
     private func load() async {
         do {
-            let read = try await client.forgeTimeline(project: route.project, number: route.number)
+            let read = try await client.forgeTimeline(project: route.project, number: route.number, repository: route.repository)
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
             timeline = read
             failure = nil

@@ -8,13 +8,13 @@ struct ForgeFilesView: View {
     let open: (ForgeRoute) -> Void
     @State private var list: ForgeFilesList?
     @State private var failure: String?
-    private var request: [String: Any] { ClientModel.forgeFilesRead(project: route.project, number: route.number) }
+    private var request: [String: Any] { ClientModel.forgeFilesRead(project: route.project, number: route.number, repository: route.repository) }
 
     init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void) {
         self.client = client
         self.route = route
         self.open = open
-        _list = State(initialValue: client.kept(ClientModel.forgeFilesRead(project: route.project, number: route.number), as: ForgeFilesList.self))
+        _list = State(initialValue: client.kept(ClientModel.forgeFilesRead(project: route.project, number: route.number, repository: route.repository), as: ForgeFilesList.self))
     }
 
     var body: some View {
@@ -43,7 +43,7 @@ struct ForgeFilesView: View {
 
     private func row(_ file: ForgeFilesList.File, _ index: Int) -> some View {
         Button {
-            open(ForgeRoute(kind: .file, machineId: route.machineId, project: route.project, number: route.number, path: file.path, index: index))
+            open(ForgeRoute(kind: .file, machineId: route.machineId, project: route.project, number: route.number, path: file.path, index: index, repository: route.repository))
         } label: {
             HStack(spacing: AceTheme.Spacing.sm) {
                 Text(file.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
@@ -67,7 +67,7 @@ struct ForgeFilesView: View {
     }
 
     private func load() async {
-        do { list = try await client.forgeFiles(project: route.project, number: route.number); failure = nil }
+        do { list = try await client.forgeFiles(project: route.project, number: route.number, repository: route.repository); failure = nil }
         catch is CancellationError {}
         catch { failure = error.localizedDescription }
     }

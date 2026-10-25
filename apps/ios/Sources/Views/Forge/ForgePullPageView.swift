@@ -23,7 +23,7 @@ struct ForgePullPageView: View {
     @Environment(\.openURL) private var openURL
 
     private var method: String { savedMethod.isEmpty ? "squash" : savedMethod }
-    private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, method: method) }
+    private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method) }
 
     /// Opens on the page this phone last saw for this pull request, read again behind it.
     init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void) {
@@ -33,7 +33,7 @@ struct ForgePullPageView: View {
         self.openThread = openThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
-        _page = State(initialValue: client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, method: method), as: ForgePullPage.self))
+        _page = State(initialValue: client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self))
     }
 
     var body: some View {
@@ -97,7 +97,7 @@ struct ForgePullPageView: View {
             }
             ForgeSection(title: nil) {
                 ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
-                    open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number))
+                    open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
             }
             if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
@@ -110,7 +110,7 @@ struct ForgePullPageView: View {
             }
             ForgeSection(title: nil) {
                 ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
-                    open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number))
+                    open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
             }
         }
@@ -210,7 +210,7 @@ struct ForgePullPageView: View {
 
     private func load() async {
         do {
-            let read = try await client.forgePull(project: route.project, number: route.number, method: method)
+            let read = try await client.forgePull(project: route.project, number: route.number, repository: route.repository, method: method)
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
             page = read
             failure = nil

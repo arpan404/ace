@@ -66,7 +66,7 @@ struct InboxStack<Destination: View>: View {
             }
             .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
             .modifier(InboxSearchField(query: $query, searching: $searching,
-                                       prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
+                                       prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search threads and messages"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             // The root owns the tab bar: it hides as a page is pushed and returns as soon as the

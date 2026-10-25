@@ -62,7 +62,7 @@ struct ForgeIssuesList: View {
 /// The list around the rows: skeleton on the first read, the error state with Try again when
 /// nothing could be read, the empty state, a dimmed list while a changed filter reads, a quiet
 /// line when a refresh failed over rows already shown, Show more, and pull to refresh.
-private struct ForgeListFrame<Rows: View>: View {
+struct ForgeListFrame<Rows: View>: View {
     let loaded: Bool
     let empty: Bool
     let emptyTitle: String

@@ -38,7 +38,9 @@ struct ForgeReviewSheetView: View {
                     .padding(.horizontal, AceTheme.Spacing.lg)
                     .accessibilityIdentifier("forge.review.verdict")
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        ForEach([sheet.blocked, sheet.refused, sheet.stale].compactMap { $0 }, id: \.self) { Text($0).meta().lineLimit(3) }
+                        ForEach([sheet.blocked, sheet.refused, sheet.stale].compactMap { $0 }, id: \.self) {
+                            Text($0).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
                         if let message = desk.message {
                             Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                         }

@@ -11,6 +11,8 @@ struct ForgeRoute: Hashable {
     /// The changed file a `file` page shows, and where it sits in the pull request's list.
     var path: String?
     var index: Int?
+    /// Another repository than the project's own (a notification's), named in every read.
+    var repository: ForgeRepository?
 }
 
 /// One pull request (the web's list row, laid out for the phone): glyph, number, labels and its

@@ -12,12 +12,12 @@ struct ForgeFileView: View {
     @State private var desk: ForgeReviewDesk?
     @State private var composing: ForgeCompose?
     private var path: String { route.path ?? "" }
-    private var request: [String: Any] { ClientModel.forgeFileRead(project: route.project, number: route.number, path: path, index: route.index) }
+    private var request: [String: Any] { ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index) }
 
     init(client: ClientModel, route: ForgeRoute) {
         self.client = client
         self.route = route
-        let kept = client.kept(ClientModel.forgeFileRead(project: route.project, number: route.number, path: route.path ?? "", index: route.index), as: ForgeFileDiff.self)
+        let kept = client.kept(ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: route.path ?? "", index: route.index), as: ForgeFileDiff.self)
         _file = State(initialValue: kept)
         _desk = State(initialValue: kept.map { ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: $0.number, repository: $0.repository)) })
     }
@@ -140,7 +140,7 @@ struct ForgeFileView: View {
 
     private func load() async {
         do {
-            let read = try await client.forgeFile(project: route.project, number: route.number, path: path, index: route.index)
+            let read = try await client.forgeFile(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index)
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
             file = read
             failure = nil
