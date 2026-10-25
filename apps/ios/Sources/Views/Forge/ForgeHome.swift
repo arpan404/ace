@@ -26,6 +26,8 @@ struct ForgeHome: View {
     let query: String
     @Binding var kind: ForgeKind
     let actions: ForgeTabActions
+    /// Opens Machines from the connection problem under the title.
+    var openMachines: () -> Void = {}
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
     @State private var pullsFilter = PullsFilter()
@@ -36,8 +38,10 @@ struct ForgeHome: View {
 
     /// Opens on the projects and lists this phone last saw on the machine, read again behind
     /// them, so coming back to Pulls never starts from a spinner.
-    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions) {
+    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions,
+         openMachines: @escaping () -> Void = {}) {
         self.inbox = inbox
+        self.openMachines = openMachines
         _machine = machine
         _project = project
         self.query = query
@@ -68,6 +72,13 @@ struct ForgeHome: View {
     var body: some View {
         content
             .inboxTopBar { chips }
+            .toolbar {
+                if #available(iOS 26, *) {
+                    ToolbarItem(placement: .topBarLeading) { heading }.sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarLeading) { heading }
+                }
+            }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
             .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
     }
@@ -106,35 +117,37 @@ struct ForgeHome: View {
         }
     }
 
-    private var chips: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Picker("List", selection: $kind) {
-                ForEach(ForgeKind.allCases, id: \.self) { Text($0 == .pulls ? "Pulls" : "Issues").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 170)
-            .accessibilityIdentifier("forge.kind")
-            if inbox.showsMachineNames {
-                Menu {
+    /// "Pull requests ⌄": the machine (while several are paired) and the project the lists read,
+    /// with the project under the title. One machine with one project needs no menu.
+    private var heading: some View {
+        let several = inbox.showsMachineNames || projects.count > 1
+        return InboxHeading(title: "Pull requests", scope: projects.first { $0.id == chosen }?.name,
+                            problem: InboxConnectionProblem.of(inbox), openMachines: openMachines, identifier: "forge.project") {
+            if several {
+                if inbox.showsMachineNames {
                     Picker("Machine", selection: Binding(get: { session?.hostId ?? "" }, set: { machine = $0 })) {
                         ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
                     }
-                } label: { InboxChip(title: session.map { inbox.name($0.hostId) } ?? "Machine") }
-                    .accessibilityIdentifier("forge.machine")
+                }
+                Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
+                    ForEach(projects) { Text($0.name).tag($0.id) }
+                }
             }
-            if projects.count > 1 {
-                Menu {
-                    Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
-                        ForEach(projects) { Text($0.name).tag($0.id) }
-                    }
-                } label: { InboxChip(title: projects.first { $0.id == chosen }?.name ?? "Project") }
-                    .accessibilityIdentifier("forge.project")
-            }
-            Spacer(minLength: AceTheme.Spacing.none)
+        }
+        .modifier(HeaderLead())
+    }
+
+    /// The list switch on glass, filling the row, and the state filter beside it.
+    private var chips: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            GlassSwitch(selection: $kind, choices: [
+                .init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls"),
+                .init(value: .issues, title: "Issues", identifier: "forge.kind.issues"),
+            ])
             ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
                              pullList: pulls.list, issueList: issues.list)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.xs)
     }
 

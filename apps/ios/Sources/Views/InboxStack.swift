@@ -61,7 +61,8 @@ struct InboxStack<Destination: View>: View {
             if pulls {
                 ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
                           // The list's row is the open page, in place of the one open before.
-                          actions: ForgeTabActions(open: { path = [.forge($0)] }, openThread: forge.openThread, startThread: forge.startThread))
+                          actions: ForgeTabActions(open: { path = [.forge($0)] }, openThread: forge.openThread, startThread: forge.startThread),
+                          openMachines: header.machines)
             } else {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
@@ -115,11 +116,14 @@ struct InboxStack<Destination: View>: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
-        // The title, its menu and the scope or connection problem under it, with no glass.
-        if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarLeading) { title }
+        // The title, its menu and the scope or connection problem under it, with no glass. The
+        // Pulls tab's title is its list's own, which knows its projects.
+        if !pulls {
+            if #available(iOS 26, *) {
+                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { title }
+            }
         }
         ToolbarItem(placement: .topBarTrailing) { settings }
         // A phone gives each button its own glass; the sidebar groups its three into one, so a
@@ -129,8 +133,8 @@ struct InboxStack<Destination: View>: View {
             Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
-        // The phone's floating New thread button, in the sidebar's own bar.
-        if ThreadColumns.sidebarHoldsTabs(sizeClass), inbox.canStartThreads {
+        // The phone's floating New thread button, in the Threads sidebar's own bar.
+        if ThreadColumns.sidebarHoldsTabs(sizeClass), !pulls, inbox.canStartThreads {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
@@ -148,8 +152,8 @@ struct InboxStack<Destination: View>: View {
         }
     }
     private var title: some View {
-        InboxHeading(title: pulls ? "Pull requests" : "Threads", filters: pulls ? nil : filters,
-                     problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
+        InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
+                     openMachines: header.machines) { filters }
             .modifier(HeaderLead())
     }
     private var settings: some View {
@@ -193,7 +197,7 @@ private struct InboxSearchField: ViewModifier {
 
 /// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the
 /// split sets it on its list, under this stack.
-private struct HeaderLead: ViewModifier {
+struct HeaderLead: ViewModifier {
     @Environment(\.headerLead) private var lead
     func body(content: Content) -> some View { content.padding(.leading, lead) }
 }

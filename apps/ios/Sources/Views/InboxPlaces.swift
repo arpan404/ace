@@ -5,37 +5,14 @@ import SwiftUI
 /// switch, the place showing filled. A compact window has the tab bar back.
 struct InboxPlaces: View {
     @Binding var tab: InboxTab
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var fill
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            place("Threads", tab: .threads, id: "sidebar.threads")
-            place("Pull requests", tab: .pulls, id: "sidebar.pulls")
-        }
-        .padding(3)
-        .background(AceTheme.Colours.secondaryBackground, in: AceShape.capsule)
-        .overlay(AceShape.capsule.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        GlassSwitch(selection: $tab, choices: [
+            .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
+            .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls"),
+        ])
         .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.vertical, AceTheme.Spacing.sm)
-    }
-
-    private func place(_ title: String, tab place: InboxTab, id: String) -> some View {
-        let chosen = tab == place
-        return Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { tab = place } } label: {
-            Text(title)
-                .aceFont(AceTheme.TypeStyle(size: 14, lineHeight: 19, weight: 600, tracking: 0), relativeTo: .subheadline)
-                .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - 6)
-                .background {
-                    if chosen { AceShape.capsule.fill(AceTheme.Colours.fill).matchedGeometryEffect(id: "place", in: fill) }
-                }
-                .contentShape(AceShape.capsule)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(chosen ? .isSelected : [])
-        .accessibilityIdentifier(id)
     }
 }
 

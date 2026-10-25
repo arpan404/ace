@@ -26,48 +26,57 @@ struct InboxConnectionProblem: Equatable {
     }
 }
 
-/// The list's title in the bar's leading slot: "Threads ⌄" opening the scope menu (the Pulls tab's
-/// title has none), and under it the scope, or what is wrong with the connection while it lasts.
-struct InboxHeading: View {
+/// The list's title in the bar's leading slot: "Threads ⌄" or "Pull requests ⌄" opening the
+/// list's scope menu, and under it the scope, or what is wrong with the connection while it lasts.
+/// With no `choices` the title has no menu.
+struct InboxHeading<Choices: View>: View {
     let title: String
-    let filters: InboxFilters?
+    let scope: String?
     let problem: InboxConnectionProblem?
     let openMachines: () -> Void
+    var identifier = "inbox.projects"
+    let choices: Choices?
+
+    init(title: String, scope: String?, problem: InboxConnectionProblem?, openMachines: @escaping () -> Void,
+         identifier: String = "inbox.projects", @ViewBuilder choices: () -> Choices?) {
+        self.title = title
+        self.scope = scope
+        self.problem = problem
+        self.openMachines = openMachines
+        self.identifier = identifier
+        self.choices = choices()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let filters {
-                Menu { filters } label: {
-                    VStack(alignment: .leading, spacing: 0) {
-                        heading(chevron: true)
-                        if problem == nil { scope(filters.subtitle) }
-                    }
-                }
-                .accessibilityIdentifier("inbox.projects")
-                .accessibilityHint("Chooses the projects and machines listed")
+            if let choices {
+                Menu { choices } label: { label(chevron: true) }
+                    .accessibilityIdentifier(identifier)
+                    .accessibilityHint("Chooses what the list shows")
             } else {
-                heading(chevron: false)
+                label(chevron: false)
             }
             InboxTitle(problem: problem, openMachines: openMachines)
         }
         .fixedSize()
     }
 
-    private func scope(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-    }
-
-    private func heading(chevron: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
-                .foregroundStyle(AceTheme.Colours.foreground)
-            if chevron {
-                Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+    private func label(chevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                if chevron {
+                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+            }
+            .accessibilityAddTraits(.isHeader)
+            if problem == nil, let scope {
+                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
         }
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
