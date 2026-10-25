@@ -102,8 +102,9 @@ export function startOrQueue(
 
 /**
  * Starts the oldest waiting launches of one parent into its free slots. Each is taken and
- * started in one transaction, so a full engine leaves it queued and ends this drain; any other
- * failure goes to `failed`, so a launch that can never start does not wait forever.
+ * started in one transaction, so a full engine leaves it queued and ends this drain (and says
+ * so, for callers that retry only then); any other failure goes to `failed`, so a launch that
+ * can never start does not wait forever.
  */
 export function drainLaunches(
   store: Store,
@@ -112,7 +113,7 @@ export function drainLaunches(
   slots: number,
   start: (launch: QueuedLaunch) => void,
   failed: (child: ThreadId, error: unknown) => void,
-): void {
+): "drained" | "engine_full" {
   for (const child of queue.next(parent, slots)) {
     try {
       store.atomic(() => {
@@ -120,8 +121,9 @@ export function drainLaunches(
         if (launch) start(launch);
       });
     } catch (error) {
-      if (engineFull(error)) return;
+      if (engineFull(error)) return "engine_full";
       failed(child, error);
     }
   }
+  return "drained";
 }

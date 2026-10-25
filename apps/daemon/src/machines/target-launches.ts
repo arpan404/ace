@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { launchSlots } from "@ace/orchestrator";
-import { Command, ThreadId, type Event } from "@ace/protocol";
+import { Command, ThreadId, type Event, type Thread } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { DelegationJournal } from "../agent-control/journal.ts";
@@ -31,14 +31,25 @@ export interface LaunchParent {
   threadId: string;
 }
 const Parent = z.tuple([z.string(), z.string(), z.string()]);
-const Row = z.object({ role: z.string(), outcome: z.enum(["cancelled", "failed"]).nullable() });
+const Row = z.object({
+  role: z.string(),
+  outcome: z.enum(["cancelled", "failed"]).nullable(),
+  active: z.number(),
+});
 const RETRY_MS = 1000;
+const idleStates: ReadonlySet<string> = new Set(["new", "done", "failed"]);
+const idle = (thread: Thread | undefined) =>
+  !thread || thread.deletedAt !== undefined || idleStates.has(thread.status.state);
 
 /**
  * First runs of the children other machines delegate here. Each starts at once when its calling
  * thread has a free slot under this machine's limit and the engine has room; otherwise it waits,
  * durably and in order, in the same launch queue local delegations use, and starts when a slot
  * frees. A wait is never a refusal, and a child that never ran settles with a result.
+ *
+ * Each child's row says whether it holds one of its calling thread's slots (`active`), kept
+ * current as that child's status changes, so counting a calling thread's running children is
+ * one indexed count and a pump runs only when something may have freed a slot.
  */
 export class TargetLaunches {
   private deps: TargetLaunchDeps;
@@ -47,21 +58,28 @@ export class TargetLaunches {
   private cancelTimer: (() => void) | undefined;
   private pumping = false;
   private closed = false;
+  /** The last start hit a full engine: retry as threads go idle, and on a timer. */
+  private engineBlocked: boolean;
   constructor(deps: TargetLaunchDeps) {
     this.deps = deps;
     this.queue = new LaunchQueue(deps.store, "machine_launch_queue");
     deps.store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS machine_launches (
-        thread_id TEXT PRIMARY KEY, role TEXT NOT NULL, outcome TEXT)`),
+      db.exec(`CREATE TABLE IF NOT EXISTS machine_child_launches (
+        thread_id TEXT PRIMARY KEY, parent TEXT NOT NULL, role TEXT NOT NULL, outcome TEXT,
+        active INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS machine_child_launches_active
+        ON machine_child_launches(parent, active)`),
     );
-    // A thread finishing frees its slot; the retry timer covers engine room freed elsewhere.
-    this.unsubscribe = deps.store.subscribe((events: readonly Event[]) => {
-      // Any new run (the person's own message there, say) means it is no longer unlaunched.
-      for (const event of events)
-        if (event.payload.type === "run.started" && this.row(event.threadId)?.outcome)
-          this.reopen(event.threadId);
-      if (events.some((event) => event.payload.type === "thread.updated")) this.pump();
+    // Children that finished while the daemon was down give their slots back now.
+    deps.store.atomic(() => {
+      for (const row of deps.store
+        .statement("SELECT thread_id FROM machine_child_launches WHERE active=1")
+        .all())
+        this.refresh(ThreadId.parse(row.thread_id));
     });
+    this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
+    // After a restart nothing else announces the waiting children: try once the engine is up.
+    this.engineBlocked = this.queue.waiting();
     this.arm();
   }
   close() {
@@ -88,19 +106,22 @@ export class TargetLaunches {
       input.parent.threadId,
     ]);
     const launch = { childId: input.threadId, parentId: parent, text: input.text };
+    const slots = this.slots(parent);
     const state = store.atomic(() => {
       store
-        .statement("INSERT OR IGNORE INTO machine_launches (thread_id,role) VALUES (?,?)")
-        .run(input.threadId, input.role);
-      const outcome = startOrQueue(this.queue, launch, this.slots(parent), () =>
-        this.start(launch),
-      );
+        .statement(
+          "INSERT OR IGNORE INTO machine_child_launches (thread_id,parent,role) VALUES (?,?,?)",
+        )
+        .run(input.threadId, parent, input.role);
+      const outcome = startOrQueue(this.queue, launch, slots, () => this.start(launch));
       if (outcome === "queued")
         store.appendEvents(input.threadId, [
           { type: "thread.updated", queuedLaunch: { text: input.task } },
         ]);
       return outcome;
     });
+    // A free slot that still queued it means the engine is full.
+    if (state === "queued" && slots > 0) this.engineBlocked = true;
     this.arm();
     return state;
   }
@@ -114,7 +135,7 @@ export class TargetLaunches {
   /** New work was admitted for the thread: how it settled before it ran no longer applies. */
   reopen(threadId: ThreadId): void {
     this.deps.store
-      .statement("UPDATE machine_launches SET outcome=NULL WHERE thread_id=?")
+      .statement("UPDATE machine_child_launches SET outcome=NULL WHERE thread_id=?")
       .run(threadId);
   }
   /** Stops a waiting child before it starts. False when it was not waiting. */
@@ -141,70 +162,94 @@ export class TargetLaunches {
   }
   /** Fills each calling thread's free slots from its waiting children, oldest first. */
   pump(): void {
-    if (this.closed || this.pumping || !this.deps.engine() || !this.queue.waiting()) return;
+    if (this.closed || this.pumping || !this.queue.waiting()) return;
+    // Not up yet: the retry timer comes back once it is.
+    if (!this.deps.engine()) return this.arm();
     this.pumping = true;
+    let blocked = false;
     try {
       for (const parent of this.queue.parents())
-        drainLaunches(
-          this.deps.store,
-          this.queue,
-          parent,
-          this.slots(parent),
-          (launch) => this.start(launch),
-          (child, error) => {
-            // The failed start rolled back and left it queued: take it out with the failure, in
-            // one transaction, so it reads failed and is never retried.
-            this.deps.report(error);
-            this.deps.store.atomic(() => {
-              this.queue.take(child);
-              this.settle(child, "failed");
-            });
-          },
-        );
+        blocked =
+          drainLaunches(
+            this.deps.store,
+            this.queue,
+            parent,
+            this.slots(parent),
+            (launch) => this.start(launch),
+            (child, error) => {
+              // The failed start rolled back and left it queued: take it out with the failure,
+              // in one transaction, so it reads failed and is never retried.
+              this.deps.report(error);
+              this.deps.store.atomic(() => {
+                this.queue.take(child);
+                this.settle(child, "failed");
+              });
+            },
+          ) === "engine_full" || blocked;
     } catch (error) {
       this.deps.report(error);
     } finally {
       this.pumping = false;
     }
+    this.engineBlocked = blocked;
     this.arm();
+  }
+  /**
+   * Slots free when one of these children stops running. Engine room frees when any thread goes
+   * idle, which matters only while a start is waiting on it.
+   */
+  private observe(events: readonly Event[]) {
+    let freed = false;
+    for (const event of events) {
+      const type = event.payload.type;
+      if (type !== "thread.updated" && type !== "run.started") continue;
+      const row = this.row(event.threadId);
+      // Any new run (the person's own message there, say) means it is no longer unlaunched.
+      if (type === "run.started" && row?.outcome) this.reopen(event.threadId);
+      if (row) freed = this.refresh(event.threadId) || freed;
+      else if (this.engineBlocked && type === "thread.updated")
+        freed = idle(this.deps.store.getThread(event.threadId)) || freed;
+    }
+    if (freed) this.pump();
+  }
+  /** Keeps the child's slot flag current. True when it just gave its slot back. */
+  private refresh(threadId: ThreadId): boolean {
+    const row = this.row(threadId);
+    if (!row) return false;
+    const thread = this.deps.store.getThread(threadId);
+    // A started child may still read `new` until its run begins; it holds its slot meanwhile.
+    const finished =
+      !thread || thread.deletedAt !== undefined || ["done", "failed"].includes(thread.status.state);
+    const active = finished || row.outcome || this.queue.has(threadId) ? 0 : 1;
+    if (active === row.active) return false;
+    this.deps.store
+      .statement("UPDATE machine_child_launches SET active=? WHERE thread_id=?")
+      .run(active, threadId);
+    return active === 0;
   }
   private row(threadId: ThreadId) {
     const raw = this.deps.store
-      .statement("SELECT role,outcome FROM machine_launches WHERE thread_id=?")
+      .statement("SELECT role,outcome,active FROM machine_child_launches WHERE thread_id=?")
       .get(threadId);
     return raw ? Row.parse(raw) : undefined;
   }
   private settle(threadId: ThreadId, outcome: "cancelled" | "failed") {
     const { store } = this.deps;
     store
-      .statement("UPDATE machine_launches SET outcome=? WHERE thread_id=?")
+      .statement("UPDATE machine_child_launches SET outcome=?, active=0 WHERE thread_id=?")
       .run(outcome, threadId);
     if (store.getThread(threadId)?.queuedLaunch)
       store.appendEvents(threadId, [{ type: "thread.updated", queuedLaunch: null }]);
   }
   private slots(parent: string): number {
     const limit = this.deps.limit();
-    return limit === undefined ? Infinity : launchSlots(this.running(parent), limit);
-  }
-  /** The calling thread's children here that hold a run slot: started and not yet finished. */
-  private running(parent: string): number {
-    const [device, host, thread] = Parent.parse(JSON.parse(parent));
-    const { store } = this.deps;
-    return store
-      .statement(
-        "SELECT thread_id FROM machine_threads WHERE kind='delegate' AND device_id=? AND origin_host=? AND origin_thread=?",
-      )
-      .all(device, host, thread)
-      .map((row) => ThreadId.parse(row.thread_id))
-      .filter((id) => {
-        if (this.queue.has(id)) return false;
-        const child = store.getThread(id);
-        return (
-          !!child &&
-          child.deletedAt === undefined &&
-          !["new", "done", "failed"].includes(child.status.state)
-        );
-      }).length;
+    if (limit === undefined) return Infinity;
+    const running = Number(
+      this.deps.store
+        .statement("SELECT COUNT(*) AS n FROM machine_child_launches WHERE parent=? AND active=1")
+        .get(parent)?.n,
+    );
+    return launchSlots(running, limit);
   }
   private start(launch: QueuedLaunch) {
     const { store } = this.deps;
@@ -240,17 +285,20 @@ export class TargetLaunches {
       if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       if (store.getThread(launch.childId)?.queuedLaunch)
         store.appendEvents(launch.childId, [{ type: "thread.updated", queuedLaunch: null }]);
+      // It holds its slot from now, before any status change reports it.
+      store
+        .statement("UPDATE machine_child_launches SET active=1 WHERE thread_id=?")
+        .run(launch.childId);
     });
   }
-  /** Waiting children are retried each second, so a missed slot release only delays them. */
+  /** Only a start waiting on engine room is retried on a timer; slots announce themselves. */
   private arm() {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
-    if (this.closed || !this.queue.waiting()) return;
+    if (this.closed || !this.engineBlocked || !this.queue.waiting()) return;
     this.cancelTimer = this.deps.schedule(RETRY_MS, () => {
       this.cancelTimer = undefined;
       this.pump();
-      this.arm();
     });
   }
 }

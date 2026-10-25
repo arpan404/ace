@@ -211,3 +211,27 @@ it("the target's person stopping a waiting task there means it never runs, and t
   expect(pair.target.h.contexts.get(queued)).toBeUndefined();
   expect(pair.target.h.inputs.get(queued) ?? []).toEqual([]);
 }, 60_000);
+
+it("children that already finished there never hold a slot, and raising the limit there starts a waiting one", async () => {
+  const { pair, delegate, stateHere } = await limitedPair();
+  for (const name of ["earlier-a", "earlier-b"]) {
+    const done = await delegate(name);
+    // Its task reached the provider, so finishing ends that turn.
+    await vi.waitFor(() =>
+      expect((pair.target.h.inputs.get(done) ?? []).join("\n")).toContain(`Do the ${name} part`),
+    );
+    await pair.finish(done, `${name} done.`);
+    await vi.waitFor(() =>
+      expect(pair.target.daemon.store.getThread(done)?.status.state).toBe("done"),
+    );
+  }
+  const running = await delegate("running-now");
+  expect(pair.target.daemon.store.getThread(running)?.queuedLaunch).toBeUndefined();
+  const waiting = await delegate("waiting-now");
+  expect(await stateHere(waiting)).toMatchObject({ state: "queued" });
+
+  // Nothing finishes: the raised limit alone starts it.
+  await pair.target.daemon.settings.set("agents.maxRunningChildren", 2, { kind: "global" });
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(waiting)).toBeDefined());
+  expect(pair.target.daemon.store.getThread(waiting)?.queuedLaunch).toBeUndefined();
+}, 60_000);
