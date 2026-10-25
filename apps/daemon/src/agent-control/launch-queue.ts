@@ -70,6 +70,18 @@ export class LaunchQueue {
       .all(parent)
       .map((row) => ThreadId.parse(row.child_id));
   }
+  /**
+   * Up to `limit` waiting children of one parent queued after `afterSeq`, oldest first: one
+   * indexed range read, so starting the head costs the same however long the queue is.
+   */
+  head(parent: string, afterSeq: number, limit: number): { childId: ThreadId; seq: number }[] {
+    return this.store
+      .statement(
+        `SELECT child_id,seq FROM ${this.table} WHERE parent_id=? AND seq>? ORDER BY seq LIMIT ?`,
+      )
+      .all(parent, afterSeq, limit)
+      .map((row) => ({ childId: ThreadId.parse(row.child_id), seq: Number(row.seq) }));
+  }
   parents(): string[] {
     return this.store
       .statement(`SELECT DISTINCT parent_id FROM ${this.table} ORDER BY parent_id`)
@@ -99,6 +111,9 @@ export function startOrQueue(
   return "queued";
 }
 
+/** Most entries one drain reads at a time, when the limit leaves many slots free. */
+const DRAIN_BATCH = 32;
+
 /**
  * Starts the oldest waiting launches of one parent until `slots` of them have started or the
  * engine is full. Each is taken and started in one transaction, so a full engine leaves it
@@ -114,18 +129,26 @@ export function drainLaunches(
   start: (launch: QueuedLaunch) => "started" | "skipped",
   failed: (child: ThreadId, error: unknown) => void,
 ): "drained" | "engine_full" {
-  if (slots <= 0) return "drained";
   let started = 0;
-  for (const child of queue.ordered(parent)) {
-    try {
-      const outcome = store.atomic(() => {
-        const launch = queue.take(child);
-        return launch ? start(launch) : "skipped";
-      });
-      if (outcome === "started" && ++started >= slots) break;
-    } catch (error) {
-      if (engineFull(error)) return "engine_full";
-      failed(child, error);
+  // A cursor past each entry tried, so one left queued by a failure is not tried again here.
+  let cursor = 0;
+  while (started < slots) {
+    // Only as many as the free slots, so releasing one slot reads one entry; more are read
+    // only to replace entries that failed or were skipped.
+    const batch = queue.head(parent, cursor, Math.min(slots - started, DRAIN_BATCH));
+    if (!batch.length) break;
+    for (const { childId: child, seq } of batch) {
+      cursor = seq;
+      try {
+        const outcome = store.atomic(() => {
+          const launch = queue.take(child);
+          return launch ? start(launch) : "skipped";
+        });
+        if (outcome === "started" && ++started >= slots) return "drained";
+      } catch (error) {
+        if (engineFull(error)) return "engine_full";
+        failed(child, error);
+      }
     }
   }
   return "drained";
