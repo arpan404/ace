@@ -2,6 +2,9 @@ import { useState } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { useHotkey } from "@/lib/hotkeys.ts";
+import { keyboardEnv } from "@/lib/keybindings.ts";
+import { keymap } from "@/lib/keymap.ts";
 import { ConversationRail } from "./conversation-rail.tsx";
 import type { RailHighlightTime } from "./use-rail-highlight.ts";
 
@@ -125,6 +128,29 @@ test("keyboard traversal has one tab stop and Enter jumps the focused turn", asy
   await user.keyboard("{ArrowUp}{Enter}");
   expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
   await user.keyboard("{Home}");
+  expect(document.activeElement).toBe(first);
+});
+
+function NextTurnShortcut() {
+  const [pressed, setPressed] = useState(0);
+  useHotkey(keymap.nextTurn.keys, () => setPressed((count) => count + 1));
+  return <output aria-label="Next turn presses">{pressed}</output>;
+}
+
+test("the next-turn shortcut still works while a tick has focus", async () => {
+  render(
+    <>
+      <Rail />
+      <NextTurnShortcut />
+    </>,
+  );
+  const user = userEvent.setup();
+  await user.tab();
+  const first = screen.getByRole("button", { name: "Audit login" });
+  const mod = keyboardEnv().apple ? "Meta" : "Control";
+  await user.keyboard(`{Shift>}{Alt>}{${mod}>}{ArrowDown}{/${mod}}{/Alt}{/Shift}`);
+  expect(screen.getByLabelText("Next turn presses").textContent).toBe("1");
+  // The tick keeps focus: the shortcut is not also a step along the rail.
   expect(document.activeElement).toBe(first);
 });
 
