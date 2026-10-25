@@ -34,6 +34,8 @@ export async function pairedMachines(
     access?: MachineAgentAccess;
     /** The target's engine limits, e.g. one active thread so its engine is full. */
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
+    /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
+    sourceTransport?: import("./transport.ts").MachineTransport;
   } = {},
 ) {
   const target = await daemonFixture(
@@ -46,7 +48,13 @@ export async function pairedMachines(
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
-  const source = await daemonFixture(undefined, { browser: browser(), machines: { pollMs: 50 } });
+  const source = await daemonFixture(undefined, {
+    browser: browser(),
+    machines: {
+      pollMs: 50,
+      ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+    },
+  });
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");

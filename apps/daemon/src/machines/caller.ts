@@ -135,12 +135,26 @@ export class MachineCaller {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
     const origin = await this.origin(child.parentThreadId);
+    // A status reply read before this message lands must not settle the child after it.
+    const release = this.deps.children.send(id);
+    try {
+      return await this.sendMessage(id, child.machine, origin, message);
+    } finally {
+      release();
+    }
+  }
+  private async sendMessage(
+    id: ThreadId,
+    machine: string,
+    origin: MachineCallOrigin,
+    message: MachineMessage,
+  ): Promise<AgentControlResult> {
     let lost: MachineFailure | undefined;
     for (let attempt = 0; ; attempt++)
       try {
         const answer = MachineMessageResult.parse(
           await this.deps.directory.call(
-            child.machine,
+            machine,
             origin,
             { op: "message", threadId: id, ...message },
             { timeoutMs: 15_000 },
@@ -158,7 +172,7 @@ export class MachineCaller {
         // and if nothing changed there, the next poll settles it again under the same result.
         if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
         // The parent hears the call was lost, not that the machine never had it.
-        throw this.deps.directory.controlError(child.machine, lost ?? error);
+        throw this.deps.directory.controlError(machine, lost ?? error);
       }
   }
   async status(

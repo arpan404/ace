@@ -31,6 +31,8 @@ const Row = z.object({
   view: z.string().nullable(),
   settled: z.number(),
   delivered: z.number(),
+  /** Advances with each piece of new work sent, fencing status replies read before it. */
+  generation: z.number(),
 });
 type Row = z.infer<typeof Row>;
 export interface ChildrenDeps {
@@ -66,19 +68,15 @@ export class MachineChildren implements RemoteChildren {
   private deps: ChildrenDeps;
   private listeners = new Set<(ids: readonly string[]) => void>();
   private unreachable = new Map<string, string>();
+  /** Children with new work on its way, by how many sends are in flight. */
+  private sending = new Map<string, number>();
   private cancelTimer: (() => void) | undefined;
   private polling = false;
   private closed = false;
   private outbox: ChildOutbox;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
-    deps.store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS machine_children (
-        id TEXT PRIMARY KEY, request_key TEXT NOT NULL UNIQUE, parent_thread TEXT NOT NULL,
-        parent_agent TEXT NOT NULL, machine TEXT NOT NULL, role TEXT NOT NULL,
-        provider TEXT NOT NULL, model TEXT, created_at INTEGER NOT NULL, view TEXT,
-        settled INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)`),
-    );
+    // The store's migrations own the machine_children table (machine-tables.ts).
     this.outbox = new ChildOutbox(deps.store);
     this.arm();
   }
@@ -269,6 +267,8 @@ export class MachineChildren implements RemoteChildren {
    * working until its next result arrives, and the poll watches it again.
    */
   reopen(id: ThreadId): void {
+    // Any status reply already on its way describes the child before this work.
+    this.advance(id);
     const row = this.row(id);
     if (!row || row.settled !== 1) return;
     // The result it settled with stays owed to the parent, whatever the child does next.
@@ -297,6 +297,27 @@ export class MachineChildren implements RemoteChildren {
     });
     this.emit([id]);
     this.arm();
+  }
+  /**
+   * New work is on its way to the child. Until the returned release runs, no status reply may
+   * settle it, and replies read before now never will: they describe it before this work.
+   */
+  send(id: ThreadId): () => void {
+    this.sending.set(id, (this.sending.get(id) ?? 0) + 1);
+    this.advance(id);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.sending.get(id) ?? 1) - 1;
+      if (left > 0) this.sending.set(id, left);
+      else this.sending.delete(id);
+    };
+  }
+  private advance(id: ThreadId): void {
+    this.deps.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET generation=generation+1 WHERE id=?").run(id),
+    );
   }
   delivered(id: ThreadId): void {
     this.deps.store.atomic((db) =>
@@ -364,7 +385,10 @@ export class MachineChildren implements RemoteChildren {
       this.polling = false;
     }
   }
-  private update(row: Row, view: MachineThreadView) {
+  /** Applies a status reply read under `polled`; one from before newer work is dropped. */
+  private update(polled: Row, view: MachineThreadView) {
+    const row = this.row(polled.id);
+    if (!row || row.generation !== polled.generation || this.sending.has(row.id)) return;
     this.unreachable.delete(row.id);
     if (view.notice)
       this.outbox.queue({

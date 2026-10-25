@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
+import { machineRequest, type MachineTransport } from "./transport.ts";
 
 const Delegated = z.object({ threadId: ThreadId });
 const task = (name: string, project = "project") =>
@@ -23,8 +24,8 @@ const task = (name: string, project = "project") =>
   }) satisfies AgentControlOperation;
 
 /** Two paired daemons where the target runs one child per calling thread at a time. */
-async function limitedPair() {
-  const pair = await pairedMachines({ access: "operate" });
+async function limitedPair(options: Parameters<typeof pairedMachines>[0] = {}) {
+  const pair = await pairedMachines({ access: "operate", ...options });
   await pair.target.daemon.settings.set("agents.maxRunningChildren", 1, { kind: "global" });
   await pair.source.call({ op: "machines" });
   const delegate = async (name: string) =>
@@ -279,5 +280,69 @@ it("a waiting task that can no longer start there does not hold back the task qu
         "Do the behind-launchable part",
       ),
     { timeout: 15_000 },
+  );
+}, 60_000);
+
+it("a stopped task's cancellation read before new work lands never settles it once that work runs", async () => {
+  // The source's status calls go through the real transport; one chosen reply can be held.
+  let hold: ((answer: unknown) => Promise<unknown>) | undefined;
+  let statusCalls = 0;
+  const transport: MachineTransport = async (profile, body, options) => {
+    const answer = await machineRequest(profile, body, options);
+    if (body.call.op !== "status") return answer;
+    statusCalls++;
+    return hold ? hold(answer) : answer;
+  };
+  const { pair, delegate, stateHere } = await limitedPair({ sourceTransport: transport });
+  const first = await delegate("keeps-slot");
+  const reopened = await delegate("stopped-then-reworked");
+
+  // The next status reply that reads its cancellation is held back, as a slow network would.
+  let release = () => {};
+  const held = new Promise<void>((resolveHeld) => {
+    hold = (answer) => {
+      if (!JSON.stringify(answer).includes("Stopped before it started."))
+        return Promise.resolve(answer);
+      hold = undefined;
+      resolveHeld();
+      return new Promise((resolveReply) => {
+        release = () => resolveReply(answer);
+      });
+    };
+  });
+  expect(
+    (await pair.source.call({ op: "agent.cancel", threadId: reopened, requestId: "stop-it" })).ok,
+  ).toBe(true);
+  await held;
+
+  // New work goes in while that old reply is still on its way.
+  const sent = await pair.source.call({
+    op: "thread.message",
+    threadId: reopened,
+    requestId: "new-work-while-held",
+    text: "Do this after all",
+  });
+  expect(sent.ok).toBe(true);
+  release();
+  // A later poll proves the held one was handled; the child still reads working.
+  const after = statusCalls;
+  await vi.waitFor(() => expect(statusCalls).toBeGreaterThan(after + 1), { timeout: 15_000 });
+  expect(await stateHere(reopened)).not.toMatchObject({ state: "cancelled" });
+
+  await pair.finishTask(first, "Do the keeps-slot part", "Kept the slot.");
+  await pair.finishTask(reopened, "Do this after all", "Did it after all.");
+  const waited = await pair.source.call({
+    op: "wait",
+    threadIds: [reopened],
+    mode: "all",
+    timeoutSeconds: 60,
+  });
+  expect(WaitResult.parse(waited.data).threads[0]).toMatchObject({
+    state: "done",
+    result: "Did it after all.",
+  });
+  // The parent was never handed the stale cancellation as this child's result.
+  expect((pair.source.h.inputs.get(pair.source.caller.threadId) ?? []).join("\n")).not.toContain(
+    "Stopped before it started.",
   );
 }, 60_000);
