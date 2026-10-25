@@ -3,6 +3,7 @@ import { folderName, projectProblem } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
+import { newThreadOn } from "@/lib/machine-routes.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { projectFailure, useProjectCommands, type Added } from "./project-commands.ts";
@@ -16,15 +17,14 @@ export type LandMode = "thread" | "open";
 export interface LandOptions {
   replace?: boolean;
   mode?: LandMode;
-  /** The machine it was added on; another machine's project isn't shown in this window. */
+  /** The machine it was added on; another machine's project opens New thread there. */
   machine?: Machine;
 }
 
 /**
  * After a project is added, created or cloned: open it. A folder inside a repository offers the
  * repository's root instead, in a toast, which is added only if chosen. A project on
- * another machine is ready there; this window's screens show its own daemon, so it says that
- * instead of opening.
+ * another machine opens New thread on that machine (ADR 0102).
  */
 export function useLandInProject(): (result: Added, verb?: string, options?: LandOptions) => void {
   const navigate = useNavigate();
@@ -36,9 +36,10 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
     (result: Added, verb = "Added", options: LandOptions = {}) => {
       const { machine } = options;
       if (machine && !machine.primary) {
-        toast.add({
-          title: `${verb} ${result.project.name} on ${machine.name}`,
-          description: `It's a project on ${machine.name} now. This window's threads run on its own machine.`,
+        // Opening it there is the confirmation: the composer's strip names the machine.
+        void navigate({
+          ...newThreadOn(machine.id, result.project.id),
+          replace: !!options.replace,
         });
         return;
       }

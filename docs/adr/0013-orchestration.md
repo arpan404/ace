@@ -170,8 +170,10 @@ names; see ADR 0010, "bare tool names".)
   `restarting`. Where the provider can't steer, it runs when the turn ends. Any
   other thread defaults to queue. The result's `arrival` is read from the
   engine's own send rule, and a retry of a message that failed, was removed or
-  was replaced is refused. A parent message that fails after the tool returned
-  is reported to the parent as a notice and shown in `agents_status`; one the
+  was replaced is refused. An agent's message that fails after the tool
+  returned is reported to the thread that sent it as a notice, once per message
+  and outcome, whether the target is its child or a thread it started; a child's
+  also shows in `agents_status`. One the
   provider refused unread is kept for the next turn;
   `thread_control` actions `interrupt` and `configure` operate on owned threads.
 

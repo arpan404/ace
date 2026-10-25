@@ -22,7 +22,7 @@ struct StripSurface<Content: View>: View {
         .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
         .aceContainerShape(shape)
-        .aceGlass(in: shape)
+        .composerGlass(in: shape)
         .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(scheme) / 2), radius: AceTheme.Spacing.sm, y: -AceTheme.Dimensions.border)
         .mask(alignment: .top) {
             // The glass and its shadow end at the composer's edge.

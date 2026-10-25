@@ -123,8 +123,10 @@ export async function startWorkspaceActions({
     clearInterval(healing);
     return sweep;
   });
-  services.canReadThread = (_device, id) =>
-    Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;
+  services.canReadThread = (_device, id) => {
+    const thread = store.readThread(id);
+    return thread !== undefined && thread.deletedAt === undefined;
+  };
   resources.own(() => workspace.close());
   const prLinks = new PullRequestAutoLink(store, workspace, (error) =>
     log.log("debug", "Created pull request could not be linked", logError(error)),

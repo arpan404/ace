@@ -12,6 +12,12 @@
             "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
             "description": "The child's access mode. Default inherit (yours); never broader than yours."
           },
+          "accountId": {
+            "description": "Account id or label.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "effort": {
             "description": "Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.",
             "maxLength": 64,
@@ -23,7 +29,7 @@
             "description": "Run on this paired machine (a name from `machines`). Requires project."
           },
           "model": {
-            "description": "A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.",
+            "description": "Model id or name (\"opus 5.5\").",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -36,7 +42,7 @@
           },
           "provider": {
             "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
-            "description": "Provider that runs the child. Default: yours, or the one whose catalog has `model`."
+            "description": "Provider that runs the child. Default: yours, or the one serving `model`."
           },
           "requestId": {
             "description": "Any stable id; repeating a call with it runs once.",

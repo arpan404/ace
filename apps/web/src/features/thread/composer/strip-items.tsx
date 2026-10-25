@@ -6,6 +6,7 @@ import {
   CaretUpIcon,
   CheckCircleIcon,
   CircleIcon,
+  DesktopIcon,
   HourglassMediumIcon,
   ListChecksIcon,
   PaperPlaneTiltIcon,
@@ -37,6 +38,8 @@ export interface StripCounts {
   running: number;
   queued: number;
   plan: Pick<PlanProgress, "done" | "total"> | undefined;
+  /** The other machine the thread's transfer names. */
+  transfer?: string | undefined;
 }
 
 /**
@@ -115,11 +118,17 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                     ]
                   : props.kind === "goal"
                     ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
-                    : [
-                        <Icon key="i" size={12} icon={ListChecksIcon} />,
-                        counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
-                        counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
-                      ];
+                    : props.kind === "transfer"
+                      ? [
+                          <Icon key="i" size={12} icon={DesktopIcon} />,
+                          counts.transfer ?? "Machine",
+                          `Show the move to ${counts.transfer ?? "another machine"}`,
+                        ]
+                      : [
+                          <Icon key="i" size={12} icon={ListChecksIcon} />,
+                          counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                          counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
+                        ];
   return (
     <button
       type="button"

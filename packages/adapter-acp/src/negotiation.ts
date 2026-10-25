@@ -89,7 +89,10 @@ function boundedRaw(value: unknown): AcpSessionSupport["raw"] {
   const json = JSON.stringify(value);
   const bytes = Buffer.from(json);
   return {
-    json: bytes.subarray(0, 2048).toString("utf8").replace(/�$/, ""),
+    json: bytes
+      .subarray(0, 2048)
+      .toString("utf8")
+      .replace(/\uFFFD$/, ""),
     truncated: bytes.length > 2048,
   };
 }

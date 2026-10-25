@@ -76,7 +76,6 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "stopFromComposer",
       "reorderQueued",
       "findInThread",
-      "turns",
       "previousTurn",
       "nextTurn",
       "renameThread",

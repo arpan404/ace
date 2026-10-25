@@ -193,7 +193,7 @@ it("a tree ref taps its element through serve-sim's touch socket; edge swipes an
   expect(JSON.stringify(sim.hid.slice(5))).not.toContain("edge");
 
   await capture.input({ kind: "key", key: "rotate" }, () => {});
-  await expect.poll(() => sim.hid.at(-1)).toEqual([7, { orientation: "landscape_left" }]);
+  await expect.poll(() => sim.orientation()).toBe("landscape_left");
 });
 
 it("a serve-sim version ace hasn't pinned is not driven", async () => {

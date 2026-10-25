@@ -1,5 +1,6 @@
 import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
+import { settledTotal as settledCount } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -9,6 +10,8 @@ import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useHeld } from "@/lib/held.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
@@ -16,7 +19,11 @@ import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
-import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+import {
+  useOrganizer,
+  useOrganizerState,
+  useOverlaidMachineEntries,
+} from "@/features/organize/index.ts";
 
 /** Publish provisional titles even while the Unsent section is outside the virtual window. */
 const StartedTitlePublisher = deferredComponent(() =>
@@ -29,11 +36,11 @@ const StartedTitlePublisher = deferredComponent(() =>
  * (Add project lives in its menu) and New thread.
  */
 export function HomeSidebar() {
-  const list = useHomeList();
+  // Other machines' threads join the one flat list, each row marked with its machine.
+  const others = useOverlaidMachineEntries(useMachineEntries(useHostIdentity()?.hostId));
+  const list = useHomeList(others);
   // The daemon's count of settled threads, while it still holds some back.
-  const settledTotal = useSidebar(["homeWindow"], (reader) =>
-    reader.homeWindow?.before ? reader.homeWindow.total : undefined,
-  );
+  const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
   const { project } = useOrganizerState();
   useThreadsWindowSync();
   const organizer = useOrganizer();
@@ -47,7 +54,7 @@ export function HomeSidebar() {
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
   const entry = useNewThreadEntry();
-  const only = directory.projects.length === 1 ? directory.projects[0] : undefined;
+  const { only } = entry;
   return (
     <>
       <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
@@ -56,7 +63,7 @@ export function HomeSidebar() {
         <Tip label="New thread" shortcut="newThread">
           <Link
             to="/new"
-            {...(only ? { search: { project: only.id } } : {})}
+            {...(only ? { search: { project: only } } : {})}
             aria-label="New thread"
             className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
             onClick={(event) => {

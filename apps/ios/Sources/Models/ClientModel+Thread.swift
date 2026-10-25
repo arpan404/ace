@@ -52,11 +52,9 @@ extension ClientModel {
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
-    func loadOlder() {
-        guard let thread, thread.loaded, thread.screen.hasOlder, !thread.screen.loadingOlder else { return }
-        threadAction(["type": "loadOlder"])
-    }
     func requestModels() { threadAction(["type": "models"]) }
+    /// Star or unstar one of the thread's provider's models, where the web keeps stars.
+    func favoriteModel(_ id: String) { threadAction(["type": "favorite", "model": id]) }
     func switchModel(_ model: ModelOption) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()

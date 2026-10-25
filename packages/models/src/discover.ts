@@ -59,7 +59,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           cwd: instance.cwd,
           env: instance.env,
           signal,
-          spawn,
+          // Only an injected spawn: without one the SDK runs in a helper process, not here.
+          ...(options.spawn ? { spawn: options.spawn } : {}),
         }),
         instance,
       );

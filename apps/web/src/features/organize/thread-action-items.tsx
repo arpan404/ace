@@ -1,3 +1,4 @@
+import { continueBlocked } from "@ace/client";
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
 import type { ThreadRowFlags } from "@ace/ui-core";
 import {
@@ -5,6 +6,7 @@ import {
   ArrowCounterClockwiseIcon,
   CheckIcon,
   ClockCountdownIcon,
+  DesktopIcon,
   EnvelopeSimpleIcon,
   EnvelopeSimpleOpenIcon,
   FolderSimpleIcon,
@@ -30,6 +32,9 @@ import {
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
 import { useThreadMover } from "./mover.ts";
+import { useTransferOpener } from "@/lib/transfer-opener.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions, type ThreadActions } from "./use-thread-actions.ts";
 
@@ -66,6 +71,8 @@ export function threadActions(
     fork: { point: ForkPoint | undefined; onFork(point: ForkPoint): void };
     /** Ask which project it moves to. */
     onMove(): void;
+    /** Ask which machine it continues on (ADR 0101). */
+    onContinueOn?(): void;
     onLeave?(): void;
   },
 ): ThreadAction[] {
@@ -124,6 +131,17 @@ export function threadActions(
       run: handlers.onMove,
     },
   ];
+  if (handlers.onContinueOn)
+    list.push({
+      id: "continue-on",
+      label: "Continue on…",
+      icon: DesktopIcon,
+      section: "read",
+      ...(continueBlocked(entry.status.state)
+        ? { disabled: "Available once the thread stops working" }
+        : {}),
+      run: handlers.onContinueOn,
+    });
   const settle = settleAction(entry, flags, actions);
   if (settle) list.push(settle);
   list.push(autoSettleAction(entry, actions));
@@ -219,17 +237,42 @@ export function ThreadActionItems(props: {
   const { entry, flags } = props;
   const actions = useThreadActions();
   const mover = useThreadMover();
+  const transfers = useTransferOpener();
+  const linked = useHasLinkedMachines();
+  // Another machine's thread (ADR 0102): every action runs on that machine's client, the picker
+  // lists that machine's projects, and Continue on is sent from that machine.
+  const scoped = useScopedMachine()?.id;
   const allActions = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
-    onMove: () => mover.open({ entries: [entry] }),
+    onMove: () => mover.open({ entries: [entry], ...(scoped ? { hostId: scoped } : {}) }),
+    ...(linked
+      ? {
+          onContinueOn: () =>
+            transfers.open({
+              kind: "thread",
+              threadId: entry.id,
+              workspaceId: entry.workspaceId,
+              title: entry.title,
+              ...(scoped ? { hostId: scoped } : {}),
+            }),
+        }
+      : {}),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
   const list = props.compact
     ? allActions.filter((action) =>
-        ["rename", "unread", "pin", "move", "auto-settle", "archive", "restore", "delete"].includes(
-          action.id,
-        ),
+        [
+          "rename",
+          "unread",
+          "pin",
+          "move",
+          "continue-on",
+          "auto-settle",
+          "archive",
+          "restore",
+          "delete",
+        ].includes(action.id),
       )
     : allActions.filter((action) => !action.disabled);
   const section = (name: ThreadAction["section"]) =>
@@ -261,6 +304,7 @@ function renderThreadAction(action: ThreadAction) {
       icon={<Icon icon={action.icon} />}
       {...(action.shortcut ? { shortcut: action.shortcut } : {})}
       {...(action.danger ? { danger: true } : {})}
+      {...(action.disabled ? { disabled: true, reason: action.disabled } : {})}
       onClick={action.run}
     >
       {action.label}

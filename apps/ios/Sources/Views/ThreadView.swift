@@ -12,6 +12,7 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
+    @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var showFiles = false
     @State private var media: TranscriptRow?
@@ -66,9 +67,10 @@ struct ThreadView: View {
     var body: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
+                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
+            .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -107,12 +109,16 @@ struct ThreadView: View {
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showSearch) {
-                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
+                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
             }
+            .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
+            }
+            .sheet(isPresented: $showTune) {
+                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .sheet(isPresented: $showGoal) {
@@ -164,35 +170,42 @@ struct ThreadView: View {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
             ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
-            Group {
-                if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
-            }
-            .transition(.opacity)
-            if archived {
-                ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
-            } else if model.canOperate {
-                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
-                             send: { text, alternate in
-                                 let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
-                                 let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
-                                 if saved { acceptedSend += 1 }
-                                 return saved
-                             }, stop: { model.stopTree() },
-                             inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                             files: screen.attachments.count,
-                             draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
-                    ComposerAccessories(model: model, screen: screen, problem: attachProblem)
-                } leading: {
-                    AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                } trailing: {
-                    ComposerModelButton(screen: screen, open: { showModels = true })
+            // The strip and the composer are one glass.
+            VStack(spacing: AceTheme.Spacing.none) {
+                Group {
+                    if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
                 }
-            } else {
-                ViewOnlyNote.thread
-                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
+                .transition(.opacity)
+                if archived {
+                    ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
+                } else if model.canOperate {
+                    ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
+                                 send: { text, alternate in
+                                     let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
+                                     if saved { acceptedSend += 1 }
+                                     return saved
+                                 }, stop: { model.stopTree() },
+                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                                 files: screen.attachments.count,
+                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
+                        ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+                    } leading: {
+                        HStack(spacing: AceTheme.Spacing.none) {
+                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
+                        }
+                    } trailing: {
+                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
+                    }
+                } else {
+                    ViewOnlyNote.thread
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
+                }
             }
+            .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
@@ -248,9 +261,9 @@ struct ThreadView: View {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, strip included, at its end. The transcript fades out
-/// under the bar, as a scroll edge does under the system's own bars, so words never read through
-/// the glass or show in the gap above the keyboard.
+/// the keyboard and makes room for the bar, strip included, at its end. The transcript scrolls on
+/// behind the composer's glass and shows through it; below the composer's lower edge the page is
+/// solid, so words never show in the gap above the keyboard or behind the home indicator.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
     @ViewBuilder let bar: () -> Bar
@@ -258,28 +271,33 @@ private struct FloatingBar<Bar: View>: ViewModifier {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
             bar()
-                .background(alignment: .top) { BarFade() }
+                .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour rising under the composer: clear at the bar's top, solid by its middle, and
-/// solid on down behind the keyboard's translucent edge and the home indicator.
-private struct BarFade: View {
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
+/// edge and the home indicator, and into the composer's rounded lower corners so no word shows
+/// beside them. The composer sits `sm` above the bar's bottom and `md` in from each side
+/// (`ComposerFrame`).
+private struct BarFloor: View {
+    private let below = AceTheme.Dimensions.touchTarget * 8
+    private let radius = AceTheme.Radii.composer
     var body: some View {
         GeometryReader { box in
-            VStack(spacing: AceTheme.Spacing.none) {
-                LinearGradient(stops: [.init(color: AceTheme.Colours.background.opacity(0), location: 0),
-                                       .init(color: AceTheme.Colours.background.opacity(0.94), location: 0.5),
-                                       .init(color: AceTheme.Colours.background, location: 1)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: box.size.height)
-                AceTheme.Colours.background.frame(height: box.size.height + AceTheme.Dimensions.touchTarget * 8)
+            let top = AceTheme.Spacing.sm + radius
+            Path { path in
+                path.addRect(CGRect(x: 0, y: 0, width: box.size.width, height: top + below))
+                // The composer's lower edge, drawn taller so only its bottom corners cut in.
+                let composer = CGRect(x: AceTheme.Spacing.md, y: -radius, width: box.size.width - AceTheme.Spacing.md * 2, height: radius * 2)
+                path.addRoundedRect(in: composer, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
             }
+            .fill(AceTheme.Colours.background, style: FillStyle(eoFill: true))
         }
+        .frame(height: AceTheme.Spacing.sm + radius + below)
+        .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }
-

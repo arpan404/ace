@@ -110,8 +110,7 @@ export const keymap = {
   preview: { keys: "ctrl+shift+p", label: "Preview" },
   devices: { keys: "ctrl+shift+m", label: "Devices" },
   logs: { keys: "ctrl+shift+l", label: "Logs" },
-  // A long thread (features/thread/long): its turns, moving between them, searching it.
-  turns: { keys: "alt+mod+g", label: "Turns of this thread" },
+  // A long thread (features/thread/long): moving between its turns, searching it.
   previousTurn: { keys: "shift+alt+mod+arrowup", label: "Previous turn" },
   nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },

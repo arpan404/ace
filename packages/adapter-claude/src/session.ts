@@ -4,7 +4,12 @@ import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { randomUUID } from "node:crypto";
-import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import {
+  InputRejected,
+  type Frame,
+  type ProviderSession,
+  type SessionContext,
+} from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
 import type { InteractionResolution } from "@ace/protocol";
@@ -338,28 +343,39 @@ export async function openSession(
       await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
     },
     async send(parts, delivery, commandId, origin) {
-      ensureOpen();
-      // Validate every admission before the first one can reach the harness.
-      const messages = admissions(parts).map((body) => {
-        const message: SDKUserMessage & { uuid: string } = {
-          type: "user",
-          uuid: randomUUID(),
-          session_id: sessionId,
-          parent_tool_use_id: null,
-          message: { role: "user", content: body },
-          // A `now` message joins the running turn, but the CLI holds it until the running
-          // foreground tool returns. The engine calls backgroundTools for a person's steer.
-          priority: delivery === "steer" ? "now" : "next",
-        };
-        if (origin === "ace") message.isSynthetic = true;
-        return message;
-      });
-      // Encode every frame first: once a message reaches the harness, recording it cannot fail.
-      const frames = messages.map((message) => ({ message, payload: encode(message) }));
-      for (const { message, payload } of frames) {
-        if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
-        input.push(message);
-        record("send", "sdk", payload);
+      // Nothing reaches the CLI before the first push to the SDK's input stream, so a send that
+      // fails earlier (closed session, invalid input, full stream) provably took none of it.
+      let pushed = 0;
+      try {
+        ensureOpen();
+        // Validate every admission before the first one can reach the harness.
+        const messages = admissions(parts).map((body) => {
+          const message: SDKUserMessage & { uuid: string } = {
+            type: "user",
+            uuid: randomUUID(),
+            session_id: sessionId,
+            parent_tool_use_id: null,
+            message: { role: "user", content: body },
+            // A `now` message joins the running turn, but the CLI holds it until the running
+            // foreground tool returns. The engine calls backgroundTools for a person's steer.
+            priority: delivery === "steer" ? "now" : "next",
+          };
+          if (origin === "ace") message.isSynthetic = true;
+          return message;
+        });
+        // Encode every frame first: once a message reaches the harness, recording it cannot fail.
+        const frames = messages.map((message) => ({ message, payload: encode(message) }));
+        for (const { message, payload } of frames) {
+          if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
+          input.push(message);
+          pushed++;
+          record("send", "sdk", payload);
+        }
+      } catch (error) {
+        if (pushed > 0) throw error;
+        throw new InputRejected(error instanceof Error ? error.message : String(error), {
+          cause: error,
+        });
       }
     },
     // The terminal's Ctrl+B: each blocking Bash or subagent call returns at once and keeps

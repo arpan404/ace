@@ -243,7 +243,7 @@ test("a kept read the screen stopped waiting for still finishes and is kept for 
 test("each return of the connection is counted for screens whose reads aren't kept", () => {
   const { owner, connect } = fakeOwner();
   const sink = new RecordingSink();
-  // oxlint-disable-next-line eslint/no-new -- Constructor under test installs the reconnect observer; the instance is intentionally unheld.
+  // oxlint-disable-next-line no-new -- It watches the connection as it is built; the sink shows what it read.
   new NativeReads(owner, sink, { now: () => 0, schedule: noSchedule });
   connect("reconnecting");
   connect("ready");

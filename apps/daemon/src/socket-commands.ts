@@ -44,6 +44,11 @@ export async function admitCommand(command: Command, admission: CommandAdmission
       ...(retryable ? { retryable } : {}),
     });
   const refuseBeforeAccept = (code: string, text: string, retryable = false) => {
+    const receipt = route?.refused?.(command, code);
+    if (receipt) {
+      send({ type: "commandResult", ...receipt });
+      return;
+    }
     if (command.payload.type !== "forge.issue.write") {
       refuse(code, text, retryable);
       return;

@@ -1,10 +1,19 @@
+import { join } from "node:path";
 import { ProjectCommands, ProjectsResult } from "@ace/protocol";
 import { Projects } from "../projects.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startProjects({ store, services, options, now, resources }: ServiceContext): void {
+export function startProjects({
+  store,
+  services,
+  options,
+  now,
+  resources,
+  config,
+}: ServiceContext): void {
   const projects = new Projects(store, now, {
+    chatsRoot: join(config.dataDir, "chats"),
     ...options.projects,
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     roots:

@@ -16,7 +16,11 @@ struct TerminalView: View {
     let threadId: String
     @State private var terminals: [TerminalRow] = []
     @State private var selected: String?
-    @State private var input = ""
+    @State private var modifiers = TerminalModifiers()
+    @State private var queue = TerminalSendQueue()
+    /// Moves when the terminal changes, so a reply for the old one can't release the queue.
+    @State private var generation = 0
+    @State private var typing = false
     @State private var problem: String?
     @State private var busy = false
     private var output: TerminalScreenModel { model.terminal }
@@ -46,21 +50,31 @@ struct TerminalView: View {
                 }
             }
             if output.exited { Text("Process exited").foregroundStyle(AceTheme.Colours.mutedForeground) }
-            HStack {
-                TextField("Terminal input", text: $input).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .onSubmit { write(input + "\r"); input = "" }.accessibilityIdentifier("terminal.input")
-                Button("Send", systemImage: "arrow.up") { write(input + "\r"); input = "" }
-                Button("Interrupt", systemImage: "stop.circle") { write("\u{3}") }
-            }.disabled(selected == nil || output.exited || !model.canOperate)
+            Group {
+                TerminalKeyBar(modifiers: $modifiers) { type([$0]) }
+                HStack {
+                    TerminalKeyField(
+                        enabled: canType, focused: $typing,
+                        onText: { type(modifiers.apply(text: $0)) },
+                        onDelete: { type([modifiers.apply(key: "Backspace")]) },
+                        onReturn: { type([modifiers.apply(key: "Enter")]) },
+                        onKey: { type([$0]) }
+                    )
+                    .frame(height: AceTheme.Dimensions.touchTarget)
+                    Button("Interrupt", systemImage: "stop.circle") { type([.key("c", ctrl: true)]) }
+                }
+            }.disabled(!canType)
         }
         .padding(AceTheme.Spacing.lg)
         .navigationTitle("Terminal").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }
         .onDisappear { if let id = output.streamId { model.action(["type": "terminal.unwatch", "id": id]); output.streamId = nil } }
     }
+    private var canType: Bool { selected != nil && !output.exited && model.canOperate }
     private func select(_ id: String) {
         guard !id.isEmpty else { return }
         selected = id
+        queue.reset(); generation += 1
         let stream = UUID().uuidString
         output.start(stream)
         model.action(["type": "terminal.watch", "id": stream, "threadId": threadId, "terminalId": id, "offset": 0])
@@ -81,13 +95,25 @@ struct TerminalView: View {
             await read(); select(terminal.id)
         } catch { problem = error.localizedDescription }
     }
-    private func write(_ data: String) {
-        guard let selected, model.canOperate else { return }
+    /// Typed input goes out in order, one write at a time; what arrives meanwhile waits.
+    private func type(_ input: [TerminalInput]) {
+        guard canType, let batch = queue.add(input) else { return }
+        send(batch)
+    }
+    private func send(_ batch: [TerminalInput]) {
+        guard let selected else { return }
+        let sent = generation
+        let request: [String: Any] = [
+            "type": "terminal.input", "threadId": threadId, "terminalId": selected,
+            "applicationCursor": output.applicationCursor, "input": batch.map(\.payload),
+        ]
         Task {
             do {
-                let reply = try await model.service(["type": "terminal.request", "operation": ["op": "write", "threadId": threadId, "terminalId": selected, "data": data]], as: TerminalReply.self)
+                let reply = try await model.service(request, as: TerminalReply.self)
                 if !reply.ok { problem = reply.error ?? "Terminal input refused" }
             } catch { problem = error.localizedDescription }
+            guard sent == generation, let next = queue.finished() else { return }
+            send(next)
         }
     }
 }

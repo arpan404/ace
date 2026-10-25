@@ -4,11 +4,13 @@ import type { PatchSink, Preview } from "./agents.ts";
 import { ComposeSearch } from "./compose-search.ts";
 import { ChoiceAction, CreateAction, NewThread, type NewThreadMemory } from "./new-thread.ts";
 import { AttachmentTray, Picked, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
+import { ChatProject, chatChoice } from "./chat-project.ts";
 
 /*
  * The `compose` (New thread, Add project) actions Swift sends, parsed once and routed to their
  * sessions. `false` means the action couldn't be read. New thread's first-message files live
- * here, in the chosen project's draft scope.
+ * here, in the chosen project's draft scope. `chat` in place of a project id is a chat with no
+ * project (ADR 0099): its hidden project is made on first need.
  */
 
 const id = z.string().min(1).max(128);
@@ -17,6 +19,7 @@ const ComposeAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("close") }),
   z.object({ kind: z.literal("projects") }),
   z.object({ kind: z.literal("agents") }),
+  z.object({ kind: z.literal("favorite"), key: z.string().min(3).max(600) }),
   z.object({ kind: z.literal("branches"), workspaceId: id }),
   z.object({ kind: z.literal("mentions"), workspaceId: id, query: z.string().max(128) }),
   z.object({ kind: z.literal("folders"), query: z.string().max(256) }),
@@ -42,6 +45,7 @@ export class ComposeActions {
   readonly #owner: ClientCore;
   readonly #sink: PatchSink;
   readonly #chunks: ChunkReader;
+  readonly #chat: ChatProject;
   /** The first message's files, in one project's draft scope. */
   #tray: { workspaceId: string; tray: AttachmentTray; stop: AbortController } | undefined;
   constructor(
@@ -55,6 +59,7 @@ export class ComposeActions {
     this.#owner = owner;
     this.#sink = sink;
     this.#chunks = chunks;
+    this.#chat = new ChatProject(owner);
     this.search = new ComposeSearch(owner, sink, preview);
     this.newThread = new NewThread(
       owner,
@@ -80,12 +85,18 @@ export class ComposeActions {
       case "close":
         this.#dropTray();
         this.search.release();
+        this.#chat.release();
         break;
       case "choice":
         this.newThread.choose(action);
         break;
       case "attach":
-        this.#trayFor(action.workspaceId).attach(action.file, this.newThread.reader());
+        if (action.workspaceId === chatChoice) void this.#attachToChat(action.file);
+        else
+          this.#trayFor(action.workspaceId, action.workspaceId).attach(
+            action.file,
+            this.newThread.reader(),
+          );
         break;
       case "detach":
         this.#tray?.tray.detach(action.localId);
@@ -96,11 +107,16 @@ export class ComposeActions {
       case "agents":
         void this.newThread.agents();
         break;
+      case "favorite":
+        void this.newThread.favorite(action.key);
+        break;
       case "branches":
-        void this.newThread.branches(action.workspaceId);
+        // A chat's folder has no branches and no files to mention.
+        if (action.workspaceId !== chatChoice) void this.newThread.branches(action.workspaceId);
         break;
       case "mentions":
-        void this.search.mentions(action.workspaceId, action.query);
+        if (action.workspaceId !== chatChoice)
+          void this.search.mentions(action.workspaceId, action.query);
         break;
       case "folders":
         void this.search.folders(action.query);
@@ -112,13 +128,47 @@ export class ComposeActions {
         void this.search.createProject(action.payload, action.requestId);
         break;
       case "create":
-        void this.newThread.create(action);
+        if (action.workspaceId === chatChoice) void this.#startChat(action);
+        else void this.newThread.create(action);
         break;
     }
     return true;
   }
-  /** The project's tray; files picked for another project went with that project's scope. */
-  #trayFor(workspaceId: string): AttachmentTray {
+  /** A chat's first message: into its hidden project, made now if no file made it already. */
+  async #startChat(action: Parameters<NewThread["create"]>[0]): Promise<void> {
+    let workspaceId: string;
+    try {
+      workspaceId = await this.#chat.resolve();
+    } catch {
+      this.#sink.put(`admission:${action.commandId}`, () => ({
+        type: "admission",
+        id: action.commandId,
+        ok: false,
+        message: "Couldn't start a chat on this computer. Try again.",
+      }));
+      return;
+    }
+    if (await this.newThread.create({ ...action, workspaceId, mode: "local", base: undefined }))
+      this.#chat.release();
+  }
+  async #attachToChat(file: z.infer<typeof Picked>): Promise<void> {
+    try {
+      const workspaceId = await this.#chat.resolve();
+      this.#trayFor(workspaceId, chatChoice).attach(file, this.newThread.reader());
+    } catch {
+      this.#sink.put("compose:attachments", () => ({
+        type: "compose.attachments",
+        workspaceId: chatChoice,
+        files: [],
+        blocked: "Couldn't start a chat on this computer, so the file wasn't attached.",
+      }));
+    }
+  }
+  /**
+   * The project's tray; files picked for another project went with that project's scope.
+   * `shown` is the id Swift knows the tray by: `chat` for a chat's hidden project.
+   */
+  #trayFor(workspaceId: string, shown: string): AttachmentTray {
     if (this.#tray?.workspaceId === workspaceId) return this.#tray.tray;
     this.#dropTray();
     const stop = new AbortController();
@@ -129,7 +179,7 @@ export class ComposeActions {
       (files) =>
         this.#sink.put("compose:attachments", () => ({
           type: "compose.attachments",
-          workspaceId,
+          workspaceId: shown,
           files,
           blocked: this.#blocked(),
         })),

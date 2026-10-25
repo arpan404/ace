@@ -15,6 +15,7 @@ import { useForkOpener } from "../transitions/fork-opener.ts";
 import type { AddHandle } from "./add-button.tsx";
 import { accept, insertAt, type Trigger } from "./draft.ts";
 import type { Suggestion } from "./suggestions.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** A change to the message from the composer itself, with the chips it leaves. */
 export type ComposerEdit = { text: string; caret: number; tokens?: readonly ComposerToken[] };
@@ -50,6 +51,7 @@ export function useComposerPicks(args: {
   "use no memo";
   const client = useClient();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const workspace = useWorkspaceActions(args.thread.id);
   const fork = useForkOpener();
   const { text, tokens, edit } = args;
@@ -123,7 +125,7 @@ export function useComposerPicks(args: {
             args.setDismissed(undefined);
           },
           project: () =>
-            void navigate({ to: "/new", search: { project: args.thread.workspaceId } }),
+            void navigate({ to: "/new", search: { project: args.thread.workspaceId, ...machine } }),
           model: () =>
             args.box.current
               ?.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')

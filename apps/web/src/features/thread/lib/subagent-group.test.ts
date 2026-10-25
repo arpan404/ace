@@ -1,7 +1,13 @@
 import { ClientError, ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
 import { createThreadView } from "@ace/projection";
 import { Agent, BackgroundTask, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
-import { subagentLabels, subagentStatusLine, subagentTerminal } from "@ace/ui-core";
+import {
+  subagentDetail,
+  subagentLabels,
+  subagentRunning,
+  subagentStatusLine,
+  subagentTerminal,
+} from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { agentFactsOf } from "@/lib/agent-facts.ts";
 import { listedSubagentState, readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
@@ -207,6 +213,54 @@ test("a cancelling launch with an old completion stays live until canonical sett
     complete: false,
   });
   expect(line(store([], [launch]), ["launch"])).toBe("1 working");
+});
+
+const queuedTestLaunch = (childThreadId: string, phase: "created" | "running", status: unknown) =>
+  Item.parse({
+    id: `launch-${childThreadId}`,
+    agentId: "root",
+    createdAt: 1000,
+    type: "delegation.started",
+    origin: "ace",
+    childThreadId,
+    provider: "claude",
+    title: childThreadId,
+    role: childThreadId,
+    phase,
+    status,
+    updatedAt: 1000,
+    generation: 0,
+    complete: false,
+  });
+// The parent follows each child through an agent of its own; a queued one is blocked on the queue.
+const follower = (childThreadId: string, status: AgentStatus) =>
+  Agent.parse({
+    ...agent(`ace-child:${childThreadId}`, status),
+    origin: "ace",
+    childThreadId,
+  });
+
+test("a delegated child waiting for its parent's run slot reads queued, with no running time", () => {
+  const reader = store(
+    [
+      follower("queued", { state: "blocked", on: "queue", refs: ["queued"] }),
+      follower("running", { state: "working", activity: "responding" }),
+    ],
+    [
+      queuedTestLaunch("queued", "created", { state: "waiting", on: "queue" }),
+      queuedTestLaunch("running", "running", { state: "working", agents: 1 }),
+    ],
+  );
+  const entries = readSubagentGroup(reader, ["launch-queued", "launch-running"]).value;
+  const queued = entries.find((entry) => entry.childThreadId === "queued");
+  expect(queued && subagentLabels[queued.state]).toBe("Queued");
+  expect(queued && subagentRunning(queued.state)).toBe(false);
+  expect(queued && subagentDetail(queued, undefined, undefined, true).detail).toBe(
+    "Starts when a running agent finishes",
+  );
+  expect(subagentStatusLine(entries.map((entry) => entry.state))).toBe("1 working · 1 queued");
+  // Still unfinished: a queued child keeps its group, and its parent, open.
+  expect(queued && subagentTerminal(queued.state)).toBe(false);
 });
 
 test("appending unrelated output does no historical or membership reads for 50 mounted groups", () => {

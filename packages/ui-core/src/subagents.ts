@@ -6,6 +6,8 @@ export type SubagentState =
   | "working"
   | "human"
   | "waiting"
+  /** Delegated past its parent's run slots: it starts when a running sibling finishes. */
+  | "queued"
   | "unresponsive"
   | "failed"
   | "cancelled"
@@ -16,6 +18,7 @@ export const subagentLabels: Record<SubagentState, string> = {
   working: "Running",
   human: "Needs you",
   waiting: "Waiting",
+  queued: "Queued",
   unresponsive: "Not responding",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -33,6 +36,7 @@ const groupOf: Record<SubagentState, SubagentGroupStatus> = {
   unresponsive: "failed",
   working: "working",
   waiting: "working",
+  queued: "working",
   cancelled: "done",
   done: "done",
 };
@@ -57,6 +61,7 @@ export function subagentState(status: AgentStatus): SubagentState {
     case "working":
       return "working";
     case "blocked":
+      if (status.on === "queue") return "queued";
       return status.on === "human" ? "human" : status.on === "subagents" ? "working" : "waiting";
     case "unresponsive":
       return "unresponsive";
@@ -93,9 +98,10 @@ export function subagentTerminal(state: SubagentState): boolean {
 }
 
 const priority: Record<SubagentState, number> = {
-  human: 6,
-  working: 5,
-  waiting: 4,
+  human: 7,
+  working: 6,
+  waiting: 5,
+  queued: 4,
   unresponsive: 3,
   failed: 2,
   cancelled: 1,
@@ -160,6 +166,7 @@ const statusWords: Record<SubagentState, string> = {
   human: "waiting on you",
   working: "working",
   waiting: "waiting",
+  queued: "queued",
   unresponsive: "not responding",
   failed: "failed",
   cancelled: "cancelled",
@@ -186,7 +193,9 @@ export function subagentBranchStates(
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];
     if (work.needsYou.has(agent.id)) return ["human"];
-    if (work.running.has(agent.id)) return ["working"];
-    return [subagentState(agent.status)];
+    const own = subagentState(agent.status);
+    // A child queued for its parent's run slot is unsettled, but not working yet.
+    if (work.running.has(agent.id) && own !== "queued") return ["working"];
+    return [own];
   });
 }

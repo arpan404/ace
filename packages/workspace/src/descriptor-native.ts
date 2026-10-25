@@ -47,6 +47,10 @@ const PosixBinding = z.object({
   removeDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
   mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  symlinkAt: z.function({
+    input: [z.number().int(), z.string(), z.string()],
+    output: z.void(),
+  }),
   statAt: z.function({
     input: [z.number().int(), z.string()],
     output: z.object({

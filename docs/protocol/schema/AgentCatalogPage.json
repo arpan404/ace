@@ -31,17 +31,17 @@
       "maxItems": 64,
       "type": "array"
     },
+    "instancesOmitted": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
     "models": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/AgentCatalogModel.json"
       },
       "maxItems": 20,
       "type": "array"
-    },
-    "nextInstanceOffset": {
-      "maximum": 9007199254740991,
-      "minimum": 0,
-      "type": "integer"
     },
     "nextOffset": {
       "maximum": 9007199254740991,

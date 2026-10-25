@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InteractionId, ThreadId } from "./ids.ts";
+import { QueueFacts } from "./thread-transitions.ts";
 
 /**
  * Bounded waits and compact monitoring for agents that delegate or control other threads.
@@ -16,7 +17,15 @@ export const WaitInput = {
   mode: WaitMode.default("all"),
   timeoutSeconds: WaitTimeoutSeconds.default(120),
 };
-export const WatchedState = z.enum(["working", "needs_you", "done", "failed", "cancelled"]);
+/** `queued`: delegated past its parent's run slots, it starts when a running sibling finishes. */
+export const WatchedState = z.enum([
+  "working",
+  "queued",
+  "needs_you",
+  "done",
+  "failed",
+  "cancelled",
+]);
 export type WatchedState = z.infer<typeof WatchedState>;
 export const WatchedRequest = z.object({
   interactionId: InteractionId,
@@ -32,6 +41,8 @@ export const WatchedThread = z.object({
   elapsedSeconds: z.number().int().nonnegative(),
   /** The current step while working, e.g. `tool` or the provider's own short description. */
   step: z.string().max(120).optional(),
+  /** While queued past its parent's run slots: where it stands. */
+  ...QueueFacts.partial().shape,
   /** Final answer excerpt once done, failed or cancelled. */
   result: z.string().max(4096).optional(),
   truncated: z.boolean().optional(),
@@ -68,6 +79,8 @@ export const MonitoredChild = z.object({
   role: z.string().max(40),
   state: WatchedState,
   step: z.string().max(60).optional(),
+  /** While queued past its parent's run slots: where it stands. */
+  ...QueueFacts.partial().shape,
   elapsedSeconds: z.number().int().nonnegative(),
   /** Number of requests waiting on the person and the first one, abbreviated. */
   needs: z.number().int().positive().optional(),

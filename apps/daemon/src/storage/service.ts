@@ -56,7 +56,10 @@ export class StorageService {
   }
   usage(): Promise<StorageUsage> {
     return this.serial(async () => {
-      const { candidates, complete } = await this.inventory.scan(new Set(StorageKind.options));
+      const { candidates, complete } = await this.inventory.scan(
+        new Set(StorageKind.options),
+        () => !this.closed,
+      );
       return {
         categories: StorageKind.options.map((kind) => {
           const items = candidates.filter((candidate) => candidate.kind === kind);
@@ -152,6 +155,7 @@ export class StorageService {
   private async draft(
     device: string,
     input: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
+    allowed: () => boolean = () => true,
   ): Promise<CleanupJournal> {
     const operation = StorageRequest.shape.operation.parse(input);
     if (operation.op !== "cleanup.plan") throw new Error("storage_invalid_request");
@@ -159,7 +163,7 @@ export class StorageService {
     const kinds = new Set(operation.kinds ?? StorageKind.options);
     const force = new Set(operation.forceItems);
     const now = this.owner.now();
-    const scan = await this.inventory.scan(kinds);
+    const scan = await this.inventory.scan(kinds, () => !this.closed && allowed());
     const selected = scan.candidates
       .filter((candidate) => kinds.has(candidate.kind))
       .map((candidate) => ({
@@ -223,12 +227,18 @@ export class StorageService {
   retain(days: number, allowed: () => boolean): Promise<{ removed: number; complete: boolean }> {
     return this.serial(async () => {
       if (!allowed()) return { removed: 0, complete: false };
-      const draft = await this.draft(RETENTION_REVIEWER, {
-        op: "cleanup.plan",
-        kinds: [...retentionKinds],
-        retention: retentionPolicy(days),
-        forceItems: [],
-      });
+      const draft = await this.draft(
+        RETENTION_REVIEWER,
+        {
+          op: "cleanup.plan",
+          kinds: [...retentionKinds],
+          retention: retentionPolicy(days),
+          forceItems: [],
+        },
+        allowed,
+      );
+      // Stopping: the next run's pass plans again from the start.
+      if (this.closed || !allowed()) return { removed: 0, complete: false };
       if (!draft.entries.some((entry) => entry.item.disposition === "remove"))
         return { removed: 0, complete: draft.plan.complete };
       draft.entries = draft.entries.filter((entry) => entry.item.disposition === "remove");

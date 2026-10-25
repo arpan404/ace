@@ -12,6 +12,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { cn } from "@/lib/cn.ts";
 import { composerSurface, stripControl } from "../composer/composer-styles.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** The parent a subagent leads back to: a thread, or the subagent that started it. */
 export interface ParentLink {
@@ -111,12 +112,14 @@ function BackToParent(props: { parent: ParentLink }) {
   const title = useThreadMeta(threadId)?.title;
   const agent = useAgent(threadId, agentId ?? "");
   const name = agentId ? agent && agentName(agent) : title;
+  const machine = useMachineSearch();
   return (
     <Tip label={name ? `Back to ${name}` : "Open parent"}>
       {agentId ? (
         <Link
           to="/t/$threadId/agents/$agentId"
           params={{ threadId, agentId }}
+          search={machine}
           aria-label="Open parent"
           className={backClass}
         >
@@ -126,6 +129,7 @@ function BackToParent(props: { parent: ParentLink }) {
         <Link
           to="/t/$threadId"
           params={{ threadId }}
+          search={machine}
           aria-label="Open parent"
           className={backClass}
         >

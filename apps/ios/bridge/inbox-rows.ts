@@ -1,15 +1,17 @@
-import type { AccountView } from "@ace/ui-core";
+import type { AccountView, HomeSort } from "@ace/ui-core";
 import {
   inboxGroupRank,
   inboxSections,
   inboxStatus,
   snoozePresets,
+  type InboxSectionOptions,
   type InboxThread,
   type InboxUnsent,
 } from "@ace/ui-core/mobile";
 import { threadRow } from "./presentation.ts";
 import { inboxLook } from "./inbox-look.ts";
 import { rowAccount } from "./inbox-accounts.ts";
+import { inboxSortChoices } from "./inbox-sort.ts";
 
 /** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
 export interface InboxClock {
@@ -24,6 +26,8 @@ export interface RowContext {
   /** When this phone started following the machine: results finished before it count as seen. */
   baseline: number;
   accounts: readonly AccountView[];
+  /** The machine's `threads.sortBy`, which orders the sections. */
+  sortBy?: HomeSort;
 }
 
 /**
@@ -49,18 +53,24 @@ export function inboxLayout(
   unsent: readonly InboxUnsent[],
   now: number,
   more: boolean,
+  options: InboxSectionOptions = {},
 ) {
   return {
     type: "inbox.sections",
-    sections: inboxSections(threads, unsent, now).map((section) => ({
+    sections: inboxSections(threads, unsent, now, options).map((section) => ({
       key: section.key,
       label: section.label,
       ids: section.keys,
+      // Rows on the phone may be fewer: the daemon pages older settled threads.
+      total: section.total,
       // A merged inbox orders sections from every machine by these (`inboxRank`).
       ranks: section.ranks,
       order: inboxGroupRank(section.key),
     })),
     more,
     snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),
+    // The machine's sort, so the menu checks the choice in force.
+    sortBy: options.sortBy ?? "activity",
+    sorts: inboxSortChoices,
   };
 }

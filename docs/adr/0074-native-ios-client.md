@@ -71,8 +71,8 @@ text before JSON serialization. Opaque identities never pass through this adapte
 truncation. Navigation generations reject stale patches, including reopening
 the same thread. Leaving a thread cancels its outstanding SDK history reads.
 The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
-Snapshots still contain at most 200 items; the 2,000-item run hydrates through
-`loadOlder`, exercising the SDK's page/delta journal.
+Snapshots still contain at most 200 items. Older history is read through the shared
+history window (ADR 0062 "Phone client", 2026-10-23), not by growing the live store.
 
 `@ace/design-tokens` supplies the palette, typography metrics, spacing, radii,
 dimensions, elevation, opacity and motion timing. The Swift generator validates the

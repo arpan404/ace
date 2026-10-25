@@ -5,6 +5,12 @@ Measurements for #1130: how sharp the live view of a Mac app is, and how long an
 Apple M4 Max (16 cores), macOS 26, Retina display (2x). Host load average during the runs is
 in each JSON file (10–17 for the action runs: other agents were busy on the same Mac).
 
+The [2026-10-23 action-overhead follow-up](perf/computer-use/speed-2026-10-23.md)
+records the later conflict-query, semantic-edit and explicit-wait optimizations,
+with duration-only request diagnostics and fresh before/after measurements.
+The [native search follow-up](perf/computer-use/search-2026-10-23.md) measures
+candidate filtering before transport, including freshness and broad-query limits.
+
 ## What changed
 
 **Live view (`ace-screen-helper`, shared with Devices):**

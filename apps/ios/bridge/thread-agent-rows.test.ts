@@ -133,6 +133,11 @@ test("a waiting question reads as the agent asking it, then leaves for the work 
   expect(rows("thread.block").some((row) => row.kind === "work")).toBe(true);
 });
 
+function questionLine() {
+  return rows("thread.block").find((row) => row.kind === "question")?.question as
+    | { asking: boolean; asker: string; title: string; answer: string; outcome: string }
+    | undefined;
+}
 function asking(id: string, allowOther: boolean) {
   const fake = fixture();
   fake.createThread({ id, workspaceId: "ace", title: "Ask", provider: "codex" });

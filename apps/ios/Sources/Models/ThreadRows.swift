@@ -43,9 +43,19 @@ struct StepDetail: Codable, Sendable, Equatable {
     let text: String
     let diffs: [Diff]
 }
+/// One image or file of a message (`bridge/thread-rows.ts`). `ref` names it to
+/// `native.attachment`; `thumbnail` says a preview can be read, `opens` that the file can.
+/// The newer fields are optional so a row kept by an older build still decodes.
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
     let name: String
+    var ref: String? = nil
+    var mimeType: String? = nil
+    var bytes: Int? = nil
+    var width: Double? = nil
+    var height: Double? = nil
+    var thumbnail: Bool? = nil
+    var opens: Bool? = nil
 }
 
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows
@@ -219,6 +229,25 @@ struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     let label: String
     let detail: String
     let current: Bool
+}
+
+/// The open thread's model sheet (`thread.models`): its provider's models, the one in use marked,
+/// the ids starred among them in the order they were starred, and why the last star didn't save.
+struct ThreadModels: Decodable, Sendable, Equatable {
+    var state = "idle"
+    var models: [ModelOption] = []
+    var favorites: [String] = []
+    var starProblem: String? = nil
+
+    init() {}
+    private enum Keys: String, CodingKey { case state, models, favorites, starProblem }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        state = try box.decode(String.self, forKey: .state)
+        models = try box.decode([ModelOption].self, forKey: .models)
+        favorites = try box.decodeIfPresent([String].self, forKey: .favorites) ?? []
+        starProblem = try box.decodeIfPresent(String.self, forKey: .starProblem)
+    }
 }
 
 extension ApprovalRow {

@@ -102,10 +102,8 @@ struct ItemRowView: View {
             if row.role == "user" { UserMessageRow(row: row) } else { AnswerRow(row: row, between: true, openMessage: openMessage) }
         case "reasoning": ReasoningRow(row: row, openMessage: openMessage, workEnded: workEnded)
         case "html", "image":
-            if let openMedia {
-                QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
-                    .accessibilityIdentifier("media.\(row.id)")
-            } else { VisualizationRow(row: row) }
+            if let openMedia { PublishedMediaRow(row: row) { openMedia(row) } }
+            else { VisualizationRow(row: row) }
         default:
             if let step = row.step { StepRow(step: step) }
             else { Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }

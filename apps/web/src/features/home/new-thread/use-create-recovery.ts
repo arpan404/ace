@@ -115,6 +115,8 @@ export function useCreateRecovery(options: {
   storage: KeyValueStorage | undefined;
   key: string;
   hostId: string | undefined;
+  /** The `?machine=` a recovered thread opens with: the machine this client reaches. */
+  search?: { machine?: string } | undefined;
   draftKey: string | undefined;
   onError(message: string): void;
   onRecovered(payload: SubmittedDraft & { workspaceId: string }): void;
@@ -122,7 +124,7 @@ export function useCreateRecovery(options: {
   /** False when the composer is empty: a refusal then has no message left to edit. */
   holdsMessage?: (() => boolean) | undefined;
 }): void {
-  const { client, storage, key, hostId } = options;
+  const { client, storage, key, hostId, search } = options;
   const ready = useConnectionState() === "ready";
   const navigate = useNavigate();
   const [revision, setRevision] = useState(0);
@@ -160,6 +162,7 @@ export function useCreateRecovery(options: {
       void navigate({
         to: "/t/$threadId",
         params: { threadId: receipt.threadId ?? `pending:${attempt.commandId}` },
+        search: search ?? {},
       });
     };
     const run = async () => {
@@ -184,5 +187,5 @@ export function useCreateRecovery(options: {
     };
     // Storage events invalidate the read even when every connection dependency is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [client, storage, key, hostId, ready, revision, navigate]);
+  }, [client, storage, key, hostId, ready, revision, navigate, search]);
 }

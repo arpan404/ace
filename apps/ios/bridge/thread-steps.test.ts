@@ -21,14 +21,14 @@ import {
 
 afterEach(reset);
 
-const reads = (count: number): Fact[] =>
+const reads = (count: number, prefix = ""): Fact[] =>
   Array.from({ length: count }, (_, at) => [
-    facts.tool("root", `read-${at}`, {
+    facts.tool("root", `${prefix}read-${at}`, {
       kind: "file.read",
       title: `Read file-${at}.ts`,
       detail: { kind: "file.read", path: `file-${at}.ts` },
     }),
-    facts.toolDone("root", `read-${at}`),
+    facts.toolDone("root", `${prefix}read-${at}`),
   ]).flat();
 
 test("opening a finished turn reads all its steps from the daemon, in pages", async () => {
@@ -125,6 +125,104 @@ test("a turn that changes while its log is open is read again from its summary's
     readsBefore,
   );
   expect(sent.some((text) => text.includes('"type":"turns.page"'))).toBe(true);
+});
+
+/** Finished turns of `steps` reads each, every turn under its own native id. */
+const finishedTurns = (turns: number, steps: number): Fact[] =>
+  Array.from({ length: turns }, (_, turn): Fact[] => [
+    { type: "turn.started", agent: "root", nativeTurnId: `turn-${turn}`, trigger: "user" },
+    facts.message("root", `ask-${turn}`, "user", `Part ${turn + 1}.`),
+    ...reads(steps, `${turn}-`),
+    facts.message("root", `answer-${turn}`, "assistant", `Done ${turn + 1}.`),
+    { type: "turn.ended", agent: "root", nativeTurnId: `turn-${turn}`, outcome: "completed" },
+  ]).flat();
+
+/** Each settled head's turn and the block key a log opens it by, oldest first. */
+async function heads(count: number): Promise<{ ordinal: number; block: string }[]> {
+  await until(
+    () =>
+      rows("thread.block").filter((row) => row.kind === "work" && row.ordinal !== null).length >=
+      count,
+    "the settled heads",
+  );
+  return rows("thread.block")
+    .filter((row) => row.kind === "work" && row.ordinal !== null)
+    .map((row) => ({
+      ordinal: Number(row.ordinal),
+      block: String(
+        native.frames.find((frame) => frame.type === "thread.block" && frame.row === row)?.id,
+      ),
+    }));
+}
+const frames = (type: string, ordinal: number) =>
+  native.frames.filter((frame) => frame.type === type && frame.ordinal === ordinal).length;
+const ready = (ordinal: number) =>
+  until(() => {
+    const header = native.frames.findLast(
+      (frame) => frame.type === "thread.steps" && frame.ordinal === ordinal,
+    );
+    return header?.state === "ready" && frames("thread.stepsPage", ordinal) >= Number(header.pages);
+  }, `turn ${ordinal}'s steps`);
+const stepReads = () => sent.filter((text) => text.includes('"type":"turn.steps"')).length;
+
+test("a log opened again shows what native holds without sending its steps again", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "again", workspaceId: "ace", title: "Again", provider: "codex" });
+  fake.apply("again", [facts.rootAgent("codex"), ...finishedTurns(1, 60)]);
+  const thread = open(connect(fake), "again");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  // Its head scrolls away and back, or the log closes and opens again.
+  thread.handle({ type: "steps.close", ordinal: head.ordinal });
+  const pagesBefore = frames("thread.stepsPage", head.ordinal);
+  const headersBefore = frames("thread.steps", head.ordinal);
+  const readsBefore = stepReads();
+  const summaries = sent.filter((text) => text.includes('"type":"turns.page"')).length;
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  // Opening again checks the turn's summary, finds it unchanged and reads nothing.
+  await until(
+    () => sent.filter((text) => text.includes('"type":"turns.page"')).length > summaries,
+    "the summary",
+  );
+  await until(() => frames("thread.steps", head.ordinal) > headersBefore, "the header");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(frames("thread.stepsPage", head.ordinal)).toBe(pagesBefore);
+  expect(stepReads()).toBe(readsBefore);
+  // Asked to open while open (its head in view, then tapped), nothing more goes.
+  const headers = frames("thread.steps", head.ordinal);
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(frames("thread.steps", head.ordinal)).toBe(headers);
+});
+
+test("native keeps the steps of the last eight turns it was sent and lets older ones go", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "many", workspaceId: "ace", title: "Many", provider: "codex" });
+  fake.apply("many", [facts.rootAgent("codex"), ...finishedTurns(10, 2)]);
+  const thread = open(connect(fake), "many");
+  const all = await heads(10);
+  for (const head of all) {
+    thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+    await ready(head.ordinal);
+    thread.handle({ type: "steps.close", ordinal: head.ordinal });
+  }
+  await until(
+    () => frames("thread.stepsReleased", all[1]?.ordinal ?? -1) > 0,
+    "the second turn let go",
+  );
+  const released = all.filter((head) => frames("thread.stepsReleased", head.ordinal) > 0);
+  expect(released.map((head) => head.ordinal)).toEqual(all.slice(0, 2).map((head) => head.ordinal));
+  // A turn native let go is sent to it again when it opens.
+  const first = all[0];
+  if (!first) throw new Error("no first turn");
+  const pagesBefore = frames("thread.stepsPage", first.ordinal);
+  thread.handle({ type: "steps.open", ordinal: first.ordinal, block: first.block });
+  await until(
+    () => frames("thread.stepsPage", first.ordinal) > pagesBefore,
+    "the first turn again",
+  );
 });
 
 test("a native subagent's lane groups its own work like the transcript", async () => {

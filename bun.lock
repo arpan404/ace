@@ -133,7 +133,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.8",
+      "version": "0.0.10",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -603,6 +603,7 @@
         "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
+        "@ace/git": "workspace:*",
         "@ace/handoff": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/plugins": "workspace:*",
@@ -629,12 +630,14 @@
         "@ace/provider-kit": "workspace:*",
         "@ace/workspace": "workspace:*",
         "koffi": "3.3.2",
+        "tar-stream": "3.2.1",
         "ws": "^8.18.3",
         "zod": "^4.6.5",
       },
       "devDependencies": {
         "@ace/relay": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@types/tar-stream": "^3.1.4",
         "@types/ws": "^8.18.1",
       },
     },
@@ -929,6 +932,19 @@
         "@vscode/ripgrep": "1.18.0",
       },
     },
+    "tools/daemon-bench": {
+      "name": "@ace/daemon-bench",
+      "dependencies": {
+        "@ace/client": "workspace:*",
+        "@ace/daemon": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "ws": "^8.18.3",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
+      },
+    },
     "tools/dev": {
       "name": "@ace/dev",
       "dependencies": {
@@ -1092,6 +1108,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/daemon-bench": ["@ace/daemon-bench@workspace:tools/daemon-bench"],
 
     "@ace/design-tokens": ["@ace/design-tokens@workspace:packages/design-tokens"],
 

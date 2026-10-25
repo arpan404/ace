@@ -2,13 +2,13 @@ import type { DeviceClientSnapshot } from "@ace/client/devices";
 import type { DeviceState } from "@ace/protocol";
 import {
   activityCaption,
-  defaultScreens,
   deviceButtons,
   deviceCatalog,
   deviceControls,
   deviceKind,
   deviceProblem,
   deviceRows,
+  deviceScreen,
   frameGeometry,
   type DeviceProblem,
   type DeviceRow,
@@ -193,7 +193,7 @@ function screen(
     };
   const controls = deviceControls(device, state, input.now);
   const kind = deviceKind(row);
-  const upright = defaultScreens[kind];
+  const upright = deviceScreen(kind, row.name);
   const portrait = {
     width: Math.min(upright.width, upright.height),
     height: Math.max(upright.width, upright.height),

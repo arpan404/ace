@@ -8,6 +8,7 @@ import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
+import { queuedDelegation } from "./queued-delegation.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
@@ -62,6 +63,8 @@ export function devWorld(): WorldThread[] {
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
+    // Two children delegated with one run slot free: one runs, one waits in the launch queue.
+    ...queuedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.

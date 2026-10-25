@@ -1,7 +1,7 @@
 import { host } from "./polyfills.ts";
 import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
@@ -10,7 +10,6 @@ import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
-import { fillHistory } from "./thread-history.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
@@ -38,6 +37,8 @@ const Config = z.object({
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
+  /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
+  inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
   /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
@@ -78,8 +79,6 @@ let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let session: ThreadSession | undefined;
 let epoch = 0;
-let itemLimit = 200;
-let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
@@ -110,7 +109,6 @@ function error(): void {
 }
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
-  itemLimit = config.itemLimit;
   const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
@@ -167,6 +165,7 @@ async function start(json: string): Promise<void> {
     activityGeneration,
     // What the phone draws first at its next launch, before this runtime starts.
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
+    config.inboxSort,
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
@@ -278,8 +277,6 @@ function action(json: string): void {
     switch (value.type) {
       case "open":
         services?.transcript.close();
-        historyAbort?.abort();
-        historyAbort = new AbortController();
         stopThread?.();
         sheets.close();
         lease?.release();
@@ -294,28 +291,12 @@ function action(json: string): void {
         session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         browser?.close();
         browser?.probe(value.threadId, epoch);
-        if (itemLimit > 200) {
-          const generation = epoch;
-          const signal = historyAbort.signal;
-          void fillHistory({
-            owner: client,
-            store: lease.store,
-            threadId: value.threadId,
-            limit: itemLimit,
-            current: () => generation === epoch,
-            drained: () => pump.drained(),
-            signal,
-          }).catch(() => {
-            if (generation === epoch && !signal.aborted) error();
-          });
-        }
         break;
       case "back":
         services?.transcript.close();
         epoch++;
         pump.bind(undefined, epoch);
         ledgers.trim();
-        historyAbort?.abort();
         session?.dispose();
         session = undefined;
         stopThread?.();

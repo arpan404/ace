@@ -13,6 +13,7 @@ import {
   mkdirAt,
   descriptorNames,
   statAt,
+  symlinkAt,
   type Descriptor,
 } from "./descriptor.ts";
 
@@ -154,6 +155,14 @@ export class PinnedDirectory {
     } finally {
       closeSync(file.fd);
     }
+  }
+  /** Read-only descriptor for a child; a symlink of that name is never followed. */
+  openRead(name: string): number {
+    return openAt(this.fd, name, constants.O_RDONLY).fd;
+  }
+  /** Stores `target` as a link's text; the link is created inside this directory only. */
+  symlink(target: string, name: string): void {
+    symlinkAt(this.fd, target, name);
   }
   createExclusive(name: string): number {
     return createFileAt(this.fd, name).fd;

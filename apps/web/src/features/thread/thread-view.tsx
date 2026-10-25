@@ -46,12 +46,7 @@ import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import {
-  DeferredThreadHotkeys,
-  DeferredThreadMenu,
-  DeferredTurnsPanel,
-  preloadDeferred,
-} from "./deferred.ts";
+import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
@@ -65,6 +60,7 @@ import { WorkButton } from "./header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
+import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 
 /**
@@ -153,7 +149,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       merge: meta?.lineage ? () => setMerging(true) : undefined,
       attachments: () => setAttachmentsOpen(true),
       find: () => findInThread(nav),
-      turns: () => nav.setTurnsOpen(!nav.turnsOpen),
     }),
     [id, forkPoint, openFork, nav, meta?.lineage],
   );
@@ -229,14 +224,19 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 {/* First in the area: Tab reaches an open details card straight after the header. */}
                 <WorkSide threadId={id} />
                 {drop.overlay}
-                {nav.turnsOpen && (
-                  <Suspense fallback={null}>
-                    <DeferredTurnsPanel.Component nav={nav} />
-                  </Suspense>
+                {meta.queuedLaunch ? (
+                  <QueuedLaunch
+                    text={meta.queuedLaunch.text}
+                    parentThreadId={meta.delegatedBy}
+                    slotLimit={meta.queuedLaunch.slotLimit}
+                    slotsInUse={meta.queuedLaunch.slotsInUse}
+                    queuePosition={meta.queuedLaunch.queuePosition}
+                  />
+                ) : (
+                  <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                    <Transcript threadId={id} />
+                  </div>
                 )}
-                <div className="col-start-1 row-start-1 min-h-0 min-w-0">
-                  <Transcript threadId={id} />
-                </div>
                 <TargetJump target={props.target} pending={requests ?? []} />
                 {/* A page's question floats just above the composer, on its column: nothing
                     renders below the composer. */}

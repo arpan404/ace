@@ -8,6 +8,8 @@ private final class TranscriptScrollIntent {
     /// itself, with the keyboard's or the composer's motion.
     var room: CGFloat = 0
     var direction = 0
+    /// The person opened something in place: the next change of height is theirs, not the end's.
+    var opened = false
     var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
     struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
     func begin() { active = true; consumed = false; direction = 0 }
@@ -41,8 +43,10 @@ struct ConversationFeed: View {
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's own animation carries the rows there.
     @State private var keyboardMoving = false
+    /// The keyboard's last animation duration: the composer opens on the same spring as it.
+    @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
-    private var shown: ThreadModel { reading.thread ?? thread }
+    private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     private var pinned: Bool { following && reading.thread == nil }
 
@@ -94,12 +98,16 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
+        .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (reading.paged ? "Reading history" : "Ready") : "Loading")
-        .onScrollPhaseChange { _, phase in
+        .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
                 intent.begin()
+            // A quick drag can skip tracking: a new gesture is one that starts from rest.
+            case .interacting where old == .idle || old == .decelerating || old == .animating:
+                intent.begin(); intent.active = true
             case .interacting, .decelerating: intent.active = true
             case .idle:
                 // Only the person's own scroll decides whether the feed follows the end; the
@@ -122,7 +130,14 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
-            keepEnd(old: old, new: new, proxy: proxy)
+            if intent.opened, new.height != old.height {
+                // What opened grows under the row the person tapped, which stays put; the feed
+                // follows the end again only if the end is still in view.
+                intent.opened = false
+                if reading.thread == nil { following = new.bottom <= AceTheme.Spacing.xxl }
+            } else {
+                keepEnd(old: old, new: new, proxy: proxy)
+            }
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
@@ -137,23 +152,32 @@ struct ConversationFeed: View {
             following = true
             toEnd(proxy)
         }
+        .onChange(of: shown.disclosures.opens) { _, _ in intent.opened = true }
         .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
         .onChange(of: reading.revision) { _, _ in
-            if reading.thread != nil, reading.paged { anchor.restore(with: proxy) }
+            guard reading.thread != nil else { return }
+            if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
+                reading.focus = nil
+                proxy.scrollTo("block:\(row)", anchor: .center)
+            } else { anchor.restore(with: proxy) }
         }
+        .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
         .onChange(of: thread.loaded) { _, loaded in
             if loaded, !initialScroll { toEnd(proxy); initialScroll = true }
+            focusRequested()
         }
         .task {
-            reading.willReplace = {
+            model.readingWillMove = {
                 anchor.capture(viewport: intent.metrics.viewport, topInset: intent.metrics.topInset, bottomInset: intent.metrics.bottomInset)
             }
+            model.readingMoved = { reading.moved() }
             if thread.loaded { toEnd(proxy); initialScroll = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
             let lift = max(0, feedBottom - end.minY)
+            if duration > 0 { keyboardDuration = duration }
             guard lift != keyboardLift else { return }
             let motion: Animation? = reduceMotion ? nil : .spring(duration: duration, bounce: 0)
             let growth = lift - keyboardLift
@@ -166,14 +190,16 @@ struct ConversationFeed: View {
             roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
-            roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve, proxy: proxy)
+            // The composer opening as it takes the keyboard moves on the keyboard's spring.
+            let motion = keyboardMoving ? Animation.spring(duration: keyboardDuration, bounce: 0) : AceTheme.Motion.standardCurve
+            roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
             keyboardMoving = false
             // Text that streamed in while the keyboard moved.
             if pinned { toEnd(proxy) }
         }
-        .onDisappear { reading.cancel() }
+        .onDisappear { reading.cancel(model: model); model.readingWillMove = nil; model.readingMoved = nil }
         .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
         .onChange(of: jumps) { _, _ in
             reading.live(model: model, thread: thread)
@@ -192,6 +218,13 @@ struct ConversationFeed: View {
         withAnimation(motion) { toEnd(proxy) }
     }
     private func toEnd(_ proxy: ScrollViewProxy) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+    /// A search hit asked for an item in this thread: the shared window opens around it.
+    private func focusRequested() {
+        guard thread.loaded, let focus = model.focusOnOpen, focus.thread == thread.id else { return }
+        model.focusOnOpen = nil
+        following = false
+        reading.jump(to: focus.item, model: model, live: thread)
+    }
     /// Following the end, the end stays in place as rows change height: older history filling in
     /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
     /// change of room has its own animated scroll.
@@ -215,6 +248,21 @@ struct ConversationFeed: View {
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
         }
+    }
+}
+
+/// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority
+/// over the rows' own (a tool group, a step, a link), so it never opens what lay under the finger.
+/// Scrolling still dismisses it interactively. With the keyboard down the gesture is off and taps,
+/// links, selection and menus reach the rows as usual.
+private struct TapPutsKeyboardAway: ViewModifier {
+    let up: Bool
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture().onEnded {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }, including: up ? .all : .subviews)
     }
 }
 

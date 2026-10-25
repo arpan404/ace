@@ -13,11 +13,14 @@ struct NewThreadSheet: View {
     var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var drafts = NewThreadDraftModel(store: .standard())
+    /// The machine started on last and each machine's last project and model.
+    private let memory = NewThreadMemoryStore.standard()
     @State private var path: [NewThreadRoute] = []
     @State private var sending = false
     @State private var failure: String?
     @State private var browsing = false
     @State private var choosingModel = false
+    @State private var choosingTune = false
     @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
@@ -32,7 +35,11 @@ struct NewThreadSheet: View {
 
     private var machineId: String? {
         if let id = draft.machineId, inbox.client(id) != nil { return id }
-        return (inbox.sessions.first { $0.client.canOperate } ?? inbox.sessions.first)?.hostId
+        let options = inbox.sessions.map { session in
+            NewThreadMachineOption(hostId: session.hostId, name: inbox.name(session.hostId), canOperate: session.client.canOperate,
+                                   connection: session.client.connection)
+        }
+        return NewThreadMemory.machine(options, remembered: memory.load().machine)
     }
     private var client: ClientModel? { machineId.flatMap(inbox.client) }
     private var compose: ComposeModel? { client?.compose }
@@ -69,21 +76,36 @@ struct NewThreadSheet: View {
         }
         .tint(AceTheme.Colours.foreground)
         .task(id: machineId) {
-            guard let client else { return }
+            guard let client, let machineId else { return }
+            // The draft holds the machine it opens on, so a later connection doesn't move it. A
+            // draft already written on a project before machines were named keeps that project.
+            if draft.machineId != machineId {
+                if draft.machineId == nil, draft.projectId != nil { drafts.edit { $0.machineId = machineId } }
+                else { drafts.edit { $0 = memory.load().open($0, on: machineId) } }
+            }
             if draft.projectId == nil, let initialProject { drafts.edit { $0.projectId = initialProject } }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
             if let project = draft.projectId {
-                client.composeAction(["kind": "branches", "workspaceId": project])
+                if !draft.isChat { client.composeAction(["kind": "branches", "workspaceId": project]) }
                 // Files kept from before a relaunch or a closed sheet go back on the message; the
                 // bridge checks and uploads them again and ignores one it already holds.
                 for file in drafts.restorable { client.composeAttach(file, workspaceId: project) }
             }
         }
         .onChange(of: draft.projectId) { _, project in
-            if let project { client?.composeAction(["kind": "branches", "workspaceId": project]) }
+            if let project, project != NewThreadDraft.chat { client?.composeAction(["kind": "branches", "workspaceId": project]) }
         }
-        .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
+        // With no project yet, the first thread is a chat.
+        .onChange(of: compose?.projectsState) { _, state in
+            if state == "ready", draft.projectId == nil, compose?.projects.isEmpty == true {
+                drafts.edit { $0.projectId = NewThreadDraft.chat }
+            }
+        }
+        .onChange(of: choiceKey) { _, _ in
+            client?.composeChoice(draft)
+            memory.record(draft)
+        }
         .onDisappear { client?.composeAction(["kind": "close"]) }
         .sheet(isPresented: $browsing) { projectFiles }
         .sheet(isPresented: $choosingProject) {
@@ -93,9 +115,11 @@ struct NewThreadSheet: View {
         }
         .sheet(isPresented: $choosingModel) {
             if let client {
-                NewThreadModelSheet(compose: client.compose, drafts: drafts) { client.composeAction(["kind": "agents"]) }
+                NewThreadModelSheet(compose: client.compose, drafts: drafts, reload: { client.composeAction(["kind": "agents"]) },
+                                    star: { client.composeAction(["kind": "favorite", "key": $0]) })
             }
         }
+        .sheet(isPresented: $choosingTune) { NewThreadTunePanel(drafts: drafts, choice: choice) }
     }
 
     /// "What should we build in ace-next? ⌄": the question opens the project picker; the
@@ -104,7 +128,11 @@ struct NewThreadSheet: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             Button { choosingProject = true } label: {
                 Group {
-                    if let name = project?.name {
+                    if draft.isChat {
+                        // A chat names no project: a plain question, "No project" opens the picker.
+                        Text("What should we work on? ")
+                            + Text("No project").foregroundStyle(AceTheme.Colours.mutedForeground) + NewThreadStyle.disclosure
+                    } else if let name = project?.name {
                         Text("What should we build in \(name)?") + NewThreadStyle.disclosure
                     } else {
                         Text("What should we build?\n")
@@ -118,12 +146,15 @@ struct NewThreadSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(project.map { "Project, \($0.name)" } ?? "Choose a project")
+            .accessibilityLabel(draft.isChat ? "Project, none" : project.map { "Project, \($0.name)" } ?? "Choose a project")
             .accessibilityIdentifier("newThread.project")
             if inbox.sessions.count > 1 {
                 Menu {
                     Picker("Machine", selection: Binding(get: { machineId ?? "" }, set: { id in
-                        drafts.edit { $0.machineId = id; $0.projectId = nil; $0.provider = nil; $0.model = nil; $0.account = nil; $0.effort = nil; $0.speed = nil; $0.access = nil; $0.base = nil }
+                        // That machine's last project and model come back, as the web's do.
+                        guard id != machineId else { return }
+                        drafts.edit { $0 = memory.load().open($0, on: id) }
+                        memory.remember(draft)
                     })) {
                         ForEach(inbox.sessions) { session in
                             Text(session.client.canOperate ? inbox.name(session.hostId) : "\(inbox.name(session.hostId)) · View only").tag(session.hostId)
@@ -164,12 +195,12 @@ struct NewThreadSheet: View {
                 .padding(.horizontal, AceTheme.Spacing.sm)
                 .accessibilityIdentifier("newThread.issue")
             }
-            if draft.projectId != nil {
+            if draft.projectId != nil, !draft.isChat {
                 NewThreadWorktreeChips(drafts: drafts, branches: branches)
             }
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
                               sending: sending, blocker: blocker, attachProblem: $attachProblem,
-                              chooseModel: { choosingModel = true }, send: send)
+                              chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true }, send: send)
         }
         .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .padding(.bottom, AceTheme.Spacing.sm)
@@ -179,9 +210,9 @@ struct NewThreadSheet: View {
     private var moreOptions: some View {
         Menu {
             Button("Mention a file", systemImage: "at") { path.append(.mention) }
-                .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.mention")
+                .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.mention")
             Button("Browse files", systemImage: "folder") { browsing = true }
-                .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.files")
+                .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.files")
             Button("Instructions and profile", systemImage: "person.text.rectangle") { path.append(.instructions) }
                 .accessibilityIdentifier("newThread.instructionsPage")
         } label: { Image(systemName: "ellipsis") }
@@ -225,8 +256,10 @@ struct NewThreadSheet: View {
         if draft.provider == nil, let agent = choice.agent, let model = choice.model {
             drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account }
         }
+        if draft.isChat { drafts.edit { $0.worktree = false; $0.base = nil } }
         if draft.worktree, draft.base == nil, let start = branches?.start { drafts.edit { $0.base = start } }
         drafts.edit { $0.machineId = machineId }
+        memory.remember(draft)
         let commandId = drafts.reserveCommand { UUID().uuidString.lowercased() }
         let sending = draft
         self.sending = true

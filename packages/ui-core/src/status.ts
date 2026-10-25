@@ -98,6 +98,9 @@ export interface TaskPill {
   since?: number | undefined;
 }
 
+/** A delegated thread still waiting for one of its parent's run slots: it has not started. */
+export const queuedPill: TaskPill = { label: "Queued", tone: "waiting", icon: "waiting" };
+
 /**
  * The status a task row shows on its first line, or none: a settled-in thread (done and read, or
  * new) shows its age instead. `since` is when the status last changed (the entry's activity),

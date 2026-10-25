@@ -87,3 +87,30 @@ test("a step's glyph says what it did: a listing command lists, a spawn reaches 
     ),
   ).toBe("agent");
 });
+
+const thinking = (id: string, text: string, complete: boolean): Item =>
+  Item.parse({ id, agentId: "root", type: "reasoning", text, complete, createdAt: 0 });
+
+test("a thought in flight with no words leaves the steps' rows as they were and is the log's live state", () => {
+  const read = call("a", { kind: "file.read", path: "src/a.ts" }, "succeeded");
+  const before = groupSteps(readWorkLog([read], new Set()).facts);
+  const reading = readWorkLog([read, thinking("t", "", false)], new Set());
+  expect(reading.thinking).toBe("t");
+  const during = groupSteps(reading.facts, before);
+  // The lone step stays a lone step: no group appears for the thought and vanishes after it.
+  expect(during.groups).toBe(before.groups);
+
+  const next = call("b", { kind: "shell", command: "bun test", exitCode: 0 }, "succeeded");
+  const after = readWorkLog([read, thinking("t", "", true), next], new Set());
+  expect(after.thinking).toBeUndefined();
+  expect(groupSteps(after.facts, during).groups.map((group) => [group.key, group.ids])).toEqual([
+    ["a", ["a", "b"]],
+  ]);
+});
+
+test("a thought joins the steps once it has words", () => {
+  const read = call("a", { kind: "file.read", path: "src/a.ts" }, "succeeded");
+  const reading = readWorkLog([read, thinking("t", "Check the caller", false)], new Set());
+  expect(reading.thinking).toBeUndefined();
+  expect(groupSteps(reading.facts).groups.map((group) => group.ids)).toEqual([["a", "t"]]);
+});

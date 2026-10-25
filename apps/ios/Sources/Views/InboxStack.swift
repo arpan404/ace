@@ -37,6 +37,11 @@ struct InboxStack<Destination: View>: View {
         return project.isEmpty || row.workspaceId == project
     }
 
+    /// The scope takes all of a machine's threads: no project chip, and its tab or every machine.
+    private func whole(_ machineId: String) -> Bool {
+        project.isEmpty && (machine.isEmpty || machineId == machine)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             Group {
@@ -48,7 +53,7 @@ struct InboxStack<Destination: View>: View {
                     // person searches and is back where it was when they cancel.
                     ZStack {
                         let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        InboxList(inbox: inbox, includes: includes, shelves: $shelves, actions: actions, compose: nil)
+                        InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, actions: actions, compose: nil)
                             .refreshable { await refresh() }
                             .opacity(results ? 0 : 1)
                             .allowsHitTesting(!results)

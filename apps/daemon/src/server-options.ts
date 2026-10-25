@@ -1,5 +1,4 @@
 import type { MaintenanceGate } from "@ace/service";
-import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService } from "@ace/accounts";
@@ -39,6 +38,10 @@ export interface ServerOptions {
   agentControl?: import("./services/types.ts").Services["agentControl"];
   /** Agent calls from other paired machines (ADR 0078). */
   machineCalls?: import("./machines/target.ts").MachineTarget;
+  /** Projects and threads this machine sends to other machines (ADR 0101). */
+  transfers?: import("./transfers/service.ts").DaemonTransfers;
+  /** Projects and threads other machines send here (ADR 0101). */
+  transferTarget?: import("./transfers/http.ts").TransferTarget;
   /** This machine's links to other machines (`fleet.request`). */
   fleet?: import("./machines/fleet-links.ts").FleetLinks;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
@@ -69,7 +72,7 @@ export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
-  devices?: DevicesService;
+  devices?: import("@ace/devices").DevicesService | import("./lazy-devices.ts").LazyDevices;
   accounts?: AccountService;
   accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;

@@ -9,6 +9,7 @@ export {
   normalizeCursorSdk,
 } from "./normalize.ts";
 export { resolveModel } from "./resolve.ts";
+export { searchModels, resolveModelName, type ModelNameMatch } from "./model-search.ts";
 export {
   ModelInstance,
   type InstanceInput,

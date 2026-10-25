@@ -12,7 +12,7 @@ function useNative(native: boolean) {
     configurable: true,
     writable: true,
   });
-  // oxlint-disable-next-line no-extend-native -- hide the codec to exercise the fallback; afterEach restores it.
+  // oxlint-disable-next-line no-extend-native -- Hides the built-in to test the fallback, then restores it.
   Object.defineProperty(Uint8Array.prototype, "toBase64", {
     value: native ? saved.to : undefined,
     configurable: true,

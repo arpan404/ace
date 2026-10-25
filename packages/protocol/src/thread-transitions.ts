@@ -166,9 +166,30 @@ export const TransitionCommands = [
 export const DelegatedBy = ThreadId.meta({
   description: "The thread whose agent delegated this one through ace.",
 });
+/**
+ * Where a queued child waits: its parent's run-slot limit, how many slots are in use, and its own
+ * 1-based place in the parent's queue. Every field is optional so a thread stored before the
+ * daemon reported them still decodes, and older clients keep their current text.
+ */
+export const QueueFacts = z.object({
+  /** Children one parent runs at once. */
+  slotLimit: z.number().int().min(1).max(64),
+  /** Children holding one of the parent's run slots now; past revivals it can pass the limit. */
+  slotsInUse: z.number().int().nonnegative(),
+  /** This child's place in its parent's queue, oldest first. */
+  queuePosition: z.number().int().positive(),
+});
+export type QueueFacts = z.infer<typeof QueueFacts>;
+/**
+ * A delegated child admitted while its parent's run slots were full: what it was asked, kept on
+ * the thread so it reads as queued with its task until a slot frees and it starts.
+ */
+export const QueuedLaunch = z.object({ text: z.string(), ...QueueFacts.partial().shape });
+export type QueuedLaunch = z.infer<typeof QueuedLaunch>;
 export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
+  queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
 });

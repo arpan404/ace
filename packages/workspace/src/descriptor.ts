@@ -117,6 +117,18 @@ export function mkdirAt(parent: number, name: string): void {
     nativeFailure(error);
   }
 }
+/** Creates a symlink in `parent` without resolving its target or following `name`. */
+export function symlinkAt(parent: number, target: string, name: string): void {
+  try {
+    if (onWindows())
+      throw Object.assign(new Error("Symbolic-link creation is unavailable on Windows"), {
+        code: "ENOTSUP",
+      });
+    posixBinding().symlinkAt(parent, target, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
 export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
   try {
     const names = onWindows() ? windowsBinding().names(fd, limit) : posixBinding().names(fd, limit);

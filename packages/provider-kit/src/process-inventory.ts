@@ -53,6 +53,10 @@ export class ProcessInventory implements ProcessJournal {
   constructor(path: string, runtime: InventoryRuntime = inventoryRuntime) {
     this.runtime = runtime;
     this.db = new DatabaseSync(path);
+    // Every spawn and exit writes here on the main thread. WAL commits are durable when the
+    // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
+    // work one fsync held the event loop for seconds.
+    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)",
     );

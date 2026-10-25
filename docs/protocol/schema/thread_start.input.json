@@ -14,7 +14,7 @@
       "type": "string"
     },
     "model": {
-      "description": "A model id from `models`.",
+      "description": "A model id from `models`, or its name as written (\"opus 5.5\").",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

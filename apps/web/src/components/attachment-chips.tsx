@@ -5,7 +5,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AttachmentChipImage } from "./attachment-chip-image.tsx";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
-import type { ChipAttachment, FileSource, ShownImage } from "./attachment-format.ts";
+import type { ChipAttachment, FileSource, ImageSource, ShownImage } from "./attachment-format.ts";
 import { describeFile, fileMeta } from "./attachment-kind.ts";
 import { useFilePreview, useLightbox } from "./attachment-open.tsx";
 
@@ -27,7 +27,7 @@ export function AttachmentChipRow(props: {
   const shown = expanded ? props.items : props.items.slice(0, 8);
   const more = props.items.length - shown.length;
   const images = props.items.flatMap((item): ShownImage[] => {
-    const source = imageSource(item, props.threadId);
+    const source = fullSource(item, props.threadId);
     return source && describeFile(item).kind === "image"
       ? [{ key: String(item.key), name: item.name, bytes: item.bytes, source }]
       : [];
@@ -106,17 +106,28 @@ export function AttachmentChipRow(props: {
   );
 }
 
-function imageSource(item: ChipAttachment, threadId: string | undefined) {
-  if (item.preview) return { kind: "url", url: item.preview } as const;
-  if (item.sha256 && threadId)
-    return {
-      kind: "attachment",
-      threadId,
-      sha256: item.sha256,
-      bytes: item.bytes ?? 0,
-      thumbnail: true,
-    } as const;
-  return undefined;
+/** The chip's own preview: this page's file, else the still kept with the draft, else the daemon's. */
+function imageSource(item: ChipAttachment, threadId: string | undefined): ImageSource | undefined {
+  if (item.preview) return { kind: "url", url: item.preview };
+  if (item.still) return { kind: "url", url: item.still };
+  return heldSource(item, threadId);
+}
+
+/** What the lightbox opens: the full image where this device can read it, else the still. */
+function fullSource(item: ChipAttachment, threadId: string | undefined): ImageSource | undefined {
+  if (item.preview) return { kind: "url", url: item.preview };
+  return heldSource(item, threadId) ?? (item.still ? { kind: "url", url: item.still } : undefined);
+}
+
+function heldSource(item: ChipAttachment, threadId: string | undefined): ImageSource | undefined {
+  if (!item.sha256 || !threadId) return undefined;
+  return {
+    kind: "attachment",
+    threadId,
+    sha256: item.sha256,
+    bytes: item.bytes ?? 0,
+    thumbnail: true,
+  };
 }
 
 function fileSource(item: ChipAttachment, threadId: string | undefined): FileSource | undefined {

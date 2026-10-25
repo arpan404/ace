@@ -1,6 +1,5 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { CursorHostSlots } from "@ace/adapter-cursor";
-import type { DevicesService } from "@ace/devices";
 import type { ComputerClient, ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
@@ -16,7 +15,7 @@ import type { PluginService, preparePluginSession, launchPluginProcess } from "@
 import type { Provider } from "@ace/plugins";
 import type { SpawnOptions } from "@ace/provider-kit/process";
 import type { ModelCatalog } from "@ace/models";
-import type { NotificationWorker } from "@ace/notify";
+import type { NotificationAccess } from "../notifications.ts";
 import type { Engine } from "../engine/index.ts";
 import type { createDaemonReview } from "../review.ts";
 import type { startDaemonMcp } from "../mcp.ts";
@@ -60,9 +59,13 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** Projects and threads other machines send here (ADR 0101). */
+  transferTarget?: import("../transfers/http.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
+  /** Projects and threads this machine sends to other machines (ADR 0101). */
+  transfers?: import("../transfers/service.ts").DaemonTransfers;
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;
     children: import("../machines/children.ts").MachineChildren;
@@ -80,7 +83,7 @@ export interface Services {
   computerUsing?: import("../computer-using.ts").ComputerUsingThreads;
   /** `browser_request_help` requests waiting on the person. */
   browserHelp?: import("../browser-help.ts").BrowserHelp;
-  devices?: DevicesService;
+  devices?: import("../lazy-devices.ts").LazyDevices;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
@@ -118,7 +121,7 @@ export interface Services {
   /** Filesystem admission completes separately from lazy metadata discovery. */
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
-  notifications: NotificationWorker;
+  notifications: NotificationAccess;
   notificationPublicKey?: string;
   review: ReturnType<typeof createDaemonReview>;
   historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;

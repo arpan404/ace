@@ -63,11 +63,12 @@ struct InboxSearchList: View {
                 if !hits.isEmpty {
                     Section {
                         ForEach(hits) { hit in
-                            NavigationLink {
-                                ConversationHistoryView(model: session.client, threadId: hit.threadId, title: hit.threadTitle, itemId: hit.itemId) { id in
-                                    open(InboxKey(machineId: session.hostId, id: id))
-                                }
+                            // The thread opens at the hit, in its own history window.
+                            Button {
+                                if let itemId = hit.itemId { session.client.focusOnOpen = ThreadFocus(thread: hit.threadId, item: itemId) }
+                                open(InboxKey(machineId: session.hostId, id: hit.threadId))
                             } label: { MessageHitLabel(hit: hit) }
+                            .buttonStyle(.plain)
                             .accessibilityIdentifier("search.hit.\(hit.id)")
                             .inboxRowChrome()
                         }

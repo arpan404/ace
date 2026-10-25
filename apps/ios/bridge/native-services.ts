@@ -28,12 +28,13 @@ import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
+import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
-import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
+import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
-import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
+import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 
@@ -107,8 +108,8 @@ export class NativeServices {
     reads?: NativeReads,
   ) {
     this.owner = owner;
-    this.transcript = new NativeTranscript(owner);
     this.sink = sink;
+    this.transcript = new NativeTranscript(owner, sink);
     this.devices = devices;
     this.screen = screen;
     this.files = files;
@@ -145,15 +146,7 @@ export class NativeServices {
           const data = await this.screen.request(screen.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
-          this.#reply(
-            id,
-            true,
-            {
-              ok: false,
-              error: { message: error instanceof Error ? error.message : "Screen request failed" },
-            },
-            "",
-          );
+          this.#reply(id, true, { ok: false, error: screenFailure(error) }, "");
         }
         return;
       }
@@ -209,16 +202,6 @@ export class NativeServices {
         this.#reply(id, true, await this.transcript.read(transcript.data, controller.signal), "");
         return;
       }
-      const window = NativeHistoryWindow.safeParse(raw);
-      if (window.success) {
-        this.#reply(
-          id,
-          true,
-          await readHistoryWindow(this.owner, window.data, controller.signal),
-          "",
-        );
-        return;
-      }
       const files = NativeFilesRequest.safeParse(raw);
       if (files.success && this.files) {
         this.#reply(id, true, await this.files.request(files.data, controller.signal), "");
@@ -227,6 +210,26 @@ export class NativeServices {
       const media = NativeMediaRequest.safeParse(raw);
       if (media.success) {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
+        return;
+      }
+      const attachment = NativeAttachmentRequest.safeParse(raw);
+      if (attachment.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const typed = NativeTerminalInputRequest.safeParse(raw);
+      if (typed.success) {
+        this.#reply(
+          id,
+          true,
+          await writeNativeTerminalInput(this.owner, typed.data, controller.signal),
+          "",
+        );
         return;
       }
       const request = Request.parse({
