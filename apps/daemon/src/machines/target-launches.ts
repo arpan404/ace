@@ -6,6 +6,7 @@ import type { Engine } from "../engine/index.ts";
 import type { DelegationJournal } from "../agent-control/journal.ts";
 import { commandContext } from "../commands.ts";
 import { controlAdmissionError, engineFull } from "../agent-control/failure.ts";
+import { heldFor } from "../agent-control/watch-view.ts";
 import {
   LaunchQueue,
   drainLaunches,
@@ -47,9 +48,10 @@ const idle = (thread: Thread | undefined) =>
  * durably and in order, in the same launch queue local delegations use, and starts when a slot
  * frees. A wait is never a refusal, and a child that never ran settles with a result.
  *
- * Each child's row says whether it holds one of its calling thread's slots (`active`), kept
- * current as that child's status changes, so counting a calling thread's running children is
- * one indexed count and a pump runs only when something may have freed a slot.
+ * Each child's row says whether it holds one of its calling thread's slots (`active`: started,
+ * not finished, not held for the person), kept current as that child's status changes, so
+ * counting a calling thread's running children is one indexed count and a pump runs only when
+ * something may have freed a slot.
  */
 export class TargetLaunches {
   private deps: TargetLaunchDeps;
@@ -220,7 +222,11 @@ export class TargetLaunches {
     // A started child may still read `new` until its run begins; it holds its slot meanwhile.
     const finished =
       !thread || thread.deletedAt !== undefined || ["done", "failed"].includes(thread.status.state);
-    const active = finished || row.outcome || this.queue.has(threadId) ? 0 : 1;
+    // A queue held for the person (after a Stop or a restart) runs nothing until someone acts,
+    // so, as for a local child, it gives its slot to the next waiting one.
+    const held =
+      !!thread && heldFor(thread, undefined, this.deps.engine()?.resuming(threadId) ?? false);
+    const active = finished || held || row.outcome || this.queue.has(threadId) ? 0 : 1;
     if (active === row.active) return false;
     this.deps.store
       .statement("UPDATE machine_child_launches SET active=? WHERE thread_id=?")
