@@ -8,6 +8,7 @@ type ReadonlyThread = FrozenThread;
 export type ColumnValue = string | number | null;
 
 const ThreadClientColumn = ThreadClientFields.omit({ details: true });
+const clientKeys = Object.keys(ThreadClientColumn.shape);
 
 /** How each stored column is written from a thread, and the part of the thread it holds. */
 const columns = {
@@ -65,6 +66,15 @@ const columns = {
   },
 } satisfies Record<string, { part: ThreadPart; encode: (thread: ReadonlyThread) => ColumnValue }>;
 export type ThreadColumn = keyof typeof columns;
+/**
+ * Cheap stand-ins for encodings that validate: equal stand-ins give equal encodings, since
+ * an encoding reads only these values. A column changes on most events' checks, but is
+ * encoded only when it changed.
+ */
+const comparisons: Partial<Record<ThreadColumn, (thread: ReadonlyThread) => string>> = {
+  client: (thread) => JSON.stringify(clientKeys.map((key) => Reflect.get(thread, key))),
+  details: (thread) => JSON.stringify(thread.details) ?? "",
+};
 const columnNames = Object.keys(columns) as ThreadColumn[];
 /** Columns of the large, rarely changing values kept in thread_cold rather than threads. */
 const coldColumns = new Set<ThreadColumn>(["details", "capabilities"]);
@@ -94,10 +104,11 @@ export function threadColumnChanges(
   const changes: ThreadColumnChanges = { row: {}, hot: [], cold: [], parts: new Set() };
   for (const name of wanted) {
     const column = columns[name];
+    const compare = comparisons[name] ?? column.encode;
+    if (previous && compare(previous) === compare(next)) continue;
     const value = column.encode(next);
     // A new thread without a cold value needs no cold row: a missing one reads the same.
-    if (previous ? column.encode(previous) === value : coldColumns.has(name) && value === null)
-      continue;
+    if (!previous && coldColumns.has(name) && value === null) continue;
     (coldColumns.has(name) ? changes.cold : changes.hot).push([name, value]);
     changes.parts.add(column.part);
     changes.row[name] = value;

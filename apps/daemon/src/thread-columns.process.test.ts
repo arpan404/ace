@@ -64,14 +64,9 @@ const capabilities = (variant: number) =>
 
 type Window = { limit: number; project?: string; archived?: boolean };
 
-/**
- * A thread as JSON, without activitySeq: the writer has never stored the activitySeq a
- * status change folds in (only thread.client.updated writes the client column).
- */
+/** A thread as JSON: what a client receives. */
 function persisted(thread: Thread | undefined): unknown {
-  if (!thread) return undefined;
-  const { activitySeq: _, ...rest } = thread;
-  return JSON.parse(JSON.stringify(rest));
+  return thread && JSON.parse(JSON.stringify(thread));
 }
 
 function open(path: string) {
@@ -87,6 +82,42 @@ function snapshot(store: Store, windows: readonly Window[]) {
     sidebar: windows.map((window) => store.sidebarPage(window)),
   };
 }
+
+test("a status change is stored with its sequence, so a reloaded thread still reads as unread", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ace-activity-seq-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.sqlite");
+  let { store } = open(path);
+  const id = ThreadId.parse("activity-thread");
+  store.appendEvents(id, [
+    {
+      type: "thread.created",
+      thread: Thread.parse({
+        id,
+        workspaceId: store.createWorkspace(dir, "Project"),
+        title: "Task",
+        provider: "codex",
+        status: { state: "new" },
+        createdAt: 1,
+        updatedAt: 1,
+        hasSentMessage: true,
+      }),
+    },
+  ]);
+  const [done] = store.appendEvents(id, [{ type: "thread.updated", status: { state: "done" } }]);
+  if (!done) throw new Error("Missing event");
+  // A device that read up to before this change compares its cursor with activitySeq.
+  expect(store.getThread(id)?.activitySeq).toBe(done.seq);
+  store.close();
+  ({ store } = open(path));
+  try {
+    expect(store.getThread(id)?.activitySeq).toBe(done.seq);
+    const entry = store.sidebarPage({ limit: 10 }).threads.find((thread) => thread.id === id);
+    expect(entry?.activitySeq).toBe(done.seq);
+  } finally {
+    store.close();
+  }
+});
 
 test("a long random event stream reads the same from cache, after a restart and after an upgrade", () => {
   for (const seed of [11, 12, 13]) runSeed(seed);

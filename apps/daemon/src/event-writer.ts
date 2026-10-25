@@ -201,14 +201,14 @@ const updated: ThreadColumn[] = [
   "transitions",
   "provider_metadata",
   "capabilities",
+  // Any event may fold client fields (a status change sets activitySeq), so all are checked.
+  "client",
+  "details",
 ];
-const clientColumns: ThreadColumn[] = ["client", "details"];
 /** The columns an event may write. Others keep their stored value, whatever it folded. */
 function writtenColumns(payload: EventPayload): ThreadColumn[] {
   if (payload.type === "item.delta") return [];
   const columns = [...updated];
-  if (payload.type === "thread.created" || payload.type === "thread.client.updated")
-    columns.push(...clientColumns);
   if (
     payload.type === "thread.created" ||
     (payload.type === "thread.updated" &&
