@@ -10,6 +10,12 @@ import { installFakeCli, recordings } from "./fake-cli/install.ts";
 import { Inspector } from "./inspector.ts";
 import { BenchResult, type Phase } from "./result.ts";
 import { seedThreads } from "./seed.ts";
+import {
+  fixtureDigests,
+  standardOptions,
+  workloadVersion,
+  type WorkloadOptions,
+} from "./workload.ts";
 
 const repo = resolve(import.meta.dirname, "../../..");
 const argv = process.argv.slice(2);
@@ -22,18 +28,16 @@ const count = (name: string, fallback: number) => {
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`--${name} must be a count`);
   return parsed;
 };
-const options = {
-  seedThreads: count("seed-threads", 400),
-  settleMs: count("settle-ms", 10_000),
-  idleMs: count("idle-ms", 60_000),
-  newThreads: count("new-threads", 20),
-  sameThreadTurns: count("same-thread-turns", 40),
-  longTextTurns: count("long-text-turns", 3),
-  longTextDeltas: count("long-text-deltas", 1_000),
-  // About a fast model's pace. Much faster and how many deltas share a write-buffer flush
-  // depends on machine load, which makes long-text CPU and transactions noisy.
-  deltaMs: count("delta-ms", 10),
-  speed: count("speed", 20),
+const options: WorkloadOptions = {
+  seedThreads: count("seed-threads", standardOptions.seedThreads),
+  settleMs: count("settle-ms", standardOptions.settleMs),
+  idleMs: count("idle-ms", standardOptions.idleMs),
+  newThreads: count("new-threads", standardOptions.newThreads),
+  sameThreadTurns: count("same-thread-turns", standardOptions.sameThreadTurns),
+  longTextTurns: count("long-text-turns", standardOptions.longTextTurns),
+  longTextDeltas: count("long-text-deltas", standardOptions.longTextDeltas),
+  deltaMs: count("delta-ms", standardOptions.deltaMs),
+  speed: count("speed", standardOptions.speed),
 };
 const log = (line: string) => process.stderr.write(`daemon bench: ${line}\n`);
 
@@ -175,10 +179,14 @@ try {
     cpuPerTurn: value.cpuMsPerTurn / calibrationMs,
   });
   const result = BenchResult.parse({
-    version: 1,
+    version: 2,
     platform: `${process.platform}-${process.arch}`,
     node: process.version,
-    options,
+    workload: {
+      version: workloadVersion,
+      options,
+      fixtures: await fixtureDigests(recordings.claude),
+    },
     calibrationMs,
     startup,
     idle: {

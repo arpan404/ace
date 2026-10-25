@@ -2,15 +2,17 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { Baseline, compare, median, metricsOf, type Verdict } from "./compare.ts";
+import { adopt, Baseline, combine, compare, staleBaselines, type Verdict } from "./compare.ts";
+import { recordings } from "./fake-cli/install.ts";
 import { BenchResult } from "./result.ts";
+import { fixtureDigests, standardOptions, workloadVersion, WorkloadMismatch } from "./workload.ts";
 
 /**
  * `bun run bench:daemon`: runs the benchmark (bundling once), takes the median of each
  * metric and fails when one regressed beyond the baseline's tolerance.
  *   --runs=N             repeat the benchmark N times (default 1)
  *   --results=a.json,…   gate existing results instead of running
- *   --update-baseline    write the medians as this platform's baseline
+ *   --update-baseline    write the medians as this platform's baseline (standard workload only)
  * Other flags pass through to run.ts.
  */
 const repo = resolve(import.meta.dirname, "../../..");
@@ -100,20 +102,29 @@ function report(verdicts: Verdict[], platform: string) {
     );
 }
 
-const results = await measure();
-// Saved results carry their own platform, so CI artifacts can be gated or adopted anywhere.
-const platforms = new Set(results.map((result) => result.platform));
-const [platform] = platforms;
-if (platforms.size !== 1 || !platform) throw new Error("Results must come from one platform");
-const actual = median(results.map(metricsOf));
-const baseline = Baseline.parse(JSON.parse(await readFile(baselinePath, "utf8")));
-if (argv.includes("--update-baseline")) {
-  const node = results[0]?.node ?? process.version;
-  baseline.platforms[platform] = { node, runs: results.length, metrics: actual };
-  await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
-  process.stdout.write(`Updated the ${platform} baseline from ${results.length} run(s).\n`);
-} else {
-  const verdicts = compare(actual, baseline, platform);
+async function gate() {
+  // Saved results carry their own platform and workload, so CI artifacts can be gated or
+  // adopted anywhere, but only alongside runs of the same workload.
+  const measured = combine(await measure());
+  const { platform } = measured;
+  const baseline = Baseline.parse(JSON.parse(await readFile(baselinePath, "utf8")));
+  if (argv.includes("--update-baseline")) {
+    const standard = {
+      version: workloadVersion,
+      options: standardOptions,
+      fixtures: await fixtureDigests(recordings.claude),
+    };
+    const updated = adopt(baseline, measured, standard);
+    await writeFile(baselinePath, `${JSON.stringify(updated, null, 2)}\n`);
+    process.stdout.write(`Updated the ${platform} baseline from ${measured.runs} run(s).\n`);
+    const stale = staleBaselines(updated, standard);
+    if (stale.length)
+      process.stdout.write(
+        `Re-measure these baselines; they ran another workload: ${stale.join(", ")}\n`,
+      );
+    return;
+  }
+  const verdicts = compare(measured, baseline);
   report(verdicts, platform);
   const regressed = verdicts.filter((v) => v.status === "regressed");
   if (regressed.length) {
@@ -123,4 +134,13 @@ if (argv.includes("--update-baseline")) {
     process.stdout.write(
       "\nSome metrics improved beyond tolerance; consider updating the baseline.\n",
     );
+}
+
+try {
+  await gate();
+} catch (error) {
+  if (!(error instanceof WorkloadMismatch)) throw error;
+  // A wrong comparison is a usage error, not a regression: say what differs and stop.
+  process.stderr.write(`daemon bench: ${error.message}\n`);
+  process.exitCode = 2;
 }

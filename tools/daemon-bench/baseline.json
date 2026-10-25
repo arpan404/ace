@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tolerances": [
     {
       "metric": "phases.longText.transactionsPerTurn",
@@ -66,6 +66,23 @@
     "darwin-arm64": {
       "node": "v26.8.1",
       "runs": 3,
+      "workload": {
+        "version": 1,
+        "options": {
+          "seedThreads": 400,
+          "settleMs": 10000,
+          "idleMs": 60000,
+          "newThreads": 20,
+          "sameThreadTurns": 40,
+          "longTextTurns": 3,
+          "longTextDeltas": 1000,
+          "deltaMs": 10,
+          "speed": 20
+        },
+        "fixtures": {
+          "tool-read.jsonl": "0e9c2fa9a630c397bc11450ba66f74ed47cf0936516d8718604fa83e9003562f"
+        }
+      },
       "metrics": {
         "idle.cpuPerMinute": 10.177456490431691,
         "startup.heapUsed": 65407808,

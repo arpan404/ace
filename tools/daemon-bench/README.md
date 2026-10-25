@@ -72,6 +72,16 @@ more than `absolute` in its own unit. Drops beyond tolerance pass and print a hi
 the baseline. Metrics marked `portable` (normalized CPU and transactions) compare against
 another platform's baseline when this one has none; the others are reported as `new`.
 
+Every result and baseline entry records its **workload**: `workloadVersion`, every option in
+`standardOptions` (both in `src/workload.ts`) and a SHA-256 of each replayed recording. The
+gate refuses, with exit code 2 and the differing fields, to take medians across runs of
+different workloads, to compare against a baseline of another workload, or to adopt anything
+but the standard workload as a baseline. Shortened runs (`--seed-threads=20`, `--idle-ms=…`)
+still work for local investigation; they just can't be gated. When a change alters what a
+run does without changing an option, bump `workloadVersion`; when it changes the standard,
+edit `standardOptions`. Either way, re-measure every platform's baseline in the same change;
+`--update-baseline` names the entries that are left stale.
+
 Why the tolerances in `baseline.json` are what they are, from twelve full runs on a
 loaded M-series Mac (load average 30–125) in four sets of three:
 

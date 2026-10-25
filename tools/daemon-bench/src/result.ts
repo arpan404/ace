@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Workload } from "./workload.ts";
 
 const bytes = z.number().nonnegative();
 /** Memory after a forced full GC. Footprint is macOS only. */
@@ -20,10 +21,10 @@ export const Phase = z.object({
 });
 export type Phase = z.infer<typeof Phase>;
 export const BenchResult = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   platform: z.string(),
   node: z.string(),
-  options: z.record(z.string(), z.number()),
+  workload: Workload,
   /** On-thread CPU for a fixed workload in the daemon process, fastest of several runs. */
   calibrationMs: z.number().positive(),
   startup: Memory,

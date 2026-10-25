@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BenchResult } from "./result.ts";
+import { requireSameWorkload, Workload, workloadDifferences } from "./workload.ts";
 
 /**
  * A metric may grow by `relative` (0.25 = 25%) over its baseline, and always by at least
@@ -15,7 +16,7 @@ export const Tolerance = z.object({
 });
 export type Tolerance = z.infer<typeof Tolerance>;
 export const Baseline = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   tolerances: z.array(Tolerance).min(1),
   /** Measured values per `platform-arch`, keyed by metric path. */
   platforms: z.record(
@@ -23,6 +24,8 @@ export const Baseline = z.object({
     z.object({
       node: z.string(),
       runs: z.number().int().positive(),
+      /** The workload these numbers measured; only runs of the same one compare. */
+      workload: Workload,
       metrics: z.record(z.string(), z.number()),
     }),
   ),
@@ -76,6 +79,63 @@ export function median(runs: readonly Record<string, number>[]): Record<string, 
   return out;
 }
 
+/** Repeated runs of one workload on one platform, reduced to medians. */
+export interface Measured {
+  platform: string;
+  node: string;
+  runs: number;
+  workload: Workload;
+  metrics: Record<string, number>;
+}
+/** Medians across runs; refuses to mix platforms or workloads. */
+export function combine(results: readonly BenchResult[]): Measured {
+  const [first, ...rest] = results;
+  if (!first) throw new Error("No benchmark results to combine");
+  for (const [index, result] of rest.entries()) {
+    if (result.platform !== first.platform)
+      throw new Error(
+        `Results must come from one platform: run 1 is ${first.platform}, run ${index + 2} is ${result.platform}`,
+      );
+    requireSameWorkload(
+      `Run ${index + 2} measured a different workload from run 1`,
+      first.workload,
+      result.workload,
+    );
+  }
+  return {
+    platform: first.platform,
+    node: first.node,
+    runs: results.length,
+    workload: first.workload,
+    metrics: median(results.map(metricsOf)),
+  };
+}
+
+/**
+ * The baseline with `measured` as its platform's entry. Only the standard workload may become
+ * a baseline: a shortened or altered run would make every later standard run fail or pass
+ * against the wrong numbers.
+ */
+export function adopt(baseline: Baseline, measured: Measured, standard: Workload): Baseline {
+  requireSameWorkload(
+    "Refusing to adopt results that did not run the standard workload",
+    standard,
+    measured.workload,
+  );
+  const { platform, node, runs, workload, metrics } = measured;
+  return {
+    ...baseline,
+    platforms: { ...baseline.platforms, [platform]: { node, runs, workload, metrics } },
+  };
+}
+
+/** Platforms whose baseline measured another workload and need re-measuring. */
+export function staleBaselines(baseline: Baseline, standard: Workload): string[] {
+  return Object.entries(baseline.platforms)
+    .filter(([, entry]) => workloadDifferences(standard, entry.workload).length > 0)
+    .map(([name]) => name);
+}
+
 function matches(pattern: string, metric: string) {
   const parts = pattern.split(".");
   const names = metric.split(".");
@@ -84,14 +144,28 @@ function matches(pattern: string, metric: string) {
   );
 }
 
-/** Compares measured metrics with the baseline; only growth beyond tolerance regresses. */
-export function compare(
-  actual: Record<string, number>,
-  baseline: Baseline,
-  platform: string,
-): Verdict[] {
+/**
+ * Compares measured metrics with the baseline; only growth beyond tolerance regresses. Throws
+ * when the baseline used measured a different workload, rather than comparing unlike runs.
+ */
+export function compare(measured: Measured, baseline: Baseline): Verdict[] {
+  const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
+  if (own)
+    requireSameWorkload(
+      `The ${platform} baseline measured a different workload`,
+      own.workload,
+      measured.workload,
+    );
+  const portableTolerance = baseline.tolerances.some((tolerance) => tolerance.portable);
+  if (!own && portableTolerance)
+    for (const [name, entry] of others)
+      requireSameWorkload(
+        `The ${name} baseline (compared because ${platform} has none) measured a different workload`,
+        entry.workload,
+        measured.workload,
+      );
   const verdicts: Verdict[] = [];
   for (const [metric, value] of Object.entries(actual)) {
     const tolerance = baseline.tolerances.find((entry) => matches(entry.metric, metric));
