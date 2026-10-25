@@ -171,7 +171,12 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   /** Download the device tools ace runs (serve-sim on a Mac, the scrcpy server), if missing. */
   z.object({ op: z.literal("tools.install") }),
   /** The device's real hardware look from the SDK on the daemon's machine (`DeviceChromeResult`). */
-  z.object({ op: z.literal("chrome"), ...target }),
+  z.object({
+    op: z.literal("chrome"),
+    ...target,
+    /** `png` for a client that can't draw SVG (the native apps); SVG otherwise. */
+    format: z.enum(["svg", "png"]).optional(),
+  }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
   z.object({ op: z.literal("install"), ...target, path: z.string().min(1).max(4096) }),

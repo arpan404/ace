@@ -396,7 +396,7 @@ export class DevicesService {
       const device = known(this.inventory.current()?.devices) ?? known(await this.list());
       if (!device)
         throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
-      return { chrome: (await this.options.platform.chrome(device)) ?? null };
+      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
     }
     if (operation.op === "states")
       return {
