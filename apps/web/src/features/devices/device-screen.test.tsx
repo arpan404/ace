@@ -82,7 +82,7 @@ test("stopping the live view closes the H.264 decoder and every decoded frame", 
   expect(browser.videoFrames.every((frame) => frame.closed)).toBe(true);
 });
 
-test("a reconnect closes the old decoder and shows the screen through a fresh one, replaying no input", async () => {
+test("a dropped channel closes the old decoder and comes back showing the screen through a fresh one, replaying no input", async () => {
   const { app, panel, iphone, screenImage, browser } = await liveIphone("decodes");
   await waitFor(() => expect(browser.events).toContain("drew h264"));
   await userEvent.click(await within(iphone).findByRole("button", { name: "Home" }));
@@ -93,7 +93,8 @@ test("a reconnect closes the old decoder and shows the screen through a fresh on
   await waitFor(() => expect(screenImage.isConnected).toBe(false));
   expect(before.every((decoder) => decoder.state === "closed")).toBe(true);
 
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  // The channel comes back by itself; nobody presses Reconnect.
+  await waitFor(() => expect(app.daemon.appDevices.openChannels).toBe(1));
   const again = await within(panel).findByRole("img", { name: "iPhone 16 Pro screen" });
   await waitFor(() => expect(browser.draws(again)).toBeGreaterThan(0));
   await waitFor(() => expect(after(browser.events, "decoder opened")).toContain("drew h264"));
