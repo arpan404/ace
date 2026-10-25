@@ -85,12 +85,14 @@ export class TargetLaunches {
       store
         .statement("INSERT OR IGNORE INTO machine_launches (thread_id,role) VALUES (?,?)")
         .run(input.threadId, input.role);
-      const state = startOrQueue(this.queue, launch, this.slots(parent), () => this.start(launch));
-      if (state === "queued")
+      const outcome = startOrQueue(this.queue, launch, this.slots(parent), () =>
+        this.start(launch),
+      );
+      if (outcome === "queued")
         store.appendEvents(input.threadId, [
           { type: "thread.updated", queuedLaunch: { text: input.task } },
         ]);
-      return state;
+      return outcome;
     });
     this.arm();
     return state;
