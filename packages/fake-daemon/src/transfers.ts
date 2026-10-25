@@ -298,6 +298,9 @@ export class FakeTransfers {
       });
       return;
     }
+    // Nothing lands there while Cancel still applies: a thread's transfer reaches `starting`
+    // (past cancelling) before its project is registered on the other machine.
+    if (payload.type === "thread.continueOn" && !(await step({ phase: "starting" }))) return;
     const landed = peer.receiveProject({
       name: source?.name ?? "project",
       parent: payload.parent,
@@ -313,7 +316,6 @@ export class FakeTransfers {
       this.update(transfer, { phase: "completed", result });
       return;
     }
-    if (!(await step({ phase: "starting" }))) return;
     const thread = this.ports.thread(payload.threadId);
     const threadId = peer.receiveThread({
       workspaceId: landed.workspaceId,
