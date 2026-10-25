@@ -49,22 +49,23 @@ A skill saved in `~/.agents/skills` is therefore always seen by Codex, OpenCode,
 
 ### Manual skills
 
-`manual` is the frontmatter `disable-model-invocation: true`. Claude, Cursor and Pi honour it. Codex uses `agents/openai.yaml` `policy.allow_implicit_invocation: false` instead and ignores the frontmatter; OpenCode has no per-skill switch (only `permission.skill` deny/ask in its config). Entries report this per agent as `honoursManual`. ace v1 writes only the frontmatter: it does not write Codex's `openai.yaml` or OpenCode's config.
+`manual` is the frontmatter `disable-model-invocation: true`. Claude, Cursor and Pi honour it. Codex uses `agents/openai.yaml` `policy.allow_implicit_invocation: false` instead and ignores the frontmatter; OpenCode has no per-skill switch (only `permission.skill` deny/ask in its config). Entries report this per agent as `honoursManual`. ace v1 writes only the frontmatter: it does not write Codex's `openai.yaml` or OpenCode's config. The skill page says so: when an agent with the skill ignores the flag, it names the agents that honour it and those that may still load it ("Claude Code never loads it by itself. Codex and OpenCode may still load it.").
 
 ### Create, edit, agents, delete
 
-- Create: `name` must be a slug (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 64). The canonical folder is `~/.agents/skills/<name>` or `<workspace>/.agents/skills/<name>`. For each chosen agent that doesn't read that root, ace adds a relative symlink in its link root (`~/.claude/skills/<name> -> ../../.agents/skills/<name>`). A name already used by a skill in the same scope (any agent folder) is refused with `exists`.
+- Create: `name` must be a slug (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 64). The canonical folder is `~/.agents/skills/<name>` or `<workspace>/.agents/skills/<name>`. For each chosen agent that doesn't read that root, ace adds a relative symlink in its link root (`~/.claude/skills/<name> -> ../../.agents/skills/<name>`). A name already used by a skill in the same scope (any agent folder) is refused with `exists`. Built-in and plugin skills and the other scope don't block a name; the web form checks the same rule and the daemon's `exists` stays the source of truth.
 - Edit: `expectedHash` plus `description`, `body` and `manual`. The YAML document editor from `prompt-edit.ts` keeps unknown keys and comments. The name is read-only. Writes go to a temporary file then rename, and the hash is checked before and after.
 - Set agents: adds links for added agents and removes links for removed ones. ace never removes a `copy`, the agent whose root holds the canonical folder, or a link in a root another selected agent still reads (`shared`). These come back in `kept` with the reason.
 - Delete: needs `expectedHash`. It removes the canonical folder and every symlink in a known root that resolves to it. Only for `editable` entries.
 
 ### Update from source
 
-Skills installed by the `skills` CLI are recorded in `~/.agents/.skill-lock.json` (version 3: per name `source`, `sourceType`, `sourceUrl`, `skillPath`, `skillFolderHash`, timestamps). `skillFolderHash` is the Git tree SHA of the skill folder. ace reads only GitHub entries whose lock name matches the folder.
+Skills installed by the `skills` CLI are recorded in `~/.agents/.skill-lock.json` (version 3: per name `source`, `sourceType`, `sourceUrl`, `skillPath`, `skillFolderHash`, timestamps). `skillFolderHash` is the Git tree SHA of the skill folder. ace reads only GitHub entries whose lock name matches the folder. A skill at the repository root (`skillPath: "SKILL.md"`) uses folder `.`: the root tree's SHA and the whole repository's files.
 
-- `checkUpdate` fetches the source's default branch (`HEAD`) with the plugin Git fetcher (`@ace/plugins` `fetchRepository`, shallow bare fetch, isolated config, no hooks), then compares `rev-parse <commit>:<folder>` with the lock.
-- `prepareUpdate` extracts the folder into a private staging directory, where symlinks and submodules are refused. It returns a review: added, changed and removed files, a flag on every file that is executable or isn't Markdown or text, and SKILL.md before and after.
-- `applyUpdate` needs the review id and the current hash. It swaps the folder contents, then sets the lock entry's `skillFolderHash` and `updatedAt`, leaving its other keys alone.
+- `checkUpdate` fetches the source's default branch (`HEAD`) with the plugin Git fetcher (`@ace/plugins` `fetchRepository`, shallow bare fetch, isolated config, no hooks), then compares the folder's tree SHA at that commit with the lock.
+- `prepareUpdate` extracts the folder into a private staging directory, where symlinks and submodules are refused. It returns a review: added, changed and removed files, a flag on every file that is executable or isn't Markdown or text, SKILL.md before and after, and `baseHash`, the installed SKILL.md hash it compared against. ace also keeps a fingerprint of every installed file (path, content hash, executable bit). Files are hashed in 64 KiB chunks; a folder over 512 files, 16 levels, 4 MiB per file or 16 MiB in total is refused with `limit`.
+- `applyUpdate` needs the review id and the review's `baseHash`. Right before the swap it fingerprints the installed folder again; any change since the review, to SKILL.md or any other file, is a `conflict` and nothing changes. It builds the new folder beside the old one (`.<name>.ace-update-<token>`), renames the original to `.<name>.ace-old-<folderHash>-<token>` and the new folder into place, then sets the lock entry's `skillFolderHash` and `updatedAt`, leaving its other keys alone. The original is removed only after the lock write commits; if the lock write fails the original goes back and the error says nothing changed.
+- On start, ace removes leftover `.ace-update-` folders and settles each `.ace-old-<folderHash>-` backup: if the lock already records that `folderHash` the update stands and the backup is removed, otherwise the original goes back in place.
 - `cancelUpdate` drops the staging directory. Reviews are in memory and expire after 30 minutes or on restart.
 
 Nothing from the fetched repository is executed.
@@ -82,6 +83,7 @@ Plugin entries come from the plugin manager's catalog. They are listing-only (`r
 ## Safety
 
 - Writes happen only inside the skill roots in the table above, containment-checked after realpath. Writes never follow a symlink out of a root: the canonical folder must resolve inside a writable root, and links are created only as direct children of a link root.
+- Create, edit, delete and update apply work through descriptors: the root's resolved path is opened from `/` one component at a time and the skill folder relative to it, all with `O_NOFOLLOW`, and every file write, rename and removal is relative to those descriptors (`skill-disk.ts`, on the `posix.ts` primitives the catalog uses). A folder swapped for a symlink mid-operation can't redirect a write or delete outside the root.
 - Names that aren't slugs are refused, as is SKILL.md over 256 KiB.
 - Plugin, builtin and anything outside the writable roots is `editable: false` and refused with `read_only`.
 - ace never reads credential or settings files; only `SKILL.md`, folder entries and the `skills` lock file.
