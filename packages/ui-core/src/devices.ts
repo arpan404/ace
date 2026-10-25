@@ -46,7 +46,7 @@ export function deviceRows(
         runtime: device.runtime,
         running: device.state === "booted",
         live: state?.lifecycle === "live",
-        ...(device.model ? { model: device.model } : {}),
+        model: device.model,
       };
     })
     .toSorted(

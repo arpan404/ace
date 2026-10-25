@@ -28,11 +28,18 @@ test("running tiles wear the real body, and a list of one model asks the daemon 
   devices.chromes.set(model, look);
   act(() => {
     // Two booted Simulators of the same model, as a person running several iPhone 16 Pros.
-    for (const [id, name] of [
-      ["ios:11111111-2222-4333-8444-555555555555", "iPhone 16 Pro (A)"],
-      ["ios:66666666-7777-4888-9999-aaaaaaaaaaaa", "iPhone 16 Pro (B)"],
-    ])
-      devices.addDevice({ id, platform: "ios", name, state: "booted", runtime: "iOS 18.4", model });
+    for (const [suffix, id] of [
+      ["A", "ios:11111111-2222-4333-8444-555555555555"],
+      ["B", "ios:66666666-7777-4888-9999-aaaaaaaaaaaa"],
+    ] as const)
+      devices.addDevice({
+        id,
+        platform: "ios",
+        name: `iPhone 16 Pro (${suffix})`,
+        state: "booted",
+        runtime: "iOS 18.4",
+        model,
+      });
   });
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const running = await within(panel).findByRole("list", { name: "Running devices" });
