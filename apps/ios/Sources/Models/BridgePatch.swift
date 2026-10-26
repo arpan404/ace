@@ -49,6 +49,9 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var pinned: Bool? = nil
     var pinOrder: Double? = nil
     var listOrder: Double? = nil
+    /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
+    /// a pinned row keeps while it shows under Pinned.
+    var group: String? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the

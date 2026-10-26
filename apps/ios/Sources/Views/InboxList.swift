@@ -135,7 +135,6 @@ struct InboxList: View {
             .onMove(perform: movable ? { from, to in
                 guard let source = from.first, source < section.rows.count else { return }
                 let key = section.rows[source]
-                guard inbox.client(key.machineId)?.canOperate == true else { return }
                 // `to` counts the moving row; the shared rules count only the others.
                 actions.move(key, section, to > source ? to - 1 : to)
             } : nil)
@@ -255,8 +254,10 @@ private struct InboxThreadCell: View {
     }
 
     private func threadRow(_ row: ThreadRow) -> some View {
-        let snoozed = section.key == "snoozed"
-        let settled = section.key == "settled"
+        // A pinned row shows under Pinned but keeps its own state's actions and words.
+        let group = row.group ?? section.key
+        let snoozed = group == "snoozed"
+        let settled = group == "settled"
         let pinned = row.pinned == true
         let position = section.rows.firstIndex(of: key)
         let canMoveUp = movable && (position ?? 0) > 0
