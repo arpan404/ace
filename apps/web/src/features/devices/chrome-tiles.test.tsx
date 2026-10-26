@@ -49,3 +49,46 @@ test("running tiles wear the real body, and a list of one model asks the daemon 
   const sameModel = devices.chromeAsks.filter((id) => !id.startsWith("ios:7d1b"));
   expect(sameModel).toHaveLength(1);
 });
+
+/** A body drawing told apart by its title. */
+const art = (label: string) =>
+  `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg"><title>${label}</title></svg>`)}`;
+
+test("a foldable wears its cover's body while shut and its inner screen's body while open", async () => {
+  const { app, panel } = await openDevices();
+  const devices = app.daemon.appDevices;
+  const duo = "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
+  devices.chromes.set(duo, { ...look, body: { ...look.body, image: art("cover") } });
+  // The fake streams one picture size for every device, so both looks are made for it.
+  devices.chromes.set(`${duo}:open`, { ...look, body: { ...look.body, image: art("inner") } });
+  const shut = "ios:11111111-2222-4333-8444-555555555555";
+  const open = "ios:66666666-7777-4888-9999-aaaaaaaaaaaa";
+  act(() => {
+    for (const [id, name] of [
+      [shut, "iPhone Duo (shut)"],
+      [open, "iPhone Duo (open)"],
+    ] as const)
+      devices.addDevice({
+        id,
+        platform: "ios",
+        name,
+        state: "booted",
+        runtime: "iOS 27.1",
+        model: duo,
+      });
+    devices.folds.set(shut, "closed");
+    devices.folds.set(open, "open");
+  });
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const running = await within(panel).findByRole("list", { name: "Running devices" });
+
+  const body = (name: string) =>
+    within(running)
+      .getByRole("button", { name: new RegExp(`^${name.replace(/[()]/g, "\\$&")}`) })
+      .querySelector("[data-device-chrome] img")
+      ?.getAttribute("src");
+  await waitFor(() => {
+    expect(body("iPhone Duo (shut)")).toBe(art("cover"));
+    expect(body("iPhone Duo (open)")).toBe(art("inner"));
+  });
+});

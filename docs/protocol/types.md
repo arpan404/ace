@@ -10959,6 +10959,7 @@ Example:
 | op | yes | `"chrome"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 | format | no | ["svg","png"] |  |
+| posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 
 Example:
 

@@ -1,28 +1,17 @@
 import { z } from "zod";
 import type { DeviceChrome, DeviceChromeButton, DeviceChromeRect } from "@ace/protocol/devices";
 import { pdfArt, svgDocument, type SvgArt } from "./pdf-svg.ts";
+import type { SimulatorPanel } from "./simulator-panels.ts";
 
 /*
- * A Simulator's look from Apple's own files for its device type: the profile (screen size and
- * scale, the screen-shape PDF, the notch PDF, which chrome it wears) and that chrome's
- * description (nine body pieces, their stretch sizes, the buttons and where they sit). Pure:
- * the parsed files and a reader for the PDFs they name come in; the wire shape comes out.
+ * A Simulator's look from Apple's own files for one of its screens: the screen (its size, the
+ * screen-shape PDF, the notch PDF, which chrome it wears) and that chrome's description (nine
+ * body pieces, their stretch sizes, the buttons and where they sit). Pure: the parsed files and
+ * a reader for the PDFs they name come in; the wire shape comes out.
  */
 
-const size = z.number().finite().positive().max(100_000);
 const offset = z.number().finite().min(-100_000).max(100_000);
 const name = z.string().min(1).max(256);
-
-/** The fields of a device type's profile.plist ace uses; every other one is ignored. */
-export const SimulatorProfile = z.object({
-  mainScreenWidth: size,
-  mainScreenHeight: size,
-  mainScreenScale: size,
-  framebufferMask: name.optional().catch(undefined),
-  sensorBarImage: name.optional().catch(undefined),
-  chromeIdentifier: name.optional().catch(undefined),
-});
-export type SimulatorProfile = z.infer<typeof SimulatorProfile>;
 
 const ChromeInput = z.object({
   name: z.string().min(1).max(64),
@@ -84,7 +73,7 @@ export const SimulatorChromeFile = z.object({
 });
 export type SimulatorChromeFile = z.infer<typeof SimulatorChromeFile>;
 
-/** Reads a PDF named by the profile (from the device type) or the chrome (from its bundle). */
+/** Reads a PDF named by the device type (a mask, a notch) or the chrome (from its bundle). */
 export type ArtReader = (
   from: "profile" | "chrome",
   name: string,
@@ -297,25 +286,22 @@ async function slicedFrame(
 }
 
 /**
- * A Simulator's look, or undefined when its chrome can't be drawn (a piece missing or
- * unreadable). The screen mask and notch are added when the profile has them.
+ * A Simulator's look around one of its screens, or undefined when its chrome can't be drawn (a
+ * piece missing or unreadable). The screen mask and notch are added when the screen has them.
  */
 export async function simulatorChrome(
-  profile: SimulatorProfile,
+  panel: SimulatorPanel,
   chrome: SimulatorChromeFile,
   read: ArtReader,
 ): Promise<DeviceChrome | undefined> {
-  const screen = {
-    width: profile.mainScreenWidth / profile.mainScreenScale,
-    height: profile.mainScreenHeight / profile.mainScreenScale,
-  };
+  const screen = { width: panel.width, height: panel.height };
   const frame =
     (await compositeFrame(chrome, screen, read)) ?? (await slicedFrame(chrome, screen, read));
   if (!frame) return undefined;
   const { body, origin } = frame;
   const [mask, sensorBar, buttons] = await Promise.all([
-    profile.framebufferMask ? readArt(read, "profile", profile.framebufferMask, "m") : undefined,
-    profile.sensorBarImage ? readArt(read, "profile", profile.sensorBarImage, "s") : undefined,
+    panel.framebufferMask ? readArt(read, "profile", panel.framebufferMask, "m") : undefined,
+    panel.sensorBarImage ? readArt(read, "profile", panel.sensorBarImage, "s") : undefined,
     Promise.all(
       chrome.inputs.map(async (input): Promise<DeviceChromeButton | undefined> => {
         const [image, pressed] = await Promise.all([
