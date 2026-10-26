@@ -67,6 +67,13 @@ export default defineConfig({
       // Sandboxed HTML visualizations and handoff documents.
       "packages/html/src/**/*.test.ts",
       "packages/handoff/src/**/*.test.ts",
+      // Plugins (install, review, projection, launch, Git fetch) and composer context
+      // (mentions, uploads, attachments, watcher recovery).
+      "packages/plugins/src/**/*.test.ts",
+      "packages/context/src/**/*.test.ts",
+      // The daemon's MCP sessions and tools, and project/thread transfers between machines.
+      "apps/daemon/src/mcp*.test.ts",
+      "apps/daemon/src/transfers/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
