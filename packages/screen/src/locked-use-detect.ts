@@ -119,7 +119,14 @@ async function plistVersion(host: MacHost, plist: string): Promise<string | unde
   } catch {
     // Fall through to plutil, which also reads binary plists.
   }
-  const result = await host.exec(plutilPath, ["-extract", "CFBundleVersion", "raw", "-o", "-", plist]);
+  const result = await host.exec(plutilPath, [
+    "-extract",
+    "CFBundleVersion",
+    "raw",
+    "-o",
+    "-",
+    plist,
+  ]);
   const version = result.stdout.trim();
   return result.code === 0 && /^[\w.-]{1,64}$/.test(version) ? version : undefined;
 }
@@ -160,7 +167,8 @@ export async function readLockedUseFacts(
   const [bundle, rule, broker, guardian] = await Promise.all([
     guard(() => bundleFact(host, expect), "authorization plug-in"),
     guard(
-      async () => ruleFact(await host.exec(securityPath, ["authorizationdb", "read", lockedUseRight])),
+      async () =>
+        ruleFact(await host.exec(securityPath, ["authorizationdb", "read", lockedUseRight])),
       "screen saver unlock rule",
     ),
     guard(

@@ -61,7 +61,7 @@ export function macLockedUseInstaller(options: MacLockedUseOptions): LockedUseIn
     const encoded = JSON.stringify(status);
     if (encoded === last) return;
     last = encoded;
-    for (const listener of [...listeners]) listener(status);
+    for (const listener of listeners) listener(status);
   };
 
   const detect = async (): Promise<LockedUseDetection> => {

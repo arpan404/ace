@@ -50,7 +50,13 @@ export function installedLayout(): FakeMacLayout {
 }
 
 export function emptyLayout(): FakeMacLayout {
-  return { ...installedLayout(), bundle: false, rule: ruleWith([]), broker: false, guardian: false };
+  return {
+    ...installedLayout(),
+    bundle: false,
+    rule: ruleWith([]),
+    broker: false,
+    guardian: false,
+  };
 }
 
 const ok = (stdout: string, stderr = ""): MacCommandResult => ({ code: 0, stdout, stderr });

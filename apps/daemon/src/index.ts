@@ -2,6 +2,7 @@ import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
+import { daemonLockedUse } from "./locked-use-installer.ts";
 export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
@@ -394,6 +395,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
       hostId,
       store,
       cliControl: cliControl(serviceContext),
+      lockedUse: daemonLockedUse({
+        platform: process.platform,
+        env: process.env,
+        settings: services.settings,
+      }),
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
       doctorFix: async (assertAuthorized) => {

@@ -92,8 +92,7 @@ export function macHost(options: { timeoutMs?: number; now?: () => number } = {}
           [...args],
           { timeout, maxBuffer: maxOutput, encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
           (error, stdout, stderr) => {
-            const code =
-              error === null ? 0 : typeof error.code === "number" ? error.code : -1;
+            const code = error === null ? 0 : typeof error.code === "number" ? error.code : -1;
             resolve({ code, stdout, stderr });
           },
         );
