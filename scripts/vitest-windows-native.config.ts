@@ -59,6 +59,7 @@ export default defineConfig({
       "packages/adapter-cursor/src/ripgrep-path.test.ts",
       // Standalone daemon: the per-user login task, ace.cmd, pointer files and updates.
       "packages/service/src/task.process.test.ts",
+      "tools/release/src/task-supervisor.test.ts",
       // Screen helper lifecycle over the protocol-v2 fake on a named pipe: negotiation,
       // fragmented frames, crash/restart ownership, pending-read takeover, suspend/resume,
       // oversized commands and retired packets.

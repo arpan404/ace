@@ -81,6 +81,17 @@ Automatic daily updates are enabled by default. Set ACE_AUTO_UPDATE=0 when insta
 
 Uninstall stops and disables only ace's service and removes its executable pointers and releases. SQLite databases, access tokens and configuration stay in ACE_HOME. Delete that directory separately if you intend to erase data.
 
+### Windows (win32-x64, win32-arm64)
+
+Windows installs through `install.ps1`, for the current user and without administrator rights ([ADR 0095](../../docs/adr/0095-native-windows-daemon.md)). Download `install.ps1` and `install.ps1.sha256` from the same GitHub release, check that the script's SHA-256 matches the value in `install.ps1.sha256` and the release announcement, then run it with Windows PowerShell:
+
+```powershell
+(Get-FileHash .\install.ps1 -Algorithm SHA256).Hash.ToLower()
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon`, which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
+
 ## Verification
 
 The repo owner requires workers to use static checks only; tests, probes, benchmarks and mutations are deferred to merge. Use fake service-manager executables only when the merge runner executes the behaviour tests. The non-gating hash benchmark entry point is `bench/hash.ts`. The artifact smoke entry point is `src/smoke.ts`; running it on every target needs run at merge. Packaging smoke checks must run the artifact on each target, open a real PTY, start on an isolated ACE_HOME/port, query status, and terminate it. Do not launch provider CLIs or the recorder. See `verification/report.md` for static review, historical evidence and the cases awaiting merge execution.

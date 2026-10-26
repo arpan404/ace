@@ -576,12 +576,12 @@ jobs:
 
       - name: Login task, launcher and update tests
         id: tests
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
           TMPDIR: ${{ runner.temp }}
-        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/service/src/task.process.test.ts
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/service/src/task.process.test.ts tools/release/src/task-supervisor.test.ts
 
       - name: Throwaway release key
         if: ${{ !cancelled() }}

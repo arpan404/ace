@@ -16,6 +16,7 @@ import { planTask } from "./plan.ts";
 import { TaskService } from "./service.ts";
 import { assertCompatibleTask } from "./compatibility.ts";
 import { CMD_LAUNCHER } from "./launcher.ts";
+import { isDesktopShim } from "./launcher.ts";
 import { checked } from "./process.ts";
 import { spawn } from "node:child_process";
 import { isAbsolute, relative, sep } from "node:path";
@@ -61,6 +62,9 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
   if (existsSync(releases) && !(await lstat(releases)).isDirectory())
     throw new Error("Invalid releases directory");
   const launcher = join(dataDir, "bin", CMD_LAUNCHER);
+  // The desktop app's `ace` command stays, and with it the PATH entry the app also writes.
+  const desktop = isDesktopShim(await readFile(launcher, "utf8").catch(() => ""));
+  if (!desktop) await removeFromUserPath(join(dataDir, "bin"));
   for (const name of [join("bin", "ace"), "current", "previous"])
     await rm(join(dataDir, name), { force: true });
   const running = existsSync(releases)
@@ -73,7 +77,7 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
       if (name !== running) await rm(join(releases, name), { recursive: true, force: true });
   }
   if (!fromRelease) {
-    await rm(launcher, { force: true });
+    if (!desktop) await rm(launcher, { force: true });
     await rm(releases, { recursive: true, force: true });
     return result;
   }
@@ -87,7 +91,9 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
     "ping -n 3 127.0.0.1 >nul",
     remove,
     `rmdir "${releases}" 2>nul`,
-    `if not exist "${join(dataDir, "current")}" del /f /q "${launcher}" 2>nul`,
+    ...(desktop
+      ? []
+      : [`if not exist "${join(dataDir, "current")}" del /f /q "${launcher}" 2>nul`]),
   ].join(" & ");
   spawn("cmd.exe", ["/d", "/s", "/c", `"${command}"`], {
     detached: true,
@@ -96,6 +102,46 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
     windowsVerbatimArguments: true,
   }).unref();
   return result;
+}
+
+/**
+ * Takes `bin` off the per-user PATH (`HKCU\Environment\Path`), as install.ps1 put it there.
+ * Only entries naming it go; every other entry, empty ones included, stays exactly as written,
+ * and the value keeps its registry type (REG_EXPAND_SZ stays expandable). The path travels in
+ * an environment variable, so any characters survive.
+ */
+async function removeFromUserPath(bin: string): Promise<void> {
+  const script = `$ErrorActionPreference = 'Stop'
+$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+if (-not $key) { exit 0 }
+try {
+  $raw = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')
+  if ($null -eq $raw) { exit 0 }
+  $normal = { param($p) [Environment]::ExpandEnvironmentVariables($p).Trim().TrimEnd('\\').ToLowerInvariant() }
+  $bin = & $normal $env:ACE_REMOVED_PATH_ENTRY
+  $entries = @($raw -split ';')
+  $kept = @($entries | Where-Object { -not ($_.Trim() -and ((& $normal $_) -eq $bin)) })
+  if ($kept.Count -eq $entries.Count) { exit 0 }
+  $key.SetValue('Path', ($kept -join ';'), $key.GetValueKind('Path'))
+} finally { $key.Close() }
+# Clearing an unset variable through .NET broadcasts WM_SETTINGCHANGE, so new terminals see it.
+[Environment]::SetEnvironmentVariable('ACE_PATH_CHANGED', $null, 'User')`;
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
+      { env: { ...process.env, ACE_REMOVED_PATH_ENTRY: bin }, stdio: "ignore", windowsHide: true },
+    );
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error("Cannot update the user PATH")),
+    );
+  });
 }
 
 /** The signed-in account's SID; `whoami /user` prints it as the second CSV field. */

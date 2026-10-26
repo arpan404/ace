@@ -11,7 +11,9 @@ import {
 } from "./service-identity.ts";
 import { checked, type Runner } from "./process.ts";
 import { readFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { win32 } from "node:path";
+import { z } from "zod";
 import type { TaskPlan } from "./plan.ts";
 import { readTaskRecord } from "./compatibility.ts";
 import {
@@ -259,7 +261,9 @@ export class TaskService {
   private async stop(): Promise<void> {
     // A daemon that is still starting has not written its endpoint yet: ask again briefly.
     for (let attempt = 0; attempt < 20; attempt++) {
-      if (await this.ports.requestStop()) {
+      // The endpoint and token name whichever daemon holds the home, which may be the desktop
+      // app's: only one running a release of this home is asked.
+      if ((await this.ownDaemon()) !== undefined && (await this.ports.requestStop())) {
         if (await this.until(false, 60_000)) return;
         break;
       }
@@ -270,24 +274,68 @@ export class TaskService {
     await this.endTree();
     if (!(await this.until(false, 10_000))) throw new Error("The service task did not stop");
   }
+  private home(): string {
+    return win32.dirname(win32.dirname(this.plan.command[0]));
+  }
+  /**
+   * The pid in the home's `daemon-lock` when that process runs a release of this home (its
+   * node.exe is under `<home>\releases`), the task's daemon; undefined for any other holder.
+   */
+  private async ownDaemon(): Promise<number | undefined> {
+    const lock = await readFile(win32.join(this.home(), "daemon-lock"), "utf8").catch(() => "");
+    let pid: number;
+    try {
+      pid = LockOwner.parse(JSON.parse(lock)).pid;
+    } catch {
+      return undefined;
+    }
+    const found = await this.ports.run(
+      "powershell.exe",
+      encoded(
+        `[Console]::OutputEncoding=[Text.Encoding]::UTF8; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath`,
+      ),
+    );
+    const executable = found.stdout.trim();
+    if (found.code !== 0 || !win32.isAbsolute(executable)) return undefined;
+    try {
+      // Final paths: a home named through an 8.3 short name matches its long form.
+      const releases = (await realpath(win32.join(this.home(), "releases"))) + "\\";
+      const program = await realpath(executable);
+      return program.toLowerCase().startsWith(releases.toLowerCase()) ? pid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   /**
    * `/End` ends only the task's first process (conhost), so the launcher, supervisor and daemon
    * under it are ended here: every process running this home's launcher or a release of it with
-   * `supervise`, with its whole tree.
+   * `supervise`, each daemon such a supervisor started, and the home's own daemon. Only those
+   * processes, never their trees: the updater a supervisor started may be the caller, and it
+   * must outlive the service it stops.
    */
   private async endTree(): Promise<void> {
-    const home = win32.dirname(win32.dirname(this.plan.command[0]));
-    const script = `Get-CimInstance Win32_Process | Where-Object { $c = [string]$_.CommandLine; $c.Contains('supervise') -and ($c.Contains(${text(this.plan.command[0])}) -or $c.Contains(${text(win32.join(home, "releases") + "\\")})) } | ForEach-Object { $_.ProcessId }`;
-    const found = await this.ports.run("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      Buffer.from(script, "utf16le").toString("base64"),
-    ]);
-    for (const pid of found.stdout.split(/\s+/).filter((line) => /^\d+$/.test(line)))
-      await this.ports.run("taskkill.exe", ["/T", "/F", "/PID", pid]);
+    const releases = win32.join(this.home(), "releases") + "\\";
+    const script = `$all = @(Get-CimInstance Win32_Process)
+$supervisors = @($all | Where-Object { $c = [string]$_.CommandLine; $c.Contains('supervise') -and ($c.Contains(${text(this.plan.command[0])}) -or $c.Contains(${text(releases)})) } | ForEach-Object { $_.ProcessId })
+$daemons = @($all | Where-Object { $supervisors -contains $_.ParentProcessId -and ([string]$_.CommandLine).TrimEnd().EndsWith(' start') } | ForEach-Object { $_.ProcessId })
+$supervisors + $daemons`;
+    const found = await this.ports.run("powershell.exe", encoded(script));
+    const pids = new Set(found.stdout.split(/\s+/).filter((line) => /^\d+$/.test(line)));
+    const daemon = await this.ownDaemon();
+    if (daemon !== undefined) pids.add(String(daemon));
+    pids.delete(String(process.pid));
+    for (const pid of pids) await this.ports.run("taskkill.exe", ["/F", "/PID", pid]);
   }
 }
+
+const LockOwner = z.object({ pid: z.number().int().positive() });
+
+const encoded = (script: string) => [
+  "-NoProfile",
+  "-NonInteractive",
+  "-EncodedCommand",
+  Buffer.from(script, "utf16le").toString("base64"),
+];
 
 /** A PowerShell single-quoted string. */
 const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
