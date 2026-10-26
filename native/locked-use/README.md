@@ -166,6 +166,7 @@ serves nobody). The peer must then prove it holds the daemon's token without sen
    The daemon must close the connection, without sending `prove`, unless the service's proof
    matches. A test vector (token `0123456789abcdef` ×4, daemon nonce `11` ×32, service nonce
    `22` ×32) is in `Tests/LockedUseTransportTests/HandshakeTests.swift`.
+
 4. Every rejection is an `unauthorized` reply (`unsupported` for a hello `v` other than 1), or
    `{"code":"unauthorized","message":"…","type":"error","v":1}` when no id is readable, and
    closes the connection. A hello that carries a `token` field is refused. No request is
@@ -229,7 +230,7 @@ its own copy of the signed `ace-screen-helper --locked-use`, give it its own tok
   plug-in with no one to ask, and the guardian relocks.
 - **Spawned by ace.** Besides the pinned screen-helper signature, the registering process's
   parent must satisfy ace's team requirement (`anchor apple generic and certificate
-  leaf[subject.OU] = "<TEAM>"`): the daemon's bundled Node runtime or the `ace` executable.
+leaf[subject.OU] = "<TEAM>"`): the daemon's bundled Node runtime or the `ace` executable.
   The parent and both start times are read before and after the signature check, so a parent
   that exits (launchd adopts the child) or a recycled pid is refused, as is an orphan.
 - **Opt-in is the install.** The broker trusts no opt-in flag from a client. The admin-approved

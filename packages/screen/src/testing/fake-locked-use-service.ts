@@ -5,15 +5,17 @@
  * relocking, completion, ready). Tests replace any request's handling to script refusals,
  * error events, takeovers and dropped connections. It never touches the machine.
  *
- * Like the real service it serves a client only after that client's first frame is `hello`
- * with the daemon's token (anything else is refused and the client dropped), and `enable` and
- * `begin` without `optIn: true` are refused as `not_enabled`, turning it off and relocking.
+ * Like the real service it serves a client only after the mutual handshake (the daemon's
+ * `hello` nonce, our proof, then the daemon's `prove` proof over the shared token; anything else
+ * is refused and the client dropped), and `enable` and `begin` without `optIn: true` are refused
+ * as `not_enabled`, turning it off and relocking.
  *
  * Run directly (`node fake-locked-use-service.ts --locked-use --socket <path>`) it reads the
  * token as one line of 64 hex characters on stdin (exiting 2 without one in 5s), serves the
  * default behaviour (on an unlocked Mac with `--fake-session unlocked`), and exits when stdin
  * closes.
  */
+import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { z } from "zod";
@@ -22,6 +24,11 @@ import {
   encodeLockedUseFrame,
   type LockedUseServiceStatus,
 } from "../locked-use-wire.ts";
+import {
+  lockedUseDaemonProof,
+  lockedUseProofEquals,
+  lockedUseServiceProof,
+} from "../locked-use-handshake.ts";
 
 export const FakeRequest = z.looseObject({
   id: z.string(),
@@ -38,7 +45,8 @@ export const FakeRequest = z.looseObject({
     .optional(),
   agentProcessIDs: z.array(z.number()).optional(),
   optIn: z.unknown().optional(),
-  token: z.unknown().optional(),
+  nonce: z.unknown().optional(),
+  proof: z.unknown().optional(),
 });
 export type FakeRequest = z.infer<typeof FakeRequest>;
 
@@ -70,7 +78,7 @@ export interface FakeLockedUseService {
   readonly path: string;
   /** Every request received after a client's hello was accepted, in order. */
   readonly requests: FakeRequest[];
-  /** Every hello received, accepted or not, as the token it carried. */
+  /** Every hello received, accepted or not, as the daemon nonce it carried. */
   readonly hellos: unknown[];
   status: LockedUseServiceStatus;
   /** Replace how one request type is handled. */
@@ -161,9 +169,11 @@ export async function fakeLockedUseService(
   options: { token?: string } = {},
 ): Promise<FakeLockedUseService> {
   const token = options.token ?? fakeLockedUseToken;
-  /** Clients whose hello was accepted; only they are served and sent messages. */
+  /** Clients whose handshake was accepted; only they are served and sent messages. */
   const clients = new Set<Socket>();
   const sockets = new Set<Socket>();
+  /** Per-socket handshake progress until it joins `clients`. */
+  const shaking = new Map<Socket, { daemonNonce: string; serviceNonce: string }>();
   const handlers = new Map<string, FakeHandler>();
   const waiters: { type: string; resolve: (request: FakeRequest) => void }[] = [];
   const server: Server = createServer((socket) => {
@@ -172,6 +182,7 @@ export async function fakeLockedUseService(
     socket.on("close", () => {
       clients.delete(socket);
       sockets.delete(socket);
+      shaking.delete(socket);
     });
     socket.on("error", () => {});
     socket.on("data", (chunk: Buffer) => {
@@ -184,25 +195,48 @@ export async function fakeLockedUseService(
       }
       for (const frame of frames) {
         const request = FakeRequest.parse(JSON.parse(frame.toString("utf8")));
-        if (!clients.has(socket)) {
-          if (request.type === "hello") service.hellos.push(request.token);
-          const ok = request.type === "hello" && request.token === token;
-          const answer = ok
-            ? { type: "reply", id: request.id, ok: true }
-            : {
-                type: "reply",
-                id: request.id,
-                ok: false,
-                error: { code: "unauthorized", message: "hello required" },
-              };
+        const write = (message: Record<string, unknown>) =>
           socket.write(
-            encodeLockedUseFrame(new TextEncoder().encode(JSON.stringify({ v: 1, ...answer }))),
+            encodeLockedUseFrame(new TextEncoder().encode(JSON.stringify({ v: 1, ...message }))),
           );
-          if (!ok) {
-            socket.end();
-            return;
+        const refuse = () => {
+          write({
+            type: "reply",
+            id: request.id,
+            ok: false,
+            error: { code: "unauthorized", message: "handshake required" },
+          });
+          socket.end();
+        };
+        if (!clients.has(socket)) {
+          const progress = shaking.get(socket);
+          if (!progress) {
+            // First frame must be a hello carrying the daemon's nonce; answer with ours + proof.
+            const daemonNonce = typeof request.nonce === "string" ? request.nonce : "";
+            if (request.type !== "hello" || !/^[0-9a-f]{64}$/.test(daemonNonce)) return refuse();
+            service.hellos.push(request.nonce);
+            const serviceNonce = Buffer.from(randomBytes(32)).toString("hex");
+            shaking.set(socket, { daemonNonce, serviceNonce });
+            write({
+              type: "reply",
+              id: request.id,
+              ok: true,
+              nonce: serviceNonce,
+              proof: lockedUseServiceProof(token, daemonNonce, serviceNonce),
+            });
+            continue;
           }
+          // Second frame must be prove with the daemon's matching proof.
+          const expected = lockedUseDaemonProof(token, progress.daemonNonce, progress.serviceNonce);
+          if (
+            request.type !== "prove" ||
+            typeof request.proof !== "string" ||
+            !lockedUseProofEquals(request.proof, expected)
+          )
+            return refuse();
+          shaking.delete(socket);
           clients.add(socket);
+          write({ type: "reply", id: request.id, ok: true });
           continue;
         }
         service.requests.push(request);

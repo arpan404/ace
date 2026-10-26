@@ -258,6 +258,7 @@ export class LockedUseRuntime {
     const connection = new LockedUseConnection(socket, {
       nextId: this.#options.nextId,
       scheduler: this.#options.scheduler,
+      ...(this.#options.randomBytes ? { randomBytes: this.#options.randomBytes } : {}),
     });
     connection.onEvent((event) => {
       if (this.#connection !== connection) return;

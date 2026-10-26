@@ -97,9 +97,11 @@ describe("locked use requests", () => {
     );
   });
 
-  it("hello carries the daemon's token", () => {
-    const token = "ab".repeat(32);
-    expect(sent({ type: "hello", token })).toEqual({ v: 1, id: "r1", type: "hello", token });
+  it("hello carries the daemon's nonce and prove carries its proof", () => {
+    const nonce = "ab".repeat(32);
+    expect(sent({ type: "hello", nonce })).toEqual({ v: 1, id: "r1", type: "hello", nonce });
+    const proof = "cd".repeat(32);
+    expect(sent({ type: "prove", proof })).toEqual({ v: 1, id: "r1", type: "prove", proof });
   });
 
   it("a request id outside 1 to 64 characters is refused", () => {

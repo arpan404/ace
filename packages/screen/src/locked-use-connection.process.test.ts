@@ -34,9 +34,16 @@ async function service() {
 }
 
 let next = 0;
-const options = { nextId: () => `r${++next}`, scheduler: systemScheduler, helloTimeoutMs: 300 };
+// A fixed daemon nonce so the hello the fake records is deterministic.
+const daemonNonce = "cd".repeat(32);
+const options = {
+  nextId: () => `r${++next}`,
+  scheduler: systemScheduler,
+  helloTimeoutMs: 300,
+  randomBytes: () => Buffer.from(daemonNonce, "hex"),
+};
 
-it("the service accepts the daemon's token, and only then answers requests", async () => {
+it("completes the mutual handshake, and only then answers requests", async () => {
   const fake = await service();
   const connection = await openLockedUseConnection(await connectLockedUse(fake.path), {
     ...options,
@@ -46,17 +53,19 @@ it("the service accepts the daemon's token, and only then answers requests", asy
   await expect(connection.request({ type: "status" })).resolves.toMatchObject({
     phase: "disabled",
   });
-  expect(fake.hellos).toEqual([fakeLockedUseToken]);
+  // The daemon's nonce reached the service; the token itself was never sent.
+  expect(fake.hellos).toEqual([daemonNonce]);
   expect(fake.requests.map((request) => request.type)).toEqual(["status"]);
 });
 
-it("a wrong token is refused: the connection closes and no command is ever sent", async () => {
+it("a daemon that doesn't share the token is refused: it closes and sends no command", async () => {
   const fake = await service();
   const socket = await connectLockedUse(fake.path);
+  // Wrong token => the service's proof won't verify, so the daemon refuses before `prove`.
   const opened = openLockedUseConnection(socket, { ...options, token: "f".repeat(64) });
   await expect(opened).rejects.toMatchObject({ code: "unauthorized" });
   expect(socket.destroyed).toBe(true);
-  expect(fake.hellos).toEqual(["f".repeat(64)]);
+  expect(fake.hellos).toEqual([daemonNonce]);
   expect(fake.requests).toEqual([]);
 });
 

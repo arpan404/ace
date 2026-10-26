@@ -136,6 +136,29 @@ const ErrorEvent = z.looseObject({
 const Known = z.union([Reply, State, Completion, ErrorEvent]);
 
 export type LockedUseReply = z.infer<typeof Reply>;
+
+/** The service's answer to `hello`: its own nonce and the proof the daemon must verify. */
+export const LockedUseHelloReply = z.looseObject({
+  type: z.literal("reply"),
+  id: z.string(),
+  ok: z.literal(true),
+  nonce: z.string(),
+  proof: z.string(),
+});
+
+/** Parses one handshake frame as the service's hello answer, or undefined if it isn't one. */
+export function decodeLockedUseHelloReply(
+  frame: Uint8Array,
+): z.infer<typeof LockedUseHelloReply> | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(frame));
+  } catch {
+    return undefined;
+  }
+  const parsed = LockedUseHelloReply.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
 export type LockedUseEvent =
   | z.infer<typeof State>
   | z.infer<typeof Completion>
@@ -176,12 +199,14 @@ export interface LockedUseScope {
 }
 
 /**
- * What the daemon sends. `hello` must be a connection's first frame. `enable` and `begin`
- * carry the person's opt-in: only `optIn: true` on the wire counts, and it is sent exactly
- * when the person's `computer.lockedUse` setting is on.
+ * What the daemon sends. A connection opens with `hello` (the daemon's nonce), then `prove`
+ * (the daemon's HMAC proof) once the service has answered; no other request is sent until the
+ * service accepts both. `enable` and `begin` carry the person's opt-in: only `optIn: true` on
+ * the wire counts, and it is sent exactly when the person's `computer.lockedUse` setting is on.
  */
 export type LockedUseRequest =
-  | { type: "hello"; token: string }
+  | { type: "hello"; nonce: string }
+  | { type: "prove"; proof: string }
   | { type: "status" | "disable" }
   | { type: "enable"; optIn: boolean }
   | { type: "begin"; scope: LockedUseScope; agentProcessIDs: readonly number[]; optIn: boolean }

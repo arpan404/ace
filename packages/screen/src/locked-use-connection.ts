@@ -1,22 +1,30 @@
 /*
  * One connection to the locked use service over its Unix socket. The service serves nothing
- * until the daemon proves itself: the first frame is `hello` with the token the daemon gave
- * the service on its stdin, and no other request is sent until the service accepts it. Any
- * other answer (a refusal, a different frame, silence) closes the connection. After that,
- * requests are matched to replies by id; `state`, `completion` and `error` messages go to
- * event listeners. A bad frame length closes the connection, and closing fails every request
- * still waiting.
+ * until both sides prove they share the token the daemon wrote to the service's stdin: the
+ * daemon sends its nonce in `hello`, checks the service's proof, then answers with its own proof
+ * in `prove`; the token itself never crosses the socket. No other request is sent until the
+ * service accepts `prove`. Any other answer (a bad proof, a refusal, a different frame, silence)
+ * closes the connection. After that, requests are matched to replies by id; `state`,
+ * `completion` and `error` messages go to event listeners. A bad frame length closes the
+ * connection, and closing fails every request still waiting.
  */
 import { createConnection, type Socket } from "node:net";
+import { randomBytes } from "node:crypto";
 import type { Scheduler } from "./runtime.ts";
 import {
   LockedUseFrameDecoder,
+  decodeLockedUseHelloReply,
   decodeLockedUseMessage,
   encodeLockedUseRequest,
   type LockedUseEvent,
   type LockedUseRequest,
   type LockedUseServiceStatus,
 } from "./locked-use-wire.ts";
+import {
+  lockedUseDaemonProof,
+  lockedUseProofEquals,
+  lockedUseServiceProof,
+} from "./locked-use-handshake.ts";
 
 /** The service refused a request: `code` is its wire error code. */
 export class LockedUseReplyError extends Error {
@@ -43,11 +51,24 @@ export interface LockedUseConnectionOptions {
   scheduler: Scheduler;
   /** How long a request may wait for its reply. */
   requestTimeoutMs?: number;
+  /** Fresh random bytes for the daemon's handshake nonce; injected for tests. */
+  randomBytes?: (size: number) => Uint8Array;
 }
 
-/** The hello's id: the first and only frame before the service accepts the daemon. */
+/** The handshake ids: hello (daemon nonce) then prove (daemon proof), before any request. */
 const helloId = "h1";
+const proveId = "h2";
 const defaultHelloTimeoutMs = 2_000;
+
+interface Handshake {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  stop: () => void;
+  /** "hello" awaits the service's nonce+proof; "prove" awaits the final ok. */
+  phase: "hello" | "prove";
+  tokenHex: string;
+  daemonNonce: string;
+}
 
 interface Pending {
   resolve: (status: LockedUseServiceStatus | undefined) => void;
@@ -64,7 +85,7 @@ export class LockedUseConnection {
   readonly #closes = new Set<() => void>();
   #closed = false;
   #authenticated = false;
-  #hello: { resolve: () => void; reject: (error: Error) => void; stop: () => void } | undefined;
+  #hello: Handshake | undefined;
 
   constructor(socket: Socket, options: LockedUseConnectionOptions) {
     this.#socket = socket;
@@ -79,36 +100,100 @@ export class LockedUseConnection {
   }
 
   /**
-   * Sends `hello` with `token` and waits for the service to accept it. Rejects, and closes
-   * the connection, on a refusal, any other frame, or no answer within `timeoutMs`.
+   * Runs the mutual handshake: sends the daemon's nonce in `hello`, checks the service's proof,
+   * answers with the daemon's proof in `prove`, and resolves once the service accepts it. The
+   * token (the bytes the daemon wrote to the service's stdin) is never sent over the socket.
+   * Rejects, and closes the connection, on a bad proof, a refusal, any other frame, or no answer
+   * within `timeoutMs`.
    */
-  authenticate(token: string, timeoutMs = defaultHelloTimeoutMs): Promise<void> {
+  authenticate(tokenHex: string, timeoutMs = defaultHelloTimeoutMs): Promise<void> {
     if (this.#closed)
       return Promise.reject(new LockedUseConnectionError("closed", "Locked use service closed"));
     if (this.#authenticated || this.#hello)
       return Promise.reject(new Error("Locked use hello was already sent"));
+    const random = this.#options.randomBytes ?? ((size: number) => randomBytes(size));
+    const daemonNonce = Buffer.from(random(32)).toString("hex");
     return new Promise((resolve, reject) => {
       const stop = this.#options.scheduler.after(timeoutMs, () =>
         this.#refuse(
-          new LockedUseConnectionError("timeout", "Locked use service didn't answer hello"),
+          new LockedUseConnectionError("timeout", "Locked use service didn't answer the handshake"),
         ),
       );
-      this.#hello = { resolve, reject, stop };
+      this.#hello = { resolve, reject, stop, phase: "hello", tokenHex, daemonNonce };
       try {
-        this.#socket.write(encodeLockedUseRequest(helloId, { type: "hello", token }));
+        this.#socket.write(encodeLockedUseRequest(helloId, { type: "hello", nonce: daemonNonce }));
       } catch (error) {
         this.#refuse(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
-  /** Fails the hello and closes: nothing more is sent on a connection the service refused. */
+  /** Fails the handshake and closes: nothing more is sent on a connection the service refused. */
   #refuse(error: Error): void {
     const hello = this.#hello;
     this.#hello = undefined;
     hello?.stop();
     hello?.reject(error);
     this.close();
+  }
+
+  /** Verifies one handshake frame for the current phase, then advances or refuses. */
+  #handshake(frame: Uint8Array): void {
+    const hello = this.#hello;
+    if (!hello) {
+      this.#refuse(
+        new LockedUseConnectionError("unauthorized", "The locked use service refused ace"),
+      );
+      return;
+    }
+    if (hello.phase === "hello") {
+      const reply = decodeLockedUseHelloReply(frame);
+      if (!reply || reply.id !== helloId) {
+        this.#refuse(
+          new LockedUseConnectionError("unauthorized", "The locked use service refused ace"),
+        );
+        return;
+      }
+      let proof: string;
+      try {
+        const expected = lockedUseServiceProof(hello.tokenHex, hello.daemonNonce, reply.nonce);
+        if (!lockedUseProofEquals(reply.proof, expected)) {
+          this.#refuse(
+            new LockedUseConnectionError("unauthorized", "The locked use service's proof is wrong"),
+          );
+          return;
+        }
+        proof = lockedUseDaemonProof(hello.tokenHex, hello.daemonNonce, reply.nonce);
+      } catch {
+        // A malformed nonce or token can't be a valid proof.
+        this.#refuse(
+          new LockedUseConnectionError(
+            "unauthorized",
+            "The locked use service's handshake is malformed",
+          ),
+        );
+        return;
+      }
+      hello.phase = "prove";
+      try {
+        this.#socket.write(encodeLockedUseRequest(proveId, { type: "prove", proof }));
+      } catch (error) {
+        this.#refuse(error instanceof Error ? error : new Error(String(error)));
+      }
+      return;
+    }
+    // phase "prove": the service accepts with an ok reply to prove, and nothing else.
+    const message = decodeLockedUseMessage(frame);
+    if (message?.type !== "reply" || message.id !== proveId || !message.ok) {
+      this.#refuse(
+        new LockedUseConnectionError("unauthorized", "The locked use service refused ace"),
+      );
+      return;
+    }
+    this.#hello = undefined;
+    this.#authenticated = true;
+    hello.stop();
+    hello.resolve();
   }
 
   /** Sends a request; resolves with the reply's status, or rejects with its error. */
@@ -183,23 +268,12 @@ export class LockedUseConnection {
     }
     for (const frame of frames) {
       if (this.#closed) return;
-      const message = decodeLockedUseMessage(frame);
       if (!this.#authenticated) {
-        // Before the accept, the only acceptable frame is the ok reply to hello.
-        const accepted = message?.type === "reply" && message.id === helloId && message.ok;
-        if (!accepted || !this.#hello) {
-          this.#refuse(
-            new LockedUseConnectionError("unauthorized", "The locked use service refused ace"),
-          );
-          return;
-        }
-        const hello = this.#hello;
-        this.#hello = undefined;
-        this.#authenticated = true;
-        hello.stop();
-        hello.resolve();
+        this.#handshake(frame);
+        if (this.#closed) return;
         continue;
       }
+      const message = decodeLockedUseMessage(frame);
       if (!message || message.type === "unknown") continue;
       if (message.type === "reply") {
         const pending = this.#pending.get(message.id);
