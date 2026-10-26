@@ -208,7 +208,7 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
     const written = stderr();
     const detail = stderrSummary(written);
     const failure = new Error(
-      `Chrome failed to start: ${error instanceof Error ? error.message : String(error)}${detail ? ` (${detail})` : ""}; executable=${JSON.stringify(options.executable)}, profile=${JSON.stringify(options.profileDir)}, platform=${options.platform}`,
+      `Chrome failed to start: ${error instanceof Error ? error.message : String(error)}${detail ? ` (${detail})` : ""}`,
       { cause: error },
     );
     throw launch.diagnose

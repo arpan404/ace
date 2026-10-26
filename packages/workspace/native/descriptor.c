@@ -7,8 +7,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdio.h>
-#include <stdint.h>
-#include <inttypes.h>
 
 static napi_value fail(napi_env env, int number) {
   napi_value message, error, value;
@@ -91,18 +89,6 @@ static napi_value stat_at(napi_env env, napi_callback_info info) {
   struct stat metadata;
   if (fstatat(parent, name, &metadata, AT_SYMLINK_NOFOLLOW) < 0) return fail(env, errno);
   napi_create_object(env, &result);
-  napi_value identity;
-  char exact[32];
-  napi_create_object(env, &identity);
-  napi_create_string_utf8(env, "posix", NAPI_AUTO_LENGTH, &value);
-  napi_set_named_property(env, identity, "kind", value);
-  snprintf(exact, sizeof(exact), "%" PRIu64, (uint64_t)metadata.st_dev);
-  napi_create_string_utf8(env, exact, NAPI_AUTO_LENGTH, &value);
-  napi_set_named_property(env, identity, "dev", value);
-  snprintf(exact, sizeof(exact), "%" PRIu64, (uint64_t)metadata.st_ino);
-  napi_create_string_utf8(env, exact, NAPI_AUTO_LENGTH, &value);
-  napi_set_named_property(env, identity, "ino", value);
-  napi_set_named_property(env, result, "identity", identity);
   napi_create_double(env, (double)metadata.st_dev, &value);
   napi_set_named_property(env, result, "dev", value);
   napi_create_double(env, (double)metadata.st_ino, &value);

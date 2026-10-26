@@ -7,8 +7,7 @@
     ".": "./src/bundle.ts",
     "./node-runtime": "./src/node-runtime.ts",
     "./native-arch": "./src/native-arch.ts",
-    "./glibc": "./src/glibc.ts",
-    "./pty-assets": "./src/pty-assets.ts"
+    "./glibc": "./src/glibc.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

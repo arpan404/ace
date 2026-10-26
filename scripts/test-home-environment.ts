@@ -10,13 +10,7 @@ export function testHomeEnvironment(
   gitCeilings: readonly string[] = [],
 ): NodeJS.ProcessEnv {
   assertTestHomeIsolation(home, realHome);
-  const env = isolatedTestEnvironment(
-    parseTestEnvironment(ambient),
-    home,
-    realHome,
-    process.platform,
-    gitCeilings,
-  );
+  const env = isolatedTestEnvironment(parseTestEnvironment(ambient), home, realHome, gitCeilings);
   for (const name of [
     "HOME",
     "ACE_HOME",
@@ -26,10 +20,6 @@ export function testHomeEnvironment(
     "XDG_STATE_HOME",
     "XDG_RUNTIME_DIR",
     "TMPDIR",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "TMP",
-    "TEMP",
   ]) {
     const directory = env[name];
     if (directory) mkdirSync(directory, { recursive: true, mode: 0o700 });

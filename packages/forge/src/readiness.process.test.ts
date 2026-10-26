@@ -76,7 +76,7 @@ it("overlapping requests with different expected accounts cannot silently switch
   expect(await githubIdentity(f.runner, "github.com", signal(), now)).toBe("octo");
 });
 it("an account switch refuses reads once the identity verification window lapses", async () => {
-  const f = await setup();
+  const f = await setup({ changeAfter: true });
   let clock = 1_000;
   const run = identityRunner(f.runner, "github.com", "octo", () => {}, {
     now: () => clock,
@@ -84,9 +84,6 @@ it("an account switch refuses reads once the identity verification window lapses
   });
   const read = () =>
     run({ command: "gh", args: ["api", "repos/octo/ace"], mode: "json", signal: signal() });
-  expect(await read()).toMatchObject({ code: 0 });
-  // Switch after the initial read and its concurrent identity probe have both finished.
-  await f.update({ account: "other" });
   expect(await read()).toMatchObject({ code: 0 });
   clock += 60_000;
   await expect(read()).rejects.toMatchObject({ kind: "forbidden" });

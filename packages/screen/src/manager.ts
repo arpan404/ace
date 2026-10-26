@@ -263,31 +263,6 @@ export class ScreenManager {
         ...(await this.windows.list(bundleId)),
       };
     }
-    this.authorize({ kind: "app", bundleId });
-    const helper = await this.host.open();
-    await helper.negotiate();
-    signal.throwIfAborted();
-    if (helper.capabilities?.platform === "windows") {
-      const windows = await this.windows.ready(bundleId, signal, windowId);
-      if (windows.selectedWindowId === undefined)
-        throw new HelperCommandError(
-          "target_gone",
-          "No running window for this app",
-          "rejected-before-dispatch",
-        );
-      const state = await this.start(
-        { kind: "window", bundleId, windowId: windows.selectedWindowId },
-        10,
-        caller,
-      );
-      if (signal.aborted) {
-        await this.stop(state.sessionId);
-        signal.throwIfAborted();
-      }
-      this.mode(state.sessionId, "foreground");
-      this.delegateAgent(state.sessionId, caller);
-      return { ...this.state(state.sessionId), ...windows };
-    }
     await this.openApp(bundleId, signal);
     signal.throwIfAborted();
     const windows = await this.windows.ready(bundleId, signal, windowId);

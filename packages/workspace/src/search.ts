@@ -129,7 +129,7 @@ export async function search(
           continue;
         }
         batch.push({ path: entry.path, content });
-        if (batch.length >= (fallback || safe.runtime.platform === "win32" ? 1 : 64)) await drain();
+        if (batch.length >= (fallback ? 1 : 64)) await drain();
         if (result.matches.length >= limit) {
           result.truncated = true;
           break;

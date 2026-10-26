@@ -6,12 +6,6 @@ import { userBrowserHostName } from "@ace/protocol";
 import { extensionOrigin } from "./extension-id.ts";
 import { launcherPath } from "./host-files.ts";
 import { launcherScript, nativeHostManifest, nativeHostTargets } from "./native-hosts.ts";
-import {
-  installWindowsHost,
-  installedWindowsHosts,
-  uninstallWindowsHost,
-} from "./windows-native-host.ts";
-import type { WindowsRegistry } from "./windows-registry.ts";
 
 export interface NativeHostInstall {
   browser: string;
@@ -23,8 +17,7 @@ export interface InstallOptions {
   dataDir: string;
   /** The Node executable that runs the host; the daemon passes its own. */
   node: string;
-  env?: { XDG_CONFIG_HOME?: string | undefined; LOCALAPPDATA?: string | undefined };
-  registry?: WindowsRegistry;
+  env?: { XDG_CONFIG_HOME?: string | undefined };
   /** More NativeMessagingHosts directories, for example a test browser's `<user-data-dir>`. */
   extraDirs?: readonly string[];
 }
@@ -38,7 +31,7 @@ const manifestName = `${userBrowserHostName}.json`;
 const ManifestFile = z.object({ name: z.literal(userBrowserHostName), path: z.string() });
 
 export function installSupported(platform: NodeJS.Platform): boolean {
-  return platform === "darwin" || platform === "linux" || platform === "win32";
+  return platform === "darwin" || platform === "linux";
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -62,11 +55,9 @@ async function targets(options: Omit<InstallOptions, "node" | "dataDir">) {
  * (ADR 0084). Never touches a browser's profile or extension settings.
  */
 export async function installNativeHost(options: InstallOptions): Promise<NativeHostInstall[]> {
-  if (options.platform === "win32")
-    return installWindowsHost(options, hostEntry(), extensionOrigin);
   if (!installSupported(options.platform))
     throw new Error("Use my Chrome can't install its host on this platform yet");
-  const launcher = launcherPath(options.dataDir, options.platform);
+  const launcher = launcherPath(options.dataDir);
   await mkdir(dirname(launcher), { recursive: true, mode: 0o700 });
   await writeFile(
     launcher,
@@ -89,8 +80,7 @@ export async function installNativeHost(options: InstallOptions): Promise<Native
 export async function installedNativeHosts(
   options: Omit<InstallOptions, "node">,
 ): Promise<NativeHostInstall[]> {
-  if (options.platform === "win32") return installedWindowsHosts(options);
-  const launcher = launcherPath(options.dataDir, options.platform);
+  const launcher = launcherPath(options.dataDir);
   const installed: NativeHostInstall[] = [];
   for (const target of await targets(options)) {
     const manifestPath = join(target.dir, manifestName);
@@ -108,8 +98,7 @@ export async function installedNativeHosts(
 
 /** Removes this data directory's manifests and launcher; another ace's manifests stay. */
 export async function uninstallNativeHost(options: Omit<InstallOptions, "node">): Promise<void> {
-  if (options.platform === "win32") return uninstallWindowsHost(options);
   for (const host of await installedNativeHosts(options))
     await rm(host.manifestPath, { force: true });
-  await rm(launcherPath(options.dataDir, options.platform), { force: true });
+  await rm(launcherPath(options.dataDir), { force: true });
 }

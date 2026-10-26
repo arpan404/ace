@@ -1,15 +1,21 @@
 import { dirname, basename, join } from "node:path";
-import { closeSync, readSync, writeSync, fsyncSync, lstatSync, realpathSync } from "node:fs";
-import { sameFile, type FileIdentity, type IdentifiedStats } from "./file-identity.ts";
+import {
+  constants,
+  fstatSync,
+  closeSync,
+  readSync,
+  writeSync,
+  fsyncSync,
+  lstatSync,
+  realpathSync,
+  type Stats,
+} from "node:fs";
 import {
   renameAt,
   removeDirectoryAt,
   unlinkAt,
   openRoot,
-  openDirectoryAt,
-  openFileAt,
-  createFileAt,
-  createPrivateDirectoryAt,
+  openAt,
   mkdirAt,
   descriptorNames,
   statAt,
@@ -17,15 +23,13 @@ import {
   type Descriptor,
 } from "./descriptor.ts";
 
-export { sameFile, type FileIdentity, type IdentifiedStats } from "./file-identity.ts";
-
 /** Own a directory inode, with descendant operations relative to its descriptor. */
 export class PinnedDirectory {
   private handle: Descriptor;
-  private identity: FileIdentity;
+  private identity: Stats;
   private constructor(handle: Descriptor) {
     this.handle = handle;
-    this.identity = handle.statSync().identity;
+    this.identity = fstatSync(handle.fd);
   }
   static open(canonical: string): PinnedDirectory {
     const handle = openRoot(canonical);
@@ -54,19 +58,20 @@ export class PinnedDirectory {
   get fd(): number {
     return this.handle.fd;
   }
-  stat(): IdentifiedStats {
-    return this.handle.statSync();
+  stat(): Stats {
+    return fstatSync(this.fd);
   }
   matches(canonical: string): boolean {
     const current = openRoot(canonical);
     try {
-      return sameFile(current.statSync().identity, this.identity);
+      const info = fstatSync(current.fd);
+      return info.dev === this.identity.dev && info.ino === this.identity.ino;
     } finally {
       closeSync(current.fd);
     }
   }
   child(name: string): PinnedDirectory {
-    const handle = openDirectoryAt(this.fd, name);
+    const handle = openAt(this.fd, name, constants.O_RDONLY | constants.O_DIRECTORY);
     try {
       return new PinnedDirectory(handle);
     } catch (error) {
@@ -77,19 +82,6 @@ export class PinnedDirectory {
   mkdir(name: string): PinnedDirectory {
     mkdirAt(this.fd, name);
     return this.child(name);
-  }
-  mkdirPrivate(name: string): PinnedDirectory {
-    const handle = createPrivateDirectoryAt(this.fd, name);
-    try {
-      handle.checkPrivateDirectory();
-      return new PinnedDirectory(handle);
-    } catch (error) {
-      closeSync(handle.fd);
-      throw error;
-    }
-  }
-  checkPrivate(): void {
-    this.handle.checkPrivateDirectory();
   }
   names(): string[] {
     return descriptorNames(this.fd);
@@ -104,10 +96,10 @@ export class PinnedDirectory {
     }
   }
   /** Regular-file identity through a no-follow descriptor, including change timestamps. */
-  fileMetadata(name: string): IdentifiedStats {
-    const file = openFileAt(this.fd, name);
+  fileMetadata(name: string): Stats {
+    const file = openAt(this.fd, name, constants.O_RDONLY);
     try {
-      const info = file.statSync();
+      const info = fstatSync(file.fd);
       if (!info.isFile()) throw new Error("Expected a regular file");
       return info;
     } finally {
@@ -118,7 +110,7 @@ export class PinnedDirectory {
     return statAt(this.fd, name);
   }
   async writeExclusive(name: string, text: string): Promise<void> {
-    const file = createFileAt(this.fd, name);
+    const file = openAt(this.fd, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
     try {
       await file.write(Buffer.from(text));
     } finally {
@@ -129,22 +121,23 @@ export class PinnedDirectory {
   readText(name: string, limit: number, owner?: number): string {
     return this.readBytes(name, limit, owner).toString("utf8");
   }
-  /** Current-user private text. Windows proves TokenUser ownership and DACL
-   * through the opened handle; POSIX uses the current uid.
-   */
-  readPrivateText(name: string, limit: number): string {
-    return this.readText(name, limit, process.getuid?.() ?? 0);
-  }
   /** Bounded regular-file bytes through the pinned directory, without following symlinks. */
   readBytes(name: string, limit: number, owner?: number): Buffer {
-    const file = openFileAt(this.fd, name);
+    const file = openAt(this.fd, name, constants.O_RDONLY);
     try {
-      const info = file.statSync();
-      if (!info.isFile() || info.size > limit)
+      const info = fstatSync(file.fd);
+      if (
+        !info.isFile() ||
+        info.size > limit ||
+        (owner !== undefined && (info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0))
+      )
         throw new Error(
           `Refusing ${name}: expected a bounded regular file owned by the home owner`,
         );
-      if (owner !== undefined) file.checkPrivate(owner);
+      // The name can be unlinked after openat but before fstat. Never return
+      // removed private-file contents; report absence so lock contenders retry.
+      if (owner !== undefined && info.nlink === 0)
+        throw Object.assign(new Error(`${name} was removed during read`), { code: "ENOENT" });
       const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {
@@ -160,24 +153,14 @@ export class PinnedDirectory {
   }
   /** Read-only descriptor for a child; a symlink of that name is never followed. */
   openRead(name: string): number {
-    return openFileAt(this.fd, name).fd;
-  }
-  /** Like openRead, with the identity and metadata observed through that same descriptor. */
-  openReadIdentified(name: string): { fd: number; info: IdentifiedStats } {
-    const file = openFileAt(this.fd, name);
-    try {
-      return { fd: file.fd, info: file.statSync() };
-    } catch (error) {
-      closeSync(file.fd);
-      throw error;
-    }
+    return openAt(this.fd, name, constants.O_RDONLY).fd;
   }
   /** Stores `target` as a link's text; the link is created inside this directory only. */
   symlink(target: string, name: string): void {
     symlinkAt(this.fd, target, name);
   }
   createExclusive(name: string): number {
-    return createFileAt(this.fd, name).fd;
+    return openAt(this.fd, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL).fd;
   }
   private stage(fd: number, text: string): void {
     const bytes = Buffer.from(text);
@@ -197,7 +180,7 @@ export class PinnedDirectory {
     try {
       this.stage(fd, text);
       renameAt(this.fd, temporary, name);
-      this.syncPublication();
+      fsyncSync(this.fd);
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);
@@ -216,18 +199,11 @@ export class PinnedDirectory {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       }
       renameAt(this.fd, temporary, name);
-      this.syncPublication();
+      fsyncSync(this.fd);
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);
     }
-  }
-  private syncPublication(): void {
-    // Windows publication flushes the staged data handle before the relative
-    // rename. Directory fsync is a POSIX durability fence; it is not supported
-    // by these Windows directory handles. No power-loss guarantee is made for
-    // the Windows rename. See research/windows-workspace-backend.md.
-    if (process.platform !== "win32") fsyncSync(this.fd);
   }
   private removeTemporary(name: string): void {
     try {

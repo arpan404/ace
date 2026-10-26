@@ -1,4 +1,3 @@
-import { withoutHooks } from "./disabled-hooks.ts";
 import { z } from "zod";
 import { textOutput } from "./cli.ts";
 import type { Repository } from "./repository.ts";
@@ -39,7 +38,7 @@ export async function deleteUnchangedBranch(
   // Compare-and-delete prevents a changed ref being removed between observation and mutation.
   await repository.cli.call(
     root,
-    [...withoutHooks(), "update-ref", "-d", ref, options.expectedHead],
+    ["-c", "core.hooksPath=/dev/null", "update-ref", "-d", ref, options.expectedHead],
     {
       write: true,
     },

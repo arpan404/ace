@@ -1,4 +1,3 @@
-import { withoutHooks } from "./disabled-hooks.ts";
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { findMissing, forgetMissing, missingBlockers } from "./missing-worktrees.ts";
@@ -66,7 +65,8 @@ export async function createWorktree(
       await cli.call(
         root,
         [
-          ...withoutHooks(),
+          "-c",
+          "core.hooksPath=/dev/null",
           "worktree",
           "add",
           ...(staged ? ["--no-checkout"] : []),
@@ -105,7 +105,15 @@ export async function createWorktree(
         if (owned)
           await cli.call(
             root,
-            [...withoutHooks(), "worktree", "remove", ...(staged ? ["--force"] : []), "--", path],
+            [
+              "-c",
+              "core.hooksPath=/dev/null",
+              "worktree",
+              "remove",
+              ...(staged ? ["--force"] : []),
+              "--",
+              path,
+            ],
             {
               write: true,
               allowFailure: true,
@@ -179,7 +187,8 @@ export async function removeWorktree(
     await repository.cli.call(
       root,
       [
-        ...withoutHooks(),
+        "-c",
+        "core.hooksPath=/dev/null",
         "worktree",
         "remove",
         ...(options.force ? ["--force"] : []),
@@ -199,7 +208,7 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
   const { cli } = repository;
   checkCancellation(options.signal);
   options.onProgress?.({ step: "checking_out", percent: 0 });
-  await cli.call(path, [...withoutHooks(), "read-tree", "HEAD"], { write: true });
+  await cli.call(path, ["-c", "core.hooksPath=/dev/null", "read-tree", "HEAD"], { write: true });
   const listing = await cli.call(path, ["ls-files", "-z"]);
   // Retain bytes: Git paths need not be valid UTF-8. The CLI bounds this listing at 64 MiB.
   let total = 0;
@@ -218,12 +227,16 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
       offset = end + 1;
       completed++;
     }
-    await cli.call(path, [...withoutHooks(), "checkout-index", "--force", "--stdin", "-z"], {
-      write: true,
-      timeoutMs: longWriteTimeoutMs,
-      input: listing.stdout.subarray(start, offset),
-      ...(options.stderr ? { stderr: options.stderr } : {}),
-    });
+    await cli.call(
+      path,
+      ["-c", "core.hooksPath=/dev/null", "checkout-index", "--force", "--stdin", "-z"],
+      {
+        write: true,
+        timeoutMs: longWriteTimeoutMs,
+        input: listing.stdout.subarray(start, offset),
+        ...(options.stderr ? { stderr: options.stderr } : {}),
+      },
+    );
     const percent = Math.floor((completed * 100) / total);
     if (percent > reported) {
       reported = percent;
