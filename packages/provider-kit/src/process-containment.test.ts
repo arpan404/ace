@@ -25,6 +25,7 @@ function fixture(
       return handle;
     },
     setKillOnClose: () => options.arm ?? true,
+    clearLimits: () => true,
     openProcess() {
       state.processHeld = true;
       return processHandle;

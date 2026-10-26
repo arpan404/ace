@@ -100,9 +100,20 @@ export async function repository(
   },
 ): Promise<string> {
   const directory = await scratch();
+  if (process.platform === "win32") return windowsRepository(directory, files);
   const repo = join(directory, "repo with spaces\nand 雪");
   // Copy only an empty initialized repository. Every test still creates its own
   // real initial commit and owns every subsequent index/ref/worktree mutation.
+  await cp(inject("gitTemplate"), repo, { recursive: true });
+  await Promise.all(Object.entries(files).map(([path, content]) => put(repo, path, content)));
+  await git(repo, "add", "--all");
+  await git(repo, "commit", "--allow-empty", "-m", "Initial");
+  return repo;
+}
+
+/** Windows names can't hold control characters; the same fixture with spaces and Unicode. */
+async function windowsRepository(directory: string, files: Record<string, string | Buffer>) {
+  const repo = join(directory, "repo with spaces and 雪");
   await cp(inject("gitTemplate"), repo, { recursive: true });
   await Promise.all(Object.entries(files).map(([path, content]) => put(repo, path, content)));
   await git(repo, "add", "--all");

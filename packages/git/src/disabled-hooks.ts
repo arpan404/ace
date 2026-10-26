@@ -43,3 +43,12 @@ export function windowsHooklessEnv(env: Record<string, string | undefined>): voi
       env[`GIT_CONFIG_VALUE_${index}`] = privateEmptyDirectory();
   }
 }
+
+/** Windows only: command-scope `core.longpaths=true` appended after the caller's entries. */
+export function windowsLongPathsEnv(env: Record<string, string | undefined>): void {
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  if (!Number.isSafeInteger(count) || count < 0) return;
+  env[`GIT_CONFIG_KEY_${count}`] = "core.longpaths";
+  env[`GIT_CONFIG_VALUE_${count}`] = "true";
+  env.GIT_CONFIG_COUNT = String(count + 1);
+}

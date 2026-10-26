@@ -46,6 +46,18 @@ export default defineConfig({
       "apps/daemon/src/daemon-crash-recovery.process.test.ts",
       "apps/daemon/src/engine/restart-unverified.process.test.ts",
       "packages/git/src/disabled-hooks.process.test.ts",
+      // Git and forge workflows against the runner's Git for Windows and gh: confined startup
+      // in a held folder, long-path and CRLF worktrees/checkpoints, pull request hooks, and
+      // command lookup that never runs a git.exe or gh.exe planted in a checkout.
+      "packages/git/src/held-directory.process.test.ts",
+      "packages/git/src/checkout-paths.process.test.ts",
+      "packages/git/src/checkpoint-bytes.process.test.ts",
+      "packages/git/src/reviewer-hooks.process.test.ts",
+      // A timed-out Git call ends with its whole job and unlocks its repository; a stopped
+      // daemon's lease ignores Git elsewhere, Git started later and the fsmonitor daemon.
+      "packages/git/src/timeout-cleanup.process.test.ts",
+      "packages/forge/src/command-search.process.test.ts",
+      "packages/forge/src/command.process.test.ts",
       "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
