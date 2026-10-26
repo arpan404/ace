@@ -1,19 +1,17 @@
-import { createHash } from "node:crypto";
-import { z } from "zod";
 import {
-  AgentId,
-  MachineThreadView,
-  ProviderKind,
   ThreadId,
+  type AgentId,
   type DelegationOutcome,
+  type MachineThreadView,
   type McpAttribution,
   type MonitoredChild,
+  type ProviderKind,
   type WatchedThread,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { RemoteChildren } from "../agent-control/monitor.ts";
-import { clip, elapsedSeconds, settledStates } from "../agent-control/watch-view.ts";
+import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 import { ChildOutbox } from "./child-outbox.ts";
@@ -24,26 +22,9 @@ import {
   recheckBatches,
   recheckOutcome,
 } from "./child-recheck.ts";
+import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
+import { digest, monitoredChild, outcomeOf, watchedChild } from "./child-views.ts";
 
-const Row = z.object({
-  id: ThreadId,
-  parent_thread: ThreadId,
-  parent_agent: AgentId,
-  machine: z.string(),
-  role: z.string(),
-  provider: ProviderKind,
-  model: z.string().nullable(),
-  created_at: z.number(),
-  view: z.string().nullable(),
-  settled: z.number(),
-  delivered: z.number(),
-  /** Advances with each piece of new work sent, fencing status replies read before it. */
-  generation: z.number(),
-  /** Messages to it on their way; no status reply settles it meanwhile. */
-  sending: z.number(),
-  settled_at: z.number().nullable(),
-});
-type Row = z.infer<typeof Row>;
 export interface ChildrenDeps {
   store: Store;
   engine(): Engine | undefined;
@@ -65,9 +46,6 @@ export interface ChildrenDeps {
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
   log(message: string, fields: Record<string, unknown>): void;
 }
-const digest = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 24);
-const outcomeOf = (state: WatchedThread["state"]): DelegationOutcome["outcome"] =>
-  state === "done" ? "completed" : state === "cancelled" ? "cancelled" : "failed";
 
 /**
  * Delegated children that run on other machines. The ledger is durable so a restart keeps
@@ -75,6 +53,7 @@ const outcomeOf = (state: WatchedThread["state"]): DelegationOutcome["outcome"] 
  */
 export class MachineChildren implements RemoteChildren {
   private deps: ChildrenDeps;
+  private ledger: ChildLedger;
   private listeners = new Set<(ids: readonly string[]) => void>();
   private unreachable = new Map<string, string>();
   private cancelTimer: (() => void) | undefined;
@@ -85,12 +64,10 @@ export class MachineChildren implements RemoteChildren {
   private outbox: ChildOutbox;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
-    // The store's migrations own the machine_children table (machine-tables.ts).
+    this.ledger = new ChildLedger(deps.store);
     // A send a restart cut short left its child reopened: the poll now checks it against its
     // machine, which either took the message (it runs) or did not (it settles again).
-    deps.store.atomic((db) =>
-      db.prepare("UPDATE machine_children SET sending=0 WHERE sending>0").run(),
-    );
+    this.ledger.clearSends();
     this.outbox = new ChildOutbox(deps.store);
     this.arm();
   }
@@ -99,29 +76,11 @@ export class MachineChildren implements RemoteChildren {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
   }
-  private row(id: string): Row | undefined {
-    const raw = this.deps.store.atomic((db) =>
-      db.prepare("SELECT * FROM machine_children WHERE id=?").get(id),
-    );
-    return raw ? Row.parse(raw) : undefined;
-  }
-  private rows(where: string, ...values: (string | number)[]): Row[] {
-    return this.deps.store
-      .atomic((db) =>
-        db
-          .prepare(`SELECT * FROM machine_children WHERE ${where} ORDER BY created_at LIMIT 64`)
-          .all(...values),
-      )
-      .map((raw) => Row.parse(raw));
-  }
   byRequest(key: string): ThreadId | undefined {
-    const raw = this.deps.store.atomic((db) =>
-      db.prepare("SELECT id FROM machine_children WHERE request_key=?").get(key),
-    );
-    return raw ? ThreadId.parse(raw.id) : undefined;
+    return this.ledger.byRequest(key);
   }
   child(id: string): { machine: string; parentThreadId: ThreadId; settled: boolean } | undefined {
-    const row = this.row(id);
+    const row = this.ledger.row(id);
     return row
       ? { machine: row.machine, parentThreadId: row.parent_thread, settled: row.settled === 1 }
       : undefined;
@@ -150,21 +109,8 @@ export class MachineChildren implements RemoteChildren {
           requests: [],
         }
       : undefined;
-    this.deps.store.atomic((db) => {
-      db.prepare(
-        "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      ).run(
-        child.id,
-        child.requestKey,
-        child.parentThreadId,
-        child.parentAgentId,
-        child.machine,
-        child.role,
-        child.provider,
-        child.model ?? null,
-        this.deps.now(),
-        view ? JSON.stringify(view) : null,
-      );
+    this.deps.store.atomic(() => {
+      this.ledger.insert({ ...child, createdAt: this.deps.now(), view });
       this.deps.engine()?.machineChild(
         {
           id: child.id,
@@ -186,14 +132,15 @@ export class MachineChildren implements RemoteChildren {
   }
   /** Unsettled children delegated from this thread or below it, for a cascading stop. */
   under(thread: ThreadId): ThreadId[] {
-    return this.rows("settled=0")
+    return this.ledger
+      .rows("settled=0")
       .filter(
         (row) => row.parent_thread === thread || this.deps.isDescendant(row.parent_thread, thread),
       )
       .map((row) => row.id);
   }
   owns(caller: McpAttribution, id: ThreadId): boolean {
-    const row = this.row(id);
+    const row = this.ledger.row(id);
     return (
       !!row &&
       (row.parent_thread === caller.threadId ||
@@ -201,43 +148,17 @@ export class MachineChildren implements RemoteChildren {
     );
   }
   watched(id: ThreadId): { view: WatchedThread; outcome?: DelegationOutcome } | undefined {
-    const row = this.row(id);
+    const row = this.ledger.row(id);
     if (!row) return undefined;
-    const name = this.deps.label(row.machine);
-    const saved = row.view ? MachineThreadView.parse(JSON.parse(row.view)) : undefined;
-    const {
-      status: _status,
-      requests: _requests,
-      notice: _notice,
-      ...view
-    } = saved ?? {
-      threadId: id,
-      state: "working" as const,
-      title: clip(row.role, 120),
-      elapsedSeconds: elapsedSeconds(row.created_at, this.deps.now()),
-      status: { state: "working" as const, agents: 1 },
-      requests: [],
-    };
-    const unreachable = this.unreachable.get(id);
-    const shown: WatchedThread = {
-      ...view,
-      machine: name,
-      ...(unreachable && !settledStates.has(view.state) ? { step: unreachable } : {}),
-    };
-    if (row.settled !== 1) return { view: shown };
-    return {
-      view: shown,
-      outcome: {
-        threadId: id,
-        outcome: outcomeOf(view.state),
-        result: view.result ?? "",
-        truncated: view.truncated ?? false,
-        before: null,
-      },
-    };
+    return watchedChild(
+      row,
+      this.deps.label(row.machine),
+      this.unreachable.get(id),
+      this.deps.now(),
+    );
   }
   children(caller: McpAttribution): MonitoredChild[] {
-    return this.rows("1=1").flatMap((row) => {
+    return this.ledger.rows("1=1").flatMap((row) => {
       if (
         row.parent_thread !== caller.threadId &&
         !this.deps.isDescendant(row.parent_thread, caller.threadId)
@@ -245,36 +166,8 @@ export class MachineChildren implements RemoteChildren {
         return [];
       const read = this.watched(row.id);
       if (!read) return [];
-      const { view } = read;
-      return [
-        {
-          id: row.id,
-          ...(row.parent_thread === caller.threadId ? {} : { parent: row.parent_thread }),
-          role: clip(row.role, 40),
-          state: view.state,
-          ...(view.step ? { step: clip(view.step, 60) } : {}),
-          ...(view.slotLimit !== undefined &&
-          view.slotsInUse !== undefined &&
-          view.queuePosition !== undefined
-            ? {
-                slotLimit: view.slotLimit,
-                slotsInUse: view.slotsInUse,
-                queuePosition: view.queuePosition,
-              }
-            : {}),
-          elapsedSeconds: view.elapsedSeconds,
-          ...(view.needs?.[0]
-            ? { needs: view.needs.length, ask: clip(view.needs[0].prompt, 100) }
-            : {}),
-          ...(view.last ? { last: clip(view.last, 100) } : {}),
-          ...(this.saved(row)?.notice ? { notice: this.saved(row)?.notice?.text } : {}),
-          machine: clip(this.deps.label(row.machine), 64),
-        },
-      ];
+      return [monitoredChild(row, read.view, caller.threadId, this.deps.label(row.machine))];
     });
-  }
-  private saved(row: Row): MachineThreadView | undefined {
-    return row.view ? MachineThreadView.parse(JSON.parse(row.view)) : undefined;
   }
   /**
    * The parent sent a settled child more work: it is working again, so the parent's tree reads
@@ -282,20 +175,18 @@ export class MachineChildren implements RemoteChildren {
    */
   reopen(id: ThreadId): void {
     // Any status reply already on its way describes the child before this work.
-    this.advance(id);
-    const row = this.row(id);
+    this.ledger.advance(id);
+    const row = this.ledger.row(id);
     if (row?.settled === 1) this.reopenSettled(row);
   }
   /** A settled child is working again: saved first, so the parent reads it open even after a crash. */
-  private reopenSettled(row: Row): void {
+  private reopenSettled(row: ChildRow): void {
     const { id } = row;
     // The result it settled with stays owed to the parent, whatever the child does next.
-    if (row.delivered === 0) this.queueResult(row, this.saved(row));
-    this.deps.store.atomic((db) => {
+    if (row.delivered === 0) this.queueResult(row, savedView(row));
+    this.deps.store.atomic(() => {
       // Its last view showed it finished; until a poll reads it again it shows as working.
-      db.prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?").run(
-        id,
-      );
+      this.ledger.markReopened(id);
       this.deps.engine()?.machineChild(
         {
           id,
@@ -306,7 +197,7 @@ export class MachineChildren implements RemoteChildren {
           provider: row.provider,
           model: row.model ?? undefined,
           role: row.role,
-          title: this.saved(row)?.title || row.role,
+          title: savedView(row)?.title || row.role,
           status: { state: "working", agents: 1 },
           outcome: null,
         },
@@ -323,31 +214,20 @@ export class MachineChildren implements RemoteChildren {
   send(id: ThreadId): () => void {
     // Saved before the message leaves: should the caller stop before the reply, the child is
     // already open again and watched, never left settled while its machine runs the work.
-    this.deps.store.atomic((db) => {
-      db.prepare(
-        "UPDATE machine_children SET generation=generation+1, sending=sending+1 WHERE id=?",
-      ).run(id);
-      const row = this.row(id);
+    this.deps.store.atomic(() => {
+      this.ledger.beginSend(id);
+      const row = this.ledger.row(id);
       if (row?.settled === 1) this.reopenSettled(row);
     });
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      this.deps.store.atomic((db) =>
-        db.prepare("UPDATE machine_children SET sending=MAX(sending-1,0) WHERE id=?").run(id),
-      );
+      this.ledger.endSend(id);
     };
   }
-  private advance(id: ThreadId): void {
-    this.deps.store.atomic((db) =>
-      db.prepare("UPDATE machine_children SET generation=generation+1 WHERE id=?").run(id),
-    );
-  }
   delivered(id: ThreadId): void {
-    this.deps.store.atomic((db) =>
-      db.prepare("UPDATE machine_children SET delivered=1 WHERE id=?").run(id),
-    );
+    this.ledger.markDelivered(id);
     this.outbox.resultsRead(id);
   }
   subscribe(listener: (ids: readonly string[]) => void): () => void {
@@ -363,7 +243,7 @@ export class MachineChildren implements RemoteChildren {
     let due = true;
     let watchingSettled = false;
     try {
-      due = this.rows("settled=0 OR delivered=0").length > 0 || this.outbox.hasUnsent();
+      due = this.ledger.rows("settled=0 OR delivered=0").length > 0 || this.outbox.hasUnsent();
       watchingSettled = !due && this.recentlySettled(1).length > 0;
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
@@ -382,8 +262,8 @@ export class MachineChildren implements RemoteChildren {
     if (this.polling || this.closed) return;
     this.polling = true;
     try {
-      const active = this.rows("settled=0");
-      const byMachine = new Map<string, Row[]>();
+      const active = this.ledger.rows("settled=0");
+      const byMachine = new Map<string, ChildRow[]>();
       for (const row of active)
         byMachine.set(row.machine, [...(byMachine.get(row.machine) ?? []), row]);
       await Promise.all([
@@ -426,8 +306,8 @@ export class MachineChildren implements RemoteChildren {
           }
         }),
       ]);
-      for (const row of this.rows("settled=1 AND delivered=0"))
-        this.queueResult(row, this.saved(row));
+      for (const row of this.ledger.rows("settled=1 AND delivered=0"))
+        this.queueResult(row, savedView(row));
       this.drain();
     } finally {
       this.polling = false;
@@ -438,40 +318,32 @@ export class MachineChildren implements RemoteChildren {
    * others are watched, and on every poll once only settled ones are, as those polls already
    * come at the slower pace.
    */
-  private recheckDue(watchingUnsettled: boolean): [string, Row[]][] {
+  private recheckDue(watchingUnsettled: boolean): [string, ChildRow[]][] {
     if (watchingUnsettled && ++this.sinceRecheck < RECHECK_POLLS) return [];
     this.sinceRecheck = 0;
     return [...recheckBatches(this.recentlySettled(256))];
   }
-  /** Children settled within the re-check window, most recent first; an indexed read. */
-  private recentlySettled(limit: number): Row[] {
-    return this.deps.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT * FROM machine_children WHERE settled=1 AND settled_at>=? ORDER BY settled_at DESC LIMIT ?",
-          )
-          .all(this.deps.now() - RECHECK_WINDOW_MS, limit),
-      )
-      .map((raw) => Row.parse(raw));
+  /** Children settled within the re-check window, most recent first. */
+  private recentlySettled(limit: number): ChildRow[] {
+    return this.ledger.recentlySettled(this.deps.now() - RECHECK_WINDOW_MS, limit);
   }
   /**
    * A settled child re-read: work started on its machine reopens it, so its parent reads it
    * running and waits again; a different result from that work reaches the parent.
    */
-  private recheck(polled: Row, view: MachineThreadView) {
-    const row = this.row(polled.id);
+  private recheck(polled: ChildRow, view: MachineThreadView) {
+    const row = this.ledger.row(polled.id);
     if (!row || row.settled !== 1 || row.generation !== polled.generation || row.sending > 0)
       return;
-    const outcome = recheckOutcome(this.saved(row), view);
+    const outcome = recheckOutcome(savedView(row), view);
     if (outcome === "ignore") return;
     if (outcome === "reopen") this.reopenSettled(row);
-    const current = this.row(row.id);
+    const current = this.ledger.row(row.id);
     if (current) this.update(current, view);
   }
   /** Applies a status reply read under `polled`; one from before newer work is dropped. */
-  private update(polled: Row, view: MachineThreadView) {
-    const row = this.row(polled.id);
+  private update(polled: ChildRow, view: MachineThreadView) {
+    const row = this.ledger.row(polled.id);
     if (!row || row.generation !== polled.generation || row.sending > 0) return;
     this.unreachable.delete(row.id);
     if (view.notice)
@@ -487,18 +359,9 @@ export class MachineChildren implements RemoteChildren {
     const name = this.deps.label(row.machine);
     this.deps.mirror.sync(`child:${row.id}`, row.parent_thread, row.machine, name, view.requests);
     if (text === row.view && !settled) return;
-    this.deps.store.atomic((db) => {
-      db.prepare("UPDATE machine_children SET view=?, settled=? WHERE id=?").run(
-        text,
-        settled ? 1 : 0,
-        row.id,
-      );
+    this.deps.store.atomic(() => {
       // Each settle starts the window in which work started there is still noticed.
-      if (settled)
-        db.prepare("UPDATE machine_children SET settled_at=? WHERE id=?").run(
-          this.deps.now(),
-          row.id,
-        );
+      this.ledger.writeView(row.id, text, settled, this.deps.now());
       this.deps.engine()?.machineChild(
         {
           id: row.id,
@@ -533,7 +396,7 @@ export class MachineChildren implements RemoteChildren {
    * its text alone, so the same settle read again (a notice changed the view, the child was
    * reopened and settled unchanged) is the same entry, while a new settle is a new one.
    */
-  private queueResult(row: Row, view: MachineThreadView | undefined) {
+  private queueResult(row: ChildRow, view: MachineThreadView | undefined) {
     if (!view || !settledStates.has(view.state)) return;
     const outcome = outcomeOf(view.state);
     const result = view.result ?? "";
@@ -560,12 +423,7 @@ export class MachineChildren implements RemoteChildren {
           entry.text,
         );
         this.outbox.sent(entry.key);
-        if (entry.kind === "result")
-          this.deps.store.atomic((db) =>
-            db
-              .prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1")
-              .run(entry.child),
-          );
+        if (entry.kind === "result") this.ledger.markResultDelivered(entry.child);
       } catch (error) {
         this.deps.log("Machine result not delivered yet", {
           id: entry.child,
