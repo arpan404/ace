@@ -16,10 +16,16 @@ import { snapshotInHost } from "./history.ts";
 import { validateCursorAuthHome } from "./auth-home.ts";
 import { cursorModelsInHost } from "./model-discovery.ts";
 import { cursorAuthInHost } from "./auth-host.ts";
+import { windowsArm64RipgrepPath } from "./ripgrep-path.ts";
 
 // This entry is launched only by provider-kit with HOME set before any SDK import.
 const admission = await discoverCursorSdk();
 if (!admission.supported) process.exit(78);
+if (process.platform === "win32") {
+  // Windows ARM64 has no SDK ripgrep helper: point the SDK at ace's own rg.exe before it loads.
+  const ripgrep = windowsArm64RipgrepPath(process.env, process.platform, process.arch);
+  if (ripgrep) process.env.CURSOR_RIPGREP_PATH = ripgrep;
+}
 let runtime: HostRuntime | undefined;
 let sdk: typeof import("@cursor/sdk") | undefined;
 let ending = false;
