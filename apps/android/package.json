@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@ace/fake-daemon": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@babel/core": "7.29.7",
     "@types/react": "^19.3.0",
     "@types/ws": "^8.18.2",

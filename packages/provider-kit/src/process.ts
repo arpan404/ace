@@ -341,7 +341,7 @@ export async function probeOutput(
   if (!options.spawn)
     return probeOffThread(command, args, {
       timeoutMs: options.timeoutMs ?? 30_000,
-      env: options.env ?? {},
+      env: options.env ?? process.env,
       maxBytes,
       signal: options.signal,
       schedule,
@@ -350,7 +350,7 @@ export async function probeOutput(
   const proc = options.spawn({
     command,
     args,
-    env: options.env ?? {},
+    env: options.env ?? process.env,
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
