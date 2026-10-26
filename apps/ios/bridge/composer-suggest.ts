@@ -42,7 +42,7 @@ export const SuggestAction = z.discriminatedUnion("kind", [
     query: z.string().max(256),
     seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     /** The references already in the message, for the per-message limits. */
-    held: z.object({ all: count, threads: count, tabs: count }).optional(),
+    held: z.object({ all: count, threads: count, tabs: count }).optional().catch(undefined),
   }),
   z.object({ kind: z.literal("close") }),
   /** A prompt's arguments as typed in its form, for the row `row` of the last list. */
