@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, posix } from "node:path";
+import { join } from "node:path";
 import { create } from "tar";
 import { releaseArchiveLimits, unpackArchive } from "@ace/service";
 
@@ -11,13 +11,16 @@ export async function releaseFiles(root: string): Promise<string[]> {
     throw new Error(
       `Release exceeds the supported updater entry budget: ${result.length} files, at most ${releaseArchiveLimits.entries}`,
     );
+  // Windows: tar entries always use "/", and Windows names cannot contain a backslash.
+  if (process.platform === "win32")
+    return result.map((path) => path.replaceAll("\\", "/")).toSorted();
   return result.toSorted();
 }
 
 async function walk(root: string, prefix: string): Promise<string[]> {
   const result: string[] = [];
   for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
-    const path = posix.join(prefix, entry.name);
+    const path = join(prefix, entry.name);
     if (entry.isDirectory()) result.push(...(await walk(root, path)));
     else if (entry.isFile()) result.push(path);
     else throw new Error(`Unsafe release entry: ${path}`);
