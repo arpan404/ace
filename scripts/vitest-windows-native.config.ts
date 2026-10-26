@@ -60,6 +60,11 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Providers: Claude and Codex sessions
+      "packages/adapter-codex/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-metadata.process.test.ts",
+      "packages/adapter-claude/src/fork.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
