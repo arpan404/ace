@@ -37,3 +37,49 @@ export { ScreenStopError } from "./stop-error.ts";
 export { deviceWindowBundles } from "./device-input-policy.ts";
 
 export type { ScreenAccess } from "./access.ts";
+export {
+  placeholderLockedUseInstaller,
+  LockedUseNotImplementedError,
+  type LockedUseInstaller,
+} from "./locked-use.ts";
+export {
+  macLockedUseInstaller,
+  type LockedUseScheduler,
+  type MacLockedUseOptions,
+  type PrivilegedRunner,
+} from "./locked-use-mac.ts";
+export {
+  detectLockedUse,
+  type LockedUseDetection,
+  type LockedUseExpectation,
+} from "./locked-use-detect.ts";
+export {
+  macHost,
+  lockedUseBrokerLabel,
+  lockedUseGuardianLabel,
+  type MacCommandResult,
+  type MacHost,
+} from "./locked-use-host.ts";
+export {
+  LockedUseConnection,
+  LockedUseConnectionError,
+  LockedUseReplyError,
+  connectLockedUse,
+  openLockedUseConnection,
+} from "./locked-use-connection.ts";
+export {
+  LockedUseFrameDecoder,
+  LockedUseFrameError,
+  decodeLockedUseMessage,
+  encodeLockedUseFrame,
+  encodeLockedUseRequest,
+  type LockedUseServiceStatus,
+} from "./locked-use-wire.ts";
+export { LockedUseAttemptError, runProtectedAttempt } from "./locked-use-attempt.ts";
+export {
+  lockedUseGate,
+  lockedUseRoute,
+  type LockedUseGate,
+  type LockedUseGatePorts,
+  type LockedUseTurnScope,
+} from "./computer/locked-use-gate.ts";

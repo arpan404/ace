@@ -39,6 +39,7 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "computer.lockedUse",
     "devices.emulatorWindow",
     "access.defaultMode",
     "access.nativeModes",
