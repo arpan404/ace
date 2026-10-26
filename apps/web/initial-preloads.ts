@@ -56,9 +56,29 @@ type ChunkGroup = Exclude<NonNullable<Rolldown.OutputOptions["codeSplitting"]>, 
  * page that loads it stay out of the group so the build keeps its entry chunk.
  */
 export function initialChunk(entry: string): NonNullable<ChunkGroup>[number] {
+  if (process.platform === "win32") return windowsInitialChunk(entry);
   return {
     debugName: "initial",
     tags: ["$initial"],
     name: (id) => (id === entry || id.endsWith(".html") ? null : "initial"),
+  };
+}
+
+/**
+ * Windows: the same group, matching the entry whatever its slashes and drive-letter case. The
+ * path `fileURLToPath` gives (`D:\\a\\src\\main.tsx`) need not be the module id the bundler
+ * uses (`D:/a/src/main.tsx`). Missed, the entry joins the shared chunk, and its top-level `await`
+ * then holds every lazy chunk the boot imports (the fake daemon's), which waits on it in turn:
+ * the page never gets past "Starting ace…".
+ */
+function windowsModuleKey(path: string): string {
+  return path.replaceAll("\\", "/").toLowerCase();
+}
+export function windowsInitialChunk(entry: string): NonNullable<ChunkGroup>[number] {
+  const target = windowsModuleKey(entry);
+  return {
+    debugName: "initial",
+    tags: ["$initial"],
+    name: (id) => (windowsModuleKey(id) === target || id.endsWith(".html") ? null : "initial"),
   };
 }
