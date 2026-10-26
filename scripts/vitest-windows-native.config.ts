@@ -238,7 +238,7 @@ export default defineConfig({
     ),
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/git-template-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });

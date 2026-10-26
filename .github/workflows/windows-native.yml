@@ -24,6 +24,25 @@ on:
       - packages/commands/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
+      - packages/git/src/directory-lease.ts
+      - packages/git/src/pinned-process.ts
+      - packages/git/src/git-binary.ts
+      - packages/git/src/reviewer-hooks*
+      - packages/git/src/held-directory*
+      - packages/git/src/checkout-paths*
+      - packages/forge/src/command*
+      - packages/forge/src/testing/**
+      - packages/git/src/worktrees.ts
+      - packages/git/src/diff.ts
+      - packages/git/src/git-processes.ts
+      - packages/git/src/parse-repository.ts
+      - packages/git/src/repository.ts
+      - packages/git/src/projects.ts
+      - packages/git/src/held-clone.ts
+      - packages/git/src/process-runtime.ts
+      - packages/git/src/test-repo.ts
+      - packages/git/src/junction-test-fixtures.ts
+      - scripts/git-template-setup.ts
       - packages/files/src/upload*
       - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*

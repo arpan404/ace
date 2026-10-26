@@ -35,6 +35,7 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
+import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
@@ -366,6 +367,11 @@ export class GitCli {
     }
   }
 
+  /** The platform Git runs on, for Windows-only repository settings. */
+  get platform(): NodeJS.Platform {
+    return this.runtime.platform;
+  }
+
   /** The executable each Git call starts. */
   get binary(): string {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
@@ -384,6 +390,13 @@ export class GitCli {
     // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
     if (this.configuredBinary === undefined)
       this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
+    // Windows searches a bare name in the working directory, a checkout, before PATH.
+    if (
+      this.runtime.platform === "win32" &&
+      this.configuredBinary === undefined &&
+      this.resolvedBinary === undefined
+    )
+      throw new GitError("git_missing", "Git for Windows was not found on PATH");
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
@@ -574,6 +587,34 @@ export class GitCli {
     return { helpers, sshCommand: settings.sshCommand };
   }
 
+  /**
+   * Windows: Git runs in the held folder by its path while a lease keeps that folder in place
+   * (see `directory-lease.ts`), and the path must still lead to it once Git has exited.
+   */
+  private async executeLeased(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    fd: number,
+  ): Promise<Output> {
+    const { leaseHeldDirectory } = await import("./directory-lease.ts");
+    const lease = leaseHeldDirectory(fd, { createGitEntry: options.write === true });
+    let cleanup: Promise<unknown> | undefined;
+    try {
+      const output = await this.executeRaw(lease.cwd, args, { ...options, directoryFd: undefined });
+      lease.verify();
+      return output;
+    } catch (error) {
+      // A killed writer may outlive the call: the folder stays held until its cleanup settles.
+      if (error instanceof GitError) cleanup = error.cleanup?.settled;
+      lease.verify();
+      throw error;
+    } finally {
+      if (cleanup) void cleanup.then(lease.release, lease.release);
+      else lease.release();
+    }
+  }
+
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     const binary = this.binary;
@@ -585,8 +626,12 @@ export class GitCli {
       ...options.env,
     });
     if (this.runtime.platform === "win32") {
+      if (options.directoryFd !== undefined)
+        return this.executeLeased(cwd, args, options, options.directoryFd);
       args = windowsHooklessArgs(args);
       windowsHooklessEnv(env);
+      // Deep checkout paths past MAX_PATH; Git for Windows refuses them by default.
+      windowsLongPathsEnv(env);
     }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.
