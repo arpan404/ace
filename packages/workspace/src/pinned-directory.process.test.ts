@@ -46,6 +46,12 @@ test("publication follows its pinned inode when a pathname is replaced with a le
   }
 });
 
+posixOnly(
+  "bounded regular-file reads refuse links, directories and oversized files",
+  async ({ onTestFinished }) => {
+    const root = await mkdtemp(join(tmpdir(), "ace-pinned-read-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    await writeFile(join(root, "regular"), "safe", { mode: 0o600 });
     await writeFile(join(root, "large"), "x".repeat(17));
     await symlink("regular", join(root, "link"));
     await mkdir(join(root, "directory"));
@@ -61,27 +67,6 @@ test("publication follows its pinned inode when a pathname is replaced with a le
     }
   },
 );
-
-posixOnly("bounded regular-file reads refuse links, directories and oversized files", async ({
-  onTestFinished,
-}) => {
-  const root = await mkdtemp(join(tmpdir(), "ace-pinned-read-"));
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
-  await writeFile(join(root, "regular"), "safe", { mode: 0o600 });
-  await writeFile(join(root, "large"), "x".repeat(17));
-  await symlink("regular", join(root, "link"));
-  await mkdir(join(root, "directory"));
-  const directory = PinnedDirectory.atBoundary(root);
-  try {
-    expect(directory.readText("regular", 16, directory.stat().uid)).toBe("safe");
-    for (const name of ["link", "directory", "large"])
-      expect(() => directory.readText(name, 16)).toThrow();
-    expect(directory.empty()).toBe(false);
-    expect(directory.empty()).toBe(false);
-  } finally {
-    directory.closeSync();
-  }
-});
 
 async function scratch(onTestFinished: TestContext["onTestFinished"]): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-pinned-")));

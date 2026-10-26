@@ -38,6 +38,9 @@ export function isolatedTestEnvironment(
     XDG_DATA_DIRS: join(home, ".local/share"),
     APPDATA: join(home, ".config"),
     LOCALAPPDATA: join(home, ".local/share"),
+    ...(process.platform === "win32"
+      ? { APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local") }
+      : {}),
     TMPDIR: join(home, "tmp"),
     TMP: join(home, "tmp"),
     TEMP: join(home, "tmp"),

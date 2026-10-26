@@ -167,7 +167,7 @@ static const char *child_args(napi_env env, napi_callback_info info, size_t expe
 static napi_value child_at(napi_env env, napi_callback_info info, ULONG options, ACCESS_MASK access,
     ULONG disposition, int plain, int keep) {
   napi_value args[2];
-  HANDLE parent, child;
+  HANDLE parent = NULL, child = NULL;
   WCHAR name[NAME_BYTES];
   DWORD length, attributes;
   const char *code = child_args(env, info, 2, args, &parent, name, &length);
@@ -198,7 +198,7 @@ static napi_value open_metadata_at(napi_env env, napi_callback_info info) {
 // Deletes the opened entry itself (a junction, never its target) when its handle closes.
 static napi_value delete_at(napi_env env, napi_callback_info info, DWORD directory) {
   napi_value args[2];
-  HANDLE parent, child;
+  HANDLE parent = NULL, child = NULL;
   WCHAR name[NAME_BYTES];
   DWORD length, attributes;
   const char *code = child_args(env, info, 2, args, &parent, name, &length);
@@ -221,9 +221,9 @@ static napi_value remove_directory_at(napi_env env, napi_callback_info info) {
 // Replaces `to` in the same parent. Win32's rename wrapper rejects a relative target.
 static napi_value rename_at(napi_env env, napi_callback_info info) {
   napi_value args[3];
-  HANDLE parent, child;
+  HANDLE parent = NULL, child = NULL;
   WCHAR from[NAME_BYTES], to[NAME_BYTES];
-  DWORD from_length, to_length;
+  DWORD from_length = 0, to_length = 0;
   const char *code = child_args(env, info, 3, args, &parent, from, &from_length);
   if (!code && !read_name(env, args[2], to, &to_length)) code = "EINVAL";
   if (!code) code = open_child(parent, from, from_length, OPT_REPARSE, DELETE | SYNCHRONIZE,
@@ -269,7 +269,7 @@ static napi_value open_root(napi_env env, napi_callback_info info) {
     if (end != part) {
       WCHAR name[NAME_BYTES];
       DWORD length;
-      HANDLE next;
+      HANDLE next = NULL;
       code = wide_component(part, (size_t)(end - part), name, &length);
       if (!code) code = open_child(current, name, length, OPT_REPARSE, DIRECTORY_ACCESS, OPT_OPEN, &next);
       if (!code) { CloseHandle(current); current = next; code = plain_directory(current); }
@@ -282,9 +282,9 @@ static napi_value open_root(napi_env env, napi_callback_info info) {
 }
 // Raw facts for TypeScript: FILE_ID_INFO bytes, attributes, size and FILETIME ticks.
 static napi_value describe(napi_env env, HANDLE handle) {
-  FILE_ID_INFO id;
-  FILE_BASIC_INFO basic;
-  FILE_STANDARD_INFO standard;
+  FILE_ID_INFO id = {0};
+  FILE_BASIC_INFO basic = {0};
+  FILE_STANDARD_INFO standard = {0};
   DWORD attributes;
   const char *code = attributes_of(handle, &attributes);
   if (!code && (!GetFileInformationByHandleEx(handle, FileIdInfo, &id, sizeof(id)) ||
@@ -317,7 +317,7 @@ static napi_value stat_fd(napi_env env, napi_callback_info info) {
 }
 static napi_value stat_at(napi_env env, napi_callback_info info) {
   napi_value args[2];
-  HANDLE parent, child;
+  HANDLE parent = NULL, child = NULL;
   WCHAR name[NAME_BYTES];
   DWORD length;
   const char *code = child_args(env, info, 2, args, &parent, name, &length);
