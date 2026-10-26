@@ -40,7 +40,7 @@ async function fixture() {
       .list(target, name)
       .commands.find((command) => command.namespace === "provider" && command.name === name)
       ?.description;
-  return { home, root, outside, files, names, description };
+  return { home, root, outside, catalog, files, names, description };
 }
 
 windows("Windows command discovery reads a drive-absolute root and picks up edits", async () => {
@@ -164,5 +164,39 @@ windows(
     await rename(f.root, join(f.home, "moved"));
     await vi.waitFor(() => expect(has("top")).toBe(false), { timeout: 10_000 });
     await rm(join(f.home, "moved"), { recursive: true });
+  },
+);
+
+windows("Windows removes a cached command when its file becomes a junction", async () => {
+  const f = await fixture();
+  const path = join(f.root, "item.md");
+  await writeFile(path, "Original");
+  await f.files.start();
+  const command = f.catalog.list(target, "item").commands[0];
+  if (!command) throw new Error("Missing command");
+  expect(f.catalog.resolve(target, command.id)).toMatchObject({ ok: true });
+  // Windows has no sockets or FIFOs in folders; a junction is its nonregular entry.
+  await rm(path);
+  await symlink(f.outside, path, "junction");
+  f.files.invalidate(path);
+  await f.files.flush();
+  expect(f.catalog.resolve(target, command.id)).toEqual({ ok: false, error: "not_found" });
+  expect(f.catalog.list(target, "item").commands.some((c) => c.id === command.id)).toBe(false);
+});
+
+windows(
+  "Windows command discovery finds folders added in the same clock tick as the last scan",
+  async () => {
+    const f = await fixture();
+    await f.files.start();
+    // Windows stamps folder times from a ~16 ms clock: each folder lands right after a scan, often
+    // inside the same tick, so its parent's times can't show the change.
+    for (let round = 0; round < 20; round++) {
+      await mkdir(join(f.root, `set${round}`));
+      await writeFile(join(f.root, `set${round}`, "item.md"), "Body");
+      f.files.invalidate(f.root);
+      await f.files.flush();
+      expect(f.names()).toContain(`set${round}:item`);
+    }
   },
 );

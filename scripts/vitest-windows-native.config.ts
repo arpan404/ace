@@ -48,6 +48,24 @@ const posixOnly = [
   // when the lock can't be written" runs instead.
   "when the lock can't be written the original folder is put back and the lock is unchanged",
   "the skills lock makes ~/.agents itself when it's missing",
+  // chmod-refused skill folders and lock folder; the "Windows a restore blocked by an open
+  // file...", "Windows a skills lock that can't be opened..." and "Windows a skill folder that
+  // can't be opened..." counterparts make the same steps fail the Windows way.
+  "a restore that fails keeps the current folder and the backup, and the next start finishes",
+  "a skills lock that can't be opened is logged with its cause and recovery retries",
+  "a skill folder that can't be opened keeps its journal, and a later start finishes",
+  // Untyped relative symlinks and readlink text; Windows links are junctions with absolute
+  // targets, and the protocol never carries link text. "Windows skill library creates a skill
+  // and links it for Claude through a junction" and "Windows a junction-linked skill is listed
+  // once..." run instead.
+  "a linked skill is listed once, with each agent's access and a copy kept separate",
+  "creating a skill saves it in the shared folder and links it for Claude",
+  "without a race, agents are linked and unlinked in Claude's folder",
+  // POSIX removes the link inside the moved folder; Windows can't read a link once its folder
+  // moved and refuses with a conflict ("Windows removing an agent raced by a link-root swap...").
+  "removing an agent raced by a link-root swap removes nothing outside the root",
+  // A Unix socket; "Windows removes a cached command when its file becomes a junction" runs.
+  "removes a cached snippet when its file becomes a nonregular filesystem entry",
   // Plugins. Windows has no FIFOs.
   "warmed source refuses a FIFO even when a writer supplies the original accepted bytes",
   // Executable bits; "on Windows accepted trust survives reopening", "on Windows staged or

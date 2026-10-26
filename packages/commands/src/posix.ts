@@ -345,6 +345,9 @@ function windowsDirectoryReader(fd: number): DirectoryReader {
   let closed = false;
   return {
     async read() {
+      // Each entry yields to the event loop, as the POSIX reader's threaded readdir does, so a
+      // scan never runs ahead of the batch that asked for it.
+      await new Promise((resolve) => setImmediate(resolve));
       return closed ? undefined : names.shift();
     },
     async close() {
@@ -366,6 +369,14 @@ function windowsIsLink(directory: number, name: string): boolean {
 }
 const windowsExists = (directory: number, name: string) =>
   windowsQuiet(() => closeSync(openMetadataAt(directory, name).fd));
+/**
+ * Windows: whether anything, link or not, is called `name` in the pinned directory, asked through
+ * the handle. Link reads need the folder's path, which fails once the folder has moved.
+ */
+export async function commandEntryExists(directory: number, name: string): Promise<boolean> {
+  if (process.platform !== "win32") throw new Error("Only Windows asks through the handle");
+  return windowsExists(directory, name);
+}
 function windowsReadLink(directory: number, name: string): string {
   try {
     if (!windowsIsLink(directory, name)) throw new Error("Not a link");
