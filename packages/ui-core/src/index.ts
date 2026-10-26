@@ -72,6 +72,8 @@ export * from "./plan.ts";
 export * from "./goal.ts";
 export * from "./profile.ts";
 export * from "./project-badge.ts";
+export * from "./project-mark.ts";
+export * from "./machine-mark.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";

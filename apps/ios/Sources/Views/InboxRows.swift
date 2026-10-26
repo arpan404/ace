@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// One thread in the inbox: two lines beside one small status mark. The title and its age, then
-/// what the thread wants or is doing and where it lives (project, machine when several are
-/// paired, running subagents). Only a thread that needs the person, or failed, takes colour.
-/// Branch, pull request and provider live in the thread itself.
+/// the project's mark and name and what the thread wants or is doing, with the machine (only
+/// when several are paired), running subagents and the provider at the end. Only a thread that
+/// needs the person, or failed, takes colour. Branch and pull request live in the thread itself.
 struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
-    var machine: String? = nil
+    var machine: MachineMark? = nil
+    var project: ProjectMarkLook? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Old payloads without a look read quietly with the shared word.
@@ -29,7 +30,7 @@ struct InboxThreadRow: View {
                     Spacer(minLength: AceTheme.Spacing.sm)
                     InboxRowAge(row: row, look: look)
                 }
-                InboxRowLine(row: row, look: look, snoozed: snoozed, machine: machine)
+                InboxRowLine(row: row, look: look, snoozed: snoozed, machine: machine, project: project)
             }
         }
         .padding(.horizontal, AceTheme.Spacing.md)
@@ -85,28 +86,69 @@ struct InboxRowAge: View {
     }
 }
 
-/// The line under the title: the status word (in colour only when the thread needs the person
-/// or failed), then the project, the machine and running subagents.
+/// The line under the title: the project's mark and name, then the status word (in colour only
+/// when the thread needs the person or failed). At the end, never wrapping: the machine's mark,
+/// running subagents and the provider's mark. When space runs short the project name gives way
+/// first.
 struct InboxRowLine: View {
     let row: ThreadRow
     let look: RowLook
     let snoozed: Bool
-    let machine: String?
+    let machine: MachineMark?
+    let project: ProjectMarkLook?
     var body: some View {
         let word = snoozed && !look.loud ? row.snoozedUntil.map(Self.wake) : look.word
         let loud = look.level == "needs-you" || AceTone(look.tone) == .failed
-        let rest = [row.project.isEmpty ? nil : row.project, machine?.isEmpty == false ? machine : nil,
-                    look.subagents > 0 ? "\(look.subagents) agents" : nil].compactMap { $0 }
-        (Text(word ?? "").fontWeight(loud ? .medium : .regular).foregroundStyle(loud ? AceTone(look.tone).text : AceTheme.Colours.mutedForeground)
-         + Text((word == nil || rest.isEmpty ? "" : " · ") + rest.joined(separator: " · ")).foregroundStyle(AceTheme.Colours.mutedForeground))
-            .aceFont(InboxRowType.line, relativeTo: .subheadline)
-            .lineLimit(1)
+        let named = !row.project.isEmpty
+        HStack(alignment: .center, spacing: AceTheme.Spacing.xs) {
+            if named {
+                ProjectMark(initials: row.badge ?? "", chat: row.chat == true, look: project, quiet: look.settled)
+                Text(row.project).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+            }
+            if let word {
+                Text((named ? "· " : "") + word)
+                    .fontWeight(loud ? .medium : .regular)
+                    .foregroundStyle(loud ? AceTone(look.tone).text : AceTheme.Colours.mutedForeground)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+            Spacer(minLength: AceTheme.Spacing.sm)
+            InboxRowMarks(row: row, look: look, machine: machine).fixedSize().layoutPriority(2)
+        }
+        .aceFont(InboxRowType.line, relativeTo: .subheadline)
     }
     /// When a snoozed row wakes: "Until 3:00 PM" today, else with the weekday.
     static func wake(_ until: Double) -> String {
         let date = Date(timeIntervalSince1970: until / 1000)
         let time = date.formatted(date: .omitted, time: .shortened)
         return Calendar.current.isDateInToday(date) ? "Until \(time)" : "Until \(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
+    }
+}
+
+/// The row's trailing marks: the machine (named for VoiceOver), running subagents with the tree
+/// icon, then the provider with its account bubble. Settled rows grey them with the rest.
+struct InboxRowMarks: View {
+    let row: ThreadRow
+    let look: RowLook
+    let machine: MachineMark?
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            if let machine {
+                AceIcon(machine.glyph, size: 14, relativeTo: .subheadline)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(machine.name)
+            }
+            if look.subagents > 0 {
+                HStack(spacing: AceTheme.Spacing.xxs) {
+                    AceIcon(.treeStructure, size: 12, relativeTo: .subheadline)
+                    Text(look.subagents.formatted()).monospacedDigit()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(look.subagents) agents")
+            }
+            ProviderMark(provider: row.provider, size: 15, account: row.account, quiet: look.settled)
+        }
+        .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.subtleForeground)
     }
 }
 

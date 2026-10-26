@@ -246,7 +246,8 @@ private struct InboxThreadCell: View {
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
         return Button { actions.open(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
+            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
+                           project: inbox.projectLook(key, workspace: row.workspaceId))
         }
         .buttonStyle(RowPressStyle(selected: open == key))
         .accessibilityAddTraits(open == key ? .isSelected : [])

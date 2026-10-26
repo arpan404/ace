@@ -1,19 +1,13 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import { ProjectImage } from "./project-image.tsx";
-import type { ProjectBadge } from "@ace/ui-core";
-import type { ProjectBadgeStyle } from "@ace/protocol";
+import { projectMark, type ProjectBadge, type ProjectLook } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useProjectMetadata } from "@/lib/projects.ts";
 import { accountColors } from "./ui/provider-account-icon.tsx";
 import { projectGlyph } from "./project-glyphs.ts";
 
-/** What a project's badge is drawn from: its own image, the badge chosen, the found favicon. */
-export interface ProjectLook {
-  icon?: string | null | undefined;
-  defaultIcon?: string | null | undefined;
-  badge?: ProjectBadgeStyle | undefined;
-}
+export type { ProjectLook } from "@ace/ui-core";
 
 const sizes = {
   row: { tile: "h-4 w-5 rounded-xs text-2xs", glyph: 11 },
@@ -24,7 +18,7 @@ const sizes = {
  * A project's badge exactly as the person set it, in every list, picker and preview: their own
  * image; else the badge they chose (initials or a curated glyph, in a curated colour); else the
  * folder's favicon; else the initials in the tint that stays with the project id. Only the tint
- * variable is inline; the rule is shared.
+ * variable is inline; the rule is shared (`projectMark` in `@ace/ui-core`).
  */
 export function ProjectMarkView(props: {
   badge: ProjectBadge;
@@ -32,12 +26,11 @@ export function ProjectMarkView(props: {
   quiet?: boolean | undefined;
   size?: keyof typeof sizes | undefined;
 }) {
-  const { look } = props;
   const size = sizes[props.size ?? "row"];
-  const chosen = look?.badge;
-  const Glyph = chosen?.glyph ? projectGlyph(chosen.glyph)?.icon : undefined;
-  const tint = chosen?.color ? accountColors[chosen.color] : `var(--project-${props.badge.tint})`;
-  const image = look?.icon ?? (chosen ? undefined : look?.defaultIcon);
+  const mark = projectMark(props.look);
+  const Glyph = mark.glyph ? projectGlyph(mark.glyph)?.icon : undefined;
+  const tint = mark.color ? accountColors[mark.color] : `var(--project-${props.badge.tint})`;
+  const image = mark.image;
   return (
     <ProjectImage
       icon={image}
