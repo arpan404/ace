@@ -60,12 +60,19 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // ace's MCP server: loopback HTTP with bearer leases, the ACP stdio bridge, list_changed,
+      // provider config discovery and private session config. FIFO and /dev/null fixtures are
+      // POSIX-only and stay out.
+      "packages/mcp-server/src/**/*.test.ts",
+      // Sandboxed HTML visualizations and handoff documents.
+      "packages/html/src/**/*.test.ts",
+      "packages/handoff/src/**/*.test.ts",
     ],
-    exclude: ["**/node_modules/**"],
+    exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
