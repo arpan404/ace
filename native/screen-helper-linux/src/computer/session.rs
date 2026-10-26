@@ -41,6 +41,8 @@ pub struct AppSession {
     /// Screenshot pixels per window pixel in the last screenshot; maps x,y steps.
     pub scale: f64,
     pub last_used: Instant,
+    /// The last look's walk and what was true then, for reuse (`walk::still_current`).
+    last_walk: Option<(crate::computer::walk::WalkStamp, Tree)>,
 }
 
 const WINDOW_ROLES: [&str; 5] = ["frame", "dialog", "alert", "file chooser", "window"];
@@ -63,6 +65,7 @@ impl AppSession {
             shot_offset: None,
             scale: 1.0,
             last_used: Instant::now(),
+            last_walk: None,
         }
     }
 
@@ -185,6 +188,27 @@ impl AppSession {
             Some(content) => Some(content),
             None => element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten(),
         }
+    }
+
+    /// A look's walk: the last one when nothing can have changed since, else a fresh one.
+    pub async fn look(&mut self, bus: &Bus, frames: Option<FrameMap>, budget: Duration, last_event: Option<Instant>) -> Tree {
+        let now = crate::computer::walk::WalkStamp {
+            at: Instant::now(),
+            last_event,
+            window: self.window.as_ref().map(|w| key(&w.obj)),
+            framed: frames.is_some(),
+        };
+        if let Some((stamp, tree)) = &self.last_walk {
+            if crate::computer::walk::still_current(stamp, &now) && !tree.not_responding {
+                let tree = tree.clone();
+                self.nodes = tree.nodes.clone();
+                self.focused = tree.focused.clone();
+                return tree;
+            }
+        }
+        let tree = self.walk(bus, frames, budget).await;
+        self.last_walk = Some((now, tree.clone()));
+        tree
     }
 
     /// Walks the chosen window and any open popup windows, updating ids and the node list.

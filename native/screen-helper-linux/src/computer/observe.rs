@@ -59,6 +59,7 @@ pub async fn observation(
     windows: &[WindowEntry],
     cast: Option<&mut ScreenCast>,
     options: &Options,
+    last_event: Option<std::time::Instant>,
 ) -> Value {
     // Marks use window-relative extents, placed once the frame's size is known.
     let marked = cast.is_some() && options.screenshot && options.marks && options.outline;
@@ -68,8 +69,9 @@ pub async fn observation(
         dy: 0.0,
     });
     let mut truncated = false;
+    let walk_started = std::time::Instant::now();
     if options.outline && !session.not_responding {
-        truncated = session.walk(bus, frames, Duration::from_secs(4)).await.truncated;
+        truncated = session.look(bus, frames, Duration::from_secs(4), last_event).await.truncated;
     } else {
         session.nodes.clear();
     }
@@ -90,7 +92,12 @@ pub async fn observation(
         result["notResponding"] = json!(true);
         return result;
     }
+    let walk_ms = walk_started.elapsed().as_millis() as u64;
     result["menuBar"] = json!(menu_titles(bus, session).await);
+    if std::env::var_os("ACE_CU_TIMINGS").is_some() {
+        result["walkMs"] = json!(walk_ms);
+        result["menuMs"] = json!(walk_started.elapsed().as_millis() as u64 - walk_ms);
+    }
     if let Some(window) = session.window.clone() {
         let size = element::extents(bus, &window.obj, COORD_WINDOW)
             .await

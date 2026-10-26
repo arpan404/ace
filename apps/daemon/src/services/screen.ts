@@ -41,12 +41,12 @@ export async function startScreen({ config, options, resources, services, store 
   // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
   // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
   // only a helper that has connected to the accessibility bus turns it on.
-  let wakeAccessibility = () => {};
+  let wakeAccessibility: (() => void) | undefined;
   manager.configureAccess({
     enabled: () => settings.enabled(),
     enable: (enabled) => {
       settings.enable(enabled);
-      if (enabled) wakeAccessibility();
+      if (enabled) wakeAccessibility?.();
     },
     // Agent MCP notices are emitted by the result observer, covering pre-dispatch failures too.
     audit() {},

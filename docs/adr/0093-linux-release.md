@@ -103,13 +103,21 @@ and registers the same three tools as on macOS.
   selection, `Value`, `Selection`, menus pressed by path. The helper turns on
   `org.a11y.Status.IsEnabled` as screen readers do, so GTK, Qt, Chromium and Electron apps
   started afterwards expose their trees.
-- **No raw input.** Wayland gives no program a way to send keys or pointer events to another
-  app's window (the RemoteDesktop portal is the person's, granted in its dialog for a live
-  view). Keys with no accessibility equivalent, x,y clicks, drags and wheel scrolls fail with a
-  message pointing the agent to element ids. Typing into a field uses AT-SPI text insertion
-  and needs no focus; Return, Backspace, Delete, arrows and select-all in text go through
-  AT-SPI too. The `cmd` modifier means Control on Linux, so shortcuts keep their intent
-  across platforms.
+- **No raw input, so accessibility stands in for it (revised 2026-10-26).** Wayland gives no
+  program a way to send keys or pointer events to another app's window (the RemoteDesktop portal
+  is the person's, granted in its dialog for a live view, and its input lands wherever the
+  person's pointer would). So steps the macOS engine posts are done through AT-SPI, in the
+  background: an x,y click is the clickable element under that screenshot pixel; an x,y scroll
+  moves the scroll bar there; a shortcut presses the menu item whose accelerator it is; ctrl+C/X/V
+  use the text's own clipboard calls; Tab inserts a tab or moves the focus. Hover, drags and keys
+  with no accessible equivalent are refused with the steps that work. The `cmd` modifier means
+  Control on Linux, so shortcuts keep their intent across platforms.
+- **Apps that hide their tree.** Chromium-based apps (Chrome, Electron apps such as VS Code) show
+  their tree only when started with `--force-renderer-accessibility`, so ace starts them with it
+  and tells the agent to have the person quit one running without it. Apps that read the
+  session's accessibility only at start (Firefox) are reported the same way, and the daemon turns
+  accessibility on as soon as computer use is on. LibreOffice's modules, one process, are told
+  apart by their windows' titles.
 - **Screenshots** use the ScreenCast portal with a persisted restore token, scaled to the
   engine's 1568 px / 1.15 MP limit with id marks. Until the person has granted it, `state`
   returns the outline with a `screenshotError` explaining how to grant it.

@@ -264,10 +264,13 @@ impl Service {
                 check,
             )
             .await?;
+        let mut marks = vec![("session", started.elapsed())];
         let name = self.sessions.get(&pid).map(|s| s.name.clone()).unwrap_or_default();
         let person = self.person().await;
         person.begin(&name, false).await;
+        marks.push(("awake", started.elapsed()));
         let status = person.status().await;
+        marks.push(("status", started.elapsed()));
         let session = self
             .sessions
             .get_mut(&pid)
@@ -286,6 +289,7 @@ impl Service {
         }
         check.check()?;
         let windows = session.choose_window(&bus, body.get("window")).await?;
+        marks.push(("windows", started.elapsed()));
         if launched && crate::computer::chromium::is_chromium_process(std::path::Path::new("/proc"), session.pid) {
             // Chromium shows its window long before its pages and controls join the tree.
             let started = Instant::now();
@@ -303,9 +307,15 @@ impl Service {
             outline: flag(body, "outline", true),
             marks: flag(body, "marks", true),
         };
-        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options.for_status(status)).await;
+        let last_event = self.activity.last(session.bus_name());
+        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options.for_status(status), last_event).await;
+        marks.push(("observation", started.elapsed()));
         observe::mark_status(&mut result, status, &options);
         observe::mark_accessibility(&mut result, session.pid, &session.name);
+        marks.push(("notes", started.elapsed()));
+        if std::env::var_os("ACE_CU_TIMINGS").is_some() {
+            result["timings"] = json!(marks.iter().map(|(name, at)| (name.to_string(), json!(at.as_millis() as u64))).collect::<Map<String, Value>>());
+        }
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -428,7 +438,8 @@ impl Service {
                 marks: flag(body, "marks", true),
             };
             let status = person.status().await;
-            let mut state = observe::observation(&bus, session, &windows, cast.as_mut(), &options.for_status(status)).await;
+            let last_event = activity.last(session.bus_name());
+            let mut state = observe::observation(&bus, session, &windows, cast.as_mut(), &options.for_status(status), last_event).await;
             observe::mark_status(&mut state, status, &options);
             observe::mark_accessibility(&mut state, session.pid, &session.name);
             result["state"] = state;
