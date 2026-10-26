@@ -175,12 +175,17 @@ function addRuleAlternativeStep(): string {
     "import sys, plistlib",
     "name = sys.argv[1]",
     "with open(sys.argv[2], 'rb') as handle: right = plistlib.loads(handle.read())",
-    "if right.get('class') != 'rule' or right.get('k-of-n', 1) != 1:",
-    "    sys.stderr.write('screensaver right is not an OR rule; refusing to edit'); sys.exit(3)",
+    // Refuse unless the right is explicitly an OR rule. A missing k-of-n is treated by authd as
+    // 'every listed rule must pass' (AND); appending our alternative there would make ordinary
+    // password unlock also require our plug-in, so refuse rather than risk a lockout.
+    "if right.get('class') != 'rule' or right.get('k-of-n') != 1:",
+    "    sys.stderr.write('screensaver right is not an explicit OR rule; refusing to edit'); sys.exit(3)",
     "rule = right.get('rule')",
     "rule = list(rule) if isinstance(rule, list) else ([rule] if isinstance(rule, str) else [])",
     "if name not in rule: rule.append(name)",
     "right['rule'] = rule",
+    // Keep the OR semantics explicit in what we write back.
+    "right['k-of-n'] = 1",
     "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
     "PY",
     `security authorizationdb write ${shellQuote(screensaverRight)} < "$work/right.next.plist"`,

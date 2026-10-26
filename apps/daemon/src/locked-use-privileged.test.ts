@@ -43,10 +43,13 @@ describe("locked use privileged install", () => {
     expect(script).not.toMatch(/screensaver[\s\S]*mechanisms'\]\.append/);
   });
 
-  test("refuses to edit unless the screensaver right is an OR rule (no AND lockout)", () => {
+  test("refuses unless the screensaver right is an EXPLICIT OR rule (no AND lockout)", () => {
     const script = buildInstallScript(artifacts);
-    expect(script).toContain("right.get('class') != 'rule' or right.get('k-of-n', 1) != 1");
+    // A missing k-of-n is AND to authd, so a defaulted 1 would risk a lockout; require it present.
+    expect(script).toContain("right.get('class') != 'rule' or right.get('k-of-n') != 1");
     expect(script).toContain("sys.exit(3)");
+    // And keep OR semantics explicit in the written-back right.
+    expect(script).toContain("right['k-of-n'] = 1");
   });
 
   test("stages each component to a root-owned path and verifies its signature before use", () => {
