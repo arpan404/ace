@@ -29,6 +29,10 @@ const posixOnly = [
   "an unmuted viewer hears the page's tone as Opus, in step with the video; a muted one gets no audio bytes",
   // video: one evaluate holds the whole clip, larger than 64 KiB with Windows' software H.264
   "a viewer that asks for video starts at a keyframe sized for its screen, plays decodable video and never gets JPEG",
+  // video-sharpness: expects device scale 2, which GPU-less Windows doesn't draw at
+  "a Retina viewer on this machine sees a still page, after a scroll too, as sharp as the page",
+  // desktop download folder: chmod has no effect on Windows ACLs
+  "the app's downloads folder must be a folder it can write on this computer",
   // process-table: POSIX process groups (the Windows tree is a job: chrome-job.process.test.ts)
   "finds a detached process by its command line with its own process group",
   // profile-scope: `/` separator

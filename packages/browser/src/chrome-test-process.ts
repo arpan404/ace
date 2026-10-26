@@ -36,7 +36,8 @@ export async function chromeProcesses(home: string) {
 }
 
 const WindowsProcess = z.object({
-  ProcessId: z.number().int().positive(),
+  // The System Idle Process is pid 0.
+  ProcessId: z.number().int().nonnegative(),
   ParentProcessId: z.number().int().nonnegative(),
   CommandLine: z.string().nullable(),
 });
@@ -56,6 +57,7 @@ async function windowsProcesses() {
   return z
     .array(WindowsProcess)
     .parse([JSON.parse(stdout)].flat())
+    .filter((row) => row.ProcessId > 0)
     .map((row) => ({
       ids: Row.parse([row.ProcessId, row.ParentProcessId]),
       command: row.CommandLine ?? "",

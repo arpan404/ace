@@ -64,8 +64,10 @@ export default defineConfig({
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    // The Retina sharpness case expects device scale 2, which GPU-less Windows runners don't
+    // draw at (`gpu-scale.ts`); its "Windows: ... at the scale ace's Chrome draws" case runs.
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$)(?!.*a Retina viewer on this machine sees a still page, after a scroll too, as sharp as the page$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],

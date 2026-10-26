@@ -154,12 +154,17 @@ test("an old launch handle cannot stop a replacement with the same name", async 
   }
 });
 
-// Windows has no signals: the tree stop ends the launch with TerminateProcess, reported as a
-// nonzero exit code instead of SIGKILL. A launch that wrote its line and exited cleanly would be 0.
+// Windows has no signals, and its tree stop is asynchronous: a launch that already wrote its
+// line may exit on its own first. Either way the oversized line never reaches the output and
+// the launch leaves the list.
 test.runIf(process.platform === "win32").each(["stdout", "stderr"])(
-  "Windows: an oversized %s line terminates its owned launch before it exits on its own",
+  "Windows: an oversized %s line never reaches the launch output and the launch ends",
   async (stream) => {
-    const manager = createLaunchManager({ root: process.cwd() });
+    const lines: string[] = [];
+    const manager = createLaunchManager({
+      root: process.cwd(),
+      onOutput: (_name, line) => lines.push(line),
+    });
     try {
       const handle = await manager.start(
         PreviewLaunch.parse({
@@ -171,10 +176,9 @@ test.runIf(process.platform === "win32").each(["stdout", "stderr"])(
           ],
         }),
       );
-      const exited = await handle.process?.exited;
-      expect(exited?.code).not.toBe(0);
-      expect(exited?.code ?? exited?.signal).toBeDefined();
+      await handle.process?.exited;
       expect(manager.list()).toEqual([]);
+      expect(lines.filter((line) => line.startsWith("xxxx"))).toEqual([]);
     } finally {
       await manager.close();
     }
