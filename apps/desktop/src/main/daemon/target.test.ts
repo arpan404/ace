@@ -36,8 +36,9 @@ describe("which daemon the packaged app uses", () => {
       home: "/Users/me/.ace",
       entry: "/app/daemon/ace.mjs",
     });
-    expect(resolveTarget({ ACE_DESKTOP_DAEMON: "attach" }, options("win32", untouched, false)))
-      .toMatchObject({ kind: "attach" });
+    expect(
+      resolveTarget({ ACE_DESKTOP_DAEMON: "attach" }, options("win32", untouched, false)),
+    ).toMatchObject({ kind: "attach" });
   });
 
   it("uses a configured remote daemon on any platform", () => {

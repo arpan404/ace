@@ -6,7 +6,7 @@ import { readLocalDaemon } from "./probe.ts";
 const LockOwner = z.object({ pid: z.number().int().positive() });
 
 /** The pid in the home's `daemon-lock`, or undefined when there is no readable one. */
-async function lockOwner(home: string): Promise<number | undefined> {
+export async function lockOwner(home: string): Promise<number | undefined> {
   try {
     const parsed = LockOwner.safeParse(
       JSON.parse((await readFile(join(home, "daemon-lock"), "utf8")).slice(0, 256)),

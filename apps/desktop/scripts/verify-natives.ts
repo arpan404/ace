@@ -9,11 +9,15 @@ import { dist } from "./common.ts";
  */
 export async function verifyNatives(arch: Arch): Promise<void> {
   const ptyRoot = join(dist, "daemon/node_modules/node-pty");
-  // Windows runs no local daemon yet (no descriptor.node); it ships only the Node runtime.
+  // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
   const required = [
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
     ...(process.platform === "win32"
-      ? [join(dist, "runtime", "node.exe")]
+      ? [
+          join(dist, "runtime", "node.exe"),
+          join(dist, "daemon/descriptor.node"),
+          join(dist, "daemon/node_modules/koffi"),
+        ]
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
