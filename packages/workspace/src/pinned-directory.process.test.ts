@@ -17,8 +17,6 @@ import { expect, test, type TestContext } from "vitest";
 import { PinnedDirectory } from "./index.ts";
 
 const windowsOnly = test.runIf(process.platform === "win32");
-// File symlinks need a Windows privilege, and owner checks need POSIX mode bits.
-const posixOnly = test.skipIf(process.platform === "win32");
 /** A directory link: a junction on Windows, which needs no privilege; elsewhere a symlink. */
 function link(target: string, path: string): Promise<void> {
   return process.platform === "win32" ? symlink(target, path, "junction") : symlink(target, path);
@@ -46,27 +44,29 @@ test("publication follows its pinned inode when a pathname is replaced with a le
   }
 });
 
-posixOnly(
-  "bounded regular-file reads refuse links, directories and oversized files",
-  async ({ onTestFinished }) => {
-    const root = await mkdtemp(join(tmpdir(), "ace-pinned-read-"));
-    onTestFinished(() => rm(root, { recursive: true, force: true }));
-    await writeFile(join(root, "regular"), "safe", { mode: 0o600 });
-    await writeFile(join(root, "large"), "x".repeat(17));
-    await symlink("regular", join(root, "link"));
-    await mkdir(join(root, "directory"));
-    const directory = PinnedDirectory.atBoundary(root);
-    try {
-      expect(directory.readText("regular", 16, directory.stat().uid)).toBe("safe");
-      for (const name of ["link", "directory", "large"])
-        expect(() => directory.readText(name, 16)).toThrow();
-      expect(directory.empty()).toBe(false);
-      expect(directory.empty()).toBe(false);
-    } finally {
-      directory.closeSync();
-    }
-  },
-);
+test("bounded regular-file reads refuse links, directories and oversized files", async ({
+  onTestFinished,
+  skip,
+}) => {
+  // File symlinks need a Windows privilege, and owner checks need POSIX mode bits.
+  skip(process.platform === "win32");
+  const root = await mkdtemp(join(tmpdir(), "ace-pinned-read-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "regular"), "safe", { mode: 0o600 });
+  await writeFile(join(root, "large"), "x".repeat(17));
+  await symlink("regular", join(root, "link"));
+  await mkdir(join(root, "directory"));
+  const directory = PinnedDirectory.atBoundary(root);
+  try {
+    expect(directory.readText("regular", 16, directory.stat().uid)).toBe("safe");
+    for (const name of ["link", "directory", "large"])
+      expect(() => directory.readText(name, 16)).toThrow();
+    expect(directory.empty()).toBe(false);
+    expect(directory.empty()).toBe(false);
+  } finally {
+    directory.closeSync();
+  }
+});
 
 async function scratch(onTestFinished: TestContext["onTestFinished"]): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-pinned-")));
