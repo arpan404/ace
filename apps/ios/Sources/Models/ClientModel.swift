@@ -82,6 +82,7 @@ import QuartzCore
     let archive = ArchiveBrowserModel()
     /// New thread and Add project on this machine; the open thread's Files sheet.
     let compose = ComposeModel()
+    let suggestions = ComposerSuggestModel()
     let files = ThreadFilesModel()
     let terminal = TerminalScreenModel()
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
@@ -437,6 +438,7 @@ import QuartzCore
             case .gitDraft(let draft): sheets.draft = draft
             case .archiveList(let list): archive.apply(list)
             case .compose(let patch): compose.apply(patch)
+            case .composer(let patch): suggestions.apply(patch)
             case .files(let patch): files.apply(patch)
             case .transfers(let patch): transfers.apply(patch)
             case .screen(let id, let epoch, let screen):

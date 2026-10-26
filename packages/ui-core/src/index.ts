@@ -159,10 +159,33 @@ export * from "./continuation.ts";
 export {
   composerInput,
   editComposerTokens,
+  referenceContext,
   tokensFromInput,
   withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
+export {
+  actionKind,
+  attachmentsEntry,
+  catalogGroups,
+  commandArguments,
+  commandSuggestions,
+  heldReferences,
+  mentionSuggestions,
+  pickSuggestion,
+  referenceLimits,
+  suggestionToken,
+  tooManyReferences,
+  triggerAt,
+  type CommandScope,
+  type ComposerSuggestion,
+  type ComposerTrigger,
+  type HeldReferences,
+  type MentionScope,
+  type MentionTab,
+  type MentionThread,
+  type SuggestionPick,
+} from "./composer-suggestions.ts";
 
 export { threadIsRunning } from "./live-status.ts";
 export {

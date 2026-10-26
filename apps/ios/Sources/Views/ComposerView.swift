@@ -12,7 +12,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
-    let send: (String, Bool) async -> Bool
+    /// The words, whether to use the other delivery, and the references picked into them.
+    let send: (String, Bool, [Any]) async -> Bool
     let stop: () -> Void
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
@@ -21,9 +22,15 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var files = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
+    /// The `@` and `/` lists, and the + list's builtins; nil offers none.
+    var suggester: ComposerSuggester? = nil
+    /// The most the `@` and `/` list may take, so the message stays above the keyboard.
+    var suggestionHeight: CGFloat? = nil
+    /// A builtin picked from `/` or + that the screen runs (attach, plan, model, review).
+    var run: (String) -> Void = { _ in }
     @ViewBuilder var top: () -> Top
-    /// The + at the row's start.
-    @ViewBuilder var leading: () -> Leading
+    /// The + at the row's start; it is handed what picking one of the + list's rows does.
+    @ViewBuilder var leading: (_ pick: @escaping (SuggestionRow) -> Void) -> Leading
     /// The access mode, beside +.
     @ViewBuilder var access: () -> Access
     /// The model and its effort, before Send.
@@ -34,6 +41,9 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     @State private var feedback = 0
     @State private var wraps = false
     @State private var focused = false
+    @State private var place: CaretPlacement?
+    /// Why the last pick couldn't be made, until the words change.
+    @State private var notice: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
@@ -46,6 +56,15 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var body: some View {
         let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            if let suggester, suggester.trigger != nil {
+                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
+                    .transition(.opacity)
+            }
+            if let notice {
+                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.xs)
+            }
             top()
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
@@ -83,20 +102,36 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
-        .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
+        .onChange(of: mention) { _, picked in
+            guard let picked else { return }
+            draft.text = Mention.insert(picked.path, into: draft.text)
+            draft.add(.file(picked.path, endingAt: draft.text))
+        }
+        .onChange(of: draft.text) { _, _ in notice = nil }
+        .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
+        .onAppear { suggester?.active = true }
+        .onDisappear { suggester?.active = false }
         .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
     }
+    private func pick(_ row: SuggestionRow) {
+        suggester?.choose(row, text: $draft.text, place: $place, keep: { draft.add($0) }, notice: { notice = $0 }, run: run)
+    }
     private var plus: some View {
-        leading()
+        leading(pick)
             .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
             .contentShape(Rectangle())
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
                         wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,
-                        onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } })
+                        onFocus: { focus, duration in
+                            if !focus { suggester?.close() } else { suggester?.readAhead() }
+                            withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
+                        },
+                        onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
+                        place: place)
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -130,6 +165,14 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         return "Send message"
     }
     private func submit(alternate: Bool) {
-        Task { await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in await send(text, delivery == "alternate") } }
+        let suggester = suggester
+        let draft = draft
+        Task {
+            await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in
+                let saved = await send(text, delivery == "alternate", draft.picks.payload)
+                if saved { suggester?.sent() }
+                return saved
+            }
+        }
     }
 }

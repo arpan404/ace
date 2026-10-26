@@ -1,6 +1,7 @@
 import { AccessMode, KnownSpeed } from "@ace/protocol";
 import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
+import { References } from "./composer-references.ts";
 import { Picked } from "./thread-attachments.ts";
 import { RequestAnswer } from "./thread-requests.ts";
 
@@ -35,6 +36,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
      * waits for the daemon's answer; refused when the bridge no longer agrees.
      */
     continues: z.boolean().optional(),
+    /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
+    references: References.optional(),
     requestId,
   }),
   z.object({ type: z.literal("stop"), requestId }),
