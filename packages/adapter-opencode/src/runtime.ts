@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { discoverProvider, discoverProviders } from "@ace/provider-kit/discovery";
 import { spawnSupervised } from "@ace/provider-kit/process";
+import type { LaunchedTree } from "./launched-tree.ts";
 export type Runtime = {
   wallTime(): number;
   monotonic(): number;
@@ -12,6 +13,8 @@ export type Runtime = {
   schedule(callback: () => void, delayMs: number): () => void;
   /** Host platform; tests inject "win32" to cover the Windows launch path. */
   platform?: NodeJS.Platform;
+  /** Windows only: ties a shimmed server's pid to the tree ace launched. Loaded on demand. */
+  launchedTree?: LaunchedTree;
 };
 /** All nondeterminism enters through this I/O boundary. */
 export function runtime(overrides: Partial<Runtime> = {}): Runtime {
