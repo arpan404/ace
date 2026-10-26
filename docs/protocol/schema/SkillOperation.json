@@ -1,0 +1,313 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "list",
+          "type": "string"
+        },
+        "subscribe": {
+          "default": false,
+          "type": "boolean"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "read",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillAgent.json"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "body": {
+          "maxLength": 262144,
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "manual": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/SkillSlug.json"
+        },
+        "op": {
+          "const": "create",
+          "type": "string"
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "personal",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "project",
+                  "type": "string"
+                },
+                "workspaceId": {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                }
+              },
+              "required": [
+                "kind",
+                "workspaceId"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "name",
+        "description",
+        "body",
+        "scope",
+        "agents"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 262144,
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedHash": {
+          "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "manual": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "edit",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "expectedHash",
+        "description",
+        "body",
+        "manual"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillAgent.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "setAgents",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "agents"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedHash": {
+          "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "delete",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "expectedHash"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "checkUpdate",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "prepareUpdate",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedHash": {
+          "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "op": {
+          "const": "applyUpdate",
+          "type": "string"
+        },
+        "reviewId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "reviewId",
+        "expectedHash"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "cancelUpdate",
+          "type": "string"
+        },
+        "reviewId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "reviewId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ids": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillId.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "op": {
+          "const": "usage",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "ids"
+      ],
+      "type": "object"
+    }
+  ]
+}

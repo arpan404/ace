@@ -90,6 +90,7 @@ export interface Services {
   providerActivation?: Promise<void>;
   accountRegistry?: AccountRegistry;
   promptFiles?: import("@ace/commands").PromptFiles;
+  skillLibrary?: import("@ace/commands").SkillLibrary;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

@@ -177,6 +177,9 @@ export function daemonHandle({
     get promptFiles() {
       return services.promptFiles;
     },
+    get skillLibrary() {
+      return services.skillLibrary;
+    },
     get commands() {
       return services.commands;
     },

@@ -99,6 +99,7 @@ import {
   CommandsListResult,
   CommandsResolveResult,
 } from "./command-library.ts";
+import { SkillsRequest, SkillsResult, SkillsUnsubscribe, SkillsChanged } from "./skill-library.ts";
 import { z } from "zod";
 import { CoreClientMessage, CoreServerMessage } from "./wire-core.ts";
 
@@ -249,6 +250,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PromptFilesRequest,
   CatalogList,
   CatalogUnsubscribe,
+  SkillsRequest,
+  SkillsUnsubscribe,
   ...AccountsRequest.options,
   ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
@@ -344,6 +347,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   PromptFilesResponse,
   CatalogListResult,
   CatalogChanged,
+  SkillsResult,
+  SkillsChanged,
   ...AccountsResponse.options,
   ProviderAccountsResult,
   ...CursorAuthEvent.options,

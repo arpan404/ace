@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 101939,
-      "sha256": "410a2e4b07200d4d7d15bcfc83e195c1936ec6e914398733e4e8268038fc2ed4"
+      "bytes": 100844,
+      "sha256": "eb00438e98f1fa8764e913cb182a1b70c0388e454a3df8da1b8173faf22ee974"
     },
     "requests.md": {
-      "bytes": 100480,
-      "sha256": "69c363ad946cabaf47791c7a14cea8cb11d0b5414b81f1c8490ee4b19afd018d"
+      "bytes": 100899,
+      "sha256": "65db0ffefd782b9d8397a63046378d7c86ab596af3a9837b19daeb7a8d79927e"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -773,8 +773,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 57914,
-      "sha256": "b14e3b698524bf7f13d473b5e65dbe2909ec55c75fa12d53cdb62751a05f17a9"
+      "bytes": 58074,
+      "sha256": "7458fc8e2ea57939920771cf0b718344f0f232411cb1365d909888bc53c65049"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -973,8 +973,8 @@
       "sha256": "bfefc4bae05099ebab3859106a430e821a44f5bf011f9a0b6bd6f5d90d4e7d5b"
     },
     "schema/DeviceFailure.json": {
-      "bytes": 885,
-      "sha256": "3683c545a43acd0615aec3010f344463f3f7ec2fefef317d3f0e2aacd7efdfb4"
+      "bytes": 991,
+      "sha256": "28aa0cb08fd31245a8c725f44b131a8504e0631fcfc52eba2fc593bf7f0ea39b"
     },
     "schema/DeviceId.json": {
       "bytes": 158,
@@ -1021,8 +1021,8 @@
       "sha256": "98b93bfdb9c5c1a4e2fd753b48b538b6fca02d7447b0da93a4d6409eb1d698c5"
     },
     "schema/DeviceState.json": {
-      "bytes": 1922,
-      "sha256": "1a42bf3b1def78c34b45ec5d6de160c312080716eee74b815c096f743ccc1695"
+      "bytes": 1969,
+      "sha256": "bb200858fc463e9195ffccd8a5c3b3412a80196ffea98b92820777c25193233f"
     },
     "schema/DeviceToken.json": {
       "bytes": 174,
@@ -3321,8 +3321,8 @@
       "sha256": "96f7ffde0c6c3b738eb68f917fb1e0c02ec6d9ab85e074e1db31491567efe418"
     },
     "schema/ScreenTarget.json": {
-      "bytes": 1644,
-      "sha256": "12f87a05f27fb7e89b5aea45115ebe54755027f594e9fc8125d6d6ed5473fcb9"
+      "bytes": 1704,
+      "sha256": "1b52ee199568541a071296ec3f338fc78b16cc088d07e4a990c29b865540d328"
     },
     "schema/ScreenUIActInput.json": {
       "bytes": 1438,
@@ -3441,8 +3441,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 39176,
-      "sha256": "5ba2c1ba63530c68c9e43f0e6b48636ffd63ef921918730ed5ad793ddf4db9d9"
+      "bytes": 39331,
+      "sha256": "9ef5ac138c5bfe49a0d2f46be7232b4cabaf0e53724465f03d5c9050fb10d355"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -3535,6 +3535,78 @@
     "schema/SiteOrigin.json": {
       "bytes": 307,
       "sha256": "76aa52bbae211cbafbc38762b650f38aa92fec6cf848abd456ec2209ea54d24e"
+    },
+    "schema/SkillAgent.json": {
+      "bytes": 225,
+      "sha256": "11edf3391468409417cfc4d85efb42a34f7e17c8a36e3b9970aed988b802fef2"
+    },
+    "schema/SkillEntry.json": {
+      "bytes": 1295,
+      "sha256": "b549c015307f1c935e9e5425a3bc836b48993c58d1e393d8cb3c015e41bc30a4"
+    },
+    "schema/SkillErrorCode.json": {
+      "bytes": 323,
+      "sha256": "6842a694a01651d91a9c4215e0f62d01e2f3aeb6986e60e84782217c9194dc26"
+    },
+    "schema/SkillHash.json": {
+      "bytes": 172,
+      "sha256": "c35959ec52ac052b3e87c07e4c28c35c9fa745914e35cbb108b4d618849c4b06"
+    },
+    "schema/SkillId.json": {
+      "bytes": 174,
+      "sha256": "ca6d90269e1cf246d58e758d468be0eec031ae072ca585cc34e2a8db6ac52fa6"
+    },
+    "schema/SkillOperation.json": {
+      "bytes": 6863,
+      "sha256": "f11315a8d16c8ba13375fb6e307215e56893609765a35823205c8d269f462f57"
+    },
+    "schema/SkillPresence.json": {
+      "bytes": 641,
+      "sha256": "4df4bd88734401924fddbd9a4ea4fe30f9fafb18d513c03122b2e8db3d02c9c1"
+    },
+    "schema/SkillResult.json": {
+      "bytes": 3969,
+      "sha256": "cd60ff8892bdf723bd27296483420c36175290b9c0945dfd9b1d2ae1c5a83659"
+    },
+    "schema/SkillScope.json": {
+      "bytes": 218,
+      "sha256": "60d832c8755206b8080073d7834a0aeefc1c02d394ea95b135acaa8669bfd38e"
+    },
+    "schema/SkillSlug.json": {
+      "bytes": 221,
+      "sha256": "9a841db0440bdec4531a0eed96f02105f1f03dc3535babc06ba7ef3007ad8308"
+    },
+    "schema/SkillSource.json": {
+      "bytes": 592,
+      "sha256": "8e8eae3864a2eb46ab29a15ca542445173a09b90c85844ac1bce19c36e72e27c"
+    },
+    "schema/SkillUpdateFile.json": {
+      "bytes": 472,
+      "sha256": "66af0d3d4d82dc736377ced1d8fbb78a326b3c4c9ff877ce891ab2f4ab5fe760"
+    },
+    "schema/SkillUpdateReview.json": {
+      "bytes": 1025,
+      "sha256": "427393cc6b4a571b60bdcbe83398609f000b98c720171f7e45594345d5e3d04b"
+    },
+    "schema/SkillUsage.json": {
+      "bytes": 855,
+      "sha256": "cf75f8b54d1aa7104d933918f78306f950ff38b7e605b3208f26c0040efa8057"
+    },
+    "schema/SkillsChanged.json": {
+      "bytes": 576,
+      "sha256": "b020d461cfe9404de3d2430d8d94512b6792aa6826904a37a20147e672fd1ffd"
+    },
+    "schema/SkillsRequest.json": {
+      "bytes": 497,
+      "sha256": "c4d4140c7ce1c9f64534879dbffc40b433f20e6413db970afdee100830f9ca6b"
+    },
+    "schema/SkillsResult.json": {
+      "bytes": 440,
+      "sha256": "e98d7b6898e7413d24e34b2249fca89aa38f29f7d5373bf71b1688cba727fbf9"
+    },
+    "schema/SkillsUnsubscribe.json": {
+      "bytes": 396,
+      "sha256": "e571fc323c6c3b45429f141ce9a23d4d10f3f71ef3d0414278702cf7fdb21891"
     },
     "schema/SnapshotView.json": {
       "bytes": 295,
@@ -4465,10 +4537,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 915843,
-      "sha256": "bb6422c9f6f1dc2278ee0cf0e8babe31901a8edd2089da5e3e9ab46bb22bffc4"
+      "bytes": 931918,
+      "sha256": "66b906f1d04b4a9897621858ec7eba1f1ff473d59ce16126ac319c9103c1f6d5"
     }
   },
-  "input": "916feeead9d59c77a2c0356121e53e86ac091ea76dd982d260174850398c7ed6",
+  "input": "019b16a4cd26c293620e09b35c24e434c65e5227b2215ba3bc0683419456ec7b",
   "version": 1
 }
