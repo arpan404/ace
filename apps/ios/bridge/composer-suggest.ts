@@ -1,11 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import {
-  BrowserTabList,
-  ProviderKind,
-  ThreadId,
-  WorkspaceId,
-  type CatalogEntry,
-} from "@ace/protocol";
+import { BrowserTabList, ProviderKind, ThreadId, type CatalogEntry } from "@ace/protocol";
 import {
   commandArguments,
   commandSuggestions,
@@ -15,6 +9,7 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
+import { CatalogReads, type Target } from "./composer-catalog.ts";
 import { rowReference, suggestionRow, type RowSource } from "./composer-rows.ts";
 
 /*
@@ -96,18 +91,6 @@ export interface SuggestPorts {
   };
 }
 
-type Target =
-  | { type: "thread"; key: string; threadId: string; workspaceId: string; provider: ProviderKind }
-  | { type: "draft"; key: string; workspaceId: string; provider: ProviderKind };
-interface Catalog {
-  entries: readonly CatalogEntry[];
-  stale: boolean;
-  failed: boolean;
-  at: number;
-  reading: Promise<void> | undefined;
-  /** Re-reads asked while discovery is still running. */
-  retries: number;
-}
 const pause = 120;
 const fresh = 30_000;
 const staleRetry = 1_500;
@@ -116,7 +99,7 @@ const quiet = { timeoutMs: 15_000 };
 
 export class ComposerSuggest {
   readonly #ports: SuggestPorts;
-  readonly #catalogs = new Map<string, Catalog>();
+  readonly #catalogs: CatalogReads;
   readonly #recent = new Map<string, string[]>();
   #tabs: { threadId: string; at: number; tabs: MentionTab[] } | undefined;
   /** The newest query; anything older is never answered. */
@@ -127,6 +110,7 @@ export class ComposerSuggest {
 
   constructor(ports: SuggestPorts) {
     this.#ports = ports;
+    this.#catalogs = new CatalogReads(ports);
   }
 
   handle(raw: unknown): boolean {
@@ -136,7 +120,7 @@ export class ComposerSuggest {
     switch (action.kind) {
       case "prefetch": {
         const target = this.#target(action.scope);
-        if (target) void this.#catalog(target);
+        if (target) void this.#catalogs.read(target);
         break;
       }
       case "query":
@@ -256,7 +240,7 @@ export class ComposerSuggest {
     show();
     const catalog = this.#catalogs.get(target.key);
     if (!catalog || catalog.failed || catalog.stale || this.#ports.now() - catalog.at > fresh)
-      void this.#catalog(target).then(() => {
+      void this.#catalogs.read(target).then(() => {
         if (!current()) return;
         show();
         const read = this.#catalogs.get(target.key);
@@ -349,56 +333,6 @@ export class ComposerSuggest {
     } catch {
       return [];
     }
-  }
-
-  /** Read the target's catalog; one read at a time per target. */
-  #catalog(target: Target): Promise<void> {
-    const known = this.#catalogs.get(target.key);
-    if (known?.reading) return known.reading;
-    const catalog: Catalog = known ?? {
-      entries: [],
-      stale: false,
-      failed: false,
-      at: 0,
-      reading: undefined,
-      retries: 0,
-    };
-    this.#catalogs.set(target.key, catalog);
-    const read = async () => {
-      try {
-        const reply =
-          target.type === "thread"
-            ? await this.#ports.owner.request(
-                { type: "catalog.list", threadId: ThreadId.parse(target.threadId), limit: 512 },
-                quiet,
-              )
-            : await this.#ports.owner.request(
-                {
-                  type: "catalog.list",
-                  draft: {
-                    draftId: await this.#ports.draft.draftScope(target.workspaceId),
-                    workspaceId: WorkspaceId.parse(target.workspaceId),
-                    provider: target.provider,
-                  },
-                  limit: 512,
-                },
-                quiet,
-              );
-        // A transient empty read while discovery runs keeps the entries already shown.
-        if (!(reply.stale && !reply.entries.length && catalog.entries.length))
-          catalog.entries = reply.entries;
-        catalog.stale = reply.stale;
-        catalog.failed = false;
-        if (!reply.stale) catalog.retries = 0;
-        catalog.at = this.#ports.now();
-      } catch {
-        catalog.failed = true;
-      } finally {
-        catalog.reading = undefined;
-      }
-    };
-    catalog.reading = read();
-    return catalog.reading;
   }
 
   #arguments(row: string, typed: Record<string, string>): void {
