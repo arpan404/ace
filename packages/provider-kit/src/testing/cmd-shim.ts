@@ -65,6 +65,7 @@ export async function orphaningTree(directory: string): Promise<string> {
       'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
       '  stdio: "ignore",',
       "  windowsHide: true,",
+      "  detached: true,",
       "});",
       "child.unref();",
       "writeFileSync(process.env.ACE_TEST_TREE_PIDS, JSON.stringify({ agent: process.pid, child: child.pid }));",

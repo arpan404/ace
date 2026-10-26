@@ -179,6 +179,7 @@ test.runIf(process.platform === "win32")(
         'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
         '  stdio: "ignore",',
         "  windowsHide: true,",
+        "  detached: true,",
         "});",
         "child.unref();",
         `writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ child: child.pid }));`,

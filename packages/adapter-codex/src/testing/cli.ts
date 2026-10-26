@@ -19,6 +19,8 @@ if (process.env["ACE_FAKE_RESUME"] === "orphan-child" && process.platform === "w
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
     stdio: "ignore",
     windowsHide: true,
+    // Outside the job libuv gives non-detached children, so only ace can end it.
+    detached: true,
   });
   child.unref();
   writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex-child.pid"), String(child.pid));

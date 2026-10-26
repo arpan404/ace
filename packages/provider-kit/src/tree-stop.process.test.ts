@@ -9,7 +9,8 @@ import { stopTreeAfterEof } from "./tree-stop.ts";
 
 /*
  * Windows, with the kill-on-close job refused: a leader that ends itself on stdin EOF while a
- * child it started keeps running. Without the recorded tree that child would be orphaned.
+ * detached child it started keeps running (a non-detached Node child would die with libuv's own
+ * job). Without the recorded tree that child would be orphaned.
  */
 const windows = process.platform === "win32";
 const Pids = z.object({ leader: z.number().int().positive(), child: z.number().int().positive() });
@@ -38,6 +39,7 @@ async function orphaningLeader() {
       'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
       '  stdio: "ignore",',
       "  windowsHide: true,",
+      "  detached: true,",
       "});",
       "child.unref();",
       `writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ leader: process.pid, child: child.pid }));`,
@@ -98,6 +100,7 @@ test.runIf(windows)(
         'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
         '  stdio: "ignore",',
         "  windowsHide: true,",
+        "  detached: true,",
         "});",
         `writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ leader: process.pid, child: child.pid }));`,
         "endDescendantsSync();",
