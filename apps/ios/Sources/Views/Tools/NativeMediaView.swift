@@ -30,7 +30,7 @@ struct NativeMediaView: View {
             do {
                 let reply = try await model.service(request, as: NativeMediaReply.self)
                 if reply.kind == "html", let html = reply.document { document = html }
-                else if let encoded = reply.data, let data = Data(base64Encoded: encoded), let image = await MediaViewer.image(data) { picture = image }
+                else if let encoded = reply.data, let image = await MediaViewer.image(base64: encoded) { picture = image }
                 else { throw ServiceFailure(message: "The attachment couldn't be decoded.") }
                 problem = nil
             } catch { if !Task.isCancelled { problem = error.localizedDescription } }

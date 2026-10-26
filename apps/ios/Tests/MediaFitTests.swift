@@ -21,4 +21,26 @@ import Testing
     @Test func anImageWithoutASizeTakesNoSpace() {
         #expect(MediaFit.fitted(.zero, in: phone) == .zero)
     }
+
+    @Test func aLongScreenshotZoomsFarEnoughForItsWidthToFillTheScreen() {
+        let screenshot = CGSize(width: 1179, height: 20000)
+        let fitted = MediaFit.fitted(screenshot, in: phone)
+        let zoom = MediaFit.maximumZoom(fitted: fitted, in: phone)
+        #expect(abs(fitted.width * zoom - phone.width) < 0.01)
+    }
+
+    @Test func anOrdinaryPhotoStillZoomsToFourTimes() {
+        let fitted = MediaFit.fitted(CGSize(width: 4032, height: 3024), in: phone)
+        #expect(MediaFit.maximumZoom(fitted: fitted, in: phone) == 4)
+    }
+
+    @Test func aLongScreenshotDecodesAtItsFullWidthUnderTheAreaCap() {
+        let side = ImageDecoding.longSide(width: 1179, height: 20000, area: ImageDecoding.viewedArea)
+        #expect(side == 20000)
+    }
+
+    @Test func aHugePhotoShrinksToTheAreaCapKeepingItsShape() {
+        let side = ImageDecoding.longSide(width: 8000, height: 6000, area: 12_000_000)
+        #expect(side == 4000)
+    }
 }

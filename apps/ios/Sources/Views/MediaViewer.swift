@@ -1,4 +1,3 @@
-import ImageIO
 import SwiftUI
 
 /// One image full screen on a dark ground: fitted to the screen, pinch or double tap to zoom,
@@ -35,6 +34,8 @@ struct MediaViewer: View {
                 .accessibilityIdentifier("media.close")
         }
         .environment(\.colorScheme, .dark)
+        // VoiceOver's scrub gesture closes it too.
+        .accessibilityAction(.escape) { dismiss() }
         .task {
             guard image == nil else { return }
             image = await load()
@@ -42,30 +43,14 @@ struct MediaViewer: View {
         }
     }
 
-    /// The most pixels a viewed image keeps on its long side: sharp at 4× on a phone without
-    /// holding a camera original's full bitmap.
-    nonisolated static let pixels: CGFloat = 4096
-
-    /// A file on the phone, decoded off the main thread at most `pixels` on its long side.
+    /// A file on the phone, decoded for viewing off the main thread (`ImageDecoding.viewed`).
     static func image(at url: URL) async -> UIImage? {
-        await Task.detached(priority: .userInitiated) { downsampledImage(at: url, pixels: pixels) }.value
+        await Task.detached(priority: .userInitiated) { ImageDecoding.source(at: url).flatMap(ImageDecoding.viewed) }.value
     }
-    /// Bytes already read, decoded the same way.
-    static func image(_ data: Data) async -> UIImage? {
-        await Task.detached(priority: .userInitiated) { downsampledImage(data, pixels: pixels) }.value
+    /// Base64 bytes from the bridge, decoded from text and as an image together off the main thread.
+    static func image(base64: String) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            Data(base64Encoded: base64).flatMap(ImageDecoding.source).flatMap(ImageDecoding.viewed)
+        }.value
     }
-}
-
-/// The file at `url` as an image no larger than `pixels` on its long side; only the downsampled
-/// bitmap is ever held, never the full-size picture.
-nonisolated func downsampledImage(at url: URL, pixels: CGFloat) -> UIImage? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
-    let options = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: max(1, pixels),
-    ] as CFDictionary
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-    return UIImage(cgImage: image)
 }

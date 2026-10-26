@@ -9,8 +9,12 @@ enum MediaFit {
         let scale = min(bounds.width / image.width, bounds.height / image.height)
         return CGSize(width: image.width * scale, height: image.height * scale)
     }
-    /// How far a pinch or double tap can zoom past the fitted size.
-    static let maximumZoom: CGFloat = 4
+    /// How far a pinch or double tap can zoom past the fitted size: 4×, or more for a very long
+    /// or wide image, enough for its thin side to fill the screen.
+    static func maximumZoom(fitted: CGSize, in bounds: CGSize) -> CGFloat {
+        guard fitted.width > 0, fitted.height > 0 else { return 4 }
+        return max(4, bounds.width / fitted.width, bounds.height / fitted.height)
+    }
     /// Where a double tap zooms to.
     static let doubleTapZoom: CGFloat = 2.5
 }
@@ -50,7 +54,6 @@ final class ZoomingImageView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         decelerationRate = .fast
         bouncesZoom = true
         minimumZoomScale = 1
-        maximumZoomScale = MediaFit.maximumZoom
         backgroundColor = .clear
         imageView.contentMode = .scaleAspectFit
         imageView.isAccessibilityElement = true
@@ -84,8 +87,12 @@ final class ZoomingImageView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         fittedFor = bounds.size
         zoomScale = minimumZoomScale
         let size = MediaFit.fitted(imageView.image?.size ?? .zero, in: bounds.size)
+        maximumZoomScale = MediaFit.maximumZoom(fitted: size, in: bounds.size)
         imageView.frame = CGRect(origin: .zero, size: size)
         contentSize = size
+        // Centred from the start: a resize while zoomed must not leave it off to one side.
+        centre()
+        contentOffset = CGPoint(x: -contentInset.left, y: -contentInset.top)
         describeZoom()
     }
 
