@@ -267,3 +267,30 @@ it("a begin without the opt-in is refused as not enabled, even with the service 
   expect(ran).toEqual([]);
   expect(service.status).toMatchObject({ phase: "disabled", session: "locked" });
 });
+
+it("an attempt cancelled before it starts sends nothing to the service and never runs", async () => {
+  const { service, ran, work, run, types } = await setup();
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await expect(run({ work, signal: cancelled.signal })).rejects.toMatchObject({
+    code: "cancelled",
+  });
+  expect(types()).toEqual([]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled" });
+});
+
+it("an attempt cancelled while reading the status never enables the service", async () => {
+  const { service, ran, work, run, types } = await setup();
+  const cancelled = new AbortController();
+  service.handle("status", (fake, request) => {
+    cancelled.abort();
+    fake.reply(request);
+  });
+  await expect(run({ work, signal: cancelled.signal })).rejects.toMatchObject({
+    code: "cancelled",
+  });
+  expect(types()).toEqual(["status"]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled" });
+});

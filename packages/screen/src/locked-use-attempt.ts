@@ -96,12 +96,19 @@ function phaseFailure(phase: string): LockedUseAttemptError {
   );
 }
 
-/** Reads a fresh status, enabling the service first if it is off, and checks it can begin. */
+const cancelledBeforeStart = () => new LockedUseAttemptError("cancelled", `Cancelled. ${notRun}`);
+
+/**
+ * Reads a fresh status, enabling the service first if it is off, and checks it can begin.
+ * An attempt cancelled meanwhile (the setting turned off) never sends `enable`.
+ */
 async function readyStatus(
   connection: LockedUseConnection,
   optIn: boolean,
+  signal: AbortSignal | undefined,
 ): Promise<LockedUseServiceStatus> {
   let status = await connection.request({ type: "status" });
+  if (signal?.aborted) throw cancelledBeforeStart();
   if (status?.phase === "disabled") status = await connection.request({ type: "enable", optIn });
   if (!status) throw new Error("the service sent no status");
   if (!status.installation.verified)
@@ -131,9 +138,11 @@ export async function runProtectedAttempt<T>(
   connection: LockedUseConnection,
   attempt: ProtectedAttempt<T>,
 ): Promise<T> {
+  // Cancelled while queued: nothing is sent, not even a status read.
+  if (attempt.signal?.aborted) throw cancelledBeforeStart();
   let status: LockedUseServiceStatus;
   try {
-    status = await readyStatus(connection, attempt.optIn);
+    status = await readyStatus(connection, attempt.optIn, attempt.signal);
   } catch (error) {
     throw refused(error);
   }
