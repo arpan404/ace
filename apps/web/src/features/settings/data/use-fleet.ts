@@ -67,7 +67,7 @@ export function useFleet() {
           await linkMachine(from, to, "operate");
         } catch (error) {
           failures.push(
-            `${from.name} to ${to.name}: ${error instanceof Error ? error.message : "failed"}`,
+            error instanceof Error ? error.message : `${from.name} didn't link to ${to.name}.`,
           );
         }
       }
