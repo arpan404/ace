@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,7 @@ import {
   nativeHostTargets,
   windowsHostKeys,
   windowsLauncherScript,
+  windowsLocalAppData,
 } from "./native-hosts.ts";
 
 export interface NativeHostInstall {
@@ -128,7 +130,23 @@ export interface NativeHostRegistry {
 
 const windowsManifestPath = (dataDir: string) => join(userBrowserDir(dataDir), manifestName);
 
-async function windowsTargets(options: Omit<InstallOptions, "node" | "dataDir">) {
+type WindowsOptions = Omit<InstallOptions, "node" | "dataDir">;
+
+/** ace's per-user native host directory. Its path never holds the data directory's text. */
+const windowsHostsDir = (options: WindowsOptions) =>
+  join(windowsLocalAppData(options.home, options.env), "ace", "native-hosts");
+
+/**
+ * Chrome starts Windows hosts as `cmd /d /c ""<launcher>" <origin> ..."`, so cmd expands `%NAME%`
+ * (and `!NAME!` under delayed expansion) in the launcher's own path before it runs. The launcher
+ * lives in a short per-data-directory folder instead of the data directory.
+ */
+function windowsLauncherPath(options: Omit<InstallOptions, "node">): string {
+  const id = createHash("sha256").update(options.dataDir).digest("hex").slice(0, 16);
+  return join(windowsHostsDir(options), id, "ace-native-host.cmd");
+}
+
+async function windowsTargets(options: WindowsOptions) {
   if (options.extraDirs?.length)
     throw new Error("Windows native hosts use per-user registry keys, not profile directories");
   const found = [];
@@ -137,21 +155,79 @@ async function windowsTargets(options: Omit<InstallOptions, "node" | "dataDir">)
   return found;
 }
 
+const lockStaleMs = 30_000;
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Serializes this user's registry writes and removals across ace processes, so an uninstall's
+ * read-then-delete never removes a registration another data directory wrote in between. A lock
+ * whose owner has exited, or that is older than any registry update, is broken automatically.
+ */
+async function withRegistryLock<T>(options: WindowsOptions, work: () => Promise<T>): Promise<T> {
+  const dir = windowsHostsDir(options);
+  await mkdir(dir, { recursive: true });
+  const lock = join(dir, "registry.lock");
+  const owner = `${process.pid} ${randomUUID()}`;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await writeFile(lock, owner, { flag: "wx" });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const held = await readFile(lock, "utf8").catch(() => undefined);
+    const age = await stat(lock).then(
+      (info) => Date.now() - info.mtimeMs,
+      () => 0,
+    );
+    // An empty lock is one being written right now; only age makes it stale.
+    const pid = Number(held?.split(" ")[0]);
+    const stale =
+      held !== undefined &&
+      (age > lockStaleMs || (held !== "" && (!(pid > 0) || !processAlive(pid))));
+    // Re-read right before removing so a lock taken over meanwhile stays.
+    if (stale && (await readFile(lock, "utf8").catch(() => undefined)) === held)
+      await rm(lock, { force: true });
+    else await new Promise((resolve) => setTimeout(resolve, Math.min(20 * 2 ** attempt, 500)));
+  }
+  try {
+    return await work();
+  } finally {
+    if ((await readFile(lock, "utf8").catch(() => undefined)) === owner)
+      await rm(lock, { force: true });
+  }
+}
+
 async function installWindowsHost(options: InstallOptions): Promise<NativeHostInstall[]> {
   const found = await windowsTargets(options);
-  const launcher = launcherPath(options.dataDir, "win32");
-  await mkdir(dirname(launcher), { recursive: true, mode: 0o700 });
+  const launcher = windowsLauncherPath(options);
+  if (/[%!]/.test(launcher))
+    throw new Error(
+      `Use my Chrome can't install its host because Chrome's cmd.exe would rewrite % or ! in ${launcher}`,
+    );
+  await mkdir(dirname(launcher), { recursive: true });
   await writeFile(
     launcher,
     windowsLauncherScript({ node: options.node, entry: hostEntry(), dataDir: options.dataDir }),
   );
   const manifestPath = windowsManifestPath(options.dataDir);
+  await mkdir(dirname(manifestPath), { recursive: true, mode: 0o700 });
   const manifest = `${JSON.stringify(nativeHostManifest(launcher, [extensionOrigin]), null, 2)}\n`;
   await writeFile(manifestPath, manifest);
   if (found.length)
-    await (options.registry ?? hostRegistry).write(
-      found.map((target) => target.key),
-      manifestPath,
+    await withRegistryLock(options, () =>
+      (options.registry ?? hostRegistry).write(
+        found.map((target) => target.key),
+        manifestPath,
+      ),
     );
   return found.map(({ browser }) => ({ browser, manifestPath }));
 }
@@ -167,11 +243,7 @@ async function installedWindowsHosts(
       () => undefined,
     ),
   );
-  if (
-    !found.length ||
-    !parsed.success ||
-    parsed.data.path !== launcherPath(options.dataDir, "win32")
-  )
+  if (!found.length || !parsed.success || parsed.data.path !== windowsLauncherPath(options))
     return [];
   const values = await (options.registry ?? hostRegistry).read(found.map((target) => target.key));
   return found
@@ -182,12 +254,14 @@ async function installedWindowsHosts(
 async function uninstallWindowsHost(options: Omit<InstallOptions, "node">): Promise<void> {
   // The exact registered manifest path proves ownership, even after the manifest or profile is gone.
   const manifestPath = windowsManifestPath(options.dataDir);
-  await (options.registry ?? hostRegistry).remove(
-    windowsHostKeys(options.home, options.env).map((target) => target.key),
-    manifestPath,
+  await withRegistryLock(options, () =>
+    (options.registry ?? hostRegistry).remove(
+      windowsHostKeys(options.home, options.env).map((target) => target.key),
+      manifestPath,
+    ),
   );
   await rm(manifestPath, { force: true });
-  await rm(launcherPath(options.dataDir, "win32"), { force: true });
+  await rm(dirname(windowsLauncherPath(options)), { recursive: true, force: true });
 }
 
 function reg(args: readonly string[]): Promise<void> {
