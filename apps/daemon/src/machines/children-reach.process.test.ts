@@ -141,3 +141,19 @@ it("a child on a machine that turned agents off stays working, and says so", asy
     step: "Studio: agents from other machines are off there",
   });
 });
+
+it("a message sent again that its machine rejected before it reached the child is dropped, and the parent hears why", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("First pass done."));
+  await h.fire();
+  h.answers.resend = async () => ({ rejected: "Its thread was deleted on this machine." });
+  h.children.send(id, message("second"))(undefined);
+  await h.fire();
+  await h.fire();
+  expect(h.delivered.join("\n")).toContain(
+    "Your message was not taken there and will not run: Its thread was deleted on this machine.",
+  );
+  expect(h.resent).toEqual(["second"]);
+  expect(h.state(id)).toBe("done");
+});

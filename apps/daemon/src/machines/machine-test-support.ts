@@ -16,6 +16,7 @@ import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { commandContext } from "../commands.ts";
+import { MachineFailure, machineRequest, type MachineTransport } from "./transport.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -190,5 +191,50 @@ export async function pairedMachines(
     requestIn,
     answer,
     restartTarget,
+  };
+}
+
+/**
+ * The source's calls to the target, where message requests can be held before they reach it, as
+ * a request waiting in the target's access check is from the caller's side. `failCaller` makes
+ * the caller hear a dropped connection while its request is still on its way.
+ */
+export function gatedTransport() {
+  const gate = { closed: false, failCaller: false, onlyFirst: false, release: () => {} };
+  let opened = Promise.resolve();
+  let arrived: Promise<void> = Promise.resolve();
+  let held = 0;
+  let statusCalls = 0;
+  const transport: MachineTransport = async (profile, body, options) => {
+    if (body.call.op === "status") statusCalls++;
+    if (body.call.op !== "message" || !gate.closed || (gate.onlyFirst && held > 0))
+      return machineRequest(profile, body, options);
+    held++;
+    const arrives = opened.then(() => machineRequest(profile, body, options));
+    arrived = arrives.then(
+      () => undefined,
+      () => undefined,
+    );
+    if (!gate.failCaller) return arrives;
+    arrives.catch(() => undefined);
+    throw new MachineFailure("disconnected");
+  };
+  return {
+    transport,
+    gate,
+    held: () => held,
+    /** Settles once the held copies have reached the target and it answered. */
+    arrived: () => arrived,
+    statusCalls: () => statusCalls,
+    close() {
+      gate.closed = true;
+      opened = new Promise((resolve) => {
+        gate.release = () => resolve();
+      });
+    },
+    open() {
+      gate.closed = false;
+      gate.release();
+    },
   };
 }
