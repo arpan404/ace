@@ -225,6 +225,10 @@ export default defineConfig({
       "packages/mcp-server/src/discovery-fifo.process.test.ts",
       // Windows has no FIFOs.
       "packages/plugins/src/source-fifo.process.test.ts",
+      // These need scripts/process-test-setup.ts (daemon CLI build, openssl certificates, a Git
+      // template), which this suite doesn't run yet; their tlsHome is undefined here.
+      "apps/daemon/src/mcp-controls.server.process.test.ts",
+      "apps/daemon/src/transfers/transfer-admission.server.process.test.ts",
       // These write native paths into Git config text, which Git reads as bad escapes on
       // Windows; config-paths.process.test.ts runs the same cases with "/" paths.
       "packages/workspace/src/include-watch.process.test.ts",
