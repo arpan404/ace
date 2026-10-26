@@ -17,16 +17,17 @@ const releaseLine = "releases/[0123456789abcdefghijklmnopqrstuvwxyz.-]*";
  * ever reach the command line. The home is the folder above the script's own (`<home>\bin`), not
  * a literal: cmd.exe reads batch files in the OEM code page, so a profile path such as
  * `C:\Users\José` written into the file would be read back wrong. The file is the same for
- * every home.
+ * every home. findstr reads the pointer from stdin, as it cannot open a path outside the
+ * console code page (`C:\Users\日本`) itself.
  */
 function renderCmdLauncher(_root: string): string {
   return [
     "@echo off",
     "setlocal DisableDelayedExpansion",
     `for %%I in ("%~dp0..") do set "ACE_HOME=%%~fI"`,
-    `findstr /r /x /c:"${releaseLine}" "%ACE_HOME%\\current" >nul 2>nul || exit /b 1`,
-    `findstr /r /x /v /c:"${releaseLine}" "%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,
-    `findstr /l /c:".." "%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,
+    `findstr /r /x /c:"${releaseLine}" <"%ACE_HOME%\\current" >nul 2>nul || exit /b 1`,
+    `findstr /r /x /v /c:"${releaseLine}" <"%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,
+    `findstr /l /c:".." <"%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,
     `set "ACE_RELEASE_DIR="`,
     `set /p ACE_RELEASE_DIR=<"%ACE_HOME%\\current"`,
     `set "ACE_RELEASE_DIR=%ACE_HOME%\\%ACE_RELEASE_DIR:/=\\%"`,

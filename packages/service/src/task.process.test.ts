@@ -486,6 +486,21 @@ windows("Windows login task stop", () => {
   });
 });
 
+windows("Windows login task homes", () => {
+  test("a home whose path holds % is refused before a task is registered", () => {
+    const root = join(scratch, "100%PATH%");
+    expect(() =>
+      planTask({
+        dataDir: root,
+        executable: join(root, "bin", CMD_LAUNCHER),
+        path: "",
+        user: sid,
+        systemRoot: "C:\\Windows",
+      }),
+    ).toThrow(/must not contain %/);
+  });
+});
+
 windows("Windows launcher homes", () => {
   test("ace.cmd finds a home whose path is not plain ASCII or holds cmd.exe's special characters", async () => {
     for (const parent of ["José", "Zoë 日本", "John (Work) & Co", "100% ^done"]) {
@@ -554,7 +569,10 @@ windows("Windows standalone uninstall and PATH", () => {
     // The app made this home, so it carries the current format marker.
     await writeFile(
       join(root, HOME_FORMAT_FILE),
-      JSON.stringify({ format: formatName(HOME_FORMAT_VERSION), createdAt: "2026-01-01T00:00:00Z" }),
+      JSON.stringify({
+        format: formatName(HOME_FORMAT_VERSION),
+        createdAt: "2026-01-01T00:00:00Z",
+      }),
     );
     const written = `${before.value ?? ""};${join(root, "bin")}`;
     try {
