@@ -95,11 +95,9 @@ export function useSuggestions(
       threads,
       threadId: thread.id,
       workspaceId: thread.workspaceId,
-    }).map((item) => ({
-      ...item,
-      kind,
-      insert: item.path ? `@${item.path}` : `@${item.label}`,
-    }));
+    }).map((item) =>
+      Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
+    );
     if (!items.length && mentions.isPending) return { state: "loading", kind, query };
     if (!items.length && mentions.isError)
       return { state: "failed", kind, query, retry: () => void mentions.refetch() };
@@ -113,7 +111,7 @@ export function useSuggestions(
       provider,
       draft: !!thread.draft,
       adding,
-    }).map((item) => ({ ...item, kind, insert: item.entry?.name ?? item.label }));
+    }).map((item) => Object.assign(item, { kind, insert: item.entry?.name ?? item.label }));
     if (!items.length && catalog.stale) return { state: "loading", kind, query };
   }
   return items.length

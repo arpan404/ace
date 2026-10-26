@@ -93,11 +93,10 @@ test("typing / lists skills before commands and keeps builtins back until someth
   expect(rows.find((row) => row.entry?.name === "review")?.detail).toBe("Run saved prompt");
 });
 
+const names = (provider: "claude" | "codex", draft: boolean) =>
+  commandSuggestions(catalog, { query: "", provider, draft, adding: true }).map((row) => row.label);
+
 test("the + list holds only builtins, with plan mode for Claude alone and attachments once a thread exists", () => {
-  const names = (provider: "claude" | "codex", draft: boolean) =>
-    commandSuggestions(catalog, { query: "", provider, draft, adding: true }).map(
-      (row) => row.label,
-    );
   expect(names("claude", false)).toEqual([
     "Attach files",
     "Plan mode",
