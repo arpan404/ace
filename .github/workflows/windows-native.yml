@@ -457,13 +457,19 @@ jobs:
           -Second "$env:RUNNER_TEMP/installers/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe"
           -SecondVersion "${{ env.SECOND_VERSION }}"
 
+      - name: Gather app logs and desktop screenshots
+        if: always()
+        run: |
+          $out = "$env:RUNNER_TEMP/smoke-artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($dir in @("$env:APPDATA/ace-next/logs", "$env:USERPROFILE/.ace/logs", "$env:RUNNER_TEMP/screenshots")) {
+            if (Test-Path $dir) { Copy-Item -Recurse -Force $dir (Join-Path $out (Split-Path -Leaf (Split-Path -Parent $dir)) ) }
+          }
+
       - name: Upload app logs and desktop screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: installer-logs-${{ matrix.arch }}
-          path: |
-            ~/AppData/Roaming/ace-next/logs
-            ~/.ace/logs
-            ${{ runner.temp }}/screenshots
+          path: ${{ runner.temp }}/smoke-artifacts
           if-no-files-found: ignore
