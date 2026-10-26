@@ -43,12 +43,13 @@ describe("locked use privileged install", () => {
     expect(script).not.toMatch(/screensaver[\s\S]*mechanisms'\]\.append/);
   });
 
-  test("refuses unless the screensaver right is an EXPLICIT OR rule (no AND lockout)", () => {
+  test("edits only an OR rule (explicit k-of-n 1, or stock single-rule) and never an AND", () => {
     const script = buildInstallScript(artifacts);
-    // A missing k-of-n is AND to authd, so a defaulted 1 would risk a lockout; require it present.
-    expect(script).toContain("right.get('class') != 'rule' or right.get('k-of-n') != 1");
+    // Accept k-of-n 1, or a lone sub-rule with no k-of-n (authd reads that as OR); refuse a
+    // missing k-of-n with several sub-rules (AND), which would make password unlock need our plug-in.
+    expect(script).toContain("not (kofn == 1 or (kofn is None and len(rule) <= 1))");
     expect(script).toContain("sys.exit(3)");
-    // And keep OR semantics explicit in the written-back right.
+    // Make the OR explicit in the written-back right once it may hold more than one alternative.
     expect(script).toContain("right['k-of-n'] = 1");
   });
 
@@ -65,6 +66,11 @@ describe("locked use privileged install", () => {
     expect(script).toContain("codesign --verify --strict -R");
     expect(script).toContain('certificate leaf[subject.OU] = "ABCDE12345"');
     expect(script).toContain('identifier "dev.ace.locked-use.authority"');
+    // Verify at a staging path next to the destination, then mv into place — an unverified copy
+    // is never left where a daemon or the rule would load it; a symlinked source/copy is refused.
+    expect(script).toContain(".staging");
+    expect(script).toMatch(/codesign --verify[\s\S]*?mv -f/);
+    expect(script).toContain("test ! -L");
     const plist = daemonPlist(
       "dev.ace.locked-use.authorization",
       "/Library/Application Support/dev.ace.locked-use/ace-locked-use-authority",
@@ -99,7 +105,9 @@ describe("locked use privileged install", () => {
     expect(script).toContain(
       "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle",
     );
-    expect(script).toContain("|| exit 0");
+    // A missing screensaver right skips only the rule edit (if/fi), not the rest of removal.
+    expect(script).toContain("if security authorizationdb read 'system.login.screensaver'");
+    expect(script).toMatch(/authorizationdb remove 'dev\.ace\.locked-use\.permit'/);
   });
 
   test("a path with a quote cannot break out of its shell argument", () => {

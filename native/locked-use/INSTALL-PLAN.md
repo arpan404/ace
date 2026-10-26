@@ -60,6 +60,18 @@ Afterwards the detector must find no residue; if anything of ours remains, the f
 - The rule edit is additive and reversible; normal manual unlock and other authorization
   providers keep working.
 
+Each component is copied to a `.staging` path beside its destination, signature-checked there,
+and only then `mv`-ed into place, so a failed check never leaves an unverified file where a root
+daemon or the rule would load it. A symlinked source or staged copy is refused.
+
+## Known follow-up (gated on the real-Mac verification)
+
+- The rule edit currently shells out to `/usr/bin/python3`, which is only a stub on a Mac without
+  the Command Line Tools. Before shipping, move the plist edit to a compiled helper (e.g. a
+  subcommand of the already signature-checked broker) so install has no Python dependency.
+- A same-user process could, in principle, launch its own copy of the signed service; the broker
+  trust model (root-held opt-in / registration lock) is being hardened separately.
+
 ## What still needs the person (and a real Mac)
 
 1. Staging the signed native artifacts into the shipped app (plug-in bundle from

@@ -86,15 +86,27 @@ function signingRequirement(team: string, identifier: string): string {
   return `anchor apple generic and certificate leaf[subject.OU] = ${JSON.stringify(team)} and identifier ${JSON.stringify(identifier)}`;
 }
 
-/** Copy to a root-owned path, then verify its signature; a failed check aborts the script. */
+/**
+ * Copy to a root-owned staging path NEXT TO the destination, verify its signature there, and
+ * only then move it into place. A failed check aborts before the live path is touched, so an
+ * unverified binary is never left where a root daemon or the authorization rule would load it.
+ * The source must not be a symlink (which `codesign` would follow while the moved copy stays a
+ * link to a user-writable target), and neither must the staged copy.
+ */
 function stageSignedStep(source: string, destination: string, requirement: string): string {
+  const from = shellQuote(source);
   const to = shellQuote(destination);
+  const staging = shellQuote(`${destination}.staging`);
   return [
+    `test ! -L ${from}`,
+    `rm -rf ${staging}`,
+    `cp -R ${from} ${staging}`,
+    `test ! -L ${staging}`,
+    `chown -R root:wheel ${staging}`,
+    `chmod -R 755 ${staging}`,
+    `codesign --verify --strict -R ${shellQuote(`=${requirement}`)} ${staging}`,
     `rm -rf ${to}`,
-    `cp -R ${shellQuote(source)} ${to}`,
-    `chown -R root:wheel ${to}`,
-    `chmod -R 755 ${to}`,
-    `codesign --verify --strict -R ${shellQuote(`=${requirement}`)} ${to}`,
+    `mv -f ${staging} ${to}`,
   ].join("\n");
 }
 
@@ -175,16 +187,18 @@ function addRuleAlternativeStep(): string {
     "import sys, plistlib",
     "name = sys.argv[1]",
     "with open(sys.argv[2], 'rb') as handle: right = plistlib.loads(handle.read())",
-    // Refuse unless the right is explicitly an OR rule. A missing k-of-n is treated by authd as
-    // 'every listed rule must pass' (AND); appending our alternative there would make ordinary
-    // password unlock also require our plug-in, so refuse rather than risk a lockout.
-    "if right.get('class') != 'rule' or right.get('k-of-n') != 1:",
-    "    sys.stderr.write('screensaver right is not an explicit OR rule; refusing to edit'); sys.exit(3)",
     "rule = right.get('rule')",
     "rule = list(rule) if isinstance(rule, list) else ([rule] if isinstance(rule, str) else [])",
+    "kofn = right.get('k-of-n')",
+    // Only edit a right that is already an OR: either k-of-n is explicitly 1, or (the stock
+    // shape) there is at most one sub-rule and no k-of-n, which authd evaluates as OR. A missing
+    // k-of-n with several sub-rules is AND, where adding our alternative would make ordinary
+    // password unlock also require our plug-in — refuse that rather than risk a lockout.
+    "if right.get('class') != 'rule' or not (kofn == 1 or (kofn is None and len(rule) <= 1)):",
+    "    sys.stderr.write('screensaver right is not an OR rule; refusing to edit'); sys.exit(3)",
     "if name not in rule: rule.append(name)",
     "right['rule'] = rule",
-    // Keep the OR semantics explicit in what we write back.
+    // Make the OR explicit now that the rule may hold more than one alternative.
     "right['k-of-n'] = 1",
     "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
     "PY",
@@ -192,10 +206,14 @@ function addRuleAlternativeStep(): string {
   ].join("\n");
 }
 
-/** Removes our name from the screen-saver rule, leaving every other alternative in place. */
+/**
+ * Removes our name from the screen-saver rule, leaving every other alternative in place. Only
+ * this step is skipped when the right can't be read (it may already be gone); the surrounding
+ * removal continues to delete the permit right and the staged copies.
+ */
 function removeRuleAlternativeStep(): string {
   return [
-    `security authorizationdb read ${shellQuote(screensaverRight)} > "$work/right.plist" 2>/dev/null || exit 0`,
+    `if security authorizationdb read ${shellQuote(screensaverRight)} > "$work/right.plist" 2>/dev/null; then`,
     `/usr/bin/python3 - ${shellQuote(permitRight)} "$work/right.plist" "$work/right.next.plist" <<'PY'`,
     "import sys, plistlib",
     "name = sys.argv[1]",
@@ -206,6 +224,7 @@ function removeRuleAlternativeStep(): string {
     "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
     "PY",
     `security authorizationdb write ${shellQuote(screensaverRight)} < "$work/right.next.plist"`,
+    "fi",
   ].join("\n");
 }
 
