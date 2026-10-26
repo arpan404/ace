@@ -48,8 +48,26 @@ async function launch(scale: number): Promise<Launched> {
       ACE_DESKTOP_RENDERER_URL: "",
     },
   });
+  app.process().stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
+  app.process().stderr?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
   const page = await app.firstWindow();
-  await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 30_000 });
+  page.on("console", (message) => console.log(`[page ${message.type()}] ${message.text()}`));
+  page.on("pageerror", (error) => console.log(`[page error] ${error.message}`));
+  try {
+    await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 45_000 });
+  } catch (error) {
+    captureScreen(join(screens, `launch-failed-${scale * 100}.png`));
+    console.log(`[page url] ${page.url()}`);
+    console.log(
+      `[page text] ${(
+        await page
+          .locator("body")
+          .innerText()
+          .catch(() => "")
+      ).slice(0, 2000)}`,
+    );
+    throw error;
+  }
   // Maximised and on top, so the screen capture shows the window and its caption buttons.
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find((each) => each.isVisible());

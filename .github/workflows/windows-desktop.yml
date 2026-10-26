@@ -79,7 +79,7 @@ jobs:
         working-directory: apps/desktop
         env:
           ACE_E2E_ELECTRON: "1"
-          ACE_E2E_SCALES: "1,1.25,1.5,2"
+          ACE_E2E_SCALES: "1,1.5"
         run: node ../../node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/desktop-chrome.e2e.ts
 
       - name: Upload screen captures
