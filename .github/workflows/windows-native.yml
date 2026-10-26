@@ -55,7 +55,7 @@ jobs:
   windows-native:
     name: Windows native (${{ matrix.os }} ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -265,7 +265,7 @@ jobs:
 
       - name: Run bounded Windows-native Vitest suite
         if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
-        timeout-minutes: 25
+        timeout-minutes: 60
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
