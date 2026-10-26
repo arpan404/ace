@@ -47,7 +47,7 @@ export default defineConfig({
       "packages/provider-kit/src/process-owner.test.ts",
       "packages/provider-kit/src/process-owner.process.test.ts",
       "packages/provider-kit/src/process-inventory.restart.process.test.ts",
-      "packages/provider-kit/src/process-interactive.process.test.ts",
+      "packages/provider-kit/src/process-interactive.native.process.test.ts",
       "packages/provider-kit/src/discovery/executable.test.ts",
       "tools/release/src/pty-assets.test.ts",
       "tools/release/src/node-runtime.test.ts",
