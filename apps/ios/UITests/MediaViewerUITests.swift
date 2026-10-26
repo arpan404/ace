@@ -14,9 +14,11 @@ import XCTest
         XCTAssertTrue(library.waitForExistence(timeout: 10))
         library.tap()
         // The system picker draws out of process; its photos are images in its grid.
-        let photo = app.scrollViews.images.firstMatch
+        // The seeded photo keeps its source's capture date (2024); the simulator's own samples are older.
+        let photo = app.images.matching(NSPredicate(format: "label CONTAINS '2024'")).firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 20), "the photo picker shows the seeded photo")
-        photo.tap()
+        // The picker reports its cells as not hittable, so tap where the cell is.
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let add = app.buttons["Add"]
         if add.waitForExistence(timeout: 3) { add.tap() }
         let thumb = app.buttons["composer.media"].firstMatch
@@ -33,7 +35,8 @@ import XCTest
 
     func testASentImageOpensFittedZoomsAndDragsDownToClose() {
         let app = launchIntoThread()
-        let sent = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'attachment.image.'")).firstMatch
+        // The row names its parts after the message; the image is the button named for its file.
+        let sent = app.buttons["checkout.png"].firstMatch
         XCTAssertTrue(sent.waitForExistence(timeout: 20))
         sent.tap()
         checkViewer(app, name: "sent", close: false)
