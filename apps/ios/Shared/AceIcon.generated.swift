@@ -7,6 +7,7 @@ extension AceIcon {
         case archive = "archive"
         case arrowBendDownRight = "arrow-bend-down-right"
         case arrowBendUpLeft = "arrow-bend-up-left"
+        case arrowBendUpRight = "arrow-bend-up-right"
         case arrowCircleDown = "arrow-circle-down"
         case arrowCircleUp = "arrow-circle-up"
         case arrowClockwise = "arrow-clockwise"

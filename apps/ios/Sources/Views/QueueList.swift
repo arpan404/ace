@@ -29,7 +29,7 @@ struct QueueList: View {
                     if busy == message.id { ProgressView().controlSize(.mini) }
                     if canAct {
                         Menu {
-                            if canSteer { Button("Send now", ace: .arrowElbowDownRight) { run(message, ["kind": "steer"]) } }
+                            if canSteer { Button("Send now", ace: .arrowBendUpRight) { run(message, ["kind": "steer"]) } }
                             Button("Edit", ace: .pencilSimple) { words = message.text; editing = message }
                             if message.id != queue.messages.first?.id {
                                 Button("Move up", ace: .arrowUp) { run(message, ["kind": "move", "step": -1]) }
