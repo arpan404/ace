@@ -237,7 +237,7 @@ windows(
     // Exactly Chrome's command line; Chrome redirects the pipes inside it, here they are stdio.
     const child = spawn(
       process.env.ComSpec ?? "cmd.exe",
-      ["/d", "/c", `""${launcher}" ${extensionOrigin}/ --parent-window=0"`],
+      ["/d", "/c", `""${launcher}" ${extensionOrigin} --parent-window=0"`],
       { windowsVerbatimArguments: true, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
     );
     cleanups.push(async () => {
