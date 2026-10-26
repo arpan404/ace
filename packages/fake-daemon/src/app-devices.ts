@@ -149,7 +149,8 @@ export class FakeAppDevices {
   readonly acks: DeviceAck[] = [];
   /**
    * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
-   * for a device without one); none by default.
+   * for a device without one); none by default. A foldable's inner screen has its own, under
+   * the model with `:open` after it.
    */
   readonly chromes = new Map<string, DeviceChrome>();
   /** Every device a client asked the look of, in order. */
@@ -475,7 +476,12 @@ export class FakeAppDevices {
     if (operation.op === "chrome") {
       this.chromeAsks.push(session.device.id);
       const key = session.device.model ?? session.device.id;
-      return { chrome: this.chromes.get(key) ?? null };
+      const posture = operation.posture ?? this.folds.get(session.device.id);
+      const open = posture === "open" || posture === "partiallyOpen";
+      return {
+        chrome:
+          (open ? this.chromes.get(`${key}:open`) : undefined) ?? this.chromes.get(key) ?? null,
+      };
     }
     switch (operation.op) {
       case "controller":

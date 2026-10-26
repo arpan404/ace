@@ -133,6 +133,9 @@ export class DevicesService {
       } else if (changed) {
         this.emit(session);
         void this.refreshPosture(session);
+      } else if (!session.posture && device?.state === "booted") {
+        // A fold read made while the device was still booting finds nothing; ask again.
+        void this.refreshPosture(session);
       }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
@@ -179,7 +182,8 @@ export class DevicesService {
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
   private refreshPosture(session: DeviceSession): Promise<void> {
-    return this.options.platform
+    if (session.readingPosture) return session.readingPosture;
+    const reading = this.options.platform
       .posture(session.device)
       .then((posture) => {
         if (posture === session.posture) return;
@@ -187,7 +191,12 @@ export class DevicesService {
         else delete session.posture;
         this.emit(session);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (session.readingPosture === reading) delete session.readingPosture;
+      });
+    session.readingPosture = reading;
+    return reading;
   }
   /**
    * An agent acted on a device: viewers are told what it did and where, numbered so each action
@@ -419,7 +428,9 @@ export class DevicesService {
       const device = known(this.inventory.current()?.devices) ?? known(await this.list());
       if (!device)
         throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
-      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
+      const posture = operation.posture ?? this.sessions.get(device.id)?.posture;
+      const chrome = await this.options.platform.chrome(device, operation.format, posture);
+      return { chrome: chrome ?? null };
     }
     if (operation.op === "states")
       return {
