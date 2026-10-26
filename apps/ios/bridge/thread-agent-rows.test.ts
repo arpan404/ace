@@ -100,8 +100,8 @@ test("a waiting question reads as the agent asking it, then leaves for the work 
     },
   ]);
   open(connect(fake), "ask");
-  const openQuestion = await until(questionLine, "the question line");
-  expect(openQuestion).toEqual({
+  const question = await until(questionLine, "the question line");
+  expect(question).toEqual({
     asking: true,
     asker: "Codex",
     title: "Tabs or spaces?",

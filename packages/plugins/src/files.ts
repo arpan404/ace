@@ -1,16 +1,15 @@
 import { createHash } from "node:crypto";
 
 import { lstat, mkdir, opendir, realpath, writeFile, open } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { constants } from "node:fs";
-import { PinnedDirectory } from "@ace/workspace";
 import { limits, normalizePath } from "./manifest.ts";
 import type { PackageFile } from "./types.ts";
 
 export async function assertNoSymlinks(path: string): Promise<void> {
   const absolute = resolve(path);
   let current = parse(absolute).root;
-  for (const part of absolute.slice(current.length).split(sep)) {
+  for (const part of absolute.slice(current.length).split("/")) {
     current = join(current, part);
     try {
       if ((await lstat(current)).isSymbolicLink()) throw new Error(`Symlink forbidden: ${current}`);
@@ -40,28 +39,10 @@ export function isMissing(error: unknown): boolean {
 /** Proof that ace created a projection root; anything else is refused. */
 export const ownershipMarker = { name: ".ace-plugins-owned", contents: "ace-plugins-v1\n" };
 const marker = ownershipMarker.name;
-async function ownWindowsDirectory(root: string): Promise<string> {
-  const pinned = PinnedDirectory.atBoundary(root);
-  try {
-    try {
-      if (pinned.readPrivateText(marker, 64) !== ownershipMarker.contents)
-        throw new Error("Invalid ownership marker");
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-      if (!pinned.empty())
-        throw new Error(`Refusing to adopt a nonempty directory: ${root}`, { cause: error });
-      await pinned.writeExclusive(marker, ownershipMarker.contents);
-    }
-  } finally {
-    await pinned.close();
-  }
-  return realpath(root);
-}
 export async function ownDirectory(root: string): Promise<string> {
   if (!isAbsolute(root)) throw new Error("ace root must be absolute");
   await assertNoSymlinks(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
-  if (process.platform === "win32") return ownWindowsDirectory(root);
   const markerPath = join(root, marker);
   await assertNoSymlinks(markerPath);
   try {

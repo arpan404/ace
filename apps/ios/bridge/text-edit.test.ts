@@ -2,9 +2,7 @@ import { expect, test } from "vitest";
 import { itemPatch, textEdit } from "./text-edit.ts";
 
 const utf8 = (text: string) => Buffer.byteLength(text, "utf8");
-
-/** A thread item row holding `text`, as the bridge sends it. */
-const textRow = (text: string) => ({ id: "i", index: 3, complete: false, text });
+const row = (text: string) => ({ id: "i", index: 3, complete: false, text });
 
 /** What native holds after applying `edit` to `before`, as `ClientModel` does. */
 const apply = (before: string, edit: { base: number; cut: number; append: string }) => {
@@ -45,13 +43,7 @@ test("an edit never splits a surrogate pair", () => {
 
 test("a thread item becomes a text edit only against what native confirmed", () => {
   const before = `Streaming… ${"é".repeat(30)}`;
-  const patch = {
-    type: "thread.item",
-    id: "i",
-    threadId: "t",
-    epoch: 2,
-    row: textRow(`${before}on`),
-  };
+  const patch = { type: "thread.item", id: "i", threadId: "t", epoch: 2, row: row(`${before}on`) };
   expect(itemPatch(patch, undefined, utf8)).toBe(patch);
   // On the wire the edit counts UTF-8 bytes.
   expect(itemPatch(patch, before, utf8)).toEqual({
@@ -59,7 +51,7 @@ test("a thread item becomes a text edit only against what native confirmed", () 
     id: "i",
     threadId: "t",
     epoch: 2,
-    row: { ...textRow(""), text: "" },
+    row: { ...row(""), text: "" },
     base: utf8(before),
     cut: 0,
     append: "on",

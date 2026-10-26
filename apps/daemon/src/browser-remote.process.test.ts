@@ -41,57 +41,30 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
       return { client, deviceId: paired.device.id };
     };
     const { client: phone } = await connect(["read"]);
-    await browser.execute(f.thread.id, { action: "resize", width: 320, height: 200 });
-    await browser.execute(f.thread.id, {
-      action: "evaluate",
-      expression:
-        "window.__aceRemote=true; window.__aceRemoteTick=0; (function tick(){ if (!window.__aceRemote) return; document.body.style.background='rgb('+((++window.__aceRemoteTick)%255)+',40,90)'; requestAnimationFrame(tick)})(); 'animating'",
-    });
-    const first = phone.nextStream((message) => message.kind === "browser.video");
     expect(
       await phone.request({
         type: "browser.subscribe",
         requestId: "watch",
         threadId: f.thread.id,
         binaryFrames: true,
-        viewport: { width: 320, height: 200, devicePixelRatio: 1 },
-        video: { codecs: ["vp8"] },
+        viewport: { width: 390, height: 600, devicePixelRatio: 3 },
+        video: { codecs: ["avc1.42E033", "vp8"] },
       }),
     ).toMatchObject({ ok: true });
-    const delivered = await first;
-    if (delivered.kind !== "browser.video") throw new Error("No remote video");
-    expect(delivered.chunk.key).toBe(true);
-    expect(delivered.chunk.codec).toBe("vp8");
-    expect(delivered.chunk).toMatchObject({
-      width: 320,
-      height: 200,
-      codedWidth: 320,
-      codedHeight: 200,
-    });
-    expect(delivered.chunk.bytes.length).toBeGreaterThan(0);
+    // The phone watches the live view as video, starting at a keyframe.
+    const delivered = await phone.nextStream((message) =>
+      message.kind === "browser.video" && message.threadId === f.thread.id
+        ? message.chunk
+        : undefined,
+    );
+    expect(delivered.key).toBe(true);
+    expect(delivered.bytes.length).toBeGreaterThan(0);
     phone.send({
       type: "browser.ack",
       requestId: "ack",
       threadId: f.thread.id,
-      sequence: delivered.chunk.sequence,
+      sequence: delivered.sequence,
       video: true,
-    });
-    const continued = await phone.nextStream(
-      (message) =>
-        message.kind === "browser.video" && message.chunk.sequence > delivered.chunk.sequence,
-    );
-    if (continued.kind !== "browser.video") throw new Error("No continued remote video");
-    expect(continued.chunk.bytes.length).toBeGreaterThan(0);
-    phone.send({
-      type: "browser.ack",
-      requestId: "ack-continued",
-      threadId: f.thread.id,
-      sequence: continued.chunk.sequence,
-      video: true,
-    });
-    await browser.execute(f.thread.id, {
-      action: "evaluate",
-      expression: "window.__aceRemote=false; 'stopped'",
     });
     expect(
       await phone.request({

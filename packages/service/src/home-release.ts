@@ -1,8 +1,7 @@
-import { lstatSync, readFileSync, renameSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { renderLauncher } from "./launcher.ts";
-import { readReleasePointerSync } from "./release-pointer.ts";
 
 /** Whether anything, a dangling pointer included, is at `path`. */
 function present(path: string): boolean {
@@ -25,7 +24,7 @@ const installation = ["releases", "current", "previous", "bin"] as const;
 function carriedVersion(backup: string, home: string): string | undefined {
   try {
     if (present(join(backup, "update.json"))) return undefined;
-    const target = ReleaseDirectory.parse(readReleasePointerSync(join(backup, "current")));
+    const target = ReleaseDirectory.parse(readlinkSync(join(backup, "current")));
     const release = InstalledRelease.parse(
       JSON.parse(readFileSync(join(backup, target, "release.json"), "utf8").slice(0, 16 * 1024)),
     );

@@ -4,10 +4,7 @@ import { readBoundedText } from "./bounded-file.ts";
 
 import { PreviewPort } from "@ace/protocol/preview";
 /** Listener tables are snapshots, not history. Malformed OS rows are ignored. */
-export function parseListeningPorts(
-  text: string,
-  format: "lsof" | "proc" | "netstat",
-): Set<number> {
+export function parseListeningPorts(text: string, format: "lsof" | "proc"): Set<number> {
   if (text.length > 4_194_304) throw new Error("Listener table exceeds limit");
   const ports = new Set<number>();
   for (const line of text.split("\n")) {
@@ -15,35 +12,15 @@ export function parseListeningPorts(
     if (format === "lsof") {
       const match = /^n.*:(\d+)(?:\s|$)/.exec(line);
       if (match?.[1]) candidate = Number(match[1]);
-    } else if (format === "proc") {
+    } else {
       const fields = line.trim().split(/\s+/);
       if (fields[3] === "0A") candidate = Number.parseInt(fields[1]?.split(":")[1] ?? "", 16);
-    } else {
-      candidate = parseNetstatListeningPort(line);
     }
     if (candidate === undefined) continue;
     const result = PreviewPort.safeParse(candidate);
     if (result.success) ports.add(result.data);
   }
   return ports;
-}
-/**
- * One `netstat -a -n -o` row (Microsoft Learn `netstat` reference: Proto, Local
- * Address, Foreign Address, State columns). Only TCP rows (TCP and TCPv6, so UDP
- * rows never qualify) in a listening state contribute a port. The reference lists
- * the state as LISTEN while netstat.exe prints LISTENING; both are accepted.
- */
-function parseNetstatListeningPort(line: string): number | undefined {
-  const fields = line.trim().split(/\s+/);
-  if (fields.length < 4) return undefined;
-  if (fields[0] !== "TCP" && fields[0] !== "TCPv6") return undefined;
-  const state = fields[3]?.toUpperCase();
-  if (state !== "LISTENING" && state !== "LISTEN") return undefined;
-  const local = fields[1] ?? "";
-  if (!local.includes(":")) return undefined;
-  const portText = local.slice(local.lastIndexOf(":") + 1);
-  if (!/^\d+$/.test(portText)) return undefined;
-  return Number(portText);
 }
 export async function discoverListeningPorts(
   platform: NodeJS.Platform = process.platform,
@@ -65,14 +42,6 @@ export async function discoverListeningPorts(
       }),
     ]);
     return parseListeningPorts(tables.join("\n"), "proc");
-  }
-  if (platform === "win32") {
-    const output = await probeOutput("netstat", ["-a", "-n", "-o"], {
-      maxBytes: 4_194_304,
-      timeoutMs: 5000,
-    });
-    if (output.code !== 0) throw new Error("netstat listener discovery failed");
-    return parseListeningPorts(output.stdout, "netstat");
   }
   throw new Error(`Unsupported preview discovery platform: ${platform}`);
 }

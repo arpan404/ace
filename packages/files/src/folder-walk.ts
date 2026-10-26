@@ -1,6 +1,6 @@
 import { lstat, opendir, readlink, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { PinnedDirectory, sameFile, type FileIdentity } from "@ace/workspace/pinned-directory";
+import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { checkAborted, FolderArchiveError } from "./folder-errors.ts";
 import { linkRoute } from "./folder-link.ts";
 
@@ -14,8 +14,8 @@ export interface FolderMember {
   size: number;
   mode: number;
   mtime: number;
-  /** The file this member was read as; checked again whenever it is opened. */
-  identity: FileIdentity;
+  dev: number;
+  ino: number;
   link?: string;
 }
 export interface FolderWalk {
@@ -113,12 +113,13 @@ export class FolderReader {
       size: kind === "file" ? info.size : 0,
       mode: info.mode & 0o7777,
       mtime: info.mtime,
-      identity: info.identity,
+      dev: info.dev,
+      ino: info.ino,
     };
     if (kind === "symlink") {
       const target = await readlink(join(this.canonical, path));
       const after = directory.metadata(name);
-      if (!sameFile(after.identity, info.identity))
+      if (after.ino !== info.ino || after.dev !== info.dev)
         throw new FolderArchiveError("CHANGED", "Link changed while reading", path);
       if (!(await this.inside(path, target))) {
         this.skipped++;
@@ -132,7 +133,7 @@ export class FolderReader {
   open(member: FolderMember): PinnedDirectory {
     const child = member.parent.child(member.name);
     const opened = child.stat();
-    if (!sameFile(opened.identity, member.identity)) {
+    if (opened.ino !== member.ino || opened.dev !== member.dev) {
       child.closeSync();
       throw new FolderArchiveError("CHANGED", "Folder changed", member.path);
     }

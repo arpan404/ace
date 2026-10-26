@@ -7,7 +7,6 @@ function host(
   env: NodeJS.ProcessEnv = {},
 ): ShellSelectionPorts {
   return {
-    platform: "linux",
     accountShell: () => account,
     env,
     exists: (path) => installed.includes(path),

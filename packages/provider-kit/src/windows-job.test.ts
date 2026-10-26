@@ -1,162 +1,111 @@
 import { expect, test } from "vitest";
-import {
-  createKillOnCloseJob,
-  createRetainedWindowsJob,
-  type WindowsJobApi,
-} from "./windows-job.ts";
+import { createKillOnCloseJob, killOnCloseInfo, type WindowsJobApi } from "./windows-job.ts";
 
-function fixture(
-  options: { arm?: boolean; join?: boolean; handle?: unknown; closeFails?: boolean } = {},
-) {
-  const jobHandle = { kind: "job" };
-  const processHandle = { kind: "process" };
-  const state = {
-    held: false,
-    processHeld: false,
-    loaded: true,
-    failUnload: false,
-    failProcessClose: false,
-    members: 0,
-    failClose: options.closeFails ?? false,
-  };
-  const api: WindowsJobApi = {
-    create() {
-      const handle = Object.hasOwn(options, "handle") ? options.handle : jobHandle;
-      state.held = handle === jobHandle;
-      return handle;
+function fakeApi(
+  behavior: { arm?: boolean; join?: boolean; openThrows?: boolean } = {},
+): WindowsJobApi & { calls: string[] } {
+  const calls: string[] = [];
+  const job = { handle: "job" };
+  const target = { handle: "process" };
+  return {
+    calls,
+    create: () => {
+      calls.push("create");
+      return job;
     },
-    setKillOnClose: () => options.arm ?? true,
-    openProcess() {
-      state.processHeld = true;
-      return processHandle;
+    setKillOnClose: () => {
+      calls.push("setKillOnClose");
+      return behavior.arm ?? true;
     },
-    assignProcess() {
-      if (options.join === false) return false;
-      state.members++;
-      return true;
+    openProcess: () => {
+      calls.push("openProcess");
+      if (behavior.openThrows === true) throw new Error("access denied");
+      return target;
     },
-    close(handle) {
-      if (handle === processHandle) {
-        if (!state.processHeld) throw new Error("Process handle closed twice");
-        if (state.failProcessClose) throw new Error("process close denied");
-        state.processHeld = false;
-      } else if (handle === jobHandle) {
-        if (!state.held) throw new Error("Job handle closed twice");
-        if (state.failClose) throw new Error("close denied");
-        state.held = false;
-        state.members = 0;
-      } else throw new Error("Invalid close");
+    assignProcess: () => {
+      calls.push("assignProcess");
+      return behavior.join ?? true;
     },
-    activeCount: () => state.members,
-    terminate() {
-      state.members = 0;
+    close: () => {
+      calls.push("close");
     },
-    unload() {
-      if (state.failUnload) throw new Error("unload denied");
-      state.loaded = false;
+    unload: () => {
+      calls.push("unload");
     },
   };
-  return { api, state };
 }
 
-test("a retained job owns descendants until termination even after its leader leaves", () => {
-  const { api, state } = fixture();
-  const job = createRetainedWindowsJob(() => api);
-  job.assign(4242);
-  state.members = 2;
-  state.members--; // The leader exits; one descendant remains.
-  expect(job.activeCount()).toBe(1);
-  expect(state.processHeld).toBe(false);
-  job.terminate();
-  expect(job.activeCount()).toBe(0);
-  job.dispose();
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(false);
+test("the limit block arms kill-on-close at the documented offset", () => {
+  const info = killOnCloseInfo();
+  // JOBOBJECT_BASIC_LIMIT_INFORMATION: 8 + 8 + LimitFlags at 16, tail follows the pointer width.
+  expect(info.length).toBe(process.arch === "ia32" ? 44 : 56);
+  expect(info.readUInt32LE(16)).toBe(0x2000);
+  expect(info.subarray(0, 16).every((byte) => byte === 0)).toBe(true);
+  expect(info.subarray(20).every((byte) => byte === 0)).toBe(true);
 });
 
-test("a denied assignment is visible and releases the process handle", () => {
-  const { api, state } = fixture({ join: false });
-  const job = createRetainedWindowsJob(() => api);
-  expect(() => job.assign(4242)).toThrow("assignment failed");
-  expect(state.processHeld).toBe(false);
-  expect(job.activeCount()).toBe(0);
-  job.dispose();
-});
-
-test("failed job setup closes the created handle and unloads the library", () => {
-  const { api, state } = fixture({ arm: false });
-  expect(() => createRetainedWindowsJob(() => api)).toThrow("setup failed");
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(false);
-});
-
-test.each([null, undefined, 0, 0n])("a null job cannot masquerade as containment: %s", (handle) => {
-  const { api, state } = fixture({ handle });
-  expect(() => createRetainedWindowsJob(() => api)).toThrow("creation failed");
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(false);
-});
-
-test("a failed close keeps ownership available for a later shutdown retry", () => {
-  const { api, state } = fixture({ closeFails: true });
-  const job = createRetainedWindowsJob(() => api);
-  job.assign(4242);
-  expect(() => job.dispose()).toThrow("close denied");
-  expect(state.held).toBe(true);
-  expect(state.loaded).toBe(true);
-  expect(job.activeCount()).toBe(1);
-  state.failClose = false;
-  job.dispose();
-  job.dispose();
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(false);
-  expect(() => job.assign(4242)).toThrow("closed");
-});
-
-test("optional containment keeps the existing tree fallback on setup and join failure", () => {
-  const failed = fixture({ arm: false });
-  expect(createKillOnCloseJob(() => failed.api)).toBeUndefined();
-  expect(failed.state.held).toBe(false);
-  const denied = fixture({ join: false });
-  const job = createKillOnCloseJob(() => denied.api);
+test("a tree joins its job and the job is released on disposal", () => {
+  const api = fakeApi();
+  const job = createKillOnCloseJob(() => api);
   expect(job).toBeDefined();
+  job?.assign(4242);
+  job?.dispose();
+  expect(api.calls).toEqual([
+    "create",
+    "setKillOnClose",
+    "openProcess",
+    "assignProcess",
+    "close",
+    "close",
+    "unload",
+  ]);
+});
+
+test("a missing Job Object platform keeps the tree stop as the owner", () => {
+  const api = fakeApi();
+  expect(
+    createKillOnCloseJob(() => {
+      throw new Error("kernel32 unavailable");
+    }),
+  ).toBeUndefined();
+  expect(api.calls).toEqual([]);
+});
+
+test("an unarmable job unloads without holding a handle", () => {
+  const api = fakeApi({ arm: false });
+  expect(createKillOnCloseJob(() => api)).toBeUndefined();
+  expect(api.calls).toEqual(["create", "setKillOnClose", "unload"]);
+});
+
+test("a denied join keeps the tree stop and still releases the job", () => {
+  const api = fakeApi({ join: false });
+  const job = createKillOnCloseJob(() => api);
   expect(() => job?.assign(4242)).not.toThrow();
   job?.dispose();
-  expect(denied.state.held).toBe(false);
+  expect(api.calls).toEqual([
+    "create",
+    "setKillOnClose",
+    "openProcess",
+    "assignProcess",
+    "close",
+    "close",
+    "unload",
+  ]);
 });
 
-test("a failed library unload retries without reopening or double-closing the job", () => {
-  const { api, state } = fixture();
-  const job = createRetainedWindowsJob(() => api);
-  state.failUnload = true;
-  expect(() => job.dispose()).toThrow("unload denied");
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(true);
-  expect(() => job.activeCount()).toThrow("closed");
-  state.failUnload = false;
-  job.dispose();
-  expect(state.loaded).toBe(false);
+test("an opener failure keeps the tree stop and still releases the job", () => {
+  const api = fakeApi({ openThrows: true });
+  const job = createKillOnCloseJob(() => api);
+  expect(() => job?.assign(4242)).not.toThrow();
+  job?.dispose();
+  expect(api.calls).toEqual(["create", "setKillOnClose", "openProcess", "close", "unload"]);
 });
 
-test("assignment and cleanup failures remain visible and retained handles can retry", () => {
-  const { api, state } = fixture({ join: false });
-  const job = createRetainedWindowsJob(() => api);
-  state.failProcessClose = true;
-  let failure: unknown;
-  try {
-    job.assign(4242);
-  } catch (error) {
-    failure = error;
-  }
-  if (!(failure instanceof AggregateError)) throw new Error("Expected both failures");
-  expect(failure.cause).toBeInstanceOf(Error);
-  expect(
-    failure.errors.map((error: unknown) => (error instanceof Error ? error.message : "invalid")),
-  ).toEqual(["Windows job assignment failed", "process close denied"]);
-  expect(state.processHeld).toBe(true);
-  state.failProcessClose = false;
-  job.dispose();
-  expect(state.processHeld).toBe(false);
-  expect(state.held).toBe(false);
-  expect(state.loaded).toBe(false);
+test("disposal releases the handle once and later joins are ignored", () => {
+  const api = fakeApi();
+  const job = createKillOnCloseJob(() => api);
+  job?.dispose();
+  job?.dispose();
+  job?.assign(4242);
+  expect(api.calls).toEqual(["create", "setKillOnClose", "close", "unload"]);
 });
