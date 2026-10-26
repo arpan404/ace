@@ -1,8 +1,8 @@
 import { access } from "node:fs/promises";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { expect, it } from "vitest";
-import { Helper, screenHelperPath, windowsEndpoint, type Frame } from "./index.ts";
-import { deferred, fakeCommand, ids, target, v2Helper } from "./testing/support.ts";
+import { Helper, type Frame } from "./index.ts";
+import { deferred, fakeCommand, ids, target } from "./testing/support.ts";
 it("the supervised helper correlates concurrent commands and receives fragmented binary frames", async () => {
   const received = deferred<Frame>();
   const errors: Error[] = [];
@@ -87,87 +87,5 @@ it("a liveness deadline terminates a silent helper and rejects outstanding work"
     expect(callbacks.size).toBe(0);
   } finally {
     await helper.close();
-  }
-});
-it("Windows resolves its installed executable and validates local pipe identifiers", () => {
-  expect(screenHelperPath("C:\\ace-data", "win32")).toBe(
-    "C:\\ace-data\\helpers\\screen\\ace-screen-helper-windows.exe",
-  );
-  expect(windowsEndpoint("abc-123")).toBe("pipe:\\\\.\\pipe\\ace-screen-abc-123");
-  expect(() => windowsEndpoint("../bad")).toThrow();
-  expect(() => screenHelperPath("/data", "freebsd")).toThrow();
-});
-it("v2 negotiates capabilities and receives fragmented frames from a helper-owned endpoint", async () => {
-  const f = await v2Helper("win32");
-  const frame = deferred<Frame>();
-  const failures: Error[] = [];
-  const helper = await Helper.open({
-    ...f.options,
-    onFrame: frame.resolve,
-    onFailure: (error) => failures.push(error),
-  });
-  try {
-    expect(helper.capabilities?.platform).toBe("windows");
-    expect(await helper.request({ op: "permissions" })).toEqual({
-      screenRecording: true,
-      accessibility: true,
-    });
-    await helper.request({
-      op: "start",
-      sessionId: "s",
-      target,
-      allowlist: [target.bundleId],
-      fps: 10,
-    });
-    const received = await frame.promise;
-    expect(received.header.sequence).toBe(0);
-    expect(received.header.timestamp).toBe(1000);
-    expect(received.header.scale).toBe(1.5);
-    expect(received.payload.toString()).toBe("v2-jpeg-0");
-    const length = received.packet.readUInt32BE();
-    expect(JSON.parse(received.packet.subarray(4, 4 + length).toString())).toMatchObject({
-      version: 2,
-      scale: 1.5,
-    });
-    expect(failures).toEqual([]);
-    await expect(
-      helper.requestV2({ op: "ui.act", ref: "busy", action: "press" }),
-    ).rejects.toMatchObject({ code: "busy", message: "UAC active" });
-    expect(await helper.request({ op: "targets" })).toMatchObject({ windows: [{ windowId: 1 }] });
-  } finally {
-    await helper.close();
-    await f.clean();
-  }
-});
-it("an incompatible capability version closes the helper before capture", async () => {
-  const f = await v2Helper("win32", { BAD_VERSION: "1" });
-  try {
-    await expect(
-      Helper.open({ ...f.options, onFrame: () => {}, onFailure: () => {} }),
-    ).rejects.toThrow();
-  } finally {
-    await f.clean();
-  }
-});
-it("an oversized UTF-8 command is rejected without killing the helper", async () => {
-  const f = await v2Helper("win32");
-  const helper = await Helper.open({ ...f.options, onFrame: () => {}, onFailure: () => {} });
-  try {
-    await expect(
-      helper.request({
-        op: "start",
-        sessionId: "s",
-        target,
-        fps: 10,
-        allowlist: Array.from({ length: 64 }, () => "字".repeat(400)),
-      }),
-    ).rejects.toMatchObject({ code: "bounds" });
-    expect(await helper.request({ op: "permissions" })).toEqual({
-      screenRecording: true,
-      accessibility: true,
-    });
-  } finally {
-    await helper.close();
-    await f.clean();
   }
 });

@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
-import { v2Fixture } from "./testing/support.ts";
+import { windowsFixture } from "./testing/windows-fixture.ts";
 it.each(["nodes", "depth", "findChildren", "findCount", "states"])(
   "public UI reads reject %s invalid or over-limit helper replies",
   async (mode) => {
-    const f = await v2Fixture("win32", { env: { UI_MODE: mode } });
+    const f = await windowsFixture({ env: { UI_MODE: mode } });
     try {
       const session = await f.start();
       f.manager.controller(session.sessionId, "agent", "reader");

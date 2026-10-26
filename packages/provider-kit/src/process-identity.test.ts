@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { readWindowsProcessIdentity, type WindowsProcessIdentityApi } from "./process-identity.ts";
 
 /** Win32 last-error codes: no such process, and "size the buffer first". */
@@ -24,6 +24,7 @@ type FakeOptions = {
   tokenInfo?: "fail-second";
   sidConvert?: "fail";
   decode?: "invalid";
+  exited?: boolean;
 };
 
 function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; flags: FakeFlags } {
@@ -42,6 +43,10 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
     open: (pid) => {
       if (!Number.isInteger(pid) || pid <= 0) throw new Error("Unexpected pid");
       return processHandle;
+    },
+    exited: (handle) => {
+      if (handle !== processHandle) throw new Error("Unexpected process handle");
+      return options.exited ?? false;
     },
     times: (handle, creation, exit, kernel, user) => {
       if (handle !== processHandle) throw new Error("Unexpected process handle");
@@ -97,70 +102,78 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
   return { api, flags };
 }
 
-test("a live process binds its creation start and lossless owner SID, then releases all natives", () => {
-  const { api, flags } = fakeApi({ creation: { low: 2, high: 1 } });
-  expect(readWindowsProcessIdentity(4242, api)).toEqual({
-    start: "4294967298",
-    owner: ownerSid,
+describe.runIf(process.platform === "win32")("Windows process identity", () => {
+  test("a live process binds its creation start and lossless owner SID, then releases all natives", () => {
+    const { api, flags } = fakeApi({ creation: { low: 2, high: 1 } });
+    expect(readWindowsProcessIdentity(4242, api)).toEqual({
+      start: "4294967298",
+      owner: ownerSid,
+    });
+    expect(flags.closedProcess).toBe(true);
+    expect(flags.closedToken).toBe(true);
+    expect(flags.freedSid).toBe(true);
   });
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
-  expect(flags.freedSid).toBe(true);
-});
 
-test("distinct creation times give distinct starts for one reused PID", () => {
-  const first = fakeApi({ creation: { low: 10, high: 7 } });
-  const second = fakeApi({ creation: { low: 11, high: 7 } });
-  const firstIdentity = readWindowsProcessIdentity(4242, first.api);
-  const secondIdentity = readWindowsProcessIdentity(4242, second.api);
-  expect(firstIdentity?.start).not.toBe(secondIdentity?.start);
-  expect(firstIdentity?.owner).toBe(ownerSid);
-  expect(secondIdentity?.owner).toBe(ownerSid);
-});
-
-test.each([null, undefined, 0, 0n] as const)(
-  "a missing open %s reports undefined without closing or freeing",
-  (openHandle) => {
-    const { api, flags } = fakeApi({ openHandle, lastError: errorInvalidParameter });
+  test("an exited process that is still referenced reads as gone and releases its handle", () => {
+    const { api, flags } = fakeApi({ exited: true });
     expect(readWindowsProcessIdentity(4242, api)).toBeUndefined();
-    expect(flags.closedProcess).toBe(false);
-    expect(flags.closedToken).toBe(false);
-    expect(flags.freedSid).toBe(false);
-  },
-);
+    expect(flags.closedProcess).toBe(true);
+  });
 
-test.each([null, undefined, 0, 0n] as const)(
-  "a denied open %s throws instead of reporting absence",
-  (openHandle) => {
-    const { api, flags } = fakeApi({ openHandle, lastError: 5 });
+  test("distinct creation times give distinct starts for one reused PID", () => {
+    const first = fakeApi({ creation: { low: 10, high: 7 } });
+    const second = fakeApi({ creation: { low: 11, high: 7 } });
+    const firstIdentity = readWindowsProcessIdentity(4242, first.api);
+    const secondIdentity = readWindowsProcessIdentity(4242, second.api);
+    expect(firstIdentity?.start).not.toBe(secondIdentity?.start);
+    expect(firstIdentity?.owner).toBe(ownerSid);
+    expect(secondIdentity?.owner).toBe(ownerSid);
+  });
+
+  test.each([null, undefined, 0, 0n] as const)(
+    "a missing open %s reports undefined without closing or freeing",
+    (openHandle) => {
+      const { api, flags } = fakeApi({ openHandle, lastError: errorInvalidParameter });
+      expect(readWindowsProcessIdentity(4242, api)).toBeUndefined();
+      expect(flags.closedProcess).toBe(false);
+      expect(flags.closedToken).toBe(false);
+      expect(flags.freedSid).toBe(false);
+    },
+  );
+
+  test.each([null, undefined, 0, 0n] as const)(
+    "a denied open %s throws instead of reporting absence",
+    (openHandle) => {
+      const { api, flags } = fakeApi({ openHandle, lastError: 5 });
+      expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
+        "Kernel process identity unavailable",
+      );
+      expect(flags.closedProcess).toBe(false);
+      expect(flags.closedToken).toBe(false);
+      expect(flags.freedSid).toBe(false);
+    },
+  );
+
+  test.each([
+    ["creation-time read", { creation: "fail" }, { process: true, token: false }],
+    ["token open", { tokenOpen: "fail" }, { process: true, token: false }],
+    ["NULL token handle", { tokenOut: 0n }, { process: true, token: false }],
+    ["token query", { tokenInfo: "fail-second" }, { process: true, token: true }],
+    ["SID conversion", { sidConvert: "fail" }, { process: true, token: true }],
+  ] as const)("a failed %s throws and still closes what it opened", (_, options, closed) => {
+    const { api, flags } = fakeApi(options);
     expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
       "Kernel process identity unavailable",
     );
-    expect(flags.closedProcess).toBe(false);
-    expect(flags.closedToken).toBe(false);
+    expect({ process: flags.closedProcess, token: flags.closedToken }).toEqual(closed);
     expect(flags.freedSid).toBe(false);
-  },
-);
+  });
 
-test.each([
-  ["creation-time read", { creation: "fail" }, { process: true, token: false }],
-  ["token open", { tokenOpen: "fail" }, { process: true, token: false }],
-  ["NULL token handle", { tokenOut: 0n }, { process: true, token: false }],
-  ["token query", { tokenInfo: "fail-second" }, { process: true, token: true }],
-  ["SID conversion", { sidConvert: "fail" }, { process: true, token: true }],
-] as const)("a failed %s throws and still closes what it opened", (_, options, closed) => {
-  const { api, flags } = fakeApi(options);
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect({ process: flags.closedProcess, token: flags.closedToken }).toEqual(closed);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("an invalid SID string throws and still frees and closes", () => {
-  const { api, flags } = fakeApi({ decode: "invalid" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow();
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
-  expect(flags.freedSid).toBe(true);
+  test("an invalid SID string throws and still frees and closes", () => {
+    const { api, flags } = fakeApi({ decode: "invalid" });
+    expect(() => readWindowsProcessIdentity(4242, api)).toThrow();
+    expect(flags.closedProcess).toBe(true);
+    expect(flags.closedToken).toBe(true);
+    expect(flags.freedSid).toBe(true);
+  });
 });

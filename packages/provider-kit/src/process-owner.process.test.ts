@@ -16,15 +16,6 @@ import { stopOwnedGroups } from "./process-owner.ts";
 const windowsHost = process.platform === "win32";
 const stubborn = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
 
-/** Off Windows, taskkill is stood in for by signalling the leader, so the branch runs anywhere. */
-function signalLeader(pid: number, force: boolean): void {
-  try {
-    process.kill(pid, force ? "SIGKILL" : "SIGTERM");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-  }
-}
-
 /** A Job Object stand-in whose release is observable. */
 function fakeJob() {
   const job = { released: false };
@@ -35,25 +26,17 @@ function fakeJob() {
   return { job, factory };
 }
 
-type Mode = {
-  name: string;
-  ports: Pick<SpawnOptions, "platform" | "windowsKillTree" | "windowsJobFactory">;
-  /** taskkill /F leaves exit code 1 on Windows; the stand-in's SIGKILL shows as a signal. */
-  forced: { signal: NodeJS.Signals | null };
-  /** Windows console children cannot be asked to close; only a forced stop ends them. */
-  polite: boolean;
-};
-// Off Windows the Windows branch runs with taskkill stood in for; on Windows it runs for real.
-const modes: Mode[] = windowsHost
-  ? [{ name: "Windows tree", ports: {}, forced: { signal: null }, polite: false }]
-  : [
-      {
-        name: "Windows tree stop",
-        ports: { platform: "win32", windowsKillTree: signalLeader },
-        forced: { signal: "SIGKILL" },
-        polite: true,
-      },
-    ];
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+type Ports = Pick<SpawnOptions, "windowsJobFactory">;
 
 async function waitForFile(path: string): Promise<void> {
   await expect
@@ -67,7 +50,7 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 /** A child that ignores the polite stop, started once it is ready to ignore it. */
-async function stubbornChild(ports: Mode["ports"], retained = false) {
+async function stubbornChild(ports: Ports, retained = false) {
   const root = await mkdtemp(join(tmpdir(), "ace-tree-"));
   const ready = join(root, "ready");
   const proc = spawnRawSupervised({
@@ -83,10 +66,11 @@ async function stubbornChild(ports: Mode["ports"], retained = false) {
   return proc;
 }
 
-describe.each(modes)("an owned $name", (mode) => {
+describe.runIf(windowsHost)("an owned Windows tree", () => {
+  // taskkill /F leaves exit code 1; Windows console children cannot be asked to close.
+  const forced = { signal: null };
   test("a clean exit keeps its final output and status", async () => {
     const proc = spawnSupervised({
-      ...mode.ports,
       command: process.execPath,
       args: ["-e", "console.log('final'); process.exitCode = 23"],
       env: {},
@@ -100,40 +84,24 @@ describe.each(modes)("an owned $name", (mode) => {
 
   for (const retained of [false, true])
     test(`a child ignoring the polite stop is forced after the grace${retained ? " when retained" : ""}`, async () => {
-      const proc = await stubbornChild(mode.ports, retained);
+      const proc = await stubbornChild({}, retained);
       const exit = await proc.stop({ graceMs: 50 });
-      expect(exit).toMatchObject({ reason: "stopped", ...mode.forced });
+      expect(exit).toMatchObject({ reason: "stopped", ...forced });
     });
-
-  test.runIf(mode.polite)(
-    "a retained tree that ends on the polite stop is never forced",
-    async () => {
-      const proc = spawnRawSupervised({
-        ...mode.ports,
-        command: process.execPath,
-        args: ["-e", "console.log('ready'); setInterval(() => {}, 1000);"],
-        env: {},
-        name: "polite",
-        killGroupOnExit: false,
-      });
-      await once(proc.stdout, "data");
-      expect(await proc.stop({ graceMs: 5_000 })).toMatchObject({ signal: "SIGTERM" });
-    },
-  );
 
   for (const retained of [false, true])
     test(`a forced stop overtakes a polite stop's long grace${retained ? " when retained" : ""}`, async () => {
-      const proc = await stubbornChild(mode.ports, retained);
+      const proc = await stubbornChild({}, retained);
       const polite = proc.stop({ graceMs: 60_000 });
       const began = performance.now();
       await stopOwnedGroups(100);
       await polite;
       expect(performance.now() - began).toBeLessThan(5_000);
-      expect(await proc.exited).toMatchObject(mode.forced);
+      expect(await proc.exited).toMatchObject(forced);
     });
 
   test("a later, longer stop never delays the force an earlier stop scheduled", async () => {
-    const proc = await stubbornChild(mode.ports);
+    const proc = await stubbornChild({});
     const began = performance.now();
     void proc.stop({ graceMs: 100 });
     await proc.stop({ graceMs: 60_000 });
@@ -142,7 +110,6 @@ describe.each(modes)("an owned $name", (mode) => {
 
   test("output beyond its budget ends the tree", async () => {
     const proc = spawnRawSupervised({
-      ...mode.ports,
       command: process.execPath,
       args: ["-e", "while (true) console.log('x'.repeat(100));"],
       env: {},
@@ -156,7 +123,6 @@ describe.each(modes)("an owned $name", (mode) => {
     const root = await mkdtemp(join(tmpdir(), "ace-tree-bytes-"));
     try {
       const done = spawnBytes({
-        ...mode.ports,
         command: process.execPath,
         args: ["-e", "process.exit(3)"],
         cwd: root,
@@ -164,7 +130,6 @@ describe.each(modes)("an owned $name", (mode) => {
       });
       await expect(done.exited).resolves.toBe(3);
       const running = spawnBytes({
-        ...mode.ports,
         command: process.execPath,
         args: ["-e", `console.log('ready'); ${stubborn}`],
         cwd: root,
@@ -172,11 +137,30 @@ describe.each(modes)("an owned $name", (mode) => {
       });
       await once(running.stdout, "data");
       await running.stop();
-      // POSIX reports the kill as a signal (no code); taskkill /F leaves exit code 1.
-      await expect(running.exited).resolves.toBe(windowsHost ? 1 : null);
+      // taskkill /F leaves exit code 1.
+      await expect(running.exited).resolves.toBe(1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test("a retained tree's stop completes only once every member is gone", async () => {
+    const proc = spawnRawSupervised({
+      command: process.execPath,
+      args: [
+        "-e",
+        "const c=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});" +
+          `console.log(JSON.stringify([process.pid,c.pid])); ${stubborn}`,
+      ],
+      env: {},
+      name: "retained-tree",
+      killGroupOnExit: false,
+    });
+    const [chunk] = await once(proc.stdout, "data");
+    const members = z.array(z.number()).parse(JSON.parse(String(chunk)));
+    await proc.stop({ graceMs: 50 });
+    // Checked at once: a stop that returned after only requesting the kill would see survivors.
+    expect(members.filter(isRunning)).toEqual([]);
   });
 
   test("a retained tree leaves the process journal once its stop completes", async () => {
@@ -187,7 +171,7 @@ describe.each(modes)("an owned $name", (mode) => {
       remove: (pid) => void removed.push(pid),
     });
     try {
-      const proc = await stubbornChild(mode.ports, true);
+      const proc = await stubbornChild({}, true);
       expect(added).toContain(proc.pid);
       await proc.stop({ graceMs: 50 });
       expect(removed).toContain(proc.pid);
@@ -197,11 +181,9 @@ describe.each(modes)("an owned $name", (mode) => {
   });
 });
 
-test.skipIf(windowsHost)("a contained tree releases its job when ownership ends", async () => {
-  const ports = { platform: "win32", windowsKillTree: signalLeader } as const;
+test.runIf(windowsHost)("a contained tree releases its job when ownership ends", async () => {
   const natural = fakeJob();
   const proc = spawnSupervised({
-    ...ports,
     windowsJobFactory: natural.factory,
     command: process.execPath,
     args: ["-e", ""],
@@ -211,7 +193,7 @@ test.skipIf(windowsHost)("a contained tree releases its job when ownership ends"
   await proc.exited;
   expect(natural.job).toEqual({ released: true });
   const retained = fakeJob();
-  const service = await stubbornChild({ ...ports, windowsJobFactory: retained.factory }, true);
+  const service = await stubbornChild({ windowsJobFactory: retained.factory }, true);
   await service.stop({ graceMs: 50 });
   expect(retained.job).toEqual({ released: true });
 });
@@ -225,7 +207,17 @@ test.runIf(windowsHost)("a real batch shim preserves arguments through cmd parsi
       command,
       '@echo off\r\n"%ACE_NODE%" -e "require(\'node:fs\').writeFileSync(process.env.ACE_RECORD, JSON.stringify(process.argv.slice(1)))" %*\r\n',
     );
-    const args = ["a&b", "%PATH%", "two words", "雪"];
+    const args = [
+      "a&b",
+      "%PATH%",
+      "two words",
+      "雪",
+      "x^y",
+      'say "hi" & echo pwned',
+      "C:\\my dir\\",
+      "",
+      "last",
+    ];
     const proc = spawnSupervised({
       command,
       args,

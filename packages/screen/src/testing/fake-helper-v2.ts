@@ -5,7 +5,6 @@ import { createInterface } from "node:readline";
 import { ScreenHelperRequestV2, ScreenUINode } from "@ace/protocol";
 const endpoint = process.argv.at(-1);
 if (!endpoint?.startsWith("unix:")) throw new Error("Fake requires unix endpoint");
-const targetBundle = process.env.TARGET_BUNDLE ?? "dev.ace.test";
 const padding = z.coerce
   .number()
   .int()
@@ -17,6 +16,17 @@ const nativeReplies = process.env.NATIVE_UI_REPLIES
       .object({ tree: z.unknown(), find: z.unknown() })
       .parse(JSON.parse(await readFile(process.env.NATIVE_UI_REPLIES, "utf8")))
   : undefined;
+/** Windows only: one or two windows owned by an executable-path bundle id. */
+function windowsTargets(bundleId: string) {
+  const second = process.env.MULTIPLE_WINDOWS === "1";
+  return {
+    windows: [
+      { windowId: 1, bundleId, title: `${process.pid}:${active}` },
+      ...(second ? [{ windowId: 2, bundleId, title: "Second window" }] : []),
+    ],
+    displays: [],
+  };
+}
 let socket: Socket | undefined;
 await rm(endpoint.slice(5), { force: true });
 const server = createServer((client) => {
@@ -108,13 +118,12 @@ lines.on("line", (line) => {
       data = { screen: "n/a", input: "granted" };
       break;
     case "targets":
+      if (process.platform === "win32" && process.env.TARGET_BUNDLE) {
+        data = windowsTargets(process.env.TARGET_BUNDLE);
+        break;
+      }
       data = {
-        windows: [
-          { windowId: 1, bundleId: targetBundle, title: `${process.pid}:${active}` },
-          ...(process.env.MULTIPLE_WINDOWS === "1"
-            ? [{ windowId: 2, bundleId: targetBundle, title: "Second window" }]
-            : []),
-        ],
+        windows: [{ windowId: 1, bundleId: "dev.ace.test", title: `${process.pid}:${active}` }],
         displays: [],
       };
       break;

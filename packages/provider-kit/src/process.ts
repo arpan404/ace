@@ -109,7 +109,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     else killGroup(pid, "SIGKILL");
   };
   const stopRetained = (pid: number, graceMs: number) =>
-    windows ? stopRetainedWindowsTree(pid, graceMs, killTree) : stopRetainedGroup(pid, graceMs);
+    windows
+      ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
+      : stopRetainedGroup(pid, graceMs);
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined

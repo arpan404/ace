@@ -48,9 +48,14 @@ async function regularFile(path: string): Promise<boolean> {
   }
 }
 
-// Windows uses node-pty's `useConptyDll` backend: conpty.node, conpty/conpty.dll beside it and
-// the conout worker. winpty and the other fallback files are never staged.
-const windowsNatives = ["conpty.node", join("conpty", "conpty.dll")];
+// Windows uses node-pty's `useConptyDll` backend: conpty.node, conpty/conpty.dll beside it, the
+// OpenConsole.exe that dll hosts (without it conpty.dll falls back to the system conhost) and the
+// conout worker. winpty and the other fallback files are never staged.
+const windowsNatives = [
+  "conpty.node",
+  join("conpty", "conpty.dll"),
+  join("conpty", "OpenConsole.exe"),
+];
 const windowsWorkers = [
   join("lib", "worker", "conoutSocketWorker.js"),
   join("lib", "shared", "conout.js"),
@@ -83,7 +88,9 @@ export async function stageWindowsPty(
     for (const file of windowsNatives) await cp(join(source, candidate, file), join(native, file));
     return;
   }
-  throw new Error(`Installed node-pty is missing the ConPTY module or dll for ${target}`);
+  throw new Error(
+    `Installed node-pty is missing the ConPTY module, dll or OpenConsole.exe for ${target}`,
+  );
 }
 async function allFiles(root: string): Promise<boolean> {
   for (const file of windowsNatives) if (!(await regularFile(join(root, file)))) return false;

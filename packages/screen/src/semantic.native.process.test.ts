@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { once } from "node:events";
 import { join } from "node:path";
@@ -8,11 +9,11 @@ import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
 import {
   ScreenCapabilities,
   ScreenInventory,
-  ScreenTarget,
   ScreenUIFindResult,
   ScreenUITreeResult,
   ScreenUIActResult,
 } from "@ace/protocol";
+import { ScreenTarget } from "@ace/protocol";
 import { Helper } from "./index.ts";
 import { nativeWindowsHelper, ownedWindow } from "./testing/owned-window.ts";
 import { fakeCommand, ids } from "./testing/support.ts";

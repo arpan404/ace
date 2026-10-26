@@ -1,6 +1,8 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { constants } from "node:fs";
+import { accessSync, statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, resolve, win32 } from "node:path";
+import { basename, delimiter, isAbsolute, resolve } from "node:path";
+import { win32 } from "node:path";
 import { scriptExecutablePaths } from "../installers/locations.ts";
 export { scriptExecutablePaths } from "../installers/locations.ts";
 

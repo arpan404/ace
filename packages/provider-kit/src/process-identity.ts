@@ -5,11 +5,14 @@ import { z } from "zod";
 // Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
 // plus the token-user SID string. Windows has no pgid, so group stays the pid.
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const SYNCHRONIZE = 0x00100000;
+const WAIT_OBJECT_0 = 0;
+const WAIT_TIMEOUT = 258;
 const TOKEN_QUERY = 0x0008;
 const TOKEN_USER = 1;
 const ERROR_INVALID_PARAMETER = 87;
 const ERROR_INSUFFICIENT_BUFFER = 122;
-const windowsSid = z
+export const WindowsSid = z
   .string()
   .regex(/^S-\d+(-\d+)+$/)
   .max(256);
@@ -27,6 +30,8 @@ function expectNative(ok: boolean): void {
 /** Raw Win32 surface behind the identity. Tests inject a fake; production uses koffi. */
 export type WindowsProcessIdentityApi = {
   open: (pid: number) => unknown;
+  /** True once the process has exited, even while a handle still keeps its object alive. */
+  exited: (handle: unknown) => boolean;
   times: (handle: unknown, creation: Buffer, exit: Buffer, kernel: Buffer, user: Buffer) => number;
   openToken: (processHandle: unknown, outToken: unknown[]) => number;
   tokenInfo: (token: unknown, info: Buffer | null, length: number, needed: number[]) => number;
@@ -58,6 +63,7 @@ function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
     );
     const lastError = kernel.func("uint __stdcall GetLastError()");
     const closeHandle = kernel.func("int __stdcall CloseHandle(void* handle)");
+    const wait = kernel.func("uint __stdcall WaitForSingleObject(void* handle, uint milliseconds)");
     const localFree = kernel.func("void* __stdcall LocalFree(void* memory)");
     const openToken = advapi.func(
       "int __stdcall OpenProcessToken(void* process, uint access, _Out_ void** token)",
@@ -69,7 +75,12 @@ function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
       "int __stdcall ConvertSidToStringSidW(void* sid, _Out_ void** text)",
     );
     return {
-      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid),
+      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid),
+      exited(handle) {
+        const state = nativeInt.parse(wait(handle, 0));
+        expectNative(state === WAIT_OBJECT_0 || state === WAIT_TIMEOUT);
+        return state === WAIT_OBJECT_0;
+      },
       times,
       openToken: (handle, out) => openToken(handle, TOKEN_QUERY, out),
       tokenInfo: (token, info, length, needed) =>
@@ -110,6 +121,8 @@ export function readWindowsProcessIdentity(
     return undefined;
   }
   try {
+    // Any open handle, the console host's included, keeps an exited process openable.
+    if (api.exited(handle)) return undefined;
     // GetProcessTimes takes four FILETIME out-pointers and allows no NULL.
     const creation = Buffer.alloc(8);
     expectNative(
@@ -138,7 +151,7 @@ export function readWindowsProcessIdentity(
       const text = stringOut[0];
       expectNative(!isNullHandle(text));
       try {
-        return { start, owner: windowsSid.parse(api.decodeSid(text)) };
+        return { start, owner: WindowsSid.parse(api.decodeSid(text)) };
       } finally {
         api.free(text);
       }
@@ -150,10 +163,12 @@ export function readWindowsProcessIdentity(
   }
 }
 
+/** POSIX owners stay numeric uids; only Windows owners are token-user SID strings. */
+const processOwner = process.platform === "win32" ? WindowsSid : z.number().int().nonnegative();
 export const ProcessIdentity = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1).max(128),
-  uid: z.union([z.number().int().nonnegative(), windowsSid]),
+  uid: processOwner,
   group: z.number().int().positive(),
 });
 export type ProcessIdentity = z.infer<typeof ProcessIdentity>;
@@ -170,8 +185,6 @@ function gone(target: number): boolean {
   }
 }
 export function processGroupIsGone(group: number): boolean {
-  if (process.platform === "win32")
-    throw new Error("Process-group inspection is unavailable on Windows");
   return gone(-z.number().int().positive().parse(group));
 }
 function linuxStat(text: string): { pid: number; ticks: string; group: number } {
@@ -258,3 +271,156 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
     throw error;
   }
 }
+
+// Windows trees: no process group exists, so a recorded tree is its leader plus every live
+// descendant. Windows never reparents, so an orphan still names its dead parent; a child
+// created before its parent, or after a reused leader PID, is someone else's process.
+
+export type WindowsTreeMember = { pid: number; start: string };
+
+function startsBefore(a: string, b: string): boolean {
+  return BigInt(a) < BigInt(b);
+}
+
+/**
+ * Live members of a recorded tree from one process snapshot. `identify` reads a PID's creation
+ * time and owner, or undefined when the PID is gone or unreadable.
+ */
+export function windowsTreeMembers(
+  leader: { pid: number; start: string; uid: string },
+  snapshot: readonly { pid: number; parent: number }[],
+  identify: (pid: number) => { start: string; uid: string } | undefined,
+): WindowsTreeMember[] {
+  const children = new Map<number, number[]>();
+  for (const entry of snapshot)
+    if (entry.pid !== entry.parent)
+      children.set(entry.parent, [...(children.get(entry.parent) ?? []), entry.pid]);
+  const members: WindowsTreeMember[] = [];
+  const seen = new Set<number>([leader.pid]);
+  const current = identify(leader.pid);
+  // A reused leader PID adopts every later child; only earlier ones are the recorded tree's.
+  const reusedAt = current && current.start !== leader.start ? current.start : undefined;
+  if (current?.start === leader.start && current.uid === leader.uid)
+    members.push({ pid: leader.pid, start: leader.start });
+  const visit = (parent: number, parentStart: string, before?: string): void => {
+    for (const pid of children.get(parent) ?? []) {
+      if (seen.has(pid)) continue;
+      const found = identify(pid);
+      if (!found || found.uid !== leader.uid || startsBefore(found.start, parentStart)) continue;
+      if (before !== undefined && !startsBefore(found.start, before)) continue;
+      seen.add(pid);
+      members.push({ pid, start: found.start });
+      visit(pid, found.start);
+    }
+  };
+  visit(leader.pid, leader.start, reusedAt);
+  return members;
+}
+
+/** Native surface for recorded Windows trees. Tests inject a fake; production uses koffi. */
+export interface WindowsTreeRuntime {
+  members(leader: { pid: number; start: string; uid: string }): WindowsTreeMember[];
+  /** Ends one member only while it still carries its recorded creation time. */
+  terminate(member: WindowsTreeMember): void;
+}
+
+// PROCESSENTRY32W: th32ProcessID at 8; th32ParentProcessID follows a pointer-sized heap ID.
+const pointer64 = process.arch !== "ia32" && process.arch !== "arm";
+const processEntrySize = pointer64 ? 568 : 556;
+const parentOffset = pointer64 ? 32 : 24;
+const TH32CS_SNAPPROCESS = 0x2;
+const PROCESS_TERMINATE = 0x0001;
+const ERROR_NO_MORE_FILES = 18;
+
+function loadWindowsTreeApi() {
+  const kernel = koffi.load("kernel32.dll");
+  try {
+    return {
+      kernel,
+      snapshot: kernel.func("intptr_t __stdcall CreateToolhelp32Snapshot(uint flags, uint pid)"),
+      first: kernel.func("int __stdcall Process32FirstW(intptr_t snapshot, void* entry)"),
+      next: kernel.func("int __stdcall Process32NextW(intptr_t snapshot, void* entry)"),
+      closeSnapshot: kernel.func("int __stdcall CloseHandle(intptr_t handle)"),
+      open: kernel.func("void* __stdcall OpenProcess(uint access, int inherit, uint pid)"),
+      times: kernel.func(
+        "int __stdcall GetProcessTimes(void* process, void* creation, void* exit, void* kernel, void* user)",
+      ),
+      terminate: kernel.func("int __stdcall TerminateProcess(void* process, uint code)"),
+      close: kernel.func("int __stdcall CloseHandle(void* handle)"),
+      lastError: kernel.func("uint __stdcall GetLastError()"),
+    };
+  } catch (error) {
+    kernel.unload();
+    throw error;
+  }
+}
+
+function snapshotWindowsProcesses(
+  api: ReturnType<typeof loadWindowsTreeApi>,
+): { pid: number; parent: number }[] {
+  const handle = nativeInt.parse(Number(api.snapshot(TH32CS_SNAPPROCESS, 0)));
+  expectNative(handle !== -1 && handle !== 0);
+  try {
+    const entry = Buffer.alloc(processEntrySize);
+    entry.writeUInt32LE(processEntrySize, 0);
+    const found: { pid: number; parent: number }[] = [];
+    let ok = nativeInt.parse(api.first(handle, entry));
+    while (ok !== 0) {
+      found.push({ pid: entry.readUInt32LE(8), parent: entry.readUInt32LE(parentOffset) });
+      ok = nativeInt.parse(api.next(handle, entry));
+    }
+    expectNative(nativeInt.parse(api.lastError()) === ERROR_NO_MORE_FILES);
+    return found;
+  } finally {
+    api.closeSnapshot(handle);
+  }
+}
+
+/** The real Windows tree runtime: one Toolhelp snapshot, then per-PID identity reads. */
+export const windowsTreeRuntime: WindowsTreeRuntime = {
+  members(leader) {
+    const tree = loadWindowsTreeApi();
+    const identityApi = loadWindowsProcessIdentityApi();
+    try {
+      return windowsTreeMembers(leader, snapshotWindowsProcesses(tree), (pid) => {
+        try {
+          const found = readWindowsProcessIdentity(pid, identityApi);
+          return found && { start: found.start, uid: found.owner };
+        } catch {
+          // Another account's or a protected process cannot belong to this tree.
+          return undefined;
+        }
+      });
+    } finally {
+      try {
+        identityApi.unload();
+      } finally {
+        tree.kernel.unload();
+      }
+    }
+  },
+  terminate(member) {
+    const api = loadWindowsTreeApi();
+    try {
+      const handle = api.open(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, member.pid);
+      if (isNullHandle(handle)) return;
+      try {
+        const creation = Buffer.alloc(8);
+        const times = api.times(
+          handle,
+          creation,
+          Buffer.alloc(8),
+          Buffer.alloc(8),
+          Buffer.alloc(8),
+        );
+        expectNative(nativeInt.parse(times) !== 0);
+        if (creation.readBigUInt64LE(0).toString() !== member.start) return;
+        api.terminate(handle, 1);
+      } finally {
+        api.close(handle);
+      }
+    } finally {
+      api.kernel.unload();
+    }
+  },
+};

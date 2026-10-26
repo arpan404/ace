@@ -13,8 +13,7 @@ export function hostCredentialPath(dataDir: string): string {
 export function extensionDir(dataDir: string): string {
   return join(userBrowserDir(dataDir), "extension");
 }
-export function launcherPath(dataDir: string, platform?: NodeJS.Platform): string {
-  if (platform === "win32") return join(userBrowserDir(dataDir), "ace-native-host.cmd");
+export function launcherPath(dataDir: string): string {
   return join(userBrowserDir(dataDir), "ace-native-host");
 }
 

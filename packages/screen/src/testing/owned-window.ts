@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { onTestFinished } from "vitest";
 import { z } from "zod";
 import { lineReader, type ProcessExit } from "@ace/provider-kit/process";
-import { Helper, spawnOwnedHelper } from "../helper.ts";
+import { Helper } from "../helper.ts";
+import { spawnWindowsHelper } from "../windows-process.ts";
 import type { Frame } from "../frames.ts";
 import { windowsEndpoint } from "../transport.ts";
 
@@ -23,7 +24,7 @@ export async function nativeWindowsHelper(options: {
   let exited: Promise<ProcessExit> | undefined;
   const helper = await Helper.open({
     spawn: (spawnOptions) => {
-      const proc = spawnOwnedHelper(spawnOptions);
+      const proc = spawnWindowsHelper(spawnOptions);
       proc.stderr.on("line", (line: string) => {
         stderr = (stderr + line + "\n").slice(-4096);
       });

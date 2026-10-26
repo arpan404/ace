@@ -30,6 +30,7 @@ export default defineConfig({
     include: [
       "packages/browser/src/video-software.process.test.ts",
       "packages/browser/src/discovery.test.ts",
+      "packages/browser/src/chrome-video.test.ts",
       "packages/browser-extension/src/install.process.test.ts",
       "packages/preview/src/discovery.process.test.ts",
       "packages/provider-kit/src/process-containment.process.test.ts",
@@ -48,9 +49,17 @@ export default defineConfig({
       "packages/provider-kit/src/process-identity.test.ts",
       "packages/provider-kit/src/process-owner.test.ts",
       "packages/provider-kit/src/process-owner.process.test.ts",
+      "packages/provider-kit/src/process-inventory.restart.process.test.ts",
+      "packages/provider-kit/src/process-interactive.native.process.test.ts",
       "tools/release/src/pty-assets.test.ts",
       "tools/release/src/node-runtime.test.ts",
       "tools/release/src/archive-paths.process.test.ts",
+      // Screen helper lifecycle over the protocol-v2 fake on a named pipe: negotiation,
+      // fragmented frames, crash/restart ownership, pending-read takeover, suspend/resume,
+      // oversized commands and retired packets.
+      "packages/screen/src/windows.process.test.ts",
+      "packages/screen/src/lifecycle-review.process.test.ts",
+      "packages/screen/src/ui-results.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its

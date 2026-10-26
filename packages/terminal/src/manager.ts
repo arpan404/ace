@@ -1,10 +1,6 @@
 import { ByteRing } from "./ring.ts";
-import {
-  createConptyBackendFactory,
-  createPosixBackendFactory,
-  resolveShell,
-  shutdownScheduler,
-} from "./pty.ts";
+import { createPosixBackendFactory, resolveShell, shutdownScheduler } from "./pty.ts";
+import { createConptyBackendFactory } from "./pty.ts";
 import type { BackendFactory } from "./pty.ts";
 import type { ShutdownScheduler } from "./ownership.ts";
 import { randomUUID } from "node:crypto";
@@ -48,13 +44,15 @@ export class TerminalManager {
     this.#capacity = scrollbackBytes;
     this.#graceMs = graceMs;
     this.#dependencies = {
-      backendFactory:
-        process.platform === "win32" ? createConptyBackendFactory() : createPosixBackendFactory(),
+      backendFactory: createPosixBackendFactory(),
       resolveShell,
       createSessionId: randomUUID,
       shutdownScheduler,
       ...dependencies,
     };
+    // Windows has no POSIX sessions; its terminals run under ConPTY inside a Job Object.
+    if (process.platform === "win32" && !dependencies?.backendFactory)
+      this.#dependencies = { ...this.#dependencies, backendFactory: createConptyBackendFactory() };
   }
 
   openTerminal(options: OpenTerminalOptions): Terminal {

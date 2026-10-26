@@ -1,7 +1,6 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, join } from "node:path";
-import { findExecutable } from "@ace/provider-kit/discovery";
 import { chromiumArtifact } from "./chromium-manifest.ts";
 
 export async function detectChromium(
@@ -10,8 +9,6 @@ export async function detectChromium(
     dataDir?: string;
     platform?: NodeJS.Platform;
     env?: NodeJS.ProcessEnv;
-    /** Windows only: the architecture of ace's own pinned browser. */
-    arch?: string;
   } = {},
 ): Promise<string | undefined> {
   const env = options.env ?? process.env;
@@ -87,7 +84,7 @@ const existing = (path: string) =>
 
 /** Windows has no execute bit: existence is the test, and PATH lookup never accepts a .bat/.cmd. */
 async function detectWindowsChromium(
-  options: { executablePath?: string; dataDir?: string; arch?: string },
+  options: { executablePath?: string; dataDir?: string },
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
   const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(
@@ -103,6 +100,7 @@ async function detectWindowsChromium(
     const found = candidate && (await existing(candidate));
     if (found) return found;
   }
+  const { findExecutable } = await import("@ace/provider-kit/discovery");
   for (const command of ["chrome.exe", "chromium.exe", "msedge.exe"]) {
     const found = await findExecutable(command, env, "win32");
     if (found) return found;
@@ -110,7 +108,7 @@ async function detectWindowsChromium(
   if (!options.dataDir) return undefined;
   try {
     // ace's own pinned Chrome for Testing, if it was acquired into this data directory.
-    const artifact = chromiumArtifact("win32", options.arch ?? process.arch);
+    const artifact = chromiumArtifact("win32", process.arch);
     return await existing(
       join(
         options.dataDir,

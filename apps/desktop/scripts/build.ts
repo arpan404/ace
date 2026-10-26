@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon, linuxScreenHelperName, stageLinuxScreenHelper } from "@ace/release";
-import { stageNodeRuntime, stageWindowsNodeRuntime } from "@ace/release/node-runtime";
+import { stageNodeRuntime } from "@ace/release/node-runtime";
+import { stageWindowsNodeRuntime } from "@ace/release/node-runtime";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
