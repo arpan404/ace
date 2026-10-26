@@ -44,6 +44,32 @@ const posixOnly = [
   // Windows still registers the session screen tools beside the computer-use engine's; the
   // computer-use branch moves Windows to the engine, which brings this back under budget.
   "each provider's per-request ace context stays within its budget",
+  // Plugins. Windows has no FIFOs.
+  "warmed source refuses a FIFO even when a writer supplies the original accepted bytes",
+  // Executable bits; "on Windows accepted trust survives reopening", "on Windows staged or
+  // accepted content tampering..." and "on Windows the package hash changes..." run instead.
+  "reviews and accepted trust survive reopening and executable bits survive Git extraction",
+  "staged tampering and accepted content or mode tampering cannot acquire or retain trust",
+  "package hash includes paths and executable permissions",
+  // Shebang fake Git and `ps`; the "on Windows ..." counterparts run a Node stand-in through the
+  // real Windows Git spawn and check the helper pid is gone.
+  "a detached Git helper terminates after timeout while holding stderr in .",
+  "a detached Git helper terminates after normal exit while holding stderr in .",
+  "a detached Git helper terminates after timeout while holding stderr in private/nested",
+  "a detached Git helper terminates after normal exit while holding stderr in private/nested",
+  "a detached Git helper terminates after timeout while holding stdout in .",
+  "a detached Git helper terminates after normal exit while holding stdout in .",
+  "a detached Git helper terminates after timeout while holding stdout in private/nested",
+  "a detached Git helper terminates after normal exit while holding stdout in private/nested",
+  "successful Git preparation terminates closed-pipe detached helpers in .",
+  "successful Git preparation terminates closed-pipe detached helpers in private/nested",
+  "Git overflow terminates descendants that retain stderr before completing",
+  "Git timeout terminates descendants that retain stderr before completing",
+  "Git exit terminates descendants that retain stderr before completing",
+  "timeout cleanup rejection remains an observed operation failure",
+  // Expects "/" after the plugin root and exec bits; "on Windows claude receives the plugin MCP
+  // server..." and "on Windows Claude commands name plugin files..." run instead.
+  "Claude receives native commands, agents, hook matchers, skill resources and MCP config",
 ];
 
 export default defineConfig({
@@ -98,7 +124,12 @@ export default defineConfig({
       "apps/daemon/src/mcp*.test.ts",
       "apps/daemon/src/transfers/**/*.test.ts",
     ],
-    exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "packages/mcp-server/src/discovery-fifo.process.test.ts",
+      // Windows has no FIFOs.
+      "packages/plugins/src/source-fifo.process.test.ts",
+    ],
     // Shared files also hold POSIX cases; each listed one has a Windows counterpart or no
     // Windows meaning. Names are matched whole.
     testNamePattern: new RegExp(`^(?!(?:${posixOnly.map(escapeName).join("|")})$)`),
