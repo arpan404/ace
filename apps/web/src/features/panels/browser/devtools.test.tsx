@@ -123,6 +123,29 @@ test("an agent's device emulation opens the device toolbar at the agent's device
   );
 });
 
+test("a device the person chose on another screen shows here and is not undone", async () => {
+  const { panel, browser } = await openBrowser();
+  const phone = {
+    width: 402,
+    height: 874,
+    deviceScaleFactor: 3,
+    mobile: true,
+    touch: true,
+    by: "human" as const,
+  };
+  act(() => browser.tabView(threadId, undefined, { emulation: phone }));
+  const toolbar = await within(panel).findByRole("toolbar", { name: "Device toolbar" });
+  expect(within(toolbar).getByRole("combobox", { name: "Device" }).textContent).toContain(
+    "iPhone 16 Pro",
+  );
+  // The page keeps the phone's device: this screen didn't send its own size over it.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(browser.tab(threadId)?.emulation).toMatchObject({ width: 402, height: 874 });
+  // Closing the toolbar here gives the page this pane's size back.
+  await userEvent.click(within(toolbar).getByRole("button", { name: "Close device toolbar" }));
+  await waitFor(() => expect(browser.tab(threadId)?.emulation).toBeUndefined());
+});
+
 test("zoom steps from the menu and the keys, shows in the address pill, and resets", async () => {
   const { panel, browser } = await openBrowser();
   await options(panel);

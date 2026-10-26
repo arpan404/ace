@@ -1,6 +1,7 @@
 /**
- * The device toolbar's model: device presets, the size a tab shows, and the arithmetic of the
- * framed viewport (fit, rotate, drag a handle). Pure, so it is tested without a page.
+ * The browser's device toolbar model, shared by the web and the phone: device presets, the size a
+ * tab shows, the arithmetic of the framed viewport (fit, rotate, drag a handle), and which device
+ * a screen opening a tab shows. Pure, so it is tested without a page.
  */
 
 /** A device the page can take, with what makes the page treat it as that device. */
@@ -262,4 +263,55 @@ export function draggedSize(
     width: handle === "bottom" ? start.width : clampDimension(start.width + (2 * drag.dx) / scale),
     height: handle === "right" ? start.height : clampDimension(start.height + drag.dy / scale),
   };
+}
+
+/** An emulation as a tab lists it (`BrowserTab.emulation`): the device and who set it. */
+export type TabEmulation = DeviceEmulation & { by: "human" | "agent" };
+
+/** The iPhone whose width is nearest a phone screen's (in points): the page a phone opens at. */
+export function phonePresetFor(screenWidth: number): DevicePreset {
+  const iphones = devicePresets.filter((preset) => preset.id.startsWith("iphone-"));
+  let best = iphones[0] ?? devicePresets[0];
+  for (const preset of iphones)
+    if (best && Math.abs(preset.width - screenWidth) < Math.abs(best.width - screenWidth))
+      best = preset;
+  if (!best) throw new Error("no device presets");
+  return best;
+}
+
+/**
+ * What a screen opening a tab shows. A tab that already emulates a device (an agent chose it, or
+ * the person did on any screen) keeps it, and the screen shows that device: one page has one
+ * viewport, so a screen never quietly replaces a choice made elsewhere. A tab with none takes
+ * this screen's own choice (`own`), which the screen then sends.
+ */
+export function openingDevice(
+  emulation: TabEmulation | undefined,
+  own: DeviceSize,
+): { size: DeviceSize; send: boolean } {
+  return emulation ? { size: sizeForEmulation(emulation), send: false } : { size: own, send: true };
+}
+
+/** The device's name as a menu shows it: a preset's label, else "Responsive". */
+export function deviceLabel(size: DeviceSize): string {
+  return presetById(size.preset)?.label ?? "Responsive";
+}
+
+/**
+ * Whether a tab already shows `wanted`. An agent's plain size is taken as it is; a preset's
+ * scale, touch and user agent must match too.
+ */
+export function emulationMatches(
+  emulation: TabEmulation | undefined,
+  wanted: DeviceEmulation,
+): boolean {
+  if (!emulation) return false;
+  if (emulation.width !== wanted.width || emulation.height !== wanted.height) return false;
+  if (emulation.by === "agent" && !wanted.mobile && !wanted.touch && !wanted.userAgent) return true;
+  return (
+    emulation.deviceScaleFactor === wanted.deviceScaleFactor &&
+    emulation.mobile === wanted.mobile &&
+    emulation.touch === wanted.touch &&
+    (emulation.userAgent ?? "") === (wanted.userAgent ?? "")
+  );
 }

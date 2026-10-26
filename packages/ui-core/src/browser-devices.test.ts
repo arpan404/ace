@@ -1,18 +1,16 @@
 import { expect, test } from "vitest";
 import {
+  deviceLabel,
   draggedSize,
   drawnScale,
   emulationFor,
+  openingDevice,
+  phonePresetFor,
   presetById,
   presetSize,
   rotated,
   sizeForEmulation,
-} from "./devices.ts";
-import { pageKey } from "./page-keys.ts";
-import { zoomForKey, zoomIn, zoomOut } from "@ace/ui-core";
-
-const press = (key: string, code: string, extra: Partial<Parameters<typeof pageKey>[0]> = {}) =>
-  pageKey({ key, code, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...extra });
+} from "./browser-devices.ts";
 
 test("a phone keeps its pixel ratio, touch and user agent on its side", () => {
   const phone = presetById("iphone-16-pro");
@@ -51,28 +49,21 @@ test("dragging a handle resizes the centred frame by the drag at its drawn scale
   expect(drawnScale(1.5, { width: 300, height: 300 }, { width: 2000, height: 2000 })).toBe(1.5);
 });
 
-test("zoom keys step through a browser's levels and ⌘0 goes back to 100%", () => {
-  expect(zoomIn(1)).toBe(1.1);
-  expect(zoomOut(1)).toBe(0.9);
-  expect(zoomIn(1.05)).toBe(1.1);
-  expect(zoomIn(5)).toBe(5);
-  expect(zoomOut(0.25)).toBe(0.25);
-  expect(zoomForKey("0", 2)).toBe(1);
-  expect(press("+", "Equal", { shiftKey: true })).toBe("zoomIn");
-  expect(press("=", "Equal")).toBe("zoomIn");
-  expect(press("-", "Minus")).toBe("zoomOut");
-  expect(press("i", "KeyI", { altKey: true })).toBe("devtools");
-  expect(press("u", "KeyU", { altKey: true })).toBe("source");
-  expect(press("p", "KeyP")).toBe("print");
-  // Keys without ⌘ or Ctrl go to the page.
-  expect(
-    pageKey({
-      key: "p",
-      code: "KeyP",
-      metaKey: false,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-    }),
-  ).toBeUndefined();
+test("a phone opens at the iPhone nearest its width, unless the tab already has a device", () => {
+  expect(phonePresetFor(390).id).toBe("iphone-16-pro");
+  expect(phonePresetFor(375).id).toBe("iphone-se");
+  expect(phonePresetFor(430).id).toBe("iphone-16-pro-max");
+  const own = presetSize(phonePresetFor(402));
+  expect(openingDevice(undefined, own)).toEqual({ size: own, send: true });
+  // A device chosen elsewhere, by an agent or on another screen, is kept and shown.
+  const pixel = { width: 412, height: 923, deviceScaleFactor: 2.625, mobile: true, touch: true };
+  const agents = openingDevice({ ...pixel, by: "agent" }, own);
+  expect(agents.send).toBe(false);
+  expect(deviceLabel(agents.size)).toBe("Pixel 9");
+  const desktop = openingDevice(
+    { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false, touch: false, by: "human" },
+    own,
+  );
+  expect(desktop).toEqual({ size: { preset: "laptop", width: 1280, height: 800 }, send: false });
+  expect(deviceLabel({ preset: "responsive", width: 500, height: 500 })).toBe("Responsive");
 });
