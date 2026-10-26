@@ -66,7 +66,8 @@ describe.runIf(windows)("Tailscale on Windows", () => {
     for (const [key, value] of Object.entries(saved))
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
-    await rm(root, { recursive: true, force: true });
+    // A just-run copy of node.exe can stay locked briefly (EBUSY) while Windows releases it.
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   });
 
   it("remote access over Tailscale uses its install folder when PATH doesn't have it", async () => {
