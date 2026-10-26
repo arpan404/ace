@@ -8,31 +8,54 @@ import { decodeProcesses, decodeSessionColumns, decodeNativeSessions } from "./d
 const sessionScript =
   'ObjC.import("stdlib"); ObjC.bindFunction("getsid", ["int", ["int"]]); function run(argv) { return JSON.stringify(JSON.parse(argv[0]).map(function(pid) { return {pid: pid, session: $.getsid(pid)}; })); }';
 
+/** Why an inventory command failed: stopped at its deadline, killed, or its exit code. */
+function inventoryFailure(command: string, error: unknown): Error {
+  const field = (name: string) =>
+    typeof error === "object" && error !== null && name in error
+      ? Reflect.get(error, name)
+      : undefined;
+  const signal = field("signal");
+  const reason = field("killed")
+    ? `was stopped${signal ? ` by ${String(signal)}` : ""}, likely at its deadline`
+    : signal
+      ? `was killed by ${String(signal)}`
+      : `exited with ${String(field("code"))}`;
+  return new Error(`Process inventory ${command} ${reason}`, { cause: error });
+}
+
+// macOS `comm` is the executable path, which ps copies out of every process's memory: slow
+// on a busy machine with thousands of processes, where shutdown inventories failed. `ucomm`
+// is the kernel's own short name, and no caller reads the column anyway.
 export function createProcessTable() {
-  const run = promisify(execFile);
+  const exec = promisify(execFile);
+  async function run(command: string, args: string[]) {
+    try {
+      return await exec(command, args, { maxBuffer: 4 * 1024 * 1024, timeout: 5000 });
+    } catch (error) {
+      throw inventoryFailure(command, error);
+    }
+  }
   async function read() {
     const darwin = process.platform === "darwin";
-    const { stdout } = await run(
-      "ps",
-      [
-        "-e",
-        "-o",
-        darwin ? "pid=,pgid=,stat=,comm=" : "pid=,pgid=,stat=,sid=",
-        "-U",
-        String(process.getuid?.()),
-      ],
-      { maxBuffer: 4 * 1024 * 1024, timeout: 5000 },
-    );
+    const { stdout } = await run("ps", [
+      "-e",
+      "-o",
+      darwin ? "pid=,pgid=,stat=,ucomm=" : "pid=,pgid=,stat=,sid=",
+      "-U",
+      String(process.getuid?.()),
+    ]);
     const rows = decodeProcesses(stdout);
     if (!darwin) {
       const sessions = new Map(decodeSessionColumns(stdout).map((row) => [row.pid, row.session]));
       return rows.map((row) => Object.assign(row, { session: sessions.get(row.pid) ?? -1 }));
     }
-    const result = await run(
-      "/usr/bin/osascript",
-      ["-l", "JavaScript", "-e", sessionScript, JSON.stringify(rows.map((row) => row.pid))],
-      { maxBuffer: 4 * 1024 * 1024, timeout: 5000 },
-    );
+    const result = await run("/usr/bin/osascript", [
+      "-l",
+      "JavaScript",
+      "-e",
+      sessionScript,
+      JSON.stringify(rows.map((row) => row.pid)),
+    ]);
     const sessions = new Map(
       decodeNativeSessions(result.stdout).map((row) => [row.pid, row.session]),
     );

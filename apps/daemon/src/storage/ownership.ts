@@ -11,28 +11,49 @@ export function hasTable(store: Store, name: string): boolean {
 
 /** Durable delegation membership covers ancestors and siblings, including cold sessions. */
 export function storageTree(store: Store, id: ThreadId): ThreadId[] {
-  if (!hasTable(store, "delegation_participants")) return [id];
-  const root = store
-    .statement("SELECT root_id FROM delegation_participants WHERE thread_id=?")
-    .get(id)?.root_id;
-  if (typeof root !== "string") return [id];
-  // Every member, however large the tree: a partial tree would delete a parent while its
-  // children still hold its worktree, or refuse to clean the tree at all.
-  const rows = store
-    .statement("SELECT thread_id FROM delegation_participants WHERE root_id=?")
-    .all(root);
-  return [
-    ...new Set([id, ThreadId.parse(root), ...rows.map((row) => ThreadId.parse(row.thread_id))]),
-  ];
+  return storageMembers(store, [id]);
+}
+
+/**
+ * Every thread in the delegation trees of `ids`. Each tree is read once, however many of its
+ * members are asked about, so a large tree costs its size rather than its size squared.
+ */
+export function storageMembers(store: Store, ids: readonly ThreadId[]): ThreadId[] {
+  if (!hasTable(store, "delegation_participants")) return [...new Set(ids)];
+  const rootOf = store.statement("SELECT root_id FROM delegation_participants WHERE thread_id=?");
+  const membersOf = store.statement(
+    "SELECT thread_id FROM delegation_participants WHERE root_id=?",
+  );
+  const members = new Set<ThreadId>();
+  const roots = new Set<string>();
+  for (const id of ids) {
+    members.add(id);
+    const root = rootOf.get(id)?.root_id;
+    if (typeof root !== "string" || roots.has(root)) continue;
+    roots.add(root);
+    // Every member, however large the tree: a partial tree would delete a parent while its
+    // children still hold its worktree, or refuse to clean the tree at all.
+    members.add(ThreadId.parse(root));
+    for (const row of membersOf.all(root)) members.add(ThreadId.parse(row.thread_id));
+  }
+  return [...members];
 }
 
 /** Held, uncertain and admitted inputs are protected even when nothing is executing now. */
 export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]): StorageReason[] {
   const { store, services } = owner;
   const reasons = new Set<StorageReason>();
-  const members = new Set(ids.flatMap((id) => storageTree(store, id)));
-  for (const id of members) {
-    const thread = store.getThread(id);
+  // Which optional tables exist is read once per call, not once per member and check.
+  const has = {
+    engineSessions: hasTable(store, "engine_sessions"),
+    intents: hasTable(store, "intents"),
+    engineQueue: hasTable(store, "engine_queue"),
+    delegatedThreads: hasTable(store, "delegated_threads"),
+    delegationReservations: hasTable(store, "delegation_reservations"),
+    delegationTrees: hasTable(store, "delegation_trees"),
+  };
+  for (const id of storageMembers(store, ids)) {
+    const thread = store.readThread(id);
     if (!thread) continue;
     if (thread.pinned) reasons.add("pinned");
     if (!["done", "failed", "new"].includes(thread.status.state)) reasons.add("active_tree");
@@ -40,11 +61,11 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
       if (services.engine.hasSession(id)) reasons.add("leased");
       if (Object.values(services.engine.liveWork(id)).some((count) => count > 0))
         reasons.add("active_tree");
-    } else if (hasTable(store, "engine_sessions")) reasons.add("owner_unavailable");
+    } else if (has.engineSessions) reasons.add("owner_unavailable");
     if (services.workspaceActions?.hasOwnedWork(id) || services.browser?.hasActiveSession(id))
       reasons.add("active_tree");
     if (
-      hasTable(store, "intents") &&
+      has.intents &&
       store
         .statement(`SELECT 1 FROM intents WHERE thread_id=?
       AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1) LIMIT 1`)
@@ -52,7 +73,7 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
     )
       reasons.add("pending_input");
     if (
-      hasTable(store, "engine_queue") &&
+      has.engineQueue &&
       store
         .statement(
           "SELECT 1 FROM engine_queue WHERE thread_id=? AND (continuation IS NOT NULL OR resume_at IS NOT NULL)",
@@ -61,7 +82,7 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
     )
       reasons.add("pending_input");
     if (
-      hasTable(store, "delegated_threads") &&
+      has.delegatedThreads &&
       store
         .statement(
           "SELECT 1 FROM delegated_threads WHERE (child_id=? OR parent_id=?) AND (phase<>'settled' OR result_pending=1) LIMIT 1",
@@ -70,14 +91,14 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
     )
       reasons.add("active_tree");
     if (
-      hasTable(store, "delegation_reservations") &&
+      has.delegationReservations &&
       store
         .statement("SELECT 1 FROM delegation_reservations WHERE parent_id=? OR child_id=? LIMIT 1")
         .get(id, id)
     )
       reasons.add("active_tree");
     if (
-      hasTable(store, "delegation_trees") &&
+      has.delegationTrees &&
       store.statement("SELECT 1 FROM delegation_trees WHERE root_id=? AND active>0").get(id)
     )
       reasons.add("active_tree");
@@ -88,7 +109,7 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
     )
       reasons.add("cleanup_in_progress");
     if (
-      hasTable(store, "engine_sessions") &&
+      has.engineSessions &&
       store
         .statement(
           "SELECT 1 FROM workspace_root_reservations r JOIN engine_sessions s ON s.cwd=r.root WHERE s.thread_id=? AND r.command_id<>?",

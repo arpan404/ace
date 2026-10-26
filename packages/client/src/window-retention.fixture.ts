@@ -40,9 +40,15 @@ live.setSyncing(true);
 assert.deepEqual(changes, { dropped: 8, held: 1, stopped: 0 }, "every open window hears changes");
 
 // A macrotask boundary ends WeakRef's keep-alive job; only this child gets --expose-gc.
-await setImmediate();
-if (!globalThis.gc) throw new Error("explicit GC required");
-globalThis.gc();
+const gc = globalThis.gc;
+if (!gc) throw new Error("explicit GC required");
+// One collection can miss the most recently made window (V8 may still see a stale pointer to
+// it); it goes on the next turn's collection. A window the store retains never goes, so a few
+// turns still fail on a leak.
+for (let turn = 0; turn < 10 && dropped.some((ref) => ref.deref()); turn++) {
+  await setImmediate();
+  gc();
+}
 assert.equal(
   dropped.filter((ref) => ref.deref()).length,
   0,

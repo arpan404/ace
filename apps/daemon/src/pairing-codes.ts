@@ -19,7 +19,7 @@ export interface PendingCode {
 export interface PairingCodeStore {
   put(codeHash: string, pending: PendingCode): void;
   take(codeHash: string): PendingCode | undefined;
-  /** Unexpired links, oldest expiry first; expired ones are dropped on the way. */
+  /** Unexpired links, oldest expiry first, then in the order they were made; expired ones are dropped on the way. */
   pending(now: number): PendingCode[];
   remove(id: string): boolean;
   clear(): void;
@@ -91,7 +91,7 @@ export class SqlitePairingCodes implements PairingCodeStore {
     this.insert = db.prepare("INSERT INTO pairing_codes VALUES (?, ?, ?, ?, ?, ?)");
     this.taking = db.prepare("DELETE FROM pairing_codes WHERE code_hash = ? RETURNING *");
     this.expired = db.prepare("DELETE FROM pairing_codes WHERE expires_at <= ?");
-    this.listing = db.prepare("SELECT * FROM pairing_codes ORDER BY expires_at, id");
+    this.listing = db.prepare("SELECT * FROM pairing_codes ORDER BY expires_at, rowid");
     this.removing = db.prepare("DELETE FROM pairing_codes WHERE id = ?");
     this.clearing = db.prepare("DELETE FROM pairing_codes");
   }
