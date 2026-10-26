@@ -2,7 +2,8 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -75,6 +76,17 @@ async function launch(scale: number): Promise<Launched> {
       )
       .catch((reason: unknown) => String(reason));
     console.log(`[page resources]\n${loaded}`);
+    const bundle = await page
+      .evaluate(async () => {
+        const script = document.querySelector<HTMLScriptElement>("script[type=module][src]");
+        if (!script) return "no module script";
+        const text = await (await fetch(script.src)).text();
+        return `${script.src}: ${text.length} bytes, fake daemon ${text.includes("this-mac") || text.includes("bootFake") ? "bundled" : "absent"}`;
+      })
+      .catch((reason: unknown) => String(reason));
+    console.log(`[page bundle] ${bundle}`);
+    const state = await windowsReport(app);
+    console.log(`[app state] ${state}`);
     console.log(`[page html] ${(await page.content()).slice(0, 3000)}`);
     console.log(
       `[page text] ${(
@@ -94,6 +106,17 @@ async function launch(scale: number): Promise<Launched> {
     window?.focus();
   });
   return { app, page, userData, args };
+}
+
+/** The daemon connection the main process hands the page, for a failed launch's report. */
+async function windowsReport(app: ElectronApplication): Promise<string> {
+  return app
+    .evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .map((window) => `${window.webContents.getURL()} visible=${window.isVisible()}`)
+        .join("; "),
+    )
+    .catch((reason: unknown) => String(reason));
 }
 
 async function go(launched: Launched, link: string): Promise<void> {
@@ -140,11 +163,15 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
   beforeAll(async () => {
     mkdirSync(screens, { recursive: true });
     await Promise.all(electronBundles(out, process.env).map((options) => build(options)));
+    // Vite's own CLI on this Node: no `bun x` shim or cmd.exe in between on Windows.
+    const vite = join(
+      dirname(createRequire(join(repo, "apps/web/package.json")).resolve("vite/package.json")),
+      "bin/vite.js",
+    );
     execFileSync(
-      "bun",
+      process.execPath,
       [
-        "x",
-        "vite",
+        vite,
         "build",
         "--mode",
         "fake",
@@ -154,7 +181,7 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         "--logLevel",
         "warn",
       ],
-      { cwd: join(repo, "apps/web"), stdio: "inherit", shell: true },
+      { cwd: join(repo, "apps/web"), stdio: "inherit" },
     );
   });
 
