@@ -73,3 +73,23 @@ test("a single device has no device filter and ignores a saved filter for a remo
     within(screen.getByRole("navigation", { name: "Threads" })).getAllByRole("link").length,
   ).toBeGreaterThan(0);
 });
+
+test("the project control shows a shortened selected device name and reveals its full name on hover", async () => {
+  const name = "Build server with a long name";
+  const made = harness({ machines: [{ hostId: "build", name }] });
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  await made.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  await chooseDevice(name);
+  const control = await screen.findByRole("button", {
+    name: `Project filter: All projects, Device: ${name}`,
+  });
+  expect(control.textContent).toContain("All projects·Build server wi…");
+  await userEvent.hover(control);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(name);
+  await userEvent.unhover(control);
+  await chooseDevice("All devices");
+  expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
+    "All projects",
+  );
+});
