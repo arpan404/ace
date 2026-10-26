@@ -255,17 +255,17 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
     platform === "win32" && arch === "arm64" && !options.env.ACE_CHROMIUM_PATH
       ? await detectChromium({ platform, env: options.env, dataDir: options.dataDir })
       : undefined;
-  if (platform === "win32" && arch === "arm64" && !options.env.ACE_CHROMIUM_PATH && !windowsArm)
-    return {
-      status: "fail",
-      message:
-        "ace's browser on Windows ARM64 runs the installed Chrome or Microsoft Edge, and neither is installed",
-      fix: "Install Google Chrome or Microsoft Edge, or set ACE_CHROMIUM_PATH to a Chromium for this machine.",
-    };
+  // Without one ace can drive, it runs the x64 Chrome for Testing under Windows' emulation.
+  const engineArch = platform === "win32" && arch === "arm64" && !windowsArm ? "x64" : arch;
   try {
     engine = windowsArm
       ? { path: windowsArm }
-      : engineExecutable({ dataDir: options.dataDir, env: options.env, platform, arch });
+      : engineExecutable({
+          dataDir: options.dataDir,
+          env: options.env,
+          platform,
+          arch: engineArch,
+        });
   } catch {
     return {
       status: "fail",

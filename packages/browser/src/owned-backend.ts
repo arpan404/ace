@@ -2,6 +2,7 @@ import { basename, dirname, join } from "node:path";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
 import { installedWindowsChromium } from "./discovery.ts";
+import { chromiumArtifact } from "./chromium-manifest.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
 import { chromeJobs } from "./chrome-job.ts";
 import { probeChromeGpu, windowsDeviceScale } from "./gpu-scale.ts";
@@ -87,19 +88,28 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     (owned = new ChromeBackend({
       executable: () => {
         if (options.executablePath) return Promise.resolve(options.executablePath);
-        // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge.
+        // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge, and
+        // without one that ace can drive, the x64 build under Windows' emulation.
         if (
           process.platform === "win32" &&
           process.arch === "arm64" &&
           !options.acquisition?.artifact
         )
-          acquiring ??= installedWindowsChromium({ dataDir: options.dataDir }).catch(
-            (error: unknown) => {
+          acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
+            .catch(() =>
+              acquireChromium({
+                ...options.acquisition,
+                artifact: chromiumArtifact("win32", "x64"),
+                dataDir: options.dataDir,
+                signal,
+                progress,
+              }),
+            )
+            .catch((error: unknown) => {
               acquiring = undefined;
               options.onError?.(error);
               throw error;
-            },
-          );
+            });
         acquiring ??= acquireChromium({
           ...options.acquisition,
           dataDir: options.dataDir,
