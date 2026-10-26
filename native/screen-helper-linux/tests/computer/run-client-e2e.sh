@@ -6,4 +6,4 @@
 set -eu
 cd "$(dirname "$0")/../.."
 cargo build --quiet
-exec tests/computer/wayland-session.sh sh -c 'gnome-calculator >/dev/null 2>&1 & sleep 3; node tests/computer/client-e2e.ts "$0"' "$PWD/target/debug/ace-screen-helper-linux"
+exec tests/computer/wayland-session.sh sh -c 'sleep 3; gnome-calculator >/dev/null 2>&1 & sleep 5; node tests/computer/client-e2e.ts "$0"' "$PWD/target/debug/ace-screen-helper-linux"
