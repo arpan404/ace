@@ -36,6 +36,14 @@ final class NoUnlock: LockedUseUnlockRequesting, @unchecked Sendable {
     func removeAfterConfirmedLock() { covered = false }
 }
 
+/// The guardian's process-exit watch for the service's pid; tests fire it to model a kill.
+final class ExitWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var onExit: (() -> Void)?
+    func set(_ body: @escaping () -> Void) { lock.lock(); onExit = body; lock.unlock() }
+    func fire() { lock.lock(); let body = onExit; lock.unlock(); body?() }
+}
+
 /// The real service, production session driver and real guardian client, talking over an
 /// in-process XPC link to a real guardian server. OS lock, unlock and session facts are
 /// substitutes; nothing here changes the Mac's lock state or opens a window.
@@ -54,7 +62,9 @@ final class NoUnlock: LockedUseUnlockRequesting, @unchecked Sendable {
     nonisolated let clock = NSLock()
     nonisolated(unsafe) var guardianTime: UInt64 = 1_000_000_000
     lazy var guardianServer = LockedUseGuardianServer(listener: listener, requirement: nil, lock: guardianLock,
-        now: { [unowned self] in clock.lock(); defer { clock.unlock() }; return guardianTime }, watch: { _, _, _ in {} })
+        now: { [unowned self] in clock.lock(); defer { clock.unlock() }; return guardianTime },
+        watch: { [exitWatch] _, queue, onExit in exitWatch.set { queue.sync(execute: onExit) }; return {} })
+    nonisolated let exitWatch = ExitWatch()
     lazy var guardian = LockedUseGuardianClient(connect: { [unowned self] in NSXPCConnection(listenerEndpoint: listener.endpoint) },
         now: { [unowned self] in time })
     lazy var observer = LockedUseSessionObserver(read: { [unowned self] in facts })
@@ -93,8 +103,10 @@ final class NoUnlock: LockedUseUnlockRequesting, @unchecked Sendable {
 
     func send(_ json: String) { service.handle(Data(json.utf8)) }
 
+    func enable() { send(#"{"v":1,"id":"e","type":"enable","optIn":true}"#) }
+
     func begin(_ attempt: String = "attempt-1") {
-        send(#"{"v":1,"id":"b-\#(attempt)","type":"begin","agentProcessIDs":[4242],"scope":{"userID":\#(getuid()),"sessionID":100003,"threadID":"thread","turnID":"turn","attemptID":"\#(attempt)"}}"#)
+        send(#"{"v":1,"id":"b-\#(attempt)","type":"begin","optIn":true,"agentProcessIDs":[4242],"scope":{"userID":\#(getuid()),"sessionID":100003,"threadID":"thread","turnID":"turn","attemptID":"\#(attempt)"}}"#)
     }
 
     var scope: LockedUseScope {
@@ -102,6 +114,9 @@ final class NoUnlock: LockedUseUnlockRequesting, @unchecked Sendable {
     }
 
     func pulse() { for pulse in pulses { pulse() } }
+
+    /// The owner process dies without running any of its own code (SIGKILL).
+    func ownerExited() { exitWatch.fire() }
 
     nonisolated func advanceGuardian(_ nanos: UInt64) {
         clock.lock(); guardianTime += nanos; clock.unlock()

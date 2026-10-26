@@ -83,4 +83,38 @@ final class SocketTests: XCTestCase {
         _ = frame.withUnsafeBytes { write(fd, $0.baseAddress, frame.count) }
         wait(for: [got], timeout: 5)
     }
+
+    func testTheKernelReportsThePeersUser() {
+        let (one, two) = pair()
+        defer { close(one); close(two) }
+        XCTAssertEqual(lockedUsePeerUserID(one), getuid())
+        XCTAssertNil(lockedUsePeerUserID(-1))
+    }
+
+    func testAPeerOfAnotherUserIsClosedBeforeAnythingIsServed() throws {
+        let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent("lu-\(getpid())-\(UInt16.random(in: 0...UInt16.max))")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("s").path
+        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedUserID: getuid(),
+            peerUserID: { _ in getuid() &+ 1 }) { fd in
+            XCTFail("A peer of another user must never get a connection")
+            return LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
+        }
+        try server.start()
+        defer { server.stop() }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in for (i, b) in path.utf8.enumerated() { raw[i] = b } }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        XCTAssertEqual(connected, 0)
+        var wait = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        var byte: UInt8 = 0
+        XCTAssertEqual(read(fd, &byte, 1), 0, "The service closed the connection")
+    }
 }

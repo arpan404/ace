@@ -11,7 +11,25 @@ final class MessageTests: XCTestCase {
          "scope":{"userID":501,"sessionID":100003,"threadID":"t","turnID":"u","attemptID":"a","future":true}}
         """)
         let scope = try LockedUseScope(userID: 501, sessionID: 100_003, threadID: "t", turnID: "u", attemptID: "a")
-        XCTAssertEqual(inbound, .command(.begin(id: "r4", scope: scope, agentProcessIDs: [4242])))
+        XCTAssertEqual(inbound, .command(.begin(id: "r4", scope: scope, agentProcessIDs: [4242], optIn: false)))
+    }
+
+    func testOnlyALiteralTrueAssertsThePersonsOptIn() {
+        let scope = #""scope":{"userID":501,"sessionID":1,"threadID":"t","turnID":"u","attemptID":"a"}"#
+        func optIn(_ value: String) -> Bool? {
+            switch decode(#"{"id":"r","type":"enable"\#(value)}"#) {
+            case .command(.enable(_, let optIn)): return optIn
+            default: return nil
+            }
+        }
+        XCTAssertEqual(optIn(#","optIn":true"#), true)
+        for value in ["", #","optIn":false"#, #","optIn":1"#, #","optIn":"true""#, #","optIn":null"#, #","optIn":[true]"#] {
+            XCTAssertEqual(optIn(value), false, value)
+        }
+        guard case .command(.begin(_, _, _, let asserted)) = decode(#"{"id":"r","type":"begin","optIn":true,\#(scope)}"#) else {
+            return XCTFail("begin did not decode")
+        }
+        XCTAssertTrue(asserted)
     }
 
     func testMissingVersionReadsAsVersionOne() {
