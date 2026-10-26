@@ -264,9 +264,26 @@ export function unsentRank(machineId: string, position: number): string {
   return `\u0000${machineId}\u0000${ascending(position)}`;
 }
 
+/**
+ * Each group's rank, in `groupOrder`'s order. Fixed, never renumbered: a client merges layouts
+ * from runtimes of different versions, and a layout kept from an earlier launch, so a group
+ * added later takes a number of its own (Pinned leads at -1) instead of moving the others.
+ */
+const groupRanks: Record<InboxGroupKey, number> = {
+  pinned: -1,
+  "needs-you": 0,
+  working: 1,
+  syncing: 2,
+  unsent: 3,
+  threads: 4,
+  done: 5,
+  snoozed: 6,
+  settled: 7,
+};
+
 /** Section order, for clients that merge sections grouped on separate runtimes. */
 export function inboxGroupRank(key: InboxGroupKey): number {
-  return groupOrder.indexOf(key);
+  return groupRanks[key];
 }
 
 const byRank = (a: { rank: string }, b: { rank: string }) =>

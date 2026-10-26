@@ -67,6 +67,7 @@ export * from "./model-label.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./organize-patch.ts";
+export * from "./organize-pending.ts";
 export * from "./permissions.ts";
 export * from "./plan.ts";
 export * from "./goal.ts";

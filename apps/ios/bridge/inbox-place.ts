@@ -1,5 +1,5 @@
 import { ThreadId } from "@ace/protocol";
-import { placePinned } from "@ace/ui-core";
+import { placePinned, type HomeSort } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import type { InboxOrganizer } from "./inbox-organize.ts";
@@ -39,15 +39,23 @@ export const PlaceAction = z.discriminatedUnion("kind", [
 ]);
 export type PlaceAction = z.infer<typeof PlaceAction>;
 
+/** What a pin or move runs against: this machine's organizer and its sort. */
+export interface PlaceContext {
+  organizer: InboxOrganizer;
+  /** The machine's `threads.sortBy`: only a list sorted by hand takes places. */
+  sortBy(): HomeSort;
+}
+
 const keyOf = (machineId: string, id: string) => `${machineId}\u0000${id}`;
 
 /**
  * Run a pin or a move on this machine's threads. The admission under `requestId` says whether
  * every command it took was saved here; a move that changes none of this machine's threads
- * is admitted at once.
+ * is admitted at once. A move in the list is refused while this machine doesn't sort by hand,
+ * so it never overwrites the hand order kept for when it does.
  */
 export async function runPlace(
-  organizer: InboxOrganizer,
+  { organizer, sortBy }: PlaceContext,
   action: PlaceAction,
   requestId: string,
   pump: PatchSink,
@@ -61,6 +69,15 @@ export async function runPlace(
       requestId,
       pump,
     );
+    return;
+  }
+  if (action.group === "listed" && sortBy() !== "manual") {
+    pump.put(`admission:${requestId}`, () => ({
+      type: "admission",
+      id: requestId,
+      ok: false,
+      message: "This machine doesn't sort its threads by hand.",
+    }));
     return;
   }
   const own = new Map(

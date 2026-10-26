@@ -17,7 +17,13 @@ import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
-import { PlaceAction, runPlace } from "./inbox-place.ts";
+import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+
+/**
+ * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
+ * before the daemon confirms them, and the machine's sort.
+ */
+export type InboxFollow = (() => void) & PlaceContext;
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -85,11 +91,9 @@ export function followInbox(
   save?: (checkpoint: string) => void,
   /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
   lastSort?: HomeSort,
-  /** Pins and moves shown before the daemon confirms them; `inboxAction` runs them. */
-  organize?: InboxOrganizer,
-): () => void {
+): InboxFollow {
   const store = owner.threads().store;
-  const organizer = organize ?? inboxOrganizer(owner, machineId, clock);
+  const organizer = inboxOrganizer(owner, machineId, clock);
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
   const online = () => connection.getSnapshot() === "ready";
@@ -256,13 +260,13 @@ export function followInbox(
     }),
   ];
   change("all");
-  return () => {
-    for (const stop of stops) stop();
+  const stop = () => {
+    for (const each of stops) each();
     sort.stop();
-    if (!organize) organizer.stop();
     checkpoint.stop();
     arm(undefined);
   };
+  return Object.assign(stop, { organizer, sortBy: () => sort.current() });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -317,18 +321,18 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
 
 /**
  * Organization goes through the SDK's durable outbox: admission first, the receipt later. Pins
- * and moves show at once through `organizer`, the one the inbox follows.
+ * and moves show at once through `inbox`, what `followInbox` returned.
  */
 export function inboxAction(
   owner: ClientCore,
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  organizer?: InboxOrganizer,
+  inbox?: PlaceContext,
 ): void {
   const place = PlaceAction.safeParse(raw);
-  if (place.success && organizer) {
-    void runPlace(organizer, place.data, requestId, pump);
+  if (place.success && inbox) {
+    void runPlace(inbox, place.data, requestId, pump);
     return;
   }
   const parsed = InboxAction.safeParse(raw);

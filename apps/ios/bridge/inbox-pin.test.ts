@@ -9,7 +9,6 @@ await vi.hoisted(async () => {
 import { CommandId, DeviceId, ThreadId, type ThreadListEntry } from "@ace/protocol";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
-import { inboxOrganizer } from "./inbox-organize.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -64,13 +63,10 @@ async function following(seed: (daemon: FakeDaemon) => void) {
   seed(daemon);
   await client.start();
   const sink = new RecordingSink();
-  const organizer = inboxOrganizer(client, "mac", new Clock());
-  closers.push(organizer.stop);
-  closers.push(
-    followInbox(client, "mac", sink, new Clock(), undefined, undefined, undefined, organizer),
-  );
+  const inbox = followInbox(client, "mac", sink, new Clock());
+  closers.push(inbox);
   const act = (action: Record<string, unknown>, requestId: string) =>
-    inboxAction(client, action, requestId, sink, organizer);
+    inboxAction(client, action, requestId, sink, inbox);
   return { daemon, client, sink, act };
 }
 
@@ -78,7 +74,7 @@ type Sections = { sections: { key: string; ids: string[] }[]; sortBy: string };
 const layout = (sink: RecordingSink) => sink.read("inbox:sections") as Sections | undefined;
 const groups = (sink: RecordingSink) =>
   Object.fromEntries((layout(sink)?.sections ?? []).map((section) => [section.key, section.ids]));
-type Row = { pinned: boolean; pinOrder: number | null; listOrder: number };
+type Row = { pinned: boolean; pinOrder: number | null; listOrder: number; group: string | null };
 const row = (sink: RecordingSink, id: string) =>
   (sink.read(`inbox:${id}`) as { row: Row | null } | undefined)?.row ?? undefined;
 /** A group as the phone shows it, for a move: every row with its place. */
@@ -215,4 +211,34 @@ test("a thread placed by hand while offline keeps its place after the reconnect"
   await until(() => client.connectionState().getSnapshot() === "ready", "online again");
   await until(() => row(sink, "a") !== undefined, "rows again");
   expect(groups(sink).threads).toEqual(["a", "c", "b"]);
+});
+
+test("a pinned thread that is snoozed still reads as snoozed, so its row offers Wake", async () => {
+  const { sink } = await following((machine) => {
+    finished(machine, "nap");
+    pin(machine, "nap", 10);
+    machine.command({
+      id: CommandId.parse("snooze-nap"),
+      deviceId: DeviceId.parse("seed"),
+      payload: { type: "thread.snooze", threadId: ThreadId.parse("nap"), until: 9_000_000_000_000 },
+    });
+  });
+  await until(() => groups(sink).pinned?.includes("nap") === true, "the pin");
+  await until(() => row(sink, "nap")?.group === "snoozed", "the snooze");
+  expect(groups(sink).snoozed).toBeUndefined();
+});
+
+test("a move in the list is refused while the machine doesn't sort by hand, keeping its order", async () => {
+  const { daemon, sink, act } = await following((machine) => {
+    for (const id of ["a", "b"]) finished(machine, id);
+  });
+  await until(() => groups(sink).done?.length === 2, "the inbox");
+  const group = [
+    { machineId: "mac", id: "b", order: 2 },
+    { machineId: "mac", id: "a", order: 1 },
+  ];
+  act({ kind: "move", group: "listed", machineId: "mac", threadId: "a", shown: group, to: 0 }, "m");
+  await until(() => sink.read("admission:m") !== undefined, "the answer");
+  expect(sink.read("admission:m")).toMatchObject({ ok: false });
+  expect(listed(daemon, "a")?.listOrder).toBeUndefined();
 });

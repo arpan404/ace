@@ -1,5 +1,6 @@
 import { listOrderOf, type AccountView, type HomeSort } from "@ace/ui-core";
 import {
+  inboxGroup,
   inboxGroupRank,
   inboxSections,
   inboxStatus,
@@ -45,6 +46,11 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     activityAt: entry.activityAt ?? entry.updatedAt,
     archivedAt: entry.archivedAt ?? null,
     pinned: entry.pinned === true,
+    /**
+     * The group the thread's state puts it in (snoozed, settled, done…), even while it shows
+     * under Pinned, so its row still offers Wake or Unsettle and says when it wakes.
+     */
+    group: inboxGroup(thread, context.now) ?? null,
     /** Places a move is worked out from (`inbox-place.ts`): among pinned, and sorted by hand. */
     pinOrder: entry.pinned === true ? (entry.pinOrder ?? null) : null,
     listOrder: listOrderOf(entry),
