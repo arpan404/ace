@@ -59,3 +59,23 @@ export const machineChildGenerations = `${machineChildren}
     next_retry_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (child_id, request_id));
   CREATE INDEX IF NOT EXISTS machine_child_messages_due
     ON machine_child_messages(next_retry_at, created_at);`;
+
+/**
+ * Keeps every remote child within reach (ADR 0099).
+ * - `device_id` names the paired device a child was delegated through, so the caller knows when
+ *   that pairing is gone (removed, or the machine linked again as a new device). Children from
+ *   before have none and fall back to the machine's name.
+ * - Indexes for a parent's children (listing, cascading Stop) and for settled results not yet
+ *   delivered, so neither reads the whole history or stops at a fixed count.
+ * - `machine_message_rejections` is the target's answer for a message it refused before it ever
+ *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
+ *   copy of that request is admitted, so a refused request can never run later.
+ */
+export const machineChildReach = `
+  ALTER TABLE machine_children ADD COLUMN device_id TEXT;
+  CREATE INDEX IF NOT EXISTS machine_children_parent ON machine_children(parent_thread, settled);
+  CREATE INDEX IF NOT EXISTS machine_children_undelivered ON machine_children(settled_at)
+    WHERE settled = 1 AND delivered = 0;
+  CREATE TABLE IF NOT EXISTS machine_message_rejections (
+    request_key TEXT PRIMARY KEY, code TEXT NOT NULL, message TEXT NOT NULL,
+    created_at INTEGER NOT NULL);`;

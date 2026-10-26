@@ -14,7 +14,6 @@ import type { Engine } from "../engine/index.ts";
 import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
-import { MachineFailure } from "./transport.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
 import { ChildResults } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
@@ -25,7 +24,15 @@ import {
   recheckOutcome,
 } from "./child-recheck.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
-import { monitoredChild, outcomeOf, watchedChild } from "./child-views.ts";
+import {
+  heldMessageReason,
+  lostView,
+  monitoredChild,
+  outcomeOf,
+  unreadReason,
+  watchedChild,
+} from "./child-views.ts";
+import { statusBatches, unsettledPage } from "./child-paging.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -47,26 +54,14 @@ export interface ChildrenDeps {
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
+  /** Every thread delegated below this one here, at any depth. */
+  descendants(thread: ThreadId): readonly ThreadId[];
+  /**
+   * The device this machine is paired with `machine` as, or undefined once that pairing is gone.
+   * Throws when the pairings can't be read, which is never taken as gone.
+   */
+  device(machine: string): string | undefined;
   log(message: string, fields: Record<string, unknown>): void;
-}
-
-/**
- * Unsettled children grouped by machine, at most 16 per status call (the call's limit), so
- * every one is read on every poll rather than the same first 16.
- */
-function statusBatches(rows: readonly ChildRow[]): [string, ChildRow[]][] {
-  const batches: [string, ChildRow[]][] = [];
-  const open = new Map<string, ChildRow[]>();
-  for (const row of rows) {
-    let batch = open.get(row.machine);
-    if (!batch || batch.length >= 16) {
-      batch = [];
-      open.set(row.machine, batch);
-      batches.push([row.machine, batch]);
-    }
-    batch.push(row);
-  }
-  return batches;
 }
 
 /**
@@ -77,20 +72,23 @@ export class MachineChildren implements RemoteChildren {
   private deps: ChildrenDeps;
   private ledger: ChildLedger;
   private listeners = new Set<(ids: readonly string[]) => void>();
+  /** Why a child's machine could not be read on the last try, until it is read again. */
   private unreachable = new Map<string, string>();
+  /** Why a message to the child is still unanswered, until it is answered. */
+  private held = new Map<string, string>();
   private cancelTimer: (() => void) | undefined;
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
-  /** The last re-check turn handed out; each machine's least recently checked go next. */
-  private recheckTurn: number;
+  /** The last read turn handed out; each machine's least recently read children go next. */
+  private turn: number;
   private closed = false;
   private results: ChildResults;
   private messages: ChildMessages;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
-    this.recheckTurn = this.ledger.lastRecheckTurn();
+    this.turn = this.ledger.lastRecheckTurn();
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
     this.messages = new ChildMessages({
       ...deps,
@@ -98,6 +96,12 @@ export class MachineChildren implements RemoteChildren {
       reopenSettled: (row) => this.reopenSettled(row),
       reopen: (id) => this.reopen(id),
       changed: () => this.arm(),
+      held: (row, error) => {
+        if (error === undefined) this.held.delete(row.id);
+        else this.held.set(row.id, heldMessageReason(this.deps.label(row.machine), error));
+        this.emit([row.id]);
+      },
+      rejected: (row, requestId, reason) => this.results.rejected(row, requestId, reason),
     });
     this.arm();
   }
@@ -127,6 +131,8 @@ export class MachineChildren implements RemoteChildren {
     title: string;
     /** The other machine queued it for a slot: it reads as queued until a poll says more. */
     queued?: boolean;
+    /** The paired device it was delegated through. */
+    device?: string | undefined;
   }) {
     const view: MachineThreadView | undefined = child.queued
       ? {
@@ -140,7 +146,7 @@ export class MachineChildren implements RemoteChildren {
         }
       : undefined;
     this.deps.store.atomic(() => {
-      this.ledger.insert({ ...child, createdAt: this.deps.now(), view });
+      this.ledger.insert({ ...child, createdAt: this.deps.now(), view, device: child.device });
       this.deps.engine()?.machineChild(
         {
           id: child.id,
@@ -160,14 +166,12 @@ export class MachineChildren implements RemoteChildren {
     });
     this.arm();
   }
-  /** Unsettled children delegated from this thread or below it, for a cascading stop. */
+  /**
+   * Every unsettled child delegated from this thread or below it, for a cascading stop: read by
+   * parent, however many there are.
+   */
   under(thread: ThreadId): ThreadId[] {
-    return this.ledger
-      .rows("settled=0")
-      .filter(
-        (row) => row.parent_thread === thread || this.deps.isDescendant(row.parent_thread, thread),
-      )
-      .map((row) => row.id);
+    return this.ledger.unsettledOfParents([thread, ...this.deps.descendants(thread)]);
   }
   owns(caller: McpAttribution, id: ThreadId): boolean {
     const row = this.ledger.row(id);
@@ -183,20 +187,25 @@ export class MachineChildren implements RemoteChildren {
     return watchedChild(
       row,
       this.deps.label(row.machine),
-      this.unreachable.get(id),
+      this.held.get(id) ?? this.unreachable.get(id),
       this.deps.now(),
     );
   }
+  /** Every child delegated from the caller's thread or below it, unsettled first. */
   children(caller: McpAttribution): MonitoredChild[] {
-    return this.ledger.rows("1=1").flatMap((row) => {
-      if (
-        row.parent_thread !== caller.threadId &&
-        !this.deps.isDescendant(row.parent_thread, caller.threadId)
-      )
-        return [];
-      const read = this.watched(row.id);
-      if (!read) return [];
-      return [monitoredChild(row, read.view, caller.threadId, this.deps.label(row.machine))];
+    const rows = this.ledger.ofParents([
+      caller.threadId,
+      ...this.deps.descendants(caller.threadId),
+    ]);
+    return rows.map((row) => {
+      const name = this.deps.label(row.machine);
+      const read = watchedChild(
+        row,
+        name,
+        this.held.get(row.id) ?? this.unreachable.get(row.id),
+        this.deps.now(),
+      );
+      return monitoredChild(row, read.view, caller.threadId, name);
     });
   }
   /**
@@ -257,10 +266,7 @@ export class MachineChildren implements RemoteChildren {
     let due = true;
     let watchingSettled = false;
     try {
-      due =
-        this.ledger.rows("settled=0 OR delivered=0").length > 0 ||
-        this.results.hasUnsent() ||
-        this.ledger.anyMessages();
+      due = this.ledger.hasOpen() || this.results.hasUnsent() || this.ledger.anyMessages();
       watchingSettled = !due && this.ledger.hasRecentlySettled(this.deps.now() - RECHECK_WINDOW_MS);
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
@@ -286,9 +292,15 @@ export class MachineChildren implements RemoteChildren {
         .catch((error: unknown) =>
           this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
         );
-      const active = this.ledger.rows("settled=0");
+      // A fixed number of status calls, every child read in turn (ADR 0099).
+      const page = unsettledPage(this.ledger, ++this.turn).flatMap(([machine, rows]) => {
+        const lost = this.lostFrom(machine);
+        const reachable = rows.filter((row) => !lost(row));
+        for (const row of rows) if (lost(row)) this.settleLost(row);
+        return reachable;
+      });
       await Promise.all([
-        ...statusBatches(active).map(async ([machine, rows]) => {
+        ...statusBatches(page).map(async ([machine, rows]) => {
           const ids = rows.map((row) => row.id);
           const first = rows[0];
           if (!first) return;
@@ -299,15 +311,12 @@ export class MachineChildren implements RemoteChildren {
               if (row && !this.closed) this.update(row, view);
             }
           } catch (error) {
-            const reason =
-              error instanceof MachineFailure && error.kind === "refused"
-                ? `${this.deps.label(machine)} stopped letting agents in`
-                : `${this.deps.label(machine)} is unreachable; retrying`;
+            const reason = unreadReason(this.deps.label(machine), error);
             for (const id of ids) this.unreachable.set(id, reason);
             this.emit(ids);
           }
         }),
-        ...this.recheckDue(active.length > 0).map(async ([machine, rows]) => {
+        ...this.recheckDue(page.length > 0).map(async ([machine, rows]) => {
           const first = rows[0];
           if (!first) return;
           try {
@@ -327,8 +336,7 @@ export class MachineChildren implements RemoteChildren {
           }
         }),
       ]);
-      for (const row of this.ledger.rows("settled=1 AND delivered=0"))
-        this.results.queueResult(row, savedView(row));
+      for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
       this.results.drain();
     } finally {
       this.polling = false;
@@ -343,7 +351,7 @@ export class MachineChildren implements RemoteChildren {
     if (watchingUnsettled && ++this.sinceRecheck < RECHECK_POLLS) return [];
     this.sinceRecheck = 0;
     const since = this.deps.now() - RECHECK_WINDOW_MS;
-    const turn = ++this.recheckTurn;
+    const turn = ++this.turn;
     // Every machine, and on each the children checked longest ago: all are checked in turn.
     return this.ledger.recheckMachines(since).flatMap((machine) => {
       const rows = this.ledger.recheckTurn(machine, since, RECHECK_PER_MACHINE);
@@ -351,8 +359,65 @@ export class MachineChildren implements RemoteChildren {
         rows.map((row) => row.id),
         turn,
       );
-      return rows.length ? [[machine, rows] as [string, ChildRow[]]] : [];
+      // A machine no longer paired as the child's device can't be asked about it.
+      const lost = this.lostFrom(machine);
+      const asked = rows.filter((row) => !lost(row));
+      return asked.length ? [[machine, asked] as [string, ChildRow[]]] : [];
     });
+  }
+  /**
+   * Which of a machine's children this machine can no longer reach: the pairing they were
+   * delegated through is gone (removed, or the machine linked again as a new device). Pairings
+   * that can't be read leave every child as it is.
+   */
+  private lostFrom(machine: string): (row: ChildRow) => boolean {
+    let device: string | undefined;
+    try {
+      device = this.deps.device(machine);
+    } catch (error) {
+      this.deps.log("Machine pairings not read", { machine, error: String(error) });
+      return () => false;
+    }
+    return (row) => device === undefined || (row.device_id !== null && row.device_id !== device);
+  }
+  /**
+   * The child's pairing is gone, so nothing here can read, message or stop it again. It settles
+   * failed with a result saying so, and the parent gets that result instead of waiting forever:
+   * the person removed the link, and no answer can ever come back over it (ADR 0099).
+   */
+  private settleLost(row: ChildRow) {
+    const name = this.deps.label(row.machine);
+    const view = lostView(row, name, this.deps.now());
+    this.deps.store.atomic(() => {
+      this.ledger.markLost(row.id, JSON.stringify(view));
+      this.deps.engine()?.machineChild(
+        {
+          id: row.id,
+          parentId: row.parent_thread,
+          parentAgentId: row.parent_agent,
+          machine: row.machine,
+          name,
+          provider: row.provider,
+          model: row.model ?? undefined,
+          role: row.role,
+          title: view.title,
+          status: view.status,
+          outcome: {
+            threadId: row.id,
+            outcome: "failed",
+            result: view.result ?? "",
+            truncated: false,
+            before: null,
+          },
+        },
+        "end",
+      );
+      this.results.queueResult(row, view);
+    });
+    this.unreachable.delete(row.id);
+    this.held.delete(row.id);
+    this.deps.mirror.release(`child:${row.id}`);
+    this.emit([row.id]);
   }
   /**
    * A settled child re-read: work started on its machine reopens it, so its parent reads it

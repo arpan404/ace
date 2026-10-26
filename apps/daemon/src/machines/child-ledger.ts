@@ -17,8 +17,13 @@ export const ChildRow = z.object({
   /** Advances with each piece of new work sent, fencing status replies read before it. */
   generation: z.number(),
   settled_at: z.number().nullable(),
-  /** The re-check turn it was last asked about in; lower turns go first. */
+  /**
+   * The turn it was last read in, polled while unsettled or re-checked once settled; on each
+   * machine lower turns go first, so every child is read in turn however many there are.
+   */
   rechecked: z.number(),
+  /** The paired device it was delegated through; null for children from before it was kept. */
+  device_id: z.string().nullable(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
 
@@ -43,14 +48,71 @@ export class ChildLedger {
     );
     return raw ? ChildRow.parse(raw) : undefined;
   }
-  rows(where: string, ...values: (string | number)[]): ChildRow[] {
+  private all(sql: string, ...values: (string | number)[]): ChildRow[] {
+    return this.store
+      .atomic((db) => db.prepare(sql).all(...values))
+      .map((raw) => ChildRow.parse(raw));
+  }
+  /** True while a child is unsettled or its settled result is not yet delivered. */
+  hasOpen(): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db
+          .prepare(
+            "SELECT 1 WHERE EXISTS(SELECT 1 FROM machine_children WHERE settled=0) OR EXISTS(SELECT 1 FROM machine_children WHERE settled=1 AND delivered=0)",
+          )
+          .get(),
+      ),
+    );
+  }
+  /** Machines with an unsettled child, the one whose children were read longest ago first. */
+  unsettledMachines(): string[] {
     return this.store
       .atomic((db) =>
         db
-          .prepare(`SELECT * FROM machine_children WHERE ${where} ORDER BY created_at LIMIT 64`)
-          .all(...values),
+          .prepare(
+            "SELECT machine, MIN(rechecked) AS turn FROM machine_children WHERE settled=0 GROUP BY machine ORDER BY turn, machine",
+          )
+          .all(),
       )
-      .map((raw) => ChildRow.parse(raw));
+      .map((row) => z.string().parse(row.machine));
+  }
+  /** One machine's unsettled children, those read longest ago first. */
+  unsettledTurn(machine: string, limit: number): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=0 AND machine=? ORDER BY rechecked, id LIMIT ?",
+      machine,
+      limit,
+    );
+  }
+  /** Settled children whose result the parent has not taken yet. */
+  undelivered(): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=1 AND delivered=0 ORDER BY settled_at",
+    );
+  }
+  /** Every child delegated from these threads: unsettled first, then oldest first. */
+  ofParents(parents: readonly string[]): ChildRow[] {
+    return chunks(parents).flatMap((ids) =>
+      this.all(
+        `SELECT * FROM machine_children WHERE parent_thread IN (${ids.map(() => "?").join(",")}) ORDER BY settled, created_at`,
+        ...ids,
+      ),
+    );
+  }
+  /** The unsettled children delegated from these threads. */
+  unsettledOfParents(parents: readonly string[]): ThreadId[] {
+    return chunks(parents).flatMap((ids) =>
+      this.store
+        .atomic((db) =>
+          db
+            .prepare(
+              `SELECT id FROM machine_children WHERE settled=0 AND parent_thread IN (${ids.map(() => "?").join(",")})`,
+            )
+            .all(...ids),
+        )
+        .map((row) => ThreadId.parse(row.id)),
+    );
   }
   byRequest(key: string): ThreadId | undefined {
     const raw = this.store.atomic((db) =>
@@ -69,11 +131,12 @@ export class ChildLedger {
     model?: string | undefined;
     createdAt: number;
     view: MachineThreadView | undefined;
+    device: string | undefined;
   }): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view,device_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         )
         .run(
           child.id,
@@ -86,6 +149,7 @@ export class ChildLedger {
           child.model ?? null,
           child.createdAt,
           child.view ? JSON.stringify(child.view) : null,
+          child.device ?? null,
         ),
     );
   }
@@ -193,6 +257,19 @@ export class ChildLedger {
       if (settled) db.prepare("UPDATE machine_children SET settled_at=? WHERE id=?").run(now, id);
     });
   }
+  /**
+   * Its pairing is gone, so its machine can never be asked again: settled with `view`, its
+   * unanswered messages dropped (none can be sent), and no re-check window (`settled_at` null).
+   */
+  markLost(id: ThreadId, view: string): void {
+    this.store.atomic((db) => {
+      db.prepare("DELETE FROM machine_child_messages WHERE child_id=?").run(id);
+      db.prepare("UPDATE machine_children SET view=?, settled=1, settled_at=NULL WHERE id=?").run(
+        view,
+        id,
+      );
+    });
+  }
   markDelivered(id: string): void {
     this.store.atomic((db) =>
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=?").run(id),
@@ -252,4 +329,11 @@ export class ChildLedger {
       for (const id of ids) mark.run(turn, id);
     });
   }
+}
+
+/** SQLite caps bound values per statement; long id lists go in pieces. */
+function chunks(ids: readonly string[]): string[][] {
+  const out: string[][] = [];
+  for (let index = 0; index < ids.length; index += 500) out.push(ids.slice(index, index + 500));
+  return out;
 }

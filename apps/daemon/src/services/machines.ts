@@ -149,6 +149,10 @@ export function startMachines(context: ServiceContext): void {
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>
       services.agentControl?.delegations.journal.isDescendant(child, ancestor) ?? false,
+    descendants: (thread) =>
+      services.agentControl?.delegations.journal.descendants(thread).map((edge) => edge.childId) ??
+      [],
+    device: (machine) => directory.device(machine),
     log: record("warn"),
   });
   resources.own(() => children.close());
