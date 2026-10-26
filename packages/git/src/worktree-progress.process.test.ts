@@ -25,6 +25,10 @@ async function fixture() {
     "user.name=Test",
     "-c",
     "user.email=test@ace.local",
+    // Git would otherwise pack these 2048 objects in a detached process that outlives the
+    // test and keeps writing in .git while the fixture is removed.
+    "-c",
+    "maintenance.auto=false",
     "commit",
     "-m",
     "Fixture",
