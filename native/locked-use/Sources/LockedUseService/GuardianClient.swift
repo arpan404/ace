@@ -23,9 +23,13 @@ public enum LockedUseGuardianClientError: Error, Equatable { case unreachable, r
         self.now = now
     }
 
-    /// Installation check: the guardian answers on its service name.
-    public func ping() -> Bool {
-        lockedUseCall(link(), timeout: .milliseconds(500)) { (proxy: LockedUseGuardianLink, reply) in proxy.ping(reply: reply) }
+    /// Installation check: the guardian answers on its service name. Never blocks the main
+    /// thread; `done` runs on the main actor. It uses the same link as arm and heartbeat,
+    /// because the guardian treats any dropped connection from this process as a lost link.
+    public func ping(done: @escaping @MainActor (Bool) -> Void) {
+        lockedUseCallAsync(link(), timeout: .milliseconds(500), { (proxy: LockedUseGuardianLink, reply) in
+            proxy.ping(reply: reply)
+        }, done: done)
     }
 
     public func arm(_ scope: LockedUseScope) throws {

@@ -70,6 +70,19 @@ public struct LockedUseServicePorts {
         if let active { coordinator.connectionLost(active) }
     }
 
+    /// Graceful termination: the feature turns off and any attempt stops its work and
+    /// requests relock. Keep pulsing until `settled`, so completion still waits for the OS
+    /// to confirm the lock. A Mac with no attempt is left as the person has it; a lock
+    /// request then would lock the person out of their own session.
+    public func shutdown() {
+        if let active { gate.cancel(active.attemptID) }
+        coordinator.disable()
+        publishIfChanged()
+    }
+
+    /// No attempt remains: its work exited and the OS confirmed the relock.
+    public var settled: Bool { active == nil }
+
     public func handle(_ frame: Data) {
         switch lockedUseDecodeInbound(frame) {
         case .command(let command): run(command)
@@ -121,13 +134,15 @@ public struct LockedUseServicePorts {
         switch command {
         case .status(let id):
             send(.reply(id: id, status: status))
-        case .enable(let id):
+        case .enable(let id, let optIn):
+            guard optIn else { return optInOff(id) }
             do { try coordinator.enable(); send(.reply(id: id, status: status)) }
             catch { fail(id, error) }
         case .disable(let id):
             coordinator.disable()
             send(.reply(id: id, status: status))
-        case .begin(let id, let scope, let agents):
+        case .begin(let id, let scope, let agents, let optIn):
+            guard optIn else { return optInOff(id) }
             begin(id, scope, agents)
         case .finish(let id, let attempt):
             guard active?.attemptID == attempt, gate.finish(attempt) else { return unknown(id) }
@@ -176,6 +191,15 @@ public struct LockedUseServicePorts {
         guard current != lastStatus else { return }
         lastStatus = current
         send(.state(current))
+    }
+
+    /// The daemon did not assert the person's setting is on. Treat it as off: turn the
+    /// feature off (stopping and relocking any attempt) and refuse.
+    private func optInOff(_ id: String) {
+        if let active { gate.cancel(active.attemptID) }
+        coordinator.disable()
+        send(.failure(id: id, LockedUseWireError(code: "not_enabled",
+            message: "Locked use is off in ace's settings, so the service will not enable or start it.")))
     }
 
     private func unknown(_ id: String) {

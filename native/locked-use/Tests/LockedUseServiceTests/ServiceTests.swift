@@ -7,7 +7,7 @@ import LockedUseTransport
 final class ServiceTests: XCTestCase {
     @MainActor func testAnApprovedTurnWorksOnlyAfterAnObservedUnlockAndCompletesOnlyAfterRelock() async {
         let f = ServiceFixture()
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         XCTAssertNil(f.failureCode("b-attempt-1"))
         XCTAssertEqual(f.unlock.attempts, ["attempt-1"])
@@ -34,7 +34,7 @@ final class ServiceTests: XCTestCase {
     @MainActor func testBeginIsRefusedWithAClearErrorUntilInstallationIsVerified() {
         let f = ServiceFixture()
         f.installed = false
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         XCTAssertEqual(f.failureCode("e"), "not_installed")
         f.begin()
         XCTAssertEqual(f.failureCode("b-attempt-1"), "not_installed")
@@ -45,7 +45,7 @@ final class ServiceTests: XCTestCase {
     @MainActor func testBeginIsRefusedWhileTheMacIsUnlocked() {
         let f = ServiceFixture()
         f.facts = ServiceFixture.facts(locked: false)
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         XCTAssertEqual(f.failureCode("b-attempt-1"), "not_locked")
         f.facts = ServiceFixture.facts(locked: true)
@@ -55,7 +55,7 @@ final class ServiceTests: XCTestCase {
 
     @MainActor func testADaemonDisconnectRelocksAndStillWaitsForTheConfirmedLock() async {
         let f = ServiceFixture()
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         XCTAssertTrue(f.grant())
         f.setSession(locked: false)
@@ -71,7 +71,7 @@ final class ServiceTests: XCTestCase {
 
     @MainActor func testLocalInputStopsWorkAndRequiresAManualUnlockBeforeTheNextAttempt() async {
         let f = ServiceFixture()
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         XCTAssertTrue(f.grant())
         f.setSession(locked: false)
@@ -91,7 +91,7 @@ final class ServiceTests: XCTestCase {
 
     @MainActor func testTheGuardianRelocksWhenTheServiceStopsHeartbeating() async {
         let f = ServiceFixture()
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         XCTAssertTrue(f.grant())
         f.setSession(locked: false)
@@ -107,7 +107,7 @@ final class ServiceTests: XCTestCase {
 
     @MainActor func testBadDaemonInputGetsErrorsWithoutDisturbingAnAttempt() async {
         let f = ServiceFixture()
-        f.send(#"{"v":1,"id":"e","type":"enable"}"#)
+        f.enable()
         f.begin()
         f.send("{nope")
         f.send(#"{"v":1,"id":"x","type":"teleport"}"#)

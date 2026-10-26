@@ -1,27 +1,31 @@
 import Foundation
 import LockedUseCore
 
-/// Daemon → service requests. Every request carries `"v": 1` (absent is read as 1), an
-/// `id` of 1...64 characters echoed in the reply, and a `type`. Unknown fields are ignored.
+/// Daemon → service requests, served only after the connection's hello (see Handshake.swift).
+/// Every request carries `"v": 1` (absent is read as 1), an `id` of 1...64 characters echoed
+/// in the reply, and a `type`. Unknown fields are ignored.
 ///
 ///     {"v":1,"id":"r1","type":"status"}
-///     {"v":1,"id":"r2","type":"enable"}          // the person's opt-in, after installation checks
+///     {"v":1,"id":"r2","type":"enable","optIn":true}   // the person's setting is on
 ///     {"v":1,"id":"r3","type":"disable"}
-///     {"v":1,"id":"r4","type":"begin","scope":{"userID":501,"sessionID":100003,
+///     {"v":1,"id":"r4","type":"begin","optIn":true,"scope":{"userID":501,"sessionID":100003,
 ///         "threadID":"…","turnID":"…","attemptID":"<unguessable, single-use>"},"agentProcessIDs":[4242]}
+///
+/// `optIn` is the daemon's assertion that the person's `computer.lockedUse` setting is on.
+/// Only the JSON literal `true` counts; absent, false or any other value means off.
 ///     {"v":1,"id":"r5","type":"finish","attemptID":"…"}   // approved work is done; relock
 ///     {"v":1,"id":"r6","type":"cancel","attemptID":"…"}
 public enum LockedUseCommand: Equatable, Sendable {
     case status(id: String)
-    case enable(id: String)
+    case enable(id: String, optIn: Bool)
     case disable(id: String)
-    case begin(id: String, scope: LockedUseScope, agentProcessIDs: Set<Int32>)
+    case begin(id: String, scope: LockedUseScope, agentProcessIDs: Set<Int32>, optIn: Bool)
     case finish(id: String, attemptID: String)
     case cancel(id: String, attemptID: String)
 
     public var id: String {
         switch self {
-        case .status(let id), .enable(let id), .disable(let id), .begin(let id, _, _),
+        case .status(let id), .enable(let id, _), .disable(let id), .begin(let id, _, _, _),
              .finish(let id, _), .cancel(let id, _): return id
         }
     }
@@ -47,7 +51,7 @@ public func lockedUseDecodeInbound(_ frame: Data) -> LockedUseInbound {
     if let version = message["v"], lockedUseInteger(version) != 1 { return .unsupported(id: id, type: type) }
     switch type {
     case "status": return .command(.status(id: id))
-    case "enable": return .command(.enable(id: id))
+    case "enable": return .command(.enable(id: id, optIn: lockedUseIsTrue(message["optIn"])))
     case "disable": return .command(.disable(id: id))
     case "finish", "cancel":
         guard let attempt = message["attemptID"] as? String, (1...256).contains(attempt.utf8.count) else {
@@ -69,10 +73,16 @@ public func lockedUseDecodeInbound(_ frame: Data) -> LockedUseInbound {
             }
             agents.insert(pid)
         }
-        return .command(.begin(id: id, scope: scope, agentProcessIDs: agents))
+        return .command(.begin(id: id, scope: scope, agentProcessIDs: agents, optIn: lockedUseIsTrue(message["optIn"])))
     default:
         return .unsupported(id: id, type: type)
     }
+}
+
+/// Only the JSON literal `true`; numbers such as 1 bridge to NSNumber too and are refused.
+private func lockedUseIsTrue(_ value: Any?) -> Bool {
+    guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+    return number.boolValue
 }
 
 /// JSON integers only: booleans and fractional numbers bridge to NSNumber too and are rejected.

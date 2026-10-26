@@ -3,20 +3,38 @@ import Darwin
 
 public enum LockedUseSocketError: Error, Equatable { case pathTooLong, notASocket, system(Int32) }
 
-/// Listens on a Unix socket for the ace daemon. The socket file is mode 0600, a peer must
-/// run as this process's user, and only one daemon connection is served at a time.
+/// The connected peer's effective user from the kernel (`LOCAL_PEERCRED`), or nil when
+/// the credentials cannot be read or have an unknown layout.
+public func lockedUsePeerUserID(_ fd: Int32) -> uid_t? {
+    var credentials = xucred()
+    var size = socklen_t(MemoryLayout<xucred>.size)
+    guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, &credentials, &size) == 0,
+          size == socklen_t(MemoryLayout<xucred>.size), credentials.cr_version == XUCRED_VERSION else { return nil }
+    return credentials.cr_uid
+}
+
+/// Listens on a Unix socket for the ace daemon. The socket file is mode 0600, the kernel's
+/// peer credentials must name this process's user, and only one connection is served at a
+/// time. The served connection then has to prove it is the daemon (see `LockedUseDaemonLink`).
 public final class LockedUseSocketServer: @unchecked Sendable {
     private let path: String
     private let queue: DispatchQueue
+    private let expectedUserID: uid_t
+    private let peerUserID: (Int32) -> uid_t?
     private var listenFD: Int32 = -1
     private var source: DispatchSourceRead?
-    private var current: LockedUseFramedConnection?
-    private let makeConnection: (Int32) -> LockedUseFramedConnection
+    private var current: LockedUseServedConnection?
+    private let makeConnection: (Int32) -> LockedUseServedConnection
 
-    /// `connect` builds the framed connection for an authenticated peer descriptor.
-    public init(path: String, queue: DispatchQueue, connect: @escaping (Int32) -> LockedUseFramedConnection) {
+    /// `connect` builds the connection for a peer descriptor whose user already matched.
+    /// `peerUserID` reads the kernel-attested peer user; tests substitute it.
+    public init(path: String, queue: DispatchQueue, expectedUserID: uid_t = getuid(),
+                peerUserID: @escaping (Int32) -> uid_t? = lockedUsePeerUserID,
+                connect: @escaping (Int32) -> LockedUseServedConnection) {
         self.path = path
         self.queue = queue
+        self.expectedUserID = expectedUserID
+        self.peerUserID = peerUserID
         self.makeConnection = connect
     }
 
@@ -28,7 +46,7 @@ public final class LockedUseSocketServer: @unchecked Sendable {
         var info = stat()
         if lstat(path, &info) == 0 {
             // Only replace a stale socket; never delete some other file at this path.
-            guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw LockedUseSocketError.notASocket }
+            guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == expectedUserID else { throw LockedUseSocketError.notASocket }
             unlink(path)
         }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -70,9 +88,7 @@ public final class LockedUseSocketServer: @unchecked Sendable {
     private func acceptOne() {
         let fd = accept(listenFD, nil, nil)
         guard fd >= 0 else { return }
-        var uid: uid_t = 0
-        var gid: gid_t = 0
-        guard current == nil, getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { Darwin.close(fd); return }
+        guard current == nil, let peer = peerUserID(fd), peer == expectedUserID else { Darwin.close(fd); return }
         let connection = makeConnection(fd)
         current = connection
         connection.start()
