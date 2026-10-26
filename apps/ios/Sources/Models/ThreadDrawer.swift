@@ -27,15 +27,38 @@ struct ThreadDrawer: Equatable {
 
     /// The sidebar button or a finished edge swipe. Only a page has a drawer to open.
     mutating func open(in layout: Layout) { if layout == .page { isOpen = true } }
-    /// A tap or swipe on the dimmed page, the escape gesture, or a row picked in the list:
-    /// whichever thread a row opens shows with the list closed, the one already open included,
-    /// which changes no path.
+    /// A tap or swipe on the dimmed page, the escape gesture, or a thread shown from elsewhere
+    /// (a notification, a transfer, the tab changing).
     mutating func close() { isOpen = false }
+    /// The sidebar button and its keyboard shortcut: out if it was in, in if it was out.
+    mutating func toggle(in layout: Layout) { if isOpen { close() } else { open(in: layout) } }
+
+    /// What a row picked in the list does.
+    struct Pick: Equatable {
+        /// Whether the row's thread opens. The open thread's own row only closes the drawer:
+        /// opening it again would restart its session for nothing.
+        let opens: Bool
+        /// Whether the list's search ends. In a compact window the list is left for the thread,
+        /// so its field must not keep the keyboard or take the person's typing.
+        let endsSearch: Bool
+    }
+    /// A row picked in the list, while `open` is the thread showing. The drawer closes whichever
+    /// row it was.
+    mutating func pick(_ key: InboxKey, open: InboxKey?, in layout: Layout) -> Pick {
+        isOpen = false
+        return Pick(opens: key != open, endsSearch: layout != .beside)
+    }
     /// The window or its path changed: another page in place of the open one, the open one
     /// closed (archived), or the window turning regular. The drawer closes with any of them;
     /// pages pushed over the open one change nothing, as they can't be pushed while it is out.
     mutating func follow(layout: Layout, old: [InboxRoute], new: [InboxRoute]) {
         if layout != .page || old.first != new.first { isOpen = false }
+    }
+
+    /// The dimmed page takes taps and drags while the drawer is out or a finger holds it, so a
+    /// drag that brings the list all the way in still ends where it started.
+    static func closerShown(_ layout: Layout, open: Bool, held: CGFloat?) -> Bool {
+        layout == .page && (open || held != nil)
     }
 
     /// Whether the list carries Threads, Pull requests and New thread itself. Beside a thread
@@ -100,4 +123,33 @@ struct ThreadDrawer: Equatable {
             return Placement(listWidth: width, listOffset: (shown - 1) * width, listOpacity: 1, pageOffset: shown * width, dim: shown)
         }
     }
+}
+
+/// The drawer's place while a finger holds it. Only the modifiers that place the list and the
+/// page read it, so a drag redraws their offsets and nothing of the thread or the list.
+@MainActor @Observable final class DrawerHold {
+    /// How far open (0 closed, 1 open) while a finger holds the drawer; nil when none does.
+    private(set) var progress: CGFloat?
+    /// The layout the list and page are placed for, which follows the window's with animation.
+    var layout = ThreadDrawer.Layout.list
+    @ObservationIgnored private var from = false
+
+    /// A finger took the drawer, open or closed.
+    func begin(from open: Bool) {
+        from = open
+        progress = open ? 1 : 0
+    }
+    /// The finger moved `translation` sideways from where it took the drawer, `width` wide.
+    func move(_ translation: CGFloat, width: CGFloat) {
+        progress = ThreadDrawer.progress(from: from, translation: translation, width: width)
+    }
+    /// The finger let go, or the system cancelled its drag (velocity zero): whether the drawer
+    /// settles open, nil when no finger held it.
+    func release(velocity: CGFloat) -> Bool? {
+        guard let progress else { return nil }
+        self.progress = nil
+        return ThreadDrawer.settlesOpen(progress: progress, velocity: velocity)
+    }
+    /// The drawer was opened or closed some other way while a finger held it.
+    func drop() { progress = nil }
 }

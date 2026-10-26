@@ -7,12 +7,7 @@ import SwiftUI
     private let other = InboxKey(machineId: "m", id: "b")
     private let child = InboxKey(machineId: "m", id: "child")
 
-    @Test func aCompactWindowGivesTheOpenThreadTheWholeWindowAndTheListFillsItWhenNoneIsOpen() {
-        #expect(ThreadDrawer.layout(.compact, path: [.thread(open)]) == .page)
-        #expect(ThreadDrawer.layout(.compact, path: [.thread(open), .thread(child)]) == .page)
-        #expect(ThreadDrawer.layout(.compact, path: []) == .list)
-        // Regular keeps the list beside the thread and has no drawer at all.
-        #expect(ThreadDrawer.layout(.regular, path: [.thread(open)]) == .beside)
+    @Test func onlyAnOpenPageHasADrawerToOpen() {
         var drawer = ThreadDrawer()
         drawer.open(in: .beside)
         #expect(!drawer.isOpen)
@@ -32,11 +27,6 @@ import SwiftUI
         #expect(out.dim == 1 && out.rounded)
         let closed = ThreadDrawer.placement(.page, progress: 0, window: 402, reduceMotion: false)
         #expect(closed.pageOffset == 0 && closed.listOffset == -width && closed.dim == 0 && !closed.rounded)
-    }
-
-    @Test func theListIsAboutFourFifthsOfAPhoneAndNoWiderThanTheListBesideAThread() {
-        #expect(ThreadDrawer.listWidth(window: 402) == 322)
-        #expect(ThreadDrawer.listWidth(window: 600) == ThreadColumns.listWidth.max)
     }
 
     @Test func withReduceMotionTheListFadesInOverTheThreadWithoutSliding() {
@@ -94,9 +84,52 @@ import SwiftUI
         #expect(!ThreadDrawer.settlesOpen(progress: 0.9, velocity: -900))
     }
 
-    @Test func theListCarriesTheTabsBesideAndOverAThreadButNotWhenItFillsTheWindow() {
-        #expect(ThreadDrawer.listHoldsTabs(.beside))
-        #expect(ThreadDrawer.listHoldsTabs(.page))
-        #expect(!ThreadDrawer.listHoldsTabs(.list))
+
+    @Test func pickingTheOpenThreadsRowClosesTheDrawerWithoutOpeningItAgain() {
+        var drawer = ThreadDrawer()
+        drawer.open(in: .page)
+        let same = drawer.pick(open, open: open, in: .page)
+        #expect(!same.opens && !drawer.isOpen)
+        drawer.open(in: .page)
+        let next = drawer.pick(other, open: open, in: .page)
+        #expect(next.opens && !drawer.isOpen)
+    }
+
+    @Test func aPickInACompactWindowEndsTheListsSearchButBesideTheThreadItStays() {
+        var drawer = ThreadDrawer()
+        drawer.open(in: .page)
+        #expect(drawer.pick(other, open: open, in: .page).endsSearch)
+        // The full-width list's search results, under the thread they open.
+        #expect(drawer.pick(other, open: nil, in: .list).endsSearch)
+        #expect(!drawer.pick(other, open: open, in: .beside).endsSearch)
+    }
+
+    @Test func theSidebarShortcutTogglesTheDrawer() {
+        var drawer = ThreadDrawer()
+        drawer.toggle(in: .page)
+        #expect(drawer.isOpen)
+        drawer.toggle(in: .page)
+        #expect(!drawer.isOpen)
+    }
+
+    @MainActor @Test func dragTheDimmedThreadPastTheListsFullWidthAndItStillLetsGoClosed() {
+        let hold = DrawerHold()
+        hold.begin(from: true)
+        hold.move(-322 * 1.5, width: 322)
+        #expect(hold.progress == 0)
+        // The dimmed thread stays to take the end of the drag with the list all the way in.
+        #expect(ThreadDrawer.closerShown(.page, open: true, held: hold.progress))
+        #expect(hold.release(velocity: 0) == false)
+        #expect(hold.progress == nil)
+        // Its end, after the system cancelled the drag, changes nothing more.
+        #expect(hold.release(velocity: 0) == nil)
+    }
+
+    @MainActor @Test func aCancelledDragSettlesWhereTheFingerLeftIt() {
+        let hold = DrawerHold()
+        hold.begin(from: false)
+        hold.move(250, width: 322)
+        #expect(hold.release(velocity: 0) == true)
+        #expect(!ThreadDrawer.closerShown(.page, open: false, held: hold.progress))
     }
 }
