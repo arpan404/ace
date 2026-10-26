@@ -39,6 +39,7 @@ import {
   pageSummary,
   pendingDialog,
   snapshotText,
+  tabDevice,
   tabEntry,
   type ToolResult,
 } from "./mcp-results.ts";
@@ -374,6 +375,11 @@ const pageTools: Tool[] = [
         signal,
       );
       signal.throwIfAborted();
+      // The device the tab emulates, so the agent knows the picture is a phone's (ADR 0104).
+      const own = await port.tab(caller, tabId, signal);
+      signal.throwIfAborted();
+      const shown = port.state(caller).tabs?.find((each) => each.tabId === own.tabId);
+      const device = shown && !shown.private ? tabDevice(shown.emulation) : {};
       return {
         content: [
           {
@@ -381,7 +387,9 @@ const pageTools: Tool[] = [
             mimeType: "image/jpeg",
             data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
           },
-          ...(geometry ? [{ type: "text", text: JSON.stringify(geometry) }] : []),
+          ...(geometry || device.device
+            ? [{ type: "text", text: JSON.stringify({ ...geometry, ...device }) }]
+            : []),
         ],
       };
     },

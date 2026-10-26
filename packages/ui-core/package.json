@@ -15,6 +15,8 @@
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
     "./devices": "./src/device-kit.ts",
+    "./browser-devices": "./src/browser-devices.ts",
+    "./browser-device-settings": "./src/browser-device-settings.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
     "./editor-commands": "./src/editor-commands.ts",
