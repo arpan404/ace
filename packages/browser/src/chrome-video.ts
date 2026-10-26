@@ -39,6 +39,7 @@ export class ChromeVideo implements VideoHost {
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
   private ready: Promise<{ worker: BrowserCdp; document: BrowserCdp }> | undefined;
+  private platform: NodeJS.Platform | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
   private ids = 0;
@@ -49,7 +50,10 @@ export class ChromeVideo implements VideoHost {
     /** Where the unpacked extension is written. */
     directory: string;
     delay: (milliseconds: number) => Promise<void>;
+    /** Windows starts extension targets slowly; see `untilExport`. */
+    platform?: NodeJS.Platform;
   }) {
+    this.platform = options.platform;
     this.connection = options.connection;
     this.targets = options.targets;
     this.directory = options.directory;
@@ -179,28 +183,21 @@ export class ChromeVideo implements VideoHost {
       .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    const worker = await this.attach(`${origin}worker.js`, "ready");
+    const worker = await this.attach(`${origin}worker.js`);
+    if (this.platform === "win32") await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
-    const document = await this.attach(`${origin}offscreen.html`, "supported");
+    const document = await this.attach(`${origin}offscreen.html`);
+    if (this.platform === "win32") await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
   }
-  /**
-   * Attaches to the extension target at `url`, waiting a few seconds for it to start and for
-   * its `aceVideo[method]` export to exist. A visible target runs no script yet on a slow
-   * start (Windows): calling `aceVideo.ready` then throws `ReferenceError`.
-   */
-  private async attach(url: string, method: string): Promise<BrowserCdp> {
-    let session: BrowserCdp | undefined;
+  /** Attaches to the extension target at `url`, waiting a few seconds for it to start. */
+  private async attach(url: string): Promise<BrowserCdp> {
     for (let attempt = 0; attempt < 50; attempt++) {
-      if (!session) {
-        const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
-        const target = targetInfos.find((info) => info.url === url);
-        if (!target) {
-          await this.delay(100);
-          continue;
-        }
+      const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
+      const target = targetInfos.find((info) => info.url === url);
+      if (target) {
         this.targets.keep(target.targetId);
         const { sessionId } = Attached.parse(
           await this.connection.send("Target.attachToTarget", {
@@ -209,24 +206,29 @@ export class ChromeVideo implements VideoHost {
           }),
         );
         this.sessions.add(sessionId);
-        session = this.connection.session(sessionId);
-        await session.send("Runtime.runIfWaitingForDebugger", {});
+        return this.connection.session(sessionId);
       }
-      if (await this.exportReady(session, method)) return session;
       await this.delay(100);
     }
     throw new Error("The video extension did not start");
   }
-  /** Whether the attached target's worker script has defined its `aceVideo[method]` export. */
-  private async exportReady(session: BrowserCdp, method: string): Promise<boolean> {
-    const reply = Evaluated.parse(
-      await session.send("Runtime.evaluate", {
-        expression: `typeof globalThis.aceVideo?.${method} === "function"`,
-        returnByValue: true,
-      }),
-    );
-    if (reply.exceptionDetails) return false;
-    return reply.result?.value === true;
+  /**
+   * Windows: an attached extension target may not have run its script yet, so calling an
+   * `aceVideo` export would throw `ReferenceError`. Waits a few seconds for `aceVideo[method]`.
+   */
+  private async untilExport(session: BrowserCdp, method: string): Promise<void> {
+    await session.send("Runtime.runIfWaitingForDebugger", {});
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const reply = Evaluated.parse(
+        await session.send("Runtime.evaluate", {
+          expression: `typeof globalThis.aceVideo?.${method} === "function"`,
+          returnByValue: true,
+        }),
+      );
+      if (!reply.exceptionDetails && reply.result?.value === true) return;
+      await this.delay(100);
+    }
+    throw new Error("The video extension did not start");
   }
   private receive(raw: unknown): void {
     const binding = Binding.safeParse(raw);

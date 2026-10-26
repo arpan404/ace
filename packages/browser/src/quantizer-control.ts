@@ -15,40 +15,20 @@
  * change" whatever the quantizer.
  */
 
-/** A codec's quantizer domain and measured response to frame size. */
-interface QuantizerProfile {
-  min: number;
-  max: number;
-  initial: number;
-  keyframeOffset: number;
-  stepsPerDoubling: number;
-}
-
-const avcProfile: QuantizerProfile = {
-  min: 18,
-  max: 51,
-  initial: 36,
-  keyframeOffset: 6,
-  stepsPerDoubling: 6,
-};
-
-/**
- * VP9 uses 0–255 indices. A 1318×1650 text-page probe produced 176 KB at
- * index 96 and 85 KB at 192, so 96 steps approximate a doubling of cost.
- * Quality gains flattened below index 32 on that probe. The same half-second
- * still-frame budget applies; observed frame sizes keep steering motion.
- */
-const vp9Profile: QuantizerProfile = {
-  min: 32,
-  max: 255,
-  initial: 128,
-  keyframeOffset: 24,
-  stepsPerDoubling: 96,
-};
+/** H.264 and HEVC quantizers run 0–51; below this, a frame costs bits nobody sees. */
+const lowest = 18;
+const highest = 51;
+/** Where an encode starts, before any frame has shown what the content costs. */
+const initial = 36;
 /** How much each frame moves the average of recent frame sizes. */
 const smoothing = 0.25;
 /** The quantizer moves at most this often (frames), letting the last change show first. */
 const settleFrames = 3;
+/**
+ * A keyframe costs many deltas: it is coded coarser to keep its size in check, and the deltas
+ * after it sharpen the picture again.
+ */
+const keyframeOffset = 6;
 /**
  * A still page's sharper keyframe may cost about this many seconds of the bit rate, judged from
  * the last keyframe's size. Half a second of a thin link is a short wait; on this machine
@@ -65,30 +45,19 @@ export function affordsSettleKey(keyBits: number | undefined, bitrate: number): 
 }
 
 export class QuantizerControl {
-  #profile: QuantizerProfile = avcProfile;
-  #quantizer: number;
+  #quantizer = initial;
   #average: number | undefined;
   #sinceChange = 0;
   #bitsPerFrame: number;
   #bitrate: number;
   /** The quantizer the picture on screen was last encoded at. */
-  #last: number;
+  #last = initial;
   /** The quantizer and size of the last keyframe: what a whole picture costs. */
   #keyQuantizer: number | undefined;
   #keyBits: number | undefined;
   constructor(bitrate: number, fps: number) {
     this.#bitsPerFrame = bitrate / fps;
     this.#bitrate = bitrate;
-    this.#quantizer = this.#profile.initial;
-    this.#last = this.#profile.initial;
-  }
-  /** VP9 profile from the owned Chrome probe: 32–255, start 128. */
-  static vp9(bitrate: number, fps: number): QuantizerControl {
-    const control = new QuantizerControl(bitrate, fps);
-    control.#profile = vp9Profile;
-    control.#quantizer = vp9Profile.initial;
-    control.#last = vp9Profile.initial;
-    return control;
   }
   /** A new bit rate (the link changed): frames aim for it from now on. */
   retarget(bitrate: number, fps: number): void {
@@ -97,10 +66,7 @@ export class QuantizerControl {
   }
   /** The quantizer for the next frame. */
   next(key: boolean): number {
-    const quantizer = Math.min(
-      this.#profile.max,
-      this.#quantizer + (key ? this.#profile.keyframeOffset : 0),
-    );
+    const quantizer = Math.min(highest, this.#quantizer + (key ? keyframeOffset : 0));
     this.#last = quantizer;
     if (key) this.#keyQuantizer = quantizer;
     return quantizer;
@@ -113,10 +79,8 @@ export class QuantizerControl {
     if (this.#keyQuantizer === undefined || this.#keyBits === undefined) return undefined;
     const budget = this.#bitrate * settleSeconds;
     const quantizer = Math.max(
-      this.#profile.min,
-      Math.round(
-        this.#keyQuantizer - this.#profile.stepsPerDoubling * Math.log2(budget / this.#keyBits),
-      ),
+      lowest,
+      Math.round(this.#keyQuantizer - 6 * Math.log2(budget / this.#keyBits)),
     );
     if (quantizer >= this.#last) return undefined;
     this.#last = quantizer;
@@ -136,15 +100,12 @@ export class QuantizerControl {
       this.#average === undefined ? bits : this.#average + (bits - this.#average) * smoothing;
     if (++this.#sinceChange < settleFrames) return;
     const ratio = this.#average / this.#bitsPerFrame;
-    // Move by the log of how far off the average is, damped: half the
-    // doubling steps per change, clamped to +2/3 / -1/3 of a doubling.
-    const step = Math.round((this.#profile.stepsPerDoubling / 2) * Math.log2(ratio));
+    // Six steps halve a frame: move by the log of how far off the average is, damped.
+    const step = Math.round(3 * Math.log2(ratio));
     if (step === 0) return;
-    const up = (this.#profile.stepsPerDoubling * 2) / 3;
-    const down = this.#profile.stepsPerDoubling / 3;
     this.#quantizer = Math.min(
-      this.#profile.max,
-      Math.max(this.#profile.min, this.#quantizer + Math.max(-down, Math.min(up, step))),
+      highest,
+      Math.max(lowest, this.#quantizer + Math.max(-2, Math.min(4, step))),
     );
     this.#sinceChange = 0;
   }

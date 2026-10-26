@@ -1,7 +1,7 @@
 import { basename, dirname, join } from "node:path";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
-import { detectChromium, ownedChromium } from "./discovery.ts";
+import { installedWindowsChromium } from "./discovery.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
@@ -81,19 +81,14 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     (owned = new ChromeBackend({
       executable: () => {
         if (options.executablePath) return Promise.resolve(options.executablePath);
-        const acquire = () =>
-          acquireChromium({
-            ...options.acquisition,
-            dataDir: options.dataDir,
-            signal,
-            progress,
-          });
         acquiring ??= (
-          options.acquisition?.artifact
-            ? acquire()
-            : ownedChromium(process.platform, process.arch, {
-                installed: () => detectChromium({ dataDir: options.dataDir }),
-                acquire,
+          process.platform === "win32" && process.arch === "arm64" && !options.acquisition?.artifact
+            ? installedWindowsChromium({ dataDir: options.dataDir })
+            : acquireChromium({
+                ...options.acquisition,
+                dataDir: options.dataDir,
+                signal,
+                progress,
               })
         ).catch((error: unknown) => {
           acquiring = undefined;

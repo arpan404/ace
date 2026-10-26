@@ -90,6 +90,7 @@ export class ChromeBackend implements BrowserBackend {
         connection: instance.connection,
         targets: instance.targets,
         directory: `${profileDir}-video-extension`,
+        platform: this.options.platform,
         delay: (milliseconds) =>
           new Promise((resolve) => void schedule(() => resolve(), milliseconds)),
       });

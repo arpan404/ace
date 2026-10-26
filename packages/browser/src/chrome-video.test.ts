@@ -75,7 +75,7 @@ async function directory(): Promise<{ path: string; cleanup: () => Promise<void>
   return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
 }
 
-test("supported waits for the extension scripts before calling their exports", async () => {
+test("on Windows, supported waits for the extension scripts before calling their exports", async () => {
   const dir = await directory();
   try {
     const workerGlobals: Globals = {};
@@ -86,6 +86,7 @@ test("supported waits for the extension scripts before calling their exports", a
       connection,
       targets: { keep: () => {} },
       directory: dir.path,
+      platform: "win32",
       delay: async () => {
         delays++;
         if (delays === 2)
@@ -106,7 +107,7 @@ test("supported waits for the extension scripts before calling their exports", a
   }
 });
 
-test("supported rejects bounded when the extension scripts never define their exports", async () => {
+test("on Windows, supported rejects bounded when the extension scripts never define their exports", async () => {
   const dir = await directory();
   try {
     const delays: number[] = [];
@@ -115,6 +116,7 @@ test("supported rejects bounded when the extension scripts never define their ex
       connection,
       targets: { keep: () => {} },
       directory: dir.path,
+      platform: "win32",
       delay: async (milliseconds: number) => {
         delays.push(milliseconds);
       },
