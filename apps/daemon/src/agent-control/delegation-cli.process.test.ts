@@ -202,7 +202,11 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
   );
   expect(waited.data).toMatchObject({ status: "ready" });
   const retried = AgentControlResult.parse((await f.call("delegate", batch)).structuredContent);
-  expect(retried.data).toEqual({ threadIds: data.threadIds });
+  // The retry names the same children and reports neither as waiting for a run slot.
+  expect(retried.data).toEqual({
+    threadIds: data.threadIds,
+    launches: data.threadIds.map((threadId) => ({ threadId, queued: false })),
+  });
   expect(f.daemon.store.listThreads()).toHaveLength(3);
 });
 

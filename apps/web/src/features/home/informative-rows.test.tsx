@@ -83,7 +83,7 @@ test("task context shows branch, environment and provider while hover keeps the 
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
   expect(within(row).queryByText("Working · Codex")).toBeNull();
-  expect(within(row).getByText("fix/replay")).toBeTruthy();
+  expect(within(row).getByTitle("fix/replay").textContent).toBe("fix/replay");
   expect(row.getAttribute("aria-label")).toContain("Working");
   expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
   expect(within(row).queryByText("+24")).toBeNull();

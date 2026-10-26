@@ -3,7 +3,7 @@ import { BrowserAnnotationCapture } from "@ace/protocol";
 import {
   annotationFixture,
   executablePath,
-  isMarkerBlue,
+  isMarkerColour,
   markerCentre,
   pixel,
 } from "./annotation-test-support.ts";
@@ -75,7 +75,7 @@ test("wheel input still scrolls an inner container and the marker follows its el
   const width = Number(await person.evaluate("innerWidth"));
   // Sample beside the digit, inside the 22 px marker at the element's new position.
   const moved = markerCentre(box);
-  expect(isMarkerBlue(await pixel(page, width, moved.x - 7, moved.y))).toBe(true);
+  expect(isMarkerColour(await pixel(page, width, moved.x - 7, moved.y))).toBe(true);
 }, 60_000);
 
 test("a page capture keeps the markers but leaves out the bar", async () => {
@@ -90,7 +90,7 @@ test("a page capture keeps the markers but leaves out the bar", async () => {
   const height = Number(await person.evaluate("innerHeight"));
   const box = await person.box("p.lead");
   const marker = markerCentre(box);
-  expect(isMarkerBlue(await pixel(page, width, marker.x - 7, marker.y))).toBe(true);
+  expect(isMarkerColour(await pixel(page, width, marker.x - 7, marker.y))).toBe(true);
   // The bar is centred near the bottom; the capture shows the white page there instead.
   const barSpot = [width / 2, height - 37] as const;
   expect(Math.min(...(await pixel(page, width, ...barSpot)))).toBeGreaterThan(230);

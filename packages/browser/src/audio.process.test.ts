@@ -148,7 +148,11 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     // A second of sound: fifty 20 ms Opus packets.
     await until(() => listener.audio().length >= 50);
     const chunks = listener.audio();
-    expect(chunks[0]).toMatchObject({ codec: "opus", sampleRate: 48_000 });
+    // Chrome captures the tab at the output device's rate (48 kHz speakers, 44.1 kHz Bluetooth
+    // headphones), the rate the page's own AudioContext runs at. The pitch check below
+    // decodes at the reported rate, so a wrong rate would also mishear the tone.
+    const pageRate = Number(await f.evaluate("audioContext.sampleRate"));
+    expect(chunks[0]).toMatchObject({ codec: "opus", sampleRate: pageRate });
     const heard = await hear(f, chunks);
     expect(heard.errors).toEqual([]);
     expect(heard.peak).toBeGreaterThan(0.1);

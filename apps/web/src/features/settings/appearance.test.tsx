@@ -218,11 +218,11 @@ test("an accent applies over any theme, survives a theme switch and replays on t
   const themeOwn = token("--ring");
   const accent = screen.getByRole("radiogroup", { name: "Accent" });
 
-  await userEvent.click(within(accent).getByRole("radio", { name: "Violet" }));
-  const violet = token("--ring");
-  expect(violet).not.toBe(themeOwn);
+  await userEvent.click(within(accent).getByRole("radio", { name: "Magenta" }));
+  const magenta = token("--ring");
+  expect(magenta).not.toBe(themeOwn);
   await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
-  expect(within(accent).getByRole("radio", { name: "Violet" }).getAttribute("aria-checked")).toBe(
+  expect(within(accent).getByRole("radio", { name: "Magenta" }).getAttribute("aria-checked")).toBe(
     "true",
   );
   expect(token("--ring")).not.toBe(themes.paper.light.accent);

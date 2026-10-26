@@ -200,7 +200,7 @@ function PairingFlow({
   return (
     // Focus starts on the flow itself, not on the first option: nothing is outlined until the
     // person presses a key.
-    <div ref={ref} tabIndex={-1} className="flex flex-col gap-4 outline-none">
+    <div ref={ref} tabIndex={-1} className="flex flex-col gap-4 focus-visible:outline-none">
       <p className="text-sm text-muted-foreground">
         The link works once and expires after {lifeLabel}. {note}
       </p>

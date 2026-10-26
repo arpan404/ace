@@ -159,7 +159,10 @@ test("opening a parent's finished log keeps fetched child tools and messages on 
   expect(await within(feed).findByRole("button", { name: /^Ran bun run build/ })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Read child-only.ts/ })).toBeNull();
   expect(within(feed).queryByText("Private child answer")).toBeNull();
-  await userEvent.click(within(feed).getByRole("link", { name: /^Open child,/ }));
+  // The finished child folds into one line; opening it shows the child's own row.
+  await userEvent.click(within(feed).getByRole("button", { name: "1 subagent ran" }));
+  expect(within(feed).queryByText("Private child answer")).toBeNull();
+  await userEvent.click(await within(feed).findByRole("link", { name: /^Open child,/ }));
   const own = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(own).findByText("Private child answer")).toBeTruthy();
 });

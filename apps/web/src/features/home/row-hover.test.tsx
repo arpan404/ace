@@ -72,11 +72,15 @@ test("Settle and Unsettle on a row's hover actions move it between the list and 
   expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined();
 });
 
-/** The row's first line as read, and the controls its box offers. */
+/**
+ * The row's first line as read, and the controls its box offers beside the row's link (the
+ * link's own pull request chip is part of the row, not one of its actions).
+ */
 const firstLine = (title: RegExp) => card(title).firstElementChild?.firstElementChild?.textContent;
 const controls = (title: RegExp) =>
   within(card(title).parentElement ?? document.body)
     .getAllByRole("button")
+    .filter((button) => !card(title).contains(button))
     .map((button) => button.getAttribute("aria-label"));
 
 test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {

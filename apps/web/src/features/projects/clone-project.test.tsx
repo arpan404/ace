@@ -16,12 +16,16 @@ function stepped() {
   };
   return { made, step };
 }
+/** The projects the person can see: a chat's hidden project (ADR 0099) is not one they added. */
 const registered = (made: ReturnType<typeof harness>) =>
-  made.daemon.projects.list().workspaces.map((project) => project.path);
+  made.daemon.projects
+    .list()
+    .workspaces.filter((project) => project.kind !== "chat")
+    .map((project) => project.path);
 const address = () => screen.findByRole("textbox", { name: "Repository address" });
 
 async function openClone(made: ReturnType<typeof harness>) {
-  await made.open("/new");
+  await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "Git URL" }));
   await screen.findByRole("dialog", { name: "Add project" });

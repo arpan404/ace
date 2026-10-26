@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
-import { notificationsRetained } from "@ace/notify";
+import { NotificationWorker, notificationsRetained } from "@ace/notify";
 import { DeviceId, type Notification, type ThreadId } from "@ace/protocol";
+import { prepareDaemonHome } from "@ace/service";
 import { createDevThread } from "./commands.ts";
 import { createDaemonNotifications } from "./notifications.ts";
 import { Store } from "./store.ts";
@@ -19,6 +20,23 @@ export const subscription = {
     auth: "b".repeat(22),
   },
 } as const;
+
+/**
+ * Saves a paired browser's push subscription in `home`'s notification store, as a past run
+ * would, so the next daemon there needs its notification worker from startup.
+ */
+export async function retainNotifications(home: string): Promise<void> {
+  // State in a home without this build's format marker would be set aside as a legacy home.
+  prepareDaemonHome(home);
+  const path = join(home, "notifications.sqlite");
+  const worker = new NotificationWorker({ path, transport: { send: async () => "failed" } });
+  try {
+    await worker.register(browser, subscription);
+  } finally {
+    await worker.close();
+  }
+  if (!notificationsRetained(path)) throw new Error("Notification state was not retained");
+}
 
 /** A temp home and event store, a counting worker spawner and helpers to move threads. */
 export function notificationFixture(cleanups: (() => Promise<void> | void)[]) {

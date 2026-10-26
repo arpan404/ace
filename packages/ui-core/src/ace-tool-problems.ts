@@ -294,6 +294,10 @@ const shared: Record<string, Wording> = {
     title: "Agents can't do that on that machine",
     hint: "Its agent access or pairing is read-only.",
   }),
+  transfers_off: () => ({
+    title: "Agents can't move work to other machines",
+    hint: "Turn it on in Settings › Fleet.",
+  }),
   machine_disconnected: () => ({
     title: "Lost the connection to that machine",
     hint: "The action may or may not have run there.",

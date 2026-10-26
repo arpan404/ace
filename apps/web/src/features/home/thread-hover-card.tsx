@@ -41,10 +41,14 @@ export function ThreadHoverContent(props: {
   const account = props.instance
     ? accounts.data?.find((candidate) => candidate.id === props.instance)
     : undefined;
-  const model = entry.live?.model ?? entry.execution?.model;
   const linkedPr = card.prs?.[0];
   const queued =
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
+  // A queued switch names its account and model together, never its account with the old model.
+  const model =
+    (queued ? entry.switch?.selection.model : undefined) ??
+    entry.live?.model ??
+    entry.execution?.model;
   return (
     <HoverCardContent
       // Beside the row, level with its top, so it never covers the rows below; it flips to the

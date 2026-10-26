@@ -18,6 +18,32 @@ const transcript = () => screen.getByRole("feed", { name: "Transcript" });
 const thread = (app: ReturnType<typeof harness>, id: string) =>
   threads(app).find((entry) => entry.id === ThreadId.parse(id));
 
+/**
+ * The continued thread opens on the conversation it carries on, then a "Forked from <source>"
+ * divider, then its own messages (ADR 0051): the divider is how the new thread reads as the
+ * one in view.
+ */
+async function forkedFromSource() {
+  const marker = await waitFor(() => {
+    const found = within(transcript())
+      .getAllByRole("note")
+      .find((note) => note.textContent?.startsWith("Forked from"));
+    if (!found) throw new Error("No Forked from divider");
+    return found;
+  });
+  expect(within(marker).getByRole("link", { name: "Respond to a Greeting" })).toBeTruthy();
+  return marker;
+}
+const precedes = (a: Node, b: Node) =>
+  (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+/** User messages a thread received itself, not the ones copied from its source. */
+const ownAsks = (app: ReturnType<typeof harness>, id: string) => {
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
+  return Object.values(view?.kind === "thread" ? view.items : {}).filter(
+    (item) => item.type === "message" && item.role === "user" && !item.inherited,
+  );
+};
+
 /** A Cursor SDK thread that answered once: its checkpoint is pinned to it and its account. */
 async function openCursorThread() {
   const app = harness();
@@ -55,16 +81,21 @@ test("picking Codex on a Cursor thread sends the next message once to a new Code
   await userEvent.keyboard("hi");
   await userEvent.keyboard("{Enter}");
 
-  await waitFor(() =>
-    expect(within(screen.getByRole("feed", { name: "Transcript" })).queryByText("yo")).toBeNull(),
-  );
-  expect(
-    await within(screen.getByRole("feed", { name: "Transcript" })).findByText("hi"),
-  ).toBeTruthy();
+  const marker = await forkedFromSource();
+  const reply = await within(transcript()).findByText("hi");
+  expect(precedes(within(transcript()).getByText("yo"), marker)).toBe(true);
+  expect(precedes(marker, reply)).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
   expect(continued).toHaveLength(1);
+  expect(
+    ownAsks(app, continued[0]!.id).flatMap((item) =>
+      item.type === "message"
+        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+        : [],
+    ),
+  ).toEqual(["hi"]);
   expect(continued[0]).toMatchObject({
     provider: "codex",
     title: "Respond to a Greeting",
@@ -120,16 +151,14 @@ test("files attached to the message go with it to the new thread, once", async (
   await userEvent.click(await screen.findByRole("combobox", { name: "Message" }));
   await userEvent.keyboard("look at these{Enter}");
 
-  await waitFor(() => expect(within(transcript()).queryByText("yo")).toBeNull());
-  expect(await within(transcript()).findByRole("img", { name: "replay.png" })).toBeTruthy();
+  const marker = await forkedFromSource();
+  const image = await within(transcript()).findByRole("img", { name: "replay.png" });
+  expect(precedes(marker, image)).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
   expect(continued).toHaveLength(1);
-  const view = app.daemon.snapshot({ kind: "thread", threadId: continued[0]!.id });
-  const sent = Object.values(view?.kind === "thread" ? view.items : {}).filter(
-    (item) => item.type === "message" && item.role === "user",
-  );
+  const sent = ownAsks(app, continued[0]!.id);
   expect(sent).toHaveLength(1);
   expect(sent[0]).toMatchObject({
     attachments: [
