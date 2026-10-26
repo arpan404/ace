@@ -27,6 +27,8 @@ const stateHere = async (pair: Pair, id: ThreadId) =>
   MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data).children.find(
     (child) => child.id === id,
   )?.state;
+/** Time passes on the caller past the longest wait before a message is retried. */
+const retriesDue = (pair: Pair) => pair.source.h.clock.advance(pair.source.h.clock.now() + 60_000);
 const waitFor = async (pair: Pair, id: ThreadId) =>
   WaitResult.parse(
     (await pair.source.call({ op: "wait", threadIds: [id], mode: "all", timeoutSeconds: 60 })).data,
@@ -216,6 +218,7 @@ async function heldFollowUp(stopBetween: (pair: Pair) => Promise<void>, failCall
   );
 
   gated.open();
+  retriesDue(pair);
   await pair.finishTask(child, "Do a second pass", "Second pass done.");
   await vi.waitFor(
     async () =>
@@ -277,6 +280,7 @@ it("a retry refused only at the target's access check never lets the child read 
   await pair.access("operate");
   gated.open();
   await gated.arrived();
+  retriesDue(pair);
   await pair.finishTask(child, "Do a second pass", "Second pass done.");
   await vi.waitFor(
     async () =>
