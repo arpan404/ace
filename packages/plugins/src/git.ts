@@ -44,7 +44,23 @@ export function gitRuntime(): GitRuntime {
       const timer = setTimeout(callback, milliseconds);
       return () => clearTimeout(timer);
     },
+    ...(process.platform === "win32" && windowsGitDefaults(process.env)),
   };
+}
+/**
+ * Windows has no lsof or /proc: every Git process runs in a kill-on-close Job and stops as a
+ * whole tree, so nothing is left to sweep from the private folder. Git for Windows also needs
+ * the system folders (SystemRoot for sockets, ComSpec and the temp folder) beside PATH.
+ */
+function windowsGitDefaults(env: NodeJS.ProcessEnv): Pick<GitRuntime, "env" | "release"> {
+  const keep = ["PATH", "SystemRoot", "windir", "ComSpec", "TEMP", "TMP", "PATHEXT"];
+  const lower = new Map(Object.keys(env).map((key) => [key.toLowerCase(), key]));
+  const picked: NodeJS.ProcessEnv = {};
+  for (const name of keep) {
+    const key = lower.get(name.toLowerCase());
+    if (key !== undefined && env[key] !== undefined) picked[name] = env[key];
+  }
+  return { env: picked, release: async () => {} };
 }
 // Git for Windows resolves `/dev/null/<hook>` under the drive root (C:\dev\null\...), a path
 // another user could populate. On Windows hooks point at a private empty folder instead.
