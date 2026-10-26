@@ -9,7 +9,9 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { z } from "zod";
+import type { KeyValueStorage } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
+import { DeviceAction, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
 import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
 import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
@@ -47,7 +49,7 @@ const BrowserAction = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("open"), threadId: ThreadId, viewport: Viewport }),
   z.object({ kind: z.literal("close") }),
-  /** The view's size changed (layout, rotation): the page takes it, as a touch screen. */
+  /** The view's size changed (layout, rotation): the picture is sized for it; the page keeps its device. */
   z.object({ kind: z.literal("viewport"), viewport: Viewport }),
   z.object({ kind: z.literal("input"), input: z.unknown() }),
   /** Video chunks up to `sequence` are decoded (cumulative); `keyframe` after a decode error. */
@@ -77,6 +79,8 @@ export interface BrowserThreadContext {
   workspaceId(threadId: string): string | undefined;
   now(): number;
   read: ChunkReader;
+  /** Where the device toolbar's choices are kept on this phone. */
+  devices?: KeyValueStorage;
 }
 const noContext: BrowserThreadContext = {
   agentName: () => "An agent",
@@ -109,6 +113,7 @@ export class BrowserLive {
   #stops: (() => void)[] = [];
   #context: BrowserThreadContext;
   #tools: BrowserTools;
+  #devices: PhoneDevices;
   constructor(
     owner: BrowserOwner,
     sink: PatchSink,
@@ -121,6 +126,7 @@ export class BrowserLive {
     this.#preview = preview;
     this.#schedule = schedule;
     this.#context = context;
+    this.#devices = new PhoneDevices(owner, context.devices);
     this.#tools = new BrowserTools({
       owner,
       sink,
@@ -160,7 +166,8 @@ export class BrowserLive {
         watch.subscribed = false;
         this.#restart(watch);
         if (!ready) return;
-        this.#resize(watch);
+        // A restarted daemon may have lost the tab's device: the next state chooses again.
+        this.#devices.reset();
         this.#subscribe(watch);
       }),
     );
@@ -200,6 +207,14 @@ export class BrowserLive {
   /** False when the action can't be read or needs an open view that isn't there. */
   action(raw: unknown): boolean {
     const parsed = BrowserAction.safeParse(raw);
+    const device = parsed.success ? undefined : DeviceAction.safeParse(raw);
+    if (device?.success) {
+      const watch = this.#watch;
+      if (!watch) return false;
+      this.#devices.handle(watch, device.data);
+      this.#putView(watch);
+      return true;
+    }
     if (!parsed.success) {
       const tool = BrowserToolAction.safeParse(raw);
       if (!tool.success || !this.#watch) return false;
@@ -225,7 +240,7 @@ export class BrowserLive {
         retry: undefined,
       };
       this.#watch = watch;
-      this.#resize(watch);
+      this.#devices.reset();
       this.#subscribe(watch);
       return true;
     }
@@ -245,7 +260,6 @@ export class BrowserLive {
         )
           return true;
         watch.viewport = viewport;
-        this.#resize(watch);
         if (watch.subscribed)
           void this.#owner
             .request({ type: "browser.capture", threadId: watch.threadId, viewport })
@@ -298,23 +312,6 @@ export class BrowserLive {
   }
   #requestId(): string {
     return `ios-browser-${++this.#requests}`;
-  }
-  /** The page lays out at the view's size, as a phone's page with touch events. */
-  #resize(watch: Watch): void {
-    if (this.#owner.state !== "ready") return;
-    void this.#owner
-      .request({
-        type: "browser.execute",
-        threadId: watch.threadId,
-        command: {
-          action: "resize",
-          width: watch.viewport.width,
-          height: watch.viewport.height,
-          touch: true,
-          devicePixelRatio: watch.viewport.devicePixelRatio,
-        },
-      })
-      .catch(() => {});
   }
   #subscribe(watch: Watch): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
@@ -372,6 +369,8 @@ export class BrowserLive {
       const previous = watch.state;
       watch.state = state;
       this.#tools.observe(state);
+      // A tab shown for the first time gets its device (`browser-device.ts`).
+      this.#devices.observe(watch);
       if (
         previous &&
         ((state.closed && !previous.closed) ||
@@ -382,12 +381,8 @@ export class BrowserLive {
       ) {
         watch.subscribed = false;
         this.#restart(watch);
-        // Another tab or engine shows now: it lays out at the phone's size too.
-        if (
-          !state.closed &&
-          (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId)
-        )
-          this.#resize(watch);
+        // Another engine has its own pages: their devices are chosen again.
+        if (previous.backend !== state.backend) this.#devices.reset();
         if (!state.closed) this.#subscribe(watch);
       } else this.#putView(watch);
       if (state.tabs) {
@@ -413,6 +408,7 @@ export class BrowserLive {
         threadId: watch.threadId,
         generation: watch.generation,
         error: watch.error ?? null,
+        device: this.#devices.view(watch),
         state: state
           ? browserViewState(state, {
               preview: this.#preview,

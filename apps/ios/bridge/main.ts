@@ -28,6 +28,7 @@ import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
 import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
+import { phoneDeviceStorage } from "./browser-device.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
@@ -248,6 +249,12 @@ async function start(json: string): Promise<void> {
       threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
+    devices: phoneDeviceStorage({
+      load: () => call("storage.devices.load"),
+      save: async (value) => {
+        await call("storage.devices.save", null, value);
+      },
+    }),
   });
   await client.start();
 }
