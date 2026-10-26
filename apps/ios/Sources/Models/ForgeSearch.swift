@@ -2,8 +2,22 @@ import Foundation
 
 /// Which list the second tab shows: the web's Pull requests and Issues pages.
 enum ForgeKind: String, CaseIterable, Hashable, Sendable {
-    case pulls, issues
-    var title: String { self == .pulls ? "Pull requests" : "Issues" }
+    case pulls, issues, inbox
+    var title: String {
+        switch self {
+        case .pulls: "Pull requests"
+        case .issues: "Issues"
+        case .inbox: "Inbox"
+        }
+    }
+    /// The segmented switch's word.
+    var short: String {
+        switch self {
+        case .pulls: "Pulls"
+        case .issues: "Issues"
+        case .inbox: "Inbox"
+        }
+    }
 }
 
 /// The Pull requests list's choices, as the web keeps them in its address (`PullsSearch` in

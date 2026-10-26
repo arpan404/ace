@@ -41,15 +41,35 @@ export function updatePrompt(
   text: string,
   patch: Partial<{ name: string; description: string; provider: string; body: string }>,
 ): string {
+  const { body, ...fields } = patch;
+  return editFrontmatter(
+    text,
+    Object.fromEntries(
+      Object.entries(fields).map(([key, value]) => [
+        key,
+        key === "name" && value === "" ? null : value,
+      ]),
+    ),
+    body,
+  );
+}
+/**
+ * Set (`value`), delete (`null`) or keep (`undefined`) frontmatter keys, and optionally replace
+ * the body. Unknown keys, comments and key order survive.
+ */
+export function editFrontmatter(
+  text: string,
+  keys: Readonly<Record<string, string | boolean | null | undefined>>,
+  replacement?: string,
+): string {
   const { header, body } = splitPrompt(text);
-  if (header === undefined && Object.keys(patch).every((key) => key === "body"))
-    return patch.body ?? body;
+  const changes = Object.entries(keys).filter(([, value]) => value !== undefined);
+  if (header === undefined && changes.length === 0) return replacement ?? body;
   const doc = parseDocument(header ?? "", { uniqueKeys: true });
   if (doc.errors.length) throw new Error("invalid_frontmatter");
-  for (const key of ["name", "description", "provider"] as const) {
-    const value = patch[key];
-    if (key === "name" && value === "") doc.delete(key);
-    else if (value !== undefined) doc.set(key, value);
+  for (const [key, value] of changes) {
+    if (value === null) doc.delete(key);
+    else doc.set(key, value);
   }
-  return `---\n${doc.toString()}---\n${patch.body ?? body}`;
+  return `---\n${doc.toString()}---\n${replacement ?? body}`;
 }

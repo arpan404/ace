@@ -15,7 +15,7 @@ import {
 } from "@ace/protocol";
 import { continueMessage, type Fact, type ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
-import { maxMessages, isSend } from "./queue-store.ts";
+import { exitShown, maxMessages, isSend } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
 
@@ -158,6 +158,7 @@ export class Recovery {
         resumeAt: queue.resumeAt,
         revision: queue.revision,
         pendingCount: queue.pendingCount,
+        ...exitShown(queue.exited),
       };
       const at = this.clock.now();
       this.repo.store.appendEvents(
@@ -315,13 +316,17 @@ export class Recovery {
     if (this.repo.pending.uncertainContinuation(id)) return;
     const queue = this.repo.queue.get(id);
     if (stoppedHold(queue)) return;
+    // An earlier hold (a restart's, a limit's) keeps its reason, and what it is called.
+    const kept = queue.paused && queue.reason !== null;
     this.repo.queue.set(
       id,
       {
         continuation: queue.continuation ?? continueMessage,
         trigger: queue.trigger ?? "restart",
         paused: true,
-        reason: queue.paused && queue.reason ? queue.reason : "restart",
+        reason: kept ? queue.reason : "restart",
+        // Held like a restart, so Continue resumes it the same way, but called what it was.
+        exited: kept ? queue.exited : true,
         holdToken: queue.holdToken + 1,
       },
       this.clock.now(),

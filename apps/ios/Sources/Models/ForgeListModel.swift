@@ -84,11 +84,18 @@ extension ClientModel {
     static func forgeIssuesRead(project: String, filter: IssuesFilter, query: String, screens: Int = 1, fresh: Bool = false) -> [String: Any] {
         ["type": "forge.issues", "project": project, "search": filter.json(query: query), "screens": screens, "fresh": fresh]
     }
-    static func forgePullRead(project: String, number: Int, method: String) -> [String: Any] {
-        ["type": "forge.pull", "project": project, "number": number, "method": method]
+    static func forgePullRead(project: String, number: Int, repository: ForgeRepository? = nil, method: String) -> [String: Any] {
+        on(repository, ["type": "forge.pull", "project": project, "number": number, "method": method])
     }
-    static func forgeIssueRead(project: String, number: Int) -> [String: Any] {
-        ["type": "forge.issue", "project": project, "number": number]
+    static func forgeIssueRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
+        on(repository, ["type": "forge.issue", "project": project, "number": number])
+    }
+    /// A read of another repository than the project's own names it.
+    static func on(_ repository: ForgeRepository?, _ read: [String: Any]) -> [String: Any] {
+        guard let repository else { return read }
+        var named = read
+        named["repository"] = repository.json
+        return named
     }
     func forgePulls(project: String, filter: PullsFilter, query: String, screens: Int, fresh: Bool) async throws -> ForgePullList {
         try await read(Self.forgePullsRead(project: project, filter: filter, query: query, screens: screens, fresh: fresh), as: ForgePullList.self)
@@ -96,11 +103,11 @@ extension ClientModel {
     func forgeIssues(project: String, filter: IssuesFilter, query: String, screens: Int, fresh: Bool) async throws -> ForgeIssueList {
         try await read(Self.forgeIssuesRead(project: project, filter: filter, query: query, screens: screens, fresh: fresh), as: ForgeIssueList.self)
     }
-    func forgePull(project: String, number: Int, method: String) async throws -> ForgePullPage {
-        try await read(Self.forgePullRead(project: project, number: number, method: method), as: ForgePullPage.self)
+    func forgePull(project: String, number: Int, repository: ForgeRepository? = nil, method: String) async throws -> ForgePullPage {
+        try await read(Self.forgePullRead(project: project, number: number, repository: repository, method: method), as: ForgePullPage.self)
     }
-    func forgeIssue(project: String, number: Int) async throws -> ForgeIssuePage {
-        try await read(Self.forgeIssueRead(project: project, number: number), as: ForgeIssuePage.self)
+    func forgeIssue(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeIssuePage {
+        try await read(Self.forgeIssueRead(project: project, number: number, repository: repository), as: ForgeIssuePage.self)
     }
     /// Merge, or switch auto-merge, at the head and method the person asked against.
     func forgeWrite(_ target: ForgeWriteTarget) async -> ForgeWrite {

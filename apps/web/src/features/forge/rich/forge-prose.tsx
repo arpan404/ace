@@ -4,10 +4,8 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import { WebLink } from "@/components/web-link.tsx";
 import { forgeExtensions } from "./forge-extensions.tsx";
 import { ForgeDocument, ForgeText, forgeLinkClass } from "./forge-text.tsx";
-import { decodeEntities } from "./html-pieces.ts";
-import { safeLink } from "./html-policy.ts";
+import { decodeEntities, safeLink, footnoteNumbers } from "@ace/ui-core/forge-rich";
 import { ForgeContentScope, InsideLink } from "./scope.ts";
-import { footnoteNumbers } from "./source-marks.ts";
 
 /** Plain text and links in forge text: GitHub's decorations, and links that open where they can. */
 function proseLinks(

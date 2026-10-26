@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, vi } from "vitest";
+import { designTokens } from "@ace/design-tokens";
 import { z } from "zod";
 import {
   BrowserAnnotationEvent,
@@ -288,7 +289,16 @@ export async function pixel(
   return [data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0];
 }
 
-/** Annotation markers use the light page ink (#222222); JPEG captures add noise. */
-export function isAnnotationMark([r, g, b]: [number, number, number]): boolean {
-  return Math.abs(r - 0x22) < 24 && Math.abs(g - 0x22) < 24 && Math.abs(b - 0x22) < 24;
+type Rgb = [number, number, number];
+
+/** Whether a pixel is within JPEG noise of a design token's `#RRGGBB` colour. */
+export function isColour([r, g, b]: Rgb, hex: string): boolean {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const [cr, cg, cb] = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  return Math.abs(r - cr) < 40 && Math.abs(g - cg) < 40 && Math.abs(b - cb) < 40;
+}
+
+/** Whether a pixel is ace's light accent, which markers use on every page. */
+export function isMarkerColour(rgb: Rgb): boolean {
+  return isColour(rgb, designTokens.schemes.light.colours.accent);
 }

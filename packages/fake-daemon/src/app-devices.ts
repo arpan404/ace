@@ -2,6 +2,7 @@ import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
   type DeviceActivity,
+  type DeviceChrome,
   DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
@@ -9,6 +10,7 @@ import {
   type DeviceOperation,
   type DevicePermission,
   type DevicePermissions,
+  type DevicePosture,
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
@@ -115,6 +117,11 @@ export class FakeAppDevices {
   private channels = new Set<Channel>();
   private sequence = 0;
   private streams = 0;
+  /**
+   * Foldable devices and how each sits, as the daemon reports an iPhone Duo Simulator's posture.
+   * Tests seed the devices that fold; every other device has no posture and refuses to fold.
+   */
+  readonly folds = new Map<string, DevicePosture>();
   /** Every input a person sent, in order, as the device received it. */
   readonly inputs: { deviceId: string; input: DeviceInput }[] = [];
   /** macOS permissions of the daemon's screen helper; iOS views and input need them. */
@@ -123,6 +130,13 @@ export class FakeAppDevices {
   readonly requested: DevicePermission[] = [];
   /** Whether the device tools are downloaded; `tools.install` downloads them. */
   toolsReady = true;
+  /** Discovery reports this machine's Android SDK missing, beside its working Simulators. */
+  androidSdkMissing = false;
+  /**
+   * The Simulator streams as its window (no serve-sim): the picture wears the device's own
+   * bezel, so the state says it is framed.
+   */
+  windowPictures = false;
   /** How many times a person asked for the device tools download. */
   toolDownloads = 0;
   /**
@@ -133,6 +147,13 @@ export class FakeAppDevices {
   videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
+  /**
+   * Each model's real hardware look, as the SDK on a Mac describes it, by model (or by device id
+   * for a device without one); none by default.
+   */
+  readonly chromes = new Map<string, DeviceChrome>();
+  /** Every device a client asked the look of, in order. */
+  readonly chromeAsks: string[] = [];
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
@@ -155,6 +176,14 @@ export class FakeAppDevices {
       }),
     ])
       this.sessions.set(device.id, idleSession(device));
+  }
+
+  /** New devices channels close before they come up, as an unreachable daemon's do. */
+  refusing = false;
+
+  /** How many devices channels are open. */
+  get openChannels(): number {
+    return this.channels.size;
   }
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
@@ -203,17 +232,30 @@ export class FakeAppDevices {
     this.paint(session);
   }
 
-  /** The inventory's notes: the missing device tools, until they are downloaded. */
+  /** The inventory's notes: a missing Android SDK, and the device tools until they download. */
   private issues() {
-    return this.toolsReady
-      ? []
-      : [
-          {
-            code: "tool_missing" as const,
-            message: "The Simulator's device tools aren't downloaded",
-            hint: "Download device tools in Devices.",
-          },
-        ];
+    return [
+      ...(this.androidSdkMissing
+        ? [
+            {
+              code: "sdk_missing" as const,
+              platform: "android" as const,
+              message: "Android SDK platform-tools and emulator were not found",
+              hint: "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
+            },
+          ]
+        : []),
+      ...(this.toolsReady
+        ? []
+        : [
+            {
+              code: "tool_missing" as const,
+              platform: "ios" as const,
+              message: "The Simulator's device tools aren't downloaded",
+              hint: "Download device tools in Devices.",
+            },
+          ]),
+    ];
   }
 
   private known(deviceId: string): Session {
@@ -227,6 +269,10 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
+        if (this.refusing) {
+          queueMicrotask(() => events.close());
+          return;
+        }
         const opened: Channel = { events, streams: new Set<string>() };
         channel = opened;
         this.channels.add(opened);
@@ -283,6 +329,9 @@ export class FakeAppDevices {
       ...(session.lifecycle === "live" && session.device.platform === "android"
         ? { touch: "multi" as const }
         : {}),
+      ...(session.lifecycle === "live" && session.device.platform === "ios" && this.windowPictures
+        ? { framed: true }
+        : {}),
       controller: session.controller,
       ownedHere:
         session.controller === "human" &&
@@ -291,6 +340,7 @@ export class FakeAppDevices {
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
       ...(session.activity ? { activity: session.activity } : {}),
+      ...(this.folds.has(session.device.id) ? { posture: this.folds.get(session.device.id) } : {}),
     });
   }
 
@@ -422,6 +472,11 @@ export class FakeAppDevices {
       return { ...this.permissions };
     }
     const session = this.session(operation.deviceId);
+    if (operation.op === "chrome") {
+      this.chromeAsks.push(session.device.id);
+      const key = session.device.model ?? session.device.id;
+      return { chrome: this.chromes.get(key) ?? null };
+    }
     switch (operation.op) {
       case "controller":
         if (operation.controller === "human") {
@@ -528,6 +583,18 @@ export class FakeAppDevices {
         this.log(session, `input ${operation.input.kind}`);
         this.paint(session);
         return { completed: true };
+      case "posture":
+        this.controlled(session, channel);
+        if (!this.folds.has(session.device.id))
+          throw new Refusal(
+            "not_supported",
+            "This device doesn't fold",
+            "Only foldable simulators, such as the iPhone Duo, have a posture.",
+          );
+        this.folds.set(session.device.id, operation.posture);
+        this.actions.push(operation);
+        this.publish(session);
+        return { posture: operation.posture };
       case "open_app":
       case "open_url":
       case "install":

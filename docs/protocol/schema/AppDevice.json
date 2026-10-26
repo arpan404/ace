@@ -5,6 +5,10 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
     },
+    "model": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "name": {
       "maxLength": 256,
       "minLength": 1,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useSidebarAll } from "@ace/client-react";
-import { mergeMethods, type MergeMethod } from "@ace/ui-core";
+import { lifecycleLabels, mergeMethods, type MergeMethod } from "@ace/ui-core";
 import { prUrl } from "@ace/forge/pr-reference";
 import {
   ArrowClockwiseIcon,
@@ -46,7 +46,6 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
-import { lifecycleLabels } from "./pr-lifecycle.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 const icon = (Glyph: typeof LinkIcon) => <Glyph aria-hidden size={16} />;

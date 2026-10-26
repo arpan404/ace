@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { parseReviewRequest } from "@ace/ui-core";
+import { parseReviewRequest, suggestedReviewers } from "@ace/ui-core";
 import {
   useMarkdownCompletions,
   type CompletionPerson,
@@ -18,7 +18,6 @@ import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
-import { suggestedReviewers } from "./pr-reviewers-model.ts";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
 
 type Candidate = CompletionPerson & { reason?: string | undefined };

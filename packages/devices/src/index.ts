@@ -1,5 +1,7 @@
 export { DevicesService, type DevicesOptions, agentOwner, deviceFailure } from "./service.ts";
 export { DevicePlatform, type PlatformOptions } from "./platform.ts";
+export { DeviceChromeReader } from "./device-chrome-reader.ts";
+export { deviceChromeSources } from "./device-chrome-sources.ts";
 export { DeviceError } from "./sdk.ts";
 export { ControllerLease, type Actor } from "./lease.ts";
 export { connectDevices, type DevicePeer } from "./bridge.ts";

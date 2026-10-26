@@ -55,6 +55,7 @@ function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null)
   host.queue.paused = true;
   host.queue.reason = reason;
   host.queue.resumeAt = resumeAt;
+  delete host.queue.exited;
   host.queueDirty = true;
 }
 type FakeQueuedHold = NonNullable<ThreadHost["queue"]["reason"]>;

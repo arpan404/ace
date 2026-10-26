@@ -125,7 +125,10 @@ export class DevicesService {
       ) {
         await session.logs.close();
         this.sessions.delete(session.device.id);
-      } else if (changed) this.emit(session);
+      } else if (changed) {
+        this.emit(session);
+        void this.refreshPosture(session);
+      }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
     return devices;
@@ -147,6 +150,7 @@ export class DevicesService {
       );
     const session = createSession(Device.parse(device), this.options.runtime);
     this.sessions.set(id, session);
+    void this.refreshPosture(session);
     return session;
   }
   state(session: DeviceSession): DeviceState {
@@ -161,10 +165,24 @@ export class DevicesService {
       recording: session.recording !== undefined,
       streamId: session.streamId,
       ...(session.capture ? { touch: deviceTouch(session.device, session.capture) } : {}),
+      ...(session.capture?.framed ? { framed: true } : {}),
       ...session.lease.status(),
       error: session.error,
       activity: session.activity,
+      posture: session.posture,
     });
+  }
+  /** Reads a foldable device's posture again; viewers hear when it changed. */
+  private refreshPosture(session: DeviceSession): Promise<void> {
+    return this.options.platform
+      .posture(session.device)
+      .then((posture) => {
+        if (posture === session.posture) return;
+        if (posture) session.posture = posture;
+        else delete session.posture;
+        this.emit(session);
+      })
+      .catch(() => {});
   }
   /**
    * An agent acted on a device: viewers are told what it did and where, numbered so each action
@@ -389,6 +407,15 @@ export class DevicesService {
       void this.list().catch(() => {});
       return { serveSim: tools.serveSim !== undefined, scrcpy: tools.scrcpy !== undefined };
     }
+    if (operation.op === "chrome") {
+      // The inventory already read serves; a device it doesn't know yet is looked up afresh.
+      const known = (devices: readonly Device[] | undefined) =>
+        devices?.find((candidate) => candidate.id === operation.deviceId);
+      const device = known(this.inventory.current()?.devices) ?? known(await this.list());
+      if (!device)
+        throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
+      return { chrome: (await this.options.platform.chrome(device, operation.format)) ?? null };
+    }
     if (operation.op === "states")
       return {
         states: this.states().filter(
@@ -455,6 +482,8 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
+        // An agent starting a foldable device learns its posture from the reply.
+        await this.refreshPosture(session);
         return this.state(session);
       case "stop":
         if (actor.kind === "agent") session.lease.ticket(actor);
@@ -543,6 +572,7 @@ export class DevicesService {
             performDeviceAction(this.options.platform, session, actor, operation, guard),
           );
           if (operation.op === "boot") await this.settled();
+          if (operation.op === "posture") this.emit(session);
         } finally {
           if (operation.op === "boot") {
             session.booting = false;

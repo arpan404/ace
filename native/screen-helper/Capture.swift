@@ -170,6 +170,10 @@ struct ShareableContent {
     private(set) var target: Target?
     private(set) var allowed = Set<String>()
     private(set) var frame = CGRect.zero
+    /// Points cropped off the top of a content-only window capture: its title bar and toolbar.
+    private(set) var contentInset = 0.0
+    /// What the stream shows: the window, less its title bar and toolbar when asked.
+    var shownFrame: CGRect { contentBounds(frame, inset: contentInset) }
     /// Pixels per point of the display showing the target: the live view never captures more.
     private var density = 1.0
     private(set) var width = 0
@@ -226,6 +230,7 @@ struct ShareableContent {
             capturedWindowId = window.windowID
             try validateCaptureWindow(window, displays: content.displays)
             filter = SCContentFilter(desktopIndependentWindow: window); frame = window.frame
+            contentInset = target.kind == "window" && target.content == true ? measuredTitleBar(window) : 0
         } else {
             guard let display = content.displays.first(where: { $0.displayID == target.displayId }) else { throw HelperError("Display unavailable", code: "target_gone") }
             let bundles = target.kind == "app" ? [target.bundleId].compactMap { $0 } : target.bundleIds ?? []
@@ -238,13 +243,15 @@ struct ShareableContent {
         // A window is captured at the screen's pixel density, so a phone screen stays legible;
         // a whole display stays at points to bound its encoding cost.
         density = Self.pixelDensity(of: frame, on: content.displays)
-        let scale = min(target.kind != "display" ? density : 1, min(3840 / frame.width, 2160 / frame.height))
-        width = max(1, Int(frame.width * scale)); height = max(1, Int(frame.height * scale))
+        let shown = shownFrame
+        let scale = min(target.kind != "display" ? density : 1, min(3840 / shown.width, 2160 / shown.height))
+        width = max(1, Int(shown.width * scale)); height = max(1, Int(shown.height * scale))
         let config = SCStreamConfiguration()
         // The window alone, edge to edge: its shadow would shrink the content inside the frame
         // (blurring it) and offset input coordinates.
         if #available(macOS 14.0, *), target.kind != "display" { config.ignoreShadowsSingleWindow = true }
         config.width = width; config.height = height; config.queueDepth = 3
+        cropTitleBar(config)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.scalesToFit = true
         if #available(macOS 14.0, *) { config.captureResolution = .best }
@@ -271,7 +278,7 @@ struct ShareableContent {
         }
         self.settings = settings
         let config = configuration.config
-        (config.width, config.height) = streamCaptureSize(points: frame.size, density: density, maxWidth: settings.maxWidth, maxHeight: settings.maxHeight)
+        (config.width, config.height) = streamCaptureSize(points: shownFrame.size, density: density, maxWidth: settings.maxWidth, maxHeight: settings.maxHeight)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.fps))
         await output.configure(settings, targetWidth: frame.width)
         try await stream?.updateConfiguration(config)
@@ -319,14 +326,27 @@ struct ShareableContent {
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
+        let inset = target.content == true ? measuredTitleBar(window) : 0
         let config = configuration.config
-        (config.width, config.height) = streamCaptureSize(points: window.frame.size, density: density,
+        (config.width, config.height) = streamCaptureSize(points: contentBounds(window.frame, inset: inset).size, density: density,
             maxWidth: settings?.maxWidth ?? 3840, maxHeight: settings?.maxHeight ?? 2160)
-        do { try await stream.updateConfiguration(config) } catch { return }
+        let previousInset = contentInset
+        contentInset = inset; cropTitleBar(config, window: window.frame)
+        do { try await stream.updateConfiguration(config) } catch { contentInset = previousInset; return }
         self.density = density
         frame = window.frame; width = config.width; height = config.height
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
         output?.markInitial()
+    }
+    /// The title bar's depth on `window`, read through Accessibility; 0 without it.
+    private func measuredTitleBar(_ window: SCWindow) -> Double {
+        guard AXIsProcessTrusted(), let element = try? resolver.resolve(window) else { return 0 }
+        return titleBarDepth(window: axBounds(element).rect, parts: titleBarParts(element))
+    }
+    /// Capture only below the title bar, when there is one to crop.
+    private func cropTitleBar(_ config: SCStreamConfiguration, window: CGRect? = nil) {
+        let size = (window ?? frame).size
+        config.sourceRect = contentInset > 0 ? CGRect(x: 0, y: contentInset, width: size.width, height: size.height - contentInset) : .zero
     }
     var onFailure: (Error) -> Void = { _ in }
     private func captureStopped(_ failed: SCStream, error: Error) {
@@ -370,6 +390,7 @@ struct ShareableContent {
         try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         if let output { writer.retire(output.sessionId) }
+        contentInset = 0
         stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; captureWindow = nil; settings = nil; output = nil; allowed.removeAll(); cachedContent = nil; resolver.invalidate()
     }
 }

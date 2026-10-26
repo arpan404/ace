@@ -100,9 +100,8 @@ test("settling a done thread releases its provider at once and the next message 
   const id = await h.create();
   h.settle(id);
   await h.engine.flush();
-  h.clock.advance(h.clock.now());
-  await h.engine.flush();
-  expect(h.closes()).toEqual([{ type: "close", reason: "idle" }]);
+  // Settling stops the session itself, with no idle wait: no time passes here.
+  expect(h.engine.hasSession(id)).toBe(false);
   expect(await h.processes(id)).toEqual([]);
 
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });

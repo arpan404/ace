@@ -87,6 +87,8 @@ export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 export {
   TransferError,
   TransferStore,
+  followTransfers,
+  type TransfersSource,
   cancellablePhases,
   continueBlocked,
   transferCancellable,

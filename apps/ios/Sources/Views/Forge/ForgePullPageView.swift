@@ -8,6 +8,8 @@ import SwiftUI
 struct ForgePullPageView: View {
     let client: ClientModel
     let route: ForgeRoute
+    /// Pushes the Timeline or a changed file on this stack.
+    let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     @AppStorage("ace.git.mergeMethod") private var savedMethod = ""
     @State private var page: ForgePullPage?
@@ -15,19 +17,27 @@ struct ForgePullPageView: View {
     @State private var writing = false
     @State private var outcome: ForgeWrite?
     @State private var confirming: ForgeWriteTarget?
+    /// A merge or squash shows its commit to edit before it goes.
+    @State private var editingCommit: ForgeWriteTarget?
+    /// Review writes from this page (reviewers), made once the page knows its repository.
+    @State private var desk: ForgeReviewDesk?
+    @State private var composing: ForgeCompose?
     @Environment(\.openURL) private var openURL
 
     private var method: String { savedMethod.isEmpty ? "squash" : savedMethod }
-    private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, method: method) }
+    private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method) }
 
     /// Opens on the page this phone last saw for this pull request, read again behind it.
-    init(client: ClientModel, route: ForgeRoute, openThread: @escaping (InboxKey) -> Void) {
+    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void) {
         self.client = client
         self.route = route
+        self.open = open
         self.openThread = openThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
-        _page = State(initialValue: client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, method: method), as: ForgePullPage.self))
+        let kept = client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self)
+        _page = State(initialValue: kept)
+        _desk = State(initialValue: kept.map { ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: $0.number, repository: $0.repository)) })
     }
 
     var body: some View {
@@ -60,6 +70,17 @@ struct ForgePullPageView: View {
             }
         }
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
+        .sheet(isPresented: Binding(get: { editingCommit != nil }, set: { if !$0 { editingCommit = nil } })) {
+            if let target = editingCommit, let page {
+                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)") { edited in
+                    editingCommit = nil
+                    Task { await write(edited) }
+                }
+            }
+        }
+        .sheet(item: $composing) { compose in
+            if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
+        }
         .confirmationDialog(confirming?.action.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { target in
             Button(target.action.label) { Task { await write(target) } }
@@ -69,6 +90,7 @@ struct ForgePullPageView: View {
         // A refresh that moves the head or the method ends the question asked against the old one.
         .onChange(of: "\(page?.headSha ?? "")|\(method)") {
             if let target = confirming, !target.matches(page, method: method) { confirming = nil }
+            if let target = editingCommit, !target.matches(page, method: method) { editingCommit = nil }
         }
     }
 
@@ -83,16 +105,21 @@ struct ForgePullPageView: View {
                 .padding(.horizontal, AceTheme.Spacing.lg)
             }
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: openThread)
-            if !page.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownView(text: page.body).padding(.horizontal, AceTheme.Spacing.lg)
-            }
-            if !page.reviewers.isEmpty {
-                ForgeSection(title: "Reviewers") {
-                    ForEach(page.reviewers, id: \.self) { reviewer in
-                        ForgeLine(leading: reviewer.login, trailing: reviewer.outcome ?? "Requested")
-                    }
+            if !page.bodyBlocks.isEmpty, let desk {
+                ForgeRichView(blocks: page.bodyBlocks, scope: desk.scope, tick: descriptionTicker(page, desk))
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                if let message = desk.message {
+                    Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                        .padding(.horizontal, AceTheme.Spacing.lg)
                 }
             }
+            ForgeSection(title: nil) {
+                ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
+                    open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                }
+            }
+            if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
+            if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
             if !page.checks.isEmpty {
                 ForgeSection(title: "Checks") {
                     ForEach(page.checks, id: \.self) { check in
@@ -100,17 +127,9 @@ struct ForgePullPageView: View {
                     }
                 }
             }
-            if !page.files.isEmpty {
-                ForgeSection(title: page.changedFiles == 1 ? "1 file changed" : "\(page.changedFiles) files changed") {
-                    ForEach(page.files, id: \.self) { file in
-                        HStack(spacing: AceTheme.Spacing.sm) {
-                            Text(file.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.middle)
-                            Spacer(minLength: AceTheme.Spacing.sm)
-                            ForgeDiffStat(additions: file.additions, deletions: file.deletions)
-                        }
-                        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
-                    }
+            ForgeSection(title: nil) {
+                ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
+                    open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
             }
         }
@@ -160,7 +179,7 @@ struct ForgePullPageView: View {
             }
             if let action = page.action {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Button { confirming = ForgeWriteTarget(action: action, project: route.project, page: page, method: method) } label: {
+                    Button { ask(action, page) } label: {
                         HStack {
                             if writing { ProgressView().controlSize(.small) }
                             Text(action.label).fontWeight(.semibold)
@@ -208,8 +227,30 @@ struct ForgePullPageView: View {
         .background(AceTheme.Colours.background)
     }
 
+    /// Merge and auto-merge by merge or squash open their commit to edit; the rest confirm.
+    private func ask(_ action: ForgePullPage.Action, _ page: ForgePullPage) {
+        var target = ForgeWriteTarget(action: action, project: route.project, page: page, method: method)
+        if action.kind != "disable-auto-merge", let commit = page.commit {
+            target.commit = commit
+            editingCommit = target
+        } else {
+            confirming = target
+        }
+    }
+
+    /// The description's boxes tick only where GitHub lets this account edit it.
+    private func descriptionTicker(_ page: ForgePullPage, _ desk: ForgeReviewDesk) -> ((Int, Bool) -> Void)? {
+        guard page.tasks, client.canOperate else { return nil }
+        return { offset, checked in Task { await desk.tick(on: ["kind": "pull"], offset: offset, checked: checked) } }
+    }
+
     private func load() async {
-        do { page = try await client.forgePull(project: route.project, number: route.number, method: method); failure = nil }
+        do {
+            let read = try await client.forgePull(project: route.project, number: route.number, repository: route.repository, method: method)
+            if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
+            page = read
+            failure = nil
+        }
         catch is CancellationError {}
         catch { failure = error.localizedDescription }
     }

@@ -5,7 +5,7 @@ import { shortcodePattern, useEmojiNames } from "./emoji.ts";
 import { useImageEmoji } from "./image-emoji.ts";
 import { useForgeMedia } from "./use-forge-media.ts";
 import { ForgeContentScope, InsideCode, InsideLink } from "./scope.ts";
-import { textSegments, type TextSegment } from "./text-segments.ts";
+import { textSegments, type TextSegment } from "@ace/ui-core/forge-rich";
 
 /** One document's footnotes and the prefix that keeps its anchors apart from other documents'. */
 export const ForgeDocument = createContext<{

@@ -18,6 +18,32 @@ const transcript = () => screen.getByRole("feed", { name: "Transcript" });
 const thread = (app: ReturnType<typeof harness>, id: string) =>
   threads(app).find((entry) => entry.id === ThreadId.parse(id));
 
+/**
+ * The continued thread opens on the conversation it carries on, then a "Forked from <source>"
+ * divider, then its own messages (ADR 0051): the divider is how the new thread reads as the
+ * one in view.
+ */
+async function forkedFromSource() {
+  const marker = await waitFor(() => {
+    const found = within(transcript())
+      .getAllByRole("note")
+      .find((note) => note.textContent?.startsWith("Forked from"));
+    if (!found) throw new Error("No Forked from divider");
+    return found;
+  });
+  expect(within(marker).getByRole("link", { name: "Respond to a Greeting" })).toBeTruthy();
+  return marker;
+}
+const precedes = (a: Node, b: Node) =>
+  (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+/** User messages a thread received itself, not the ones copied from its source. */
+const ownAsks = (app: ReturnType<typeof harness>, id: string) => {
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
+  return Object.values(view?.kind === "thread" ? view.items : {}).filter(
+    (item) => item.type === "message" && item.role === "user" && !item.inherited,
+  );
+};
+
 /** A Cursor SDK thread that answered once: its checkpoint is pinned to it and its account. */
 async function openCursorThread() {
   const app = harness();
@@ -55,27 +81,21 @@ test("picking Codex on a Cursor thread sends the next message once to a new Code
   await userEvent.keyboard("hi");
   await userEvent.keyboard("{Enter}");
 
-  // The fork carries the conversation it continues: its transcript opens on the source's
-  // history (once), then a Forked from divider, then its own first message.
-  const feed = within(screen.getByRole("feed", { name: "Transcript" }));
-  expect(await feed.findByText("hi")).toBeTruthy();
-  await waitFor(() => expect(feed.queryByText("yo")).not.toBeNull());
-  expect(feed.getAllByText("yo")).toHaveLength(1);
-  expect(feed.getByText("Hey! What are we building?")).toBeTruthy();
-  const notes = await feed.findAllByRole("note");
-  const marker = notes.find((note) => note.textContent?.startsWith("Forked from"));
-  expect(marker).toBeTruthy();
-  const own = feed.getByText("hi");
-  const ask = feed.getByText("yo");
-  if (!marker) throw new Error("No Forked from divider");
-  expect(
-    Boolean(ask.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING) &&
-      Boolean(marker.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING),
-  ).toBe(true);
+  const marker = await forkedFromSource();
+  const reply = await within(transcript()).findByText("hi");
+  expect(precedes(within(transcript()).getByText("yo"), marker)).toBe(true);
+  expect(precedes(marker, reply)).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
   expect(continued).toHaveLength(1);
+  expect(
+    ownAsks(app, continued[0]!.id).flatMap((item) =>
+      item.type === "message"
+        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+        : [],
+    ),
+  ).toEqual(["hi"]);
   expect(continued[0]).toMatchObject({
     provider: "codex",
     title: "Respond to a Greeting",
@@ -131,41 +151,16 @@ test("files attached to the message go with it to the new thread, once", async (
   await userEvent.click(await screen.findByRole("combobox", { name: "Message" }));
   await userEvent.keyboard("look at these{Enter}");
 
-  // The fork carries the conversation it continues, so the source's history stays visible
-  // above the Forked from divider with the new message and its files below it.
-  expect(await within(transcript()).findByRole("img", { name: "replay.png" })).toBeTruthy();
-  await waitFor(() => expect(within(transcript()).queryByText("yo")).not.toBeNull());
-  const continuedFeed = within(transcript());
-  expect(continuedFeed.getAllByText("yo")).toHaveLength(1);
-  expect(continuedFeed.getByText("look at these")).toBeTruthy();
-  const continuedNotes = await continuedFeed.findAllByRole("note");
-  expect(continuedNotes.some((note) => note.textContent?.startsWith("Forked from"))).toBe(true);
+  const marker = await forkedFromSource();
+  const image = await within(transcript()).findByRole("img", { name: "replay.png" });
+  expect(precedes(marker, image)).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
   expect(continued).toHaveLength(1);
-  const view = app.daemon.snapshot({ kind: "thread", threadId: continued[0]!.id });
-  const sent = Object.values(view?.kind === "thread" ? view.items : {}).filter(
-    (item) => item.type === "message" && item.role === "user",
-  );
-  // The fork carries the source's history plus its own first message, each once: the new
-  // message goes with its files a single time, not the inherited history.
-  expect(sent).toHaveLength(2);
-  const texts = sent.flatMap((item) =>
-    item.type === "message"
-      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
-      : [],
-  );
-  expect(texts.filter((text) => text === "yo")).toHaveLength(1);
-  expect(texts.filter((text) => text === "look at these")).toHaveLength(1);
-  expect(
-    sent.filter((item) => item.type === "message" && item.inherited !== undefined),
-  ).toHaveLength(1);
-  const withFiles = sent.filter(
-    (item) => item.type === "message" && (item.attachments?.length ?? 0) > 0,
-  );
-  expect(withFiles).toHaveLength(1);
-  expect(withFiles[0]).toMatchObject({
+  const sent = ownAsks(app, continued[0]!.id);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
     attachments: [
       expect.objectContaining({ name: "replay.png" }),
       expect.objectContaining({ name: "notes.txt" }),

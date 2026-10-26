@@ -34,6 +34,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/design-tokens": "workspace:*",
     "@types/ws": "8.18.1",
     "@types/yauzl": "2.10.3",
     "esbuild": "0.25.12",

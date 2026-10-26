@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./skill-library.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
@@ -98,6 +99,7 @@ export {
   AppDeviceId,
   DeviceActivity,
   DeviceInput,
+  DevicePosture,
   DeviceSettings,
   DeviceFailure,
   DeviceInventory,
@@ -109,6 +111,11 @@ export {
   DeviceAck,
   DeviceScreenshot,
   DeviceServerMessage,
+  DeviceChrome,
+  DeviceChromeButton,
+  DeviceChromeImage,
+  DeviceChromeRect,
+  DeviceChromeResult,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";

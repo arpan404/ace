@@ -25,10 +25,12 @@ function workbenchApp(storage = memoryKeyValue()) {
 /** A profile view's own list in the sidebar: the automations, or the skills catalog. */
 const ownList = {
   Automations: (sidebar: HTMLElement) =>
-    within(sidebar).findByRole("list", { name: "Automations" }),
+    within(sidebar).findByRole("navigation", { name: "Automation list" }),
   Skills: (sidebar: HTMLElement) =>
     within(sidebar).findByRole("navigation", { name: "Skills catalog" }),
 } as const;
+/** The page each view opens on in the workbench: Automations opens its first automation. */
+const landing = { Automations: "Nightly dependency audit", Skills: "Skills" } as const;
 
 test("profile views replace app navigation and return to the thread list", async () => {
   await workbenchApp().open("/new");
@@ -37,25 +39,11 @@ test("profile views replace app navigation and return to the thread list", async
   for (const place of ["Automations", "Skills"] as const) {
     expect(within(appNav()).queryByRole("link", { name: place })).toBeNull();
     await openProfileView(place);
-    // The seeded workbench holds automations, so Automations auto-selects its first
-    // entry and the detail carries that entry's title as the page heading.
-    if (place === "Automations") await title("Nightly dependency audit");
-    else await title(place);
+    await title(landing[place]);
     // Its own page: its own list under its own heading, never Settings' pages around it.
     const sidebar = await screen.findByRole("complementary", { name: place });
     expect(within(sidebar).getByRole("heading", { level: 2, name: place })).toBeTruthy();
-    if (place === "Automations") {
-      const autoList = await within(sidebar).findByRole("navigation", {
-        name: "Automation list",
-      });
-      expect(
-        within(autoList)
-          .getByRole("link", { name: /Nightly dependency audit/ })
-          .getAttribute("aria-current"),
-      ).toBe("page");
-    } else {
-      expect(await ownList[place](sidebar)).toBeTruthy();
-    }
+    expect(await ownList[place](sidebar)).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "Settings" })).toBeNull();
     expect(list("Threads")).toBeNull();
@@ -174,23 +162,9 @@ test("⌘K opens Automations and Skills as their own pages, each with its list a
     await userEvent.click(
       await within(palette).findByRole("option", { name: new RegExp(`^${place}`) }),
     );
-    // The seeded workbench holds automations, so Automations auto-selects its first
-    // entry and the detail carries that entry's title as the page heading.
-    if (place === "Automations") await title("Nightly dependency audit");
-    else await title(place);
+    await title(landing[place]);
     const sidebar = await screen.findByRole("complementary", { name: place });
-    if (place === "Automations") {
-      const autoList = await within(sidebar).findByRole("navigation", {
-        name: "Automation list",
-      });
-      expect(
-        within(autoList)
-          .getByRole("link", { name: /Nightly dependency audit/ })
-          .getAttribute("aria-current"),
-      ).toBe("page");
-    } else {
-      expect(await ownList[place](sidebar)).toBeTruthy();
-    }
+    expect(await ownList[place](sidebar)).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
     await title("New thread");
@@ -225,8 +199,9 @@ test("Search in the sidebar opens the launcher over the current screen", async (
 });
 
 test("every view's shortcut opens it from anywhere", async () => {
-  await harness().open("/new");
-  await title("New thread");
+  // Not from New thread: with no project it is a chat, and its focused composer takes the keys.
+  await harness().open("/settings");
+  await title("Settings");
   for (const [keys, heading] of [
     ["gu", "Automations"],
     ["gs", "Skills"],
@@ -249,8 +224,9 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
 
   await harness({ storage }).open("/new");
   await title("New thread");
-  // The page proper, past its skeleton (which draws a header of its own).
-  await screen.findByRole("button", { name: "Add a project" });
+  // The page proper, past its skeleton (which draws a header of its own): with no project yet,
+  // a chat's composer.
+  await screen.findByRole("combobox", { name: "Message" });
   expect(list("Threads")).toBeNull();
   await userEvent.click(button("Show sidebar"));
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
@@ -298,7 +274,7 @@ test("back, forward and the sidebar toggle lead the header whether the sidebar s
   leading("Hide sidebar");
 });
 
-test("with no project yet, the sidebar, ⌘N and the palette all lead to Add project", async () => {
+test("with no project yet, the sidebar and the palette lead to Add project, and ⌘N starts a chat", async () => {
   await harness().open("/new");
   await title("New thread");
   const add = await within(
@@ -306,11 +282,6 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   ).findByRole("button", { name: /^Add project/ });
   expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
   await userEvent.click(add);
-  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
-
-  await userEvent.keyboard("{Control>}n{/Control}");
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
@@ -328,6 +299,17 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   if (!first) throw new Error("Add project command is missing");
   await userEvent.click(first);
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
+
+  // A chat needs no project (ADR 0099): ⌘N from elsewhere opens one rather than Add project.
+  await userEvent.keyboard("{Meta>},{/Meta}");
+  await title("Settings");
+  await userEvent.keyboard("{Control>}n{/Control}");
+  await title("New thread");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  expect(message.getAttribute("aria-placeholder")).toBe("Ask anything");
+  expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull();
 });
 
 test("the footer leaves daemon trouble to the screen's one notice, naming it only to assistive tech", async () => {

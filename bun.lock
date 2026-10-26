@@ -169,14 +169,18 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
+        "gemoji": "^8.1.0",
+        "marked": "^18.0.14",
         "zod": "^4.6.5",
       },
       "devDependencies": {
         "@ace/browser": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/devices": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@phosphor-icons/react": "^2.1.10",
         "@types/bun": "^1.3.10",
+        "mermaid": "^12.2.0",
       },
     },
     "apps/marketing": {
@@ -437,6 +441,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/design-tokens": "workspace:*",
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
         "esbuild": "0.25.12",
@@ -479,6 +484,7 @@
       },
       "devDependencies": {
         "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/daemon": "workspace:*",
@@ -522,6 +528,7 @@
       "name": "@ace/commands",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "jsonc-parser": "^3.3.1",
         "koffi": "3.3.2",
         "smol-toml": "^1.4.2",
@@ -904,6 +911,8 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "marked": "^18.0.14",
+        "parse5": "^8.0.0",
         "prismjs": "^1.30.0",
         "zod": "^4.6.5",
       },

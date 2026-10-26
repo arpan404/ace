@@ -1,6 +1,17 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
-import { MessageArrival, ProviderKind, WaitStatus, WatchedState } from "@ace/protocol";
+import {
+  MachineMessageResult,
+  MachineSummary,
+  MessageArrival,
+  ProviderKind,
+  Transfer,
+  WaitStatus,
+  WatchedState,
+} from "@ace/protocol";
 import {
   PublicToolCode,
   ToolRegistry,
@@ -58,6 +69,19 @@ async function served() {
     ].map(bareToolName),
   );
   return { tools, names };
+}
+
+/**
+ * The error codes the macOS computer-use helper throws. The computer-use guide quotes some,
+ * such as screen_locked, and they read like tool names.
+ */
+function helperErrorCodes(): string[] {
+  const dir = fileURLToPath(new URL("../../../native/screen-helper/", import.meta.url));
+  const codes = new Set<string>();
+  for (const file of readdirSync(dir).filter((name) => name.endsWith(".swift")))
+    for (const [, code] of readFileSync(join(dir, file), "utf8").matchAll(/CUError\("([a-z_]+)"/g))
+      if (code) codes.add(code);
+  return [...codes];
 }
 
 /** Property names and string enum values in a JSON schema: the vocabulary a guide may quote. */
@@ -131,19 +155,27 @@ it("a read-only thread's guidance names ace tools the server serves as read-only
 it("the agents and threads guides quote only served tools, their fields and values", async () => {
   const { tools, names } = await served();
   const fields = new Set<string>();
-  for (const tool of tools) vocabulary(tool.inputSchema, fields);
+  // A guide may quote what a tool takes and what it returns.
+  for (const tool of tools) {
+    vocabulary(tool.inputSchema, fields);
+    vocabulary(tool.outputSchema, fields);
+  }
   const known = new Set<string>([
     ...names,
     ...fields,
     ...WaitStatus.options,
     ...WatchedState.options,
-    ...MessageArrival.options,
     ...PublicToolCode.options,
     ...guideTopics,
+    // Control tools advertise no output schema, so the results the guides describe come from
+    // the protocol: agent_message's arrival, a machines entry, and a transfer's id.
+    ...Object.keys(MachineMessageResult.shape),
+    ...MessageArrival.options,
+    ...Object.keys(MachineSummary.shape),
+    ...Object.keys(Transfer.shape),
     // Result fields the guides tell the agent to page with; results are advertised as envelopes.
     "itemsBefore",
     "nextOffset",
-    "arrival",
   ]);
   const guides = await builtinGuides();
   for (const topic of ["ace-agents", "ace-threads"]) {
@@ -161,7 +193,7 @@ it("the agents and threads guides quote only served tools, their fields and valu
 
 it("every guide names only tools the server serves, in any family", async () => {
   const { names } = await served();
-  const known = new Set<string>([...names, ...PublicToolCode.options]);
+  const known = new Set<string>([...names, ...PublicToolCode.options, ...helperErrorCodes()]);
   // Family-prefixed words and ace_-namespaced words read as tool names; a retired name such as
   // ace_machines, delegate_task or device_start must not survive in any guide or skill.
   const toolShaped = /\b(?:(?:browser|screen|sim|device|ace)_[a-z0-9_]+|delegate_task)\b/g;

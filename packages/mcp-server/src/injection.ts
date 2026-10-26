@@ -4,6 +4,7 @@ import {
   codexClientHeader,
   coreToolsHeader,
   staticToolsHeader,
+  callBudgetHeader,
   toolListingHeader,
   type ToolListing,
 } from "./toolsets.ts";
@@ -132,6 +133,9 @@ export function acpInjection(
   };
 }
 
+/** Seconds a Cursor SDK session lets one ace call run: its fixed 60-second limit, less margin. */
+export const cursorCallBudgetSeconds = 50;
+
 /** Cursor's public SDK HTTP MCP transport, never local.customTools. */
 export function cursorSdkInjection(input: Injected) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
@@ -148,6 +152,8 @@ export function cursorSdkInjection(input: Injected) {
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
           [staticToolsHeader.name]: staticToolsHeader.value,
+          // Cursor's SDK cancels any MCP call after 60 seconds; waiting tools end before that.
+          [callBudgetHeader.name]: String(cursorCallBudgetSeconds),
         },
       },
     },

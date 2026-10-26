@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, chmod, readdir, readFile, utimes, writeFile } from "node:fs/promises";
+import { access, chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService, type RetiredLease } from "./index.ts";
@@ -111,11 +111,11 @@ test("a pre-commit hook slower than the default Git deadline still commits", asy
 test("the user's own running git's index.lock is never removed", async () => {
   const repo = await plainRepository();
   const lock = join(repo, ".git", "index.lock");
-  await writeFile(lock, "");
-  const longAgo = new Date(Date.now() - 600_000);
-  await utimes(lock, longAgo, longAgo);
+  // The user's Git starts, then writes its lock, as Git always does.
   const holder = await holdGit(repo);
-  const service = new GitService();
+  await writeFile(lock, "");
+  // Ten minutes later by ace's clock, the lock is long past any grace period.
+  const service = new GitService({ now: () => new Date(Date.now() + 600_000) });
   try {
     expect(await service.heal(repo)).toEqual([]);
     expect(await exists(lock)).toBe(true);

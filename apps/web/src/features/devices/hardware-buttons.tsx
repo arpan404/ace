@@ -25,7 +25,7 @@ export interface Hardware {
 const px = (value: number) => `${Math.round(value * 10) / 10}px`;
 
 /** A button pushed in moves toward the body: away from the edge it stands on. */
-const pushIn: Record<Edge, string> = {
+export const pushIn: Record<Edge, string> = {
   right: "active:-translate-x-px",
   left: "active:translate-x-px",
   top: "active:translate-y-px",
@@ -37,15 +37,16 @@ const pushIn: Record<Edge, string> = {
  * name as a tooltip on the side it stands out from. While a press can't reach the device it
  * stays focusable when there's a reason to show, and its tooltip says why.
  */
-function PressableHardware(props: {
+export function PressableHardware(props: {
   label: string;
   hardwareKey: HardwareKey;
   /** The side its tooltip opens on: the one it stands out from. */
   side: Edge;
   press: HardwarePress;
-  /** Its shape and fill at rest, and how it moves when pushed. */
+  /** Its shape and fill at rest. */
   className: string;
-  pushed: string;
+  /** How it answers the pointer while a press reaches the device: hover and push. */
+  live: string;
   style: CSSProperties;
 }) {
   const { press } = props;
@@ -59,9 +60,9 @@ function PressableHardware(props: {
         onClick={() => press.onPress(props.hardwareKey)}
         className={cn(
           // An invisible margin around a sliver of metal, so it can be hit.
-          "absolute shadow-(--device-rim) transition-[background-color,transform] duration-(--motion-fast) ease-smooth focus-ring before:absolute before:-inset-1.5 before:content-['']",
+          "absolute transition-[background-color,transform] duration-(--motion-fast) ease-smooth focus-ring before:absolute before:-inset-1.5 before:content-['']",
           props.className,
-          !disabled && `hover:bg-(--device-body-hover) ${props.pushed}`,
+          !disabled && props.live,
         )}
         style={props.style}
       />
@@ -105,8 +106,8 @@ export function SideButtons(props: { hardware: Hardware; body: Size; unit: numbe
         hardwareKey={button.key}
         side={button.edge}
         press={press}
-        className="bg-(--device-body)"
-        pushed={pushIn[button.edge]}
+        className="bg-(--device-body) shadow-(--device-rim)"
+        live={`hover:bg-(--device-body-hover) ${pushIn[button.edge]}`}
         style={style}
       />
     ) : (
@@ -154,8 +155,8 @@ export function HomeButton(props: {
       hardwareKey="home"
       side={edge}
       press={press}
-      className="rounded-full"
-      pushed="active:scale-[0.94]"
+      className="rounded-full shadow-(--device-rim)"
+      live="hover:bg-(--device-body-hover) active:scale-[0.94]"
       style={style}
     />
   );

@@ -30,7 +30,8 @@ enum DeviceAction: String, CaseIterable {
     }
 }
 
-/// The device screen's ⋯: logs and UI tree, rotate, appearance and screenshot, the forms, and
+/// The device screen's ⋯: logs and UI tree, rotate and a foldable device's posture, appearance
+/// and screenshot, the forms, and
 /// the live view, recording and power.
 struct DeviceMenu: View {
     let info: DeviceScreenInfo?
@@ -53,6 +54,7 @@ struct DeviceMenu: View {
             if let info {
                 Section {
                     Button("Rotate", ace: .deviceRotate) { key("rotate") }.disabled(!canDrive)
+                    if let posture = info.posture { postures(posture) }
                     Button("Device keyboard", ace: .keyboard) { key("keyboard") }.disabled(!canDrive)
                     Menu {
                         Button("Light") { operate(["op": "configure", "settings": ["appearance": "light"]]) }
@@ -74,6 +76,26 @@ struct DeviceMenu: View {
         } label: { Label("Device options", ace: .dotsThree) }
         .accessibilityIdentifier("devices.options")
     }
+
+    /// A foldable device's postures as its hardware shows them; the current one is checked.
+    private func postures(_ current: String) -> some View {
+        Menu {
+            ForEach(Self.postures, id: \.value) { posture in
+                Button(posture.title, ace: posture.value == current ? .check : posture.icon) {
+                    if posture.value != current { operate(["op": "posture", "posture": posture.value]) }
+                }
+            }
+        } label: {
+            Label("Posture", ace: Self.postures.first { $0.value == current }?.icon ?? .deviceTablet)
+        }
+        .disabled(!canDrive)
+        .accessibilityIdentifier("devices.posture")
+    }
+    private static let postures: [(value: String, title: String, icon: AceIcon.Name)] = [
+        ("closed", "Closed", .deviceMobile),
+        ("partiallyOpen", "Half open", .bookOpen),
+        ("open", "Open flat", .deviceTablet),
+    ]
 
     @ViewBuilder private func power(_ info: DeviceScreenInfo) -> some View {
         Section {

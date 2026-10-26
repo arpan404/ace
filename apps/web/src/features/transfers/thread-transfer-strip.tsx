@@ -1,6 +1,6 @@
-import { transferRunning } from "@ace/client";
 import { useThreadMeta, useThreadTransfer, useTransferDismissal } from "@ace/client-react";
-import type { ThreadContinuedOn, ThreadDetails, Transfer } from "@ace/protocol";
+import type { ThreadContinuedOn, Transfer } from "@ace/protocol";
+import { threadTransferState, type ThreadTransferState } from "@ace/ui-core/transfers";
 import type { ReactNode } from "react";
 import { useScopedMachine } from "@/lib/machines.ts";
 import { useOpenOnMachine } from "@/lib/open-on-machine.ts";
@@ -9,31 +9,7 @@ import { TransferLine } from "./transfer-line.tsx";
 import { useTransferLine } from "./transfer-status.ts";
 import { placementOf, useTransferActions } from "./use-transfer-actions.ts";
 
-/** What the thread's strip says about where its work went or came from. Pure. */
-export type ThreadTransferState =
-  | { kind: "transfer"; transfer: Transfer }
-  | { kind: "on"; on: ThreadContinuedOn }
-  | { kind: "from"; from: ThreadContinuedOn };
-
-/**
- * A running transfer first, then one that failed after the last continuation (until it's
- * dismissed), then where the thread was continued, a finished transfer whose record hasn't
- * reached the thread yet, then where it came from. Cancelled transfers say nothing.
- */
-export function threadTransferState(
-  transfer: Transfer | undefined,
-  details: Pick<ThreadDetails, "continuedOn" | "continuedFrom"> | undefined,
-  dismissed: boolean,
-): ThreadTransferState | undefined {
-  const on = details?.continuedOn;
-  if (transfer && transferRunning(transfer)) return { kind: "transfer", transfer };
-  if (transfer?.phase === "failed" && !dismissed && (!on || transfer.updatedAt > on.at))
-    return { kind: "transfer", transfer };
-  if (on) return { kind: "on", on };
-  if (transfer?.phase === "completed") return { kind: "transfer", transfer };
-  if (details?.continuedFrom) return { kind: "from", from: details.continuedFrom };
-  return undefined;
-}
+export type { ThreadTransferState } from "@ace/ui-core/transfers";
 
 /**
  * Whether the strip has something to say about this thread's transfers. A dismissed failure

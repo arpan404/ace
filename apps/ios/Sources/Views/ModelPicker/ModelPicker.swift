@@ -9,7 +9,8 @@ enum ModelPickerState: Equatable {
 }
 
 /// The model sheet shared by a thread's composer and New thread, models only: X on the left, a
-/// check on the right, "Find a model" under the title, Favorites and one tab per account on a
+/// check on the right, "Find a model" at the bottom within the thumb's reach (under the title
+/// before iOS 26), Favorites and one tab per account on a
 /// glass bar, then the shown tab's models as plain rows under hairlines, each with a star. A tab
 /// that can't take work says why in one line above its models.
 struct ModelPicker: View {
@@ -46,8 +47,7 @@ struct ModelPicker: View {
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
-            // Under the title on every iOS, above the tabs, so it never moves to the bottom.
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find a model")
+            .modifier(ModelSearchField(query: $query))
             .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
             .inboxTopBar { if tabs.count > 1 && !searching { tabBar } }
             .toolbar {
@@ -142,5 +142,18 @@ private struct PickerNote: View {
         Text(text).aceFont(InsetStyle.label, relativeTo: .body)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             .listRowBackground(Color.clear).listRowSeparator(.hidden)
+    }
+}
+
+/// "Find a model" in the sheet's bottom bar on iOS 26 and later, where a thumb reaches it; iOS 18
+/// has no bottom search, so there it stays under the title.
+private struct ModelSearchField: ViewModifier {
+    @Binding var query: String
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.searchable(text: $query, placement: .toolbar, prompt: "Find a model")
+        } else {
+            content.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find a model")
+        }
     }
 }

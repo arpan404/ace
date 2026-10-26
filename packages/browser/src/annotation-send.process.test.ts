@@ -1,11 +1,16 @@
 import { expect, it, vi } from "vitest";
 import { BrowserAnnotationCapture } from "@ace/protocol";
-import { annotationFixture, executablePath } from "./annotation-test-support.ts";
+import { designTokens } from "@ace/design-tokens";
+import { annotationFixture, executablePath, isColour } from "./annotation-test-support.ts";
 
 const test = it.skipIf(!executablePath);
 const overlayPresent = "document.querySelector('ace-annotation-layer') !== null";
 
-/** Where the bar's Send is on screen: the right-most accent-filled run on the bar's row. */
+/**
+ * Where the bar's Send is on screen. Annotate mode runs in the dark theme, so the bar is dark
+ * glass and Send is the pill filled with the dark accent. On a row above the labels and icons,
+ * the right-most accent run inside the glass is that pill.
+ */
 async function sendButton(
   f: Awaited<ReturnType<typeof annotationFixture>>,
   person: ReturnType<Awaited<ReturnType<typeof annotationFixture>>["connect"]>,
@@ -16,45 +21,31 @@ async function sendButton(
   const shot = Buffer.from(await f.service.screenshot("thread"));
   const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
   const scale = info.width / width;
-  // The bar sits 16 px above the bottom and is 42 px tall: its middle row.
+  // The bar sits 16 px above the bottom and is 42 px tall: its middle row. Send is 30 px tall
+  // and its 16 px icons and 13 px label leave the row 10 px above the middle clear.
   const y = height - 37;
-  const row = Math.round(y * scale);
-  // The dark fixture's Send fill is #DEDEDE. Require a wide run followed
-  // by dark bar pixels to exclude the white page and antialiased bar edge.
-  const accent = 0xde;
-  const tolerance = 14;
-  const isSendFill = (r: number, g: number, b: number) =>
-    Math.abs(r - accent) <= tolerance &&
-    Math.abs(g - accent) <= tolerance &&
-    Math.abs(b - accent) <= tolerance;
-  const atPixel = (x: number) => {
+  const row = Math.round((y - 10) * scale);
+  const accent = designTokens.schemes.dark.colours.accent;
+  let inBar = false;
+  let right = -1;
+  let left = -1;
+  for (let x = info.width - 1; x >= 0; x--) {
     const at = (row * info.width + x) * info.channels;
-    return [data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0] as const;
-  };
-  const minRun = Math.max(6, Math.round(10 * scale));
-  const edge = Math.max(3, Math.round(4 * scale));
-  const runs: Array<{ left: number; right: number }> = [];
-  let start = -1;
-  for (let x = 0; x < info.width; x++) {
-    const [r, g, b] = atPixel(x);
-    const fill = isSendFill(r, g, b);
-    if (fill && start < 0) start = x;
-    if (!fill && start >= 0) {
-      runs.push({ left: start, right: x - 1 });
-      start = -1;
+    const rgb: [number, number, number] = [data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0];
+    if (!inBar) {
+      // The page and the bar's shadow are bright; the glass is dark.
+      inBar = Math.max(...rgb) < 128;
+      continue;
+    }
+    const fill = isColour(rgb, accent);
+    if (fill && right < 0) right = x;
+    if (!fill && right >= 0) {
+      left = x + 1;
+      break;
     }
   }
-  if (start >= 0) runs.push({ left: start, right: info.width - 1 });
-  for (let i = runs.length - 1; i >= 0; i--) {
-    const run = runs[i];
-    if (!run) continue;
-    if (run.right - run.left + 1 < minRun) continue;
-    const probe = Math.min(info.width - 1, run.right + edge);
-    const [pr, pg, pb] = atPixel(probe);
-    if (Math.max(pr, pg, pb) >= 200) continue;
-    return { x: (run.left + run.right) / 2 / scale, y };
-  }
-  throw new Error("No Send button on the bar");
+  if (right < 0 || left < 0) throw new Error("No Send button on the bar");
+  return { x: (left + right) / 2 / scale, y };
 }
 
 test("pressing Send on the page ends annotate mode even when the client never stops it", async () => {

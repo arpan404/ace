@@ -21,6 +21,17 @@ export interface CursorSessionOptions extends HostOptions {
   /** Validated, bounded checkpoint evidence; never appended as fresh live history. */
   recoverySnapshot?: Awaited<ReturnType<typeof import("./history.ts").readCursorSnapshot>>;
 }
+/** What the person reads when the host dies on its own, with its reason when one survived. */
+export function unexpectedStopMessage(detail: string | undefined): string {
+  const reason = detail
+    ?.replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.\s]+$/, "");
+  const shown = reason && reason.length > 300 ? `${reason.slice(0, 300)}…` : reason;
+  return shown
+    ? `Cursor stopped unexpectedly: ${shown}. Unfinished work needs your attention.`
+    : "Cursor stopped unexpectedly. Unfinished work needs your attention.";
+}
 const OpenReply = z.object({ agentId: z.string().min(1).max(512) });
 export async function openCursorSession(
   context: SessionContext,
@@ -116,23 +127,26 @@ export async function openCursorSession(
     void close("shutdown").catch(() => {});
   };
   context.signal.addEventListener("abort", abort, { once: true });
-  void host.process.exited.then(() => {
+  void host.process.exited.then((exit) => {
     exited = true;
     context.signal.removeEventListener("abort", abort);
+    const detail = host.failureMessage;
     frame(
       "note",
       "host-exit",
-      { deliberate, ...(host.failureMessage ? { detail: host.failureMessage } : {}) },
+      {
+        deliberate,
+        code: exit.code,
+        signal: exit.signal,
+        reason: exit.reason,
+        ...(detail ? { detail } : {}),
+      },
       operation,
       segment,
     );
     context.onExit({
       deliberate,
-      ...(deliberate
-        ? {}
-        : {
-            message: "Cursor stopped unexpectedly. Unfinished work needs your attention.",
-          }),
+      ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
     });
   });
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {

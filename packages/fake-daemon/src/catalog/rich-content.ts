@@ -2,7 +2,7 @@ import { ForgeIssueDetail, type ForgeBrowserResult } from "@ace/protocol";
 import { colors } from "../forge-list-rows.ts";
 import { media } from "./forge-media.ts";
 import { sketchPullRequests } from "./forge-browse.ts";
-import type { PullRequestFixture } from "./pull-request-details.ts";
+import { review, type PullRequestFixture } from "./pull-request-details.ts";
 
 /*
  * A pull request and an issue of `acme/ace` written the way people write on GitHub (ADR 0096):
@@ -93,6 +93,31 @@ export function richPullRequest(now: number): PullRequestFixture {
     },
   ]);
   if (!fixture) throw new Error("No rich pull request");
+  const settingsPage = "apps/web/src/features/settings/settings-page.tsx";
+  const thread = [
+    {
+      kind: "inline" as const,
+      id: 2454,
+      body: "Could the heading use the section's own name instead of a generic title?",
+      author: "mira",
+      file: settingsPage,
+      line: 4,
+      createdAt: iso(now - 14 * minute),
+      updatedAt: iso(now - 14 * minute),
+      replyTo: null,
+    },
+    {
+      kind: "inline" as const,
+      id: 2455,
+      body: "Good call, renaming it in the next push.",
+      author: "you",
+      file: settingsPage,
+      line: 4,
+      createdAt: iso(now - 10 * minute),
+      updatedAt: iso(now - 10 * minute),
+      replyTo: 2454,
+    },
+  ];
   fixture.detail.status.comments = [
     {
       kind: "issue",
@@ -136,7 +161,45 @@ export function richPullRequest(now: number): PullRequestFixture {
       updatedAt: iso(now - 20 * minute),
       replyTo: null,
     },
+    {
+      kind: "review",
+      id: 2453,
+      body: "Two small things in the section header; the rest reads well.",
+      author: "mira",
+      file: null,
+      line: null,
+      createdAt: iso(now - 15 * minute),
+      updatedAt: iso(now - 15 * minute),
+      replyTo: null,
+      reviewState: "COMMENTED",
+    },
+    ...thread,
   ];
+  // A line conversation the person can reply to and resolve from the phone's Code view.
+  fixture.detail.status.reviewThreads = [
+    {
+      id: "RT_2454",
+      resolved: false,
+      outdated: false,
+      file: settingsPage,
+      line: 4,
+      side: "RIGHT",
+      startLine: null,
+      comments: thread,
+    },
+  ];
+  fixture.review = {
+    ...review(fixture.detail.status.headSha, true, { detail: fixture.detail }),
+    reactions: [
+      {
+        subject: { kind: "issue", commentId: 2451 },
+        groups: [
+          { content: "+1", count: 2, viewer: true },
+          { content: "heart", count: 1, viewer: false },
+        ],
+      },
+    ],
+  };
   return fixture;
 }
 

@@ -83,3 +83,28 @@ struct ForgeThreadsSection: View {
         }
     }
 }
+
+/// A row that opens a page: its title, a quiet detail, and the caret.
+struct ForgeLinkRow: View {
+    let title: String
+    var detail: String = ""
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                Spacer(minLength: AceTheme.Spacing.sm)
+                if !detail.isEmpty { Text(detail).meta() }
+                AceIcon(.caretRight, size: 12, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+            }
+            .padding(.horizontal, AceTheme.Spacing.lg)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.row)
+        .accessibilityIdentifier(identifier)
+    }
+}

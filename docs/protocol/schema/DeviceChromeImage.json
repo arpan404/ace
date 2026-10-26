@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceChromeImage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 1000000,
+  "pattern": "^data:image\\/(?:svg\\+xml|webp|png);base64,[A-Za-z0-9+/]+=*$",
+  "type": "string"
+}

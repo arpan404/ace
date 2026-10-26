@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ThreadView: View {
     @Environment(\.dismiss) private var dismiss
+    /// Closes the thread open beside the list, which has no page under it to go back to.
+    @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,6 +15,9 @@ struct ThreadView: View {
     @State private var attachProblem: String?
     @State private var showModels = false
     @State private var showTune = false
+    /// The composer's settings sheet, and what it hands on to once it closes.
+    @State private var showSettings = false
+    @State private var afterSettings: (() -> Void)?
     @State private var lane: BlockRow.Agents.Entry?
     @State private var showFiles = false
     @State private var media: TranscriptRow?
@@ -38,6 +43,8 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The composer's own height (field and chips), which the page's floor sits behind.
+    @State private var composerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
@@ -53,7 +60,7 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
-    /// The question on the strip, whose card the composer's words may answer.
+    /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
@@ -68,19 +75,20 @@ struct ThreadView: View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
+                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
-            .modifier(FloatingBar(height: $barHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
+                                               open: open, problem: { activityProblem = $0 }, leave: leave))
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -114,6 +122,12 @@ struct ThreadView: View {
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
+            .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
+                ComposerSettingsSheet(screen: screen,
+                                      openModel: { afterSettings = { showModels = true }; showSettings = false },
+                                      openTune: { afterSettings = { showTune = true }; showSettings = false },
+                                      setAccess: { mode in Task { _ = await model.setAccess(mode) } })
+            }
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
@@ -121,6 +135,7 @@ struct ThreadView: View {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .transferSheet(model: model, kind: "thread")
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
                     GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
@@ -160,20 +175,21 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with what floats above it: the live pill and Scroll to end, and the one strip
-    /// tucked under the composer's top edge, which holds the oldest open request (a question
+    /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
+    /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Nothing renders below the composer.
+    /// aside. Nothing sits below the composer.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
             ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
-            // The strip and the composer are one glass.
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // A request needs the person first; the transfer's line waits under it.
+                    else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
                 }
                 .transition(.opacity)
                 if archived {
@@ -192,14 +208,22 @@ struct ThreadView: View {
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: {
-                        HStack(spacing: AceTheme.Spacing.none) {
-                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
-                        }
-                    } trailing: {
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                    } access: {
+                        ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
+                    } model: {
                         ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
+                    } settings: {
+                        Button { showSettings = true } label: {
+                            Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(AceTheme.Colours.foreground)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
                 } else {
                     ViewOnlyNote.thread
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
@@ -209,6 +233,10 @@ struct ThreadView: View {
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
+    }
+    /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
+    private func leave() {
+        if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
@@ -261,41 +289,40 @@ struct ThreadView: View {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, strip included, at its end. The transcript scrolls on
-/// behind the composer's glass and shows through it; below the composer's lower edge the page is
-/// solid, so words never show in the gap above the keyboard or behind the home indicator.
+/// the keyboard and makes room for the bar, request included, at its end. Behind the composer the
+/// page is solid, fading in just above it, so words never show around the field, in the gap above
+/// the keyboard or behind the home indicator.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
+    /// How tall the composer is, from the bar's lower edge.
+    let floor: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
+            // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
-                .background(alignment: .bottom) { BarFloor() }
+                .frame(maxWidth: ReadingColumn.maxWidth)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .bottom) { BarFloor(height: floor) }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
-/// edge and the home indicator, and into the composer's rounded lower corners so no word shows
-/// beside them. The composer sits `sm` above the bar's bottom and `md` in from each side
-/// (`ComposerFrame`).
+/// The page colour from just above the composer on down, behind the keyboard's translucent edge
+/// and the home indicator.
 private struct BarFloor: View {
+    let height: CGFloat
     private let below = AceTheme.Dimensions.touchTarget * 8
-    private let radius = AceTheme.Radii.composer
+    private let fade = AceTheme.Spacing.lg
     var body: some View {
-        GeometryReader { box in
-            let top = AceTheme.Spacing.sm + radius
-            Path { path in
-                path.addRect(CGRect(x: 0, y: 0, width: box.size.width, height: top + below))
-                // The composer's lower edge, drawn taller so only its bottom corners cut in.
-                let composer = CGRect(x: AceTheme.Spacing.md, y: -radius, width: box.size.width - AceTheme.Spacing.md * 2, height: radius * 2)
-                path.addRoundedRect(in: composer, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
-            }
-            .fill(AceTheme.Colours.background, style: FillStyle(eoFill: true))
+        VStack(spacing: AceTheme.Spacing.none) {
+            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+            AceTheme.Colours.background
         }
-        .frame(height: AceTheme.Spacing.sm + radius + below)
+        .frame(height: height + fade + below)
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)

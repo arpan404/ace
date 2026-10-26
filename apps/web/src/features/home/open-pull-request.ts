@@ -10,6 +10,9 @@ import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
  * Open a thread's linked pull request from its row: ace's page for it in the main column.
  * ⌘/Ctrl or middle click opens it on the forge in the system's browser, and so does a click
  * while the thread's project isn't known yet.
+ *
+ * The project comes from the thread list's entry: a row must never hold its thread's
+ * whole subscription just to know where its pull request lives.
  */
 export function useOpenThreadPullRequest(threadId: string) {
   const navigate = useNavigate();

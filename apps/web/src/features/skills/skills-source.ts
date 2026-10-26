@@ -1,9 +1,9 @@
 /*
- * Skills from the daemon's plugin service (ADR 0014): the catalog (`plugins.list` and the paged
+ * Skills from the daemon's library (ADR 0103) and its plugin service (ADR 0014): the catalog (`plugins.list` and the paged
  * `plugins.catalog`), a component's source, availability per plugin, removal, and installing
  * through the mandatory trust review (`plugins.prepare`, `readReview`, `accept` or `cancel`).
  */
-import { useSkillDiscovery, withDiscoveredSkills } from "./discovered-skills.tsx";
+import { useSkillLibrary } from "./skills-library.tsx";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type {
@@ -21,7 +21,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useRemovingPlugins } from "./plugin-removals.ts";
-import { skillCatalog, type Skill } from "./skills-model.ts";
+import { skillCatalog, withLibrary, type Skill } from "./skills-model.ts";
 
 type Request = z.input<typeof PluginRequest>;
 type Response<T extends PluginResponse["type"]> = Extract<PluginResponse, { type: T }>;
@@ -79,16 +79,18 @@ export function useSkills() {
       hiddenNow.size ? skills.filter((skill) => !hiddenNow.has(skill.plugin)) : skills,
     [hiddenNow],
   );
-  const discovered = useSkillDiscovery();
+  const library = useSkillLibrary();
   const query = useDaemonQuery({ queryKey: key, read: readCatalog, select });
-  const combined = withDiscoveredSkills(query.data ?? [], discovered.entries);
-  const data = combined.length || (query.data && !discovered.pending) ? combined : undefined;
+  // Each source shows as soon as it arrives; a failed one leaves the other on screen.
+  const fromPlugins = query.data ?? (query.isError ? [] : undefined);
+  const native = library.entries ?? (library.failed ? [] : undefined);
+  const data = fromPlugins && native ? withLibrary(fromPlugins, native) : undefined;
   return {
     ...query,
     data,
-    isError: (query.isError || discovered.failed) && !combined.length,
+    isError: (query.isError || library.failed) && !data?.length,
     refetch: (options?: Parameters<typeof query.refetch>[0]) => {
-      discovered.retry();
+      library.retry();
       return query.refetch(options);
     },
   };

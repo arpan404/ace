@@ -11,7 +11,7 @@ import SwiftUI
         // Every machine searches at once; a newer query cancels them all.
         let runs = sessions.compactMap { session in
             searches[session.hostId].map { search in
-                Task { await search.search(model: session.client, text: text, kind: "message", threadId: nil) }
+                Task<Void, Never> { await search.search(model: session.client, text: text, kind: "message", threadId: nil) }
             }
         }
         await withTaskCancellationHandler {
@@ -33,6 +33,8 @@ struct InboxSearchList: View {
     let includes: (InboxKey) -> Bool
     let open: (InboxKey) -> Void
     @State private var messages = InboxMessageSearch()
+    @Environment(\.onSidebarGlass) private var onGlass
+    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
 
     private var threads: [(key: InboxKey, row: ThreadRow)] {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -77,15 +79,15 @@ struct InboxSearchList: View {
             }
             if messages.loading {
                 ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Searching conversations")
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                    .listRowSeparator(.hidden).listRowBackground(surface)
             } else if threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
                 ContentUnavailableView.search(text: query)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                    .listRowSeparator(.hidden).listRowBackground(surface)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         .task(id: [query] + inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }) {
             await messages.run(inbox, text: query)

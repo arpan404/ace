@@ -13,7 +13,7 @@ import {
   OrganizeWindow,
 } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
-import { ProjectsHost, useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
+import { ProjectsHost, useNewThreadEntry } from "@/features/projects/index.ts";
 import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -159,15 +159,8 @@ function ShellSidebar() {
 }
 
 function ShellHotkeys() {
-  const projects = useProjectDialogs();
   const entry = useNewThreadEntry();
-  return (
-    <GlobalHotkeys
-      onAddProject={() => projects.open({ kind: "add", tab: "sources" })}
-      onNewThread={entry.start}
-      onNewThreadHere={entry.here}
-    />
-  );
+  return <GlobalHotkeys onNewThread={entry.start} onNewThreadHere={entry.here} />;
 }
 
 /** Where focus already is on purpose; a navigation must not pull it out of these. */

@@ -1,4 +1,4 @@
-import { TransferStore, type ClientApi } from "@ace/client";
+import { followTransfers, TransferStore, type ClientApi } from "@ace/client";
 import type { Transfer } from "@ace/protocol";
 import { useCallback, useSyncExternalStore } from "react";
 import { useClient } from "./context.ts";
@@ -18,27 +18,7 @@ export function transferStore(client: ClientApi): TransferStore {
   if (known) return known;
   const store = new TransferStore();
   stores.set(client, store);
-  client.transfers.onProgress((transfer) => store.apply(transfer));
-  const connection = client.connectionState();
-  let ready = false;
-  const check = () => {
-    const now = connection.getSnapshot() === "ready";
-    if (now && !ready) {
-      // Until this connection's list answers, a transfer started while away may be unknown.
-      const generation = store.relist();
-      client.transfers.list().then(
-        (transfers) => store.seed(transfers, generation),
-        // Lost with the connection: the reconnect asks again. A machine that can't list
-        // transfers still sends their pushes, so then pushes are all there is.
-        () => {
-          if (connection.getSnapshot() === "ready") store.unlisted(generation);
-        },
-      );
-    }
-    ready = now;
-  };
-  connection.subscribe(check);
-  check();
+  followTransfers(client, store);
   return store;
 }
 

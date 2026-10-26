@@ -17,6 +17,8 @@ import {
   type Descriptor,
 } from "./descriptor.ts";
 
+export { sameFile, type FileIdentity, type IdentifiedStats } from "./file-identity.ts";
+
 /** Own a directory inode, with descendant operations relative to its descriptor. */
 export class PinnedDirectory {
   private handle: Descriptor;
@@ -159,6 +161,16 @@ export class PinnedDirectory {
   /** Read-only descriptor for a child; a symlink of that name is never followed. */
   openRead(name: string): number {
     return openFileAt(this.fd, name).fd;
+  }
+  /** Like openRead, with the identity and metadata observed through that same descriptor. */
+  openReadIdentified(name: string): { fd: number; info: IdentifiedStats } {
+    const file = openFileAt(this.fd, name);
+    try {
+      return { fd: file.fd, info: file.statSync() };
+    } catch (error) {
+      closeSync(file.fd);
+      throw error;
+    }
   }
   /** Stores `target` as a link's text; the link is created inside this directory only. */
   symlink(target: string, name: string): void {

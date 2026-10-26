@@ -17,7 +17,8 @@ export function sameDevice(a: Device, b: Device): boolean {
     a.name === b.name &&
     a.state === b.state &&
     a.runtime === b.runtime &&
-    a.serial === b.serial
+    a.serial === b.serial &&
+    a.model === b.model
   );
 }
 
@@ -55,6 +56,10 @@ export class InventoryWatch {
   private readonly options: InventoryWatchOptions;
   constructor(options: InventoryWatchOptions) {
     this.options = options;
+  }
+  /** The last inventory read, if any. */
+  current(): Inventory | undefined {
+    return this.last;
   }
   /** Record a fresh read; listeners hear about it only when something changed. */
   update(inventory: Inventory): void {

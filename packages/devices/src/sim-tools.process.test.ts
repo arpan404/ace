@@ -276,3 +276,20 @@ it("volume reaches both platforms, while the Action button and the watch side ke
     `${ios} input {"kind":"key","key":"volumeDown"}`,
   ]);
 });
+
+it("an agent folds a foldable simulator, sees its posture, and a phone that doesn't fold refuses", async () => {
+  const h = await setup();
+  h.platform.folds.set(ios, "open");
+  expect((await h.call("sim_start", { simId: ios })).json).toMatchObject({ posture: "open" });
+  const folded = await h.call("sim_act", { simId: ios, action: "posture", posture: "closed" });
+  expect(folded.isError).toBe(false);
+  expect(h.service.states().find((state) => state.device.id === ios)?.posture).toBe("closed");
+  await h.call("sim_act", { simId: ios, action: "posture", posture: "partiallyOpen" });
+  expect(h.platform.effects).toEqual([`${ios} posture closed`, `${ios} posture partiallyOpen`]);
+  expect((await h.call("sim_act", { simId: ios, action: "posture" })).isError).toBe(true);
+
+  await h.call("sim_start", { simId: android });
+  const phone = await h.call("sim_act", { simId: android, action: "posture", posture: "closed" });
+  expect(phone.json).toMatchObject({ code: "not_supported" });
+  expect(h.service.states().find((state) => state.device.id === android)?.posture).toBeUndefined();
+});

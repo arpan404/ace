@@ -30,6 +30,7 @@ struct ChangesSheet: View {
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "changes.refresh"]) }
             .navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }

@@ -62,6 +62,7 @@ function PanelPage(props: { threadId: string; data: VisualizationTabData }) {
             fill
             webview={desktopVisualizations() !== undefined}
             measured={measured}
+            settled={measured !== undefined}
             onHeight={setMeasured}
           />
         ) : failed ? (

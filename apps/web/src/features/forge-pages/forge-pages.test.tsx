@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-/** The design's world, with the `ace` repository's pull requests and issues on GitHub. */
+/**
+ * The design's world, with the `ace` repository's pull requests and issues on GitHub, including
+ * the rich-content samples (PR #245, issue #246; ADR 0096).
+ */
 function withRepository() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -153,7 +156,11 @@ test("an issue's page shows its conversation, and a comment posted joins it", as
   const box = within(page).getByRole("textbox", { name: "Comment" });
   await userEvent.type(box, "Fixed in #231.");
   await userEvent.click(within(page).getByRole("button", { name: "Comment" }));
-  expect((await within(page).findByText(/^Fixed in/)).textContent).toBe("Fixed in #231.");
+  // The reference reads as GitHub shows it: a link inside the comment's text.
+  const posted = await within(page).findByText(
+    (_, element) => element?.tagName === "P" && element.textContent === "Fixed in #231.",
+  );
+  expect(within(posted).getByRole("link", { name: "#231" })).toBeTruthy();
   await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
 });
 

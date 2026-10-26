@@ -95,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(17);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(18);
     } finally {
       after.close();
     }
@@ -118,7 +118,7 @@ test("a current database opens without writing an upgrade backup", async () => {
   try {
     new Store(path).close();
     new Store(path).close();
-    expect(existsSync(`${path}.schema-17.backup`)).toBe(false);
+    expect(existsSync(`${path}.schema-18.backup`)).toBe(false);
     expect(existsSync(`${path}.schema-14.backup`)).toBe(false);
   } finally {
     await rm(home, { recursive: true, force: true });

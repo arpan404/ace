@@ -32,6 +32,8 @@ export interface FailedTurnInput {
   model: string | undefined;
   /** The thread's newest turn: only it offers a fix or Retry. */
   latest: boolean;
+  /** The queue holds the turn for ace's Continue, which its stop's pill offers instead of Retry. */
+  held?: boolean | undefined;
 }
 
 export interface FailedTurnView {
@@ -42,6 +44,8 @@ export interface FailedTurnView {
   fixable: boolean;
   /** A usage or rate limit: the composer's strip says it, not the transcript. */
   limit: boolean;
+  /** Whether the row offers Retry: the newest turn, with no fix and no Continue for it already. */
+  retry: boolean;
 }
 
 export function failedTurnView(input: FailedTurnInput): FailedTurnView {
@@ -96,6 +100,7 @@ export function failedTurnView(input: FailedTurnInput): FailedTurnView {
     heading,
     fixable,
     limit,
+    retry: latest && !fixable && input.held !== true,
   };
 }
 

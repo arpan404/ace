@@ -105,8 +105,6 @@ export function usePaletteGroups(
   const newThread = useNewThreadEntry();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
-  // With no project yet, adding one comes first; a chat needs none.
-  const noProjects = directory.loaded && directory.projects.length === 0;
   const several = directory.projects.length > 1;
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
@@ -146,7 +144,8 @@ export function usePaletteGroups(
       {
         value: "Create",
         items: [
-          ...(noProjects ? [addProject, ...create] : [...create, addProject]),
+          ...create,
+          addProject,
           {
             id: "clone-repository",
             label: "Clone a repository…",
@@ -340,7 +339,6 @@ export function usePaletteGroups(
     tabCommands,
     newThread,
     push,
-    noProjects,
     several,
     openSearch,
   ]);

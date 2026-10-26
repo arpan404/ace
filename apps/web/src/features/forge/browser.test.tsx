@@ -398,16 +398,17 @@ test("a refused metadata write keeps its text and shows the daemon refusal", asy
     { op: "forge.pr.lifecycle", workspaceId, repository, number: 42 },
     { resource: "prLifecycle", value: lifecycleState(pr, {}) },
   );
+  // GitHub refuses the edit.
+  app.daemon.refuseCommands("forge_rate_limit", "forge.hosted.lifecycle");
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("heading", { name: "Retry reconnects" });
-  app.daemon.refuseCommands("unsupported_by_fake_daemon", "forge.hosted.lifecycle");
   await userEvent.click(await menuItem("Edit details…"));
   const body = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" });
   await userEvent.clear(body);
   await userEvent.type(body, "Retain my description");
   await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
   expect(
-    await screen.findAllByText("This daemon can't do that yet: update the daemon."),
+    await screen.findAllByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
   ).not.toHaveLength(0);
   expect(body.value).toBe("Retain my description");
 });
@@ -495,11 +496,10 @@ const reviewState = (drafts: ForgeReviewState["drafts"] = []): ForgeReviewState 
   operations: [],
 });
 
-/** Open the header Review popover. */
-async function openReview() {
-  await userEvent.click(
-    await screen.findByRole("button", { name: /^Review( · \d+ pending)?$/ }, { timeout: 10_000 }),
-  );
+/** Open the review from the header's Review button, named `name` (it counts pending comments). */
+async function openReview(name = "Review") {
+  await userEvent.click(await screen.findByRole("button", { name }, { timeout: 10_000 }));
+  return screen.findByRole("dialog", { name: "Finish your review" });
 }
 
 test("new commits visibly invalidate durable hosted drafts and disable all review submission", async () => {
@@ -523,26 +523,25 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
     },
   );
   const first = await openPullRequest(app, { project: "api", number: 42 });
-  await openReview();
-  expect(await screen.findByText("Keep this unsent finding")).toBeTruthy();
-  expect(screen.getByText("Outdated")).toBeTruthy();
-  expect(
-    screen.getByText(/New commits moved the lines of outdated comments\. Remove them to submit\./),
-  ).toBeTruthy();
-  for (const verdict of ["Comment", "Approve", "Request changes"]) {
-    await userEvent.click(screen.getByRole("radio", { name: verdict }));
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Submit review" }).disabled).toBe(
-      true,
-    );
-  }
+  const review = await openReview("Review · 1 pending");
+  expect(await within(review).findByText("Keep this unsent finding")).toBeTruthy();
+  expect(within(review).getByText("Outdated")).toBeTruthy();
+  expect(within(review).getByText(/New commits moved the lines of outdated comments/)).toBeTruthy();
   await userEvent.type(
-    screen.getByRole("textbox", { name: "Review summary" }),
+    within(review).getByRole("textbox", { name: "Review summary" }),
     "Preserve my summary",
   );
+  // No verdict can be sent while a pending comment points at an older commit.
+  for (const verdict of ["Comment", "Approve", "Request changes"]) {
+    await userEvent.click(within(review).getByRole("radio", { name: verdict }));
+    expect(
+      within(review).getByRole<HTMLButtonElement>("button", { name: "Submit review" }).disabled,
+    ).toBe(true);
+  }
   // Closed and opened again, the PR keeps the summary not yet sent.
   first.unmount();
   await openPullRequest(app, { project: "api", number: 42 });
-  await openReview();
+  await openReview("Review · 1 pending");
   expect(
     await screen
       .findByRole<HTMLTextAreaElement>("textbox", { name: "Review summary" })
@@ -562,16 +561,17 @@ test("a refused GitHub review shows the daemon refusal and retains the unsent su
     { op: "forge.pr.review-state", workspaceId, repository, number: 42 },
     { resource: "prReviewState", value: reviewState() },
   );
+  // GitHub refuses the review.
+  app.daemon.refuseCommands("forge_rate_limit", "forge.hosted.review");
   await openPullRequest(app, { project: "api", number: 42 });
-  await openReview();
-  const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+  const review = await openReview();
+  const summary = await within(review).findByRole<HTMLTextAreaElement>("textbox", {
     name: "Review summary",
   });
-  app.daemon.refuseCommands("unsupported_by_fake_daemon", "forge.hosted.review");
   await userEvent.type(summary, "Keep my unsent review");
-  await userEvent.click(screen.getByRole("button", { name: "Submit review" }));
+  await userEvent.click(within(review).getByRole("button", { name: "Submit review" }));
   expect(
-    await screen.findAllByText("This daemon can't do that yet: update the daemon."),
+    await screen.findAllByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
   ).not.toHaveLength(0);
   expect(summary.value).toBe("Keep my unsent review");
 });

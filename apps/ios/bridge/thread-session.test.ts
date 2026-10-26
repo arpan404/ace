@@ -523,8 +523,7 @@ const copy = (key: string, role: "user" | "assistant", text: string) => ({
   },
 });
 
-test("a fork's transcript shows its copied history and its own ask with no empty row between", async () => {
-  const fake = fixture();
+const forkOf = (fake: ReturnType<typeof fixture>) =>
   fake.createThread({
     id: "fork",
     workspaceId: "ace",
@@ -538,19 +537,57 @@ test("a fork's transcript shows its copied history and its own ask with no empty
       lossy: true,
     },
   });
+
+/** The open thread's blocks in feed order. */
+const feed = () => rows("thread.block").toSorted((a, b) => Number(a.index) - Number(b.index));
+
+test("a fork waiting for its first message shows its copied history, then the Forked from divider", async () => {
+  const fake = fixture();
+  forkOf(fake);
   fake.apply("fork", [
     facts.rootAgent("codex"),
     copy("ask", "user", "Fix the flaky test."),
     copy("answer", "assistant", "The test now pins the clock."),
   ]);
   open(connect(fake), "fork");
+  await until(() => feed().some((row) => row.kind === "forked") || undefined, "the divider");
+  const blocks = feed();
+  expect(blocks.map((row) => row.kind)).toEqual(["user", "message", "forked"]);
+  expect(blocks.map((row) => row.index)).toEqual([0, 1, 2]);
+  expect(blocks[2]?.forked).toEqual({ threadId: "turn" });
+});
+
+test("a fork's divider sits between the source's history and the fork's own first message", async () => {
+  const fake = fixture();
+  forkOf(fake);
+  fake.apply("fork", [
+    facts.rootAgent("codex"),
+    copy("ask", "user", "Fix the flaky test."),
+    copy("answer", "assistant", "The test now pins the clock."),
+    facts.turn("root"),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "own",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        origin: { kind: "person" },
+        parts: [{ type: "text", text: "Now do the same for the other test." }],
+      },
+    },
+  ]);
+  open(connect(fake), "fork");
   await until(
-    () => rows("thread.block").filter((row) => row.kind === "message").length > 0 || undefined,
-    "the copied answer",
+    () => feed().filter((row) => row.kind === "user").length === 2 || undefined,
+    "the own ask",
   );
-  const blocks = rows("thread.block").toSorted((a, b) => Number(a.index) - Number(b.index));
-  expect(blocks.map((row) => row.kind)).toEqual(["user", "message"]);
-  expect(blocks.map((row) => row.index)).toEqual([0, 1]);
+  const blocks = feed();
+  expect(blocks.map((row) => row.kind).slice(0, 4)).toEqual(["user", "message", "forked", "user"]);
+  const own = (blocks[3]?.items as string[] | undefined)?.[0];
+  const ask = rows("thread.item").findLast((row) => row.id === own);
+  expect(ask?.text).toBe("Now do the same for the other test.");
 });
 
 test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {

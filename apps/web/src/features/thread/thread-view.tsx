@@ -20,16 +20,10 @@ import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
+import { DeferredPendingThread } from "./pending-thread-deferred.ts";
+
 const ThreadBrowser = lazy(loadThreadBrowser);
 
-/**
- * A thread being started, off the thread route's first paint. New thread warms it as it opens
- * and waits for it before it moves here, so the move never shows an empty pane.
- */
-const DeferredPendingThread = deferredComponent(() =>
-  import("./pending-thread.tsx").then((m) => m.PendingThreadView),
-);
-export const preloadPendingThread = DeferredPendingThread.preload;
 const AttachmentsSheet = lazy(() =>
   import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
 );
@@ -45,7 +39,6 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
@@ -57,7 +50,7 @@ import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 import { ThreadCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
-import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { useRememberedWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
@@ -168,7 +161,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  const [workCard] = useState(createWorkCardStore);
+  const workCard = useRememberedWorkCardStore();
   useHotkey(keymap.workCard.keys, workCard.toggle, { id: "workCard" });
   const thread = useMemo<ThreadRef | undefined>(
     () =>
