@@ -135,12 +135,39 @@ export class MachineCaller {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
     const origin = await this.origin(child.parentThreadId);
-    // A status reply read before this message lands must not settle the child after it.
-    const release = this.deps.children.send(id);
+    // Saved before it leaves: until the machine answers for it, no status reply settles the
+    // child, and after a restart or a lost reply it is sent again under the same request id.
+    const release = this.deps.children.send(id, message);
+    const outcome = { answered: false };
     try {
-      return await this.sendMessage(id, child.machine, origin, message);
+      return await this.sendMessage(id, child.machine, origin, message, outcome);
     } finally {
-      release();
+      release(outcome.answered);
+    }
+  }
+  /**
+   * The same message again, after a restart or a lost reply: the target runs a request id at most
+   * once and answers for it. A refusal answers too; a machine that can't be reached throws.
+   */
+  async resend(
+    machine: string,
+    parentThreadId: ThreadId,
+    id: ThreadId,
+    message: MachineMessage,
+  ): Promise<"taken" | "refused"> {
+    try {
+      MachineMessageResult.parse(
+        await this.deps.directory.call(
+          machine,
+          await this.origin(parentThreadId),
+          { op: "message", threadId: id, ...message },
+          { timeoutMs: 15_000 },
+        ),
+      );
+      return "taken";
+    } catch (error) {
+      if (error instanceof MachineFailure && error.kind === "refused") return "refused";
+      throw error;
     }
   }
   private async sendMessage(
@@ -148,6 +175,7 @@ export class MachineCaller {
     machine: string,
     origin: MachineCallOrigin,
     message: MachineMessage,
+    outcome: { answered: boolean },
   ): Promise<AgentControlResult> {
     let lost: MachineFailure | undefined;
     for (let attempt = 0; ; attempt++)
@@ -161,6 +189,7 @@ export class MachineCaller {
           ),
         );
         // A settled child given more work is working again until its next result.
+        outcome.answered = true;
         this.deps.children.reopen(id);
         return { ok: true, data: answer };
       } catch (error) {
@@ -171,6 +200,8 @@ export class MachineCaller {
         // lost reply may follow a message the child is already working on: it stays watched,
         // and if nothing changed there, the next poll settles it again under the same result.
         if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
+        // A machine never reached, or one that refused, answered for the message: it never runs.
+        else outcome.answered = true;
         // The parent hears the call was lost, not that the machine never had it.
         throw this.deps.directory.controlError(machine, lost ?? error);
       }

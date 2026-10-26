@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentId, MachineThreadView, ProviderKind, ThreadId } from "@ace/protocol";
+import { AgentId, MachineMessage, MachineThreadView, ProviderKind, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
 export const ChildRow = z.object({
@@ -16,8 +16,6 @@ export const ChildRow = z.object({
   delivered: z.number(),
   /** Advances with each piece of new work sent, fencing status replies read before it. */
   generation: z.number(),
-  /** Messages to it on their way; no status reply settles it meanwhile. */
-  sending: z.number(),
   settled_at: z.number().nullable(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
@@ -95,27 +93,55 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET generation=generation+1 WHERE id=?").run(id),
     );
   }
-  /** A message to the child is on its way. */
-  beginSend(id: ThreadId): void {
+  /**
+   * A message is on its way to the child: kept until its machine answers for it, and status
+   * replies read before now no longer apply.
+   */
+  addMessage(id: ThreadId, message: MachineMessage, now: number): void {
+    this.store.atomic((db) => {
+      db.prepare(
+        "INSERT OR IGNORE INTO machine_child_messages (child_id,request_id,message,created_at) VALUES (?,?,?,?)",
+      ).run(id, message.requestId, JSON.stringify(message), now);
+      db.prepare("UPDATE machine_children SET generation=generation+1 WHERE id=?").run(id);
+    });
+  }
+  /** Its machine answered for the message: taken, or refused so it never runs. */
+  resolveMessage(id: ThreadId, requestId: string): void {
     this.store.atomic((db) =>
       db
+        .prepare("DELETE FROM machine_child_messages WHERE child_id=? AND request_id=?")
+        .run(id, requestId),
+    );
+  }
+  /** True while a message to the child is unanswered. */
+  hasMessages(id: ThreadId): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db.prepare("SELECT 1 FROM machine_child_messages WHERE child_id=? LIMIT 1").get(id),
+      ),
+    );
+  }
+  /** True while any message to any child is unanswered. */
+  anyMessages(): boolean {
+    return Boolean(
+      this.store.atomic((db) => db.prepare("SELECT 1 FROM machine_child_messages LIMIT 1").get()),
+    );
+  }
+  /** Unanswered messages, oldest first. */
+  messages(limit: number): { child: ChildRow; message: MachineMessage }[] {
+    const raw = this.store.atomic((db) =>
+      db
         .prepare(
-          "UPDATE machine_children SET generation=generation+1, sending=sending+1 WHERE id=?",
+          "SELECT child_id,message FROM machine_child_messages ORDER BY created_at, request_id LIMIT ?",
         )
-        .run(id),
+        .all(limit),
     );
-  }
-  /** A message to the child was answered or given up on. */
-  endSend(id: ThreadId): void {
-    this.store.atomic((db) =>
-      db.prepare("UPDATE machine_children SET sending=MAX(sending-1,0) WHERE id=?").run(id),
-    );
-  }
-  /** Sends a restart cut short are no longer on their way. */
-  clearSends(): void {
-    this.store.atomic((db) =>
-      db.prepare("UPDATE machine_children SET sending=0 WHERE sending>0").run(),
-    );
+    return raw.flatMap((entry) => {
+      const child = this.row(z.string().parse(entry.child_id));
+      return child
+        ? [{ child, message: MachineMessage.parse(JSON.parse(z.string().parse(entry.message))) }]
+        : [];
+    });
   }
   /** Open again, with no view until its machine is read. */
   markReopened(id: ThreadId): void {
@@ -145,6 +171,16 @@ export class ChildLedger {
   markResultDelivered(id: string): void {
     this.store.atomic((db) =>
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
+    );
+  }
+  /** True while any child settled at or after `since`. */
+  hasRecentlySettled(since: number): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db
+          .prepare("SELECT 1 FROM machine_children WHERE settled=1 AND settled_at>=? LIMIT 1")
+          .get(since),
+      ),
     );
   }
   /** Children settled at or after `since`, most recent first; an indexed read. */

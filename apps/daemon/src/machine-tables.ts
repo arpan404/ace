@@ -35,14 +35,20 @@ export const machineChildLaunches = `${machineThreads}
     WHERE m.kind = 'delegate';`;
 
 /**
- * Keeps a child watched across new work. `generation` advances whenever its parent sends it new
- * work, so a status reply read before that work can't settle it afterwards; `sending` counts
- * messages on their way, during which no reply settles it; `settled_at` lets the caller keep
- * re-checking recently settled children that work started on their machine may reopen.
+ * Keeps a child watched across new work and settles.
+ * - `generation` advances whenever its parent sends it new work, so a status reply read before
+ *   that work can't settle it afterwards.
+ * - `machine_child_messages` holds each message sent to it until its machine has answered for it
+ *   (taken or refused); while one is unanswered no status reply settles the child, and the
+ *   message is sent again under the same request id, which its machine runs at most once.
+ * - `settled_at` lets the caller keep re-checking recently settled children that work started on
+ *   their machine may reopen.
  */
 export const machineChildGenerations = `${machineChildren}
   ALTER TABLE machine_children ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
-  ALTER TABLE machine_children ADD COLUMN sending INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE machine_children ADD COLUMN settled_at INTEGER;
   UPDATE machine_children SET settled_at = created_at WHERE settled = 1;
-  CREATE INDEX IF NOT EXISTS machine_children_settled ON machine_children(settled, settled_at);`;
+  CREATE INDEX IF NOT EXISTS machine_children_settled ON machine_children(settled, settled_at);
+  CREATE TABLE IF NOT EXISTS machine_child_messages (
+    child_id TEXT NOT NULL, request_id TEXT NOT NULL, message TEXT NOT NULL,
+    created_at INTEGER NOT NULL, PRIMARY KEY (child_id, request_id));`;

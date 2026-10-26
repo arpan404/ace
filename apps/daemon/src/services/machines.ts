@@ -124,6 +124,10 @@ export function startMachines(context: ServiceContext): void {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.status(machine, parent, ids);
     },
+    resend: async (machine, parent, child, message) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.resend(machine, parent, child, message);
+    },
     mirror,
     label: (machine) => directory.label(machine),
     deliver: (parentThreadId, key, text) => {

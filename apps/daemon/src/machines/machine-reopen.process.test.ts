@@ -9,7 +9,7 @@ import {
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
-import { machineRequest, type MachineTransport } from "./transport.ts";
+import { MachineFailure, machineRequest, type MachineTransport } from "./transport.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 const Delegated = z.object({ threadId: ThreadId });
@@ -139,3 +139,93 @@ it("a remote child stopped while waiting and then given work by the person on it
     { timeout: 15_000 },
   );
 }, 90_000);
+
+/**
+ * The source's calls to the target, where message requests can be held before they reach it, as
+ * a request waiting in the target's access check is from the caller's side. `failCaller` makes
+ * the caller hear a dropped connection while its request is still on its way.
+ */
+function gatedTransport() {
+  const gate = { closed: false, failCaller: false, release: () => {} };
+  let opened = Promise.resolve();
+  let held = 0;
+  let statusCalls = 0;
+  const transport: MachineTransport = async (profile, body, options) => {
+    if (body.call.op === "status") statusCalls++;
+    if (body.call.op !== "message" || !gate.closed) return machineRequest(profile, body, options);
+    held++;
+    const arrives = opened.then(() => machineRequest(profile, body, options));
+    if (!gate.failCaller) return arrives;
+    arrives.catch(() => undefined);
+    throw new MachineFailure("disconnected");
+  };
+  return {
+    transport,
+    gate,
+    held: () => held,
+    statusCalls: () => statusCalls,
+    close() {
+      gate.closed = true;
+      opened = new Promise((resolve) => {
+        gate.release = () => resolve();
+      });
+    },
+    open() {
+      gate.closed = false;
+      gate.release();
+    },
+  };
+}
+
+/**
+ * A child that finished, then a follow-up held on its way. While the target still reports the
+ * old result, at least two whole polls pass and the child never reads done; then the request
+ * lands and the child reports its real new result, the message having run once.
+ */
+async function heldFollowUp(stopBetween: (pair: Pair) => Promise<void>, failCaller: boolean) {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("first-pass"))).data).threadId;
+  await pair.finishTask(child, "Do the first-pass part", "First pass done.");
+  expect(await waitFor(pair, child)).toMatchObject({ state: "done", result: "First pass done." });
+
+  gated.gate.failCaller = failCaller;
+  gated.close();
+  void pair.source
+    .call({ op: "thread.message", threadId: child, requestId: "second", text: "Do a second pass" })
+    .catch(() => undefined);
+  await vi.waitFor(() => expect(gated.held()).toBeGreaterThan(0), { timeout: 15_000 });
+  await stopBetween(pair);
+
+  const after = gated.statusCalls();
+  await vi.waitFor(() => expect(gated.statusCalls()).toBeGreaterThan(after + 1), {
+    timeout: 15_000,
+  });
+  expect(await stateHere(pair, child)).toBe("working");
+  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
+    "done",
+  );
+
+  gated.open();
+  await pair.finishTask(child, "Do a second pass", "Second pass done.");
+  await vi.waitFor(
+    async () =>
+      expect(await waitFor(pair, child)).toMatchObject({
+        state: "done",
+        result: "Second pass done.",
+      }),
+    { timeout: 15_000 },
+  );
+  expect(
+    (pair.target.h.inputs.get(child) ?? []).filter((text) => text === "Do a second pass"),
+  ).toHaveLength(1);
+}
+
+it("a follow-up still on its way when the caller restarts never lets the child read done before its new result", async () => {
+  await heldFollowUp((pair) => pair.restartSource(), false);
+}, 120_000);
+
+it("a follow-up whose call timed out while it was still on its way never lets the child read done before its new result", async () => {
+  await heldFollowUp(async () => {}, true);
+}, 120_000);

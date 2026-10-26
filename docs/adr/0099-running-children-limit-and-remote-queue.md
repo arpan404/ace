@@ -67,11 +67,14 @@ past the limit, as it does for a local child.
 settle, and the caller must notice so the parent never reads done while it runs.
 
 - _Work the parent sends._ Before the message leaves, the caller saves the child as reopened
-  (the parent's row shows it running again), advances its generation and counts the message as
-  in flight; no status reply settles it while one is. If the caller stops before the reply, the
-  child is still open after the restart and the next poll checks it against its machine: the
-  machine either took the message (it runs) or did not (it settles again under the same result,
-  which the parent is not handed twice).
+  (the parent's row shows it running again), advances its generation, and keeps the message
+  itself with its request id until the target answers for it: it took it, refused it, or was
+  never reached. While a message is unanswered no status reply settles the child, because an idle
+  reply can't prove an earlier request will never run (it may still be in the target's access
+  check, or behind a timeout). Each poll sends unanswered messages again under the same request
+  id, which the target runs at most once (its command receipts), alongside the poll so a slow
+  target never stops the watching. A restart keeps the record, so the restarted caller does the
+  same; a record whose answer could not be saved is sent again and answered the same way.
 - _Work started on that machine_ (the person there messages the thread). Pairing is one-way:
   the caller holds a device token for the target, the target has no route or credential back
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently

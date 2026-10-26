@@ -2,6 +2,7 @@ import {
   ThreadId,
   type AgentId,
   type DelegationOutcome,
+  type MachineMessage,
   type MachineThreadView,
   type McpAttribution,
   type MonitoredChild,
@@ -37,6 +38,16 @@ export interface ChildrenDeps {
     parentThreadId: ThreadId,
     ids: readonly ThreadId[],
   ): Promise<MachineThreadView[]>;
+  /**
+   * Sends a message again under its own request id, which the machine runs at most once.
+   * "taken" or "refused" answers for it; a machine that can't be reached throws.
+   */
+  resend(
+    machine: string,
+    parentThreadId: ThreadId,
+    child: ThreadId,
+    message: MachineMessage,
+  ): Promise<"taken" | "refused">;
   mirror: RequestMirror;
   label(machine: string): string;
   /** Hands a settled result or a message notice to the parent; `key` names it once. */
@@ -60,14 +71,13 @@ export class MachineChildren implements RemoteChildren {
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
+  /** Messages this process is sending now, by child and request id: not sent again meanwhile. */
+  private inFlight = new Set<string>();
   private closed = false;
   private outbox: ChildOutbox;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
-    // A send a restart cut short left its child reopened: the poll now checks it against its
-    // machine, which either took the message (it runs) or did not (it settles again).
-    this.ledger.clearSends();
     this.outbox = new ChildOutbox(deps.store);
     this.arm();
   }
@@ -208,23 +218,70 @@ export class MachineChildren implements RemoteChildren {
     this.arm();
   }
   /**
-   * New work is on its way to the child. Until the returned release runs, no status reply may
-   * settle it, and replies read before now never will: they describe it before this work.
+   * New work is on its way to the child. It is saved first, with the child reopened, so a caller
+   * that stops before the reply finds it open and the message unanswered. Until its machine
+   * answers for the message no status reply settles the child, and replies read before now never
+   * will. The returned release says whether the machine answered for it (took it, refused it, or
+   * was never reached); an unanswered message is sent again on the next poll.
    */
-  send(id: ThreadId): () => void {
-    // Saved before the message leaves: should the caller stop before the reply, the child is
-    // already open again and watched, never left settled while its machine runs the work.
+  send(id: ThreadId, message: MachineMessage): (answered: boolean) => void {
+    const key = `${id}:${message.requestId}`;
     this.deps.store.atomic(() => {
-      this.ledger.beginSend(id);
+      this.ledger.addMessage(id, message, this.deps.now());
       const row = this.ledger.row(id);
       if (row?.settled === 1) this.reopenSettled(row);
     });
+    this.inFlight.add(key);
     let released = false;
-    return () => {
+    return (answered) => {
       if (released) return;
       released = true;
-      this.ledger.endSend(id);
+      this.inFlight.delete(key);
+      if (answered) this.resolve(id, message.requestId);
+      this.arm();
     };
+  }
+  /**
+   * The machine answered for a message. Should saving that fail (a busy store), the message stays
+   * unanswered and the next poll sends it again, which its machine answers without running it twice.
+   */
+  private resolve(id: ThreadId, requestId: string): void {
+    try {
+      this.ledger.resolveMessage(id, requestId);
+    } catch (error) {
+      this.deps.log("Machine message answer not saved yet", { id, error: String(error) });
+    }
+  }
+  /**
+   * Sends every unanswered message not being sent now again, under its own request id. An answer
+   * proves the machine holds the message (it runs, or ran) or refused it; one that can't be
+   * reached keeps it unanswered, and its child unsettled.
+   */
+  private async reconcile(): Promise<void> {
+    const pending = this.ledger
+      .messages(16)
+      .filter(({ child, message }) => !this.inFlight.has(`${child.id}:${message.requestId}`));
+    await Promise.all(
+      pending.map(async ({ child, message }) => {
+        const key = `${child.id}:${message.requestId}`;
+        this.inFlight.add(key);
+        try {
+          const answer = await this.deps.resend(
+            child.machine,
+            child.parent_thread,
+            child.id,
+            message,
+          );
+          this.resolve(child.id, message.requestId);
+          if (answer === "taken") this.reopen(child.id);
+        } catch (error) {
+          this.deps.log("Machine message still unanswered", { id: child.id, error: String(error) });
+        } finally {
+          this.inFlight.delete(key);
+          this.arm();
+        }
+      }),
+    );
   }
   delivered(id: ThreadId): void {
     this.ledger.markDelivered(id);
@@ -243,7 +300,10 @@ export class MachineChildren implements RemoteChildren {
     let due = true;
     let watchingSettled = false;
     try {
-      due = this.ledger.rows("settled=0 OR delivered=0").length > 0 || this.outbox.hasUnsent();
+      due =
+        this.ledger.rows("settled=0 OR delivered=0").length > 0 ||
+        this.outbox.hasUnsent() ||
+        this.ledger.anyMessages();
       watchingSettled = !due && this.recentlySettled(1).length > 0;
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
@@ -262,6 +322,11 @@ export class MachineChildren implements RemoteChildren {
     if (this.polling || this.closed) return;
     this.polling = true;
     try {
+      // Alongside the poll, never ahead of it: a machine slow to answer one message must not
+      // stop its children being watched.
+      void this.reconcile().catch((error: unknown) =>
+        this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
+      );
       const active = this.ledger.rows("settled=0");
       const byMachine = new Map<string, ChildRow[]>();
       for (const row of active)
@@ -333,7 +398,12 @@ export class MachineChildren implements RemoteChildren {
    */
   private recheck(polled: ChildRow, view: MachineThreadView) {
     const row = this.ledger.row(polled.id);
-    if (!row || row.settled !== 1 || row.generation !== polled.generation || row.sending > 0)
+    if (
+      !row ||
+      row.settled !== 1 ||
+      row.generation !== polled.generation ||
+      this.ledger.hasMessages(row.id)
+    )
       return;
     const outcome = recheckOutcome(savedView(row), view);
     if (outcome === "ignore") return;
@@ -344,7 +414,7 @@ export class MachineChildren implements RemoteChildren {
   /** Applies a status reply read under `polled`; one from before newer work is dropped. */
   private update(polled: ChildRow, view: MachineThreadView) {
     const row = this.ledger.row(polled.id);
-    if (!row || row.generation !== polled.generation || row.sending > 0) return;
+    if (!row || row.generation !== polled.generation || this.ledger.hasMessages(row.id)) return;
     this.unreachable.delete(row.id);
     if (view.notice)
       this.outbox.queue({
@@ -400,8 +470,9 @@ export class MachineChildren implements RemoteChildren {
     if (!view || !settledStates.has(view.state)) return;
     const outcome = outcomeOf(view.state);
     const result = view.result ?? "";
+    const key = `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`;
     this.outbox.queue({
-      key: `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`,
+      key,
       child: row.id,
       parent: row.parent_thread,
       kind: "result",
