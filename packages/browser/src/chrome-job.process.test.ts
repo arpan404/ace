@@ -153,7 +153,7 @@ test.runIf(process.platform === "win32")(
     const guard = await jobs.guard(profile);
     const browser = jobs.spawn(
       process.execPath,
-      ["-e", spawnsAtOnce, `--user-data-dir=${profile}`],
+      ["-e", spawnsAtOnce, "--", `--user-data-dir=${profile}`],
       {
         stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
       },
@@ -204,6 +204,7 @@ test.runIf(process.platform === "win32")(
           [
             "-e",
             `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran")`,
+            "--",
             `--user-data-dir=${profile}`,
           ],
           { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
