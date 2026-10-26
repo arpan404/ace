@@ -393,9 +393,16 @@ Object.assign(globalThis, {
             video,
           },
         ]);
+      const started = performance.now();
       const stream: unknown = await (options.audio === false
         ? capture(false)
-        : capture(true).catch(() => capture(false)));
+        : capture(true).catch((first: unknown) =>
+            capture(false).catch((second: unknown) => {
+              throw new Error(
+                `DEBUG audio+video: ${String(first)}; video only: ${String(second)}; after ${Math.round(performance.now() - started)} ms; visible=${document.visibilityState}`,
+              );
+            }),
+          ));
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");
