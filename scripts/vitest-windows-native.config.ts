@@ -29,7 +29,7 @@ export default defineConfig({
     include: [
       "packages/browser/src/video-software.process.test.ts",
       "packages/browser/src/discovery.test.ts",
-      "packages/browser-extension/src/install.test.ts",
+      "packages/browser-extension/src/install.process.test.ts",
       "packages/browser/src/video-sharpness.process.test.ts",
       "packages/workspace/src/windows-core.process.test.ts",
       "packages/workspace/src/windows-metadata.process.test.ts",

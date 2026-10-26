@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, chmod, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,18 +7,17 @@ import { z } from "zod";
 import { userBrowserHostName } from "@ace/protocol";
 import { extensionOrigin } from "./extension-id.ts";
 import { launcherPath, userBrowserDir } from "./host-files.ts";
-import { launcherScript, nativeHostManifest, nativeHostTargets } from "./native-hosts.ts";
+import {
+  launcherScript,
+  nativeHostManifest,
+  nativeHostTargets,
+  windowsHostKeys,
+  windowsLauncherScript,
+} from "./native-hosts.ts";
 
 export interface NativeHostInstall {
   browser: string;
   manifestPath: string;
-}
-/** Default values of HKCU keys. Only Windows registers native hosts this way. */
-export interface NativeHostRegistry {
-  read(keys: readonly string[]): Promise<(string | undefined)[]>;
-  write(keys: readonly string[], value: string): Promise<void>;
-  /** Clears each key's value only while it still equals `expected`. */
-  remove(keys: readonly string[], expected: string): Promise<void>;
 }
 export interface InstallOptions {
   platform: NodeJS.Platform;
@@ -27,6 +26,7 @@ export interface InstallOptions {
   /** The Node executable that runs the host; the daemon passes its own. */
   node: string;
   env?: { XDG_CONFIG_HOME?: string | undefined; LOCALAPPDATA?: string | undefined };
+  /** Windows only: the HKCU registry, replaced in tests. */
   registry?: NativeHostRegistry;
   /** More NativeMessagingHosts directories, for example a test browser's `<user-data-dir>`. */
   extraDirs?: readonly string[];
@@ -51,40 +51,13 @@ async function exists(path: string): Promise<boolean> {
   );
 }
 
-/** Locations to register: each installed browser's, plus any extra directories. */
+/** Directories to write: each installed browser's, plus any extra ones. */
 async function targets(options: Omit<InstallOptions, "node" | "dataDir">) {
-  if (options.platform === "win32" && options.extraDirs?.length)
-    throw new Error("Windows native hosts use per-user registry keys, not profile directories");
-  const found: { browser: string; location: string }[] = [];
+  const found: { browser: string; dir: string }[] = [];
   for (const target of nativeHostTargets(options.platform, options.home, options.env))
     if (await exists(target.root)) found.push(target);
-  for (const location of options.extraDirs ?? []) found.push({ browser: "Custom", location });
+  for (const dir of options.extraDirs ?? []) found.push({ browser: "Custom", dir });
   return found;
-}
-
-/** Windows keeps one manifest in ace's data directory; registry keys point browsers at it. */
-function windowsManifestPath(dataDir: string): string {
-  return join(userBrowserDir(dataDir), manifestName);
-}
-
-/** Whether the manifest at `path` names this data directory's launcher. */
-async function ownsManifest(path: string, launcher: string): Promise<boolean> {
-  try {
-    const file = await open(path, "r");
-    let contents: string;
-    try {
-      const buffer = Buffer.alloc(8193);
-      const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > 8192) return false;
-      contents = buffer.toString("utf8", 0, bytesRead);
-    } finally {
-      await file.close();
-    }
-    const parsed = ManifestFile.safeParse(JSON.parse(contents));
-    return parsed.success && parsed.data.path === launcher;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -92,62 +65,44 @@ async function ownsManifest(path: string, launcher: string): Promise<boolean> {
  * (ADR 0084). Never touches a browser's profile or extension settings.
  */
 export async function installNativeHost(options: InstallOptions): Promise<NativeHostInstall[]> {
+  if (options.platform === "win32") return installWindowsHost(options);
   if (!installSupported(options.platform))
     throw new Error("Use my Chrome can't install its host on this platform yet");
-  const found = await targets(options);
-  const launcher = launcherPath(options.dataDir, options.platform);
+  const launcher = launcherPath(options.dataDir);
   await mkdir(dirname(launcher), { recursive: true, mode: 0o700 });
   await writeFile(
     launcher,
-    launcherScript(options.platform, {
-      node: options.node,
-      entry: hostEntry(),
-      dataDir: options.dataDir,
-    }),
+    launcherScript({ node: options.node, entry: hostEntry(), dataDir: options.dataDir }),
     { mode: 0o755 },
   );
   await chmod(launcher, 0o755);
   const manifest = `${JSON.stringify(nativeHostManifest(launcher, [extensionOrigin]), null, 2)}\n`;
-  if (options.platform === "win32") {
-    const manifestPath = windowsManifestPath(options.dataDir);
-    await writeFile(manifestPath, manifest, { mode: 0o644 });
-    if (found.length)
-      await (options.registry ?? hostRegistry).write(
-        found.map((target) => target.location),
-        manifestPath,
-      );
-    return found.map(({ browser }) => ({ browser, manifestPath }));
-  }
   const installed: NativeHostInstall[] = [];
-  for (const target of found) {
-    await mkdir(target.location, { recursive: true });
-    const manifestPath = join(target.location, manifestName);
+  for (const target of await targets(options)) {
+    await mkdir(target.dir, { recursive: true });
+    const manifestPath = join(target.dir, manifestName);
     await writeFile(manifestPath, manifest, { mode: 0o644 });
     installed.push({ browser: target.browser, manifestPath });
   }
   return installed;
 }
 
-/** Hosts whose manifest points at this data directory's launcher. */
+/** Manifests that point at this data directory's launcher. */
 export async function installedNativeHosts(
   options: Omit<InstallOptions, "node">,
 ): Promise<NativeHostInstall[]> {
-  const launcher = launcherPath(options.dataDir, options.platform);
-  const found = await targets(options);
-  if (options.platform === "win32") {
-    const manifestPath = windowsManifestPath(options.dataDir);
-    if (!found.length || !(await ownsManifest(manifestPath, launcher))) return [];
-    const values = await (options.registry ?? hostRegistry).read(
-      found.map((target) => target.location),
-    );
-    return found
-      .filter((_, index) => values[index] === manifestPath)
-      .map(({ browser }) => ({ browser, manifestPath }));
-  }
+  if (options.platform === "win32") return installedWindowsHosts(options);
+  const launcher = launcherPath(options.dataDir);
   const installed: NativeHostInstall[] = [];
-  for (const target of found) {
-    const manifestPath = join(target.location, manifestName);
-    if (await ownsManifest(manifestPath, launcher))
+  for (const target of await targets(options)) {
+    const manifestPath = join(target.dir, manifestName);
+    const parsed = ManifestFile.safeParse(
+      await readFile(manifestPath, "utf8").then(
+        (text) => JSON.parse(text) as unknown,
+        () => undefined,
+      ),
+    );
+    if (parsed.success && parsed.data.path === launcher)
       installed.push({ browser: target.browser, manifestPath });
   }
   return installed;
@@ -155,21 +110,84 @@ export async function installedNativeHosts(
 
 /** Removes this data directory's manifests and launcher; another ace's manifests stay. */
 export async function uninstallNativeHost(options: Omit<InstallOptions, "node">): Promise<void> {
-  if (options.platform === "win32") {
-    // The exact registered manifest path proves which installation owns a value,
-    // even after its manifest or browser profile has disappeared.
-    const manifestPath = windowsManifestPath(options.dataDir);
-    await (options.registry ?? hostRegistry).remove(
-      nativeHostTargets(options.platform, options.home, options.env).map(
-        (target) => target.location,
-      ),
+  if (options.platform === "win32") return uninstallWindowsHost(options);
+  for (const host of await installedNativeHosts(options))
+    await rm(host.manifestPath, { force: true });
+  await rm(launcherPath(options.dataDir), { force: true });
+}
+
+// Windows: one manifest in ace's data directory, and an HKCU key per browser pointing at it.
+
+/** Default values of HKCU keys. */
+export interface NativeHostRegistry {
+  read(keys: readonly string[]): Promise<(string | undefined)[]>;
+  write(keys: readonly string[], value: string): Promise<void>;
+  /** Clears each key's value only while it still equals `expected`. */
+  remove(keys: readonly string[], expected: string): Promise<void>;
+}
+
+const windowsManifestPath = (dataDir: string) => join(userBrowserDir(dataDir), manifestName);
+
+async function windowsTargets(options: Omit<InstallOptions, "node" | "dataDir">) {
+  if (options.extraDirs?.length)
+    throw new Error("Windows native hosts use per-user registry keys, not profile directories");
+  const found = [];
+  for (const target of windowsHostKeys(options.home, options.env))
+    if (await exists(target.root)) found.push(target);
+  return found;
+}
+
+async function installWindowsHost(options: InstallOptions): Promise<NativeHostInstall[]> {
+  const found = await windowsTargets(options);
+  const launcher = launcherPath(options.dataDir, "win32");
+  await mkdir(dirname(launcher), { recursive: true, mode: 0o700 });
+  await writeFile(
+    launcher,
+    windowsLauncherScript({ node: options.node, entry: hostEntry(), dataDir: options.dataDir }),
+  );
+  const manifestPath = windowsManifestPath(options.dataDir);
+  const manifest = `${JSON.stringify(nativeHostManifest(launcher, [extensionOrigin]), null, 2)}\n`;
+  await writeFile(manifestPath, manifest);
+  if (found.length)
+    await (options.registry ?? hostRegistry).write(
+      found.map((target) => target.key),
       manifestPath,
     );
-    await rm(manifestPath, { force: true });
-  } else
-    for (const host of await installedNativeHosts(options))
-      await rm(host.manifestPath, { force: true });
-  await rm(launcherPath(options.dataDir, options.platform), { force: true });
+  return found.map(({ browser }) => ({ browser, manifestPath }));
+}
+
+async function installedWindowsHosts(
+  options: Omit<InstallOptions, "node">,
+): Promise<NativeHostInstall[]> {
+  const manifestPath = windowsManifestPath(options.dataDir);
+  const found = await windowsTargets(options);
+  const parsed = ManifestFile.safeParse(
+    await readFile(manifestPath, "utf8").then(
+      (text) => JSON.parse(text) as unknown,
+      () => undefined,
+    ),
+  );
+  if (
+    !found.length ||
+    !parsed.success ||
+    parsed.data.path !== launcherPath(options.dataDir, "win32")
+  )
+    return [];
+  const values = await (options.registry ?? hostRegistry).read(found.map((target) => target.key));
+  return found
+    .filter((_, index) => values[index] === manifestPath)
+    .map(({ browser }) => ({ browser, manifestPath }));
+}
+
+async function uninstallWindowsHost(options: Omit<InstallOptions, "node">): Promise<void> {
+  // The exact registered manifest path proves ownership, even after the manifest or profile is gone.
+  const manifestPath = windowsManifestPath(options.dataDir);
+  await (options.registry ?? hostRegistry).remove(
+    windowsHostKeys(options.home, options.env).map((target) => target.key),
+    manifestPath,
+  );
+  await rm(manifestPath, { force: true });
+  await rm(launcherPath(options.dataDir, "win32"), { force: true });
 }
 
 function reg(args: readonly string[]): Promise<void> {

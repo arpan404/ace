@@ -1,16 +1,12 @@
 import { join } from "node:path";
 import { userBrowserHostName } from "@ace/protocol";
 
-/** Where one browser looks for per-user native hosts, and the data root that shows it is installed. */
-interface NativeHostTarget {
+/** One browser's per-user native messaging directory, and the data root that shows it is installed. */
+export interface NativeHostTarget {
   browser: string;
   /** The browser's user data directory; present only when the browser has run. */
   root: string;
-  /**
-   * macOS and Linux: the browser's NativeMessagingHosts directory. Windows: the HKCU registry key
-   * (under `HKEY_CURRENT_USER`) whose default value names the manifest file.
-   */
-  location: string;
+  dir: string;
 }
 
 const macRoots = [
@@ -33,30 +29,16 @@ const linuxRoots = [
   ["Brave", "BraveSoftware/Brave-Browser"],
   ["Vivaldi", "vivaldi"],
 ] as const;
-// Windows hosts live in HKCU keys, which the 32- and 64-bit registry views share.
-const windowsRoots = [
-  ["Chrome", "Google/Chrome/User Data", "Google\\Chrome"],
-  ["Edge", "Microsoft/Edge/User Data", "Microsoft\\Edge"],
-  ["Chromium", "Chromium/User Data", "Chromium"],
-] as const;
 
 /**
- * Per-user native messaging host locations (ADR 0084). Pure: the platform, home directory and
- * environment are inputs.
+ * Per-user native messaging host directories (ADR 0084). Pure: the platform and home directory
+ * are inputs. Windows registers hosts in the registry instead and returns none here.
  */
 export function nativeHostTargets(
   platform: NodeJS.Platform,
   home: string,
-  env: { XDG_CONFIG_HOME?: string | undefined; LOCALAPPDATA?: string | undefined } = {},
+  env: { XDG_CONFIG_HOME?: string | undefined } = {},
 ): NativeHostTarget[] {
-  if (platform === "win32") {
-    const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
-    return windowsRoots.map(([browser, path, vendor]) => ({
-      browser,
-      root: join(local, path),
-      location: `Software\\${vendor}\\NativeMessagingHosts\\${userBrowserHostName}`,
-    }));
-  }
   const configHome = env.XDG_CONFIG_HOME || join(home, ".config");
   const roots: { browser: string; root: string }[] =
     platform === "darwin"
@@ -70,7 +52,7 @@ export function nativeHostTargets(
   return roots.map(({ browser, root }) => ({
     browser,
     root,
-    location: join(root, "NativeMessagingHosts"),
+    dir: join(root, "NativeMessagingHosts"),
   }));
 }
 
@@ -90,22 +72,42 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/** The executable Chrome starts: the daemon's own Node running the host entry. */
+export function launcherScript(options: { node: string; entry: string; dataDir: string }): string {
+  return `#!/bin/sh
+# Written by ace for "Use my Chrome" (ADR 0084). Chrome starts this as a native messaging host.
+exec ${quote(options.node)} ${quote(options.entry)} --data-dir ${quote(options.dataDir)} "$@"
+`;
+}
+
+// Windows hosts live in HKCU keys, which the 32- and 64-bit registry views share.
+const windowsRoots = [
+  ["Chrome", "Google/Chrome/User Data", "Google\\Chrome"],
+  ["Edge", "Microsoft/Edge/User Data", "Microsoft\\Edge"],
+  ["Chromium", "Chromium/User Data", "Chromium"],
+] as const;
+
+/** Windows: each browser's user data root and the HKCU key whose default value names the manifest. */
+export function windowsHostKeys(home: string, env: { LOCALAPPDATA?: string | undefined } = {}) {
+  const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
+  return windowsRoots.map(([browser, path, vendor]) => ({
+    browser,
+    root: join(local, path),
+    key: `Software\\${vendor}\\NativeMessagingHosts\\${userBrowserHostName}`,
+  }));
+}
+
 /** cmd.exe quoted word; `%` doubles so variable expansion never rewrites a path. */
 function batchWord(value: string): string {
   if (/[\r\n\0"]/.test(value)) throw new Error("Invalid native host path");
   return `"${value.replaceAll("%", "%%")}"`;
 }
 
-/** The executable Chrome starts: the daemon's own Node running the host entry. */
-export function launcherScript(
-  platform: NodeJS.Platform,
-  options: { node: string; entry: string; dataDir: string },
-): string {
-  // cmd.exe reads batch lines in the OEM code page; switch to UTF-8 before the paths.
-  if (platform === "win32")
-    return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
-  return `#!/bin/sh
-# Written by ace for "Use my Chrome" (ADR 0084). Chrome starts this as a native messaging host.
-exec ${quote(options.node)} ${quote(options.entry)} --data-dir ${quote(options.dataDir)} "$@"
-`;
+/** The Windows launcher. cmd.exe reads batch lines in the OEM code page, so switch to UTF-8 first. */
+export function windowsLauncherScript(options: {
+  node: string;
+  entry: string;
+  dataDir: string;
+}): string {
+  return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
 }
