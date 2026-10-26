@@ -7,6 +7,8 @@ import Foundation
     @objc(armScope:reply:) func arm(scope: Data, reply: @escaping (Bool) -> Void)
     @objc(heartbeatAttempt:reply:) func heartbeat(attempt: String, reply: @escaping (Bool) -> Void)
     @objc(disarmAttempt:reply:) func disarm(attempt: String, reply: @escaping (Bool) -> Void)
+    /// Liveness only, for the installation check. Arms nothing.
+    @objc(pingWithReply:) func ping(reply: @escaping (Bool) -> Void)
 }
 
 /// Calls `onExit` once when `pid` exits, including if it already exited. Returns a cancel.

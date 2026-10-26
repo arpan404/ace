@@ -123,4 +123,5 @@ private final class GuardianSession: NSObject, LockedUseGuardianLink {
     func arm(scope: Data, reply: @escaping (Bool) -> Void) { reply(server?.arm(scope, owner: owner, user: user) ?? false) }
     func heartbeat(attempt: String, reply: @escaping (Bool) -> Void) { reply(server?.heartbeat(attempt, owner: owner) ?? false) }
     func disarm(attempt: String, reply: @escaping (Bool) -> Void) { reply(server?.disarm(attempt, owner: owner) ?? false) }
+    func ping(reply: @escaping (Bool) -> Void) { reply(server != nil) }
 }

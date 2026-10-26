@@ -6,6 +6,11 @@ public enum LockedUseSigningError: Error, Equatable { case unsigned, invalidTeam
 /// Builds a peer code-signing requirement pinned to this executable's own Developer ID team.
 /// An unsigned or ad-hoc signed executable has no team, so privileged listeners refuse to start.
 public func lockedUsePeerRequirement(identifier: String) throws -> String {
+    try lockedUsePeerRequirement(identifier: identifier, team: lockedUseOwnTeam())
+}
+
+/// This executable's Developer ID team. Throws for unsigned or ad-hoc signed code.
+public func lockedUseOwnTeam() throws -> String {
     var code: SecCode?
     guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { throw LockedUseSigningError.unsigned }
     var staticCode: SecStaticCode?
@@ -15,7 +20,7 @@ public func lockedUsePeerRequirement(identifier: String) throws -> String {
           let values = info as? [String: Any], let team = values[kSecCodeInfoTeamIdentifier as String] as? String else {
         throw LockedUseSigningError.unsigned
     }
-    return try lockedUsePeerRequirement(identifier: identifier, team: team)
+    return team
 }
 
 public func lockedUsePeerRequirement(identifier: String, team: String) throws -> String {
