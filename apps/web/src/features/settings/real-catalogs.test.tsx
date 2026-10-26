@@ -47,13 +47,24 @@ test("an open slash menu receives discovered skills without a reload", async () 
 
 test("the open Skills library receives discovered skills without a reload", async () => {
   const app = harness();
-  app.play(replayCursor()).runThrough("finding");
   app.daemon.seedServices(workbenchServices(Date.now()));
+  const tdd = {
+    name: "tdd",
+    description: "Red, green, refactor.",
+    body: "# Test Driven Development\n\nWrite the failing test first.",
+    scope: "personal",
+  } as const;
+  app.daemon.skills.seed([tdd]);
   await app.open("/skills");
   await screen.findByRole("link", { name: /Test Driven Development/ });
   expect(screen.queryByRole("link", { name: /clerk/i })).toBeNull();
-  seedRealCatalogs(app.daemon, Date.now());
+  // A skill folder appears on disk: the library's subscription brings it in.
+  app.daemon.skills.seed([
+    tdd,
+    { name: "clerk", description: "Add Clerk sign-in.", body: "# Clerk", scope: "personal" },
+  ]);
   expect(await screen.findByRole("link", { name: /clerk/i })).toBeTruthy();
+  expect(screen.getByRole("link", { name: /Test Driven Development/ })).toBeTruthy();
 });
 
 test("Usage combines legacy bare and prefixed model ids and labels the Codex weekly quota", async () => {
