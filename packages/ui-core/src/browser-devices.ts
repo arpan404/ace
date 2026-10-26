@@ -280,16 +280,33 @@ export function phonePresetFor(screenWidth: number): DevicePreset {
 }
 
 /**
- * What a screen opening a tab shows. A tab that already emulates a device (an agent chose it, or
- * the person did on any screen) keeps it, and the screen shows that device: one page has one
- * viewport, so a screen never quietly replaces a choice made elsewhere. A tab with none takes
- * this screen's own choice (`own`), which the screen then sends.
+ * The phone's own device, "this phone": its view's size, with the scale, touch and user agent of
+ * the iPhone nearest its width. The whole page fits the view, so nothing hides below it.
+ */
+export function phoneFitEmulation(view: { width: number; height: number }): DeviceEmulation {
+  const preset = phonePresetFor(view.width);
+  return {
+    width: clampDimension(view.width),
+    height: clampDimension(view.height),
+    deviceScaleFactor: preset.deviceScaleFactor,
+    mobile: preset.mobile,
+    touch: preset.touch,
+    userAgent: preset.userAgent,
+  };
+}
+
+/**
+ * What a screen opening a tab does about its device (ADR 0104). A tab that emulates a device (an
+ * agent chose it, or the person did on any screen) keeps it. A tab with none gets this screen's
+ * automatic device once; if this screen gave it one before and it has none now, someone removed
+ * it, and the tab is left as it is.
  */
 export function openingDevice(
   emulation: TabEmulation | undefined,
-  own: DeviceSize,
-): { size: DeviceSize; send: boolean } {
-  return emulation ? { size: sizeForEmulation(emulation), send: false } : { size: own, send: true };
+  appliedBefore: boolean,
+): "keep" | "send" | "leave" {
+  if (emulation) return "keep";
+  return appliedBefore ? "leave" : "send";
 }
 
 /** The device's name as a menu shows it: a preset's label, else "Responsive". */

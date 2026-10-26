@@ -8,6 +8,11 @@ export interface TabDevice {
   /** Undefined until the toolbar first opens in this tab (it starts at the page area's size). */
   size: DeviceSize | undefined;
   scale: DeviceScale;
+  /**
+   * This screen gave the tab its own automatic device once (the phone's "this phone"). A tab
+   * marked so and showing no device had it removed elsewhere, so it is not sent again.
+   */
+  applied?: boolean;
 }
 
 const Size = z.object({ preset: z.string(), width: z.number(), height: z.number() });
@@ -15,12 +20,18 @@ const Entry = z.object({
   toolbar: z.boolean(),
   size: z.optional(Size),
   scale: z.union([z.literal("fit"), z.number()]),
+  applied: z.optional(z.boolean()),
 });
-const Persisted = z.object({
-  always: z.boolean(),
-  tabs: z.array(z.tuple([z.string(), Entry])),
+const Tab = z.tuple([z.string(), Entry]);
+/** Each tab is read on its own: one entry a later version wrote differently drops only itself. */
+const Stored = z.object({
+  always: z.optional(z.boolean()),
+  tabs: z.optional(z.array(z.unknown())),
 });
-type Persisted = z.infer<typeof Persisted>;
+interface Persisted {
+  always: boolean;
+  tabs: z.infer<typeof Tab>[];
+}
 
 const key = "ace.browser.devices";
 /** Tabs remembered: the most recently changed ones. */
@@ -41,7 +52,14 @@ export class DeviceSettings {
   private listeners = new Set<() => void>();
   constructor(storage: KeyValueStorage | undefined) {
     this.storage = storage;
-    this.value = readJson(storage, key, Persisted, { always: false, tabs: [] });
+    const stored = readJson(storage, key, Stored, {});
+    this.value = {
+      always: stored.always ?? false,
+      tabs: (stored.tabs ?? []).flatMap((entry) => {
+        const parsed = Tab.safeParse(entry);
+        return parsed.success ? [parsed.data] : [];
+      }),
+    };
     this.tabs = new Map(
       this.value.tabs.map(([id, entry]) => [id, { ...entry, size: entry.size }] as const),
     );
@@ -99,6 +117,7 @@ export class DeviceSettings {
         {
           toolbar: entry.toolbar,
           scale: entry.scale,
+          ...(entry.applied ? { applied: true } : {}),
           ...(entry.size ? { size: entry.size } : {}),
         },
       ]),

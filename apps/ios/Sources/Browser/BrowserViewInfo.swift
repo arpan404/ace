@@ -101,7 +101,7 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
             let height: Int
         }
         let toolbar: Bool
-        /// The preset the tab is, either way up; nil for any other size.
+        /// The preset the tab is, either way up, or "this-phone" (the view's own size); nil for any other.
         let preset: String?
         let label: String
         /// The tab's emulated size; nil while the page follows another screen's pane.
@@ -109,7 +109,6 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         let height: Int?
         /// False for the person's own Chrome, which ace never resizes.
         let supported: Bool
-        let presets: [Preset]
     }
     /// Bumped whenever the daemon starts this viewer's pictures again.
     let generation: Int
@@ -117,6 +116,19 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
     let error: String?
     let state: State?
     var device: Device? = nil
+
+    private enum CodingKeys: String, CodingKey { case generation, error, state, device }
+}
+
+extension BrowserViewInfo {
+    /// The device toolbar is read on its own: one that doesn't decode hides the toolbar, never the browser.
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        generation = try box.decode(Int.self, forKey: .generation)
+        error = try box.decodeIfPresent(String.self, forKey: .error)
+        state = try box.decodeIfPresent(State.self, forKey: .state)
+        device = (try? box.decodeIfPresent(Device.self, forKey: .device)) ?? nil
+    }
 }
 
 /// One-shot answers from the browser's tools (`bridge/browser-tools.ts`).

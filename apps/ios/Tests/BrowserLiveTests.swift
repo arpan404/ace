@@ -143,6 +143,28 @@ import Testing
         #expect(state.dialog?.type == "confirm")
     }
 
+    @Test func aDeviceToolbarThatDoesntReadHidesTheToolbarNotTheBrowser() async throws {
+        let (model, _) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/"]],
+        ]
+        let device: [String: Any] = ["toolbar": true, "preset": "this-phone", "label": "This phone", "width": 390, "height": 700, "supported": true]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "device": device],
+                                 ["type": "browser.presets", "presets": [["id": "pixel-9", "label": "Pixel 9", "kind": "phone", "width": 412, "height": 923],
+                                                                         ["id": 7]]]]))
+        #expect(model.browser.view?.device?.label == "This phone")
+        // The preset that doesn't read is left out; the rest are offered.
+        #expect(model.browser.presets.map(\.id) == ["pixel-9"])
+        // A later bridge's toolbar this one can't read: the page still shows, without the toolbar.
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state,
+                                  "device": ["toolbar": "sometimes"]]]))
+        #expect(model.browser.view?.state?.activeTabId == "t1")
+        #expect(model.browser.view?.device == nil)
+    }
+
     @Test func theToolsAnswersBelongToTheOpenViewAndGoWithIt() async throws {
         let (model, _) = try await connected()
         let problem: [String: Any] = ["type": "browser.problem", "at": 1, "message": "Couldn't close the tab."]

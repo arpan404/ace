@@ -25,7 +25,7 @@ export async function liveBrowser(
     browser?: boolean;
     read?: ChunkReader;
     names?: Record<string, string>;
-    devices?: KeyValueStorage;
+    devices?: { storage: KeyValueStorage; ready: Promise<void> };
   } = {},
 ) {
   const { daemon, client } = sheetFixture();

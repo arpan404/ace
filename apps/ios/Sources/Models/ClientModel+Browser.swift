@@ -47,10 +47,13 @@ extension ClientModel {
         browser.close(streams: browserStreams)
         browserAction(["kind": "close"])
     }
-    /// The view's size changed: the picture is sized for it; the page keeps its device.
-    func browserViewport(size: CGSize, scale: CGFloat) {
+    /// The view's size changed: a tab showing "this phone" takes it; any other device stays.
+    /// `picture`: the page as drawn, so its stream is encoded at that size.
+    func browserViewport(size: CGSize, scale: CGFloat, picture: CGSize? = nil) {
         guard browser.threadId != nil else { return }
-        browserAction(["kind": "viewport", "viewport": Self.viewport(size, scale)])
+        var value: [String: Any] = ["kind": "viewport", "viewport": Self.viewport(size, scale)]
+        if let picture { value["picture"] = ["width": Double(picture.width), "height": Double(picture.height)] }
+        browserAction(value)
     }
     /// The person's touches, keys, text and picks; a view-only grant sends none.
     func browserInput(_ inputs: [RemoteInput]) {

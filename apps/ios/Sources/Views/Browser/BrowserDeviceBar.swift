@@ -16,6 +16,9 @@ struct BrowserDeviceBar: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.lg) {
             Menu {
+                Section {
+                    choice("This phone", id: "this-phone")
+                }
                 section("Phones", kind: "phone")
                 section("Tablets", kind: "tablet")
                 section("Computers", kind: "computer")
@@ -29,6 +32,7 @@ struct BrowserDeviceBar: View {
             .accessibilityIdentifier("browser.device.menu")
             Text(size)
                 .monospacedDigit()
+                .accessibilityLabel(size.replacingOccurrences(of: " × ", with: " by "))
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(1)
                 .accessibilityIdentifier("browser.device.size")
@@ -37,6 +41,7 @@ struct BrowserDeviceBar: View {
                 .disabled(!enabled || device.width == nil)
                 .accessibilityIdentifier("browser.device.rotate")
             Button("Hide") { model.browserDeviceToolbar(false) }
+                .accessibilityLabel("Hide device toolbar")
                 .accessibilityIdentifier("browser.device.hide")
         }
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
@@ -53,16 +58,19 @@ struct BrowserDeviceBar: View {
 
     @ViewBuilder private func section(_ title: String, kind: String) -> some View {
         Section(title) {
-            ForEach(device.presets.filter { $0.kind == kind }) { preset in
-                Button {
-                    model.browserDevice(preset.id)
-                } label: {
-                    if preset.id == device.preset {
-                        Label(preset.label, ace: .check)
-                    } else {
-                        Text(preset.label)
-                    }
-                }
+            ForEach(model.browser.presets.filter { $0.kind == kind }) { preset in
+                choice(preset.label, id: preset.id)
+            }
+        }
+    }
+    private func choice(_ label: String, id: String) -> some View {
+        Button {
+            model.browserDevice(id)
+        } label: {
+            if id == device.preset {
+                Label(label, ace: .check)
+            } else {
+                Text(label)
             }
         }
     }

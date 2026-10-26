@@ -37,12 +37,15 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     var onInput: ([RemoteInput]) -> Void = { _ in } {
         didSet { textField.onInput = onInput }
     }
-    /// The view settled at a new size or scale.
-    var onLayout: (CGSize, CGFloat) -> Void = { _, _ in }
+    /// The view settled at a new size or scale, or the picture at a new drawn size (nil before
+    /// the first picture): the stream is encoded for the picture as drawn.
+    var onLayout: (CGSize, CGFloat, CGSize?) -> Void = { _, _, _ in }
     /// A finger touched the page (the keyboard opens for a field the person just tapped).
     var onTouch: () -> Void = {}
     private var tracker = TouchTracker<ObjectIdentifier>()
-    private var reported: (size: CGSize, scale: CGFloat)?
+    private var reported: (size: CGSize, scale: CGFloat, picture: CGSize?)?
+    /// The page's focused field, kept so it follows the picture as it is zoomed and moved.
+    private var field: PageRect?
     private var settle: DispatchWorkItem?
 
     override init(frame: CGRect) {
@@ -62,6 +65,11 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         accessibilityLabel = "Live browser page"
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.surface"
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Fit page width") { [weak self] _ in self?.zoomTo(1) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom in") { [weak self] _ in self?.zoomBy(1.5) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom out") { [weak self] _ in self?.zoomBy(1 / 1.5) ?? false },
+        ]
     }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -89,6 +97,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     /// Places the hidden field over the page's focused field, so the system's text UI (the IME's
     /// candidates, dictation) appears next to it.
     func place(field rect: PageRect?) {
+        field = rect
         guard let rect else { textField.frame = CGRect(x: 0, y: 0, width: 1, height: 1); return }
         let shown = geometry.viewRect(rect)
         textField.frame = CGRect(x: shown.minX, y: shown.minY, width: max(1, shown.width), height: max(1, shown.height))
@@ -111,8 +120,18 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
 
     private func moved() {
         setNeedsLayout()
+        place(field: field)
         onMove(zoom, offset)
     }
+    private func zoomBy(_ factor: CGFloat) -> Bool {
+        guard pageSize != .zero else { return false }
+        let next = geometry.zoomed(by: factor, around: CGPoint(x: bounds.midX, y: bounds.midY))
+        zoom = next.zoom
+        offset = next.offset
+        moved()
+        return true
+    }
+    private func zoomTo(_ value: CGFloat) -> Bool { zoomBy(value / zoom) }
     @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
         guard recognizer.state == .changed || recognizer.state == .ended else { return }
         let next = geometry.zoomed(by: recognizer.scale, around: recognizer.location(in: self))
@@ -138,12 +157,14 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     private func report() {
         let size = bounds.size, scale = traitCollection.displayScale
         guard size.width > 0, size.height > 0 else { return }
-        if let reported, reported.size == size, reported.scale == scale { return }
+        let box = geometry.box
+        let picture = pageSize == .zero ? nil : CGSize(width: box.width.rounded(), height: box.height.rounded())
+        if let reported, reported.size == size, reported.scale == scale, reported.picture == picture { return }
         settle?.cancel()
         let send = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.reported = (size, scale)
-            self.onLayout(size, scale)
+            self.reported = (size, scale, picture)
+            self.onLayout(size, scale, picture)
         }
         settle = send
         if reported == nil { send.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: send) }
@@ -200,9 +221,9 @@ struct BrowserSurface: UIViewRepresentable {
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
         view.onInput = { model.browserInput($0) }
         view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
-        view.onLayout = { size, scale in
+        view.onLayout = { size, scale, picture in
             if model.browser.threadId == nil { model.openBrowser(size: size, scale: scale) }
-            else { model.browserViewport(size: size, scale: scale) }
+            else { model.browserViewport(size: size, scale: scale, picture: picture) }
         }
         let coordinator = context.coordinator
         view.onTouch = { coordinator.lastTouch = Date() }

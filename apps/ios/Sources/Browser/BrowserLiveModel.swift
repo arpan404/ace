@@ -13,6 +13,8 @@ import Observation
     private(set) var page: BrowserPageInfo?
     /// The drawn picture's page size (CSS pixels); nil until the first picture is drawn.
     private(set) var pageSize: CGSize?
+    /// The devices the device toolbar offers (`bridge/browser-device.ts`).
+    private(set) var presets: [BrowserViewInfo.Device.Preset] = []
     /// The person's zoom and move of the picture (`PageGeometry`), for what is drawn over it.
     private(set) var pictureZoom: CGFloat = 1
     private(set) var pictureOffset: CGPoint = .zero
@@ -109,6 +111,7 @@ import Observation
         case .logs(let result): if threadId != nil { logs = result }
         case .problem(let result): if threadId != nil { problem = result }
         case .upload(let chooserId, let progress): if threadId != nil { upload = (chooserId, progress) }
+        case .presets(let list): if presets != list { presets = list }
         }
     }
 }
