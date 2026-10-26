@@ -70,6 +70,9 @@ export function sandboxUnavailableMessage(problem: HelperProblem): string {
   }
 }
 
+/** Windows has no Cursor file sandbox: the SDK's helper there only filters network traffic. */
+export const noWindowsSandboxMessage = `Cursor's SDK has no file sandbox on Windows (its helper only filters network traffic), ${affected}. ${fallback}.`;
+
 const Report = z.object({
   header: z.object({ glibcVersionRuntime: z.string().max(32).optional() }).loose(),
 });

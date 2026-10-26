@@ -39,6 +39,14 @@ on:
       - tools/release/src/archive*.ts
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
+      - packages/provider-kit/src/installers/**
+      - packages/provider-kit/src/sdk.ts
+      - packages/provider-kit/src/access-modes.ts
+      - packages/adapter-*/**
+      - packages/accounts/**
+      - packages/agent-registry/**
+      - packages/history-import/**
+      - packages/mcp-server/src/private-config.ts
       - package.json
       - bun.lock
   workflow_dispatch:

@@ -55,6 +55,14 @@ export async function openPiSession(
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };
+  // Windows has no SIGTERM for a console child: closing stdin is the polite stop there, and
+  // the recorded tree is gone before a stop resolves.
+  const windows = (io.platform ?? process.platform) === "win32";
+  let treeStop: Promise<unknown> | undefined;
+  const stopTree = () =>
+    (treeStop ??= import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
+      stopTreeAfterEof(proc, 1000),
+    ));
   const cli =
     (ctx.executable ? undefined : options.cli) ??
     (await io.discover({
@@ -263,6 +271,10 @@ export async function openPiSession(
     release();
     rpc.close();
     detachStderr();
+    if (windows) {
+      closePromise = stopTree().then(() => {});
+      return closePromise;
+    }
     closePromise = proc.stop({ graceMs: 1000 }).then(() => {});
     return closePromise;
   }
@@ -326,6 +338,7 @@ export async function openPiSession(
     // detaching, so the open failure's Details carry it.
     if (!closePromise) {
       deliberate = false;
+      if (windows) await stopTree();
       await proc.stop({ graceMs: 1000 });
       await drained;
     }

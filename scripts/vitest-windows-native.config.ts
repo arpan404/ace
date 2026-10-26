@@ -60,6 +60,30 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Providers: discovery and registry
+      "packages/provider-kit/src/discovery/install-locations.process.test.ts",
+      "packages/agent-registry/src/native-entrypoints.process.test.ts",
+      // Providers: Cursor
+      "packages/adapter-cursor/src/sdk-admission.process.test.ts",
+      "packages/adapter-cursor/src/host-stop.process.test.ts",
+      "packages/accounts/src/usage-sources/cursor-login.test.ts",
+      // Providers: accounts, usage, history
+      "packages/accounts/src/profile-accounts.process.test.ts",
+      "packages/accounts/src/usage-sources/profile-read.test.ts",
+      "packages/accounts/src/usage-sources/read.test.ts",
+      "packages/provider-kit/src/discovery/pi-profile.process.test.ts",
+      "packages/history-import/src/profile-history.process.test.ts",
+      // Providers: Claude and Codex sessions
+      "packages/adapter-codex/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-metadata.process.test.ts",
+      "packages/adapter-claude/src/fork.process.test.ts",
+      // Providers: OpenCode, ACP and Pi sessions
+      "packages/adapter-opencode/src/shim-launch.process.test.ts",
+      "packages/adapter-acp/src/shim-session.process.test.ts",
+      "packages/adapter-pi/src/shim-session.process.test.ts",
+      // Providers: no descendant outlives a stop, even without a job
+      "packages/provider-kit/src/tree-stop.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its

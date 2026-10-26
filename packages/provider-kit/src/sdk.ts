@@ -29,6 +29,45 @@ async function readManifest(path: string): Promise<string> {
     await file.close();
   }
 }
+/**
+ * Windows admission. Cursor publishes a Windows helper package only for x64, so on any other
+ * Windows CPU the SDK cannot run at all. The x64 package carries `bin/rg.exe`; its
+ * `cursorsandbox.exe` only proxies network traffic, and the SDK itself refuses to sandbox on
+ * Windows, so that helper is not required here (sandboxed modes are refused when a session
+ * asks for one). Containment comes from the parent's Job Object and taskkill tree stop.
+ */
+async function admitWindowsHelper(
+  name: string,
+  version: string,
+  module: string,
+  arch: string,
+  read: (path: string) => Promise<string>,
+  options: SdkDiscoveryOptions,
+): Promise<SdkInstallation> {
+  if (arch !== "x64")
+    throw new Error(
+      arch === "arm64"
+        ? "Cursor's SDK has no Windows ARM64 build, so Cursor can't run on this PC"
+        : `Cursor's SDK has no Windows ${arch} build, so Cursor can't run on this PC`,
+    );
+  const helperName = `${name}-win32-x64`;
+  let helper: string;
+  try {
+    helper = (options.resolve ?? createRequire(module).resolve)(`${helperName}/package.json`);
+  } catch {
+    throw new Error(`Cursor's Windows helper ${helperName} is missing; reinstall ace`);
+  }
+  const helperText = await read(helper);
+  if (Buffer.byteLength(helperText) > 65536)
+    throw new Error("SDK helper manifest exceeds admission budget");
+  const metadata = manifest.parse(JSON.parse(helperText));
+  if (metadata.name !== helperName) throw new Error("SDK platform helper identity mismatch");
+  if (metadata.version !== version) throw new Error("SDK platform helper version mismatch");
+  // X_OK means "exists" on Windows; the SDK runs rg.exe directly.
+  const executable = options.executable ?? ((path: string) => access(path, constants.X_OK));
+  await executable(join(dirname(helper), "bin", "rg.exe"));
+  return { installed: true, supported: true, module, version };
+}
 export interface SdkDiscoveryOptions {
   resolve?: (id: string) => string;
   read?: (path: string) => Promise<string>;
@@ -94,6 +133,8 @@ export async function discoverSdk(
       throw new Error("SDK host requires Node 24+");
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
+    if (platform === "win32")
+      return await admitWindowsHelper(name, version, module, arch, read, options);
     if (!["darwin", "linux"].includes(platform) || !["arm64", "x64"].includes(arch))
       throw new Error(
         "Cursor SDK home/sandbox supervision is supported only on macOS/Linux arm64/x64; Windows needs Job Objects and home verification",
