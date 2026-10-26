@@ -280,6 +280,8 @@ export class OpenCodeServer {
   }
   private async verify(expected: string): Promise<void> {
     const info = Identity.parse(await this.client?.server.info({ signal: this.controller.signal }));
+    if ((this.runtime.platform ?? process.platform) === "win32")
+      return this.verifyShimmed(info, expected);
     if (
       info.version !== expected ||
       !version(info.version) ||
@@ -287,6 +289,19 @@ export class OpenCodeServer {
       (this.process?.pid !== undefined && info.pid !== this.process.pid)
     )
       // The binary changed between discovery and start (e.g. an update): rediscover and retry.
+      throw new IdentityChanged("OpenCode process/version identity mismatch");
+    this.identity = info;
+  }
+  /**
+   * Windows launches an npm install through its `.cmd` shim (cmd.exe, then Node's launcher), so
+   * the pid ace spawned is never the server's own. Version and pid stability still identify it.
+   */
+  private verifyShimmed(info: z.infer<typeof Identity>, expected: string): void {
+    if (
+      info.version !== expected ||
+      !version(info.version) ||
+      (this.identity && info.pid !== this.identity.pid)
+    )
       throw new IdentityChanged("OpenCode process/version identity mismatch");
     this.identity = info;
   }
