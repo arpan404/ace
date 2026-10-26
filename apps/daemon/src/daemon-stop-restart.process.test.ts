@@ -1,9 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { accessRequest } from "./client-access.ts";
 import { invoke } from "./cli-test-support.ts";
+import { daemonInConsole } from "./console-control-test-support.ts";
 import {
   lastRunEnding,
   startDaemonCli,
@@ -108,45 +108,49 @@ test.runIf(windows)(
   180_000,
 );
 
+for (const [name, event] of [
+  ["Ctrl+C", "c"],
+  ["Ctrl+Break", "break"],
+] as const)
+  test.runIf(windows)(
+    `Windows: ${name} delivered to the daemon's console stops it in order`,
+    async ({ onTestFinished }) => {
+      const cleanups: Cleanups = [];
+      onTestFinished(async () => {
+        for (const close of cleanups.toReversed()) await close();
+      });
+      const home = await temporaryHome(`ace-win-console-${event}-`, cleanups);
+      const outcome = await daemonInConsole(home, { event, when: "ready" }, cleanups);
+      expect(outcome, outcome.errors).toMatchObject({ code: 0, sawReady: true, sent: true });
+      expect(await walBytes(join(home, "events.sqlite"))).toBe(0);
+
+      const next = startDaemonCli(home, cleanups);
+      await next.ready;
+      expect(await lastRunEnding(home)).toMatchObject({
+        level: "info",
+        message: "Previous daemon run stopped in order",
+        data: { previousPid: outcome.pid, previousSource: "signal" },
+      });
+      await stopThroughCli(home);
+      expect(await next.exited).toBe(0);
+    },
+    180_000,
+  );
+
 test.runIf(windows)(
-  "Windows: Ctrl+Break in the daemon's console stops it in order instead of ending it",
+  "Windows: Ctrl+Break while the daemon is still starting stops it without publishing readiness, and the next start succeeds",
   async ({ onTestFinished }) => {
     const cleanups: Cleanups = [];
     onTestFinished(async () => {
       for (const close of cleanups.toReversed()) await close();
     });
-    const home = await temporaryHome("ace-win-break-", cleanups);
-    // The console delivers Ctrl+Break to Node as a SIGBREAK process event; the test raises
-    // that same event inside the real daemon process.
-    // Outside the home: a fresh home must start empty. A file, not IPC, asks for the break, so
-    // the daemon's descendants inherit nothing from the test.
-    const fixture = await temporaryHome("ace-win-break-fixture-", cleanups);
-    const preload = join(fixture, "break.mjs");
-    const request = join(fixture, "break-now");
-    await writeFile(
-      preload,
-      `import { existsSync } from "node:fs";
-const poll = setInterval(() => {
-  if (!existsSync(${JSON.stringify(request)})) return;
-  clearInterval(poll);
-  process.emit("SIGBREAK");
-}, 100);
-poll.unref();
-`,
-    );
-    const daemon = startDaemonCli(home, cleanups, pathToFileURL(preload).href);
-    await daemon.ready;
-    await writeFile(request, "");
-    expect(await daemon.exitWithin(30_000)).toBe(0);
-    expect(await walBytes(join(home, "events.sqlite"))).toBe(0);
+    const home = await temporaryHome("ace-win-console-starting-", cleanups);
+    const outcome = await daemonInConsole(home, { event: "break", when: "starting" }, cleanups);
+    expect(outcome, outcome.errors).toMatchObject({ code: 0, sawReady: false, sent: true });
 
     const next = startDaemonCli(home, cleanups);
     await next.ready;
-    expect(await lastRunEnding(home)).toMatchObject({
-      level: "info",
-      message: "Previous daemon run stopped in order",
-      data: { previousPid: daemon.child.pid, previousSource: "signal" },
-    });
+    expect((await lastRunEnding(home))?.message).not.toMatch(/crashed/);
     await stopThroughCli(home);
     expect(await next.exited).toBe(0);
   },
