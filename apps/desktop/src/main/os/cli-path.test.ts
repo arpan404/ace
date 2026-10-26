@@ -34,7 +34,7 @@ describe("choosing how a terminal finds ace", () => {
     expect(planCliPath({ ...facts, path: "/usr/bin:/bin" })).toEqual({ kind: "profile" });
   });
 
-  it.runIf(process.platform === "win32")("puts the folder on a Windows user's PATH", () => {
+  it("puts the folder on a Windows user's PATH", () => {
     const windows = { ...facts, platform: "win32" as const, directory: "C:\\Users\\a\\.ace\\bin" };
     expect(planCliPath({ ...windows, path: "C:\\Windows" })).toEqual({ kind: "user-path" });
     expect(planCliPath({ ...windows, path: "C:\\Windows;c:\\users\\a\\.ace\\bin\\" })).toEqual({

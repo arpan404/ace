@@ -30,7 +30,7 @@ describe("which daemon the packaged app uses", () => {
     expect(resolveTarget({ ACE_HOME: "/h" }, options("linux")).kind).toBe("managed");
   });
 
-  it.runIf(process.platform === "win32")("manages a local daemon on Windows", () => {
+  it("manages a local daemon on Windows", () => {
     expect(resolveTarget({}, options("win32"))).toEqual({
       kind: "managed",
       home: "/Users/me/.ace",
