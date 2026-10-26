@@ -59,7 +59,7 @@ test.runIf(process.platform === "win32")(
       expect(conout.getWorkerPipeName("pipe")).toBe("pipe-worker");
       const staged = await readdir(join(destination, "prebuilds/win32-x64"));
       expect(staged.toSorted()).toEqual(["conpty", "conpty.node"]);
-      expect(await readdir(join(destination, "prebuilds/win32-x64/conpty"))).toEqual([
+      expect((await readdir(join(destination, "prebuilds/win32-x64/conpty"))).toSorted()).toEqual([
         "OpenConsole.exe",
         "conpty.dll",
       ]);
