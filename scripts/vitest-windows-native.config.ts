@@ -109,6 +109,29 @@ const posixOnly = [
   ),
 ];
 
+/**
+ * Workspace cases matched by how the full name ends (some sit inside describe blocks), each with
+ * a Windows counterpart or no Windows meaning: ripgrep-only cases (Windows always searches with
+ * Node); names holding "\\" or a newline, which Windows can't create; "/dev/null" as a root;
+ * the forced Linux per-directory watch strategy, which Windows never uses (it watches the root
+ * recursively); and the symlink swap race, whose child can't rename a folder ace holds open on
+ * Windows (junction-race.process.test.ts is the Windows case). The ignore-process count runs in
+ * recursive-watch.process.test.ts with held timers: slow Windows runners start a native scan of
+ * their own before the count.
+ */
+const posixOnlyEndings = [
+  "with backend rg",
+  "cancels after ripgrep begins matching and reaps it before rejecting",
+  "ripgrep and Node return identical literal, regex, case and glob results",
+  "uses the injected real process boundary for ripgrep selection and search",
+  "returns typed missing-file and wrong-kind errors",
+  "uses batched git ignore rules including nested negations and newline filenames",
+  "omits unsupported discovered filenames without corrupting listing or watch paths",
+  "never places a watch inside ignored or Git directories",
+  "never returns outside bytes while a real child swaps a parent directory for a symlink",
+  "one ignore process reconciles nested visible files while pruning ignored directories",
+];
+
 export default defineConfig({
   test: {
     maxWorkers: 2,
@@ -164,16 +187,26 @@ export default defineConfig({
       "packages/commands/src/**/*.test.ts",
       // Uploads, downloads, edits, trash, folder archives and blob export.
       "packages/files/src/**/*.test.ts",
+      // Project listing, reads, Node search, watching and Git ignore rules. Windows searches
+      // with ace's in-process Node backend, never ripgrep.
+      "packages/workspace/src/**/*.test.ts",
     ],
     exclude: [
       "**/node_modules/**",
       "packages/mcp-server/src/discovery-fifo.process.test.ts",
       // Windows has no FIFOs.
       "packages/plugins/src/source-fifo.process.test.ts",
+      // These write native paths into Git config text, which Git reads as bad escapes on
+      // Windows; config-paths.process.test.ts runs the same cases with "/" paths.
+      "packages/workspace/src/include-watch.process.test.ts",
+      "packages/workspace/src/branch-includes.process.test.ts",
+      "packages/workspace/src/head-reconciliation.process.test.ts",
     ],
     // Shared files also hold POSIX cases; each listed one has a Windows counterpart or no
     // Windows meaning. Names are matched whole.
-    testNamePattern: new RegExp(`^(?!(?:${posixOnly.map(escapeName).join("|")})$)`),
+    testNamePattern: new RegExp(
+      `^(?!(?:${posixOnly.map(escapeName).join("|")})$)(?!.*(?:${posixOnlyEndings.map(escapeName).join("|")})$)`,
+    ),
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
