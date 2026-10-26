@@ -146,6 +146,8 @@ extension AceIcon {
         case plusSquare = "plus-square"
         case power = "power"
         case prohibit = "prohibit"
+        case pushPin = "push-pin"
+        case pushPinSlash = "push-pin-slash"
         case qrCode = "qr-code"
         case question = "question"
         case queue = "queue"

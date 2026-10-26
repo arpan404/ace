@@ -6,7 +6,7 @@ import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { LedgerShelf } from "./native-ledger.ts";
-import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
+import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
@@ -93,6 +93,7 @@ let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
+let inbox: InboxFollow | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
@@ -168,7 +169,7 @@ async function start(json: string): Promise<void> {
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
   });
-  followInbox(
+  inbox = followInbox(
     client,
     config.hostId,
     pump,
@@ -375,7 +376,7 @@ function action(json: string): void {
         routeThreadAction(session, value.epoch, value.action, (key, read) => pump.put(key, read));
         break;
       case "inbox":
-        inboxAction(client, value.action, value.requestId, pump);
+        inboxAction(client, value.action, value.requestId, pump, inbox);
         break;
       case "archive":
         if (!archive?.handle(value.action)) error();

@@ -207,6 +207,8 @@ const extra = [
   "hammer",
   "list",
   "note",
+  "push-pin",
+  "push-pin-slash",
   "plug",
   "robot",
   "sidebar-simple",
