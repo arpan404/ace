@@ -62,6 +62,9 @@ export async function buildApp(): Promise<void> {
 export async function launch(scale: number): Promise<Launched> {
   const userData = await mkdtemp(join(tmpdir(), "ace-e2e-chrome-"));
   const args = [
+    // Before ace's own main script: records what ace hands Electron (`main-probes.cjs`).
+    "-r",
+    join(import.meta.dirname, "main-probes.cjs"),
     join(out, mainEntry),
     `--force-device-scale-factor=${scale}`,
     // A CI desktop can look occluded to Chromium, which then stops drawing frames.
@@ -74,12 +77,7 @@ export async function launch(scale: number): Promise<Launched> {
     ACE_DESKTOP_USER_DATA: userData,
     ACE_DESKTOP_RENDERER_URL: "",
   };
-  const probes = join(import.meta.dirname, "main-probes.cjs");
-  const app = await electron.launch({
-    executablePath: await electronBinary(),
-    args,
-    env: { ...env, NODE_OPTIONS: `--require "${probes}"` },
-  });
+  const app = await electron.launch({ executablePath: await electronBinary(), args, env });
   app.process().stderr?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
   const page = await app.firstWindow();
   page.on("pageerror", (error) => console.log(`[page error] ${error.message}`));

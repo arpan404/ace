@@ -68,10 +68,7 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
             async () => {
               // A thread with its side panel docked at the right: the panel's strip, not the
               // header, now meets the caption buttons.
-              await page
-                .getByRole("navigation", { name: "App" })
-                .getByText("Fix flaky checkout test")
-                .click();
+              await page.getByText("Fix flaky checkout test").first().click();
               await page.waitForURL(/\/t\//, { timeout: 15_000 });
               if (!(await panel.isVisible())) await page.keyboard.press("Control+Shift+B");
               await panel.waitFor({ timeout: 15_000 });
@@ -179,7 +176,10 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
           await capture(launched, "settings-help");
           await page.keyboard.press("Control+K");
           await page.keyboard.type("Report an issue");
-          await page.getByRole("option", { name: /Report an issue/ }).waitFor({ timeout: 10_000 });
+          await page
+            .getByRole("option", { name: /Report an issue/ })
+            .first()
+            .waitFor({ timeout: 10_000 });
           await page.keyboard.press("Escape");
         },
       );
