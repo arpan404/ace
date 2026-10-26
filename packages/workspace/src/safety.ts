@@ -160,6 +160,10 @@ export class SafeRoot {
   async file(
     input: string,
   ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
+    if (process.platform === "win32") {
+      const canonical = await this.windowsCanonicalFile(input);
+      if (canonical) return canonical;
+    }
     let handle: FileHandle | Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
@@ -173,6 +177,36 @@ export class SafeRoot {
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
       await this.verify(input, resolved, info);
       return { handle, info, resolved };
+    } catch (error) {
+      await handle?.close();
+      throw failure(error);
+    }
+  }
+  /**
+   * Win32: every handle open walks from the drive root, so the general path (resolve, lstat,
+   * open, resolve again) costs ~50 opens per file. When the request is already the canonical
+   * on-disk path (no links, case or 8.3 aliases) the root-anchored handle chain, which refuses
+   * links, confines the open by itself; the lstat identity check still detects replacement.
+   * Anything else returns undefined for the general path to decide.
+   */
+  private async windowsCanonicalFile(input: string) {
+    const path = this.path(input);
+    if (!path || transferTemporary(path)) return undefined;
+    const lexical = join(this.root, ...path.split("/"));
+    try {
+      if ((await this.fs.realpath(lexical)) !== lexical) return undefined;
+    } catch {
+      return undefined;
+    }
+    let handle: FileHandle | Descriptor | undefined;
+    try {
+      const expected = await this.fs.lstat(lexical);
+      if (!expected.isFile()) return undefined;
+      handle = await this.anchored(lexical, constants.O_RDONLY);
+      const info = await handle.stat();
+      if (!info.isFile() || !same(info, expected))
+        throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
+      return { handle, info, resolved: lexical };
     } catch (error) {
       await handle?.close();
       throw failure(error);
