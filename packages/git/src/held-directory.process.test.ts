@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { closeSync, openSync } from "node:fs";
+import { closeSync, openSync, renameSync } from "node:fs";
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import { GitService } from "./index.ts";
+import { GitService, spawnGitProcess } from "./index.ts";
+import { junctionInPlace } from "./junction-test-fixtures.ts";
 import { git, scratch } from "./test-repo.ts";
 
 const run = promisify(execFile);
@@ -122,5 +123,85 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
       await service.close();
     }
     expect(await exists(join(target, "README.md"))).toBe(true);
+  });
+
+  test("an empty held folder can't be turned into a junction while Git starts init in it", async () => {
+    const base = await scratch();
+    const project = join(base, "empty project");
+    const decoy = join(base, "decoy");
+    await mkdir(project);
+    await mkdir(decoy);
+    let converted: boolean | undefined;
+    const service = new GitService({
+      processRuntime: {
+        spawn: (command, args, options) => {
+          // The last moment before Git opens its working directory by path.
+          if (args.includes("init")) converted = junctionInPlace(project, decoy);
+          return spawnGitProcess(command, args, options);
+        },
+      },
+    });
+    try {
+      await held(project, (fd) => service.init(project, "main", fd));
+    } finally {
+      await service.close();
+    }
+    expect(converted).toBe(false);
+    expect(await exists(join(project, ".git", "HEAD"))).toBe(true);
+    expect(await exists(join(decoy, ".git"))).toBe(false);
+  });
+
+  test("a held folder can't be renamed while Git works in it, and can be afterwards", async () => {
+    const base = await scratch();
+    const project = join(base, "project");
+    await mkdir(project);
+    let renamed: unknown;
+    const service = new GitService({
+      processRuntime: {
+        spawn: (command, args, options) => {
+          if (args.includes("init"))
+            try {
+              renameSync(project, join(base, "moved"));
+              renamed = true;
+            } catch (error) {
+              renamed = error;
+            }
+          return spawnGitProcess(command, args, options);
+        },
+      },
+    });
+    try {
+      await held(project, (fd) => service.init(project, "main", fd));
+    } finally {
+      await service.close();
+    }
+    expect(renamed).toMatchObject({ code: expect.stringMatching(/^(EPERM|EBUSY|EACCES)$/) });
+    expect(await exists(join(project, ".git", "HEAD"))).toBe(true);
+    await rename(project, join(base, "moved"));
+    expect(await exists(join(base, "moved", ".git", "HEAD"))).toBe(true);
+  });
+
+  test("Git in a held network-share folder is confined or refused plainly", async (context) => {
+    const local = await scratch();
+    const share = `\\\\localhost\\${local.slice(0, 1)}$${local.slice(2)}`;
+    if (!(await exists(share))) context.skip("no administrative share on this machine");
+    const project = join(share, "shared project");
+    await mkdir(project);
+    const service = new GitService();
+    try {
+      const outcome = await held(project, (fd) => service.init(project, "main", fd)).then(
+        () => "initialized",
+        (error: unknown) => error,
+      );
+      if (outcome === "initialized")
+        expect(await exists(join(local, "shared project", ".git", "HEAD"))).toBe(true);
+      else
+        expect(outcome).toMatchObject({
+          code: "unsupported_repository",
+          message: expect.stringContaining("network folder"),
+        });
+    } finally {
+      await service.close();
+    }
   });
 });

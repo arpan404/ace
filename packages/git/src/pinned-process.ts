@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { z } from "zod";
-import { leaseHeldDirectory } from "./directory-lease.ts";
 import type { GitProcessRuntime } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -26,7 +25,6 @@ export function spawnPinned(
   options: Parameters<GitProcessRuntime["spawn"]>[2],
   fd: number,
 ) {
-  if (runtime.platform === "win32") return spawnLeased(runtime, binary, args, options, fd);
   return runtime.spawn(
     process.execPath,
     ["-e", helper, pinnedGitMarker, require.resolve("koffi"), binary, ...args],
@@ -36,37 +34,4 @@ export function spawnPinned(
       stdio: ["pipe", "pipe", "pipe", z.number().int().nonnegative().parse(fd)],
     },
   );
-}
-
-/** Windows: Git starts in the held directory by its canonical path while a lease keeps it in place. */
-function spawnLeased(
-  runtime: GitProcessRuntime,
-  binary: string,
-  args: string[],
-  options: Parameters<GitProcessRuntime["spawn"]>[2],
-  fd: number,
-) {
-  const lease = leaseHeldDirectory(fd);
-  let child: ReturnType<GitProcessRuntime["spawn"]>;
-  try {
-    child = runtime.spawn(binary, args, {
-      ...options,
-      cwd: lease.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-  } catch (error) {
-    lease.release();
-    throw error;
-  }
-  child.once("spawn", () => {
-    try {
-      lease.verify();
-    } catch {
-      // The folder or its drive changed while Git was starting: stop it before it does any work.
-      child.kill("SIGKILL");
-    }
-  });
-  child.once("exit", lease.release);
-  child.once("error", lease.release);
-  return child;
 }
