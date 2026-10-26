@@ -155,6 +155,7 @@ export class ChromeBackend implements BrowserBackend {
     const recover = (reason: string) => {
       if (recovering) return;
       release();
+      request.restarting?.(reason);
       recovering = (async () => {
         const next = await connect();
         await tabs.restore(next);
