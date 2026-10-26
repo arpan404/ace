@@ -1,3 +1,4 @@
+import { h264JpegArgs } from "./h264-jpeg.ts";
 import { deviceImageStream, sameDeviceStream } from "./stream-control.ts";
 import { framePacket, type Frame } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
@@ -113,30 +114,11 @@ export async function screenrecordCapture(
       checkAbort();
       output = runtime.spawn({
         command: ffmpeg,
-        args: [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-probesize",
-          "32",
-          "-analyzeduration",
-          "0",
-          "-f",
-          "h264",
-          "-i",
-          "pipe:0",
-          "-vf",
-          `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 1920},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
-          "-fps_mode",
-          "vfr",
-          "-c:v",
-          "mjpeg",
-          "-q:v",
-          "5",
-          "-f",
-          "image2pipe",
-          "pipe:1",
-        ],
+        // screenrecord has no rate of its own: ffmpeg keeps the images to the stream's.
+        args: h264JpegArgs({
+          fps: settings?.fps ?? options.fps,
+          box: { maxWidth: settings?.maxWidth ?? 1920, maxHeight: settings?.maxHeight ?? 2160 },
+        }),
         env: options.env,
         name: "device-jpeg",
       });

@@ -309,14 +309,14 @@ export async function scrcpyCapture(options: {
     current.clipboard.close();
     await Promise.all([current.frames?.stop(), current.connection.close()]);
   };
-  const setImages = async (images: boolean, fps: number) => {
+  const setImages = async (images: boolean) => {
     if (images && !jpeg) {
       const ffmpeg = await discoverExecutable("ffmpeg", options.env);
       // Without ffmpeg the capture stays H.264, and agents' stills come from the device instead.
       if (!ffmpeg) return false;
+      // scrcpy's encoder already keeps to the stream's rate: every picture it sends is one to make.
       jpeg = new H264Jpeg({
         ffmpeg,
-        fps,
         runtime,
         env: options.env,
         image: (payload, width, height) => {
@@ -403,7 +403,7 @@ export async function scrcpyCapture(options: {
           restarting = undefined;
         }
       }
-      const images = await setImages(next.codec === "jpeg", next.fps);
+      const images = await setImages(next.codec === "jpeg");
       return { codec: images ? "jpeg" : "h264" };
     },
     async keyframe() {
