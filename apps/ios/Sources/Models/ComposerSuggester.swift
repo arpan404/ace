@@ -22,7 +22,12 @@ enum SuggestScope: Equatable, Sendable {
 }
 
 /// A change to the message the composer makes itself: the words and where the caret goes.
-struct ComposerEdit: Equatable { let text: String; let caret: Int }
+struct ComposerEdit: Equatable {
+    let text: String
+    let caret: Int
+    /// The reference the edit inserted, to keep with the words once they changed.
+    var pick: ComposerPick? = nil
+}
 
 /// What picking a row asks of the screen around the composer.
 enum ComposerPickOutcome: Equatable {
@@ -38,19 +43,29 @@ enum ComposerPickOutcome: Equatable {
 
 /// One composer's `@` and `/` lists: the word at the caret becomes a query (only when it changes),
 /// the bridge answers, and a pick becomes an edit or an action, by the web's rules. The bridge
-/// does the reading, filtering and grouping; this keeps the caret's word and the picks.
+/// does the reading, filtering and grouping; this keeps the caret's word. Picks live with the
+/// composer's draft (`ComposerPicks`).
 @MainActor @Observable final class ComposerSuggester {
     @ObservationIgnored private static var sequence = 0
     var scope: SuggestScope?
     private(set) var trigger: ComposerTrigger?
     private(set) var seq = -1
-    var picks = ComposerPicks()
+    /// Whether this composer is the one on screen: a composer being left drops its late caret
+    /// reports, so they never cancel the list of the one taking its place.
+    var active = false {
+        didSet {
+            guard active != oldValue, !active else { return }
+            trigger = nil
+            dismissed = nil
+        }
+    }
     /// A prompt asking for its arguments, and the word it will replace.
     var asking: (row: SuggestionRow, trigger: ComposerTrigger?)?
     /// The word Esc or tapping away closed: it stays closed until the person types elsewhere.
     @ObservationIgnored private var dismissed: Int?
     @ObservationIgnored private weak var model: ClientModel?
     @ObservationIgnored private var text = ""
+    @ObservationIgnored private var held: [String: Int] = [:]
     /// Where the caret last was, as a UTF-16 offset.
     @ObservationIgnored private(set) var caret = 0
 
@@ -69,15 +84,18 @@ enum ComposerPickOutcome: Equatable {
 
     /// Read the catalog and the + list ahead, so `/` and + open on rows.
     func readAhead() {
-        guard let model, let scope else { return }
+        guard active, let model, let scope else { return }
         model.action(["type": "suggest", "action": ["kind": "prefetch", "scope": scope.json]])
         Self.sequence += 1
         model.action(["type": "suggest", "action": ["kind": "query", "scope": scope.json, "list": "add", "query": "", "seq": Self.sequence]])
     }
 
-    /// The words or caret moved: ask for the word's list when it changed.
-    func caretMoved(text: String, caret: Int) {
+    /// The words or caret moved: ask for the word's list when it changed. `held` is what the
+    /// message's picks hold, for the per-message limits.
+    func caretMoved(text: String, caret: Int, held: [String: Int]) {
+        guard active else { return }
         self.text = text
+        self.held = held
         self.caret = caret
         var found = ComposerTrigger.at(text, caret: caret)
         if let word = found, word.start == dismissed { found = nil } else { dismissed = nil }
@@ -93,13 +111,13 @@ enum ComposerPickOutcome: Equatable {
         seq = Self.sequence
         model.action(["type": "suggest", "action": [
             "kind": "query", "scope": scope.json, "list": found.kind.rawValue, "query": found.query, "seq": seq,
-            "held": picks.held(in: text),
+            "held": held,
         ]])
     }
 
     /// Close the list for the word being completed (tapping away, Esc).
     func close() {
-        guard let trigger else { return }
+        guard active, let trigger else { return }
         dismissed = trigger.start
         self.trigger = nil
         model?.action(["type": "suggest", "action": ["kind": "close"]])
@@ -109,7 +127,7 @@ enum ComposerPickOutcome: Equatable {
     func retry() {
         let word = trigger
         trigger = nil
-        if let word { caretMoved(text: text, caret: word.end) }
+        if let word { caretMoved(text: text, caret: word.end, held: held) }
     }
 
     /// What picking `row` does to `text`. From the + list there is no word: `caret` is where the
@@ -174,20 +192,23 @@ enum ComposerPickOutcome: Equatable {
     }
 
     /// The message went: its references went with it.
-    func sent() { picks.clear(); trigger = nil; dismissed = nil }
+    func sent() { trigger = nil; dismissed = nil }
 
     private func insert(_ reference: BridgeJSON, at word: ComposerTrigger?, text: String, caret: Int) -> ComposerEdit {
         let label = reference["label"]?.text ?? ""
-        picks.add(reference)
         if let path = reference["file"]?["path"]?.text, let scope {
             model?.action(["type": "suggest", "action": ["kind": "remember", "scope": scope.json, "path": path]])
         }
+        let length = (label as NSString).length
         if let word {
             let next = word.accept(label, in: text)
-            return ComposerEdit(text: next.text, caret: next.caret)
+            let pick = ComposerPick(start: word.start, end: word.start + length, label: label, reference: reference)
+            return ComposerEdit(text: next.text, caret: next.caret, pick: pick)
         }
         let next = Self.insertAt(text, caret: caret, insert: label + " ")
-        return ComposerEdit(text: next.text, caret: next.caret)
+        let start = next.caret - length - 1
+        let pick = ComposerPick(start: start, end: start + length, label: label, reference: reference)
+        return ComposerEdit(text: next.text, caret: next.caret, pick: pick)
     }
 
     /// `insert` at the caret as its own word, as the web's `insertAt` does.

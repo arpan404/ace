@@ -91,7 +91,7 @@ struct NewThreadComposer: View {
 
     private var text: Binding<String> { Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }) }
     private func pick(_ row: SuggestionRow) {
-        suggester.choose(row, text: text, place: $place, notice: { notice = $0 }) { action in
+        suggester.choose(row, text: text, place: $place, keep: { drafts.add($0) }, notice: { notice = $0 }) { action in
             if action == "attach" { askAttach = true } else { run(action) }
         }
     }
@@ -108,7 +108,9 @@ struct NewThreadComposer: View {
             surface
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
-        .modifier(ComposerSuggestHost(suggester: suggester, text: text, place: $place))
+        .modifier(ComposerSuggestHost(suggester: suggester, text: text, place: $place, keep: { drafts.add($0) }))
+        .onAppear { suggester.active = true }
+        .onDisappear { suggester.active = false }
     }
     private var surface: some View {
         ComposerSurface {
@@ -129,7 +131,7 @@ struct NewThreadComposer: View {
                                 withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
                             },
                             identifier: "newThread.message", focusOnAppear: true,
-                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret) }, place: place)
+                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks?.held ?? [:]) }, place: place)
                 .overlay(alignment: .topLeading) {
                     if draft.text.isEmpty {
                         Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)

@@ -102,15 +102,21 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
-        .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
+        .onChange(of: mention) { _, picked in
+            guard let picked else { return }
+            draft.text = Mention.insert(picked.path, into: draft.text)
+            draft.add(.file(picked.path, endingAt: draft.text))
+        }
         .onChange(of: draft.text) { _, _ in notice = nil }
-        .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place))
+        .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
+        .onAppear { suggester?.active = true }
+        .onDisappear { suggester?.active = false }
         .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
     }
     private func pick(_ row: SuggestionRow) {
-        suggester?.choose(row, text: $draft.text, place: $place, notice: { notice = $0 }, run: run)
+        suggester?.choose(row, text: $draft.text, place: $place, keep: { draft.add($0) }, notice: { notice = $0 }, run: run)
     }
     private var plus: some View {
         leading(pick)
@@ -124,7 +130,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                             if !focus { suggester?.close() } else { suggester?.readAhead() }
                             withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
                         },
-                        onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret) } },
+                        onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
                         place: place)
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
@@ -160,9 +166,10 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     }
     private func submit(alternate: Bool) {
         let suggester = suggester
+        let draft = draft
         Task {
             await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in
-                let saved = await send(text, delivery == "alternate", suggester?.picks.payload(for: text) ?? [])
+                let saved = await send(text, delivery == "alternate", draft.picks.payload)
                 if saved { suggester?.sent() }
                 return saved
             }

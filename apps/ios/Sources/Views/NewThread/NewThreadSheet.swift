@@ -232,7 +232,7 @@ struct NewThreadSheet: View {
         if let client, let project = draft.projectId {
             NavigationStack {
                 FilesScreen(model: client, scope: .project(project), subtitle: self.project?.name ?? "",
-                            mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; browsing = false })
+                            mention: { file in mentionFile(file); browsing = false })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button { browsing = false } label: { Image(systemName: "xmark") }
@@ -250,13 +250,18 @@ struct NewThreadSheet: View {
                 MentionSearchView(compose: client.compose, workspaceId: draft.projectId ?? "", search: { query in
                     client.composeAction(["kind": "mentions", "workspaceId": draft.projectId ?? "", "query": query])
                 }) { file in
-                    drafts.edit { $0.text = Mention.insert(file, into: $0.text) }
+                    mentionFile(file)
                     path = []
                 }
             case .instructions:
                 NewThreadInstructionsView(drafts: drafts, profiles: profiles) { profiles = TaskProfileStore(defaults: .standard).load() }
             }
         }
+    }
+    /// `@path` at the end of the words, sent as a mention of the file.
+    private func mentionFile(_ path: String) {
+        drafts.edit { $0.text = Mention.insert(path, into: $0.text) }
+        drafts.add(.file(path, endingAt: draft.text))
     }
     /// Where the lists come from: the machine, project and agent.
     private var suggestKey: [String] { [machineId ?? "", draft.projectId ?? "", choice.agent?.provider ?? ""] }
@@ -284,7 +289,7 @@ struct NewThreadSheet: View {
         let sending = draft
         self.sending = true
         Task {
-            let admitted = await client.startThread(sending, commandId: commandId, references: suggester.picks.payload(for: sending.text))
+            let admitted = await client.startThread(sending, commandId: commandId, references: sending.picks?.payload ?? [])
             self.sending = false
             if admitted {
                 suggester.sent()

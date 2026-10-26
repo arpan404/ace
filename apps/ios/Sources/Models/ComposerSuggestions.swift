@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// JSON the bridge hands over and Swift only hands back: a picked row's reference.
-enum BridgeJSON: Decodable, Hashable, Sendable {
+enum BridgeJSON: Codable, Hashable, Sendable {
     case string(String), number(Double), bool(Bool), null
     case array([BridgeJSON]), object([String: BridgeJSON])
     init(from decoder: any Decoder) throws {
@@ -13,6 +13,17 @@ enum BridgeJSON: Decodable, Hashable, Sendable {
         else if let value = try? box.decode(String.self) { self = .string(value) }
         else if let value = try? box.decode([BridgeJSON].self) { self = .array(value) }
         else { self = .object(try box.decode([String: BridgeJSON].self)) }
+    }
+    func encode(to encoder: any Encoder) throws {
+        var box = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try box.encode(value)
+        case .number(let value): try box.encode(value)
+        case .bool(let value): try box.encode(value)
+        case .null: try box.encodeNil()
+        case .array(let values): try box.encode(values)
+        case .object(let values): try box.encode(values)
+        }
     }
     /// As `JSONSerialization` takes it.
     var any: Any {
@@ -114,22 +125,26 @@ struct ComposerTrigger: Equatable, Sendable {
     let start: Int
     let end: Int
 
+    /// The longest word completed, in UTF-16 units: the bridge reads queries up to this long.
+    static let longest = 256
+
     static func at(_ text: String, caret: Int) -> ComposerTrigger? {
-        let utf16 = text.utf16
-        guard caret <= utf16.count else { return nil }
-        let end = utf16.index(utf16.startIndex, offsetBy: caret)
+        guard caret >= 0, caret <= text.utf16.count else { return nil }
+        let scalars = text.unicodeScalars
+        let end = String.Index(utf16Offset: caret, in: text)
+        // Step back a whole scalar at a time, as the web reads the word, so an emoji before `@`
+        // keeps it part of the word.
         var start = end
-        // Words longer than a path are not worth completing; the scan stays bounded.
-        var steps = 0
-        while start > utf16.startIndex, steps < 512 {
-            let before = utf16.index(before: start)
-            guard let scalar = Unicode.Scalar(utf16[before]), !CharacterSet.whitespacesAndNewlines.contains(scalar) else { break }
+        while start > scalars.startIndex {
+            let before = scalars.index(before: start)
+            if CharacterSet.whitespacesAndNewlines.contains(scalars[before]) { break }
             start = before
-            steps += 1
+            if caret - start.utf16Offset(in: text) > longest { return nil }
         }
-        guard let word = String(utf16[start..<end]), let first = word.first else { return nil }
+        let word = String(scalars[start..<end])
+        guard let first = word.first else { return nil }
         let rest = word.dropFirst()
-        let offset = utf16.distance(from: utf16.startIndex, to: start)
+        let offset = start.utf16Offset(in: text)
         if first == "@", !rest.contains("@") { return .init(kind: .mention, query: String(rest), start: offset, end: caret) }
         if first == "/", !rest.contains("/") { return .init(kind: .command, query: String(rest), start: offset, end: caret) }
         return nil
@@ -147,19 +162,77 @@ struct ComposerTrigger: Equatable, Sendable {
     }
 }
 
-/// The references picked into one composer's message: the words each inserted and what they
-/// point at. The bridge keeps those still written when the message goes (`composer-references.ts`).
-struct ComposerPicks: Equatable, Sendable {
-    private(set) var references: [BridgeJSON] = []
-    mutating func add(_ reference: BridgeJSON) { references.append(reference) }
-    mutating func clear() { references = [] }
-    /// Only those whose words are still in the message; the payload `send` carries.
-    func payload(for text: String) -> [Any] {
-        references.filter { $0["label"]?.text.map(text.contains) ?? false }.map(\.any)
+/// One reference picked into a message: where its words stand (UTF-16 offsets) and what they
+/// point at.
+struct ComposerPick: Codable, Equatable, Sendable {
+    var start: Int
+    var end: Int
+    let label: String
+    let reference: BridgeJSON
+}
+
+extension ComposerPick {
+    /// A file mentioned from Files: `@path` as `Mention.insert` just ended `text` with it.
+    static func file(_ path: String, endingAt text: String) -> ComposerPick {
+        let label = "@\(path)"
+        let length = (label as NSString).length
+        let end = (text as NSString).length - 1
+        return ComposerPick(start: end - length, end: end, label: label,
+                            reference: .object(["label": .string(label), "file": .object(["path": .string(path)])]))
+    }
+}
+
+/// The references picked into one composer's message, kept with its draft. Each edit moves the
+/// picks after it and drops any it touched, as `editComposerTokens` in `@ace/ui-core` does on the
+/// web, so a deleted pick never comes back; the bridge sends only those still standing where they
+/// are (`composer-references.ts`).
+struct ComposerPicks: Codable, Equatable, Sendable {
+    static let limit = 64
+    private(set) var picks: [ComposerPick] = []
+    var isEmpty: Bool { picks.isEmpty }
+
+    /// Add a pick; one overlapping it is replaced, and past the per-message limit none is added.
+    mutating func add(_ pick: ComposerPick) {
+        picks.removeAll { $0.start < pick.end && pick.start < $0.end }
+        guard picks.count < Self.limit else { return }
+        picks.append(pick)
+        picks.sort { $0.start < $1.start }
+    }
+    mutating func clear() { picks = [] }
+
+    /// The words went from `before` to `after`: picks before the change stay, those after it move
+    /// by its length, and those it touched go.
+    mutating func edited(from before: String, to after: String) {
+        guard !picks.isEmpty, before != after else { return }
+        let old = Array(before.utf16), new = Array(after.utf16)
+        var start = 0
+        while start < old.count, start < new.count, old[start] == new[start] { start += 1 }
+        var end = old.count, nextEnd = new.count
+        while end > start, nextEnd > start, old[end - 1] == new[nextEnd - 1] { end -= 1; nextEnd -= 1 }
+        let delta = nextEnd - end
+        picks = picks.compactMap { pick in
+            if pick.end <= start { return pick }
+            guard pick.start >= end else { return nil }
+            var moved = pick
+            moved.start += delta
+            moved.end += delta
+            return moved
+        }
+    }
+
+    /// What `send` carries: each reference with its place in the words.
+    var payload: [Any] {
+        picks.compactMap { pick in
+            guard case .object(var reference) = pick.reference else { return nil }
+            reference["label"] = .string(pick.label)
+            reference["start"] = .number(Double(pick.start))
+            reference["end"] = .number(Double(pick.end))
+            return BridgeJSON.object(reference).any
+        }
     }
     /// What the message holds, for the per-message limits.
-    func held(in text: String) -> [String: Int] {
-        let kept = references.filter { $0["label"]?.text.map(text.contains) ?? false }
-        return ["all": kept.count, "threads": kept.filter { $0["thread"] != nil }.count, "tabs": kept.filter { $0["browserTab"] != nil }.count]
+    var held: [String: Int] {
+        ["all": picks.count, "threads": picks.filter { $0.reference["thread"] != nil }.count,
+         "tabs": picks.filter { $0.reference["browserTab"] != nil }.count]
     }
 }

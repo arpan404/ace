@@ -3,10 +3,12 @@ import SwiftUI
 /// What a composer does with a picked row: edits land in its words with the caret placed after
 /// them; builtins go to the screen (`run`); a prompt's form opens; a refusal is said once.
 extension ComposerSuggester {
-    func choose(_ row: SuggestionRow, text: Binding<String>, place: Binding<CaretPlacement?>,
+    func choose(_ row: SuggestionRow, text: Binding<String>, place: Binding<CaretPlacement?>, keep: (ComposerPick) -> Void,
                 notice: (String) -> Void, run: (String) -> Void) {
         func apply(_ edit: ComposerEdit) {
+            // The words change first (moving the picks already made), then the new pick joins them.
             text.wrappedValue = edit.text
+            if let pick = edit.pick { keep(pick) }
             place.wrappedValue = CaretPlacement(offset: edit.caret)
         }
         switch pick(row, text: text.wrappedValue, caret: caret) {
@@ -26,6 +28,7 @@ struct ComposerSuggestHost: ViewModifier {
     let suggester: ComposerSuggester?
     @Binding var text: String
     @Binding var place: CaretPlacement?
+    let keep: (ComposerPick) -> Void
     func body(content: Content) -> some View {
         if let suggester {
             content
@@ -39,6 +42,7 @@ struct ComposerSuggestHost: ViewModifier {
                     guard let reference = answer?.reference else { return }
                     let edit = suggester.answered(reference, text: text, caret: suggester.caret)
                     text = edit.text
+                    if let pick = edit.pick { keep(pick) }
                     place = CaretPlacement(offset: edit.caret)
                 }
         } else {
