@@ -11,7 +11,7 @@ on:
       - .github/workflows/windows-desktop.yml
       - apps/desktop/src/**
       - apps/desktop/e2e/desktop-chrome.e2e.ts
-      - apps/desktop/e2e/fixtures/screen-capture.ts
+      - apps/desktop/e2e/fixtures/**
       - apps/desktop/vitest.e2e.config.ts
       - apps/desktop/scripts/**
       - apps/desktop/resources/**

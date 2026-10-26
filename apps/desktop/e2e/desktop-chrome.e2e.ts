@@ -1,322 +1,36 @@
-import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { build } from "esbuild";
-import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
+import { spawn } from "node:child_process";
+import { rm } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { electronBinary } from "../scripts/common.ts";
 import {
-  appEnvironment,
-  desktop,
-  electronBinary,
-  electronBundles,
-  mainEntry,
-  repo,
-} from "../scripts/common.ts";
-import { captureScreen } from "./fixtures/screen-capture.ts";
+  appMode,
+  buildApp,
+  capture,
+  clickMenu,
+  go,
+  lastOverlay,
+  launch,
+  scheme,
+  underCaptionButtons,
+  type Launched,
+} from "./fixtures/desktop-chrome-app.ts";
 
 /**
  * The Windows window chrome and OS integration, on the real app against the fake daemon:
- * caption buttons never cover ace's controls, Ctrl shortcut labels, monospace fonts, a second
- * launch handing its `ace://` link to the running app, and toasts. Each scale and scheme
- * leaves full-screen captures (caption buttons and taskbar included) in `dist/e2e/screens`
- * for a person to look at. Opt in with ACE_E2E_ELECTRON=1 on Windows.
+ * caption buttons never cover ace's controls and follow its theme and zoom, Ctrl shortcut labels,
+ * Help without a menu bar, monospace fonts, a second launch handing its `ace://` link to the
+ * running app, and toasts. Each scale and scheme leaves full-screen captures (caption buttons and
+ * taskbar included) in `dist/e2e/screens` for a person to look at. Opt in with
+ * ACE_E2E_ELECTRON=1 on Windows.
  */
 const enabled = process.env.ACE_E2E_ELECTRON === "1" && process.platform === "win32";
-const out = join(desktop, "dist/e2e");
-const screens = join(out, "screens");
 const scales = (process.env.ACE_E2E_SCALES ?? "1,1.5").split(",").map(Number);
-
-interface Launched {
-  app: ElectronApplication;
-  page: Page;
-  userData: string;
-  args: string[];
-}
-
-async function launch(scale: number): Promise<Launched> {
-  const userData = await mkdtemp(join(tmpdir(), "ace-e2e-chrome-"));
-  const args = [
-    join(out, mainEntry),
-    `--force-device-scale-factor=${scale}`,
-    // A CI desktop can look occluded to Chromium, which then stops drawing frames.
-    "--disable-features=CalculateNativeWinOcclusion",
-    "--disable-backgrounding-occluded-windows",
-  ];
-  const app = await electron.launch({
-    executablePath: await electronBinary(),
-    args,
-    env: {
-      ...appEnvironment(process.env),
-      ACE_DESKTOP_DAEMON: "fake",
-      ACE_DESKTOP_USER_DATA: userData,
-      ACE_DESKTOP_RENDERER_URL: "",
-    },
-  });
-  app.process().stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
-  app.process().stderr?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
-  const page = await app.firstWindow();
-  const pending = new Set<string>();
-  page.on("request", (request) => pending.add(request.url()));
-  page.on("requestfinished", (request) => pending.delete(request.url()));
-  page.on("requestfailed", (request) => {
-    pending.delete(request.url());
-    console.log(`[request failed] ${request.url()} ${request.failure()?.errorText ?? ""}`);
-  });
-  page.on("console", (message) => console.log(`[page ${message.type()}] ${message.text()}`));
-  page.on("pageerror", (error) => console.log(`[page error] ${error.message}`));
-  page.on("worker", (worker) => {
-    console.log(`[worker] ${worker.url()}`);
-    worker.on("console", (message) => console.log(`[worker ${message.type()}] ${message.text()}`));
-    worker.on("close", () => console.log(`[worker closed] ${worker.url()}`));
-  });
-  try {
-    await page
-      .getByRole("navigation", { name: "App" })
-      .waitFor({ timeout: Number(process.env.ACE_E2E_BOOT_MS ?? 150_000) });
-  } catch (error) {
-    captureScreen(join(screens, `launch-failed-${scale * 100}.png`));
-    console.log(`[page url] ${page.url()}`);
-    const loaded = await page
-      .evaluate(() =>
-        performance
-          .getEntriesByType("resource")
-          .map((entry) => {
-            const resource = entry as PerformanceResourceTiming;
-            return `${resource.responseStatus} ${resource.initiatorType} ${resource.name}`;
-          })
-          .join("\n"),
-      )
-      .catch((reason: unknown) => String(reason));
-    console.log(`[page resources]\n${loaded}`);
-    const bundle = await page
-      .evaluate(async () => {
-        const script = document.querySelector<HTMLScriptElement>("script[type=module][src]");
-        if (!script) return "no module script";
-        const text = await (await fetch(script.src)).text();
-        return `${script.src}: ${text.length} bytes, fake daemon ${text.includes("this-mac") || text.includes("bootFake") ? "bundled" : "absent"}`;
-      })
-      .catch((reason: unknown) => String(reason));
-    console.log(`[page bundle] ${bundle}`);
-    const visibility = await page
-      .evaluate(
-        () =>
-          `${document.visibilityState} focus=${document.hasFocus()} fakeBoot=${"aceFake" in globalThis} bridge=${Object.keys(Reflect.get(globalThis, "ace") ?? {}).join(",")}`,
-      )
-      .catch((reason: unknown) => String(reason));
-    console.log(`[page visibility] ${visibility}`);
-    console.log(`[requests pending] ${[...pending].join(" ")}`);
-    // A string, so the test runner leaves the page's own `import()` alone.
-    const fakeImport = await page
-      .evaluate(
-        `(async () => {
-          const html = await (await fetch("/")).text();
-          const entries = [...html.matchAll(/src="(\\/assets\\/[^"]+\\.js)"/g)].map((m) => m[1]);
-          let chunk;
-          for (const entry of entries) {
-            const text = await (await fetch(entry)).text();
-            chunk = (/fake-[\\w-]+\\.js/.exec(text) || [])[0] || chunk;
-          }
-          if (!chunk) return "no fake chunk named in " + entries.join(",");
-          const settle = (url, ms) =>
-            Promise.race([
-              import(url).then(() => "loaded", (error) => "failed: " + String(error)),
-              new Promise((resolve) => setTimeout(() => resolve("pending"), ms)),
-            ]);
-          const top = await settle("/assets/" + chunk, 5000);
-          // One level down: each module the chunk imports, to find the one that never settles.
-          const source = await (await fetch("/assets/" + chunk)).text();
-          const deps = [...new Set([...source.matchAll(/from\\s*"\\.\\/([^"]+\\.js)"/g)].map((m) => m[1]))];
-          const report = [];
-          for (const dep of deps) {
-            const result = await settle("/assets/" + dep, 3000);
-            if (result !== "loaded") report.push(dep + "=" + result);
-          }
-          return chunk + ": " + top + "; " + deps.length + " imports; not loaded: " + (report.join(" ") || "none");
-        })()`,
-      )
-      .catch((reason: unknown) => String(reason));
-    console.log(`[fake import] ${fakeImport}`);
-    const state = await windowsReport(app);
-    console.log(`[app state] ${state}`);
-    console.log(`[page html] ${(await page.content()).slice(0, 3000)}`);
-    console.log(
-      `[page text] ${(
-        await page
-          .locator("body")
-          .innerText()
-          .catch(() => "")
-      ).slice(0, 2000)}`,
-    );
-    throw error;
-  }
-  // Maximised and on top, so the screen capture shows the window and its caption buttons.
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows().find((each) => each.isVisible());
-    window?.maximize();
-    window?.setAlwaysOnTop(true);
-    window?.focus();
-  });
-  return { app, page, userData, args };
-}
-
-/** The daemon connection the main process hands the page, for a failed launch's report. */
-async function windowsReport(app: ElectronApplication): Promise<string> {
-  return app
-    .evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .map((window) => `${window.webContents.getURL()} visible=${window.isVisible()}`)
-        .join("; "),
-    )
-    .catch((reason: unknown) => String(reason));
-}
-
-async function go(launched: Launched, link: string): Promise<void> {
-  await launched.app.evaluate(({ app }, url) => {
-    app.emit("open-url", { preventDefault() {} }, url);
-  }, link);
-}
-
-/** WM_SETTINGCHANGE "ImmersiveColorSet" to every top-level window, as Settings sends it. */
-function broadcastColourChange(): void {
-  const script = `Add-Type 'using System; using System.Runtime.InteropServices; public static class AceColours { [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr w, uint m, UIntPtr p, string l, uint f, uint t, out UIntPtr r); }'; $r = [UIntPtr]::Zero; [void][AceColours]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "ImmersiveColorSet", 2, 3000, [ref]$r)`;
-  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-    stdio: "inherit",
-  });
-}
-
-/**
- * The OS's light or dark mode. On a disposable CI runner, Windows' own setting, which is what a
- * person changes (the page keeps Electron's theme source on "system", so overriding that alone
- * would be undone). Elsewhere (a shared test machine), Electron's override.
- */
-async function scheme(launched: Launched, dark: boolean): Promise<void> {
-  if (process.env.GITHUB_ACTIONS === "true") {
-    for (const value of ["AppsUseLightTheme", "SystemUsesLightTheme"])
-      execFileSync("reg.exe", [
-        "add",
-        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-        "/v",
-        value,
-        "/t",
-        "REG_DWORD",
-        "/d",
-        dark ? "0" : "1",
-        "/f",
-      ]);
-    // What Settings does after writing them: tell every window the colour set changed.
-    broadcastColourChange();
-  } else
-    await launched.app.evaluate(({ nativeTheme }, next) => {
-      nativeTheme.themeSource = next ? "dark" : "light";
-    }, dark);
-  // The page follows the OS ("system" appearance) with a short cross-fade.
-  await launched.page
-    .waitForFunction(
-      (next) => document.documentElement.dataset.scheme === next,
-      dark ? "dark" : "light",
-      {
-        timeout: 5_000,
-      },
-    )
-    .catch(() => console.log(`[scheme] the page did not turn ${dark ? "dark" : "light"}`));
-  await launched.page.waitForTimeout(400);
-}
-
-/** The app's own Appearance › Mode, as Settings saves it; the page reloads to read it. */
-async function appMode(launched: Launched, mode: "system" | "light" | "dark"): Promise<void> {
-  const { page } = launched;
-  await page.evaluate((next) => {
-    const saved: unknown = JSON.parse(localStorage.getItem("ace.appearance") ?? "{}");
-    localStorage.setItem(
-      "ace.appearance",
-      JSON.stringify({ ...(typeof saved === "object" ? saved : {}), mode: next }),
-    );
-  }, mode);
-  await page.reload();
-  await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 60_000 });
-  await page.waitForTimeout(600);
-}
-
-/**
- * A full-screen capture plus a line in `screens/report.jsonl` saying what the page and the OS
- * showed at that moment, so a capture can be read without guessing.
- */
-async function capture(launched: Launched, name: string): Promise<void> {
-  captureScreen(join(screens, `${name}.png`));
-  const page = await launched.page
-    .evaluate(() => ({
-      scheme: document.documentElement.dataset.scheme,
-      prefersDark: matchMedia("(prefers-color-scheme: dark)").matches,
-      background: getComputedStyle(document.body).backgroundColor,
-    }))
-    .catch((reason: unknown) => ({ error: String(reason) }));
-  const osDark = await launched.app
-    .evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors)
-    .catch(() => undefined);
-  appendFileSync(join(screens, "report.jsonl"), `${JSON.stringify({ name, osDark, ...page })}\n`);
-}
-
-/** Visible controls in the top bar that reach under the caption buttons. */
-function underCaptionButtons(page: Page) {
-  return page.evaluate(() => {
-    const overlay = (
-      navigator as Navigator & {
-        windowControlsOverlay?: { visible: boolean; getTitlebarAreaRect(): DOMRect };
-      }
-    ).windowControlsOverlay;
-    if (!overlay?.visible) return { overlay: false, hits: [] as string[] };
-    const area = overlay.getTitlebarAreaRect();
-    const captionStart = area.x + area.width;
-    const hits: string[] = [];
-    for (const element of document.querySelectorAll<HTMLElement>(
-      "button, a, input, [role=button], [role=tab]",
-    )) {
-      const box = element.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) continue;
-      if (box.top >= area.height || box.right <= captionStart) continue;
-      if (getComputedStyle(element).visibility === "hidden") continue;
-      hits.push(
-        `${element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName} @ ${Math.round(box.left)}–${Math.round(box.right)} (caption from ${Math.round(captionStart)})`,
-      );
-    }
-    return { overlay: true, hits };
-  });
-}
+/** `titleBarSymbolColor` in src/main/window/options.ts: glyphs for a light and a dark page. */
+const darkGlyphs = "#1d1d20";
+const lightGlyphs = "#e8e8ea";
 
 describe.skipIf(!enabled)("Windows window chrome and integration", () => {
-  beforeAll(async () => {
-    mkdirSync(screens, { recursive: true });
-    // ACE_E2E_REUSE_BUILD=1: a quick rerun against the last build (local Windows test loops).
-    if (process.env.ACE_E2E_REUSE_BUILD === "1" && existsSync(join(out, "renderer/index.html")))
-      return;
-    await Promise.all(electronBundles(out, process.env).map((options) => build(options)));
-    // ACE_E2E_REUSE_BUILD=1: keep the last renderer build (quick local Windows test loops).
-    if (process.env.ACE_E2E_REUSE_BUILD === "1" && existsSync(join(out, "renderer/index.html")))
-      return;
-    // Vite's own CLI on this Node: no `bun x` shim or cmd.exe in between on Windows.
-    const vite = join(
-      dirname(createRequire(join(repo, "apps/web/package.json")).resolve("vite/package.json")),
-      "bin/vite.js",
-    );
-    execFileSync(
-      process.execPath,
-      [
-        vite,
-        "build",
-        "--mode",
-        "fake",
-        "--outDir",
-        join(out, "renderer"),
-        "--emptyOutDir",
-        "--logLevel",
-        "warn",
-      ],
-      { cwd: join(repo, "apps/web"), stdio: "inherit" },
-    );
-  });
+  beforeAll(buildApp);
 
   for (const scale of scales)
     describe(`at ${scale * 100}% scale`, () => {
@@ -331,6 +45,7 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
 
       it("keeps every top-bar control clear of the caption buttons, light and dark", async () => {
         const { page } = launched;
+        const panel = page.locator('[data-panel][data-edge="right"]');
         const problems: string[] = [];
         const views: [name: string, enter: () => Promise<void>][] = [
           ["home", async () => go(launched, "ace://new")],
@@ -346,6 +61,21 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
             async () => {
               await page.getByRole("button", { name: "Show sidebar" }).click();
               await page.getByRole("button", { name: "Hide sidebar" }).waitFor();
+            },
+          ],
+          [
+            "panel-open",
+            async () => {
+              // A thread with its side panel docked at the right: the panel's strip, not the
+              // header, now meets the caption buttons.
+              await page
+                .getByRole("navigation", { name: "App" })
+                .getByText("Fix flaky checkout test")
+                .click();
+              await page.waitForURL(/\/t\//, { timeout: 15_000 });
+              if (!(await panel.isVisible())) await page.keyboard.press("Control+Shift+B");
+              await panel.waitFor({ timeout: 15_000 });
+              expect(await page.locator('[data-panel][data-docked="right"]').count()).toBe(1);
             },
           ],
           ["settings", async () => go(launched, "ace://settings/appearance")],
@@ -367,16 +97,24 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
 
       // Only where the test may switch Windows' own dark mode (a disposable CI runner).
       it.runIf(process.env.GITHUB_ACTIONS === "true" && scale === 1)(
-        "in System mode the page follows Windows switching between light and dark",
+        "in System mode the page and caption buttons follow Windows between light and dark",
         async () => {
           const { page } = launched;
           const shown = () => page.evaluate(() => document.documentElement.dataset.scheme);
           await go(launched, "ace://new");
           await scheme(launched, true);
           expect(await shown()).toBe("dark");
+          expect((await lastOverlay(launched)).symbolColor).toBe(lightGlyphs);
           await capture(launched, "system-mode-windows-dark");
           await scheme(launched, false);
           expect(await shown()).toBe("light");
+          expect((await lastOverlay(launched)).symbolColor).toBe(darkGlyphs);
+          // A reload right after a switch starts in the new scheme, not the page's stale guess.
+          await scheme(launched, true);
+          await page.reload();
+          await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 60_000 });
+          expect(await shown()).toBe("dark");
+          await scheme(launched, false);
         },
       );
 
@@ -385,13 +123,33 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         await go(launched, "ace://new");
         await appMode(launched, "light");
         await scheme(launched, true);
+        expect((await lastOverlay(launched)).symbolColor).toBe(darkGlyphs);
         await capture(launched, `${scale * 100}-os-dark-app-light`);
         await appMode(launched, "dark");
         await scheme(launched, false);
+        expect((await lastOverlay(launched)).symbolColor).toBe(lightGlyphs);
         await capture(launched, `${scale * 100}-os-light-app-dark`);
         await appMode(launched, "system");
         const shown = await launched.page.evaluate(() => document.documentElement.dataset.scheme);
         expect(shown).toBe("light");
+      });
+
+      it.runIf(scale === 1)("grows the caption buttons with the page's zoom", async () => {
+        const zoom = () =>
+          launched.app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0]?.webContents.getZoomFactor(),
+          );
+        expect(await clickMenu(launched, "Zoom In")).toBe(true);
+        await launched.page.waitForTimeout(300);
+        const factor = (await zoom()) ?? 1;
+        expect(factor).toBeGreaterThan(1);
+        expect((await lastOverlay(launched)).height).toBe(Math.round(44 * factor));
+        const found = await underCaptionButtons(launched.page);
+        await capture(launched, "zoomed-in");
+        expect(await clickMenu(launched, "Actual Size")).toBe(true);
+        await launched.page.waitForTimeout(300);
+        expect((await lastOverlay(launched)).height).toBe(44);
+        expect(found.hits).toEqual([]);
       });
 
       it.runIf(scale === 1)("labels shortcuts with Ctrl, never ⌘", async () => {
@@ -404,6 +162,27 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         expect(text).toContain("New thread in the current project\nCtrl+Shift+N");
         expect(text).not.toMatch(/[⌘⌥⌃⇧]/);
       });
+
+      it.runIf(scale === 1)(
+        "offers Help, Report an issue and Show logs without a menu bar",
+        async () => {
+          const { page } = launched;
+          await go(launched, "ace://settings/general");
+          const help = page.getByRole("navigation", { name: "Help" });
+          await help.waitFor({ timeout: 15_000 });
+          expect(await help.getByRole("button").allInnerTexts()).toEqual([
+            "Help",
+            "Report an issue",
+            "Show logs",
+          ]);
+          await help.scrollIntoViewIfNeeded();
+          await capture(launched, "settings-help");
+          await page.keyboard.press("Control+K");
+          await page.keyboard.type("Report an issue");
+          await page.getByRole("option", { name: /Report an issue/ }).waitFor({ timeout: 10_000 });
+          await page.keyboard.press("Escape");
+        },
+      );
 
       it.runIf(scale === 1)("draws monospace text in a Windows code font", async () => {
         const { page } = launched;
@@ -423,21 +202,14 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
           selector: "#mono-probe",
         });
         const { fonts } = await session.send("CSS.getPlatformFontsForNode", { nodeId });
-        const used = fonts.map((font) => font.familyName);
-        console.log(`monospace text uses: ${used.join(", ")}`);
-        expect(["Cascadia Mono", "Consolas"]).toContain(used[0]);
+        expect(["Cascadia Mono", "Consolas"]).toContain(fonts[0]?.familyName);
       });
 
       it.runIf(scale === 1)("hands a second launch's ace:// link to the running app", async () => {
-        const { app, page, userData, args } = launched;
+        const { app, page, env, args } = launched;
         await go(launched, "ace://new");
         const second = spawn(await electronBinary(), [...args, "ace://settings/notifications"], {
-          env: {
-            ...appEnvironment(process.env),
-            ACE_DESKTOP_DAEMON: "fake",
-            ACE_DESKTOP_USER_DATA: userData,
-            ACE_DESKTOP_RENDERER_URL: "",
-          },
+          env,
           stdio: "ignore",
         });
         const exited = new Promise<number | null>((resolve) => second.once("exit", resolve));
@@ -450,22 +222,82 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         expect(windows).toBe(1);
       });
 
-      it.runIf(scale === 1)("shows a toast", async () => {
-        const result = await launched.app.evaluate(
-          ({ Notification }) =>
-            new Promise<string>((resolve) => {
-              if (!Notification.isSupported()) return resolve("unsupported");
-              const toast = new Notification({ title: "ace", body: "Windows toast check" });
-              toast.once("show", () => resolve("shown"));
-              toast.once("failed", (_event, error) => resolve(`failed: ${error}`));
-              toast.show();
-              setTimeout(() => resolve("no answer"), 10_000);
-            }),
-        );
-        expect(result).toBe("shown");
-        // The toast slides in from the corner a moment after Windows reports it shown.
-        await launched.page.waitForTimeout(1_500);
-        await capture(launched, "toast");
-      });
+      it.runIf(scale === 1)(
+        "brings ace forward from a toast button that outlived its notification",
+        async () => {
+          const { app } = launched;
+          // Toasts are filed under the id ace sets for itself (the executable, unpackaged).
+          const probe = await app.evaluate(() => {
+            const probes = Reflect.get(globalThis, "__aceProbes") as {
+              appUserModelId?: string;
+              activation?: unknown;
+            };
+            return {
+              id: probes.appUserModelId,
+              activation: typeof probes.activation,
+              exe: process.execPath,
+            };
+          });
+          expect(probe.id).toBe(probe.exe);
+          expect(probe.activation).toBe("function");
+          const shown = await app.evaluate(
+            ({ Notification }) =>
+              new Promise<string>((resolve) => {
+                const toast = new Notification({ title: "ace", body: "Windows toast check" });
+                toast.once("show", () => resolve("shown"));
+                toast.once("failed", (_event, error) => resolve(`failed: ${error}`));
+                toast.show();
+                setTimeout(() => resolve("no answer"), 10_000);
+              }),
+          );
+          expect(shown).toBe("shown");
+          await launched.page.waitForTimeout(1_500);
+          await capture(launched, "toast");
+
+          // The window put away, then Allow once pressed on a toast no live notification owns
+          // (as after a restart): ace's own activation handler, as Windows calls it.
+          for (const details of [
+            { type: "action", arguments: "", actionIndex: 0 },
+            { type: "reply", arguments: "", reply: "go ahead" },
+          ]) {
+            await app.evaluate(({ BrowserWindow }) => {
+              const window = BrowserWindow.getAllWindows()[0];
+              window?.setAlwaysOnTop(false);
+              window?.minimize();
+            });
+            await app.evaluate((_electron, activation) => {
+              const probes = Reflect.get(globalThis, "__aceProbes") as {
+                activation: (details: unknown) => void;
+              };
+              probes.activation(activation);
+            }, details);
+            await launched.page.waitForTimeout(1_000);
+            const window = await app.evaluate(({ BrowserWindow }) => {
+              const each = BrowserWindow.getAllWindows()[0];
+              return { minimized: each?.isMinimized(), visible: each?.isVisible() };
+            });
+            expect(window, details.type).toEqual({ minimized: false, visible: true });
+          }
+          // Anything that isn't a toast activation is never acted on.
+          await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.minimize());
+          await app.evaluate(() => {
+            const probes = Reflect.get(globalThis, "__aceProbes") as {
+              activation: (details: unknown) => void;
+            };
+            probes.activation({ type: "launch", arguments: "x" });
+          });
+          await launched.page.waitForTimeout(1_000);
+          expect(
+            await app.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()[0]?.isMinimized(),
+            ),
+          ).toBe(true);
+          await app.evaluate(({ BrowserWindow }) => {
+            const window = BrowserWindow.getAllWindows()[0];
+            window?.restore();
+            window?.setAlwaysOnTop(true);
+          });
+        },
+      );
     });
 });

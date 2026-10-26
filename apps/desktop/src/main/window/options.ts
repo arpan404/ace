@@ -128,13 +128,13 @@ export const macTitleBarCss = `
  * Windows: the caption buttons (`titleBarOverlay`) cover the window's top-right corner, the
  * width the `titlebar-area-*` env values leave over. The screen header keeps its controls clear
  * of them while it reaches the window's right edge; beside a side panel docked at the right
- * (an inline panel carries its width as a style), the panel's own strip makes that room.
+ * (`data-docked="right"`, set on Windows only), the panel's own strip makes that room.
  */
 export const windowsTitleBarCss = `
 :root header:has(> [data-slot="header-nav"]) {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px);
 }
-:root:has([data-panel][data-edge="right"][style*="width"]) header:has(> [data-slot="header-nav"]) {
+:root:has([data-panel][data-docked="right"]) header:has(> [data-slot="header-nav"]) {
   padding-right: 10px;
 }
 `;
