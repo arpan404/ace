@@ -397,7 +397,8 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
       it.runIf(scale === 1)("labels shortcuts with Ctrl, never ⌘", async () => {
         const { page } = launched;
         await go(launched, "ace://settings/keyboard");
-        await page.waitForTimeout(800);
+        await page.waitForURL(/\/settings\/keyboard$/, { timeout: 15_000 });
+        await page.getByText("New thread in the current project").waitFor({ timeout: 15_000 });
         // Each key is its own chip: "Ctrl + Shift + N" reads as one chord once the gaps go.
         const text = (await page.locator("main").innerText()).replaceAll(/\s*\+\s*/g, "+");
         expect(text).toContain("New thread in the current project\nCtrl+Shift+N");
