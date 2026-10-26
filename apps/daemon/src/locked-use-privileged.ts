@@ -41,14 +41,19 @@ export interface AdminAuthorization {
 
 const daemonPlistPath = (label: string): string => `${daemonDirectory}/${label}.plist`;
 
+/** Escape a value for an XML text node, so a path with `&`, `<` or `>` cannot break the plist. */
+function xmlEscape(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 /** A root LaunchDaemon that keeps one executable alive. Written by the install script. */
 export function daemonPlist(label: string, executable: string): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
     '<plist version="1.0"><dict>',
-    `<key>Label</key><string>${label}</string>`,
-    `<key>ProgramArguments</key><array><string>${executable}</string></array>`,
+    `<key>Label</key><string>${xmlEscape(label)}</string>`,
+    `<key>ProgramArguments</key><array><string>${xmlEscape(executable)}</string></array>`,
     "<key>KeepAlive</key><true/>",
     "<key>RunAtLoad</key><true/>",
     "</dict></plist>",
@@ -108,36 +113,45 @@ export function buildRemoveScript(): string {
  * self-contained Python edit, and writes it back with `security authorizationdb write`. Apple's
  * mechanisms stay; a `k-of-n` or alternatives layout is preserved by only appending.
  */
-function addMechanismStep(): string {
+const readPlist = "/tmp/ace-screensaver-right.plist";
+const nextPlist = "/tmp/ace-screensaver-right.next.plist";
+
+/**
+ * The Python edit reads the plist from argv[2] and writes argv[3]; the heredoc is `python3 -`'s
+ * program on stdin. The plist is never passed on stdin, so the program read and the data read do
+ * not collide. argv[1] is the mechanism, passed as a shell-quoted argument.
+ */
+function editMechanismStep(body: string, guard: string): string {
   return [
-    `security authorizationdb read ${shellQuote(right)} > /tmp/ace-screensaver-right.plist`,
-    `/usr/bin/python3 - ${shellQuote(mechanism)} < /tmp/ace-screensaver-right.plist > /tmp/ace-screensaver-right.next.plist <<'PY'`,
+    `security authorizationdb read ${shellQuote(right)} > ${readPlist}${guard}`,
+    `/usr/bin/python3 - ${shellQuote(mechanism)} ${readPlist} ${nextPlist} <<'PY'`,
     "import sys, plistlib",
     "mechanism = sys.argv[1]",
-    "right = plistlib.loads(sys.stdin.buffer.read())",
-    "mechanisms = right.setdefault('mechanisms', [])",
-    "if mechanism not in mechanisms: mechanisms.append(mechanism)",
-    "sys.stdout.buffer.write(plistlib.dumps(right))",
+    "with open(sys.argv[2], 'rb') as handle: right = plistlib.loads(handle.read())",
+    body,
+    "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
     "PY",
-    `security authorizationdb write ${shellQuote(right)} < /tmp/ace-screensaver-right.next.plist`,
-    "rm -f /tmp/ace-screensaver-right.plist /tmp/ace-screensaver-right.next.plist",
+    `security authorizationdb write ${shellQuote(right)} < ${nextPlist}`,
+    `rm -f ${readPlist} ${nextPlist}`,
   ].join("\n");
+}
+
+function addMechanismStep(): string {
+  return editMechanismStep(
+    [
+      "mechanisms = right.setdefault('mechanisms', [])",
+      "if mechanism not in mechanisms: mechanisms.append(mechanism)",
+    ].join("\n"),
+    "",
+  );
 }
 
 /** Removes only our mechanism from the right, leaving every other mechanism in place. */
 function removeMechanismStep(): string {
-  return [
-    `security authorizationdb read ${shellQuote(right)} > /tmp/ace-screensaver-right.plist 2>/dev/null || exit 0`,
-    `/usr/bin/python3 - ${shellQuote(mechanism)} < /tmp/ace-screensaver-right.plist > /tmp/ace-screensaver-right.next.plist <<'PY'`,
-    "import sys, plistlib",
-    "mechanism = sys.argv[1]",
-    "right = plistlib.loads(sys.stdin.buffer.read())",
+  return editMechanismStep(
     "right['mechanisms'] = [m for m in right.get('mechanisms', []) if m != mechanism]",
-    "sys.stdout.buffer.write(plistlib.dumps(right))",
-    "PY",
-    `security authorizationdb write ${shellQuote(right)} < /tmp/ace-screensaver-right.next.plist`,
-    "rm -f /tmp/ace-screensaver-right.plist /tmp/ace-screensaver-right.next.plist",
-  ].join("\n");
+    " 2>/dev/null || exit 0",
+  );
 }
 
 function installDaemonStep(label: string, executable: string): string {

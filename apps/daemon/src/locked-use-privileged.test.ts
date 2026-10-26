@@ -52,6 +52,17 @@ describe("locked use privileged install", () => {
     expect(script.startsWith("set -e")).toBe(true);
   });
 
+  test("the plist edit reads from a file argument, not stdin (no heredoc/stdin collision)", () => {
+    // Regression: `python3 - arg < file <<'PY'` makes the heredoc win stdin, so the file is
+    // never read and plistlib.loads gets empty bytes. The edit must take the plist as argv.
+    for (const script of [buildInstallScript(artifacts), buildRemoveScript()]) {
+      expect(script).toContain("with open(sys.argv[2], 'rb') as handle:");
+      expect(script).toContain("with open(sys.argv[3], 'wb') as handle:");
+      expect(script).not.toContain("sys.stdin.buffer.read()");
+      expect(script).not.toMatch(/< \/tmp\/ace-screensaver-right\.plist[^\n]*<<'PY'/);
+    }
+  });
+
   test("remove reverses only our additions and tolerates partial state", () => {
     const script = buildRemoveScript();
     expect(script).toContain("launchctl bootout system/dev.ace.locked-use.authorization");
