@@ -4,6 +4,11 @@ import { access, stat } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, resolve } from "node:path";
 import { win32 } from "node:path";
 import { scriptExecutablePaths } from "../installers/locations.ts";
+import {
+  windowsInstallDirectories,
+  windowsShimCommands,
+  windowsShimDirectories,
+} from "../installers/locations.ts";
 export { scriptExecutablePaths } from "../installers/locations.ts";
 
 async function executable(path: string, windows: boolean): Promise<boolean> {
@@ -49,12 +54,39 @@ function windowsCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
     .flatMap((directory) => withExtensions(resolve(directory, command), extensions));
 }
 
+/**
+ * Extensionless paths where Windows installers put a known bare command, for when the daemon's
+ * PATH predates the install. Vendor directories come before package-manager shims.
+ */
+export function windowsFallbackPaths(command: string, env: NodeJS.ProcessEnv): string[] {
+  const directories = [
+    ...(Object.hasOwn(windowsInstallDirectories, command)
+      ? (windowsInstallDirectories[command] ?? [])
+      : []),
+    ...(windowsShimCommands.has(command) ? windowsShimDirectories : []),
+  ];
+  const paths: string[] = [];
+  for (const [base, path] of directories) {
+    const root = windowsEnv(env, base);
+    if (root && win32.isAbsolute(root)) paths.push(win32.join(root, path, command));
+  }
+  return [...new Set(paths)];
+}
+
 async function findWindowsExecutable(
   command: string,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
   for (const candidate of windowsCandidates(command, env)) {
     if (await executable(candidate, true)) return candidate;
+  }
+  const extensions = (windowsEnv(env, "PATHEXT") ?? defaultPathExt.join(";"))
+    .split(";")
+    .filter((part) => part !== "");
+  for (const fallback of windowsFallbackPaths(command, env)) {
+    for (const candidate of withExtensions(fallback, extensions)) {
+      if (await executable(candidate, true)) return candidate;
+    }
   }
   return undefined;
 }
