@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ScreenManager, type ScreenOptions } from "../index.ts";
 import { framePacket, type Frame } from "../frames.ts";
 export const target = { kind: "window", bundleId: "dev.ace.test", windowId: 1 } as const;
@@ -28,6 +29,45 @@ export async function manager(env: NodeJS.ProcessEnv = {}, extra: Partial<Screen
     close: async () => {
       await screen.close();
       await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+/**
+ * Helper options for the protocol-v2 fake helper as `platform`'s host launches it. The helper
+ * owns its frame endpoint, which lives in a fresh `directory`.
+ */
+export async function v2Helper(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = {}) {
+  const directory = await mkdtemp(join(tmpdir(), "screen-v2-"));
+  const options = {
+    command: process.execPath,
+    args: [fileURLToPath(new URL("./fake-helper-v2.ts", import.meta.url))],
+    nextId: ids(),
+    platform,
+    endpoint: `unix:${join(directory, "pipe")}`,
+    env,
+  };
+  return { options, directory, clean: () => rm(directory, { recursive: true, force: true }) };
+}
+/** An enabled ScreenManager over the protocol-v2 fake helper on `platform`. */
+export async function v2Fixture(platform: NodeJS.Platform, overrides: Partial<ScreenOptions> = {}) {
+  const helper = await v2Helper(platform);
+  const manager = new ScreenManager({
+    ...helper.options,
+    recordingDirectory: helper.directory,
+    publishArtifact: async () => {},
+    ...overrides,
+  });
+  await manager.enable(true);
+  return {
+    manager,
+    directory: helper.directory,
+    start: () => manager.start(target),
+    async close() {
+      try {
+        await manager.close();
+      } finally {
+        await helper.clean();
+      }
     },
   };
 }
