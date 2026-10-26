@@ -89,7 +89,11 @@ Step "Install $First per user, silently"
 RunSetup $First "/S"
 $entry = InstallEntry
 if (-not $entry) { Fail "no per-user uninstall entry" }
-$installDir = $entry.InstallLocation.TrimEnd("\")
+# electron-builder's entry names the uninstaller, not always an InstallLocation.
+$installDir = if ($entry.InstallLocation) { $entry.InstallLocation } else {
+  Split-Path -Parent (($entry.UninstallString -replace '^"([^"]+)".*$', '$1') -replace '\s+/.*$', '')
+}
+$installDir = $installDir.TrimEnd("\")
 Write-Host "installed $($entry.DisplayVersion) at $installDir"
 if (-not $installDir.StartsWith($env:LOCALAPPDATA, [StringComparison]::OrdinalIgnoreCase)) { Fail "not a per-user install: $installDir" }
 foreach ($file in @(
