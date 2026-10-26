@@ -189,19 +189,33 @@ export class PinnedDirectory {
   }
   /** Atomically replaces a private file. Neither name is followed if it is a symlink. */
   replace(name: string, text: string): void {
+    if (process.platform === "win32") {
+      this.removeTemporary(name + ".pending");
+      return this.windowsStaged(name, text, () => {});
+    }
     const temporary = name + ".pending";
     this.removeTemporary(temporary);
     const fd = this.createExclusive(temporary);
     try {
       this.stage(fd, text);
       renameAt(this.fd, temporary, name);
-      if (process.platform !== "win32") fsyncSync(this.fd);
+      fsyncSync(this.fd);
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);
     }
   }
   publish(name: string, text: string): void {
+    if (process.platform === "win32")
+      return this.windowsStaged(name, text, () => {
+        try {
+          this.metadata(name);
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+          throw error;
+        }
+        throw new Error(`Refusing to replace ${name}`);
+      });
     const temporary = name + ".pending";
     const fd = this.createExclusive(temporary);
     try {
@@ -214,7 +228,23 @@ export class PinnedDirectory {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       }
       renameAt(this.fd, temporary, name);
-      if (process.platform !== "win32") fsyncSync(this.fd);
+      fsyncSync(this.fd);
+    } finally {
+      closeSync(fd);
+      this.removeTemporary(temporary);
+    }
+  }
+  /**
+   * Windows: stage then rename, without the directory fsync Windows refuses on a read-only
+   * directory handle; NTFS journals the rename itself.
+   */
+  private windowsStaged(name: string, text: string, beforeRename: () => void): void {
+    const temporary = name + ".pending";
+    const fd = this.createExclusive(temporary);
+    try {
+      this.stage(fd, text);
+      beforeRename();
+      renameAt(this.fd, temporary, name);
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);

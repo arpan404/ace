@@ -6,7 +6,8 @@ import { afterEach, expect, test } from "vitest";
 import type { WorkspaceId } from "@ace/protocol";
 import { accessRequest } from "./client-access.ts";
 import { readConfig, startDaemon, stubHandler } from "./index.ts";
-import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
+import { acquireLock } from "./local-files.ts";
+import { loadHostId, loadToken } from "./local-files.ts";
 
 const roots: string[] = [];
 afterEach(() => {

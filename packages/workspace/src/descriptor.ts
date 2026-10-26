@@ -1,4 +1,5 @@
-import { close, closeSync, constants, fstat, fstatSync, read, write, type Stats } from "node:fs";
+import { close, fstat, read, write, type Stats } from "node:fs";
+import { closeSync, constants, fstatSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
