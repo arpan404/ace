@@ -13,6 +13,7 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
+import { seedProjectMarks } from "./project-marks-scenario.ts";
 import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
@@ -58,6 +59,11 @@ const daemon = new FakeDaemon({
   token: "ios-spike-token",
   snapshotItems: 200,
   ...(peerPort ? { projectScheduler: paced } : {}),
+});
+// Each machine wears its own mark, so a phone with several shows them apart on its rows: the
+// usual fixture a laptop, a separate one a server or a desktop by its port.
+daemon.services.settings.seed({
+  "host.icon": { kind: separate ? (port % 2 === 0 ? "server" : "desktop") : "laptop" },
 });
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
@@ -181,6 +187,7 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
 seedNativeMedia(daemon);
