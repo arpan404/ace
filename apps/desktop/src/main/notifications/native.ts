@@ -7,6 +7,8 @@ export interface NotifierPorts {
   open(link: DeepLink): void;
   send(command: NonNullable<ReturnType<typeof actionCommand>>): Promise<unknown>;
   log(message: string): void;
+  /** The clock for `handledSince` (Windows toast activations). */
+  now(): number;
 }
 
 /**
@@ -25,6 +27,8 @@ export function windowsAppUserModelId(app: { isPackaged: boolean }, execPath: st
  */
 export class NativeNotifier {
   private live = new Map<string, Notification>();
+  /** When a live notification last ran its own click, button or reply. */
+  private lastHandled = Number.NEGATIVE_INFINITY;
   private ports: NotifierPorts;
   constructor(ports: NotifierPorts) {
     this.ports = ports;
@@ -44,6 +48,7 @@ export class NativeNotifier {
       actions: shown.actions.map((entry) => ({ type: "button", text: entry.label })),
     });
     notification.on("click", () => this.ports.open(shown.link));
+    notification.on("click", () => void (this.lastHandled = this.ports.now()));
     notification.on("action", (event) => {
       const chosen = shown.actions[event.actionIndex];
       if (chosen) this.act(shown, chosen.action);
@@ -62,7 +67,13 @@ export class NativeNotifier {
     this.live.delete(tag);
   }
 
+  /** Windows: whether a live notification answered an activation at or after `at`. */
+  handledSince(at: number): boolean {
+    return this.lastHandled >= at;
+  }
+
   private act(shown: Shown, action: NotificationAction, reply?: string): void {
+    this.lastHandled = this.ports.now();
     void this.command(shown, action, reply)
       .then((command) => {
         if (command) return this.ports.send(command);

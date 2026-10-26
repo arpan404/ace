@@ -29,6 +29,7 @@ import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
+import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
@@ -610,11 +611,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
     // Windows keeps toasts in the notification centre after their objects are gone (and after
-    // a restart); clicking one of those brings ace forward. Live toasts also get their own
-    // events (`NativeNotifier`), which follow the thread's link and run the buttons.
+    // a restart). A click, button or reply on one that no live toast answered brings ace
+    // forward with its request still waiting (`activation.ts`).
     if (process.platform === "win32")
       Notification.handleActivation((details) => {
-        if (details.type === "click") open();
+        const at = Date.now();
+        setTimeout(() => {
+          if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open") open();
+        }, liveToastGraceMs);
       });
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
