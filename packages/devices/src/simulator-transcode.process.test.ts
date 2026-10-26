@@ -34,6 +34,22 @@ it("a viewer that can't carry serve-sim's stream gets it re-encoded, with room b
   ).toBe(true);
 });
 
+it("a viewer is judged against the rate serve-sim actually sends, never less than 6 Mbit/s", () => {
+  const native = { width: 1206, height: 2622 };
+  const box = { maxWidth: 1440, maxHeight: 2880 };
+  // serve-sim sends a big screen at up to 30 Mbit/s: 8 Mbit/s can't carry its busy seconds.
+  expect(
+    simulatorNeedsTranscode({ transcoding: false, bitrate: 8_000_000, box, native, source: 20e6 }),
+  ).toBe(true);
+  // A quiet screen measures low; the 6 Mbit/s floor still holds.
+  expect(
+    simulatorNeedsTranscode({ transcoding: false, bitrate: 4_000_000, box, native, source: 1e6 }),
+  ).toBe(true);
+  expect(
+    simulatorNeedsTranscode({ transcoding: true, bitrate: 19_000_000, box, native, source: 20e6 }),
+  ).toBe(false);
+});
+
 /** The screen helper's `--transcode` mode, played by a script: half-size H.264 per frame in. */
 const fakeTranscoder = (log: string) => `
 const fs = require("fs");
@@ -64,13 +80,14 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
-it("serve-sim's stream passes through for a good link and is re-encoded smaller for a thin one", async () => {
+/** A capture of a stand-in serve-sim whose transcoder is `fakeTranscoder`, on clock `now`. */
+async function transcodingCapture(now: () => number) {
   const home = await mkdtemp(join(tmpdir(), "sim-transcode-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   await mkdir(join(home, "transcoder"));
   const log = join(home, "transcoder.log");
   const transcoder = await nodeBinary(join(home, "transcoder"), "transcode", fakeTranscoder(log));
-  await fakeServeSim(home, "0.1.49-beta.139.1", udid);
+  const sim = await fakeServeSim(home, "0.1.49-beta.139.1", udid);
   const platform = new DevicePlatform({
     platform: "darwin",
     home,
@@ -91,7 +108,7 @@ it("serve-sim's stream passes through for a good link and is re-encoded smaller 
   });
   onTestFinished(() => platform.close());
   const runtime: DeviceRuntime = {
-    now: () => 1000,
+    now,
     id: () => "native",
     spawn: spawnRawSupervised,
     after(ms, run) {
@@ -111,6 +128,11 @@ it("serve-sim's stream passes through for a good link and is re-encoded smaller 
     failure: () => {},
   });
   onTestFinished(() => capture.stop());
+  return { capture, frames, sim, log };
+}
+
+it("serve-sim's stream passes through for a good link and is re-encoded smaller for a thin one", async () => {
+  const { capture, frames, log } = await transcodingCapture(() => 1000);
   const video = { codec: "h264" as const, maxWidth: 1440, maxHeight: 2880, fps: 60 };
 
   await capture.configure?.({ ...video, bitrate: 8_000_000 });
@@ -226,4 +248,23 @@ it("a transcoder that falls behind skips to serve-sim's next IDR and still gets 
     [afterDrop + 2, false],
   ]);
   expect(keyframesAsked).toBe(1);
+});
+
+it("a viewer watching serve-sim pass through moves to the transcoder once the screen gets busier than its link", async () => {
+  let clock = 1000;
+  const { capture, frames, sim } = await transcodingCapture(() => clock);
+  const video = { codec: "h264" as const, maxWidth: 1440, maxHeight: 2880, fps: 60 };
+  await capture.configure?.({ ...video, bitrate: 8_000_000 });
+  await expect.poll(() => frames.some((frame) => frame.header.codec === "h264")).toBe(true);
+  expect(frames.some((frame) => frame.header.width === 600)).toBe(false);
+  // An animation: about 20 Mbit/s for two seconds, where 8 Mbit/s fit a quiet screen.
+  for (let tenth = 0; tenth < 20; tenth++) {
+    sim.delta(tenth, 250_000);
+    clock += 100;
+    await expect.poll(() => frames.length).toBeGreaterThan(tenth);
+  }
+  sim.delta(99, 2);
+  await expect
+    .poll(() => frames.some((frame) => frame.header.width === 600 && frame.header.keyframe))
+    .toBe(true);
 });

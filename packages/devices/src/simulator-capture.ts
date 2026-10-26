@@ -13,6 +13,7 @@ import {
   type SimulatorTranscode,
 } from "./simulator-transcode.ts";
 import { simulatorUI } from "./simulator-ui.ts";
+import { SimulatorSourceRate } from "./simulator-source-rate.ts";
 import { nativeId } from "./commands.ts";
 import { knownOrientation, simulatorRotation } from "./simulator-rotation.ts";
 import { DeviceError } from "./sdk.ts";
@@ -57,7 +58,8 @@ function sibling(stream: URL, name: string): URL {
 /**
  * The public serve-sim CLI owns the native framebuffer, HID and accessibility connection for
  * this UDID. Live views get serve-sim's H.264 as-is, unless a viewer can't carry it (its link is
- * under 5 Mbit/s, or its panel is smaller than the native picture): then the screen helper
+ * below serve-sim's measured busy rate, at least 6 Mbit/s, or its panel is smaller than the
+ * native picture): then the screen helper
  * re-encodes it (`--transcode`, hardware) at the size and rate asked for. Its MJPEG, resized,
  * only feeds agents' stills and recordings while nobody watches.
  */
@@ -376,6 +378,15 @@ export async function simulatorCapture(options: {
           mode = "h264";
           Object.assign(screen, { width: config.width, height: config.height });
           native = { width: config.width, height: config.height };
+          // A busier source than the viewer was judged against may need the transcoder now.
+          if (
+            rate.record(runtime.now(), payload.length) &&
+            viewer &&
+            options.transcoder &&
+            !transcoderFailed &&
+            needsTranscode(viewer) !== (transcode !== undefined)
+          )
+            void follow(viewer);
           if (transcode) return transcode.push(payload, keyframe, sequence, runtime.now());
           publish(
             {
@@ -415,6 +426,24 @@ export async function simulatorCapture(options: {
       await previous?.stop();
       return "h264";
     };
+    /** serve-sim's busiest recent rate, measured, so viewers are judged against what it sends. */
+    const rate = new SimulatorSourceRate();
+    /** The H.264 viewers' settings, while serve-sim's stream feeds them. */
+    let viewer: ScreenStreamSettings | undefined;
+    let following: Promise<void> = Promise.resolve();
+    /** The transcoder died: only a viewer's next settings start it again, never the rate alone. */
+    let transcoderFailed = false;
+    /** One decision at a time, in the order asked. */
+    const follow = (settings: ScreenStreamSettings) =>
+      (following = following.then(() => followViewer(settings)).catch(() => {}));
+    const needsTranscode = (settings: ScreenStreamSettings) =>
+      simulatorNeedsTranscode({
+        transcoding: transcode !== undefined,
+        bitrate: settings.bitrate,
+        box: settings,
+        native,
+        source: rate.peak(runtime.now()),
+      });
     const stopTranscode = async () => {
       const previous = transcode;
       transcode = undefined;
@@ -427,12 +456,8 @@ export async function simulatorCapture(options: {
     const followViewer = async (settings: ScreenStreamSettings) => {
       const helper = options.transcoder;
       if (!helper) return;
-      const need = simulatorNeedsTranscode({
-        transcoding: transcode !== undefined,
-        bitrate: settings.bitrate,
-        box: settings,
-        native,
-      });
+      if (stopped || viewer !== settings) return;
+      const need = needsTranscode(settings);
       if (need) {
         if (!transcode) {
           transcode = startSimulatorTranscode({
@@ -440,10 +465,12 @@ export async function simulatorCapture(options: {
             runtime,
             env: options.env,
             // The re-encoder went away: serve-sim's own stream keeps the view going.
-            failed: () =>
+            failed: () => {
+              transcoderFailed = true;
               void stopTranscode()
                 .then(() => h264?.keyframe())
-                .catch(() => {}),
+                .catch(() => {});
+            },
             needKeyframe: () => void h264?.keyframe().catch(() => {}),
             frame: (frame) => {
               if (stopped) return;
@@ -502,11 +529,15 @@ export async function simulatorCapture(options: {
       async configure(settings) {
         controller.signal.throwIfAborted();
         if (settings.codec !== "h264") {
+          viewer = undefined;
+          await following;
           await stopTranscode();
           return { codec: await toJpeg(settings) };
         }
         const codec = await toH264();
-        await followViewer(settings);
+        viewer = settings;
+        transcoderFailed = false;
+        await follow(settings);
         return { codec };
       },
       keyframe: async () => {

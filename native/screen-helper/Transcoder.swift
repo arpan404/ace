@@ -3,7 +3,7 @@ import CoreMedia
 import VideoToolbox
 
 /// `ace-screen-helper --transcode`: re-encodes an H.264 stream another tool already encodes (the
-/// iOS Simulator's, from serve-sim, at its fixed 6 Mbit/s and native size) at the size and bit
+/// iOS Simulator's, from serve-sim, at its own rate and native size) at the size and bit
 /// rate a viewer's link carries, with the Mac's hardware decoder and encoder. The daemon uses it
 /// only while a viewer needs less than the source sends; otherwise the source passes through.
 ///

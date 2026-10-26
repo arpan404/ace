@@ -146,7 +146,11 @@ export async function fakeServeSim(
     avcc,
     opened: () => avccOpened,
     mjpegOpen: () => mjpegOpen,
-    delta: (byte: number) => avcc.at(-1)?.write(record(3, unit([0x21, byte]))),
+    /** A delta access unit; `size` pads it, to stand for a busy screen's bigger pictures. */
+    delta: (byte: number, size = 2) =>
+      avcc
+        .at(-1)
+        ?.write(record(3, unit([0x21, byte, ...Array<number>(Math.max(0, size - 2)).fill(0)]))),
     /** Announces a new screen orientation, as serve-sim does after a rotate request. */
     orient: (orientation: string) => {
       device = announced = orientation;
