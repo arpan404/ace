@@ -2,9 +2,7 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import { win32 } from "node:path";
 import { promisify } from "node:util";
-import { findExecutable } from "@ace/provider-kit/discovery";
 import { loadIdentity, type TlsIdentity } from "./tls-identity.ts";
 import type { Config } from "./config.ts";
 
@@ -71,67 +69,6 @@ export const systemNetwork: Readonly<NetworkRuntime> = {
       )
     ).stdout,
 };
-// Windows runs tailscale.exe from PATH or Tailscale's install folder, without a console window.
-if (process.platform === "win32") Object.assign(systemNetwork, windowsTailscale(process.env));
-
-/**
- * Windows: Tailscale's installer puts `tailscale.exe` in `%ProgramFiles%\Tailscale` and on the
- * system PATH, but a daemon started before the install still has the old PATH. PATH wins and the
- * install folder is the fallback. Undefined when neither has it.
- */
-export async function findWindowsTailscale(env: NodeJS.ProcessEnv): Promise<string | undefined> {
-  const onPath = await findExecutable("tailscale", env, "win32");
-  if (onPath) return onPath;
-  // Windows environment names ignore case (`ProgramFiles`, `PROGRAMFILES`).
-  const programFiles = Object.entries(env).find(
-    ([key, value]) => key.toUpperCase() === "PROGRAMFILES" && value,
-  )?.[1];
-  if (!programFiles || !win32.isAbsolute(programFiles)) return undefined;
-  return findExecutable(win32.join(programFiles, "Tailscale", "tailscale.exe"), env, "win32");
-}
-
-/**
- * Windows lists Hyper-V, WSL, VPN and VM adapters (`vEthernet (WSL)`, `VirtualBox Host-Only`)
- * beside the real one, often first. Pairing links name the first physical-looking IPv4 address;
- * undefined leaves the plain first-address choice. ACE_ADVERTISE_HOST still wins.
- */
-export function windowsLanAddress(
-  interfaces: ReturnType<typeof networkInterfaces>,
-): string | undefined {
-  const virtual =
-    /vethernet|hyper-v|wsl|virtualbox|vmware|vmnet|loopback|bluetooth|tailscale|zerotier|wireguard|vpn/i;
-  for (const [name, entries] of Object.entries(interfaces)) {
-    if (virtual.test(name)) continue;
-    const entry = entries?.find(
-      (candidate) =>
-        !candidate.internal &&
-        candidate.family === "IPv4" &&
-        !candidate.address.startsWith("169.254."),
-    );
-    if (entry) return entry.address;
-  }
-  return undefined;
-}
-
-function windowsTailscale(env: NodeJS.ProcessEnv): Pick<NetworkRuntime, "status" | "certificate"> {
-  const run = async (args: string[], timeout: number) => {
-    // Looked up on every call, so installing Tailscale needs no daemon restart. When it is
-    // missing, the bare name fails the way a missing command does everywhere else.
-    const command = (await findWindowsTailscale(env)) ?? "tailscale";
-    return (
-      await promisify(execFile)(command, args, {
-        timeout,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      })
-    ).stdout;
-  };
-  return {
-    status: () => run(["status", "--json"], 5000),
-    certificate: (name) =>
-      run(["cert", "--cert-file", "-", "--key-file", "-", "--", name], 120_000),
-  };
-}
 export async function remoteListener(
   config: Config,
   runtime: Pick<NetworkRuntime, "interfaces" | "status" | "identity"> = systemNetwork,
@@ -144,7 +81,6 @@ export async function remoteListener(
     host = "0.0.0.0";
     advertisedHost =
       config.advertiseHost ??
-      (process.platform === "win32" ? windowsLanAddress(runtime.interfaces()) : undefined) ??
       Object.values(runtime.interfaces())
         .flat()
         .find((entry) => entry && !entry.internal && entry.family === "IPv4")?.address ??

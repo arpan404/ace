@@ -1,9 +1,6 @@
 import { execFile } from "node:child_process";
 import { appendFile, chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { dirname } from "node:path";
-import { existsSync } from "node:fs";
-import { findExecutable } from "@ace/provider-kit/discovery";
 import { promisify } from "node:util";
 import type { TestProject } from "vitest/node";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
@@ -33,8 +30,6 @@ export default async function setup(project: TestProject) {
       process.env,
       context.enclosingRepository?.checkouts,
     );
-    // Windows ships no OpenSSL, but Git for Windows (which ace needs anyway) carries one.
-    if (process.platform === "win32") await addGitOpenssl(env);
     // Bundle output lives outside the real home. Only dependency code resolves into the checkout.
     await symlink(
       join(project.config.root, "apps/daemon/node_modules"),
@@ -111,16 +106,4 @@ export default async function setup(project: TestProject) {
     throw error;
   }
   return () => rm(directory, { recursive: true, force: true });
-}
-
-/** Puts Git for Windows' openssl.exe on PATH when none is there, for the TLS fixture. */
-async function addGitOpenssl(env: NodeJS.ProcessEnv): Promise<void> {
-  if (await findExecutable("openssl", env, "win32")) return;
-  const git = await findExecutable("git", env, "win32");
-  if (!git) return;
-  // `<Git>\cmd\git.exe` or `<Git>\bin\git.exe`; OpenSSL is in `<Git>\usr\bin`.
-  const bin = join(dirname(dirname(git)), "usr", "bin");
-  if (!existsSync(join(bin, "openssl.exe"))) return;
-  const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
-  env[key] = `${env[key] ?? ""};${bin}`;
 }
