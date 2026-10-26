@@ -63,6 +63,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
+      # The Windows branches' own unit tests (each is gated to run on Windows only).
+      - name: Windows-only unit tests
+        timeout-minutes: 10
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          apps/web/src/lib/keymap.test.ts
+          apps/web/initial-preloads.test.ts
+          apps/web/src/boot/desktop-color-scheme.test.ts
+          apps/web/src/boot/help-actions.test.ts
+          apps/desktop/src/main/window/options.test.ts
+          apps/desktop/src/main/paths.test.ts
+          apps/desktop/src/main/notifications/activation.test.ts
+          apps/desktop/src/main/deep-link.test.ts
+
       - name: Use a 1920×1080 display
         continue-on-error: true
         run: |
