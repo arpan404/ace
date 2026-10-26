@@ -131,7 +131,10 @@ describe.runIf(process.platform === "win32")("Windows Git cleanup", () => {
     try {
       expect(await service.mutationState(repo)).toMatchObject({ status: "quarantined" });
       await same.stop();
-      expect(await service.mutationState(repo)).toMatchObject({ status: "available" });
+      // taskkill returns before Windows has removed every killed process.
+      await expect
+        .poll(() => service.mutationState(repo), { timeout: 5000 })
+        .toMatchObject({ status: "available" });
       expect(await exists(lease)).toBe(false);
     } finally {
       await other.stop();
@@ -149,7 +152,9 @@ describe.runIf(process.platform === "win32")("Windows Git cleanup", () => {
       const after = await heldGit(repo);
       try {
         await before.stop();
-        expect(await service.mutationState(repo)).toMatchObject({ status: "available" });
+        await expect
+          .poll(() => service.mutationState(repo), { timeout: 5000 })
+          .toMatchObject({ status: "available" });
         expect(await exists(lease)).toBe(false);
       } finally {
         await after.stop();
