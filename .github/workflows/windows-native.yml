@@ -42,8 +42,6 @@ on:
       - package.json
       - bun.lock
   workflow_dispatch:
-  push:
-    branches: [ace/win-plugins-files-workspace]
 
 permissions:
   contents: read
@@ -122,7 +120,6 @@ jobs:
           Write-Host "Native evidence = Node arch above. A Bun x64 binary under emulation does not count."
 
       - name: Close the runner system app before owned foreground tests
-        if: ${{ false }}
         shell: pwsh
         run: ./scripts/prepare-windows-screen.ps1
 
@@ -224,7 +221,6 @@ jobs:
       # input, and UIA tests stay ignored (default cargo test behavior), and this
       # step captures no screenshots and moves no user pointer.
       - name: Build + test native screen helper (Rust)
-        if: ${{ false }}
         id: screen-build
         timeout-minutes: 15
         shell: cmd
@@ -249,11 +245,9 @@ jobs:
           popd
 
       - name: Clear runner shell overlays before owned screen tests
-        if: ${{ false }}
         run: ./scripts/prepare-windows-screen.ps1
 
       - name: Verify real screen helper pipe, owned capture, UIA and input
-        if: ${{ false }}
         timeout-minutes: 3
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
@@ -263,13 +257,13 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-screen.config.ts
 
       - name: Prepare real Windows browser for streaming checks
-        if: ${{ false }}
         id: browser-prepare
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
         timeout-minutes: 25
         env:
           TEMP: ${{ runner.temp }}
@@ -278,7 +272,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
-          node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/workspace
+          node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
 
       # Workspace listing, watching and Node search timings on native Windows (report only;
       # the bounded 20,000-file search case in the suite is the gate).
@@ -292,13 +286,11 @@ jobs:
           node packages/workspace/bench/workspace.ts
           node packages/workspace/bench/search.ts
           node packages/workspace/bench/large-tree.ts
-          node --cpu-prof --cpu-prof-dir=prof packages/workspace/bench/large-tree.ts
-          node packages/workspace/bench/profile-summary.ts prof
 
       # Collect native Windows throughput after the serial functional checks.
       # The existing check:perf thresholds remain the acceptance gate.
       - name: Observe Windows browser streaming performance (report only)
-        if: ${{ false }}
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
         timeout-minutes: 3
         env:
           ACE_VIDEO_LINK_REPORT_ONLY: "1"
