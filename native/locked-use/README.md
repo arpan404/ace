@@ -112,6 +112,12 @@ the request three times two seconds apart and stops so it cannot fight a manual 
 Disarm is accepted only from the arming owner, after its confirmed lock. Its state is in
 memory: a guardian restart drops the link, and the service then stops work.
 
+**Shutdown.** On SIGTERM, SIGINT, SIGHUP or stdin EOF the service stops accepting
+connections, stops any attempt's work, requests relock and exits once the OS confirms the
+lock, or after five seconds. With no attempt it requests nothing, so it never locks a Mac the
+person unlocked. If it is killed or exits before the confirmed lock, the guardian sees the
+owner exit or the link drop and relocks on its own.
+
 **Covers.** The service's ordering verifier requires that on every display the frontmost
 visible window, other than loginwindow's (by bundle id), is our cover spanning that
 display. Any other overlay fails closed. This is unverified on real lock-screen hardware.
@@ -120,23 +126,46 @@ display. Any other overlay fails closed. This is unverified on real lock-screen 
 `/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle` satisfies our
 team requirement, `system.login.screensaver` reaches `AceLockedUseAuthorization:permit`,
 the screen lock delay is immediate, the broker accepted registration and the guardian
-answered. Probes are read-only and refreshed every five seconds. An unsigned build has no
+answered. Probes are read-only and refreshed every five seconds on their own queue; guardian
+and broker checks use asynchronous XPC replies, so none of them holds the main run loop that
+drives the heartbeat and the cover's event tap. The rule check follows authd: a `mechanisms`
+key on a `rule`-class right is ignored, and our named `evaluate-mechanisms` sub-right counts
+only if it alone satisfies the screensaver rule (`k-of-n` 1, or the only name). An unsigned build has no
 team and can never verify.
 
 ### Daemon transport
 
-A Unix socket (mode 0600, same user only, one daemon at a time). Each frame is a 4-byte
-big-endian length followed by 1–65,536 bytes of UTF-8 JSON. A bad length closes the
-connection, and a closed connection stops any attempt (`connectionLost`). Unknown fields are
-ignored; unknown types or versions get an `unsupported` reply. `v` may be omitted.
+A Unix socket (mode 0600, one connection at a time). Each frame is a 4-byte big-endian
+length followed by 1–65,536 bytes of UTF-8 JSON. A bad length closes the connection. Unknown
+fields are ignored; unknown types or versions get an `unsupported` reply. `v` may be omitted.
 
-Requests (`id`: 1–64 characters, echoed in the reply):
+**Who may connect.** The kernel's peer credentials (`LOCAL_PEERCRED`) must name the service's
+own user, and the peer must then prove it is the daemon that spawned the service:
+
+1. At spawn the daemon makes 32 random bytes and writes them to the service's **stdin** as 64
+   lowercase hex characters and `\n`. Nothing goes in argv or the environment. The service
+   exits with status 2 if no valid line arrives within 5 seconds.
+2. The daemon keeps stdin open. EOF on stdin means the daemon is gone: the service stops any
+   attempt, requests relock and exits (as it does on SIGTERM, SIGINT and SIGHUP).
+3. The first frame on every connection must be the hello, within 2 seconds:
+   `{"v":1,"id":"h1","type":"hello","token":"<64 hex>"}`. Accepted:
+   `{"id":"h1","ok":true,"type":"reply","v":1}`. Wrong token:
+   `{"error":{"code":"unauthorized","message":"…"},"id":"h1","ok":false,"type":"reply","v":1}`.
+   Anything else first: `{"code":"unauthorized","message":"…","type":"error","v":1}`. Every
+   rejection closes the connection. No request is served and no state is sent before the hello.
+
+Only a closed authenticated connection stops an attempt (`connectionLost`).
+
+Requests (`id`: 1–64 characters, echoed in the reply). `optIn` is the daemon's statement that
+the person's `computer.lockedUse` setting is on; only the JSON literal `true` counts. An
+`enable` or `begin` without it is refused with `not_enabled`, and the feature turns off
+(stopping and relocking any attempt):
 
 ```json
 {"v":1,"id":"r1","type":"status"}
-{"v":1,"id":"r2","type":"enable"}
+{"v":1,"id":"r2","type":"enable","optIn":true}
 {"v":1,"id":"r3","type":"disable"}
-{"v":1,"id":"r4","type":"begin","agentProcessIDs":[4242],
+{"v":1,"id":"r4","type":"begin","optIn":true,"agentProcessIDs":[4242],
  "scope":{"userID":501,"sessionID":100003,"threadID":"…","turnID":"…","attemptID":"…"}}
 {"v":1,"id":"r5","type":"finish","attemptID":"…"}
 {"v":1,"id":"r6","type":"cancel","attemptID":"…"}
@@ -160,7 +189,7 @@ scope's `userID` and `sessionID` from `status`. Run computer-use tools only whil
 `working`, then send `finish`. `completion` arrives only after the work exited and the OS
 confirmed the lock; `reason` is a `LockedUseStopReason`. Reply error codes: `not_installed`,
 `not_enabled`, `not_locked`, `busy`, `manual_unlock_required`, `stale_attempt`,
-`unknown_attempt`, `unsupported`, `malformed`, `failed`. A malformed frame without a readable
+`unknown_attempt`, `unsupported`, `malformed`, `unauthorized` (hello only), `failed`. A malformed frame without a readable
 id produces an `error` event with code `malformed`. Event codes also include
 `relock_request_failed`.
 
