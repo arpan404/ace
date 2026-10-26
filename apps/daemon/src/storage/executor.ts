@@ -3,7 +3,7 @@ import { executeWorktreeCleanup } from "./worktree-executor.ts";
 import { CommandId, ThreadId } from "@ace/protocol";
 import type { StorageOwner, ReviewedStorageItem } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
-import { hasTable, storageProtections, storageTree } from "./ownership.ts";
+import { hasTable, storageMembers, storageProtections } from "./ownership.ts";
 
 /** The journal commits "running" and admission fences before this shell performs effects. */
 export async function executeStorageItem(
@@ -86,8 +86,7 @@ export function fenceStorageItem(
       }
       ids = inventory.worktreeOwners(entry.target.path);
     }
-    const members = new Set(ids.flatMap((id) => storageTree(store, id)));
-    for (const member of members) {
+    for (const member of storageMembers(store, ids)) {
       const existing = store
         .statement("SELECT plan_id FROM storage_cleanup_fences WHERE thread_id=?")
         .get(member);

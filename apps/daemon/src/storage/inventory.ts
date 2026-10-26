@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
-import { storageProtections, storageTree } from "./ownership.ts";
+import { storageMembers, storageProtections, storageTree } from "./ownership.ts";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
 
 const fingerprint = (value: unknown) =>
@@ -39,7 +39,7 @@ export class StorageInventory {
       protections.push("not_archived");
     if (
       members.some((member) => {
-        const t = store.getThread(member);
+        const t = store.readThread(member);
         return t && t.archivedAt === undefined && t.deletedAt === undefined;
       })
     )
@@ -54,7 +54,7 @@ export class StorageInventory {
       // member would mark the rest recently modified and protect them from later rounds.
       modifiedAt: Math.max(
         ...members.map((member) => {
-          const t = member === id ? thread : store.getThread(member);
+          const t = member === id ? thread : store.readThread(member);
           if (!t || (member !== id && t.deletedAt !== undefined)) return 0;
           return Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0);
         }),
@@ -154,7 +154,7 @@ export class StorageInventory {
   }
   worktreeOwnership(path: string) {
     const { store } = this.owner;
-    const ids = [...new Set(this.worktreeOwners(path).flatMap((id) => storageTree(store, id)))];
+    const ids = storageMembers(store, this.worktreeOwners(path));
     const protections = storageProtections(this.owner, ids);
     const threads = ids.flatMap((id) => {
       const thread = store.getThread(id);
