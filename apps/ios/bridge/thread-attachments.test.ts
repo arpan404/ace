@@ -118,13 +118,14 @@ test("a file over the shared size limit is refused before anything uploads", asy
     error: "Too large: files can be up to 512 MB each",
   });
   expect(uploads("upload.begin")).toHaveLength(0);
-  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "m1" });
-  await until(() => latest("admission", "m1"), "the send refused");
-  expect(latest("admission", "m1")?.ok).toBe(false);
+  // Request ids of its own: the sink keeps earlier tests' answers.
+  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "too-large-send" });
+  await until(() => latest("admission", "too-large-send"), "the send refused");
+  expect(latest("admission", "too-large-send")?.ok).toBe(false);
   thread.handle({ type: "detach", localId: "video-0001" });
   await until(() => tray()?.files.length === 0, "the file removed");
-  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "m2" });
-  await until(() => latest("admission", "m2")?.ok, "the send admitted");
+  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "too-large-retry" });
+  await until(() => latest("admission", "too-large-retry")?.ok, "the send admitted");
   expect(commands("thread.send")[0]?.context).toBeUndefined();
 });
 
