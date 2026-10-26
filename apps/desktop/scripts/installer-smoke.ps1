@@ -177,6 +177,14 @@ Write-Host "daemon from the login item: pid $loginDaemon"
 Shot "login-item"
 Done
 
+Step "Reinstall by hand while the app and an idle daemon run"
+# No --updated: ace's own check runs first, finds no agent at work and stops the daemon cleanly.
+RunSetup $Second "/S"
+if (Get-Process -Id $loginDaemon -ErrorAction SilentlyContinue) { Fail "the daemon still runs after a reinstall" }
+if (-not (Test-Path (Join-Path $installDir "ace.exe"))) { Fail "the reinstall removed the app" }
+if (-not (Test-Path $shim)) { Fail "the reinstall removed the ace command" }
+Done
+
 Step "Uninstall silently"
 Get-Process ace -ErrorAction SilentlyContinue | Stop-Process -Force
 RunSetup (Join-Path $installDir "Uninstall ace.exe") "/S"

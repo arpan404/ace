@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { runSetup, type SetupPorts } from "./setup.ts";
+import { Refused, runSetup, type SetupPorts } from "./setup.ts";
 import type { UserPath } from "./user-path.ts";
 
 const installDir = "C:\\Users\\Ada\\AppData\\Local\\Programs\\ace";
@@ -14,6 +14,10 @@ interface World {
   daemonPid?: number;
   /** The daemon exits when asked to stop. */
   stops: boolean;
+  /** Threads the daemon reports at work; undefined when it does not answer. */
+  working?: number;
+  /** Whether the app (ace.exe) was still running when the daemon was asked to stop. */
+  appAtStop?: boolean;
   loginItems: number;
   nativeHosts: boolean;
   log: string[];
@@ -52,7 +56,9 @@ function ports(state: World): SetupPorts {
     isDesktopCommand: (content) => content === desktopCommand,
     removeFile: async (file) => void state.files.delete(file),
     daemonPid: async () => state.daemonPid,
+    busy: async () => state.working,
     async requestStop(_home, pid) {
+      state.appAtStop = [...state.processes.values()].some((path) => path.endsWith("\\ace.exe"));
       if (state.stops) state.processes.delete(pid);
       return state.stops;
     },
@@ -165,4 +171,57 @@ test("a failed step is reported and the rest of uninstall still runs", async () 
   await runSetup("uninstall", failing);
   expect(state.log).toContain("user PATH failed: registry unavailable");
   expect(state.loginItems).toBe(0);
+});
+
+const appDaemon = `${installDir}\\resources\\runtime\\node.exe`;
+const appExe = `${installDir}\\ace.exe`;
+
+test("a stop while agents are at work refuses and leaves the app and its daemon running", async () => {
+  const state = world({
+    daemonPid: 40,
+    working: 2,
+    processes: new Map([
+      [40, appDaemon],
+      [41, appExe],
+    ]),
+  });
+  await expect(runSetup("stop", ports(state))).rejects.toBeInstanceOf(Refused);
+  expect([...state.processes.keys()].sort()).toEqual([40, 41]);
+});
+
+test("uninstall while agents are at work removes nothing", async () => {
+  const state = world({
+    daemonPid: 40,
+    working: 1,
+    processes: new Map([[40, appDaemon]]),
+    path: { value: `C:\\Tools;${home}\\bin`, kind: "ExpandString" },
+    files: new Map([[commandFile, desktopCommand]]),
+    loginItems: 1,
+  });
+  await expect(runSetup("uninstall", ports(state))).rejects.toThrow("still working on 1 thread");
+  expect(state.files.get(commandFile)).toBe(desktopCommand);
+  expect(state.path.value).toBe(`C:\\Tools;${home}\\bin`);
+  expect(state.loginItems).toBe(1);
+  expect(state.processes.has(40)).toBe(true);
+});
+
+test("an update the app started stops its daemon even while it still counts work", async () => {
+  const state = world({ daemonPid: 40, working: 1, processes: new Map([[40, appDaemon]]) });
+  await runSetup("force-stop", ports(state));
+  expect(state.processes.size).toBe(0);
+});
+
+test("an idle stop ends the app before asking its daemon to shut down", async () => {
+  const state = world({
+    daemonPid: 40,
+    working: 0,
+    processes: new Map([
+      [40, appDaemon],
+      [41, appExe],
+    ]),
+  });
+  await runSetup("stop", ports(state));
+  expect(state.appAtStop).toBe(false);
+  expect(state.log).toContain("daemon: stopped");
+  expect(state.processes.size).toBe(0);
 });

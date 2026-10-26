@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { z } from "zod";
 import { uninstallNativeHost } from "@ace/browser-extension";
 import { isDesktopShim, prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
-import { lockOwner, requestStop } from "../main/daemon/stop-request.ts";
+import { daemonBusy, lockOwner, requestStop } from "../main/daemon/stop-request.ts";
 import { installCliShim } from "../main/os/cli-shim-install.ts";
 import { cliShimLog } from "../main/os/cli-shim.ts";
 import { installDirFrom, runSetup, type SetupCommand, type SetupPorts } from "./setup.ts";
@@ -76,6 +76,7 @@ export function systemPorts(installDir: string, env: NodeJS.ProcessEnv): SetupPo
     removeFile: (file) => rm(file, { force: true }),
     daemonPid: lockOwner,
     requestStop: (path, pid) => requestStop(path, pid),
+    busy: (path, pid) => daemonBusy(path, pid),
     async processesIn(directory) {
       const output = await powershell(listScript, { ACE_SETUP_DIR: prefix(directory) });
       return Processes.parse(JSON.parse(output.trim() || "[]")).filter(
@@ -92,7 +93,7 @@ export function systemPorts(installDir: string, env: NodeJS.ProcessEnv): SetupPo
     },
     kill: (pid) =>
       new Promise((resolve) =>
-        execFile("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () =>
+        execFile("taskkill.exe", ["/PID", String(pid), "/F"], { windowsHide: true }, () =>
           resolve(),
         ),
       ),
@@ -106,7 +107,7 @@ export function systemPorts(installDir: string, env: NodeJS.ProcessEnv): SetupPo
   };
 }
 
-const Command = z.enum(["install", "update", "stop", "uninstall"]);
+const Command = z.enum(["install", "update", "stop", "force-stop", "uninstall"]);
 
 /** `node ace-setup.mjs install|update|stop|uninstall`, run by the NSIS installer. */
 export async function main(argv: readonly string[], scriptDirectory: string): Promise<void> {

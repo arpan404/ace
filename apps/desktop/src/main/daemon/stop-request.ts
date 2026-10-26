@@ -39,3 +39,30 @@ export async function requestStop(home: string, pid: number, timeoutMs = 3_000):
     return false;
   }
 }
+
+const Maintenance = z.object({ blockers: z.number().int().nonnegative() });
+
+/**
+ * Threads still at work in the daemon `pid` serving `home` (the maintenance lease's blockers),
+ * or undefined when that daemon does not answer or the lock names another process.
+ */
+export async function daemonBusy(
+  home: string,
+  pid: number,
+  timeoutMs = 3_000,
+): Promise<number | undefined> {
+  if ((await lockOwner(home)) !== pid) return undefined;
+  const daemon = await readLocalDaemon(home);
+  if (!daemon) return undefined;
+  try {
+    const response = await fetch(new URL("/v1/maintenance", daemon.origin), {
+      headers: { authorization: `Bearer ${daemon.token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return undefined;
+    const parsed = Maintenance.safeParse(await response.json());
+    return parsed.success ? parsed.data.blockers : undefined;
+  } catch {
+    return undefined;
+  }
+}

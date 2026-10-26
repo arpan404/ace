@@ -9,13 +9,17 @@ import { addToUserPath, removeFromUserPath } from "./user-path.ts";
  * - `install`: write the `ace` command (`<home>\bin\ace.cmd`) and, on a fresh install, put
  *   its folder on the user PATH. An update leaves PATH as the person set it in Settings.
  * - `stop`: before files are replaced or removed, stop every process running from the install
- *   folder. The daemon is asked to shut down first (`POST /v1/stop`), so agents stop cleanly;
- *   Windows cannot replace a loaded `.exe` or `.node`.
+ *   folder, since Windows cannot replace a loaded `.exe` or `.node`. While the app's daemon has
+ *   agents at work it refuses (`Refused`) and stops nothing: a person runs setup again once they
+ *   finish. `stop --force` is for an update the app started, which has already drained its
+ *   agents. The app itself ends first (it keeps no agent state, and would otherwise start its
+ *   daemon again), then the daemon is asked to shut down (`POST /v1/stop`). Whatever still runs
+ *   is ended on its own: never its process tree, which would reach provider CLIs and terminals.
  * - `uninstall`: `stop`, then take back what the app added outside its folder: the PATH
  *   entry, the `ace` command, the login item and the browser native-host registrations. The
  *   data home (`~\.ace`) always stays, as does an `ace` command a standalone install owns.
  *
- * Every step is best effort and reported: a failed step never blocks the installer.
+ * Every step after the busy check is best effort and reported: a failed step never blocks.
  */
 export interface SetupPorts {
   /** The installed app folder (`$INSTDIR`). */
@@ -35,11 +39,17 @@ export interface SetupPorts {
   removeFile(file: string): Promise<void>;
   /** The pid named by the home's daemon lock, if any. */
   daemonPid(home: string): Promise<number | undefined>;
+  /**
+   * Threads still at work in the home's daemon `pid` (the maintenance lease's blockers), or
+   * undefined when it does not answer.
+   */
+  busy(home: string, pid: number): Promise<number | undefined>;
   /** Asks the home's daemon `pid` to shut down; true when it accepted. */
   requestStop(home: string, pid: number): Promise<boolean>;
   /** Processes running an executable inside `directory`, never this one or its parent. */
   processesIn(directory: string): Promise<{ pid: number; path: string }[]>;
   alive(pid: number): boolean;
+  /** Ends this one process; its children are left to their own owners. */
   kill(pid: number): Promise<void>;
   /** Removes login items (HKCU Run values) that start an executable inside `directory`. */
   removeLoginItems(directory: string): Promise<number>;
@@ -81,27 +91,50 @@ export async function install(ports: SetupPorts, updated: boolean): Promise<void
   );
 }
 
-export async function stop(ports: SetupPorts): Promise<void> {
+/** Why `stop` left everything running: agents are at work in the app's daemon. */
+export class Refused extends Error {
+  readonly working: number;
+  constructor(working: number) {
+    super(
+      `ace is still working on ${working} ${working === 1 ? "thread" : "threads"}. Let ${working === 1 ? "it" : "them"} finish or stop ${working === 1 ? "it" : "them"} in ace, then run setup again.`,
+    );
+    this.name = "Refused";
+    this.working = working;
+  }
+}
+
+const appExecutable = (path: string) => win32.basename(path).toLowerCase() === "ace.exe";
+
+export async function stop(ports: SetupPorts, force: boolean): Promise<void> {
+  const pid = await ports.daemonPid(ports.home);
+  const running = await ports.processesIn(ports.installDir);
+  // A daemon from a standalone install or another copy keeps running.
+  const ours = pid !== undefined && ports.alive(pid) && running.some((found) => found.pid === pid);
+  if (ours && !force) {
+    const working = await ports.busy(ports.home, pid);
+    if (working !== undefined && working > 0) throw new Refused(working);
+  }
+  await step(ports, "app", async () => {
+    const apps = running.filter((found) => appExecutable(found.path));
+    for (const found of apps) await ports.kill(found.pid);
+    return `${apps.length} ended`;
+  });
   await step(ports, "daemon", async () => {
-    const pid = await ports.daemonPid(ports.home);
-    if (pid === undefined || !ports.alive(pid)) return "not running";
-    const running = await ports.processesIn(ports.installDir);
-    // A daemon from a standalone install or another copy keeps running.
-    if (!running.some((process) => process.pid === pid)) return "runs from elsewhere; left running";
+    if (pid === undefined || !ours) return "not running from this install";
     if (!(await ports.requestStop(ports.home, pid))) return "did not accept a stop request";
     for (let waited = 0; waited < daemonStopMs && ports.alive(pid); waited += 250)
       await ports.sleep(250);
     return ports.alive(pid) ? "still running" : "stopped";
   });
   await step(ports, "processes", async () => {
-    const running = await ports.processesIn(ports.installDir);
-    for (const process of running) await ports.kill(process.pid);
-    return `${running.length} ended`;
+    const left = await ports.processesIn(ports.installDir);
+    for (const found of left) await ports.kill(found.pid);
+    return `${left.length} ended`;
   });
 }
 
 export async function uninstall(ports: SetupPorts): Promise<void> {
-  await stop(ports);
+  await stop(ports, false);
   const { directory, file } = commandFile(ports.home);
   let commandStays = false;
   await step(ports, "ace command", async () => {
@@ -127,11 +160,12 @@ export async function uninstall(ports: SetupPorts): Promise<void> {
   ports.log(`data kept in ${ports.home}`);
 }
 
-export type SetupCommand = "install" | "update" | "stop" | "uninstall";
+export type SetupCommand = "install" | "update" | "stop" | "force-stop" | "uninstall";
 
+/** Throws `Refused` when agents are at work; the entry turns that into exit code 2. */
 export async function runSetup(command: SetupCommand, ports: SetupPorts): Promise<void> {
   if (command === "install" || command === "update") return install(ports, command === "update");
-  if (command === "stop") return stop(ports);
+  if (command === "stop" || command === "force-stop") return stop(ports, command === "force-stop");
   return uninstall(ports);
 }
 
