@@ -1,4 +1,4 @@
-import { FakeDaemon, facts } from "@ace/fake-daemon";
+import { FakeDaemon, facts, seedForgeBrowse } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
@@ -181,6 +181,8 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+// GitHub pull requests, issues and notifications for the Pulls tab.
+seedForgeBrowse(daemon, Date.now());
 seedNativeMedia(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);

@@ -10,7 +10,7 @@ import {
   completionChange,
   referenceMatches,
   type CompletionMatch,
-} from "./completions.ts";
+} from "@ace/ui-core";
 import { useSearch } from "./use-search.ts";
 
 /** One suggestion: what it inserts and what it shows. */

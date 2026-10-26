@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { WorktreeCreationCard } from "@/features/thread/index.ts";
 import type { PrActions } from "./pr-actions.ts";
-import { lifecycleLabels } from "./pr-lifecycle.ts";
+import { lifecycleLabels } from "@ace/ui-core";
 
 function Row(props: { children: ReactNode; action: ReactNode }) {
   return (

@@ -1,14 +1,13 @@
 import { useRef, useState } from "react";
 import { validHostedAnchor } from "@ace/forge/review-anchor";
 import type { ForgeReviewAnchor, ForgeReviewDraft } from "@ace/protocol";
-import type { FileDiff } from "@ace/ui-core";
+import { linesLabel, suggestionBlock, type FileDiff } from "@ace/ui-core";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
 import type { LineRange } from "@/features/panels/index.ts";
 import { PrClampedText } from "./pr-clamped.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
-import { linesLabel, suggestionBlock } from "./pr-comment-model.ts";
 import { appendTo } from "./pr-quote.tsx";
 import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";

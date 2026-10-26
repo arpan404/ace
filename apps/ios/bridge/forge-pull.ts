@@ -1,5 +1,6 @@
 import { ClientError } from "@ace/client";
 import {
+  ForgeMergeCommit,
   ForgeRepository,
   WorkspaceId,
   type CommandPayload,
@@ -9,9 +10,11 @@ import {
 import {
   actionErrorText,
   autoMergeBlocker,
+  defaultMergeCommit,
   mergeBlockers,
   mergeMethods,
   noAutoMerge,
+  plural,
   prGates,
   prPrimaryAction,
   prPrimaryLabel,
@@ -24,8 +27,17 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
+import type { ShownBodies } from "./forge-conversation.ts";
+import {
+  prDetail as readDetail,
+  prLifecycle,
+  scopeOf,
+  type PrTarget as PageTarget,
+} from "./forge-pr-reads.ts";
+import { bodyKey } from "./forge-task.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
+import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * One pull request as the phone's page shows it: the header, the merge gates and the one
@@ -49,13 +61,20 @@ export const ForgePullRequest = z.discriminatedUnion("type", [
     repository: ForgeRepository.optional(),
     method: method.default("squash"),
   }),
-  z.object({ type: z.literal("forge.merge"), ...target, method, headSha: sha }),
+  z.object({
+    type: z.literal("forge.merge"),
+    ...target,
+    method,
+    headSha: sha,
+    commit: ForgeMergeCommit.optional(),
+  }),
   z.object({
     type: z.literal("forge.auto-merge"),
     ...target,
     method,
     headSha: sha,
     action: z.enum(["enable", "disable"]),
+    commit: ForgeMergeCommit.optional(),
   }),
 ]);
 export type ForgePullRequest = z.infer<typeof ForgePullRequest>;
@@ -85,6 +104,11 @@ export interface PullReply {
   commits: number;
   changedFiles: number;
   body: string;
+  bodyBlocks: RichBlock[];
+  /** The description's task boxes tick and save. */
+  tasks: boolean;
+  /** What the Timeline holds, in words: "4 comments · 2 open conversations". */
+  conversation: string;
   labels: ForgeLabelView[];
   gates: { label: string; value: string; detail: string | null; tone: string }[];
   /** The primary control's words ("Squash and merge", "Merge blocked"); empty when none. */
@@ -96,6 +120,8 @@ export interface PullReply {
   blockers: string[];
   methods: { method: MergeMethod; label: string }[];
   method: MergeMethod;
+  /** The commit a merge or squash by `method` writes, as GitHub would prefill it; null for rebase. */
+  commit: { title: string; message: string } | null;
   reviewers: { login: string; outcome: string | null }[];
   checks: { name: string; tone: string; word: string }[];
   files: { path: string; additions: number; deletions: number; status: string }[];
@@ -114,19 +140,6 @@ const checkWords = {
   unknown: { word: "Unknown", tone: "idle" },
 } as const;
 const fence = "Refresh GitHub to confirm the previous change first";
-
-type PageTarget = { project: string; number: number; repository?: ForgeRepository | undefined };
-const scopeOf = (request: PageTarget) => ({
-  workspaceId: request.project,
-  ...(request.repository ? { repository: request.repository } : {}),
-  number: request.number,
-});
-
-async function readDetail(reads: ForgeReads, request: PageTarget) {
-  const value = await reads.read({ op: "forge.pr.detail", ...scopeOf(request) }, false);
-  if (value.resource !== "prDetail") throw new ForgeRefusal("forge_invalid_data");
-  return value.value;
-}
 
 async function readMergeState(
   reads: ForgeReads,
@@ -147,9 +160,14 @@ export async function readPull(
   reads: ForgeReads,
   request: Extract<ForgePullRequest, { type: "forge.pull" }>,
   preview: Preview,
+  shown: ShownBodies,
 ): Promise<PullReply> {
   const detail = await readDetail(reads, request);
-  const mergeState = await readMergeState(reads, request, detail);
+  const [mergeState, lifecycle] = await Promise.all([
+    readMergeState(reads, request, detail),
+    prLifecycle(reads, request),
+  ]);
+  shown.set(bodyKey("pull", detail.status.ref.repository, detail.status.ref.number), detail.body);
   const { status } = detail;
   const state = status.state === "unknown" ? "open" : status.state;
   const outcomes = reviewerOutcomes(status.comments);
@@ -210,6 +228,9 @@ export async function readPull(
     commits: detail.commits,
     changedFiles: detail.changedFiles,
     body: preview(detail.body, 32_768),
+    bodyBlocks: repositoryBlocks(preview(detail.body, 32_768), status.ref.repository),
+    tasks: lifecycle?.snapshot.editableFields.includes("body") ?? false,
+    conversation: conversationWords(status),
     labels: detail.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),
       color: detail.labelColors?.[name] ?? null,
@@ -226,6 +247,8 @@ export async function readPull(
     blockers: primary.kind === "blocked" ? primary.blockers : [],
     methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),
     method: request.method,
+    commit:
+      request.method === "rebase" ? null : defaultMergeCommit(detail, request.method, mergeState),
     reviewers: [...new Set([...detail.reviewers, ...outcomes.keys()])].slice(0, 30).map((login) => {
       const outcome = outcomes.get(login);
       return { login: preview(login, 100), outcome: outcome ? reviewOutcomeLabels[outcome] : null };
@@ -250,6 +273,14 @@ export async function readPull(
   };
 }
 
+function conversationWords(status: ForgePrDetail["status"]): string {
+  const said = status.comments.filter((comment) => comment.kind !== "inline").length;
+  const open = status.reviewThreads.filter((thread) => !thread.resolved).length;
+  return [plural(said, "comment"), open ? plural(open, "open conversation") : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /** What a refused or lost write means, in the web's words. */
 function failure(error: unknown, autoMergeOn: boolean): string {
   const code =
@@ -268,16 +299,30 @@ export async function writePull(
   const thread = reads.linked().pulls.get(keyOf({ ref: pr }));
   const link = thread ? { threadId: thread.id, pr } : undefined;
   const workspaceId = WorkspaceId.parse(request.project);
+  // Rebase writes no commit of its own; disabling auto-merge takes none.
+  const commit =
+    request.commit &&
+    request.method !== "rebase" &&
+    !(request.type === "forge.auto-merge" && request.action === "disable")
+      ? { commit: request.commit }
+      : {};
   const payload: CommandPayload =
     request.type === "forge.merge"
       ? link
-        ? { type: "forge.pr.merge", link, headSha: request.headSha, method: request.method }
+        ? {
+            type: "forge.pr.merge",
+            link,
+            headSha: request.headSha,
+            method: request.method,
+            ...commit,
+          }
         : {
             type: "forge.hosted.merge",
             workspaceId,
             pr,
             headSha: request.headSha,
             method: request.method,
+            ...commit,
           }
       : link
         ? {
@@ -286,6 +331,7 @@ export async function writePull(
             headSha: request.headSha,
             action: request.action,
             method: request.method,
+            ...commit,
           }
         : {
             type: "forge.hosted.merge-state",
@@ -294,6 +340,7 @@ export async function writePull(
             headSha: request.headSha,
             action: request.action,
             method: request.method,
+            ...commit,
           };
   const enabling = request.type === "forge.auto-merge" && request.action === "enable";
   try {

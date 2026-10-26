@@ -13,7 +13,14 @@ import { useContext, useState, type ReactNode } from "react";
 import { blockRhythm } from "@/components/markdown/rhythm.ts";
 import { cn } from "@/lib/cn.ts";
 import { ForgeDocument, ForgeText, scrollToAnchor } from "./forge-text.tsx";
-import { withTask, type TaskMark } from "./source-marks.ts";
+import {
+  alertOf,
+  footnoteDefinition as definition,
+  footnoteLabel,
+  withTask,
+  type TaskMark,
+} from "@ace/ui-core/forge-rich";
+export { alertOf, footnoteLabel };
 
 /*
  * Block-level pieces of GitHub's markdown that agent prose doesn't have (ADR 0096): alerts
@@ -29,32 +36,6 @@ const alerts: Record<string, { label: string; icon: Icon }> = {
   WARNING: { label: "Warning", icon: WarningIcon },
   CAUTION: { label: "Caution", icon: WarningOctagonIcon },
 };
-const alertMarker = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i;
-
-/** A blockquote that opens with `[!NOTE]` (and the like): its kind and its tokens without it. */
-export function alertOf(
-  token: Tokens.Blockquote,
-): { kind: string; tokens: readonly Token[] } | undefined {
-  const first = token.tokens[0];
-  if (first?.type !== "paragraph" || !("tokens" in first)) return undefined;
-  const paragraph = first as Tokens.Paragraph;
-  const match = alertMarker.exec(paragraph.raw);
-  const kind = match?.[1]?.toUpperCase();
-  if (!match || !kind) return undefined;
-  // The marker sits at the start of the paragraph's first text token: cut it from there.
-  const [lead, ...rest] = paragraph.tokens;
-  const inline: Token[] = [...rest];
-  if (lead && lead.type === "text") {
-    const remaining = lead.raw.replace(alertMarker, "");
-    if (remaining)
-      inline.unshift({ ...lead, raw: remaining, text: remaining, tokens: undefined } as Token);
-  } else if (lead) inline.unshift(lead);
-  const remainder = paragraph.raw.replace(alertMarker, "");
-  const tokens: Token[] = token.tokens.slice(1);
-  if (remainder.trim())
-    tokens.unshift({ ...paragraph, raw: remainder, text: remainder, tokens: inline });
-  return { kind, tokens };
-}
 
 export function Alert(props: { kind: string; children: ReactNode }) {
   const alert = alerts[props.kind] ?? alerts.NOTE;
@@ -119,14 +100,6 @@ export function TaskBox(props: {
       className="mr-1.5 cursor-pointer align-[-1px] disabled:cursor-default"
     />
   );
-}
-
-const definition = /^ {0,3}\[\^([^\]\s]{1,64})\]:[ \t]?/;
-
-/** A paragraph or link definition that defines footnote `label`, with the label. */
-export function footnoteLabel(token: Token): string | undefined {
-  if (token.type !== "paragraph" && token.type !== "def") return undefined;
-  return definition.exec(token.raw)?.[1];
 }
 
 /** The footnotes a document defines, in order, as a numbered list after its last block. */

@@ -10,7 +10,7 @@ import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { useFetchCheckRun } from "./pr-check-run.ts";
 import { checkFixRequest, checkRunId } from "./pr-check-model.ts";
-import { hiddenReasonOf } from "./pr-comment-model.ts";
+import { hiddenReasonOf } from "@ace/ui-core";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrReplyField, replyField } from "./pr-thread.tsx";
 import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrClampedText } from "./pr-clamped.tsx";
 import { PrCommentMenu, type CommentMenuActions } from "./pr-comment-menu.tsx";
-import { canHide, hiddenReasonOf, hiddenWord } from "./pr-comment-model.ts";
+import { canHide, hiddenReasonOf, hiddenWord } from "@ace/ui-core";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { useQuote, type QuoteTarget } from "./pr-quote.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";

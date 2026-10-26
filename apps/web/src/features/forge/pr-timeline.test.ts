@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { prTimeline, prTimelineItems, eventText } from "./pr-timeline.ts";
+import { prTimeline, prTimelineItems, eventText } from "@ace/ui-core";
 import { detail } from "./pr-workspace.fixture.ts";
 const commit = {
   sha: "a".repeat(40),

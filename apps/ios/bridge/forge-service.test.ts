@@ -1,58 +1,14 @@
 import "./test-host.ts";
-import { seedForgeBrowse } from "@ace/fake-daemon";
-import { WorkspaceId, type CommandPayload, type ThreadListEntry } from "@ace/protocol";
+import { WorkspaceId, type ThreadListEntry } from "@ace/protocol";
 import { issueQuery } from "@ace/ui-core";
-import { afterEach, expect, test } from "vitest";
-import type { ForgeOwner } from "./forge-reads.ts";
-import { ForgeService, type ForgeRequest } from "./forge-service.ts";
+import { expect, test } from "vitest";
+import { ForgeService } from "./forge-service.ts";
 import type { PullsReply, IssuesReply } from "./forge-lists.ts";
 import type { PullReply } from "./forge-pull.ts";
 import type { IssueReply } from "./forge-issue.ts";
 import { NativeServices } from "./native-services.ts";
-import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
-
-let close: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await close?.();
-  close = undefined;
-});
-
-const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
-
-/** The fake daemon's `ace` repository on GitHub, read by a phone runtime. */
-async function connected(threads?: ThreadListEntry[], stamp: () => string = () => "") {
-  const { daemon, client } = sheetFixture();
-  seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
-  close = () => client.close();
-  await client.start();
-  await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const sent: CommandPayload[] = [];
-  const reads: unknown[] = [];
-  const owner: ForgeOwner = {
-    request: (request, options) => {
-      reads.push(request);
-      return client.request(request, options);
-    },
-    command: (payload) => {
-      sent.push(payload);
-      return client.command(payload);
-    },
-    threads: threads
-      ? () =>
-          ({
-            store: {
-              ids: threads.map((thread) => thread.id),
-              thread: (id: string) => threads.find((thread) => thread.id === id),
-            },
-            release() {},
-          }) as unknown as ReturnType<ForgeOwner["threads"]>
-      : () => client.threads(),
-  };
-  const forge = new ForgeService(owner, plainPreview, () => 0, stamp);
-  const ask = (request: Record<string, unknown>) =>
-    forge.answer({ fresh: false, ...request } as ForgeRequest, new AbortController().signal);
-  return { daemon, client, sent, reads, ask };
-}
+import { plainPreview, RecordingSink, until } from "./sheet-fixture.ts";
+import { connected, repository } from "./forge-test-fixture.ts";
 
 const numbers = (reply: PullsReply | IssuesReply) =>
   Object.fromEntries(reply.groups.map((group) => [group.id, group.rows.map((row) => row.number)]));
@@ -66,7 +22,7 @@ test("open pull requests come grouped by what each needs next, each row with its
     "Waiting",
     "Drafts",
   ]);
-  expect(pulls.counts).toEqual({ open: 7, merged: 1, closed: 1 });
+  expect(pulls.counts).toEqual({ open: 8, merged: 1, closed: 1 });
   const rows = pulls.groups.flatMap((group) => group.rows);
   expect(rows.find((row) => row.number === 229)).toMatchObject({
     step: "Review",
@@ -111,8 +67,8 @@ test("Merged lists the merged pull requests", async () => {
 test("issues group as assigned to you, opened by you, and the rest, and the Filters menu offers their authors and labels", async () => {
   const { ask } = await connected();
   const issues = (await ask({ type: "forge.issues", project: "ace", search: {} })) as IssuesReply;
-  expect(numbers(issues)).toEqual({ assigned: [240], created: [235], others: [238] });
-  expect(issues.counts).toEqual({ open: 3, closed: 1 });
+  expect(numbers(issues)).toEqual({ assigned: [246, 240], created: [235], others: [238] });
+  expect(issues.counts).toEqual({ open: 4, closed: 1 });
   expect(issues.authors).toContain("mira");
   expect(issues.labels).toContain("bug");
 });
@@ -264,6 +220,8 @@ test("the phone asks for forge lists through its native service call and gets a 
       plainPreview,
       () => 0,
       () => "",
+      () => "draft",
+      () => (async function* () {})(),
     ),
   );
   services.handle({
