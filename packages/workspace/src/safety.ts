@@ -18,7 +18,8 @@ import {
   windowsTransferTemporary,
 } from "./path-policy.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { PassDirectories } from "./pass-directories.ts";
+import { windowsBytesLocal } from "./descriptor.ts";
+import { LocalFileDescriptor, PassDirectories } from "./pass-directories.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
 export function validRelativePath(input: string): boolean {
@@ -233,7 +234,10 @@ export class SafeRoot {
         await handle.close();
         return undefined;
       }
-      return { handle, info, resolved: join(this.root, ...path.split("/")) };
+      const resolved = join(this.root, ...path.split("/"));
+      if (windowsBytesLocal(info))
+        return { handle: new LocalFileDescriptor(handle.fd), info, resolved };
+      return { handle, info, resolved };
     } catch {
       await handle?.close().catch(() => {});
       return undefined;

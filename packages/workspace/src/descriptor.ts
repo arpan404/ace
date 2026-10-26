@@ -351,7 +351,21 @@ function windowsIdentity(facts: z.infer<typeof WindowsFacts>) {
         : readonly
           ? 0o100444
           : 0o100666;
-  return { mode, [windowsFileId]: Buffer.from(facts.id).toString("hex") };
+  return {
+    mode,
+    [windowsFileId]: Buffer.from(facts.id).toString("hex"),
+    [windowsAttributes]: facts.attributes,
+  };
+}
+const windowsAttributes = Symbol("windowsAttributes");
+/**
+ * True when Windows says the file's bytes are on this disk: offline and recall-on-access
+ * files (cloud placeholders such as OneDrive's) may download when read.
+ */
+export function windowsBytesLocal(info: object): boolean {
+  const attributes: unknown = Reflect.get(info, windowsAttributes);
+  // FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+  return typeof attributes === "number" && (attributes & (0x1000 | 0x40000 | 0x400000)) === 0;
 }
 /** FILETIME ticks (100 ns since 1601) as Unix milliseconds; earlier than 1970 stays negative. */
 function windowsTime(ticks: bigint): number {

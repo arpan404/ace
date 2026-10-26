@@ -1,5 +1,33 @@
-import { constants } from "node:fs";
-import { openAt, statWindowsFd, type Descriptor } from "./descriptor.ts";
+import { closeSync, constants, readSync } from "node:fs";
+import { Descriptor, openAt, statWindowsFd } from "./descriptor.ts";
+
+/**
+ * Win32: a pass file whose bytes are on this disk. Each async read or close costs a thread-pool
+ * round trip (~65 µs on Windows), several times the read itself, so these run inline; reads
+ * stay bounded by the caller's 64 KiB chunks.
+ */
+export class LocalFileDescriptor extends Descriptor {
+  override read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }> {
+    try {
+      return Promise.resolve({ bytesRead: readSync(this.fd, buffer, offset, length, position) });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+  override close(): Promise<void> {
+    try {
+      closeSync(this.fd);
+      return Promise.resolve();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+}
 
 /**
  * Win32: directory handles held for one search pass, so a file opens with one native call
