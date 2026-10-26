@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { chromiumArtifact } from "./chromium-manifest.ts";
 
 export async function detectChromium(
@@ -96,13 +96,15 @@ async function detectWindowsChromium(
     ...roots.map((root) => join(root, "Google/Chrome/Application/chrome.exe")),
     ...roots.map((root) => join(root, "Microsoft/Edge/Application/msedge.exe")),
   ];
-  for (const candidate of installed) {
+  for (const [index, candidate] of installed.entries()) {
     const found = candidate && (await existing(candidate));
-    if (found) return found;
+    // Named explicitly (the first two), a browser is used as it is.
+    if (found && (index < 2 || !(await packagedEdge(found)))) return found;
   }
   const { findExecutable } = await import("@ace/provider-kit/discovery");
   for (const command of ["chrome.exe", "chromium.exe", "msedge.exe"]) {
     const found = await findExecutable(command, env, "win32");
+    if (found && (await packagedEdge(found))) continue;
     if (found) return found;
   }
   if (!options.dataDir) return undefined;
@@ -120,6 +122,16 @@ async function detectWindowsChromium(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Edge installed as a signed app package (its folder holds `AppxSignature.p7x`, as on current
+ * Windows 11 builds) relaunches itself at every start: the process ace starts exits at once and
+ * another one serves the profile, so ace's private debugging pipe never answers.
+ */
+async function packagedEdge(executable: string): Promise<boolean> {
+  if (!/msedge\.exe$/i.test(executable)) return false;
+  return Boolean(await existing(join(dirname(executable), "AppxSignature.p7x")));
 }
 
 /** Chrome for Testing has no Windows ARM64 build, so ace runs the installed Chrome or Edge there. */

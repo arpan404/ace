@@ -618,3 +618,26 @@ and 40 skipped**, **17,064 tests passed and 11 failed**, and five uncaught error
 The two streaming timeout cases now pass in focused checks; no clean full gate is
 claimed. The cursor-keyframe case passes one fresh isolated run without changes;
 its earlier full-suite failure, orphan recovery and unrelated failures remain open.
+
+## Windows browser workflows (branch `ace/win-browser`)
+
+`scripts/vitest-windows-browser.config.ts` runs every browser, extension, annotation, preview
+and desktop embedded-view test on native Windows. Cases whose assertions are POSIX-only (`ps`,
+`lsof`, process groups, mode bits, FIFOs, `/` paths, shell stand-ins) are excluded by name, and
+each workflow they cover has a `Windows: ...` counterpart.
+
+- **Containment.** Each profile's Chrome joins a kill-on-close job (`chrome-job.ts`): the tree
+  ends when the daemon dies, without the POSIX guardian.
+- **Live video.** GitHub's runners have no GPU, so Chrome composites in software. At device scale
+  2 a scrolling tab with tab capture drew 30-48 fps; at scale 1 both architectures deliver 60.
+  `gpu-scale.ts` asks Chrome once (`SystemInfo.getInfo`) and draws at scale 1 only where it
+  composites without a GPU; an embedder's chosen scale is kept. `video-link.ts` (25 Mbit/s,
+  120 ms, 30 ms jitter) went from 42/31 (x64) and 41/35 (ARM64) fps median/p10 to 60/59 on both.
+  Known gap: at scale 1 an odd-sized pane is stretched a pixel to an even encode size, which
+  softens text; cropping it needs the shared encoder.
+- **Use my Chrome.** Chrome and Edge connect through the HKCU-registered host end to end. The
+  launcher leaves Chrome's working directory so uninstall works while a host runs.
+  `uninstallNativeHost({ platform: "win32", home, dataDir, env: { LOCALAPPDATA } })` from
+  `@ace/browser-extension` removes this data directory's keys, manifest and launcher.
+- **ace doctor.** The Windows check no longer runs `chrome --version` (which opens a normal
+  window there) and checks the installed Chrome or Edge on ARM64.

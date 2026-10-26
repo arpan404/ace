@@ -16,6 +16,7 @@ on:
       - .github/workflows/windows-native.yml
       - scripts/vitest-windows-native.config.ts
       - scripts/vitest-windows-screen.config.ts
+      - scripts/vitest-windows-browser.config.ts
       - scripts/prepare-windows-screen.ps1
       - scripts/test-home-global-setup.ts
       - scripts/test-home-setup.ts
@@ -91,6 +92,11 @@ on:
         description: "Run only the native screen helper checks (skip the browser and the rest of the native suite)"
         type: boolean
         default: false
+      scope:
+        description: "full: every native check; browser: only the browser workflows and video profile"
+        type: choice
+        options: [full, browser]
+        default: full
 
 permissions:
   contents: read
@@ -271,6 +277,7 @@ jobs:
       # step captures no screenshots and moves no user pointer.
       - name: Build + test native screen helper (Rust)
         id: screen-build
+        if: ${{ inputs.scope != 'browser' }}
         timeout-minutes: 15
         shell: cmd
         env:
@@ -296,9 +303,11 @@ jobs:
           popd
 
       - name: Clear runner shell overlays before owned screen tests
+        if: ${{ inputs.scope != 'browser' }}
         run: ./scripts/prepare-windows-screen.ps1
 
       - name: Verify real screen helper pipe, owned capture, UIA, input and the computer-use engine
+        if: ${{ inputs.scope != 'browser' }}
         timeout-minutes: 10
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
@@ -309,12 +318,12 @@ jobs:
 
       - name: Prepare real Windows browser for streaming checks
         id: browser-prepare
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only }}
+        if: ${{ !cancelled() && (steps.screen-build.outcome == 'success' || inputs.scope == 'browser') && !inputs.screen_only }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only && inputs.scope != 'browser' }}
         timeout-minutes: 25
         env:
           TEMP: ${{ runner.temp }}
@@ -324,6 +333,60 @@ jobs:
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
+
+      - name: Run every browser workflow's tests
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 30
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-browser.config.ts
+
+      - name: Profile Windows browser video (report only)
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 8
+        run: node packages/browser/bench/video-profile.ts
+
+      # The desktop's parking window (apps/desktop/src/main/browser/parking.ts) must keep drawing
+      # while offscreen and transparent: compare its page frame rate and capture with and
+      # without Chromium's Windows occlusion tracking.
+      - name: Probe the desktop parking window on Windows (report only)
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = "Stop"
+          $electron = node -e "process.stdout.write(require(require('node:module').createRequire(require('node:path').resolve('apps/desktop/package.json')).resolve('electron')))"
+          # The first require downloads Electron and says so before the path.
+          $electron = ($electron -split "`r?`n" | Where-Object { $_ -match 'electron\.exe$' } | Select-Object -Last 1)
+          $probe = Join-Path $env:RUNNER_TEMP "parking-probe.cjs"
+          @'
+          const { app, BaseWindow, WebContentsView, screen } = require("electron");
+          const variant = process.argv.at(-1);
+          if (variant === "no-occlusion") app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+          setTimeout(() => { console.log(JSON.stringify({ variant, error: "timeout" })); app.exit(1); }, 40000);
+          app.whenReady().then(async () => {
+            const win = new BaseWindow({ show: false, focusable: false, skipTaskbar: true, frame: false, hasShadow: false,
+              fullscreenable: false, title: "ace browser", x: -10000, y: -10000, opacity: 0, hiddenInMissionControl: true, width: 1280, height: 800 });
+            win.setPosition(-10000, -10000);
+            const view = new WebContentsView({ webPreferences: { backgroundThrottling: false } });
+            win.contentView.addChildView(view);
+            view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+            win.showInactive();
+            await view.webContents.loadURL("data:text/html,<body style='height:30000px;font:16px system-ui'>" + "<p>Parked page text 0123456789</p>".repeat(400) + "<script>let y=0;(function s(){scrollTo(0,y=(y+4)%29000);requestAnimationFrame(s)})()</script>");
+            await new Promise((r) => setTimeout(r, 1500));
+            const fps = await view.webContents.executeJavaScript("new Promise(r=>{let f=0,t=performance.now();(function k(){f++;performance.now()-t<5000?requestAnimationFrame(k):r(f/((performance.now()-t)/1000))})()})");
+            const started = performance.now();
+            const image = await view.webContents.capturePage();
+            const captureMs = Math.round(performance.now() - started);
+            console.log(JSON.stringify({ variant, arch: process.arch, pageFps: Math.round(fps),
+              visibility: await view.webContents.executeJavaScript("document.visibilityState"),
+              capture: image.getSize(), captureEmpty: image.isEmpty(), captureMs, bounds: win.getBounds(),
+              scaleFactor: screen.getPrimaryDisplay().scaleFactor }));
+            app.quit();
+          });
+          '@ | Set-Content -Path $probe -Encoding utf8
+          foreach ($variant in "default", "no-occlusion") { & $electron $probe $variant; Write-Host "exit $LASTEXITCODE" }
 
       # Collect native Windows throughput after the serial functional checks.
       # The existing check:perf thresholds remain the acceptance gate.

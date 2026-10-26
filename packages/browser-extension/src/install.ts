@@ -9,7 +9,7 @@ import { launcherScript, nativeHostManifest, nativeHostTargets } from "./native-
 // Windows only.
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, rmdir, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { userBrowserDir } from "./host-files.ts";
 import { windowsHostKeys, windowsLauncherScript, windowsLocalAppData } from "./native-hosts.ts";
@@ -170,6 +170,26 @@ function processAlive(pid: number): boolean {
  * whose owner has exited, or that is older than any registry update, is broken automatically.
  */
 async function withRegistryLock<T>(options: WindowsOptions, work: () => Promise<T>): Promise<T> {
+  const release = await acquireRegistryLock(options);
+  try {
+    return await work();
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Windows: holds this user's native host registry lock until the returned release, refreshing it
+ * so a long hold is never taken for stale. Test fixtures that register real HKCU keys hold it for
+ * their whole life, so they never interleave with each other or with an ace installing its host.
+ */
+export async function holdNativeHostRegistry(
+  options: Omit<InstallOptions, "node" | "dataDir">,
+): Promise<() => Promise<void>> {
+  return acquireRegistryLock(options);
+}
+
+async function acquireRegistryLock(options: WindowsOptions): Promise<() => Promise<void>> {
   const dir = windowsHostsDir(options);
   await mkdir(dir, { recursive: true });
   const lock = join(dir, "registry.lock");
@@ -179,7 +199,13 @@ async function withRegistryLock<T>(options: WindowsOptions, work: () => Promise<
       await writeFile(lock, owner, { flag: "wx" });
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      // Another data directory's uninstall removed the emptied folder: make it again.
+      if (code === "ENOENT" && attempt < 20) {
+        await mkdir(dir, { recursive: true });
+        continue;
+      }
+      if (code !== "EEXIST") throw error;
     }
     const held = await readFile(lock, "utf8").catch(() => undefined);
     const age = await stat(lock).then(
@@ -196,12 +222,16 @@ async function withRegistryLock<T>(options: WindowsOptions, work: () => Promise<
       await rm(lock, { force: true });
     else await new Promise((resolve) => setTimeout(resolve, Math.min(20 * 2 ** attempt, 500)));
   }
-  try {
-    return await work();
-  } finally {
+  const heartbeat = setInterval(() => {
+    const now = new Date();
+    void utimes(lock, now, now).catch(() => {});
+  }, lockStaleMs / 3);
+  heartbeat.unref();
+  return async () => {
+    clearInterval(heartbeat);
     if ((await readFile(lock, "utf8").catch(() => undefined)) === owner)
       await rm(lock, { force: true });
-  }
+  };
 }
 
 async function installWindowsHost(options: InstallOptions): Promise<NativeHostInstall[]> {
@@ -259,7 +289,15 @@ async function uninstallWindowsHost(options: Omit<InstallOptions, "node">): Prom
     ),
   );
   await rm(manifestPath, { force: true });
-  await rm(dirname(windowsLauncherPath(options)), { recursive: true, force: true });
+  // A host that is still starting may hold its launcher a moment longer.
+  await rm(dirname(windowsLauncherPath(options)), {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
+  // The last data directory's uninstall leaves no empty host folder; another's launcher keeps it.
+  await rmdir(windowsHostsDir(options)).catch(() => {});
 }
 
 function reg(args: readonly string[]): Promise<void> {

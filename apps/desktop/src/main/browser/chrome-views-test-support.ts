@@ -447,6 +447,9 @@ export async function chromeViews(executablePath: string) {
       child.kill("SIGKILL");
       await exited;
     }
+    // Windows: the killed browser's helpers hold profile files open until they notice and exit.
+    if (process.platform === "win32")
+      await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     await rm(root, { recursive: true, force: true });
   };
   return { views, close };

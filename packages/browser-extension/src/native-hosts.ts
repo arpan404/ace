@@ -113,6 +113,8 @@ function batchWord(value: string): string {
  * The Windows launcher. cmd.exe reads batch lines in the console code page, so it switches to
  * UTF-8 before the line with paths, then restores the caller's code page (the console may be
  * shared) and returns Node's exit code. Nothing but Node writes to stdout, the message channel.
+ * Chrome starts a host in the launcher's folder; the launcher leaves it at once, so a running host
+ * never keeps an uninstall from removing that folder.
  */
 export function windowsLauncherScript(options: {
   node: string;
@@ -122,6 +124,7 @@ export function windowsLauncherScript(options: {
   return [
     "@echo off",
     "setlocal DisableDelayedExpansion",
+    'cd /d "%SystemRoot%"',
     'set "ace_cp="',
     `for /f "tokens=2 delims=:" %%a in ('chcp 2^>nul') do for /f "tokens=1 delims=. " %%b in ("%%a") do set "ace_cp=%%b"`,
     'if defined ace_cp for /f "delims=0123456789" %%c in ("%ace_cp%") do set "ace_cp="',

@@ -149,9 +149,11 @@ export default defineConfig({
     // home's owner-only ACL protects the push secrets file on Windows. The LAN restart case
     // asserts key.pem's mode 0600; "on Windows, a LAN daemon makes its TLS identity itself..."
     // covers the same restart. The pairing-list case orders two same-expiry links by random id,
-    // so it fails half the time on every OS.
+    // so it fails half the time on every OS. The Retina sharpness case expects device scale 2,
+    // which GPU-less Windows runners don't draw at (`gpu-scale.ts`); its "Windows: ... at the
+    // scale ace's Chrome draws" case runs.
     testNamePattern:
-      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner|(?:remote access(?: > | ))?persists device credentials and the private TLS identity across daemon restarts in LAN mode|open pairing links are listed without their codes, and a cancelled one no longer pairs)$)/,
+      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner|(?:remote access(?: > | ))?persists device credentials and the private TLS identity across daemon restarts in LAN mode|open pairing links are listed without their codes, and a cancelled one no longer pairs)$)(?!.*a Retina viewer on this machine sees a still page, after a scroll too, as sharp as the page$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     // process-test-setup builds the daemon CLI and the shared TLS fixture the remote, Fleet and
