@@ -25,11 +25,13 @@ const schedule: Schedule = (work, milliseconds) => {
 export function chromeDefaults(
   platform: NodeJS.Platform,
   sandbox = true,
+  /** Windows: where a Chrome tree that outlived its browser is reported. */
+  report?: (error: Error) => void,
 ): {
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
 } {
-  const jobs = platform === "win32" ? windowsJobs() : undefined;
+  const jobs = platform === "win32" ? windowsJobs(report) : undefined;
   return {
     launch: {
       args: [
@@ -63,7 +65,7 @@ export function chromeDefaults(
  * Windows: the required job containment (`chrome-job.ts`), loaded with the first launch so
  * other platforms never load it. Every launch's `guard` runs before its `spawn`.
  */
-function windowsJobs() {
+function windowsJobs(report?: (error: Error) => void) {
   let jobs: ReturnType<typeof import("./chrome-job.ts").chromeJobs> | undefined;
   const ready = () => {
     if (!jobs) throw new Error("ace's Chrome containment is not loaded on Windows");
@@ -72,7 +74,10 @@ function windowsJobs() {
   return {
     launch: {
       guard: async (profile: string) => {
-        jobs ??= (await import("./chrome-job.ts")).chromeJobs({ spawn: spawnProcess });
+        jobs ??= (await import("./chrome-job.ts")).chromeJobs({
+          spawn: spawnProcess,
+          ...(report && { report }),
+        });
         return jobs.guard(profile);
       },
       spawn: ((command, args, options) =>
@@ -96,7 +101,12 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       }
     }
   };
-  const defaults = chromeDefaults(process.platform, options.sandbox !== false);
+  const defaults =
+    process.platform === "win32"
+      ? chromeDefaults(process.platform, options.sandbox !== false, (error) =>
+          options.onError?.(error),
+        )
+      : chromeDefaults(process.platform, options.sandbox !== false);
   const launch: ChromeLaunch = { ...defaults.launch, ...options.chrome };
   launch.args = [...defaults.launch.args, ...(options.chrome?.args ?? [])];
   const diagnose = launch.diagnose;
