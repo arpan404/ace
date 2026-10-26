@@ -280,6 +280,21 @@ jobs:
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/workspace
 
+      # Workspace listing, watching and Node search timings on native Windows (report only;
+      # the bounded 20,000-file search case in the suite is the gate).
+      - name: Observe Windows workspace search performance (report only)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          node packages/workspace/bench/workspace.ts
+          node packages/workspace/bench/search.ts
+          node packages/workspace/bench/large-tree.ts
+          node --cpu-prof --cpu-prof-dir=prof packages/workspace/bench/large-tree.ts
+          node packages/workspace/bench/profile-summary.ts prof
+
       # Collect native Windows throughput after the serial functional checks.
       # The existing check:perf thresholds remain the acceptance gate.
       - name: Observe Windows browser streaming performance (report only)
