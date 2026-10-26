@@ -63,6 +63,10 @@ export default defineConfig({
       // Providers: discovery and registry
       "packages/provider-kit/src/discovery/install-locations.process.test.ts",
       "packages/agent-registry/src/native-entrypoints.process.test.ts",
+      // Providers: Cursor
+      "packages/adapter-cursor/src/sdk-admission.process.test.ts",
+      "packages/adapter-cursor/src/host-stop.process.test.ts",
+      "packages/accounts/src/usage-sources/cursor-login.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its

@@ -30,6 +30,13 @@ const graceMs = z.coerce
   .min(0)
   .max(30000)
   .parse(process.argv[2] ?? 5000);
+if (process.platform === "win32") {
+  // Windows has no process groups, so `stop` below can't kill its own group. Exiting is
+  // enough: the parent's kill-on-close Job Object and taskkill tree stop end the SDK's
+  // children once this host is gone.
+  const kill = process.kill.bind(process);
+  process.kill = (pid, signal) => (pid === -process.pid ? process.exit(0) : kill(pid, signal));
+}
 const stop = () => {
   if (ending) return;
   ending = true;
