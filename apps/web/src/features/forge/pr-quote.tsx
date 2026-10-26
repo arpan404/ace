@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { authoredReviewComment } from "@ace/forge/review-comment-body";
+import { quoted } from "@ace/ui-core";
 
 /** Where quoted text goes: the conversation's comment box, or one review thread's reply. */
 export type QuoteTarget = "conversation" | `thread:${string}`;
@@ -25,15 +25,6 @@ const Context = createContext<{
   pending: Quote | undefined;
   take(seq: number): void;
 } | null>(null);
-
-/** `body` as a Markdown quote, each line behind "> ", then a blank line to write under. */
-export function quoted(body: string): string {
-  const text = authoredReviewComment(body).trim();
-  return `${text
-    .split("\n")
-    .map((line) => (line ? `> ${line}` : ">"))
-    .join("\n")}\n\n`;
-}
 
 /** Appends `addition` to `text`, on a new paragraph when the text already says something. */
 export function appendTo(text: string, addition: string): string {

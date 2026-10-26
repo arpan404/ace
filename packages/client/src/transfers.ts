@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { CommandResult, ThreadStatus, Transfer, TransferCommands } from "@ace/protocol";
+import type { ConnectionState } from "./types.ts";
 import type { ProjectsClient } from "./projects-types.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
@@ -202,4 +203,46 @@ export class TransferStore {
     this.snapshot = [...this.byId.values()].toSorted((a, b) => b.startedAt - a.startedAt);
     for (const listener of this.listeners) listener();
   }
+}
+
+/** What following a machine's transfers needs of its client. */
+export interface TransfersSource {
+  readonly transfers: Pick<TransfersApi, "list" | "onProgress">;
+  connectionState(): {
+    getSnapshot(): ConnectionState;
+    subscribe(listener: () => void): () => void;
+  };
+}
+
+/**
+ * Feed `store` from `client` (ADR 0101): every `transfer.progress` push lands in it, and each
+ * time the connection becomes ready the list is read again, so what moved while away still
+ * shows; until that connection's list answers the store isn't seeded. Returns a stop.
+ */
+export function followTransfers(client: TransfersSource, store: TransferStore): () => void {
+  const stopProgress = client.transfers.onProgress((transfer) => store.apply(transfer));
+  const connection = client.connectionState();
+  let ready = false;
+  const check = () => {
+    const now = connection.getSnapshot() === "ready";
+    if (now && !ready) {
+      // Until this connection's list answers, a transfer started while away may be unknown.
+      const generation = store.relist();
+      client.transfers.list().then(
+        (transfers) => store.seed(transfers, generation),
+        // Lost with the connection: the reconnect asks again. A machine that can't list
+        // transfers still sends their pushes, so then pushes are all there is.
+        () => {
+          if (connection.getSnapshot() === "ready") store.unlisted(generation);
+        },
+      );
+    }
+    ready = now;
+  };
+  const stopConnection = connection.subscribe(check);
+  check();
+  return () => {
+    stopProgress();
+    stopConnection();
+  };
 }

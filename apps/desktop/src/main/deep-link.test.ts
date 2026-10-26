@@ -45,4 +45,22 @@ describe("ace:// links", () => {
       ),
     ).toEqual([{ kind: "open-folder", path: "/Users/me/Code/app" }, { kind: "new-thread" }]);
   });
+
+  it("opens a folder a Linux launcher passes as a file URI, but not another machine's", () => {
+    const folders = new Set(["/home/me/My Code"]);
+    expect(
+      linksFromArgv(
+        [
+          "file:///home/me/My%20Code",
+          "file://localhost/home/me/My%20Code",
+          "file://server/home/me/My%20Code",
+          "file:///home/me/notes.txt",
+        ],
+        (path) => folders.has(path),
+      ),
+    ).toEqual([
+      { kind: "open-folder", path: "/home/me/My Code" },
+      { kind: "open-folder", path: "/home/me/My Code" },
+    ]);
+  });
 });

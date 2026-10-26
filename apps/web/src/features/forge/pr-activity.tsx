@@ -8,7 +8,7 @@ import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { cn } from "@/lib/cn.ts";
 import { usePrCommits } from "./pr-commits.tsx";
-import { prTimelineItems } from "./pr-timeline.ts";
+import { prTimelineItems } from "@ace/ui-core";
 import { PrTimelineRow, type TimelineExpansion } from "./pr-timeline-rows.tsx";
 
 export function PrActivity(props: {

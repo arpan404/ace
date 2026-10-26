@@ -31,6 +31,7 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
   return new DevicesService({
     platform: new DevicePlatform({
       platform: process.platform,
+      arch: process.arch,
       home: homedir(),
       env: process.env,
       toolsDirectory: join(config.dataDir, "tools"),
@@ -129,9 +130,20 @@ export function createDevicesSession(context: SocketContext): SocketService {
       if (kind !== undefined && kind !== "devices") return;
       const devices = context.options.devices && lazyDevices(context.options.devices);
       if (!devices || !context.authorize("admin")) return;
+      const loaded = devices.current();
+      if (loaded) {
+        stopWaiting = () => {};
+        // Opened before welcome, so a full subscriber budget refuses this socket as over limit.
+        return open(loaded);
+      }
       // The channel opens once the devices service exists; until then there is nothing to show.
       stopWaiting = devices.whenLoaded((service) => {
-        open(service).catch((error: unknown) => context.options.log?.(error));
+        open(service).catch((error: unknown) => {
+          context.options.log?.(error);
+          // Too late to refuse the hello: close as over limit, so the client retries with backoff.
+          if (error instanceof Error && "code" in error && error.code === "limit")
+            context.socket.close(4013, "connection_limit");
+        });
       });
     },
     close() {

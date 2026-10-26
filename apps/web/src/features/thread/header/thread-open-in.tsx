@@ -33,6 +33,11 @@ export function useThreadEditorLaunch(thread: ThreadRef) {
   const sources = useThreadSources();
   return useEditorLaunch(async (editorId) => {
     const launch = await sources.workspace.openIn(thread, editorId);
-    return { editorId: launch.editor.id, editorName: launch.editor.name, path: launch.path };
+    return {
+      editorId: launch.editor.id,
+      editorName: launch.editor.name,
+      path: launch.path,
+      command: launch.editor.command,
+    };
   });
 }

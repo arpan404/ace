@@ -78,6 +78,7 @@ export interface ServerOptions {
   cursorAuth?: CursorAuthService;
   providerActivation?: Promise<void>;
   promptFiles?: import("@ace/commands").PromptFiles | undefined;
+  skillLibrary?: import("@ace/commands").SkillLibrary | undefined;
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

@@ -8,6 +8,8 @@ import Darwin
         Responsibility.disclaimIfNeeded()
         if CommandLine.arguments.contains("--computer") { ComputerService.run() }
         if CommandLine.arguments.contains("--transcode") { Transcoder.run() }
+        if CommandLine.arguments.contains("--sim-posture") { SimPosture.run(arguments: CommandLine.arguments) }
+        if CommandLine.arguments.contains("--sim-touch") { SimTouch.run(arguments: CommandLine.arguments) }
         if let index = CommandLine.arguments.firstIndex(of: "--encode-frames"), index + 1 < CommandLine.arguments.count {
             FrameFileEncoder.run(path: CommandLine.arguments[index + 1])
         }
@@ -160,7 +162,7 @@ import Darwin
                     // changes the cursor and the iOS app is not in Simulator's macOS AX tree.
                     // Keep process-targeted posting and every target/permission check.
                     if request.humanDeviceInput == true,
-                       capture.target?.kind == "window", capture.target?.bundleId == "com.apple.iphonesimulator",
+                       capture.target?.kind == "window", simulatorWindowBundles.contains(capture.target?.bundleId ?? ""),
                        ["input", "button.press"].contains(request.op) {
                         capture.mode = "background"
                         capture.humanDeviceInput = true

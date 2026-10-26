@@ -52,7 +52,6 @@ export function HomeSidebar() {
   );
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
-  const noProjects = directory.loaded && directory.projects.length === 0;
   const entry = useNewThreadEntry();
   const { only } = entry;
   return (
@@ -98,9 +97,7 @@ export function HomeSidebar() {
               description={
                 project
                   ? "Threads from this project will land here."
-                  : noProjects
-                    ? "Add a project first: a folder agents can work in."
-                    : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                  : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
               }
               action={
                 project ? (

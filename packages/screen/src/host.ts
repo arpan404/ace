@@ -1,4 +1,5 @@
-import { linuxBackend, installedLinuxHelper } from "./linux.ts";
+import { linuxLaunch, installedLinuxHelper } from "./linux.ts";
+import { graphicalSessionEnvironment } from "./linux-session.ts";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join, win32 } from "node:path";
@@ -16,23 +17,23 @@ export function localScreenManager(
      * already holds them) instead of the helper's own identity.
      */
     inheritResponsibility?: boolean | undefined;
+    /** Linux: the graphical session environment, read each time a helper starts. */
+    session?: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   } = {},
 ): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
     throw new Error("No native helper for this platform");
-  const backend = process.platform === "linux" ? linuxBackend(process.env) : undefined;
+  // The service may start before anyone logs in: the backend is chosen when a helper starts,
+  // so a headless daemon still starts and only a screen request reports the missing session.
+  const session =
+    process.platform === "linux"
+      ? (options.session ?? graphicalSessionEnvironment({ env: process.env }))
+      : undefined;
   return new ScreenManager({
-    ...(backend
+    ...(session
       ? {
           protocolVersion: 2 as const,
-          expectedPlatform: backend === "x11" ? ("linux-x11" as const) : ("linux-wayland" as const),
-          args: [
-            "--backend",
-            backend,
-            "--restore-token",
-            join(artifactDirectory, "portal", "restore-token"),
-          ],
-          env: process.env,
+          launch: async () => linuxLaunch(await session(), artifactDirectory),
         }
       : {}),
     command: helperPath,

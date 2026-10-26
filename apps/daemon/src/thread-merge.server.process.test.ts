@@ -21,7 +21,9 @@ test("a merge through the real server applies the patch once and publishes a lin
   const parent = await h.create();
   const fork = await h.fork(parent);
   const answer = Object.values(h.store.snapshotThread(fork).items).find(
-    (item) => item.type === "message" && item.role === "assistant" && item.complete,
+    // The fork's own answer: what it copied from the parent can't be cited back.
+    (item) =>
+      item.type === "message" && item.role === "assistant" && item.complete && !item.inherited,
   );
   if (!answer) throw new Error("No fork answer");
   const server = await startServer({

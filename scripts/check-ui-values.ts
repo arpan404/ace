@@ -120,7 +120,12 @@ const baselinePath = "scripts/ui-class-baseline.json";
 type Rule = "text-size" | "radius" | "bare-outline";
 type Counts = Partial<Record<Rule, number>>;
 /** Text drawn by its own renderer, where literal sizes are the point. */
-const ratchetExempt = [/components\/gpu-text\//, /features\/thread\/items\/bubble/];
+const ratchetExempt = [
+  /components\/gpu-text\//,
+  /features\/thread\/items\/bubble/,
+  // Hosted Markdown and HTML sizes its elements relative to the surrounding text (em).
+  /features\/forge\/rich\//,
+];
 const ratchetFiles = files.filter(
   (path) =>
     /^apps\/web\/src\/(features|components|app)\//.test(path) &&

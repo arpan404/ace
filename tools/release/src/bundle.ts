@@ -12,6 +12,11 @@ import { assertAsciiScripts } from "./ascii-output.ts";
 export { stageNativeFiles } from "./native-assets.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
+export {
+  linuxScreenHelperName,
+  linuxScreenHelperPath,
+  stageLinuxScreenHelper,
+} from "./screen-helper-assets.ts";
 export async function bundleDaemon(
   repo: string,
   root: string,

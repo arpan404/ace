@@ -1,4 +1,5 @@
 import type { Selection } from "./observable.ts";
+import { WeakTaps } from "./weak-taps.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
 import { mergeBySeq } from "@ace/projection";
 import { type ThreadSource } from "./api.ts";
@@ -24,6 +25,11 @@ export interface ThreadWindow {
    * by creation sequence and deduplicated by id (the tail's copy winning), and they stay live.
    */
   joined?: boolean | undefined;
+}
+
+/** Follow explicit deletions in detached windows, just like select(). */
+function withoutHistory(keys: ReadonlySet<string>): ReadonlySet<string> {
+  return keys.has("history") ? new Set([...keys].filter((key) => key !== "history")) : keys;
 }
 
 /**
@@ -68,6 +74,7 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   };
   const item = (id: string) =>
     isDeleted(id) ? undefined : joined ? (live.item(id) ?? items.get(id)) : items.get(id);
+  const taps = new WeakTaps(live, withoutHistory);
   const source: ThreadSource = {
     get error() {
       return live.error;
@@ -112,14 +119,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     usageSnapshot: (key) => live.usageSnapshot(key),
     // A window's own items arrive whole from the daemon's bounded reply; nothing was cut here.
     truncated: (id) => (items.has(id) && !(joined && live.item(id)) ? false : live.truncated(id)),
-    observe(tap) {
-      return live.observe((keys) => {
-        if (keys === "all") return tap(keys);
-        // Follow explicit deletions in detached windows, just like select().
-        const visible = new Set([...keys].filter((key) => key !== "history"));
-        if (visible.size) tap(visible);
-      });
-    },
+    // A tap lasts while this source or its unsubscribe is held, never as long as the live
+    // store: caches keyed by a window observe it and never unsubscribe.
+    observe: (tap) => taps.add(tap),
     select<T>(
       keys: readonly ThreadKey[],
       selector: (reader: ThreadReader) => T,

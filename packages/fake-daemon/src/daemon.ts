@@ -330,6 +330,10 @@ export class FakeDaemon implements Host {
   > {
     return this.servicesWire.files;
   }
+  /** The skill library behind `skills.request`, for seeding skills. */
+  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+    return this.servicesWire.skills;
+  }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
   get mcp(): Pick<FakeMcpWire, "servers" | "idle"> {
     return this.servicesWire.mcp;

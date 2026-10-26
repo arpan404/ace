@@ -6,25 +6,32 @@ struct InboxHeaderActions {
     let machines: () -> Void
 }
 
-/// One tab's navigation stack: the compact wordmark (or a connection problem) and the glass
-/// Settings and Search buttons in the bar, the filter chips under it, the list, and the thread
-/// it opens. Search is the system's own: the list turns into results while there is a query.
-/// The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and their pages.
+/// One tab's list and the page it opens (`InboxSplit`): the compact wordmark (or a connection
+/// problem) and the glass Settings and Search buttons in the bar, the filter chips under it, the
+/// list, and the thread it opens. Search is the system's own: the list turns into results while
+/// there is a query. The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and
+/// their pages. Beside an open page the sidebar carries what the tab bar does on a phone: New
+/// thread joins its bar and Threads and Pull requests sit at its foot.
 struct InboxStack<Destination: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
     let pulls: Bool
+    /// The tab showing, which the sidebar's foot switches in a regular window.
+    @Binding var tab: InboxTab
     /// What the Pulls tab's pages ask of the inbox.
     let forge: ForgeInboxHooks
     @Binding var machine: String
     @Binding var project: String
     @Binding var shelves: InboxShelves
+    /// A row to scroll to once it is in the list (`InboxList.reveal`).
+    @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     let header: InboxHeaderActions
     @ViewBuilder let destination: (InboxKey) -> Destination
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -43,63 +50,106 @@ struct InboxStack<Destination: View>: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                if pulls {
-                    ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
-                              actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
-                } else {
-                    // The list stays mounted under the results, so it keeps its place while the
-                    // person searches and is back where it was when they cancel.
-                    ZStack {
-                        let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, actions: actions, compose: nil)
-                            .refreshable { await refresh() }
-                            .opacity(results ? 0 : 1)
-                            .allowsHitTesting(!results)
-                            .accessibilityHidden(results)
-                        if results {
-                            InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
-                        }
-                    }
-                }
-            }
-            .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
-            .modifier(InboxSearchField(query: $query, searching: $searching,
-                                       prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
-            // The root owns the tab bar: it hides as a page is pushed and returns as soon as the
-            // path empties, while the page is still sliding away, rather than each page hiding it
-            // and the bar popping back only once the pop has finished.
-            .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
-            .navigationDestination(for: InboxRoute.self) { route in
-                switch route {
-                case .thread(let key): destination(key)
-                case .forge(let page): forgePage(page)
-                }
-            }
+        // The list beside the open page in a regular window, a stack in a compact one.
+        if pulls {
+            InboxSplit(path: $path, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
+        } else {
+            InboxSplit(path: $path, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
         }
     }
 
+    @ViewBuilder private var root: some View {
+        Group {
+            if pulls {
+                ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
+                          // The list's row is the open page, in place of the one open before.
+                          actions: ForgeTabActions(open: { path = [.forge($0)] }, openThread: forge.openThread, startThread: forge.startThread),
+                          openMachines: header.machines)
+            } else {
+                // The list stays mounted under the results, so it keeps its place while the
+                // person searches and is back where it was when they cancel.
+                ZStack {
+                    let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: actions, compose: nil)
+                        .refreshable { await refresh() }
+                        .opacity(results ? 0 : 1)
+                        .allowsHitTesting(!results)
+                        .accessibilityHidden(results)
+                    if results {
+                        InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
+                    }
+                }
+            }
+        }
+        .modifier(InboxSearchField(query: $query, searching: $searching,
+                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search threads and messages"))
+        .inboxFootBar { if ThreadColumns.sidebarHoldsTabs(sizeClass) { InboxPlaces(tab: $tab) } }
+        // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
+        .navigationTitle(pulls ? "Pull requests" : "Threads")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbar }
+    }
+
+    private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
+
+    @ViewBuilder private func page(_ route: InboxRoute) -> some View {
+        switch route {
+        case .thread(let key): destination(key)
+        case .forge(let page): forgePage(page)
+        }
+    }
+
+    /// The hardware keyboard's thread commands (`InboxCommands`). Next and previous read the
+    /// list's order only when pressed, so the stack never redraws for rows it doesn't show.
+    private var commands: InboxCommands {
+        InboxCommands(
+            newThread: inbox.canStartThreads ? forge.startThread : nil,
+            search: { withAnimation(.smooth) { searching = true } },
+            next: { step(1) }, previous: { step(-1) })
+    }
+    private func step(_ step: Int) {
+        let order = ThreadColumns.order(inbox.merged.sections.map { section in
+            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes))
+        }, shelves: shelves) { key in
+            inbox.pending(key).map { InboxKey(machineId: key.machineId, id: $0.threadId) } ?? key
+        }
+        if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
+    }
+
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        // Decorative branding and the connection title share the leading slot, with no glass.
-        if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarLeading) { title }
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+        // The title, its menu and the scope or connection problem under it, with no glass. The
+        // Pulls tab's title is its list's own, which knows its projects.
+        if !pulls {
+            if #available(iOS 26, *) {
+                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { title }
+            }
         }
         ToolbarItem(placement: .topBarTrailing) { settings }
-        if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+        // A phone gives each button its own glass; the sidebar groups its three into one, so a
+        // narrow column (a window beside its controls) still shows them all.
+        if #available(iOS 26, *), !ThreadColumns.sidebarHoldsTabs(sizeClass) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
             Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+        }
+        // The phone's floating New thread button, in the Threads sidebar's own bar.
+        if ThreadColumns.sidebarHoldsTabs(sizeClass), !pulls, inbox.canStartThreads {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
+                    .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
+            }
         }
     }
     @ViewBuilder private func forgePage(_ route: ForgeRoute) -> some View {
         if let client = inbox.client(route.machineId) {
             switch route.kind {
-            case .pull: ForgePullPageView(client: client, route: route, openThread: forge.openThread)
+            case .pull: ForgePullPageView(client: client, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread)
+            case .timeline: ForgeTimelineView(client: client, route: route)
+            case .file: ForgeFileView(client: client, route: route)
+            case .files: ForgeFilesView(client: client, route: route, open: { path.append(.forge($0)) })
             case .issue:
                 ForgeIssuePageView(client: client, route: route,
                                    actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
@@ -107,7 +157,9 @@ struct InboxStack<Destination: View>: View {
         }
     }
     private var title: some View {
-        InboxTitle(problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
+        InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
+                     openMachines: header.machines) { filters }
+            .modifier(HeaderLead())
     }
     private var settings: some View {
         Button(action: header.settings) { Image(systemName: "gearshape") }
@@ -146,4 +198,11 @@ private struct InboxSearchField: ViewModifier {
                 if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
+}
+
+/// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the
+/// split sets it on its list, under this stack.
+struct HeaderLead: ViewModifier {
+    @Environment(\.headerLead) private var lead
+    func body(content: Content) -> some View { content.padding(.leading, lead) }
 }

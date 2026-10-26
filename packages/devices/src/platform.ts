@@ -14,8 +14,10 @@ import {
   type DeviceSettings,
   type DeviceFailure,
   type DeviceChrome,
+  type DevicePosture,
 } from "@ace/protocol/devices";
 import { DeviceChromeReader } from "./device-chrome-reader.ts";
+import { SimulatorPostures } from "./simulator-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import {
@@ -37,6 +39,7 @@ import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
 import { downloadDeviceTools, type DeviceTools } from "./device-tools.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { managedServeSim, type ServeSimCommand } from "./serve-sim-install.ts";
+import { readSimulatorScreens, type SimulatorScreen } from "./simulator-screens.ts";
 import {
   emulatorConsolePort,
   emulatorGrpc,
@@ -62,6 +65,10 @@ export type PlatformOptions = SDKOptions & {
   /** Reads the SDK's device art; tests point it at fixtures. */
   readFile?: (path: string) => Promise<Uint8Array | undefined>;
 };
+/** An inventory issue, with the platform it concerns. */
+function tagged(issue: DeviceError, platform: Device["platform"]): DeviceFailure {
+  return { code: issue.code, message: issue.message, hint: issue.hint, platform };
+}
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
   .string()
@@ -83,20 +90,21 @@ export class DevicePlatform {
   private readonly waiters: (() => void)[] = [];
   private readonly controller = new AbortController();
   private readonly androidUI: AndroidOperations;
-  private missingSDKs: DeviceError[] = [];
+  private missingSDKs: (DeviceFailure & { platform: Device["platform"] })[] = [];
   private inputHint: DeviceError | undefined;
   private checkedInput = false;
   private toolsDownload: Promise<DeviceTools> | undefined;
   private readonly appProcesses = new Map<string, string>();
   private readonly chromes: DeviceChromeReader;
+  private readonly postures: SimulatorPostures | undefined;
   diagnostics(): DeviceFailure[] {
+    // Each issue says which platform it concerns, so a missing Android SDK never reads as a
+    // fault of a working Simulator.
     return [
       ...this.missingSDKs,
-      ...this.android.diagnostics(),
-      ...(this.inputHint ? [this.inputHint] : []),
-    ]
-      .slice(0, 2)
-      .map(({ code, message, hint }) => ({ code, message, hint }));
+      ...this.android.diagnostics().map((issue) => tagged(issue, "android")),
+      ...(this.inputHint ? [tagged(this.inputHint, "ios")] : []),
+    ].slice(0, 2);
   }
   constructor(options: PlatformOptions) {
     this.options = options;
@@ -111,6 +119,25 @@ export class DevicePlatform {
       this.input(device, input, undefined, authorize),
     );
     this.simulators = this.iosSimulators();
+    // The screen helper folds simulators (`--sim-posture`), on a Mac that has it.
+    this.postures =
+      options.platform === "darwin" && options.frameEncoder
+        ? new SimulatorPostures({
+            helper: options.frameEncoder,
+            xcrun: async () => (await this.xcode()).xcrun,
+            run: async (command, args, authorize) => {
+              this.controller.signal.throwIfAborted();
+              authorize?.();
+              const output = await this.probe(command, args, {
+                env: this.options.env,
+                maxBytes: 256 * 1024,
+                timeoutMs: 20_000,
+                signal: this.controller.signal,
+              });
+              return { code: output.code, stdout: output.stdout };
+            },
+          })
+        : undefined;
     this.chromes = new DeviceChromeReader(
       deviceChromeSources({
         home: options.home,
@@ -135,6 +162,40 @@ export class DevicePlatform {
     if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
     return this.chromes.chrome(device, format);
   }
+  /**
+   * A foldable Simulator's posture (the iPhone Duo's), or undefined for a device ace can't fold:
+   * anything else, or a Simulator on an Xcode without the hinge service.
+   */
+  async posture(device: Device, authorize?: () => void): Promise<DevicePosture | undefined> {
+    if (device.platform !== "ios" || device.state !== "booted" || !this.postures) return undefined;
+    return this.postures.read(nativeId(device), authorize);
+  }
+  /** Folds a foldable Simulator; returns its posture afterwards. */
+  async setPosture(
+    device: Device,
+    posture: DevicePosture,
+    authorize?: () => void,
+  ): Promise<DevicePosture> {
+    if (device.platform !== "ios" || !this.postures)
+      throw new DeviceError(
+        "not_supported",
+        "This device doesn't fold",
+        "Only foldable simulators, such as the iPhone Duo, have a posture.",
+      );
+    return this.postures.set(nativeId(device), posture, authorize);
+  }
+  /** A booted Simulator's built-in screens, from devicectl; empty when it can't say. */
+  async simulatorScreens(device: Device): Promise<SimulatorScreen[]> {
+    if (device.platform !== "ios" || this.options.platform !== "darwin") return [];
+    try {
+      const { xcrun } = await this.xcode();
+      const args = ["devicectl", "device", "info", "displays", "--device", nativeId(device)];
+      const output = await this.run(xcrun, [...args, "--quiet", "--json-output", "-"], 256 * 1024);
+      return readSimulatorScreens(JSON.parse(output.stdout));
+    } catch {
+      return [];
+    }
+  }
   private iosSimulators(authorize?: () => void) {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {
       const xcode = await this.xcode();
@@ -156,9 +217,6 @@ export class DevicePlatform {
       probe: (command, args, options) =>
         this.run(command, args, options?.maxBytes, options?.timeoutMs, options?.signal),
     });
-  }
-  resolveAndroid() {
-    return this.android.resolve();
   }
   async simulatorDevice(input: Device): Promise<Device> {
     return simulatorDevice(input, await this.simulators.list());
@@ -316,16 +374,22 @@ export class DevicePlatform {
           ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
         }),
       );
-    const outcomes = await Promise.allSettled(
-      this.options.platform === "darwin" ? [ios(), this.android.list()] : [this.android.list()],
-    );
+    const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
+      this.options.platform === "darwin"
+        ? [
+            { platform: "ios", read: ios() },
+            { platform: "android", read: this.android.list() },
+          ]
+        : [{ platform: "android", read: this.android.list() }];
+    const outcomes = await Promise.allSettled(sources.map((source) => source.read));
     const devices: Device[] = [];
-    const missing: DeviceError[] = [];
-    for (const result of outcomes) {
+    const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
+    for (const [index, result] of outcomes.entries()) {
       if (result.status === "fulfilled") devices.push(...result.value);
-      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing")
-        missing.push(result.reason);
-      else throw result.reason;
+      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing") {
+        const { code, message, hint } = result.reason;
+        missing.push({ code, message, hint, platform: sources[index]?.platform ?? "android" });
+      } else throw result.reason;
     }
     this.missingSDKs = missing;
     const present = new Set(
@@ -346,8 +410,10 @@ export class DevicePlatform {
           "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
         );
     }
-    if (missing.length && outcomes.every((result) => result.status === "rejected"))
-      throw missing[0];
+    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
+    const [first] = outcomes;
+    if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
+      throw first.reason;
     return devices;
   }
   private async simctl(
@@ -520,6 +586,12 @@ export class DevicePlatform {
           adbShell(["cmd", "uimode", "night", settings.appearance === "dark" ? "yes" : "no"]),
           undefined,
           authorize,
+        );
+      if (settings.location && this.android.physical(device.id))
+        throw new DeviceError(
+          "not_supported",
+          "Only an emulator's location can be set",
+          "Use a mock location app on the device, or set the location on an emulator.",
         );
       if (settings.location)
         await this.android.adb(

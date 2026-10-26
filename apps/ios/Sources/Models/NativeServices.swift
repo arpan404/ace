@@ -67,13 +67,14 @@ struct ServiceFailure: LocalizedError {
 }
 
 extension ClientModel {
-    func service<T: Decodable>(_ payload: [String: Any], as type: T.Type) async throws -> T {
-        try await call(payload, cache: nil, as: type)
+    /// `timeout` bounds the wait; a start in the machine's sharing dialog waits for the person there.
+    func service<T: Decodable>(_ payload: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
+        try await call(payload, cache: nil, as: type, timeout: timeout)
     }
     /// A read the bridge keeps (`bridge/read-policy.ts`): asked like `service`, answered from
     /// the bridge's cache while fresh, and copied into `reads` for the next visit's first frame.
     func read<T: Decodable>(_ payload: [String: Any], as type: T.Type) async throws -> T {
-        try await call(payload, cache: ReadMirror.key(payload), as: type)
+        try await call(payload, cache: ReadMirror.key(payload), as: type, timeout: .seconds(30))
     }
     /// The last kept answer to `payload`, for drawing before the read finishes.
     func kept<T: Decodable>(_ payload: [String: Any], as type: T.Type) -> T? {
@@ -85,7 +86,7 @@ extension ClientModel {
     func readGeneration(_ payload: [String: Any]) -> Int {
         ReadMirror.key(payload).map { reads.generation($0) } ?? 0
     }
-    private func call<T: Decodable>(_ payload: [String: Any], cache: String?, as type: T.Type) async throws -> T {
+    private func call<T: Decodable>(_ payload: [String: Any], cache: String?, as type: T.Type, timeout: Duration) async throws -> T {
         let id = "native-\(admissions.nextId())"
         let name = serviceName(payload)
         let interval = serviceSignposter.beginInterval("service", id: serviceSignposter.makeSignpostID(), "\(name, privacy: .public)")
@@ -96,7 +97,7 @@ extension ClientModel {
         }
         // The SDK bounds network waits. This also bounds native decoding/delivery failures.
         let deadline = Task { @MainActor in
-            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            do { try await Task.sleep(for: timeout) } catch { return }
             services.fail(id, message: "The request timed out. Your input is still available; retry when connected.")
             action(["type": "service.cancel", "id": id])
         }

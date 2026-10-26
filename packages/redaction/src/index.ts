@@ -25,6 +25,12 @@ const OPERATIONAL_ENV = new Set([
   "COLORTERM",
   "NO_COLOR",
   "FORCE_COLOR",
+  // The desktop session's kind ("user", "wayland", "GNOME"): common words, never identity.
+  "XDG_SESSION_CLASS",
+  "XDG_SESSION_TYPE",
+  "XDG_SESSION_DESKTOP",
+  "XDG_CURRENT_DESKTOP",
+  "DESKTOP_SESSION",
 ]);
 function sensitiveEnvironment(ctx: RedactionContext): Array<[string, string]> {
   return Object.entries(ctx.env ?? {}).filter(

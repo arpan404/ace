@@ -3354,12 +3354,14 @@ Example:
 | state | yes | ["booted","shutdown","offline","unauthorized"] |  |
 | runtime | no | string | {"maxLength":256} |
 | serial | no | string | {"maxLength":256} |
+| model | no | string | {"maxLength":256} |
 
 Example:
 
 ```json
 {
   "id": "android:XwDhxD8WbA7bOQfefuv8DICSGRJdvTvoa0CH9X7B36PaoVXM7xZJeo-kOe7u-aJqSakJxt8yUG_B7CkhG_ueDrb7pyKU7cW_LfyS533ctzcSkOBJeGja9YNGYoF7.qIP3hy6EvAMokknS2bftnjwO-MpMPWMrVY5l.eS",
+  "model": "example",
   "name": "example",
   "platform": "android",
   "runtime": "example",
@@ -10499,6 +10501,130 @@ Example:
 }
 ```
 
+## DeviceChrome
+
+[JSON Schema](schema/DeviceChrome.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| body | yes | object | {"properties":{"width":{"type":"number","exclusiveMinimum":0,"maximum":100000},"height":{"type":"number","exclusiveMinimum":0,"maximum":100000},"image":{"$ref":"https://ace.local/protocol/v1/DeviceChromeImage.json"}},"required":["width","height","image"]} |
+| screen | yes | [DeviceChromeRect.json](schema/DeviceChromeRect.json) |  |
+| mask | no | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| cutout | no | object | {"properties":{"rect":{"$ref":"https://ace.local/protocol/v1/DeviceChromeRect.json"},"image":{"$ref":"https://ace.local/protocol/v1/DeviceChromeImage.json"}},"required":["rect","image"]} |
+| buttons | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DeviceChromeButton.json"}} |
+
+Example:
+
+```json
+{
+  "body": {
+    "height": 3,
+    "image": "data:image/webp;base64,h===",
+    "width": 1
+  },
+  "buttons": [],
+  "screen": {
+    "height": 3,
+    "width": 5,
+    "x": 0,
+    "y": 9
+  }
+}
+```
+
+## DeviceChromeButton
+
+[JSON Schema](schema/DeviceChromeButton.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":64} |
+| title | no | string | {"maxLength":64} |
+| rect | yes | [DeviceChromeRect.json](schema/DeviceChromeRect.json) |  |
+| image | yes | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| pressed | no | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| onTop | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "image": "data:image/webp;base64,Mne2b=====",
+  "name": "example",
+  "onTop": true,
+  "rect": {
+    "height": 2,
+    "width": 7,
+    "x": 2,
+    "y": 9
+  },
+  "title": "example"
+}
+```
+
+## DeviceChromeImage
+
+[JSON Schema](schema/DeviceChromeImage.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"data:image/png;base64,V16m======"
+```
+
+## DeviceChromeRect
+
+[JSON Schema](schema/DeviceChromeRect.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| x | yes | number | {"minimum":-100000,"maximum":100000} |
+| y | yes | number | {"minimum":-100000,"maximum":100000} |
+| width | yes | number | {"exclusiveMinimum":0,"maximum":100000} |
+| height | yes | number | {"exclusiveMinimum":0,"maximum":100000} |
+
+Example:
+
+```json
+{
+  "height": 2,
+  "width": 4,
+  "x": 8,
+  "y": 0
+}
+```
+
+## DeviceChromeResult
+
+[JSON Schema](schema/DeviceChromeResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| chrome | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/DeviceChrome.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "chrome": {
+    "body": {
+      "height": 8,
+      "image": "data:image/webp;base64,ob+==",
+      "width": 3
+    },
+    "buttons": [],
+    "screen": {
+      "height": 3,
+      "width": 6,
+      "x": 5,
+      "y": 2
+    }
+  }
+}
+```
+
 ## DeviceClientMessage
 
 [JSON Schema](schema/DeviceClientMessage.json), input validation.
@@ -10558,6 +10684,7 @@ Example:
 | message | yes | string | {"maxLength":2048} |
 | hint | yes | string | {"maxLength":2048} |
 | permission | no | ["screenRecording","accessibility"] |  |
+| platform | no | ["ios","android"] |  |
 
 Example:
 
@@ -10565,7 +10692,8 @@ Example:
 {
   "code": "stale_ref",
   "hint": "example",
-  "message": "example"
+  "message": "example",
+  "platform": "android"
 }
 ```
 
@@ -10828,6 +10956,24 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"chrome"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| format | no | ["svg","png"] |  |
+
+Example:
+
+```json
+{
+  "deviceId": "android:oZgVNBfnBQEF.iwM4qYIq7zlkrYDeM8J26DDiuahR7oqf0rtbMNq3AQl",
+  "format": "svg",
+  "op": "chrome"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"boot"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 
@@ -10835,12 +10981,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:oZgVNBfnBQEF.iwM4qYIq7zlkrYDeM8J26DDiuahR7oqf0rtbMNq3AQl",
+  "deviceId": "android:EGXfrajcR836J_eiYZnpHtuewv3fhx-L8XPgIIjP1L5AH9w7j35gZ.LOvTonadzkZU7mVtJhaHri_zT61tSw9FWcjLoQhff0_27k",
   "op": "boot"
 }
 ```
 
-### Variant 9
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10851,12 +10997,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:EGXfrajcR836J_eiYZnpHtuewv3fhx-L8XPgIIjP1L5AH9w7j35gZ.LOvTonadzkZU7mVtJhaHri_zT61tSw9FWcjLoQhff0_27k",
+  "deviceId": "android:9a0ckRDgNqmEG4cfNNfCYbf-xqqncvncU1LNK3Y2MfaAamG0tbCPlBmLqr",
   "op": "shutdown"
 }
 ```
 
-### Variant 10
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10868,13 +11014,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:9a0ckRDgNqmEG4cfNNfCYbf-xqqncvncU1LNK3Y2MfaAamG0tbCPlBmLqr",
+  "deviceId": "ios:Fb86-8B1eb8414Ba74bdeCEDe92ccea17d1c",
   "op": "install",
   "path": "example"
 }
 ```
 
-### Variant 11
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10887,12 +11033,12 @@ Example:
 ```json
 {
   "appId": "example",
-  "deviceId": "ios:Fb86-8B1eb8414Ba74bdeCEDe92ccea17d1c",
+  "deviceId": "ios:a177bfa0f40d26Baa8e9924Feaf-ee5dbc22",
   "op": "open_app"
 }
 ```
 
-### Variant 12
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10904,13 +11050,13 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:a177bfa0f40d26Baa8e9924Feaf-ee5dbc22",
+  "deviceId": "android:Kd07lKTEuAnKQ6xemfuVS79Mlg22qoJSubThlX..WosWFRIt",
   "op": "open_url",
   "url": "example"
 }
 ```
 
-### Variant 13
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10922,15 +11068,15 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Kd07lKTEuAnKQ6xemfuVS79Mlg22qoJSubThlX..WosWFRIt",
+  "deviceId": "android:eIW_s6zAyf5.S.yhwrCIBmlRkkCUvpuoI_YMjCxZ-TkV.ByAZSFbCJKe9txKL1s5SFhJZxBucY5nzE8yc5u7bq4a4Ys",
   "op": "configure",
   "settings": {
-    "locale": "QYibT_9nA6pFc-OUy97"
+    "appearance": "dark"
   }
 }
 ```
 
-### Variant 14
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10942,13 +11088,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:eIW_s6zAyf5.S.yhwrCIBmlRkkCUvpuoI_YMjCxZ-TkV.ByAZSFbCJKe9txKL1s5SFhJZxBucY5nzE8yc5u7bq4a4Ys",
-  "fps": 10,
+  "deviceId": "android:MbTazpfwBWJBVeAjHDKulEBXjpdMzrfWX62fhhVNmmbUGloHOH7Fdh9gbV3ulBk0iElMgefogNxTNAwiLkamjHtCDE.3KRC7hN1MDt-ProXi_lwzvRqDp610zwvlATqwXEfMlP",
   "op": "start"
 }
 ```
 
-### Variant 15
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10959,12 +11104,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:MbTazpfwBWJBVeAjHDKulEBXjpdMzrfWX62fhhVNmmbUGloHOH7Fdh9gbV3ulBk0iElMgefogNxTNAwiLkamjHtCDE.3KRC7hN1MDt-ProXi_lwzvRqDp610zwvlATqwXEfMlP",
+  "deviceId": "ios:cF2bF15AFDe75dDe323c9537dB3EEA7A-781",
   "op": "stop"
 }
 ```
 
-### Variant 16
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10976,19 +11121,19 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:cF2bF15AFDe75dDe323c9537dB3EEA7A-781",
+  "deviceId": "ios:2-1c19Ef0c7A6fEf77683a89cCAB0A27e5-b",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128004,
+    "bitrate": 128006,
     "codec": "jpeg",
-    "fps": 5,
-    "maxHeight": 65,
-    "maxWidth": 71
+    "fps": 3,
+    "maxHeight": 68,
+    "maxWidth": 68
   }
 }
 ```
 
-### Variant 17
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10999,12 +11144,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:2-1c19Ef0c7A6fEf77683a89cCAB0A27e5-b",
+  "deviceId": "android:jEJkTqjkNXIU1wEq.b8TBtiagD5oOuyxBTbKbj3b3QQSaDW2i.p672hpqdsK9q",
   "op": "stream.keyframe"
 }
 ```
 
-### Variant 18
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11015,12 +11160,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:jEJkTqjkNXIU1wEq.b8TBtiagD5oOuyxBTbKbj3b3QQSaDW2i.p672hpqdsK9q",
+  "deviceId": "ios:CeBDde6c441AA-d41ec6ed14BC5cFb8Bb3be",
   "op": "subscribe"
 }
 ```
 
-### Variant 19
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11031,12 +11176,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:CeBDde6c441AA-d41ec6ed14BC5cFb8Bb3be",
+  "deviceId": "android:5TqDqHHcZypTvfkWVyoM9A01tCw-MeQ3tOjTESOWY1B282_wBBetp2RPl8LdQXP",
   "op": "unsubscribe"
 }
 ```
 
-### Variant 20
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11051,13 +11196,12 @@ Example:
 ```json
 {
   "controller": "human",
-  "deviceId": "android:5TqDqHHcZypTvfkWVyoM9A01tCw-MeQ3tOjTESOWY1B282_wBBetp2RPl8LdQXP",
-  "op": "controller",
-  "threadId": "example"
+  "deviceId": "android:obRh2chKl4ULV2EXasoCiuwUMaczqAOPJ--ZXtW1PzniPTYWWYJrHoz2_mHnl5FRfCjtGHY3DrUnMAf",
+  "op": "controller"
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11069,18 +11213,34 @@ Example:
 
 ```json
 {
-  "deviceId": "android:obRh2chKl4ULV2EXasoCiuwUMaczqAOPJ--ZXtW1PzniPTYWWYJrHoz2_mHnl5FRfCjtGHY3DrUnMAf",
+  "deviceId": "ios:404b44D2cebd45E47cc2Cac229D0eD7cBa8B",
   "input": {
-    "durationMs": 3,
-    "kind": "longPress",
-    "x": 9,
-    "y": 8
+    "kind": "type",
+    "text": "example"
   },
   "op": "input"
 }
 ```
 
-### Variant 22
+### Variant 23
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"posture"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| posture | yes | [DevicePosture.json](schema/DevicePosture.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "op": "posture",
+  "posture": "open"
+}
+```
+
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11091,12 +11251,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:404b44D2cebd45E47cc2Cac229D0eD7cBa8B",
+  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
   "op": "screenshot"
 }
 ```
 
-### Variant 23
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11107,12 +11267,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "deviceId": "android:t_Eupz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgf",
   "op": "clipboard.get"
 }
 ```
 
-### Variant 24
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11124,13 +11284,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
+  "deviceId": "ios:6FFAdbeCC8487c08F716Cdb-0f8aEE9fe5dA",
   "op": "clipboard.set",
   "text": "example"
 }
 ```
 
-### Variant 25
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11143,13 +11303,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:upz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgfuk.G9ar9CnKt9A3xCIUuCGRKPnEiXyf.az47oB72Pi4WSiNN",
-  "maxNodes": 4,
+  "deviceId": "ios:CDEbfe084d9C1--D9e2-5fFE4230f781B41C",
   "op": "ui.tree"
 }
 ```
 
-### Variant 26
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11162,16 +11321,15 @@ Example:
 
 ```json
 {
-  "deviceId": "android:jdlyx5U42hI4F3M0xjd-Ko4bEE7qoYkqQv3pt31fk-teqq4Sy8K_mH",
+  "deviceId": "ios:B40fEfa48A196f7D740d0Cc52FEB32Af1317",
   "op": "ui.find",
   "query": {
-    "name": "example",
-    "role": "example"
+    "text": "example"
   }
 }
 ```
 
-### Variant 27
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11187,17 +11345,14 @@ Example:
 
 ```json
 {
-  "action": "select",
-  "deviceId": "ios:5B6e1e8-27d0C-cDbAcfbEc1AfE7EcfdcAC3",
+  "action": "focus",
+  "deviceId": "android:2KW8vDETGTVrztmcSXGNCzedEZHlLTwn8VAjOtVW8igj63Lmv3DxoiWIw97lsNE0yD6yshYCdAc8-M9",
   "op": "ui.act",
-  "ref": "Rv7xACeplI4Sk8yM__A9mN_XoGCSPSHo34LwUKw_P9uCdRp0zXUmgpPUgA0zT",
-  "value": {
-    "dx": 5
-  }
+  "ref": "gy5rHPVNdPobbaJPdsZmXhI"
 }
 ```
 
-### Variant 28
+### Variant 30
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11208,12 +11363,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:1DBxwVKqEocV7sL90o2z4TIjIyfYOGDvRQspMSN3V1KelF-s86WPOewdwz7_j71wtwHLbbgAVziTSemhOrSS-lP3GIw0G",
+  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
   "op": "logs.start"
 }
 ```
 
-### Variant 29
+### Variant 31
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11224,12 +11379,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:C8AF252b2faaa02bA6e5c0fDF19D7059BEE4",
+  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
   "op": "logs.stop"
 }
 ```
 
-### Variant 30
+### Variant 32
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11241,12 +11396,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
+  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
   "op": "logs"
 }
 ```
 
-### Variant 31
+### Variant 33
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11257,12 +11412,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
+  "deviceId": "ios:a5cC6Bc5B3BfCd-d-2d3DBb3b0C9-6010a42",
   "op": "record.start"
 }
 ```
 
-### Variant 32
+### Variant 34
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11273,7 +11428,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
+  "deviceId": "ios:0fbD8263CB-3DA-ec6AFd1B5b1-6b6Bc5-5c",
   "op": "record.stop"
 }
 ```
@@ -11306,6 +11461,18 @@ Example:
   "accessibility": true,
   "screenRecording": true
 }
+```
+
+## DevicePosture
+
+[JSON Schema](schema/DevicePosture.json), input validation.
+
+Type: ["closed","partiallyOpen","open"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"open"
 ```
 
 ## DeviceScope
@@ -11380,8 +11547,7 @@ Example:
 ```json
 {
   "state": {
-    "booting": false,
-    "controller": "human",
+    "controller": "agent",
     "device": {
       "id": "android:_jMbgjbUVDOxlc-QtVbcWKG1E.wy8aZJCQsiqzx4wBzgkaSv5hwtJi2hELsXXU27OYW5.k1pOXKr",
       "name": "example",
@@ -11390,7 +11556,8 @@ Example:
       "state": "booted"
     },
     "enabled": false,
-    "lifecycle": "live"
+    "lifecycle": "starting",
+    "posture": "open"
   },
   "type": "devices.state"
 }
@@ -11490,19 +11657,20 @@ Example:
 | recording | no | boolean |  |
 | streamId | no | [ScreenId.json](schema/ScreenId.json) |  |
 | touch | no | ["multi","pointer","gestures"] |  |
+| framed | no | boolean |  |
 | controller | yes | ["none","human","agent"] |  |
 | ownedHere | no | boolean |  |
 | holder | no | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"agentId":{"$ref":"https://ace.local/protocol/v1/AgentId.json"}},"required":["threadId","agentId"]} |
 | leaseExpiresAt | no | number | {"minimum":0} |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | activity | no | [DeviceActivity.json](schema/DeviceActivity.json) |  |
+| posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 
 Example:
 
 ```json
 {
-  "booting": false,
-  "controller": "agent",
+  "controller": "human",
   "device": {
     "id": "android:fpGkYMyjKDtvn1jsrnxIGRozT60jeMmvNznkeg1BZ--reCKUktNZ-xbXftQ2C0ealAPvv21PmINzWIImCuUym6fGxAwGi-KvHTy555yN117vTbAciDiLvq1Lg7UjYlXgBTpRxK4-ugt7oOJ.v6Ht.Nh5Gip60qVE04nlWCjy6j5hCZnjo4UfbCtm",
     "name": "example",
@@ -11512,7 +11680,7 @@ Example:
     "state": "unauthorized"
   },
   "enabled": false,
-  "lifecycle": "live",
+  "lifecycle": "idle",
   "streamId": "HoyoEbrXObcJZiQFkk4mA_bl-"
 }
 ```
@@ -24582,6 +24750,7 @@ Example:
 | semanticActions | yes | array | {"maxItems":8,"items":{"type":"string","enum":["press","focus","setValue","scroll","expand","select","performSecondaryAction","selectText"]}} |
 | codecs | yes | array | {"minItems":1,"maxItems":2,"items":{"type":"string","enum":["jpeg","h264"]}} |
 | permissions | yes | object | {"properties":{"screen":{"type":"string","enum":["granted","denied","prompt","n/a"]},"input":{"type":"string","enum":["granted","denied","prompt","n/a"]}},"required":["screen","input"]} |
+| watchOnly | no | string | {"minLength":1,"maxLength":500} |
 
 Example:
 
@@ -24611,6 +24780,25 @@ Example:
   "semanticActions": [],
   "uiTree": false,
   "version": 2
+}
+```
+
+## ScreenChooserPick
+
+[JSON Schema](schema/ScreenChooserPick.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | ["window","display"] |  |
+| bundleId | no | [ScreenBundle.json](schema/ScreenBundle.json) |  |
+| title | no | string | {"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "source": "window",
+  "title": "example"
 }
 ```
 
@@ -24797,6 +24985,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | ok | yes | boolean |  |
 | data | no | any JSON value |  |
 | error | no | [ScreenError.json](schema/ScreenError.json) |  |
@@ -24805,6 +24994,10 @@ Example:
 
 ```json
 {
+  "error": {
+    "code": "forbidden",
+    "message": "example"
+  },
   "id": "5jM9xPDwv7g5EJ3UJl_-vkUstXld8905PG6eMgACtEXIv04MZck3sD",
   "ok": true,
   "version": 2
@@ -24825,6 +25018,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"hello"` |  |
 
 Example:
@@ -24849,6 +25043,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"metrics"` |  |
 
 Example:
@@ -24872,6 +25067,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"measure_interaction"` |  |
 | observeMs | no | integer | {"default":2000,"minimum":1,"maximum":10000} |
 | filmstrip | no | boolean | {"default":true} |
@@ -24883,16 +25079,18 @@ Example:
 ```json
 {
   "action": {
-    "durationMs": 4,
+    "button": "right",
+    "durationMs": 10,
     "kind": "pointer.drag",
-    "toX": 9,
+    "toX": 5,
     "toY": 9,
-    "x": 2,
+    "x": 9,
     "y": 9
   },
-  "filmstrip": false,
+  "filmstrip": true,
   "humanDeviceInput": false,
   "id": "_hHSFN9OFoz0qI8J1rdY4929VFY8nHQ",
+  "observeMs": 10,
   "op": "measure_interaction",
   "secureInputAllowed": false,
   "version": 2
@@ -24909,6 +25107,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"open.app"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -24936,6 +25135,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.configure"` |  |
 | settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
 
@@ -24947,11 +25147,11 @@ Example:
   "mode": "foreground",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128001,
-    "codec": "jpeg",
-    "fps": 10,
-    "maxHeight": 64,
-    "maxWidth": 72
+    "bitrate": 128003,
+    "codec": "h264",
+    "fps": 2,
+    "maxHeight": 73,
+    "maxWidth": 64
   },
   "version": 1
 }
@@ -24967,6 +25167,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.keyframe"` |  |
 
 Example:
@@ -24991,6 +25192,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.image"` |  |
 
 Example:
@@ -25015,6 +25217,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"capture"` |  |
 | enabled | yes | boolean |  |
 
@@ -25039,6 +25242,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"input"` |  |
 | input | yes | [ScreenInput.json](schema/ScreenInput.json) |  |
 
@@ -25049,11 +25253,14 @@ Example:
   "humanDeviceInput": true,
   "id": "2o0z3L1bjnApc",
   "input": {
-    "kind": "pointer.move",
-    "x": 3,
-    "y": 2
+    "kind": "pointer.drag",
+    "toX": 0,
+    "toY": 1,
+    "x": 4,
+    "y": 8
   },
   "op": "input",
+  "person": true,
   "secureInputAllowed": false,
   "version": 2
 }
@@ -25069,6 +25276,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | maxDepth | no | integer | {"default":8,"minimum":0,"maximum":16} |
 | maxNodes | no | integer | {"default":128,"minimum":1,"maximum":512} |
 | op | yes | `"ui.tree"` |  |
@@ -25087,7 +25295,7 @@ Example:
     "bundleIds": [
       "example"
     ],
-    "displayId": 6,
+    "displayId": 9,
     "kind": "display"
   },
   "version": 1
@@ -25104,6 +25312,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | query | yes | [ScreenUIQuery.json](schema/ScreenUIQuery.json) |  |
 | limit | no | integer | {"default":16,"minimum":1,"maximum":64} |
 | op | yes | `"ui.find"` |  |
@@ -25119,8 +25328,10 @@ Example:
   "id": "j_6K-6Ndnf7ETcydogitRE4Y5jBj0BB0k_cUepQ2vZVr8cCFCdXSd_pDKZrj",
   "limit": 9,
   "op": "ui.find",
+  "person": false,
   "query": {
-    "role": "example"
+    "role": "example",
+    "text": "example"
   },
   "secureInputAllowed": false,
   "target": {
@@ -25141,6 +25352,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | ref | yes | [ScreenUIRef.json](schema/ScreenUIRef.json) |  |
 | action | yes | [ScreenUIAction.json](schema/ScreenUIAction.json) |  |
 | name | no | string | {"minLength":1,"maxLength":256} |
@@ -25154,20 +25366,17 @@ Example:
 
 ```json
 {
-  "action": "selectText",
+  "action": "press",
   "allowlist": [],
   "id": "QD3Nfpt-r",
   "op": "ui.act",
-  "range": {
-    "length": 0,
-    "location": 0
-  },
-  "ref": "zfysqfBWh",
+  "person": true,
+  "ref": "ysqfBW",
   "target": {
     "bundleId": "example",
-    "kind": "window",
-    "windowId": 2
+    "kind": "app"
   },
+  "value": "example",
   "version": 2
 }
 ```
@@ -25182,6 +25391,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"permissions"` |  |
 
 Example:
@@ -25206,6 +25416,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"permissions.request"` |  |
 | permission | yes | ["screenRecording","accessibility"] |  |
 
@@ -25217,6 +25428,7 @@ Example:
   "id": "OF9H4K7hjAqcQ8wad6aG7nPT6e1rVAQs7c_pgKschu3sCr",
   "op": "permissions.request",
   "permission": "screenRecording",
+  "person": true,
   "version": 1
 }
 ```
@@ -25231,6 +25443,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"button.press"` |  |
 | name | yes | string | {"minLength":1,"maxLength":64} |
 
@@ -25256,6 +25469,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"targets"` |  |
 
 Example:
@@ -25265,6 +25479,7 @@ Example:
   "id": "VzQ0GMdVGCpN4FFobdVqA3en1GEHmHqGrPwl6NI3BpgnE0PcOl_dj1lQ8-Q5SGwI",
   "mode": "foreground",
   "op": "targets",
+  "person": false,
   "secureInputAllowed": true,
   "version": 1
 }
@@ -25280,6 +25495,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"windows.list"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25307,6 +25523,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"window.select"` |  |
 | windowId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 
@@ -25319,7 +25536,7 @@ Example:
   "secureInputAllowed": false,
   "sessionId": "q-rxpDt_09Igh6SzLYhTzGsNQJcA8Sm3YdHxCZjq1bSCDlgP8LE",
   "version": 1,
-  "windowId": 5
+  "windowId": 3
 }
 ```
 
@@ -25333,6 +25550,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"open.url"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | url | yes | [ScreenAppURL.json](schema/ScreenAppURL.json) |  |
@@ -25364,6 +25582,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"menu.press"` |  |
 | path | yes | array | {"minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
@@ -25391,6 +25610,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stop"` |  |
 
 Example:
@@ -25415,6 +25635,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"action"` |  |
 | action | yes | [ScreenAction.json](schema/ScreenAction.json) |  |
 
@@ -25423,8 +25644,8 @@ Example:
 ```json
 {
   "action": {
-    "kind": "type",
-    "text": "example"
+    "keyCode": 5,
+    "kind": "key"
   },
   "id": "wRAR4bwgb842Via62X2CKCN",
   "op": "action",
@@ -25442,6 +25663,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"start"` |  |
 | target | yes | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25453,15 +25675,14 @@ Example:
 ```json
 {
   "allowlist": [],
-  "fps": 3,
+  "fps": 8,
   "id": "0mDOXRQk_r",
   "op": "start",
   "secureInputAllowed": false,
   "sessionId": "ATc-3RLUP0kx6a",
   "target": {
-    "bundleId": "example",
-    "kind": "window",
-    "windowId": 9
+    "kind": "chooser",
+    "restore": false
   },
   "version": 2
 }
@@ -25477,6 +25698,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"hello"` |  |
 
 Example:
@@ -25495,6 +25717,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"permissions"` |  |
 
 Example:
@@ -25513,6 +25736,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"targets"` |  |
 
 Example:
@@ -25531,6 +25755,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"open.url"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25555,6 +25780,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"menu.press"` |  |
 | path | yes | array | {"minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
@@ -25564,12 +25790,18 @@ Example:
 
 ```json
 {
-  "allowlist": [],
   "id": "I2d8Y7kLJ85S4oMfiUi0PpZQnQWS7SPCrI",
   "op": "menu.press",
   "path": [
     "example"
   ],
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 3,
+    "kind": "display"
+  },
   "version": 2
 }
 ```
@@ -25580,6 +25812,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"stop"` |  |
 
 Example:
@@ -25598,6 +25831,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"start"` |  |
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | captureGeneration | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
@@ -25610,14 +25844,15 @@ Example:
 ```json
 {
   "allowlist": [],
-  "fps": 3,
+  "captureGeneration": 6,
+  "fps": 1,
   "id": "g0fdSUFn",
   "op": "start",
-  "sessionId": "0JxbjBceAWLdVqmcRNElJN6nfUcRsEOdNqc29CoGuaJH",
+  "sessionId": "JxbjBceAWLdVqmcRNElJN6nfUcRsEOdNqc29CoGuaJHWahdnGjpy_",
   "target": {
     "bundleId": "example",
-    "displayId": 1,
-    "kind": "app"
+    "kind": "window",
+    "windowId": 2
   },
   "version": 2
 }
@@ -25629,6 +25864,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"action"` |  |
 | action | yes | [ScreenAction.json](schema/ScreenAction.json) |  |
 
@@ -25637,12 +25873,12 @@ Example:
 ```json
 {
   "action": {
-    "kind": "click",
-    "x": 6,
-    "y": 4
+    "kind": "type",
+    "text": "example"
   },
   "id": "5tMgOOjHVX4SMhvbcpJDr-_88SI3tELjQ3Y_muZqqzXk3CRzzElhciBUbi",
   "op": "action",
+  "person": false,
   "version": 2
 }
 ```
@@ -25653,6 +25889,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"watch"` |  |
 | active | yes | boolean |  |
 | captureGeneration | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
@@ -25674,6 +25911,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.tree"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25697,6 +25935,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.find"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25707,6 +25946,7 @@ Example:
 
 ```json
 {
+  "allowlist": [],
   "id": "Qk1GZ242qhmi7tYAInOT10pS_Y4o3u9g0VFeUmRQZ66OIh4fp",
   "op": "ui.find",
   "query": {
@@ -25722,6 +25962,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.act"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25735,16 +25976,26 @@ Example:
 
 ```json
 {
-  "action": "press",
+  "action": "focus",
   "allowlist": [],
   "id": "4RuD39oIml3Yww4BKx01OKH7eY91Vz_3w9BinkwcNizFINO6wGpY6A_1vMt79D",
-  "name": "example",
   "op": "ui.act",
   "range": {
-    "length": 4,
+    "length": 7,
     "location": 7
   },
-  "ref": "jpoBkJGUd66iA23B81j1tTWuTmlk4tE4TD6TFgfZ6DV",
+  "ref": "BkJGUd66iA23B81",
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 2,
+    "kind": "display"
+  },
+  "value": {
+    "dx": 1,
+    "dy": 8
+  },
   "version": 2
 }
 ```
@@ -25755,6 +26006,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.move"` |  |
 | x | yes | number | {"minimum":0} |
 | y | yes | number | {"minimum":0} |
@@ -25766,8 +26018,8 @@ Example:
   "id": "pi3NTPnEya3ZepNxE4qDpv",
   "op": "pointer.move",
   "version": 2,
-  "x": 6,
-  "y": 2
+  "x": 2,
+  "y": 8
 }
 ```
 
@@ -25777,6 +26029,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.click"` |  |
 | x | yes | number | {"minimum":0} |
 | y | yes | number | {"minimum":0} |
@@ -25786,11 +26039,12 @@ Example:
 
 ```json
 {
-  "button": "left",
+  "button": "right",
   "id": "CPwJWWIkudIDFrSyGdCLcf9D5ZZN-p8vsHKa",
   "op": "pointer.click",
+  "person": true,
   "version": 2,
-  "x": 2,
+  "x": 0,
   "y": 2
 }
 ```
@@ -25801,6 +26055,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.drag"` |  |
 | durationMs | no | integer | {"minimum":1,"maximum":10000} |
 | x | yes | number | {"minimum":0} |
@@ -25813,14 +26068,15 @@ Example:
 
 ```json
 {
-  "button": "left",
+  "button": "right",
+  "durationMs": 1,
   "id": "HpXtaqpMaw4YPCjFR2yma0wPuVlQxNck9OouRe",
   "op": "pointer.drag",
-  "toX": 7,
-  "toY": 8,
+  "toX": 1,
+  "toY": 4,
   "version": 2,
-  "x": 1,
-  "y": 0
+  "x": 7,
+  "y": 8
 }
 ```
 
@@ -25830,6 +26086,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"key.press"` |  |
 | key | yes | string | {"minLength":1,"maxLength":64} |
 | modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
@@ -25851,6 +26108,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"text.type"` |  |
 | text | yes | string | {"maxLength":4096} |
 
@@ -25871,7 +26129,10 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"scroll"` |  |
+| x | no | number | {"minimum":0} |
+| y | no | number | {"minimum":0} |
 | dx | yes | integer | {"minimum":-1000,"maximum":1000} |
 | dy | yes | integer | {"minimum":-1000,"maximum":1000} |
 
@@ -25879,11 +26140,12 @@ Example:
 
 ```json
 {
-  "dx": 7,
-  "dy": 1,
+  "dx": 5,
+  "dy": 0,
   "id": "tUsw9k56esnhnAeEPSmeneeAp",
   "op": "scroll",
-  "version": 2
+  "version": 2,
+  "x": 0
 }
 ```
 
@@ -26092,6 +26354,7 @@ Example:
 | --- | --- | --- | --- |
 | displays | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"displayId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"width":{"type":"number"},"height":{"type":"number"},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":0},"height":{"type":"number","minimum":0}},"required":["x","y","width","height"]}},"required":["displayId","width","height"]}} |
 | windows | yes | array | {"maxItems":2048,"items":{"type":"object","properties":{"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"bundleId":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"},"title":{"type":"string","maxLength":1024},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":0},"height":{"type":"number","minimum":0}},"required":["x","y","width","height"]}},"required":["windowId","bundleId","title"]}} |
+| chooser | no | object | {"properties":{"windows":{"type":"boolean"},"displays":{"type":"boolean"}},"required":["windows","displays"]} |
 
 Example:
 
@@ -26911,7 +27174,8 @@ Example:
       "platform": "windows",
       "semanticActions": [],
       "uiTree": true,
-      "version": 2
+      "version": 2,
+      "watchOnly": "example"
     },
     "controller": "none",
     "error": "example",
@@ -26928,9 +27192,11 @@ Example:
     "secureInputAllowed": true,
     "sessionId": "oGeloPrbWIh2jz5eA1wQi1D25MP",
     "target": {
-      "bundleId": "example",
-      "kind": "window",
-      "windowId": 8
+      "bundleIds": [
+        "example"
+      ],
+      "displayId": 8,
+      "kind": "display"
     }
   },
   "type": "screen.state"
@@ -26983,20 +27249,15 @@ Example:
 ```json
 {
   "controller": "human",
-  "error": "example",
   "indicator": false,
   "lifecycle": "stopping",
   "permissions": {
     "accessibility": true,
-    "screenRecording": false
+    "screenRecording": true
   },
   "sessionId": "lN-AX-yPMIlcQCKUkHnDmFF",
   "target": {
-    "bundleIds": [
-      "example"
-    ],
-    "displayId": 6,
-    "kind": "display"
+    "kind": "chooser"
   }
 }
 ```
@@ -27077,6 +27338,7 @@ Example:
 | kind | yes | `"window"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | windowId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| content | no | boolean |  |
 
 Example:
 
@@ -27105,6 +27367,26 @@ Example:
   ],
   "displayId": 6,
   "kind": "display"
+}
+```
+
+### chooser
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"chooser"` |  |
+| restore | no | boolean |  |
+| picked | no | [ScreenChooserPick.json](schema/ScreenChooserPick.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "chooser",
+  "picked": {
+    "source": "window",
+    "title": "example"
+  }
 }
 ```
 
@@ -28490,6 +28772,720 @@ Example:
 
 ```json
 "http://ii3zsf:36761"
+```
+
+## SkillAgent
+
+[JSON Schema](schema/SkillAgent.json), input validation.
+
+Type: ["claude","codex","opencode","cursor","pi"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"claude"
+```
+
+## SkillEntry
+
+[JSON Schema](schema/SkillEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| title | no | string | {"minLength":1,"maxLength":256} |
+| description | yes | string | {"maxLength":2048} |
+| scope | yes | [SkillScope.json](schema/SkillScope.json) |  |
+| path | yes | string | {"maxLength":4096} |
+| agents | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/SkillPresence.json"}} |
+| manual | yes | boolean |  |
+| argumentHint | no | string | {"maxLength":1024} |
+| editable | yes | boolean |  |
+| source | no | [SkillSource.json](schema/SkillSource.json) |  |
+| hash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "agents": [],
+  "description": "example",
+  "editable": true,
+  "hash": "94b02b4aac349d32e7ab2edfeaf23aca149960a0806653b983d0131c5fbe55a0",
+  "id": "skl_9f24fed344c33c64ec4cc56a4b363235b68dadd4",
+  "manual": true,
+  "name": "example",
+  "path": "example",
+  "scope": "builtin",
+  "source": {
+    "folderHash": "example",
+    "path": "example",
+    "source": "example",
+    "url": "example"
+  },
+  "title": "example"
+}
+```
+
+## SkillErrorCode
+
+[JSON Schema](schema/SkillErrorCode.json), input validation.
+
+Type: ["unavailable","busy","forbidden","not_found","conflict","exists","invalid","limit","read_only","update_failed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"busy"
+```
+
+## SkillHash
+
+[JSON Schema](schema/SkillHash.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"8e00891064494676cd940ff1ae04e2a9372ba1dd64d3ed559ac19597e874633f"
+```
+
+## SkillId
+
+[JSON Schema](schema/SkillId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"skl_b69b02cb256eaca0fb78f30bca9b17ab6161e212"
+```
+
+## SkillOperation
+
+[JSON Schema](schema/SkillOperation.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"list"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| subscribe | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "op": "list"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_4df06cd542d7c8216f75d7a241bfca4cd4f665ad",
+  "op": "read"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"create"` |  |
+| name | yes | [SkillSlug.json](schema/SkillSlug.json) |  |
+| description | yes | string | {"minLength":1,"maxLength":1024} |
+| body | yes | string | {"maxLength":262144} |
+| scope | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"personal"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"project"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["kind","workspaceId"]}]} |
+| agents | yes | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"}} |
+| manual | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "agents": [
+    "opencode"
+  ],
+  "body": "example",
+  "description": "example",
+  "manual": true,
+  "name": "rw",
+  "op": "create",
+  "scope": {
+    "kind": "project",
+    "workspaceId": "example"
+  }
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"edit"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+| description | yes | string | {"minLength":1,"maxLength":1024} |
+| body | yes | string | {"maxLength":262144} |
+| manual | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "description": "example",
+  "expectedHash": "f374a017608b073c04c54bc201db51d1c35aef4b9d6e5a1bc8619ea33e40d036",
+  "id": "skl_befe8f8b242daa4284d87f3970e28c55ebd86409",
+  "manual": true,
+  "op": "edit",
+  "workspaceId": "example"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"setAgents"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| agents | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"}} |
+
+Example:
+
+```json
+{
+  "agents": [],
+  "id": "skl_e66e91e615d71a62870a3b7d80fc6e516ec9e3af",
+  "op": "setAgents"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"delete"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "expectedHash": "ff752b411e7f234fe45876a0f3f5b6a36251cccc23f2e8fe2eb577c073ad1fdf",
+  "id": "skl_2eed933106828b73993c07c1a0064f5df2ba6355",
+  "op": "delete"
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"checkUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_576ca48cf72deb939c6ed305b01f205a86abe20b",
+  "op": "checkUpdate"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"prepareUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_9febb6e7e8d75ca3ae909f49df290166099c52b1",
+  "op": "prepareUpdate",
+  "workspaceId": "example"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"applyUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "expectedHash": "999b4ce3525ec2bf308d927434369cd7bee4a51d754980432b026079dcd70d99",
+  "id": "skl_52a7fdd1dac8e35e18c3bb208317ef1ef49d0997",
+  "op": "applyUpdate",
+  "reviewId": "example",
+  "workspaceId": "example"
+}
+```
+
+### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"cancelUpdate"` |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "op": "cancelUpdate",
+  "reviewId": "example"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"usage"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| ids | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillId.json"}} |
+
+Example:
+
+```json
+{
+  "ids": [],
+  "op": "usage"
+}
+```
+
+## SkillPresence
+
+[JSON Schema](schema/SkillPresence.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | [SkillAgent.json](schema/SkillAgent.json) |  |
+| via | yes | ["native","link","copy"] |  |
+| path | yes | string | {"maxLength":4096} |
+| removable | yes | boolean |  |
+| honoursManual | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "honoursManual": false,
+  "path": "example",
+  "provider": "cursor",
+  "removable": true,
+  "via": "copy"
+}
+```
+
+## SkillResult
+
+[JSON Schema](schema/SkillResult.json), input validation.
+
+### list
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"list"` |  |
+| entries | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillEntry.json"}} |
+| stale | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "kind": "list",
+  "stale": true
+}
+```
+
+### skill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"skill"` |  |
+| entry | yes | [SkillEntry.json](schema/SkillEntry.json) |  |
+| text | yes | string | {"maxLength":262144} |
+| kept | no | array | {"maxItems":8,"items":{"type":"object","properties":{"provider":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"},"reason":{"type":"string","enum":["canonical","copy","shared"]}},"required":["provider","reason"]}} |
+
+Example:
+
+```json
+{
+  "entry": {
+    "agents": [],
+    "description": "example",
+    "editable": true,
+    "hash": "c55d85db6992f5507870542cb2fc0bec8f3f0ed2965f2c674ffb17c59bc715f2",
+    "id": "skl_cdf5ae8840700f0533a38b31790dee15c0e8b493",
+    "manual": false,
+    "name": "example",
+    "path": "example",
+    "scope": "personal",
+    "title": "example"
+  },
+  "kind": "skill",
+  "text": "example"
+}
+```
+
+### deleted
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"deleted"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_f575b0d3312a701636d557858917c02143c93349",
+  "kind": "deleted"
+}
+```
+
+### updateStatus
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"updateStatus"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| status | yes | ["current","available"] |  |
+| commit | yes | string | {"pattern":"^[a-f0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "commit": "9d0937908641d2ab0ed84365f86c21f170b5a5749671a748591a4e1df6d9",
+  "id": "skl_3ef4c22e22d5e036490712c9a821a12dd7bab3ff",
+  "kind": "updateStatus",
+  "status": "available"
+}
+```
+
+### updateReview
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"updateReview"` |  |
+| review | yes | [SkillUpdateReview.json](schema/SkillUpdateReview.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "updateReview",
+  "review": {
+    "after": "example",
+    "baseHash": "9973d7358a74c42e1d1b430ca79f5508dbda961759de40f92c0ed11a9c18aaf7",
+    "before": "example",
+    "commit": "e2b10f9d2b4fbd753f89602e41f0a469aaa3c263",
+    "files": [],
+    "folderHash": "example",
+    "id": "example",
+    "skillId": "skl_b49a66d19c2bec9406ba8fde0aac88081e334635"
+  }
+}
+```
+
+### cancelled
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"cancelled"` |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "kind": "cancelled",
+  "reviewId": "example"
+}
+```
+
+### usage
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"usage"` |  |
+| usage | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillUsage.json"}} |
+
+Example:
+
+```json
+{
+  "kind": "usage",
+  "usage": []
+}
+```
+
+### error
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"error"` |  |
+| code | yes | [SkillErrorCode.json](schema/SkillErrorCode.json) |  |
+| message | yes | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "code": "read_only",
+  "kind": "error",
+  "message": "example"
+}
+```
+
+## SkillsChanged
+
+[JSON Schema](schema/SkillsChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.changed"` |  |
+| requestId | yes | string |  |
+| entries | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillEntry.json"}} |
+| stale | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "requestId": "example",
+  "stale": false,
+  "type": "skills.changed"
+}
+```
+
+## SkillScope
+
+[JSON Schema](schema/SkillScope.json), input validation.
+
+Type: ["project","personal","plugin","builtin"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"builtin"
+```
+
+## SkillSlug
+
+[JSON Schema](schema/SkillSlug.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"6f1d-99g-t-qt5q-s60g0kr-tyd-ohrk03y"
+```
+
+## SkillSource
+
+[JSON Schema](schema/SkillSource.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | string | {"maxLength":512} |
+| url | yes | string | {"maxLength":4096} |
+| path | yes | string | {"maxLength":4096} |
+| folderHash | yes | string | {"maxLength":64} |
+| updatedAt | no | string | {"maxLength":64} |
+
+Example:
+
+```json
+{
+  "folderHash": "example",
+  "path": "example",
+  "source": "example",
+  "url": "example"
+}
+```
+
+## SkillsRequest
+
+[JSON Schema](schema/SkillsRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | [SkillOperation.json](schema/SkillOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "list"
+  },
+  "requestId": "example",
+  "type": "skills.request"
+}
+```
+
+## SkillsResult
+
+[JSON Schema](schema/SkillsResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.result"` |  |
+| requestId | yes | string |  |
+| result | yes | [SkillResult.json](schema/SkillResult.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "kind": "updateReview",
+    "review": {
+      "after": "example",
+      "baseHash": "cc0a706caa9c050d68447331a2de9776f113b4142f8c3340e6815c2a1ca75ddd",
+      "before": "example",
+      "commit": "ba60e82bc3a3cbf0926aeb88c7959a829d9573ff65535cf5815893bc8",
+      "files": [],
+      "folderHash": "example",
+      "id": "example",
+      "skillId": "skl_c23bee4612a911a2969ae81539c178c1add78173"
+    }
+  },
+  "type": "skills.result"
+}
+```
+
+## SkillsUnsubscribe
+
+[JSON Schema](schema/SkillsUnsubscribe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.unsubscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "skills.unsubscribe"
+}
+```
+
+## SkillUpdateFile
+
+[JSON Schema](schema/SkillUpdateFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"maxLength":4096} |
+| change | yes | ["added","changed","removed"] |  |
+| flagged | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "change": "changed",
+  "flagged": true,
+  "path": "example"
+}
+```
+
+## SkillUpdateReview
+
+[JSON Schema](schema/SkillUpdateReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":128} |
+| skillId | yes | [SkillId.json](schema/SkillId.json) |  |
+| commit | yes | string | {"pattern":"^[a-f0-9]{40,64}$"} |
+| folderHash | yes | string | {"maxLength":64} |
+| baseHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+| files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/SkillUpdateFile.json"}} |
+| before | yes | string | {"maxLength":262144} |
+| after | yes | string | {"maxLength":262144} |
+
+Example:
+
+```json
+{
+  "after": "example",
+  "baseHash": "e2abf01c9e3da206563abaadbc1caaa1833a7a85eb9f66f56d1d6d857b059186",
+  "before": "example",
+  "commit": "b827be834e9ed7a594506e7775b1f2d56b5081296b471e98e9",
+  "files": [],
+  "folderHash": "example",
+  "id": "example",
+  "skillId": "skl_6361e8c21a03ccfec1b3de25a78eb0046cc9a985"
+}
+```
+
+## SkillUsage
+
+[JSON Schema](schema/SkillUsage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| count | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| last | no | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"title":{"type":"string","maxLength":512},"at":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["threadId","title","at"]} |
+
+Example:
+
+```json
+{
+  "count": 8,
+  "id": "skl_3b52b1e583fec358aaad593af9e6c932ac79d0a7",
+  "last": {
+    "at": 4,
+    "threadId": "example",
+    "title": "example"
+  }
+}
 ```
 
 ## SnapshotView

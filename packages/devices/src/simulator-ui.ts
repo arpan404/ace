@@ -9,7 +9,12 @@ import type { DeviceInput } from "@ace/protocol/devices";
 import type { z } from "zod";
 import { androidFind } from "./android-ui.ts";
 import { DeviceError } from "./sdk.ts";
-import { simulatorActionInput, simulatorTarget, simulatorTree } from "./simulator-ax.ts";
+import {
+  simulatorActionInput,
+  simulatorLayout,
+  simulatorTarget,
+  simulatorTree,
+} from "./simulator-ax.ts";
 
 /** Accessibility reads and semantic actions a live capture serves itself. */
 export interface CaptureUI {
@@ -26,11 +31,11 @@ export function simulatorUI(options: {
   fetch: typeof fetch;
   signal: AbortSignal;
   after(ms: number, run: () => void): () => void;
-  screen(): { width: number; height: number };
+  screen(): { width: number; height: number; orientation?: string };
   input(input: DeviceInput, guard: () => void): Promise<void>;
 }): CaptureUI {
   const read = async (limits: unknown) => {
-    const { width, height } = options.screen();
+    const { width, height, orientation } = options.screen();
     if (!width || !height)
       throw new DeviceError(
         "not_found",
@@ -74,7 +79,8 @@ export function simulatorUI(options: {
           "Read the UI tree again.",
         );
       }
-      return simulatorTree(raw, { width, height }, limits);
+      const screen = { width, height, ...(orientation ? { orientation } : {}) };
+      return { tree: simulatorTree(raw, screen, limits), turn: simulatorLayout(raw, screen).turn };
     } catch (error) {
       if (controller.signal.aborted && !options.signal.aborted)
         throw new DeviceError(
@@ -89,15 +95,15 @@ export function simulatorUI(options: {
     }
   };
   return {
-    tree: read,
+    tree: async (limits) => (await read(limits)).tree,
     async find(raw) {
       const query = ScreenUIFindOptions.parse(raw);
-      return androidFind(await read({ maxNodes: 512, maxDepth: 16 }), query);
+      return androidFind((await read({ maxNodes: 512, maxDepth: 16 })).tree, query);
     },
     async act(raw, guard) {
       const action = ScreenUIActOptions.parse(raw);
-      const node = simulatorTarget(await read({ maxNodes: 512, maxDepth: 16 }), action.ref);
-      const input = simulatorActionInput(node, action);
+      const { tree, turn } = await read({ maxNodes: 512, maxDepth: 16 });
+      const input = simulatorActionInput(simulatorTarget(tree, action.ref), action, turn);
       if (input.kind === "none") return { fallback: false, method: input.method };
       guard();
       await options.input(input, guard);

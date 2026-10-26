@@ -14,29 +14,35 @@ app.setPath("userData", environment.ACE_E2E_USER_DATA);
 // The test servers use the repository's test-only self-signed certificate.
 app.commandLine.appendSwitch("ignore-certificate-errors");
 registerAppScheme();
-await app.whenReady();
-const network = new DaemonNetwork();
-installDaemonNetwork(network);
-const origin = await serveRenderer(directory, [], network);
-const window = new BrowserWindow({
-  webPreferences: {
-    preload: join(directory, "preload.cjs"),
-    sandbox: true,
-    contextIsolation: true,
-    nodeIntegration: false,
-    additionalArguments: [
-      `--ace-info=${JSON.stringify({
-        version: "0.1.0",
-        platform: process.platform,
-        arch: process.arch,
-        electron: process.versions.electron,
-        packaged: false,
-      })}`,
-    ],
-  },
+// Never a top-level `await app.whenReady()`: on Linux, Electron emits `ready` only after an ESM
+// main entry has finished evaluating, so the entry would wait on itself forever.
+void app.whenReady().then(async () => {
+  const network = new DaemonNetwork();
+  installDaemonNetwork(network);
+  const origin = await serveRenderer(directory, [], network);
+  const window = new BrowserWindow({
+    webPreferences: {
+      preload: join(directory, "preload.cjs"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      additionalArguments: [
+        `--ace-info=${JSON.stringify({
+          version: "0.1.0",
+          platform: process.platform,
+          arch: process.arch,
+          electron: process.versions.electron,
+          packaged: false,
+        })}`,
+      ],
+    },
+  });
+  ipcMain.handle(requestChannel("daemon.authorize"), (event, payload: unknown) => {
+    if (event.sender !== window.webContents) throw new Error("Unknown renderer");
+    network.authorize(requests["daemon.authorize"].request.parse(payload));
+  });
+  await window.loadURL(`${origin}#${environment.ACE_E2E_ORIGINS}`);
+}).catch((error: unknown) => {
+  console.error(error);
+  app.exit(1);
 });
-ipcMain.handle(requestChannel("daemon.authorize"), (event, payload: unknown) => {
-  if (event.sender !== window.webContents) throw new Error("Unknown renderer");
-  network.authorize(requests["daemon.authorize"].request.parse(payload));
-});
-await window.loadURL(`${origin}#${environment.ACE_E2E_ORIGINS}`);

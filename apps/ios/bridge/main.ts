@@ -24,12 +24,14 @@ import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
+import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { NativeTransfers, TransferAction } from "./transfers.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -72,6 +74,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive"), action: z.unknown() }),
   /** The thread's live browser view (`browser-live.ts`). */
   z.object({ type: z.literal("browser"), action: z.unknown() }),
+  /** Continue on… and Open on… (`transfers.ts`). */
+  z.object({ type: z.literal("transfers"), action: TransferAction }),
 ]);
 let client: ClientCore | undefined;
 let notifications: NotificationBridge | undefined;
@@ -87,6 +91,7 @@ let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
+let transfers: NativeTransfers | undefined;
 const pump = new PatchPump();
 /**
  * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
@@ -199,15 +204,20 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
     agent: (holder) => deviceAgent(holder.threadId, holder.agentId),
   });
+  let machineName: string | undefined;
   screen = new NativeScreen(
     featureConfig,
     (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
+    async () =>
+      (machineName ??= (await owner.request({ type: "host.identity", requestId: host.uuid() }))
+        .identity.displayName),
   );
   const search = compose.search;
   const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
+  const forgeClient = client;
   services = new NativeServices(
     client,
     pump,
@@ -219,10 +229,13 @@ async function start(json: string): Promise<void> {
       preview,
       () => host.now(),
       () => reads.stamp("forge"),
+      () => host.uuid(),
+      (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
   );
   terminal = new NativeTerminal(client, pump);
+  transfers = new NativeTransfers(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
       threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
@@ -291,6 +304,7 @@ function action(json: string): void {
         session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         browser?.close();
         browser?.probe(value.threadId, epoch);
+        transfers?.follow({ threadId: value.threadId, epoch, store: lease.store });
         break;
       case "back":
         services?.transcript.close();
@@ -302,6 +316,7 @@ function action(json: string): void {
         stopThread?.();
         sheets.close();
         browser?.close();
+        transfers?.follow(undefined);
         lease?.release();
         lease = undefined;
         openThreadId = undefined;
@@ -335,6 +350,10 @@ function action(json: string): void {
         break;
       case "browser":
         if (!browser?.action(value.action)) error();
+        break;
+      case "transfers":
+        if (transfers) transfers.handle(value.action);
+        else error();
         break;
       case "sheet": {
         const thread =

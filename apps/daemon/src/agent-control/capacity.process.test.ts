@@ -92,11 +92,11 @@ test("with a limit of four, a fifth child queues and starts when one finishes", 
   for (const child of children.slice(0, 4))
     expect(h.store.getThread(child.childId)?.status.state).toBe("working");
   expect(h.contexts.has(fifth.childId)).toBe(false);
-  // The parent shows the queued child as waiting, so it can never read done meanwhile.
+  // The parent shows the queued child as blocked on the launch queue, so it can never read done meanwhile.
   const shown = Object.values(h.store.snapshotThread(parent.threadId).agents).find(
     (agent) => agent.childThreadId === fifth.childId,
   );
-  expect(shown?.status).toMatchObject({ state: "blocked", on: "subagents" });
+  expect(shown?.status).toMatchObject({ state: "blocked", on: "queue" });
   expect(h.store.getThread(parent.threadId)?.status.state).not.toBe("done");
   h.restartOwner();
   await h.engine.flush();

@@ -3,7 +3,7 @@ import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import { measureSession } from "./measurement.ts";
-import { humanDeviceInput } from "./device-input-policy.ts";
+import { deviceWindowBundles, humanDeviceInput } from "./device-input-policy.ts";
 import { SessionObservations } from "./session-observations.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { ScreenAccessPolicy } from "./access-policy.ts";
@@ -291,7 +291,12 @@ export class ScreenManager {
     if (!current.helper.capabilities?.windowSelection) {
       const caller = agentScope(owner),
         target = current.state.target;
-      if (!caller || this.agentSession(caller, id) !== id || target.kind === "display")
+      if (
+        !caller ||
+        this.agentSession(caller, id) !== id ||
+        target.kind === "display" ||
+        target.kind === "chooser"
+      )
         throw new Error("Agent app session required");
       const epoch = current.epoch;
       const validate = () => {
@@ -411,9 +416,7 @@ export class ScreenManager {
     const inventory = ScreenInventory.parse(await this.inspect("targets"));
     return {
       displays: [],
-      windows: inventory.windows.filter(
-        (window) => window.bundleId === "com.apple.iphonesimulator",
-      ),
+      windows: inventory.windows.filter((window) => deviceWindowBundles.has(window.bundleId)),
     };
   }
   async targets(): Promise<ScreenInventory> {
@@ -507,7 +510,12 @@ export class ScreenManager {
         if (input.kind === "pointer.down") session.pointerDown = true;
         return session.helper
           .request(
-            { op: "input", input, humanDeviceInput: humanDeviceInput(actor, session.state.target) },
+            {
+              op: "input",
+              input,
+              humanDeviceInput: humanDeviceInput(actor, session.state.target),
+              person: actor === "human",
+            },
             () => {
               validate();
               beforeDispatch?.();

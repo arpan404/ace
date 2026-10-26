@@ -159,6 +159,22 @@ it("reports a missing SDK with an actionable typed error", async () => {
     hint: expect.stringContaining("ANDROID_HOME"),
   });
 });
+it("on arm64 Linux a missing adb points at the distribution's adb and says Google ships no emulator for it", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    arch: "arm64",
+    home: join(f.home, "empty"),
+    env: { PATH: "" },
+  });
+  onTestFinished(() => manager.close());
+  await expect(manager.list()).rejects.toMatchObject({
+    code: "sdk_missing",
+    message: "adb was not found",
+    hint: expect.stringMatching(/sudo apt install adb.*emulators aren't available on Linux arm64/),
+  });
+});
+
 it("reuses simulator discovery and boot then installs and launches a Simulator app", async () => {
   const f = await fixture("darwin");
   expect(await f.manager.list()).toContainEqual({
@@ -1239,15 +1255,38 @@ it("iOS logs use an info filter and follow the last launched app process", async
     "processIdentifier == 1234",
   ]);
 });
-it("the iOS catalog explains which tools enable background input", async () => {
+it("without serve-sim or idb the iOS catalog says the device tools are missing and where to download them", async () => {
   const f = await fixture("darwin");
   await f.manager.list();
   expect(f.manager.diagnostics()).toContainEqual(
     expect.objectContaining({
       code: "tool_missing",
-      hint: expect.stringContaining("serve-sim streams the Simulator"),
+      message: "The Simulator's device tools aren't downloaded",
+      hint: expect.stringContaining(
+        "Download device tools in Devices: ace's serve-sim streams the Simulator",
+      ),
     }),
   );
+});
+it("a missing Android SDK is reported as Android's, beside a working Simulator", async () => {
+  const f = await fixture("darwin");
+  const manager = new DevicePlatform({
+    platform: "darwin",
+    home: join(f.home, "no-android"),
+    env: f.env,
+    after: shutdownClock,
+  });
+  onTestFinished(() => manager.close());
+  expect(await manager.list()).toEqual([{ ...ios(), runtime: "iOS 18.0" }]);
+  expect(manager.diagnostics()).toEqual([
+    expect.objectContaining({
+      code: "sdk_missing",
+      platform: "android",
+      message: "Android SDK platform-tools were not found",
+      hint: expect.stringContaining("ANDROID_HOME"),
+    }),
+    expect.objectContaining({ code: "tool_missing", platform: "ios" }),
+  ]);
 });
 for (const closing of [false, true])
   it(`${closing ? "service close" : "console shutdown"} waits for snapshot saving before any process signal`, async () => {

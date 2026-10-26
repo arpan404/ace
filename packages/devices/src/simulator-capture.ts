@@ -17,6 +17,8 @@ import { nativeId } from "./commands.ts";
 import { knownOrientation, simulatorRotation } from "./simulator-rotation.ts";
 import { DeviceError } from "./sdk.ts";
 import { pinnedServeSim } from "./serve-sim-version.ts";
+import { startSimulatorDigitizer, type SimulatorDigitizer } from "./simulator-digitizer.ts";
+import { touchTarget, type SimulatorScreen } from "./simulator-screens.ts";
 
 const Endpoint = z.object({
   device: z.string().uuid(),
@@ -73,6 +75,10 @@ export async function simulatorCapture(options: {
   failure(error: unknown): void;
   /** The screen helper, to re-encode for a viewer who can't carry serve-sim's stream. */
   transcoder?: string;
+  /** The screen helper, to touch the Simulator through Xcode's own input service. */
+  digitizer?: string;
+  /** The Simulator's built-in screens, so a touch reaches the one in the picture. */
+  screens?: () => Promise<readonly SimulatorScreen[]>;
 }): Promise<DeviceCapture> {
   const { runtime } = options;
   const fetcher = runtime.fetch ?? fetch;
@@ -98,6 +104,24 @@ export async function simulatorCapture(options: {
   let h264: SimulatorH264 | undefined;
   /** Re-encoding for a thin link or a small panel; undefined while serve-sim passes through. */
   let transcode: SimulatorTranscode | undefined;
+  /** Touches through Xcode's input service, started beside serve-sim's control socket. */
+  let touching: Promise<SimulatorDigitizer | undefined> | undefined;
+  let screens: readonly SimulatorScreen[] = [];
+  /** The lit screen's size, which ace asked serve-sim to stream (a device with several). */
+  let lit: { width: number; height: number } | undefined;
+  let reading: Promise<void> | undefined;
+  /** Reads the screens again (a fold lights another one); one read at a time. */
+  const readScreens = (read: () => Promise<readonly SimulatorScreen[]>) =>
+    (reading ??= read()
+      .then((found) => {
+        screens = found;
+      })
+      .catch(() => {})
+      .finally(() => {
+        reading = undefined;
+      }));
+  // Read while serve-sim starts: the first touch must already know which screen it is on.
+  const screensRead = options.screens ? readScreens(options.screens) : undefined;
   /** serve-sim's native picture, from its stream's parameter sets. */
   let native: { width: number; height: number } | undefined;
   let socket: WebSocket | undefined;
@@ -113,6 +137,7 @@ export async function simulatorCapture(options: {
         jpeg?.stop(),
         h264?.stop(),
         transcode?.stop(),
+        touching?.then((digitizer) => digitizer?.stop()),
         child.stop({ graceMs: 1500 }),
       ]);
       terminated = true;
@@ -153,9 +178,20 @@ export async function simulatorCapture(options: {
       if (output.length + chunk.length > 8192)
         throw new Error("Simulator endpoint metadata exceeds limit");
       output = Buffer.concat([output, chunk]);
-      const end = output.indexOf(10);
-      if (end < 0) return;
-      const value = Endpoint.parse(JSON.parse(output.subarray(0, end).toString("utf8")));
+      // serve-sim may print a notice first (a busy port it cleared); the endpoint is the first
+      // line that is JSON.
+      let line: unknown;
+      for (let end = output.indexOf(10); end >= 0 && line === undefined; end = output.indexOf(10)) {
+        const text = output.subarray(0, end).toString("utf8");
+        output = output.subarray(end + 1);
+        try {
+          line = JSON.parse(text);
+        } catch {
+          // Not the endpoint: keep reading.
+        }
+      }
+      if (line === undefined) return;
+      const value = Endpoint.parse(line);
       if (value.device.toLowerCase() !== nativeId(options.device).toLowerCase())
         throw new Error("Simulator helper identity mismatch");
       localUrl(value.streamUrl, value.port, "http:");
@@ -204,6 +240,16 @@ export async function simulatorCapture(options: {
   };
   try {
     const value = await endpoint.promise;
+    const toucher = options.digitizer;
+    if (toucher) {
+      touching = startSimulatorDigitizer({
+        helper: toucher,
+        udid: value.device,
+        runtime,
+        env: options.env,
+        target: () => touchTarget(screens, native ?? lit),
+      }).catch(() => undefined);
+    }
     cancel();
     controller.signal.removeEventListener("abort", onAbort);
     controller.signal.throwIfAborted();
@@ -237,7 +283,15 @@ export async function simulatorCapture(options: {
         const config = ScreenConfig.safeParse(JSON.parse(bytes.subarray(1).toString("utf8")));
         if (config.success) {
           const before = simulatorRotation(screen.orientation);
-          Object.assign(screen, config.data);
+          // Once the picture's own size is known, it stands: serve-sim can keep naming the
+          // screen it attached to (an iPhone Duo's cover) while it streams another.
+          Object.assign(
+            screen,
+            (native ?? lit)
+              ? { orientation: config.data.orientation ?? screen.orientation }
+              : config.data,
+          );
+          if (options.screens) void readScreens(options.screens);
           sized.resolve();
           // A portrait-only app shows no new picture when the device turns; resend one so
           // viewers learn the new rotation anyway.
@@ -259,6 +313,25 @@ export async function simulatorCapture(options: {
       controller.signal.removeEventListener("abort", socketAbort);
     }
     controller.signal.throwIfAborted();
+    const [digitizer] = await Promise.all([
+      touching,
+      new Promise<void>((resolve) => {
+        const giveUp = runtime.after(3000, resolve);
+        void Promise.resolve(screensRead).finally(() => {
+          giveUp();
+          resolve();
+        });
+      }),
+    ]);
+    controller.signal.throwIfAborted();
+    // serve-sim starts on a device's smallest screen and moves only when it sees the device
+    // fold, so an iPhone Duo opened earlier would stream its dark cover. Ask for the lit one.
+    const shown = screens.length > 1 ? screens.find((candidate) => candidate.active) : undefined;
+    if (shown && socket.readyState === WebSocket.OPEN) {
+      lit = { width: shown.width, height: shown.height };
+      Object.assign(screen, lit);
+      socket.send(Buffer.concat([Buffer.from([13]), Buffer.from(JSON.stringify(lit))]));
+    }
     input = new SimulatorInput({
       runtime,
       command: options.command,
@@ -274,18 +347,22 @@ export async function simulatorCapture(options: {
           throw new Error("Simulator input backlog exceeded limit");
         socket.send(Buffer.concat([Buffer.from([tag]), Buffer.from(JSON.stringify(payload))]));
       },
+      ...(digitizer ? { touch: (message) => digitizer.touch(message) } : {}),
     });
     const nativeInput = input;
     // serve-sim announces the orientation it last asked for, not the one the Simulator is in: a
     // fresh serve-sim says portrait even when an earlier session (or Simulator's own menu) left
     // the device turned, and viewers would show a sideways picture in an upright frame. Turning
     // the device to what is announced makes the picture and its rotation agree from the start.
-    socket.send(
-      Buffer.concat([
-        Buffer.from([7]),
-        Buffer.from(JSON.stringify({ orientation: knownOrientation(screen.orientation) })),
-      ]),
-    );
+    // A device with several screens is left alone: an iPhone Duo's inner screen stays landscape
+    // whatever it is asked, and serve-sim follows its orientation itself.
+    if (screens.length < 2)
+      socket.send(
+        Buffer.concat([
+          Buffer.from([7]),
+          Buffer.from(JSON.stringify({ orientation: knownOrientation(screen.orientation) })),
+        ]),
+      );
     const toH264 = async (): Promise<"h264"> => {
       if (h264) return "h264";
       const source = new SimulatorH264({

@@ -79,8 +79,5 @@
   "apps/web/src/features/thread/long/search-bar.tsx": {
     "radius": 1,
     "bare-outline": 1
-  },
-  "apps/web/src/features/thread/long/timeline.tsx": {
-    "bare-outline": 1
   }
 }

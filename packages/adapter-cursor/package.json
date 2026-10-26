@@ -9,7 +9,8 @@
     "./auth": "./src/auth.ts",
     "./discovery": "./src/host.ts",
     "./slots": "./src/slots.ts",
-    "./instance": "./src/instance.ts"
+    "./instance": "./src/instance.ts",
+    "./sandbox-helper": "./src/sandbox-helper.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

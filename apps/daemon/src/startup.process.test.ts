@@ -11,6 +11,7 @@ import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
+import { retainNotifications } from "./notification-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -30,9 +31,11 @@ const Status = z.object({
 async function launch(
   source: string,
   observeStartup?: (origin: string, token: string) => Promise<void>,
+  prepare?: (home: string) => Promise<void>,
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
+  await prepare?.(home);
   const entry = join(home, "daemon-entry.mjs");
   await writeFile(entry, source);
   const child = spawn(process.execPath, [entry], {
@@ -192,15 +195,20 @@ it("a notification worker that never replies is named as degraded while the daem
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
     process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
   `;
-  const daemon = await launch(source, async (origin, token) => {
-    // Endpoint publication and core HTTP readiness precede the optional service's deadline.
-    const status = Status.parse(await accessRequest(origin, "/v1/status", { token }));
-    expect(status.ready).toBe(false);
-    expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
-      "starting",
-    );
-    expect(status.services.find((service) => service.name === "engine")?.state).toBe("ready");
-  });
+  const daemon = await launch(
+    source,
+    async (origin, token) => {
+      // Endpoint publication and core HTTP readiness precede the optional service's deadline.
+      const status = Status.parse(await accessRequest(origin, "/v1/status", { token }));
+      expect(status.ready).toBe(false);
+      expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
+        "starting",
+      );
+      expect(status.services.find((service) => service.name === "engine")?.state).toBe("ready");
+    },
+    // A saved push device needs the worker from startup; a fresh home starts it on first use.
+    retainNotifications,
+  );
   expect(daemon.status.services.find((service) => service.name === "notifications")).toMatchObject({
     name: "notifications",
     state: "degraded",
@@ -297,6 +305,8 @@ it("a daemon whose engine cannot start fails with a logged error and never liste
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-signal-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
+  // A saved push device needs the worker from startup, so its first reply holds startup.
+  await retainNotifications(home);
   const child = spawn(
     process.execPath,
     [

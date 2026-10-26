@@ -46,13 +46,14 @@ const ax = [
 
 /**
  * A stand-in for serve-sim: a CLI announcing one helper for `udid`, which serves MJPEG, AVCC,
- * `/ax` (a Settings screen with a General row) and the HID socket on one port.
+ * `/ax` (a Settings screen with a General row) and the HID socket on one port. `notice` is a
+ * line it prints before the announcement, as serve-sim does when it clears a busy port.
  */
 export async function fakeServeSim(
   home: string,
   version: string,
   udid: string,
-  options: { video?: boolean; turned?: string } = {},
+  options: { video?: boolean; turned?: string; notice?: string } = {},
 ) {
   const base = `/helper/${udid}`;
   const avcc: ServerResponse[] = [];
@@ -123,7 +124,7 @@ export async function fakeServeSim(
   const command = join(home, "serve-sim");
   await writeFile(
     command,
-    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log(${JSON.stringify(version)});process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}${base}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}${base}/ws'}));process.stdin.resume();`,
+    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log(${JSON.stringify(version)});process.exit(0);}${options.notice ? `console.log(${JSON.stringify(options.notice)});` : ""}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}${base}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}${base}/ws'}));process.stdin.resume();`,
   );
   await chmod(command, 0o700);
   for (const name of ["xcode-select", "xcrun", "open"]) {

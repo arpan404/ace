@@ -1,13 +1,8 @@
 import { constants } from "node:fs";
-import { open, access, stat, lstat } from "node:fs/promises";
-import { join, delimiter } from "node:path";
+import { open, lstat } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
-import {
-  WorkspaceScript,
-  InstalledEditor,
-  type WorkspaceScript as Script,
-  type InstalledEditor as Editor,
-} from "@ace/protocol";
+import { WorkspaceScript, type WorkspaceScript as Script } from "@ace/protocol";
 
 /** Read only bounded regular root files, without following symlinks or waiting on FIFOs. */
 export async function readScriptFile(path: string): Promise<string | undefined> {
@@ -106,46 +101,3 @@ export async function listScripts(root: string): Promise<Script[]> {
   }
   return scriptsFromFiles(files, manager);
 }
-export async function installedEditors(
-  paths: string | undefined,
-  platform: NodeJS.Platform,
-  applications: readonly string[] = [],
-): Promise<Editor[]> {
-  const found: Editor[] = [];
-  for (const [id, name] of [
-    ["code", "Visual Studio Code"],
-    ["cursor", "Cursor"],
-    ["zed", "Zed"],
-    ["subl", "Sublime Text"],
-    ["idea", "IntelliJ IDEA"],
-  ]) {
-    if (!id || !name) continue;
-    const candidates = (paths ?? "")
-      .split(delimiter)
-      .filter(Boolean)
-      .slice(0, 128)
-      .map((directory) => join(directory, platform === "win32" ? `${id}.cmd` : id));
-    const bundle = macEditorBundles[id];
-    if (platform === "darwin" && bundle)
-      for (const directory of applications.slice(0, 8)) candidates.push(join(directory, bundle));
-    for (const command of candidates) {
-      try {
-        if (!(await stat(command)).isFile()) continue;
-        await access(command, platform === "win32" ? constants.F_OK : constants.X_OK);
-        found.push(InstalledEditor.parse({ id, name, command }));
-        break;
-      } catch {
-        /* Not installed at this path. */
-      }
-    }
-  }
-  return found;
-}
-
-const macEditorBundles: Record<string, string> = {
-  code: "Visual Studio Code.app/Contents/Resources/app/bin/code",
-  cursor: "Cursor.app/Contents/Resources/app/bin/cursor",
-  zed: "Zed.app/Contents/MacOS/cli",
-  subl: "Sublime Text.app/Contents/SharedSupport/bin/subl",
-  idea: "IntelliJ IDEA.app/Contents/MacOS/idea",
-};

@@ -31,7 +31,7 @@ import XCTest
         for _ in 0..<15 where !wakes {
             sleep(1)
             wakes = tree.exists && tree.label.contains("Until")
-            if !wakes { app.swipeUp() }
+            if !wakes { app.dragListUp() }
         }
         XCTAssertTrue(wakes)
         app.bringToMiddle(tree)
@@ -39,20 +39,35 @@ import XCTest
         XCTAssertTrue(app.buttons["Wake"].waitForExistence(timeout: 5))
         app.buttons["Wake"].tap()
 
-        // Settle moves a finished thread to the Settled shelf; Undo brings it back.
+        // Settle moves a finished thread off the list; Undo, inside its five seconds, brings it back.
         let done = app.buttons["thread.ios-done"]
         app.bringToMiddle(done)
         done.swipeLeft()
         XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
         app.buttons["Settle"].tap()
-        XCTAssertTrue(app.buttons["inbox.undoSettle"].waitForExistence(timeout: 10))
-        let settled = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
-        wait(for: [settled], timeout: 10)
+        let undoSettle = app.buttons["inbox.undoSettle"]
+        XCTAssertTrue(undoSettle.waitForExistence(timeout: 10))
+        XCTAssertTrue(done.waitForNonExistence(timeout: 10))
+        undoSettle.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+
+        // Left alone, the toast goes and the thread waits on the Settled shelf, which unsettles it.
+        app.bringToMiddle(done)
+        done.swipeLeft()
+        XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
+        app.buttons["Settle"].tap()
+        XCTAssertTrue(undoSettle.waitForExistence(timeout: 10))
+        XCTAssertTrue(undoSettle.waitForNonExistence(timeout: 10), "the Undo toast goes by itself")
         let settledShelf = app.buttons["inbox.settled"]
-        for _ in 0..<4 where !settledShelf.exists { app.swipeUp() }
-        XCTAssertTrue(settledShelf.exists)
+        app.bringToMiddle(settledShelf)
         screenshot("inbox-settled")
-        app.buttons["inbox.undoSettle"].tap()
+        settledShelf.tap()
+        app.bringToMiddle(done)
+        XCTAssertTrue(done.isHittable, "the settled thread is on the open shelf")
+        done.swipeLeft()
+        XCTAssertTrue(app.buttons["Unsettle"].waitForExistence(timeout: 5))
+        app.buttons["Unsettle"].tap()
+        XCTAssertTrue(settledShelf.waitForNonExistence(timeout: 10), "unsettled, the shelf has nothing left")
         XCTAssertTrue(done.waitForExistence(timeout: 10))
 
         // Leading swipe archives, with its own Undo.

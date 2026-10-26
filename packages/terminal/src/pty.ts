@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { constants as osConstants, tmpdir } from "node:os";
+import { constants as osConstants, tmpdir, userInfo } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
@@ -54,18 +54,64 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-export function resolveShell(shell?: string): string {
+/** What shell selection reads from the machine; tests substitute each one. */
+export interface ShellSelectionPorts {
+  readonly env?: NodeJS.ProcessEnv | undefined;
+  readonly exists?: ((path: string) => boolean) | undefined;
+  /**
+   * The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. Defaults
+   * to the real account only when `env` is the real environment too.
+   */
+  readonly accountShell?: (() => string | null) | undefined;
+}
+
+function systemAccountShell(): string | null {
+  try {
+    return userInfo().shell;
+  } catch {
+    return null;
+  }
+}
+
+// Accounts that may not log in name these instead of a shell.
+const refusing = /\/(?:nologin|false)$/;
+
+/**
+ * `$SHELL` (the session's choice), then the account's login shell (a daemon started by systemd
+ * or launchd may have no `$SHELL`) unless it refuses logins, then the first of `/bin/zsh`,
+ * `/bin/bash` and `/bin/sh` that is installed.
+ */
+export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
   if (shell !== undefined) return shell;
-  if (process.env.SHELL) return process.env.SHELL;
-  for (const candidate of ["/bin/zsh", "/bin/bash"]) {
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* Try the next installed shell. */
-    }
+  const env = ports?.env ?? process.env;
+  const exists = ports?.exists ?? isExecutable;
+  if (env.SHELL) return env.SHELL;
+  const accountShell = ports?.accountShell ?? (ports?.env ? () => null : systemAccountShell);
+  const account = accountShell();
+  if (account && !refusing.test(account) && exists(account)) return account;
+  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
+    if (exists(candidate)) return candidate;
   }
   throw new Error("No login shell found");
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `sleep` for the terminal launcher, by absolute path: the terminal's environment may carry
+ * any PATH (or none), and NixOS has no `/bin/sleep`, only its system profile's.
+ */
+export function resolveSleep(executable: (path: string) => boolean = isExecutable) {
+  for (const candidate of ["/bin/sleep", "/usr/bin/sleep", "/run/current-system/sw/bin/sleep"])
+    if (executable(candidate)) return candidate;
+  return "sleep";
 }
 
 /** Each manager gets its own I/O context; overlapping shutdowns share a ps read. */
@@ -111,7 +157,7 @@ export function createPosixBackendFactory(
       .join(" ");
     // The helper retains the ORIGINAL group ID, which cannot be reused while a
     // member remains. It ignores catchable signals and cleans the session on FIFO EOF.
-    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
+    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; '${resolveSleep()}' 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
     const loginArgs = options.args ?? ["-l", "-i"];
     let pty: NativePty;
     try {

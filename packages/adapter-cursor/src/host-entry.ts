@@ -7,6 +7,7 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { discoverCursorSdk } from "./host.ts";
 import { hostWire } from "./host-wire.ts";
+import { explainSandboxRefusal } from "./sandbox-helper.ts";
 import { fatalLine } from "./host-fatal.ts";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { probeCursorSandbox } from "./sandbox-support.ts";
@@ -90,7 +91,15 @@ const wire = hostWire(async (method, params) => {
   }
   const loaded = sdk;
   runtime ??= new HostRuntime(
-    { ...loaded, sandboxSupport: (options) => probeCursorSandbox(loaded, options) },
+    {
+      ...loaded,
+      sandboxSupport: (options) =>
+        probeCursorSandbox(
+          loaded,
+          options,
+          process.platform === "linux" ? () => explainSandboxRefusal() : undefined,
+        ),
+    },
     (frame) => wire.confirmed("frame", frame),
   );
   if (method === "open") return runtime.open(params);

@@ -1,39 +1,47 @@
-import { SlashIcon } from "@/components/slash-icon.tsx";
-import { useSkillDiscovery } from "./discovered-skills.tsx";
 import {
-  FunnelSimpleIcon,
   ClockIcon,
+  FolderSimpleIcon,
+  PencilSimpleIcon,
   PlugIcon,
+  PlusIcon,
   RobotIcon,
   ScrollIcon,
   SparkleIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import type { IconGlyph } from "@/components/icon.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Popover, PopoverContent, PopoverTrigger, PopoverTitle } from "@/components/ui/popover.tsx";
-import { Select } from "@/components/ui/select.tsx";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SearchField } from "@/components/search-field.tsx";
+import { SlashIcon } from "@/components/slash-icon.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import {
-  useViewListKeys,
   CompactViewRowBody,
   compactViewRowClass,
+  useViewListKeys,
   ViewSidebarError,
 } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { InstallPluginButton } from "./install-plugin.tsx";
+import { useSkillLibrary } from "./skills-library.tsx";
+import { useInstallDialog } from "./install-plugin.tsx";
+import { groupByHome, homeLabel, rowMarks, type SkillHome } from "./library-model.ts";
+import { ProviderMarks } from "./provider-marks.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
-import { StatusLabel } from "@/components/status-label.tsx";
-import { catalogSourceLabel } from "@/lib/catalog.ts";
-import { skillTitle } from "./skills-model.ts";
-import type { Skill, SkillKind } from "./skills-model.ts";
+import { skillTitle, type Skill, type SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
-import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: SparkleIcon },
@@ -45,9 +53,12 @@ export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }
   { kind: "workflow", label: "Workflows", icon: ClockIcon },
 ];
 
-/** The catalog as the sidebar draws it: grouped by kind, in catalog order within a kind. */
+const kindIcon = (kind: SkillKind) =>
+  kinds.find((entry) => entry.kind === kind)?.icon ?? SparkleIcon;
+
+/** The library as the sidebar draws it: by where each skill lives, in list order within. */
 export function catalogOrder(skills: readonly Skill[]): Skill[] {
-  return kinds.flatMap((group) => skills.filter((skill) => skill.kind === group.kind));
+  return groupByHome(skills).flatMap((group) => group.members);
 }
 
 /** Name, description or the plugin it ships with: "engineering" finds all it ships. */
@@ -62,58 +73,24 @@ function matches(skill: Skill, query: string): boolean {
   );
 }
 
-/** Skills' list in the sidebar: what installed plugins ship, searchable and by plugin. */
+/** Skills' list in the sidebar: every skill the person's agents can load, by where it lives. */
 export function SkillsSidebar() {
   const skills = useSkills();
-  const discovery = useSkillDiscovery();
+  const discovery = useSkillLibrary();
   useRemovalReconciler();
   const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<ReadonlySet<SkillKind>>(new Set(["skill"]));
-  const [kind, setKind] = useState("all");
-  const [plugin, setPlugin] = useState("all");
+  const [collapsed, setCollapsed] = useState<ReadonlySet<SkillHome>>(new Set());
   const listKeys = useViewListKeys<HTMLElement>();
-  const plugins = (skills.data ?? []).filter((skill) => skill.kind === "plugin");
-  const shown = (skills.data ?? []).filter(
-    (skill) =>
-      (kind === "all" || skill.kind === kind) &&
-      (plugin === "all" || skill.plugin === plugin) &&
-      matches(skill, query),
-  );
-  const groups = kinds
-    .map((group) => ({ group, members: shown.filter((skill) => skill.kind === group.kind) }))
-    .filter((group) => group.members.length);
+  const shown = (skills.data ?? []).filter((skill) => matches(skill, query));
+  const groups = groupByHome(shown);
+  const searching = !!query.trim();
   return (
     <ViewSidebar
       title="Skills"
       actions={
         <>
-          <Popover>
-            <PopoverTrigger render={<IconButton icon={FunnelSimpleIcon} label="Filter skills" />} />
-            <PopoverContent align="end" className="flex w-64 flex-col gap-3">
-              <PopoverTitle className="text-sm font-medium">Filter skills</PopoverTitle>
-              <Select
-                label="Plugin"
-                value={plugin}
-                options={[
-                  { value: "all", label: "All plugins" },
-                  ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
-                ]}
-                onValueChange={setPlugin}
-                className="w-full"
-              />
-              <Select
-                label="Kind"
-                value={kind}
-                options={[
-                  { value: "all", label: "All kinds" },
-                  ...kinds.map((group) => ({ value: group.kind, label: group.label })),
-                ]}
-                onValueChange={setKind}
-              />
-              {discovery.controls}
-            </PopoverContent>
-          </Popover>
-          {!!skills.data?.length && <InstallPluginButton />}
+          {discovery.projects.length > 1 && discovery.project && <ProjectMenu />}
+          <AddMenu />
         </>
       }
       toolbar={
@@ -136,85 +113,122 @@ export function SkillsSidebar() {
         <EmptyState
           variant="inline"
           title="No matching skills"
-          description={query.trim() ? `Nothing matches "${query.trim()}".` : undefined}
+          description={`Nothing matches "${query.trim()}".`}
           action={
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setQuery("");
-                setPlugin("all");
-                setKind("all");
-              }}
-            >
+            <Button size="sm" variant="ghost" onClick={() => setQuery("")}>
               Clear search
             </Button>
           }
         />
       ) : (
         <nav aria-label="Skills catalog" {...listKeys}>
-          {groups.map(({ group, members }) => {
-            const expandedNow = !!query.trim() || kind !== "all" || expanded.has(group.kind);
-            const rows = members.map((skill) => (
-              <li key={skill.id}>
-                <Link
-                  to="/skills/$skillId"
-                  params={{ skillId: skill.id }}
-                  aria-label={
-                    skill.discovered
-                      ? [
-                          skillTitle(skill),
-                          catalogSourceLabel(skill.discovered),
-                          !skill.enabled && "Off",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")
-                      : undefined
-                  }
-                  className={compactViewRowClass}
-                >
-                  <CompactViewRowBody
-                    icon={group.icon}
-                    title={skillTitle(skill)}
-                    status={!skill.enabled ? <StatusLabel tone="idle" label="Off" /> : undefined}
-                  />
-                </Link>
-              </li>
-            ));
-            // One kind needs no label: the view's title already names the list.
-            return groups.length > 1 ? (
+          {groups.map(({ home, members }) => {
+            const open = searching || !collapsed.has(home);
+            const label = homeLabel(home, discovery.project?.name);
+            return (
               <Disclosure
-                key={group.kind}
-                open={expandedNow}
-                className="my-2"
+                key={home}
+                open={open}
+                className="mt-1 mb-2"
                 summaryClassName="w-full rounded-md px-3 py-2"
-                summary={`${group.label} · ${members.length}`}
+                summary={
+                  <span>
+                    {label} <span className="text-subtle-foreground">· {members.length}</span>
+                  </span>
+                }
                 onClick={(event) => {
                   // Only the summary toggles; the open state is owned here, not by the browser.
                   const summary =
                     event.target instanceof Element ? event.target.closest("summary") : null;
                   if (summary?.parentElement !== event.currentTarget) return;
                   event.preventDefault();
-                  setExpanded((before) => {
+                  setCollapsed((before) => {
                     const next = new Set(before);
-                    if (next.has(group.kind)) next.delete(group.kind);
-                    else next.add(group.kind);
+                    if (next.has(home)) next.delete(home);
+                    else next.add(home);
                     return next;
                   });
                 }}
               >
-                <ul hidden={!expandedNow} aria-label={group.label}>
-                  {rows}
+                <ul hidden={!open} aria-label={label} className="flex flex-col gap-px">
+                  {members.map((skill) => (
+                    <li key={skill.id}>
+                      <SkillRow skill={skill} />
+                    </li>
+                  ))}
                 </ul>
               </Disclosure>
-            ) : (
-              <ul key={group.kind} className="mt-1 flex flex-col gap-px">
-                {rows}
-              </ul>
             );
           })}
         </nav>
       )}
     </ViewSidebar>
+  );
+}
+
+function SkillRow({ skill }: { skill: Skill }) {
+  const marks = rowMarks(skill.providers);
+  return (
+    <Link to="/skills/$skillId" params={{ skillId: skill.id }} className={compactViewRowClass}>
+      <CompactViewRowBody
+        icon={kindIcon(skill.kind)}
+        title={skillTitle(skill)}
+        status={
+          !skill.enabled ? (
+            <StatusLabel tone="idle" label="Off" />
+          ) : marks.length ? (
+            <ProviderMarks providers={marks} size={12} />
+          ) : undefined
+        }
+      />
+    </Link>
+  );
+}
+
+/** + : write a new skill, or install a plugin through its review. */
+function AddMenu() {
+  const navigate = useNavigate();
+  const install = useInstallDialog();
+  return (
+    <Menu>
+      <MenuTrigger render={<IconButton icon={PlusIcon} label="Add a skill" />} />
+      <MenuContent align="end">
+        <MenuItem
+          icon={<Icon icon={PencilSimpleIcon} />}
+          onClick={() => void navigate({ to: "/skills/new" })}
+        >
+          New skill
+        </MenuItem>
+        <MenuItem icon={<Icon icon={PlugIcon} />} onClick={install.install}>
+          Install a plugin…
+        </MenuItem>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** Which project's skills are listed; only drawn when there is more than one to pick. */
+function ProjectMenu() {
+  const discovery = useSkillLibrary();
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <IconButton icon={FolderSimpleIcon} label={`Project: ${discovery.project?.name ?? ""}`} />
+        }
+      />
+      <MenuContent align="end">
+        <MenuRadioGroup
+          value={discovery.project?.id}
+          onValueChange={(id: string) => discovery.chooseProject(id)}
+        >
+          {discovery.projects.map((project) => (
+            <MenuRadioItem key={project.id} value={project.id}>
+              {project.name}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
   );
 }

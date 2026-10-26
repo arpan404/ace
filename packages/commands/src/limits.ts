@@ -25,3 +25,10 @@ export function dataWeight(input: unknown): number | undefined {
   }
   return visit(input, 0) ? bytes : undefined;
 }
+/** Bounds on a skill folder that ace hashes, reviews or copies (ADR 0103 "Update from source"). */
+export const skillFolderLimits = {
+  files: 512,
+  depth: 16,
+  fileBytes: 4 * 1024 * 1024,
+  totalBytes: 16 * 1024 * 1024,
+} as const;

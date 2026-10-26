@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
+import type { ShownBodies } from "./forge-conversation.ts";
+import { bodyKey } from "./forge-task.ts";
+import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * One issue as the phone's page shows it: its state, body, labels and people, the first page
@@ -31,6 +34,9 @@ export interface IssueReply {
   createdAt: number | null;
   updatedAt: number | null;
   body: string;
+  bodyBlocks: RichBlock[];
+  /** The body's task boxes tick and save. */
+  tasks: boolean;
   labels: ForgeLabelView[];
   assignees: string[];
   milestone: string | null;
@@ -41,13 +47,25 @@ export interface IssueReply {
     event: string;
     at: number | null;
     body: string | null;
+    blocks: RichBlock[];
   }[];
   /** More conversation than the first page; the rest opens on GitHub. */
   moreEvents: boolean;
   threads: { id: string; title: string; archived: boolean; needsYou: boolean }[];
+  /** The comment box; `off` says why GitHub won't take a comment from this account. */
+  box: { off: string | null };
+  /** Writes on this issue GitHub hasn't confirmed, to check before anything else. */
+  unconfirmed: { id: string; label: string }[];
   /** New thread from this issue: its first message, and the issue it links. */
   start: { text: string; issue: ForgeIssueRef };
 }
+
+const actionWords = {
+  create: "Opening the issue",
+  comment: "Your comment",
+  edit: "Your edit",
+  state: "The state change",
+} as const;
 
 const epoch = (at: string | null | undefined) => {
   const parsed = at ? Date.parse(at) : Number.NaN;
@@ -58,6 +76,7 @@ export async function readIssue(
   reads: ForgeReads,
   request: ForgeIssueRequest,
   preview: Preview,
+  shown: ShownBodies,
 ): Promise<IssueReply> {
   const scope = {
     workspaceId: request.project,
@@ -67,12 +86,25 @@ export async function readIssue(
   const detail = await reads.read({ op: "forge.issue.detail", ...scope }, false);
   if (detail.resource !== "issueDetail") throw new ForgeRefusal("forge_invalid_data");
   const issue = detail.value;
+  shown.set(bodyKey("issue", issue.ref.repository, issue.ref.number), issue.body);
   // The conversation is a nicety: the issue still opens when its timeline can't be read.
   const timeline = await reads
     .read({ op: "forge.issue.timeline", ...scope, page: 1 }, false)
     .catch(() => undefined);
   const events = timeline?.resource === "issueTimeline" ? timeline : undefined;
   const live = reads.linked().issues.get(keyOf(issue));
+  const actions = await reads
+    .read(
+      {
+        op: "forge.issue.actions",
+        workspaceId: request.project,
+        repository: issue.ref.repository,
+        number: issue.ref.number,
+      },
+      false,
+    )
+    .then((value) => (value.resource === "issueActions" ? value.actions : []))
+    .catch(() => []);
   return {
     type: "forge.issue",
     number: issue.ref.number,
@@ -84,6 +116,8 @@ export async function readIssue(
     createdAt: epoch(issue.createdAt),
     updatedAt: epoch(issue.updatedAt),
     body: preview(issue.body, 32_768),
+    bodyBlocks: repositoryBlocks(preview(issue.body, 32_768), issue.ref.repository),
+    tasks: issue.permissions.edit,
     labels: issue.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),
       color: issue.labelColors?.[name] ?? null,
@@ -97,6 +131,7 @@ export async function readIssue(
       event: preview(event.event, 100),
       at: epoch(event.at),
       body: event.body ? preview(event.body, 8_192) : null,
+      blocks: event.body ? repositoryBlocks(preview(event.body, 8_192), issue.ref.repository) : [],
     })),
     moreEvents: events?.nextPage !== undefined,
     threads: issue.relatedThreads.slice(0, 20).map((thread) => ({
@@ -105,6 +140,15 @@ export async function readIssue(
       archived: thread.archived,
       needsYou: live?.id === thread.id && live.needsYou,
     })),
+    box: {
+      off: issue.permissions.comment
+        ? null
+        : issue.permissions.reason || "GitHub doesn't let this account comment here.",
+    },
+    unconfirmed: actions
+      // The read names this issue's writes only.
+      .filter((action) => action.state === "uncertain" || action.state === "pending")
+      .map((action) => ({ id: action.id, label: actionWords[action.action] })),
     start: { text: preview(issueSourceText(issue), 32_768), issue: issue.ref },
   };
 }

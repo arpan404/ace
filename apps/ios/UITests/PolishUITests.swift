@@ -112,7 +112,7 @@ import XCTest
         try auditAgents(app)
         try auditChanges(app)
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.files"].tap()
+        app.threadMenuItem("thread.files").tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.'")).firstMatch.waitForExistence(timeout: 15))
         try audit(app, "files")
         app.buttons["Done"].firstMatch.tap()
@@ -139,7 +139,7 @@ import XCTest
         }
         app.closeSheet()
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.changes"].tap()
+        app.threadMenuItem("thread.changes").tap()
         let file = app.changesFile("packages/provider-kit/src/process-owner.ts")
         XCTAssertTrue(file.waitForExistence(timeout: 15))
         file.tap()
@@ -201,7 +201,7 @@ import XCTest
     }
     private func auditChanges(_ app: XCUIApplication) throws {
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.changes"].tap()
+        app.threadMenuItem("thread.changes").tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")
         try auditBelow(app, "changes")

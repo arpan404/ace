@@ -50,9 +50,11 @@ async function holdOpen(file: string) {
   return { pid: child.pid ?? 0, stop };
 }
 
-const hasLsof = !spawnSync("lsof", ["-v"], { stdio: "ignore" }).error;
+// Linux reads /proc for open files; other hosts need lsof.
+const canSeeOpeners =
+  process.platform === "linux" || !spawnSync("lsof", ["-v"], { stdio: "ignore" }).error;
 
-test.skipIf(!hasLsof)(
+test.skipIf(!canSeeOpeners)(
   "a running old ace that still has its data open is not renamed until it quits",
   async () => {
     const home = await userHome();

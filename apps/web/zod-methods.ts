@@ -108,7 +108,7 @@ export const droppedWorkerZodMethods = {
   ZodArray: ["length", "nonempty"],
   ZodTuple: ["rest", "partial"],
   ZodInstanceOf: ["properties"],
-  ZodEnum: ["extract"],
+  // `.extract()` stays: the protocol builds `SkillAgent` from `ProviderKind` with it.
   _ZodString: [
     "format",
     "minLength",

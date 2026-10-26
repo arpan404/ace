@@ -85,6 +85,10 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     let activity: Activity?
     let problem: DeviceProblem?
     let touch: String
+    /// A foldable device's posture (`closed`, `partiallyOpen` or `open`); nil when it doesn't fold.
+    var posture: String? = nil
+    /// The picture already shows the device's own body (a Simulator window): no frame around it.
+    var framed: Bool? = nil
 }
 
 /// A thread's Devices screen, whole, as the bridge shapes it.

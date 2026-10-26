@@ -101,7 +101,10 @@ export const CommandSource = z.object({
 });
 
 const Identifier = z.string().regex(/^[a-z_][a-z0-9_]{0,63}$/i);
-/** Paths relative to the account's CLI home (`~/` for the user's home), tried in order. */
+/**
+ * Paths relative to the account's CLI home (`~/` for the user's home, `$XDG_CONFIG_HOME/` for
+ * the user's XDG config home), tried in order.
+ */
 const HomeFiles = z.array(z.string().min(1).max(256)).min(1).max(4);
 /** Where the CLI keeps the token it signed in with. */
 export const TokenStore = z.discriminatedUnion("from", [

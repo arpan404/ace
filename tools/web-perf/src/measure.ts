@@ -119,10 +119,14 @@ export function streamedRate(sample: { streamedEvents: number; streamedSeconds: 
   return sample.streamedSeconds > 0 ? sample.streamedEvents / sample.streamedSeconds : 0;
 }
 
-/** Count every attached node in one page task, including text and open shadow trees. */
+/**
+ * Count every attached node the page renders in one task, including text and open shadow trees.
+ * `<head>` is left out: its module preload links grow with the number of lazy chunks, not with
+ * what the page draws.
+ */
 const attachedNodes = () => {
   let nodes = 0;
-  const roots: Node[] = [document];
+  const roots: Node[] = [document.body];
   for (let root = roots.pop(); root; root = roots.pop()) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
     do {

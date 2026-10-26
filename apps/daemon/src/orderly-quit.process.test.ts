@@ -5,12 +5,15 @@ import { expect, test } from "vitest";
 import { Worker } from "node:worker_threads";
 import { launchDaemon } from "./process-test-support.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
+import { retainNotifications } from "./notification-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
 
 test("orderly CLI quit leaves no notification failure in stderr or durable logs", async ({
   onTestFinished,
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-smoke-quit-"));
+  // A saved push device keeps the worker running from startup, so quitting must stop it cleanly.
+  await retainNotifications(home);
   const cleanups: (() => Promise<void> | void)[] = [
     () => rm(home, { recursive: true, force: true }),
   ];
@@ -79,6 +82,8 @@ test("a real notification worker failure remains visible in the durable daemon l
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-smoke-worker-failure-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
+  // A saved push device needs the worker from startup; a fresh home never starts it.
+  await retainNotifications(home);
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
     notificationWorker: () =>

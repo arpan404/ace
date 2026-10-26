@@ -25,6 +25,24 @@ test("a probe sees its own environment over the daemon's", async () => {
   expect(result.stdout).toBe("chosen");
 });
 
+test("a variable the caller unsets stays unset even though the daemon has it", async () => {
+  process.env.ACE_PROBE_UNSET = "daemon";
+  process.env.ACE_PROBE_KEPT = "daemon";
+  try {
+    // The worker starts after both are set, so its own copy of the environment holds them.
+    const thread = createProbeThread();
+    const result = await probeOutput(
+      "/bin/sh",
+      ["-c", 'printf "%s|%s" "${ACE_PROBE_UNSET-unset}" "$ACE_PROBE_KEPT"'],
+      { env: { ACE_PROBE_UNSET: undefined }, thread },
+    );
+    expect(result.stdout).toBe("unset|daemon");
+  } finally {
+    delete process.env.ACE_PROBE_UNSET;
+    delete process.env.ACE_PROBE_KEPT;
+  }
+});
+
 test("a probe past its timeout is stopped with its descendants and no longer owned", async () => {
   const recorded = new Set<number>();
   const stop = observeProcessGroups({

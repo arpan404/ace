@@ -40,6 +40,11 @@ export async function evalWorld(options: {
   browser: boolean;
   /** Pages without Chromium (`fakeHeadlessBackend`), for behaviour that needs only tabs. */
   browserBackend?: BrowserBackend;
+  /**
+   * A real screen helper binary: the daemon wires computer use itself, exactly as it does for
+   * a person (`ACE_SCREEN_HELPER`), instead of the scripted helper.
+   */
+  screenHelper?: string;
 }) {
   const h = setup();
   const project = join(h.home, "shop");
@@ -60,28 +65,32 @@ export async function evalWorld(options: {
   const address = pages.address();
   if (!address || typeof address === "string") throw new Error("Missing dev server address");
   const devServerUrl = `http://127.0.0.1:${address.port}/`;
-  const screen = new ScreenManager({
-    command: process.execPath,
-    args: [new URL("../testing/mcp-screen-helper.ts", import.meta.url).pathname],
-    env: { ACE_FEATURE_SCREEN_JOURNAL: join(h.home, "screen.jsonl") },
-    platform: "darwin",
-    nextId: (() => {
-      let sequence = 0;
-      return () => `screen-${++sequence}`;
-    })(),
-    recordingDirectory: h.home,
-    publishArtifact: async () => {},
-  });
+  const scripted = options.screenHelper
+    ? undefined
+    : new ScreenManager({
+        command: process.execPath,
+        args: [new URL("../testing/mcp-screen-helper.ts", import.meta.url).pathname],
+        env: { ACE_FEATURE_SCREEN_JOURNAL: join(h.home, "screen.jsonl") },
+        platform: "darwin",
+        nextId: (() => {
+          let sequence = 0;
+          return () => `screen-${++sequence}`;
+        })(),
+        recordingDirectory: h.home,
+        publishArtifact: async () => {},
+      });
   writeFileSync(join(h.home, "screen.jsonl"), "");
   const daemon = await startDaemon({
     config: readConfig({
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
-      ACE_LOG_LEVEL: "silent",
+      // ACE_E2E_LOG_LEVEL shows the daemon's log while an opt-in end-to-end suite runs.
+      ACE_LOG_LEVEL: process.env.ACE_E2E_LOG_LEVEL ?? "silent",
+      ...(options.screenHelper ? { ACE_SCREEN_HELPER: options.screenHelper } : {}),
     }),
     engine: { registry: h.registry, clock: h.clock },
     modelInstances: [],
-    screen,
+    ...(scripted ? { screen: scripted } : {}),
     ...(options.browserBackend
       ? { browser: { headlessBackend: options.browserBackend } }
       : executablePath
@@ -91,6 +100,8 @@ export async function evalWorld(options: {
       forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
     },
   });
+  const screen = scripted ?? daemon.screen;
+  if (!screen) throw new Error("The daemon started without computer use");
   // Screen is on, so a read-only thread is the only thing keeping screen tools away.
   await screen.enable(true);
   await daemon.settings.set("access.defaultMode", "full-access", { kind: "global" });
@@ -320,7 +331,8 @@ export async function evalWorld(options: {
       if (executablePath || options.browserBackend)
         for (const thread of threads) await daemon.browser.closeThread(thread);
       await daemon.close();
-      await screen.close();
+      // The daemon owns a screen manager it made itself.
+      await scripted?.close();
       pages.closeAllConnections();
       await new Promise<void>((resolve) => pages.close(() => resolve()));
     },

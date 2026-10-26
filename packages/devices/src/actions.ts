@@ -35,6 +35,9 @@ export async function performDeviceAction(
     case "open_url":
       await platform.openUrl(session.device, operation.url, guard);
       break;
+    case "posture":
+      session.posture = await platform.setPosture(session.device, operation.posture, guard);
+      return { posture: session.posture };
     case "configure":
       await platform.configure(session.device, operation.settings, guard);
       break;

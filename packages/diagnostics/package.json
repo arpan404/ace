@@ -13,6 +13,7 @@
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
+    "@ace/devices": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",

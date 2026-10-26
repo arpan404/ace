@@ -161,10 +161,11 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(help ? [browserHelpToolkit(help)] : []),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices ? [devicesToolkit(() => devices.load())] : []),
-      // Agents use the background engine on macOS; other platforms keep the session tools.
+      // Agents use the background engine on macOS and Linux; Windows keeps the session tools.
       ...(services.computer
         ? [
             computerToolkit(services.computer, {
+              platform: process.platform === "linux" ? "linux" : "macos",
               // Read on every call, so a change in Settings applies to the next one.
               blockedApps: async () =>
                 (await services.settings?.get("computer.blockedApps"))?.value ?? [],

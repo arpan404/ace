@@ -3,6 +3,7 @@ import { existsSync, renameSync, rmSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
+import { skillUsageTable } from "./skill-usage.ts";
 import { machineChildGenerations, machineChildLaunches } from "./machine-tables.ts";
 
 const migrations = [
@@ -134,6 +135,8 @@ const migrations = [
   `ALTER TABLE devices ADD COLUMN expires_at INTEGER;`,
   // A thread's large, rarely changing values; migrateThreadCold moves existing rows' values.
   threadColdTable,
+  // Skill mention counts for the Skills page (ADR 0103), backfilled from stored messages.
+  skillUsageTable,
   // Fences stale status replies for a child on another machine once it is given new work.
   machineChildGenerations,
   // Run slots of children other machines delegate here, backfilled from existing delegations.

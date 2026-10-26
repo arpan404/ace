@@ -8,6 +8,8 @@
     "./tools": "./src/tools.ts",
     "./client": "./src/client.ts",
     "./stream-profile": "./src/stream-profile.ts",
+    "./sdk-roots": "./src/sdk-roots.ts",
+    "./android-tools": "./src/android-tools.ts",
     "./testing": "./src/testing/fake-sim.ts"
   },
   "scripts": {

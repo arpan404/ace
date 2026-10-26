@@ -10,7 +10,11 @@ export interface AppPaths {
   binDirectory: string;
   /** The bundled Node runtime the daemon runs on (absent on Windows, which has no daemon). */
   node: string;
-  /** The tray's template image at 1x; `@2x` sits beside it (`apps/desktop/scripts/icons.ts`). */
+  /**
+   * The tray image at 1x; `@2x` sits beside it. macOS tints a black template image to its menu
+   * bar; Linux panels never tint, so a black glyph vanishes on a dark panel and Linux gets the
+   * full-colour app tile (`trayColor.png`, resized from `build/icon.png`) instead.
+   */
   trayIcon: string;
   /** The app icon for the dock of an unpackaged run; a package carries its own. */
   devIcon: string | undefined;
@@ -34,6 +38,7 @@ export function appPaths(options: {
   platform: NodeJS.Platform;
 }): AppPaths {
   const resources = options.packaged ? options.resourcesPath : join(options.appDirectory, "..");
+  const trayImage = options.platform === "linux" ? "trayColor.png" : "trayTemplate.png";
   const desktop = join(options.appDirectory, "..", "..");
   const helper = helperNames[options.platform];
   const screenHelper =
@@ -58,8 +63,8 @@ export function appPaths(options: {
     binDirectory: join(resources, "bin"),
     node: join(resources, "runtime", "bin", "node"),
     trayIcon: options.packaged
-      ? join(options.resourcesPath, "icons", "trayTemplate.png")
-      : join(desktop, "resources", "trayTemplate.png"),
+      ? join(options.resourcesPath, "icons", trayImage)
+      : join(desktop, "resources", trayImage),
     devIcon: options.packaged ? undefined : join(desktop, "build", "icon.png"),
   };
 }

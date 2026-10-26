@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
+import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
@@ -72,7 +73,12 @@ export function Screen(
             title={props.title}
             header={header(headerOwnsConnection)}
             contextPanel={workspace.contextPanel}
-            notice={<PausedNotice />}
+            notice={
+              <>
+                <PausedNotice />
+                <SandboxNotice />
+              </>
+            }
           >
             {main}
           </Workspace>
@@ -80,6 +86,7 @@ export function Screen(
           <>
             {header(headerOwnsConnection)()}
             <PausedNotice />
+            <SandboxNotice />
             <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
           </>
         )

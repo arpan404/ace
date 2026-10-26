@@ -194,7 +194,7 @@ When a pinned `serve-sim` is installed on the device's Mac, capture uses its CLI
 (`--no-preview --quiet <UDID>`), its H.264 or MJPEG framebuffer stream, its
 persistent WebSocket HID channel and its accessibility route. `ACE_SERVE_SIM` can
 select an explicit executable. Amended 2026-10-20: ace downloads its own pinned copy
-(serve-sim 0.1.48 and `ws`, verified by their npm sha512) into `<dataDir>/tools` when
+(serve-sim 0.1.49-beta.139.1 and `ws`, verified by their npm sha512) into `<dataDir>/tools` when
 devices are enabled, from Devices' "Download device tools", or on the first live view,
 always in a separate process, and runs it with the daemon's Node; the scrcpy server
 downloads the same way. ace's copy is preferred over one on PATH. The legacy screen-helper path remains
@@ -208,7 +208,7 @@ Revised 2026-10-19 (#1102):
   ace's own code keeps to public APIs. serve-sim drives private CoreSimulator,
   SimulatorKit and AccessibilityPlatformTranslation interfaces that move between Xcode
   releases, and its HTTP routes are not a published API, so ace runs only versions it
-  has checked (`serve-sim-version.ts`: 0.1.47 and 0.1.48; 0.1.48 is the install hint).
+  has checked (`serve-sim-version.ts`: 0.1.49-beta.139.1 only, also the install hint).
   Capture asks `serve-sim --version` before each start. Any other version falls back to
   the screen helper, or fails with `tool_missing` naming the pinned version when there
   is no helper or `ACE_SERVE_SIM` names it explicitly. Moving the pin means re-running
@@ -251,6 +251,31 @@ Revised 2026-10-19 (#1102):
   `serve-sim repair-input -d <udid>` restores them but restarts SpringBoard and closes
   running apps, so ace never runs it automatically; it is a documented manual repair.
   serve-sim is Apple Silicon only; Intel Macs use the screen helper.
+- **Touch through Xcode 27's input service (amended 2026-10-25).** An Xcode 27 simulator
+  runs a HID daemon (dtuhidd). When it becomes active, SimulatorHID switches its legacy
+  touch service off and back on at the next legacy event; that reconnect can lose the
+  service from iOS's event system (added and removed in the same millisecond) while
+  SimulatorHID still reports it connected, after which every serve-sim touch is dropped.
+  Measured on a booted iPhone Air: serve-sim taps never reached backboardd. So touches go
+  through the daemon's `com.apple.coredevice.feature.remote.hid.digitizer` service, the
+  route Xcode's device tool uses, via the screen helper's `--sim-touch <udid>` mode
+  (`SimTouch.swift`, sharing its connection with `--sim-posture`). One finger or two,
+  points normalized to the portrait framebuffer, an edge flag held for the whole gesture,
+  and a target display. A helper that can't reach the service leaves touches on
+  serve-sim; one that dies is started again on a later touch. Buttons, rotation and
+  typing stay on serve-sim, which still delivers them.
+- **Several screens (the iPhone Duo).** serve-sim starts on a device's smallest screen and
+  moves only when it sees a fold, so a Duo opened earlier streamed its dark cover. At
+  attach ace reads `devicectl device info displays`, asks serve-sim (control tag 13) for
+  the lit screen's size, and keeps that size, or the stream's own, over serve-sim's later
+  announcements, which can keep naming the cover. Touches target the screen whose size
+  the picture has (the lit one before there is a picture). Such a device is not turned at
+  attach: its inner screen keeps its own orientation, which serve-sim follows.
+- **Turned layouts.** serve-sim's accessibility root keeps the window's portrait frame,
+  but its elements are laid out in the app's own orientation. On a device turned a
+  quarter, elements reaching past the portrait width mean a turned layout, and their
+  bounds (and scroll directions) are turned back onto the portrait framebuffer; a
+  portrait-only app on a turned iPhone keeps its portrait bounds.
 
 The adapter validates the announced UDID and loopback endpoints before opening
 any connection. Frame decoding is bounded, retains only the latest immutable
@@ -262,6 +287,17 @@ stdin command and reports its supported-keyboard/permission failures honestly.
 
 The supervised CLI owns any helper it starts. A pre-existing serve-sim server is
 borrowed: ace closes its own stream and HID socket without killing that server.
+
+Amended 2026-10-25: serve-sim reuses whatever helper already streams a simulator,
+whichever version started it, and a helper outlives ace's stream. With serve-sim 0.1.48
+on Xcode 27, an iPhone Duo helper went black after some hours and kept being reused. ace
+now pins 0.1.49-beta.139.1 alone (no newer stable release existed). Before each iOS
+capture it asks `serve-sim -l <UDID>` for the running helper and reads that process's
+command line; a helper running a copy ace downloaded (`…/serve-sim-<version>/dist/serve-sim.js`)
+of another version is stopped with `serve-sim -k <UDID>`, so the next stream starts a
+fresh one. Helpers from any other serve-sim are still borrowed. In `--no-preview` mode
+0.1.49 ties the helper's life to the CLI ace supervises. serve-sim may print a notice
+line before the endpoint JSON; capture takes the first line that parses as JSON.
 Android uses bounded JPEG output from the owned screenrecord/ffmpeg pipeline.
 H.264 negotiation falls back to JPEG until subscribers can recover dropped frames
 without restarting native capture. Rotation is read for each capture cycle; unchanged
@@ -393,3 +429,67 @@ HID tag 12, Indigo button source 0x3f0, what ⌘K sends; ⌘K itself on the scre
 after ace types it toggles the keyboard back 250 ms later unless the person hid it with that key.
 On Android it presses Alt+K, Gboard's "Show on-screen keyboard". The device view's rail has a
 Software keyboard button; sim_act takes the key.
+
+## Phones, network devices and Linux, 2026-10-21
+
+"Physical devices remain outside this first version" no longer holds. Every transport
+`adb devices -l` lists is a device ace shows and drives: emulators on this machine
+(`emulator-5554`), phones on USB, and devices on the network (`adb connect host:port`, or
+wireless debugging's `adb-…._adb-tls-connect._tcp` names). Live view (scrcpy's device-side
+H.264), input, screenshots, UI trees, logs and the agents' sim tools work on all of them;
+they only ever needed an adb serial.
+
+- **Identity.** An emulator is still its AVD name. A phone or network device is its hardware
+  serial (`ro.serialno`), so one phone keeps its id over USB, over Wi-Fi and across a new
+  wireless-debugging port; until that property reads (an unauthorized phone) it is named by its
+  adb serial, or by its USB port when adb can't read the serial. The id keeps to the characters
+  `AppDeviceId` allows (`192.168.1.5:5555` → `192.168.1.5_5555`). Before each operation ace reads
+  the serial behind the transport again and refuses when another device now answers there, as it
+  already did for an emulator console port reused by another AVD. A phone on USB and Wi-Fi at
+  once is one device; a usable transport wins, then USB.
+- **Blocked devices** list as `unauthorized` with one inventory issue per cause, saying what to
+  do: allow the "Allow USB debugging?" prompt (or pair first for wireless debugging), or, for
+  adb's `no permissions`, install the distribution's Android udev rules
+  (`android-udev-rules` on Debian/Ubuntu), join `plugdev` and replug.
+- **ace never powers phones off or on.** Shut down and boot are `not_supported` / `not_booted`
+  for them, with a hint, instead of `reboot -p`. Setting a location needs the emulator console,
+  so it is refused on a phone.
+- **Finding adb.** `findAndroidTools` (`@ace/devices/android-tools`) is the one place the devices
+  service and `ace doctor` look: an SDK holding both adb and the emulator wins; else the emulator
+  from the first SDK with one, and adb from the first SDK with it or from PATH, where
+  distributions install it (`/usr/bin/adb`). Phones need only adb.
+- **Linux arm64.** Google publishes the Android Emulator (and its Platform Tools) for x86-64
+  Linux only. On arm64 the distribution's adb (Debian/Ubuntu's `adb` package is built for arm64;
+  verified on Ubuntu 26.04, adb 34.0.5) drives phones and network devices, and the device list
+  says once, as an inventory note, that emulators aren't available there. The doctor's
+  `linux.kvm` check says the same and asks for /dev/kvm only when an emulator is installed.
+
+### Headless Linux emulators boot with `-gpu auto`
+
+Measured 2026-10-21 on GitHub's `ubuntu-latest` x64 runners (4 vCPU, KVM through the documented
+udev rule, no GPU), Android Emulator 37.2.12, an API 34 `google_apis` x86_64 AVD made by
+avdmanager. Each run boots the shut-down AVD through ace (`-no-window -no-boot-anim`), streams
+scrcpy H.264 to a viewer and decodes it, taps, types, screenshots, and reads the UI tree through
+an agent's sim tools (`apps/daemon/src/linux-android.e2e.process.test.ts`). Two runs per mode
+(seven for `auto`: two asked for by name, five as ace's shipped default);
+first picture is from `start` to the first keyframe at the viewer; frame rate and emulator CPU
+are over 8 back-and-forth swipes on the Settings list.
+
+| `-gpu`                 | Guest GLES renderer             | Boot (s)  | First picture (s) | Scroll fps | Emulator CPU |
+| ---------------------- | ------------------------------- | --------- | ----------------- | ---------- | ------------ |
+| none (AVD's `auto`)    | SwiftShader GLES 3.0            | 39.9–40.4 | 5.8–6.1           | 4.0–13.6   | 272–351%     |
+| `auto` (ace's default) | SwiftShader GLES 3.0            | 31.9–40.7 | 4.6–8.0           | 2.5–10.8   | 272–388%     |
+| `swiftshader_indirect` | SwiftShader GLES 3.0            | 29.7–40.7 | 4.9–5.5           | 2.3–2.9    | 355–374%     |
+| `swangle_indirect`     | ANGLE on SwiftShader Vulkan 3.1 | 26.3–37.5 | 5.6–7.3           | 2.8–5.1    | 368–378%     |
+| `guest`                | SwiftShader GLES 3.0            | 27.5–39.4 | 6.1–6.6           | 4.2–5.4    | 352–365%     |
+| `host`                 | none                            | no boot   | —                 | —          | —            |
+
+Every software mode booted and passed the whole flow; on a four-core machine with no GPU they
+differ by less than run-to-run noise, and the guest got the same SwiftShader renderer from all
+but `swangle_indirect`. `host` never finished booting. So ace passes `-gpu auto` on Linux when it
+boots an emulator without its window: it is the mode Google's documentation recommends, it is
+not deprecated (`swiftshader_indirect` is), it uses the GPU where the emulator judges one usable
+and software elsewhere, and, unlike passing nothing, it overrides an AVD saved with hardware
+graphics (`hw.gpu.mode=host`, Android Studio's "Hardware" choice), which on a machine without a
+usable GPU hangs the boot exactly as `host` did here. With the emulator's own window the AVD's
+setting stands. `ACE_ANDROID_EMULATOR_GPU` overrides the mode (`none` drops the flag).

@@ -10,6 +10,7 @@ import {
   type DeviceOperation,
   type DevicePermission,
   type DevicePermissions,
+  type DevicePosture,
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
@@ -84,7 +85,7 @@ function noVideo(): Refusal {
   return new Refusal(
     "tool_missing",
     "This Mac's screen helper can't stream video for the Simulator live view",
-    "Download device tools in Devices for ace's serve-sim 0.1.48.",
+    "Download device tools in Devices for ace's serve-sim 0.1.49-beta.139.1.",
   );
 }
 /** The daemon's refusal when its screen helper lacks a macOS permission. */
@@ -116,6 +117,11 @@ export class FakeAppDevices {
   private channels = new Set<Channel>();
   private sequence = 0;
   private streams = 0;
+  /**
+   * Foldable devices and how each sits, as the daemon reports an iPhone Duo Simulator's posture.
+   * Tests seed the devices that fold; every other device has no posture and refuses to fold.
+   */
+  readonly folds = new Map<string, DevicePosture>();
   /** Every input a person sent, in order, as the device received it. */
   readonly inputs: { deviceId: string; input: DeviceInput }[] = [];
   /** macOS permissions of the daemon's screen helper; iOS views and input need them. */
@@ -124,6 +130,13 @@ export class FakeAppDevices {
   readonly requested: DevicePermission[] = [];
   /** Whether the device tools are downloaded; `tools.install` downloads them. */
   toolsReady = true;
+  /** Discovery reports this machine's Android SDK missing, beside its working Simulators. */
+  androidSdkMissing = false;
+  /**
+   * The Simulator streams as its window (no serve-sim): the picture wears the device's own
+   * bezel, so the state says it is framed.
+   */
+  windowPictures = false;
   /** How many times a person asked for the device tools download. */
   toolDownloads = 0;
   /**
@@ -219,17 +232,30 @@ export class FakeAppDevices {
     this.paint(session);
   }
 
-  /** The inventory's notes: the missing device tools, until they are downloaded. */
+  /** The inventory's notes: a missing Android SDK, and the device tools until they download. */
   private issues() {
-    return this.toolsReady
-      ? []
-      : [
-          {
-            code: "tool_missing" as const,
-            message: "The Simulator's device tools aren't downloaded",
-            hint: "Download device tools in Devices.",
-          },
-        ];
+    return [
+      ...(this.androidSdkMissing
+        ? [
+            {
+              code: "sdk_missing" as const,
+              platform: "android" as const,
+              message: "Android SDK platform-tools and emulator were not found",
+              hint: "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
+            },
+          ]
+        : []),
+      ...(this.toolsReady
+        ? []
+        : [
+            {
+              code: "tool_missing" as const,
+              platform: "ios" as const,
+              message: "The Simulator's device tools aren't downloaded",
+              hint: "Download device tools in Devices.",
+            },
+          ]),
+    ];
   }
 
   private known(deviceId: string): Session {
@@ -303,6 +329,9 @@ export class FakeAppDevices {
       ...(session.lifecycle === "live" && session.device.platform === "android"
         ? { touch: "multi" as const }
         : {}),
+      ...(session.lifecycle === "live" && session.device.platform === "ios" && this.windowPictures
+        ? { framed: true }
+        : {}),
       controller: session.controller,
       ownedHere:
         session.controller === "human" &&
@@ -311,6 +340,7 @@ export class FakeAppDevices {
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
       ...(session.activity ? { activity: session.activity } : {}),
+      ...(this.folds.has(session.device.id) ? { posture: this.folds.get(session.device.id) } : {}),
     });
   }
 
@@ -553,6 +583,18 @@ export class FakeAppDevices {
         this.log(session, `input ${operation.input.kind}`);
         this.paint(session);
         return { completed: true };
+      case "posture":
+        this.controlled(session, channel);
+        if (!this.folds.has(session.device.id))
+          throw new Refusal(
+            "not_supported",
+            "This device doesn't fold",
+            "Only foldable simulators, such as the iPhone Duo, have a posture.",
+          );
+        this.folds.set(session.device.id, operation.posture);
+        this.actions.push(operation);
+        this.publish(session);
+        return { posture: operation.posture };
       case "open_app":
       case "open_url":
       case "install":

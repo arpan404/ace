@@ -18,8 +18,12 @@ function firstRun(options: Parameters<typeof harness>[0] = {}) {
   ]);
   return made;
 }
+/** The projects the person can see: a chat's hidden project (ADR 0099) is not one they added. */
 const registered = (made: ReturnType<typeof harness>) =>
-  made.daemon.projects.list().workspaces.map((project) => project.path);
+  made.daemon.projects
+    .list()
+    .workspaces.filter((project) => project.kind !== "chat")
+    .map((project) => project.path);
 const palette = () => screen.findByRole("dialog", { name: "Add project" });
 const field = () => screen.findByRole<HTMLInputElement>("combobox", { name: "Folder path" });
 const folders = () => screen.findByRole("listbox", { name: "Folders" });
@@ -73,7 +77,7 @@ test("⇧⌘O opens Add project in the palette on its four sources, the field fo
 test("the first run's Add a project leads to the folder field, and ⌘Enter adds the highlighted folder", async () => {
   const made = firstRun();
   await made.open("/");
-  await screen.findByRole("heading", { level: 1, name: "Add your first project" });
+  await screen.findByRole("heading", { level: 1, name: "No threads yet" });
   await userEvent.click(
     within(screen.getByRole("main")).getByRole("button", { name: "Add a project" }),
   );
@@ -259,7 +263,7 @@ test("a folder outside the allowed places is allowed in one click, and Undo take
 
 test("New project: the field is its name, checked as you type, and Enter creates a Git repository", async () => {
   const made = firstRun();
-  await made.open("/new");
+  await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "New project" }));
   const name = await screen.findByRole("textbox", { name: "Project name" });
@@ -286,7 +290,7 @@ test("New project: the field is its name, checked as you type, and Enter creates
 
 test("New project goes where the location search points, and ⌘Enter creates it", async () => {
   const made = firstRun();
-  await made.open("/new");
+  await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "New project" }));
   await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "notes");

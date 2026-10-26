@@ -11,6 +11,9 @@ import { until } from "./projects-test-support.ts";
 export const git = promisify(execFile);
 export async function repository(home: string) {
   await git("git", ["init", "-b", "main", home]);
+  // Git 2.54 packs loose objects in a detached job after commit; that job deletes
+  // objects a later local clone of the fixture may be copying.
+  await git("git", ["-C", home, "config", "maintenance.auto", "false"]);
   await writeFile(join(home, "file.txt"), "Synthetic\n");
   await git("git", ["-C", home, "add", "file.txt"]);
   await git("git", [

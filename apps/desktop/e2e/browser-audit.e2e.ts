@@ -35,12 +35,30 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("tooltip").waitFor();
       expect((await native.geometry()).native.visible).toBe(true);
       await p.mouse.move(0, 0);
-      await expect(
-        browser.execute(thread, { action: "resize", width: 375, height: 800 }),
-      ).rejects.toThrow(/visible panel sets/);
-      await expect(
-        browser.execute(thread, { action: "emulate", width: 375, height: 800 }),
-      ).rejects.toThrow(/visible panel sets/);
+      // An agent's size on a shown page lays the page out at that size, drawn fitted into the
+      // panel: the native view stays shown, inside the box the panel gives the page.
+      const fitted = async () => {
+        const { box, native: view } = await native.geometry();
+        const b = view.bounds;
+        return (
+          !!box &&
+          view.visible &&
+          b.x >= box.x - 1 &&
+          b.y >= box.y - 1 &&
+          b.x + b.width <= box.x + box.width + 1 &&
+          b.y + b.height <= box.y + box.height + 1
+        );
+      };
+      for (const action of ["resize", "emulate"] as const) {
+        await browser.execute(thread, { action, width: 375, height: 800 });
+        await expect.poll(() => read("innerWidth")).toBe(375);
+        await expect.poll(fitted).toBe(true);
+      }
+      // The person's device toolbar took the agent's size up; closing it gives the page back
+      // the panel's size.
+      await p.getByRole("button", { name: "Close device toolbar" }).click();
+      await expect.poll(native.placed).toBe(true);
+      await expect.poll(() => read("innerWidth")).not.toBe(375);
       const snapshot = z
         .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
         .parse(await browser.execute(thread, { action: "snapshot" }));
@@ -97,11 +115,18 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       expect(browser.state(thread).tabs).toHaveLength(1);
 
       // Zoom belongs to the page and survives panel movement.
-      await s.app.evaluate(({ webContents }, id) => {
-        const c = webContents.fromId(id);
-        c?.sendInputEvent({ type: "keyDown", keyCode: "+", modifiers: ["meta"] });
-        c?.sendInputEvent({ type: "keyUp", keyCode: "+", modifiers: ["meta"] });
-      }, contents);
+      await s.app.evaluate(
+        ({ webContents }, args) => {
+          const c = webContents.fromId(args.contents);
+          c?.sendInputEvent({ type: "keyDown", keyCode: "+", modifiers: [args.primary] });
+          c?.sendInputEvent({ type: "keyUp", keyCode: "+", modifiers: [args.primary] });
+        },
+        // The person's ⌘ on macOS, Ctrl elsewhere.
+        {
+          contents,
+          primary: process.platform === "darwin" ? ("meta" as const) : ("control" as const),
+        },
+      );
       const zoom = () =>
         s.app.evaluate(({ webContents }, id) => webContents.fromId(id)?.getZoomFactor(), contents);
       await expect.poll(zoom).toBeGreaterThan(1);

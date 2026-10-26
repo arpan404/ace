@@ -1,5 +1,5 @@
 import type { FSWatcher } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import type { GitIgnore } from "./ignore.ts";
 import type { SafeRoot } from "./safety.ts";
 import { errorCode } from "./types.ts";
@@ -19,18 +19,22 @@ export class WatchMetadata {
     signal: AbortSignal,
     changed: (kind: MetadataChange) => void,
     failed: (reason: string) => void,
+    covered: (path: string) => boolean,
   ) {
     this.safe = safe;
     this.ignore = ignore;
     this.signal = signal;
     this.changed = changed;
     this.failed = failed;
+    this.covered = covered;
   }
   private readonly safe: SafeRoot;
   private readonly ignore: GitIgnore;
   private readonly signal: AbortSignal;
   private readonly changed: (kind: MetadataChange) => void;
   private readonly failed: (reason: string) => void;
+  /** True when the workspace watcher already reports changes to this absolute path. */
+  private readonly covered: (path: string) => boolean;
 
   private classify(target: string): MetadataChange | undefined {
     if (this.head && (target === this.head || target === `${this.head}.lock`)) return "head";
@@ -46,8 +50,7 @@ export class WatchMetadata {
     const paths = discovery.paths;
     const folders = new Map<string, Set<string>>();
     for (const path of paths) {
-      const local = relative(this.safe.root, path);
-      if (local !== ".." && !local.startsWith(".." + sep) && !isAbsolute(local)) continue;
+      if (this.covered(path)) continue;
       let dir = dirname(path);
       // Watch the nearest existing parent so missing Git config/ignore folders
       // can appear without forcing native mode to fall back to polling.

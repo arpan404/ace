@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { AppDeviceId } from "@ace/protocol/devices";
+import { AppDeviceId, DevicePosture } from "@ace/protocol/devices";
 import { ScreenUIAction, ScreenUIActOptions, type ApprovalTarget } from "@ace/protocol";
 import { perAction, uiReadShape } from "@ace/screen";
 import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { simRefPattern } from "./sim-refs.ts";
 
 const simId = AppDeviceId.describe(
-  "Simulator or emulator id from sim_list, e.g. ios:<UDID> or android:<serial>.",
+  "Simulator, emulator or Android device id from sim_list, e.g. ios:<UDID> or android:<name>.",
 );
 const point = z.number().int().min(0).max(16384);
 export const SimRef = z.string().regex(simRefPattern, "Expected an element ref like @e3");
@@ -28,9 +28,10 @@ const SimActFields = z.strictObject({
       "record_stop",
       "clipboard_get",
       "clipboard_set",
+      "posture",
     ])
     .describe(
-      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting.",
+      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting. posture: fold a foldable simulator (iPhone Duo) to posture.",
     ),
   ref: SimRef.optional().describe(
     "Element ref from sim_ui, e.g. @e3: required for ui; for tap, long_press and type, instead of x,y.",
@@ -74,6 +75,9 @@ const SimActFields = z.strictObject({
     .max(4096)
     .optional()
     .describe("Absolute path to a Simulator-built .app or an .apk."),
+  posture: DevicePosture.optional().describe(
+    "closed (cover screen), partiallyOpen (half open, like a book) or open (flat, inner screen). Only foldable simulators; sim_start reports their current posture.",
+  ),
 });
 const base = ["simId"] as const;
 const none = { required: [], allowed: base };
@@ -97,6 +101,7 @@ export const SimActArgs = SimActFields.superRefine(
     record_stop: none,
     clipboard_get: none,
     clipboard_set: { required: ["text"], allowed: [...base, "text"] },
+    posture: { required: ["posture"], allowed: [...base, "posture"] },
   }),
 ).superRefine((value, context) => {
   if (!pointed.has(value.action)) return;
@@ -140,7 +145,7 @@ export const simToolMetadata: Record<
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "List the iOS simulators and Android emulators ace can drive on this machine, with simIds and status. Not for paired machines (machines).",
+      "List the iOS simulators, Android emulators and Android phones or network devices ace can drive on this machine, with simIds and status. Not for paired machines (machines).",
   },
   sim_start: {
     title: "Start simulator",
@@ -168,7 +173,7 @@ export const simToolMetadata: Record<
     // Typing paces each character; installs copy whole app bundles.
     timeoutMs: deviceInstallTimeoutMs + 30_000,
     description:
-      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, start/stop a recording, or read/set the clipboard. A ref whose element has gone fails with stale_ref.",
+      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, start/stop a recording, read/set the clipboard, or fold a foldable one (posture). A ref whose element has gone fails with stale_ref.",
   },
   sim_screenshot: {
     title: "Screenshot simulator",

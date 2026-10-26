@@ -4,7 +4,9 @@ import { renderLauncher } from "@ace/service/home";
 import {
   cliShimLocation,
   planCliShim,
+  renderAppImageShim,
   renderCliShim,
+  type AppImageRun,
   transientAppPath,
   type CliShimResult,
   type ExistingShim,
@@ -20,6 +22,8 @@ export interface CliShimInstall {
   /** The bundled Node runtime and daemon CLI, as `appPaths` resolves them. */
   node: string;
   entry: string;
+  /** Set when the app runs from an AppImage (`runningAppImage(process.env)`). */
+  appImage?: AppImageRun | undefined;
 }
 
 /**
@@ -36,7 +40,13 @@ export async function installCliShim(options: CliShimInstall): Promise<CliShimRe
         state: "skipped",
         reason: "ace is running from a temporary location; move it to Applications",
       };
-    content = renderCliShim(target, options.platform);
+    // Under an AppImage the runtime's real path is a mount that ends with the app.
+    content = options.appImage
+      ? renderAppImageShim(
+          { image: options.appImage.image, mount: await realpath(options.appImage.mount) },
+          target,
+        )
+      : renderCliShim(target, options.platform);
   } catch (error) {
     if (code(error) === "ENOENT")
       return { state: "skipped", reason: "this build has no bundled runtime" };

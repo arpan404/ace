@@ -1,6 +1,6 @@
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
-import { type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
+import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
 import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
@@ -13,6 +13,8 @@ import { permissionDenied } from "./screen-failure.ts";
 import type { CaptureUI } from "./simulator-ui.ts";
 import type { DeviceClipboard } from "./clipboard.ts";
 import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
+import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
+import { nativeId } from "./commands.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -27,6 +29,8 @@ export interface DeviceCapture extends Capture {
   ui?: CaptureUI;
   /** The device clipboard over the capture's own control channel. */
   clipboard?: DeviceClipboard;
+  /** The picture shows the device's own body, as a Simulator window does: draw no frame. */
+  readonly framed?: boolean;
 }
 export async function startCapture(options: {
   device: Device;
@@ -65,13 +69,26 @@ export async function startCapture(options: {
     if (command && supported) {
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
+      if (version)
+        await replaceOutdatedHelper({
+          command,
+          args: status.args,
+          version,
+          udid: nativeId(device),
+          env: options.env,
+          runtime: options.runtime,
+        });
+      checkAbort();
       const transcoder = options.platform.frameEncoder;
       return simulatorCapture({
         ...options,
         device,
         command,
         commandArgs: status.args,
-        ...(transcoder ? { transcoder } : {}),
+        // The screen helper also re-encodes for small viewers and touches through Xcode's own
+        // input service.
+        ...(transcoder ? { transcoder, digitizer: transcoder } : {}),
+        screens: () => options.platform.simulatorScreens(device),
       });
     }
     // serve-sim is preferred; an unpinned version falls back to the public-API screen helper.
@@ -116,10 +133,13 @@ export async function startCapture(options: {
         "Simulator changed while selecting its window",
         "Refresh the device list and start capture again.",
       );
+    // The device alone: the window's title bar and toolbar are cropped off by the helper,
+    // which takes pointer input in points from the top of what it shows.
     const target = {
       kind: "window" as const,
       bundleId: window.bundleId,
       windowId: window.windowId,
+      content: true,
     };
     const state = options.scope
       ? await screen.start(target, options.fps, options.scope)
@@ -174,6 +194,7 @@ export async function startCapture(options: {
       return {
         screenSessionId: state.sessionId,
         streamId: state.sessionId,
+        framed: true,
         async configure(settings) {
           const result = await screen.configureStream(state.sessionId, settings);
           // The screen helper encodes H.264 only where macOS lets it; serve-sim always does.
@@ -199,8 +220,8 @@ export async function startCapture(options: {
   if (!options.device.serial || options.device.state !== "booted")
     throw new DeviceError(
       "not_booted",
-      "Android emulator is not booted",
-      "Boot the emulator and wait for adb to report device state.",
+      "Android device is not booted",
+      "Boot the emulator, or connect and unlock the device, and wait for adb to report device state.",
     );
   let why = "ACE_ANDROID_SCRCPY is off";
   if (options.env["ACE_ANDROID_SCRCPY"] !== "off") {
@@ -240,7 +261,7 @@ function androidLiveViewError(why: string): DeviceError {
   return new DeviceError(
     "not_supported",
     `The Android live view needs scrcpy-server: ${why}`,
-    "Use an emulator image with Android 5 or later, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
+    "Use an Android 5 or later device or emulator image, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
   );
 }
 /**
@@ -262,7 +283,7 @@ async function simulatorWindow(
     checkAbort();
     const exact = inventory.windows.filter(
       (window) =>
-        window.bundleId === "com.apple.iphonesimulator" &&
+        deviceWindowBundles.has(window.bundleId) &&
         (window.title === name ||
           [" –", " —", " -", " ("].some((suffix) => window.title.startsWith(`${name}${suffix}`))),
     );
@@ -273,12 +294,14 @@ async function simulatorWindow(
         "More than one Simulator window shows this device's name",
         "Close the extra Simulator window, or rename one of the simulators, then start again.",
       );
-    if (attempt === 0) await options.platform.showSimulator(options.device);
+    if (attempt === 0)
+      // Newer Xcode has no Simulator app to open: the device window is then simply looked for.
+      await options.platform.showSimulator(options.device).catch(() => undefined);
     else if (attempt >= 12)
       throw new DeviceError(
         "not_found",
         "The Simulator window for this device isn't open",
-        "Open it from Simulator's Window menu, make sure it isn't minimized, then start again.",
+        `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}, which shows the Simulator without a window. Or open the device's window in Simulator, make sure it isn't minimized, then start again.`,
       );
     await new Promise<void>((resolve) => options.runtime.after(500, resolve));
     checkAbort();

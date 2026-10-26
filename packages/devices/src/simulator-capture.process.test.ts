@@ -31,7 +31,7 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
   const command = join(home, "serve-sim");
   await writeFile(
     command,
-    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('0.1.48');process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}/ws'}));if(process.argv.includes('type')){require('node:fs').writeFileSync(${JSON.stringify(join(home, "typing"))},'ready');setInterval(()=>{},1000);}process.stdin.resume();`,
+    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('0.1.49-beta.139.1');process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}/ws'}));if(process.argv.includes('type')){require('node:fs').writeFileSync(${JSON.stringify(join(home, "typing"))},'ready');setInterval(()=>{},1000);}process.stdin.resume();`,
   );
   await chmod(command, 0o700);
   for (const name of ["xcode-select", "xcrun", "open"]) {
@@ -72,7 +72,7 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
     socket.on("message", (bytes) => {
       if (!Buffer.isBuffer(bytes)) throw new Error("Invalid native HID packet");
       hid.push(Buffer.from(bytes));
-      if (hid.length === 2) control.resolve();
+      if (hid.length === 3) control.resolve();
     }),
   );
   const runtime: DeviceRuntime = {
@@ -131,6 +131,8 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
     await capture.input({ kind: "tap", x: 100, y: 200 }, () => {});
     await control.promise;
     expect(hid.map((bytes) => [bytes[0], JSON.parse(bytes.subarray(1).toString())])).toEqual([
+      // On connect the device is turned to the orientation serve-sim announced.
+      [7, { orientation: "portrait" }],
       [3, { type: "begin", x: 0.5, y: 0.5 }],
       [3, { type: "end", x: 0.5, y: 0.5 }],
     ]);
@@ -142,12 +144,12 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
         throw new Error("lease expired");
       }),
     ).rejects.toThrow("lease expired");
-    expect(hid).toHaveLength(2);
+    expect(hid).toHaveLength(3);
     await capture.input(
       { kind: "swipe", x: 20, y: 40, toX: 100, toY: 200, durationMs: 32 },
       () => {},
     );
-    await expect.poll(() => hid.length).toBe(6);
+    await expect.poll(() => hid.length).toBe(7);
     expect(JSON.parse((hid.at(-1) ?? Buffer.alloc(0)).subarray(1).toString())).toEqual({
       type: "end",
       x: 0.5,
@@ -155,7 +157,7 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
     });
     await capture.input({ kind: "pointer", phase: "down", x: 20, y: 40 }, () => {});
     await capture.releaseInput?.();
-    await expect.poll(() => hid.length).toBe(8);
+    await expect.poll(() => hid.length).toBe(9);
     expect(JSON.parse((hid.at(-1) ?? Buffer.alloc(0)).subarray(1).toString())).toEqual({
       type: "end",
       x: 0.1,
@@ -163,10 +165,10 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
     });
     const gesture = capture.input({ kind: "longPress", x: 20, y: 40, durationMs: 10000 }, () => {});
     const rejectedGesture = expect(gesture).rejects.toThrow();
-    await expect.poll(() => hid.length).toBe(9);
+    await expect.poll(() => hid.length).toBe(10);
     await capture.releaseInput?.();
     await rejectedGesture;
-    await expect.poll(() => hid.length).toBe(10);
+    await expect.poll(() => hid.length).toBe(11);
     const reconfigured = Promise.withResolvers<void>();
     const ownedCapture = capture;
     afterPublish = () => {

@@ -134,6 +134,16 @@ Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
 The simulator's display-link callbacks are not GPU frames: real-device frame rate is still owed.
 
+On iPad (iPad Pro 11, iOS 26.5, 2026-10-24) the transcript scroll test reads 38 to 49 ms per s
+against the phone's 16 to 22, with the thread list beside the transcript. The gap is the test's,
+not the layout's: XCUITest switches on accessibility in the app and reads its element tree
+around every gesture, and the list on screen makes that tree several times larger, so each read
+holds the main thread for 70 to 90 ms. Hiding the list brings the test to 13 to 29 ms per s;
+drawing the list more cheaply (opaque, no provider-mark masks, plain row backgrounds) changes
+nothing, and the list's views are not re-evaluated while the transcript scrolls. With no test
+runner attached, flinging the transcript from inside the app loses 0 to 630 ms of frames in 24 s
+on iPad with the list showing and 310 to 420 ms on the phone.
+
 Known bug: with 1,000 or more seeded deltas the open thread's streaming row stops updating on
 screen after the open; only cursor patches arrive. The streaming test expects that failure
 (`Workload.longStreamFreezes`) and fails once it is fixed, so the expectation gets removed; until
@@ -298,6 +308,27 @@ thread when there is one, else its project (`forge.hosted.*`), pinned to the hea
 confirmed first. Start thread on an issue opens New thread with the issue written in and
 linked (`thread.create`'s `issue`). Linked threads open on the Threads tab. Bridge behaviour is
 covered by `bridge/forge-service.test.ts` on the fake daemon.
+
+A pull request's page opens its Timeline, Files changed and Code views. The bridge answers
+`forge.pull.timeline` (the web's grouped timeline, with what this account may do to each
+comment), `forge.pull.files`, `forge.pull.file` (one file's diff with its line conversations and
+pending review comments), `forge.pull.reviewers` and `forge.pull.manage`, and the writes
+`forge.review`, `forge.manage`, `forge.task` and `forge.newpr.create`. The decisions live in
+`@ace/ui-core` (`forge-timeline`, `forge-comments`, `forge-reviewers`, `forge-review-rules`,
+`text-completions`, `forge-lifecycle-words`), shared with the web. Every write is sent once: a
+locked conversation refuses comments before sending, an edit or delete expects the text the
+phone showed, a lifecycle change names the version shown, and an answer that never came is
+shown as unconfirmed with Reconcile (review and lifecycle writes) or Send again (inbox writes,
+which set a state). `@` and `#` complete through `forge.complete` in every editor.
+
+Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
+web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
+alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
+task boxes that tick through `forge.task`. Images and videos come only through the daemon's
+media path (`forge.media`), private uploads included. SVG, WebM and mermaid draw in a small
+offline web view; `bun run generate` copies mermaid's standalone build to
+`Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
+requests and issues open in the app, from other repositories too.
 
 ## Several machines
 

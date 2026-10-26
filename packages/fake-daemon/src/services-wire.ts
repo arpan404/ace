@@ -1,6 +1,7 @@
 import { FakeStorageWire } from "./storage-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
+import { FakeSkillLibrary, type SkillSeed } from "./skill-library.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeNotificationFeed } from "./notification-feed.ts";
@@ -30,12 +31,15 @@ import { fakePreviewSuggestions } from "./preview-suggestions.ts";
 import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
 export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
+import { skillSession } from "./skill-library-wire.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
   storageItems?: readonly import("@ace/core").StorageCandidate[];
   /** Database file bytes and the free pages compaction would release. */
   storageDatabase?: { bytes: number; reclaimable: number };
   promptFiles?: readonly PromptSeed[];
+  /** Native skill folders for the Skills page (ADR 0103). */
+  skills?: readonly SkillSeed[];
   catalogLoading?: readonly import("@ace/protocol").ProviderKind[];
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
@@ -72,6 +76,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
 export class FakeServicesWire {
   private storage: FakeStorageWire;
   readonly prompts = new FakePromptFiles();
+  readonly skills = new FakeSkillLibrary();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
     this.plugins.extensions(provider),
   );
@@ -117,6 +122,7 @@ export class FakeServicesWire {
     if (seed.storageItems) this.storage.seed(seed.storageItems);
     if (seed.storageDatabase) this.storage.seedDatabase(seed.storageDatabase);
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
+    if (seed.skills) this.skills.seed(seed.skills);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
     if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);
     if (seed.historyScan) this.history.seedScan(seed.historyScan);
@@ -157,6 +163,7 @@ export class FakeServicesWire {
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
+    const skills = skillSession(this.skills, emit);
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
@@ -195,6 +202,7 @@ export class FakeServicesWire {
         stopBrowsing?.();
         stopUsing?.();
         catalog.close();
+        skills.close();
         picker?.abort();
         stopProjects();
 
@@ -229,6 +237,7 @@ export class FakeServicesWire {
             });
             return;
           }
+          if (skills.handle(message)) return;
           if (message.type === "catalog.list" || message.type === "catalog.unsubscribe") {
             await catalog.handle(message, device);
             return;
@@ -505,9 +514,9 @@ export class FakeServicesWire {
                         {
                           id: "serve-sim",
                           available: true,
-                          detail: "serve-sim 0.1.48",
-                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.48.",
-                          version: "0.1.48",
+                          detail: "serve-sim 0.1.49-beta.139.1",
+                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.49-beta.139.1.",
+                          version: "0.1.49-beta.139.1",
                         },
                         {
                           id: "android",
