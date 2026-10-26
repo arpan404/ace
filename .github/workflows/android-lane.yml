@@ -145,8 +145,32 @@ jobs:
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           # Disposable CI AVD only; never the shared Mac AVDs.
-          echo no | avdmanager create avd -n ci-ace-android -k 'system-images;android-36;google_apis;x86_64' --device 'pixel' --force
-          emulator -list-avds
+          export ANDROID_USER_HOME="$RUNNER_TEMP/ace-android"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          {
+            echo "ANDROID_USER_HOME=$ANDROID_USER_HOME"
+            echo "ANDROID_EMULATOR_HOME=$ANDROID_EMULATOR_HOME"
+            echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
+          } >> "$GITHUB_ENV"
+          AVD_PATH="$ANDROID_AVD_HOME/ci-ace-android.avd"
+          LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
+          mkdir -p "$ANDROID_AVD_HOME" "$LANE_LOGS"
+          echo no | avdmanager create avd -n ci-ace-android -k 'system-images;android-36;google_apis;x86_64' --device 'pixel' --force -p "$AVD_PATH"
+          avdmanager list avd 2>&1 | tee "$LANE_LOGS/avdmanager-list.log"
+          emulator -list-avds 2>&1 | tee "$LANE_LOGS/emulator-list.log"
+          if [ ! -s "$ANDROID_AVD_HOME/ci-ace-android.ini" ] || [ ! -s "$AVD_PATH/config.ini" ]; then
+            echo 'avdmanager did not create the required AVD registration and config files; refusing' >&2
+            exit 2
+          fi
+          if ! grep -Fxq "path=$AVD_PATH" "$ANDROID_AVD_HOME/ci-ace-android.ini"; then
+            echo 'AVD registration does not point to the disposable CI AVD directory; refusing' >&2
+            exit 2
+          fi
+          if [ "$(grep -Fxc 'ci-ace-android' "$LANE_LOGS/emulator-list.log")" -ne 1 ]; then
+            echo 'disposable CI AVD ci-ace-android is not discoverable after creation; refusing' >&2
+            exit 2
+          fi
 
       - name: Android typecheck
         working-directory: apps/android
@@ -180,7 +204,8 @@ jobs:
           SERIAL='emulator-5554'
           LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
           mkdir -p "$LANE_LOGS"
-          if [ "$(emulator -list-avds 2>/dev/null | grep -c '^ci-ace-android$')" -ne 1 ]; then
+          emulator -list-avds 2>&1 | tee "$LANE_LOGS/boot-avd-list.log"
+          if [ "$(grep -Fxc 'ci-ace-android' "$LANE_LOGS/boot-avd-list.log")" -ne 1 ]; then
             echo 'disposable CI AVD ci-ace-android is missing; refusing to use any other AVD' >&2
             exit 2
           fi
