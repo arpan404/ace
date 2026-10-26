@@ -85,7 +85,7 @@ export default defineConfig({
     //
     // Workspace cases left out, each with a Windows counterpart or no Windows meaning:
     // ripgrep-only cases (Windows always searches with Node); names holding "\\" or a newline,
-    // which Windows can't create; "/dev/null" as a root; and the forced Linux per-directory
+    // which Windows can't create; "/dev/null" as a root; the forced Linux per-directory
     // watch strategy, which Windows never uses (it watches the root recursively); and the
     // symlink swap race, whose child can't rename a folder ace holds open on Windows
     // (junction-race.process.test.ts is the Windows case).
