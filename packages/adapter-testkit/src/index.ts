@@ -14,3 +14,5 @@ export type {
 
 export { createTurnProvider, ScriptedTurnConfig } from "./turn-provider.ts";
 export type { ScriptedTurnResponse } from "./turn-provider.ts";
+
+export { writeCmdShim } from "./cmd-shim.ts";
