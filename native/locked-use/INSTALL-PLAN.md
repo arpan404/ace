@@ -23,7 +23,7 @@ signature-checked against ace's pinned team before it is trusted or run.
    guardian executables to `/Library/Application Support/dev.ace.locked-use/` (never a
    user-writable app directory). `chown -R root:wheel`, `chmod -R 755`, then
    `codesign --verify --strict -R '=anchor apple generic and certificate leaf[subject.OU] =
-   "<TEAM>" and identifier "<id>"'` on each copy. A failed check aborts the script.
+"<TEAM>" and identifier "<id>"'` on each copy. A failed check aborts the script.
 2. **Add ace as one NAMED alternative of `system.login.screensaver`.** First
    `security authorizationdb write dev.ace.locked-use.permit` a dedicated
    `evaluate-mechanisms` right whose only mechanism is `AceLockedUseAuthorization:permit`. Then
