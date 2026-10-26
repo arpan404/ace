@@ -186,7 +186,7 @@ test("a stop while agents are at work refuses and leaves the app and its daemon 
     ]),
   });
   await expect(runSetup("stop", ports(state))).rejects.toBeInstanceOf(Refused);
-  expect([...state.processes.keys()].sort()).toEqual([40, 41]);
+  expect([...state.processes.keys()].toSorted()).toEqual([40, 41]);
 });
 
 test("uninstall while agents are at work removes nothing", async () => {
