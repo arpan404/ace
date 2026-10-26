@@ -77,6 +77,10 @@ jobs:
       BUN_VERSION: 1.4.0
 
     steps:
+      # LF checkouts for this job only; every other checkout keeps its own setting.
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v7
 

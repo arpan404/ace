@@ -11,7 +11,11 @@ export async function startUserBrowser(context: ServiceContext): Promise<void> {
     dataDir: context.config.dataDir,
     platform: process.platform,
     home: homedir(),
-    env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, LOCALAPPDATA: process.env.LOCALAPPDATA },
+    env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    // Windows registers native hosts under %LOCALAPPDATA%.
+    ...(process.platform === "win32" && {
+      env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, LOCALAPPDATA: process.env.LOCALAPPDATA },
+    }),
     node: process.execPath,
     devices: context.store.devices,
     now: context.now,
