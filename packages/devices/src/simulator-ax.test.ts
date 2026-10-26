@@ -139,3 +139,52 @@ it("actions become a tap at the centre, a bounded swipe, or nothing to do", () =
     "does not support",
   );
 });
+
+// An iPhone Duo's inner screen as serve-sim's /ax returned it: the root keeps the window's
+// portrait frame while the app is laid out landscape. Its framebuffer stays portrait.
+const innerScreen = { width: 2007, height: 2853, orientation: "landscape_left" };
+const landscapeSettings = [
+  element(
+    { type: "Application", AXLabel: "Settings", frame: { x: 0, y: 0, width: 669, height: 951 } },
+    [
+      element({ type: "Group", frame: { x: 0, y: 0, width: 951, height: 669 } }),
+      element({ AXLabel: "About", frame: { x: 340, y: 303.67, width: 527, height: 52 } }),
+      element({
+        type: "ScrollView",
+        AXLabel: "List",
+        frame: { x: 340, y: 100, width: 527, height: 500 },
+      }),
+    ],
+  ),
+];
+
+it("on a turned screen, elements land where the portrait framebuffer shows them", () => {
+  const tree = simulatorTree(landscapeSettings, innerScreen, { maxNodes: 64, maxDepth: 4 });
+  const about = tree.nodes[0]?.children.find((node) => node.name === "About");
+  // Checked on a live iPhone Duo: a press at this box's centre opens About.
+  expect(about).toMatchObject({ bounds: { x: 911, y: 252, w: 156, h: 1581 }, actions: ["press"] });
+});
+
+it("a portrait-only app on a turned iPhone keeps its portrait layout", () => {
+  const tree = simulatorTree(
+    settings,
+    { ...screen, orientation: "landscape_left" },
+    { maxNodes: 64, maxDepth: 4 },
+  );
+  const general = tree.nodes[0]?.children.find((node) => node.name === "General");
+  expect(general?.bounds).toEqual({ x: 48, y: 900, w: 1110, h: 156 });
+});
+
+it("a scroll asked for upright runs across the framebuffer of a turned screen", () => {
+  const tree = simulatorTree(landscapeSettings, innerScreen, { maxNodes: 64, maxDepth: 4 });
+  const list = tree.nodes[0]?.children.find((node) => node.name === "List");
+  if (!list) throw new Error("No list");
+  const swipe = simulatorActionInput(
+    list,
+    { ref: list.ref, action: "scroll", value: { dx: 0, dy: 300 } },
+    90,
+  );
+  // Upright, the finger moves up the screen; on the portrait framebuffer that is leftward.
+  expect(swipe).toMatchObject({ kind: "swipe", toY: swipe.kind === "swipe" ? swipe.y : 0 });
+  expect(swipe.kind === "swipe" && swipe.x - swipe.toX).toBe(300);
+});

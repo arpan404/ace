@@ -136,8 +136,10 @@ and supervises it per device: live views get its H.264 (serve-sim encodes at 60 
 6 Mbit/s; it has no options for either) re-framed as Annex B with no decode or
 re-encode, and a stream that won't start refuses the view with a reinstall hint. Agents'
 stills and recordings while nobody watches get its MJPEG through the bounded resize path,
-input uses its HID socket (edge
-gestures included; typed text is HID keyboard keys, which put iOS into hardware-keyboard mode and
+touch (edge gestures included) goes through Xcode 27's own input service when the screen
+helper reaches it (`--sim-touch`, `simulator-digitizer.ts`; serve-sim's legacy touches can be
+dropped there) and otherwise through serve-sim's HID socket, buttons and keys use that socket
+(typed text is HID keyboard keys, which put iOS into hardware-keyboard mode and
 hide the on-screen keyboard, so ace toggles it back 250 ms after typing unless the person hid it
 with the `keyboard` key, Simulator's Toggle Software Keyboard), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
 bridge. Other serve-sim versions are not driven (ADR 0064, "Native Simulator

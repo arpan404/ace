@@ -85,7 +85,10 @@ export async function startCapture(options: {
         device,
         command,
         commandArgs: status.args,
-        ...(transcoder ? { transcoder } : {}),
+        // The screen helper also re-encodes for small viewers and touches through Xcode's own
+        // input service.
+        ...(transcoder ? { transcoder, digitizer: transcoder } : {}),
+        screens: () => options.platform.simulatorScreens(device),
       });
     }
     // serve-sim is preferred; an unpinned version falls back to the public-API screen helper.
