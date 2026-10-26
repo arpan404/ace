@@ -63,22 +63,31 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
   const releases = join(dataDir, "releases");
   if (existsSync(releases) && !(await lstat(releases)).isDirectory())
     throw new Error("Invalid releases directory");
-  for (const name of [join("bin", CMD_LAUNCHER), join("bin", "ace"), "current", "previous"])
+  const launcher = join(dataDir, "bin", CMD_LAUNCHER);
+  for (const name of [join("bin", "ace"), "current", "previous"])
     await rm(join(dataDir, name), { force: true });
-  if (!existsSync(releases)) return result;
-  const running = relative(releases, process.argv[1] ?? "").split(sep)[0] ?? "";
-  const { readdir } = await import("node:fs/promises");
-  for (const name of await readdir(releases))
-    if (name !== running) await rm(join(releases, name), { recursive: true, force: true });
-  if (!running || running.startsWith("..") || isAbsolute(running)) {
+  const running = existsSync(releases)
+    ? (relative(releases, process.argv[1] ?? "").split(sep)[0] ?? "")
+    : "";
+  const fromRelease = running !== "" && !running.startsWith("..") && !isAbsolute(running);
+  if (existsSync(releases)) {
+    const { readdir } = await import("node:fs/promises");
+    for (const name of await readdir(releases))
+      if (name !== running) await rm(join(releases, name), { recursive: true, force: true });
+  }
+  if (!fromRelease) {
+    await rm(launcher, { force: true });
     await rm(releases, { recursive: true, force: true });
     return result;
   }
+  // cmd.exe reads ace.cmd again after node returns, so the launcher goes once both have exited.
+  const release = join(releases, running);
   const script = [
     "$ErrorActionPreference = 'SilentlyContinue'",
-    `Wait-Process -Id ${process.pid} -Timeout 120`,
-    `for ($i = 0; $i -lt 40 -and (Test-Path -LiteralPath ${quoted(join(releases, running))}); $i++) { Remove-Item -LiteralPath ${quoted(join(releases, running))} -Recurse -Force; Start-Sleep -Milliseconds 250 }`,
+    `Wait-Process -Id ${process.pid},${process.ppid} -Timeout 120`,
+    `for ($i = 0; $i -lt 40 -and (Test-Path -LiteralPath ${quoted(release)}); $i++) { Remove-Item -LiteralPath ${quoted(release)} -Recurse -Force; Start-Sleep -Milliseconds 250 }`,
     `if (-not (Get-ChildItem -LiteralPath ${quoted(releases)} -Force)) { Remove-Item -LiteralPath ${quoted(releases)} -Force }`,
+    `if (-not (Test-Path -LiteralPath ${quoted(join(dataDir, "current"))})) { Remove-Item -LiteralPath ${quoted(launcher)} -Force }`,
   ].join("\n");
   spawn(
     "powershell.exe",
