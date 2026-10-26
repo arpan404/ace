@@ -6,7 +6,10 @@
 param(
   [Parameter(Mandatory)] [string] $First,
   [Parameter(Mandatory)] [string] $Second,
-  [Parameter(Mandatory)] [string] $SecondVersion
+  [Parameter(Mandatory)] [string] $SecondVersion,
+  # A folder where the smoke writes `shot-<name>` and waits (up to a minute) for `shot-<name>.taken`,
+  # so a watcher outside the machine can take a screenshot of the desktop at that point.
+  [string] $ShotDir = ""
 )
 $ErrorActionPreference = "Stop"
 # ACE_HOME, as the app and installer resolve it, lets a shared test machine use a scratch home.
@@ -78,6 +81,22 @@ function WaitForDaemon($installDir) {
   Fail "the app's daemon did not become ready"
 }
 
+function Shot($name) {
+  if (-not $ShotDir) { return }
+  Set-Content -Path (Join-Path $ShotDir "shot-$name") -Value $name
+  $deadline = (Get-Date).AddMinutes(1)
+  while (-not (Test-Path (Join-Path $ShotDir "shot-$name.taken")) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+}
+
+function StopApp($daemonPid) {
+  Get-Process ace -ErrorAction SilentlyContinue | Stop-Process -Force
+  # The app's daemon outlives a killed app; ask it to stop as `ace stop` does.
+  & $shim stop 2>&1 | Out-Null
+  $deadline = (Get-Date).AddMinutes(1)
+  while ((Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+  if (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) { Fail "the daemon did not stop on request" }
+}
+
 function LaunchApp($installDir) {
   $app = Start-Process -FilePath (Join-Path $installDir "ace.exe") -PassThru
   Write-Host "launched ace.exe pid $($app.Id)"
@@ -119,6 +138,8 @@ Done
 
 Step "The app starts its own daemon"
 $firstDaemon = LaunchApp $installDir
+Start-Sleep -Seconds 10
+Shot "first-launch"
 Set-Content -Path (Join-Path $homeDir "smoke-marker.txt") -Value "kept"
 # A login item as the app's Settings writes it, so uninstall must remove it.
 New-ItemProperty -Path $runKey -Name "dev.ace.app" -Value "`"$installDir\ace.exe`" --background" -Force | Out-Null
@@ -131,6 +152,17 @@ if ($entry.DisplayVersion -ne $SecondVersion) { Fail "installed version is $($en
 if (Get-Process -Id $firstDaemon -ErrorAction SilentlyContinue) { Fail "the old daemon still runs after the update" }
 $secondDaemon = LaunchApp $installDir
 Write-Host "daemon after update: pid $secondDaemon"
+Start-Sleep -Seconds 10
+Shot "after-update"
+Done
+
+Step "Start at login: the login item's command starts the app in the background and its daemon"
+StopApp $secondDaemon
+$login = [string](Get-Item $runKey).GetValue("dev.ace.app")
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "start", '""', $login -WindowStyle Hidden
+$loginDaemon = WaitForDaemon $installDir
+Write-Host "daemon from the login item: pid $loginDaemon"
+Shot "login-item"
 Done
 
 Step "Uninstall silently"
