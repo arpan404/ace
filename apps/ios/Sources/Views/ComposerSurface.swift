@@ -10,13 +10,15 @@ struct ComposerSurface<Content: View>: View {
     }
 }
 
-/// The composer's round send button: ink with an arrow to send, an ink square to stop the
-/// tree while it works, grey while there is nothing to send.
+/// The composer's round send button: ink with an arrow to send (or the Steer or Queue glyph while
+/// the agent works), an ink square to stop the tree while it works, grey while there is nothing
+/// to send.
 struct ComposerActionButton: View {
     var stopping = false
     var saving = false
     let disabled: Bool
     let label: String
+    var glyph: AceIcon.Name = .arrowUp
     /// The tap area's side; the round sits a little inside it.
     var size: CGFloat = AceTheme.Dimensions.touchTarget
     let action: () -> Void
@@ -28,7 +30,7 @@ struct ComposerActionButton: View {
                     AceShape.stopGlyph
                         .frame(width: AceTheme.Spacing.sm + AceTheme.Spacing.xxs, height: AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
                 } else {
-                    AceIcon(.arrowUp, size: 16, weight: .bold, relativeTo: .body)
+                    AceIcon(glyph, size: 16, weight: .bold, relativeTo: .body)
                 }
             }
             .frame(width: size - AceTheme.Spacing.sm, height: size - AceTheme.Spacing.sm)

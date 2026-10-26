@@ -87,7 +87,9 @@ export function PageView(props: {
     [keymap],
   );
   const touchScreen = useTouchScreen();
-  useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive, touchScreen);
+  // A tab with a device (an agent's, another screen's) keeps it: the pane never resizes it away.
+  const followsPane = props.fit && props.interactive && !props.tab?.emulation;
+  useViewportSync(props.source, props.threadId, pane, followsPane, touchScreen);
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
   const placement = () => {

@@ -23,6 +23,36 @@ import UIKit
         let geometry = PageGeometry(view: CGSize(width: 390, height: 700), page: CGSize(width: 780, height: 1400))
         #expect(geometry.pagePoint(CGPoint(x: 195, y: 350)) == CGPoint(x: 390, y: 700))
         #expect(geometry.viewRect(PageRect(x: 780, y: 0, width: 0, height: 0)).minX == 390)
+        #expect(!geometry.movable)
+    }
+
+    @Test func aPhoneTallerThanTheViewFitsItsWidthFromTheTopAndTwoFingersMoveIt() {
+        // An iPhone 16 Pro page (402×874) in a 402×650 view: 1:1, the bottom 224 points below.
+        let geometry = PageGeometry(view: CGSize(width: 402, height: 650), page: CGSize(width: 402, height: 874))
+        #expect(geometry.box == CGRect(x: 0, y: 0, width: 402, height: 874))
+        #expect(geometry.movable)
+        // Moved up by more than there is: it stops with the page's bottom at the view's.
+        let moved = geometry.panned(by: CGPoint(x: 30, y: -500))
+        #expect(moved.box == CGRect(x: 0, y: -224, width: 402, height: 874))
+        // A finger at the view's top is now 224 CSS pixels down the page.
+        #expect(moved.pagePoint(CGPoint(x: 100, y: 0)) == CGPoint(x: 100, y: 224))
+        #expect(moved.viewRect(PageRect(x: 0, y: 300, width: 10, height: 10)).minY == 76)
+    }
+
+    @Test func aDesktopPageFitsThePhonesWidthAndZoomsAroundTheFingers() {
+        // A 1280×800 laptop page in a 400×700 view: drawn at 0.3125, 250 points tall, at the top.
+        let geometry = PageGeometry(view: CGSize(width: 400, height: 700), page: CGSize(width: 1280, height: 800))
+        #expect(geometry.box == CGRect(x: 0, y: 0, width: 400, height: 250))
+        #expect(!geometry.movable)
+        // Pinched to 2× around (100, 50): the finger stays over the same place across; the page,
+        // still shorter than the view, stays at the top.
+        let zoomed = geometry.zoomed(by: 2, around: CGPoint(x: 100, y: 50))
+        #expect(zoomed.movable)
+        #expect(zoomed.box == CGRect(x: -100, y: 0, width: 800, height: 500))
+        #expect(zoomed.pagePoint(CGPoint(x: 100, y: 50)) == CGPoint(x: 320, y: 80))
+        // Never smaller than the fit, never past 4×.
+        #expect(zoomed.zoomed(by: 0.1, around: .zero).box == geometry.box)
+        #expect(geometry.zoomed(by: 100, around: .zero).zoom == PageGeometry.maxZoom)
     }
 
     // MARK: Touch

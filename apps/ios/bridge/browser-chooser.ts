@@ -69,8 +69,7 @@ export class BrowserChooser {
       emit,
       this.#host.read,
     );
-    // Any file goes to a page; what an agent can read doesn't apply.
-    for (const file of files) tray.attach(file, undefined);
+    for (const file of files) tray.attach(file);
   }
   close(): void {
     this.#abort?.abort();

@@ -23,6 +23,9 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     var worktree = false
     var base: ComposeBaseRef?
     var text = ""
+    /// References picked into `text` from `@` and `/`, in the project they were picked in. Absent
+    /// in drafts kept before references were.
+    var picks: ComposerPicks?
     var profileId: String?
     var instructions: String?
     /// The command id of a send that may already be saved: sending the same draft again replays
@@ -66,6 +69,7 @@ struct NewThreadDraftStore: Sendable {
         if draft.projectId != projectId { draft.base = nil }
         draft.projectId = projectId
         draft.text = text
+        draft.picks = nil
         draft.issue = issue
         draft.commandId = nil
         draft.files.removeAll { $0.workspaceId != projectId }
@@ -96,9 +100,13 @@ struct NewThreadDraftStore: Sendable {
         var next = draft
         change(&next)
         next.commandId = draft.commandId
-        // Files and the issue go with the project they were picked for.
+        // Files, picks and the issue go with the project they were picked for.
         next.files.removeAll { $0.workspaceId != next.projectId }
-        if next.projectId != draft.projectId { next.issue = nil }
+        if next.projectId != draft.projectId { next.issue = nil; next.picks = nil }
+        else if next.text != draft.text, var picks = next.picks {
+            picks.edited(from: draft.text, to: next.text)
+            next.picks = picks.isEmpty ? nil : picks
+        }
         guard next != draft else { return }
         next.commandId = nil
         commit(next)
@@ -108,6 +116,10 @@ struct NewThreadDraftStore: Sendable {
     /// A file staged in `staging` for `workspaceId`'s first message.
     func picked(_ file: StagedAttachment, workspaceId: String) {
         edit { $0.files.append(NewThreadFile(file, workspaceId: workspaceId)) }
+    }
+    /// A reference picked into the words, after the edit that inserted them.
+    func add(_ pick: ComposerPick) {
+        edit { var picks = $0.picks ?? ComposerPicks(); picks.add(pick); $0.picks = picks }
     }
     func remove(_ localId: String) { edit { $0.files.removeAll { $0.localId == localId } } }
     /// The chosen project's files as the bridge takes them, to put back on the message.
@@ -125,6 +137,7 @@ struct NewThreadDraftStore: Sendable {
     func admitted() {
         var next = draft
         next.text = ""
+        next.picks = nil
         next.commandId = nil
         next.files = []
         next.issue = nil

@@ -51,6 +51,13 @@ final class DurableStore {
             guard value.utf8.count <= 8 * 1_048_576 else { throw HostError.storage }
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('reads',?)", [value]) }
             return ""
+        // The browser's device toolbar per tab (`bridge/browser-device.ts`): a plain replace.
+        case "storage.devices.load": return try query("SELECT value FROM metadata WHERE id='browserDevices'").first ?? ""
+        case "storage.devices.save":
+            let value = try request.requireBody()
+            guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('browserDevices',?)", [value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }

@@ -96,7 +96,7 @@ struct ModelPicker: View {
             } else {
                 Section {
                     ForEach(rows) { row in
-                        ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: searching || tab?.note == nil,
+                        ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: (searching || tab?.note == nil) && row.note == nil,
                                        choose: { choose(row) }, star: { star(row) })
                     }
                     if hidden > 0 || expanded { moreRow }

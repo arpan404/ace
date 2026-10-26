@@ -413,24 +413,21 @@ extension XCUIApplication {
     }
     /// Opens a thread from its inbox row; true once the app reports the open finished.
     @discardableResult func openThread(_ id: String, timeout: TimeInterval = 30) -> Bool {
+        // Over a phone's open thread the list is its drawer.
+        let sidebar = buttons["thread.sidebar"]
+        if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
         let row = revealRow("thread.\(id)")
         let before = probe["opens"]
         row.tap()
         return waitForCount("opens", from: before, timeout: timeout)
     }
-    /// Back to the inbox from a thread, or on to another thread beside the list.
+    /// On from a thread to another one: beside the list (iPad) or from the drawer a phone's
+    /// thread opens over it, a thread never closes, and opening another one closes it.
     func goBack() {
-        // Beside the list (iPad) a thread never leaves the detail column: opening another one
-        // closes it, as going back does on a phone.
-        if buttons["inbox.settings"].isHittable {
-            revealRow("thread.ios-form").tap()
-            let deadline = Date(timeIntervalSinceNow: 10)
-            while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
-            return
-        }
-        navigationBars.buttons.firstMatch.tap()
-        let composer = textViews["composer.input"]
+        let sidebar = buttons["thread.sidebar"]
+        if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
+        revealRow("thread.ios-form").tap()
         let deadline = Date(timeIntervalSinceNow: 10)
-        while composer.exists && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
+        while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
     }
 }

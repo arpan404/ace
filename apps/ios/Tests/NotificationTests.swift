@@ -57,7 +57,7 @@ import Testing
         let sessions = Sessions()
         let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
                                                   sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await coordinator.attach(model, target: try target())
         await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
         await coordinator.respond(action: NotificationActionID.deny, notificationId: "n:7", info: approvalInfo)
@@ -80,7 +80,7 @@ import Testing
                                                   sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
         await coordinator.setEnabled(true)
         for host in ["studio", "laptop"] {
-            let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+            let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
             await coordinator.attach(model, target: try target(host))
             await model.connect(target: try target(host), directory: URL(fileURLWithPath: "/unused"))
         }
@@ -139,7 +139,7 @@ import Testing
         let sessions = Sessions()
         let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
                                                   sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await coordinator.attach(model, target: try target())
         await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
         let session = try #require(sessions.values.first)

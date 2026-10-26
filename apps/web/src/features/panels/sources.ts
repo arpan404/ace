@@ -404,4 +404,17 @@ export interface PreviewSource {
     touch?: boolean,
     devicePixelRatio?: number,
   ): void;
+  /**
+   * Size the page to the pane, as `resize`, unless the shown tab emulates a device (an agent's,
+   * or the person's on another screen, ADR 0104): that is kept until this screen's own device
+   * toolbar closes. Held until this view has the tab's current state (after a subscribe or a
+   * reconnect), so a device set meanwhile is not cleared by an older picture of the tab.
+   */
+  fitPane?(
+    threadId: string,
+    width: number,
+    height: number,
+    touch?: boolean,
+    devicePixelRatio?: number,
+  ): void;
 }
