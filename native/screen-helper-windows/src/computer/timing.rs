@@ -53,12 +53,6 @@ pub fn person_active(app_in_front: bool, since_person_input: Option<Duration>) -
     app_in_front && since_person_input.is_some_and(|age| age < PERSON_WINDOW)
 }
 
-/// Input the system reports as the last one (GetLastInputInfo) is the agent's own when it
-/// lands within this many milliseconds of the helper's last injection.
-pub fn own_input(last_input_tick: u32, injected_tick: Option<u32>) -> bool {
-    injected_tick.is_some_and(|tick| last_input_tick.wrapping_sub(tick) < 250)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,13 +80,5 @@ mod tests {
         assert!(!person_active(true, Some(ms(3000))));
         assert!(!person_active(false, Some(ms(10))));
         assert!(!person_active(true, None));
-    }
-
-    #[test]
-    fn the_helpers_own_injection_is_not_the_persons_input() {
-        assert!(own_input(10_100, Some(10_000)));
-        assert!(!own_input(12_000, Some(10_000)));
-        assert!(own_input(5, Some(u32::MAX - 10)));
-        assert!(!own_input(10_000, None));
     }
 }

@@ -57,7 +57,6 @@ pub struct Service {
     start: Option<(Instant, Vec<StartApp>)>,
     names: HashMap<String, String>,
     known: Known,
-    injected: Option<u32>,
     clipboard: Option<Clipboard>,
 }
 
@@ -73,7 +72,6 @@ impl Service {
             start: None,
             names: HashMap::new(),
             known: Known::new(data_dir.as_deref()),
-            injected: None,
             clipboard: None,
         }
     }
@@ -220,7 +218,12 @@ impl Service {
             Err(error)
                 if error.code == "app_not_found" && query.to_lowercase().ends_with(".exe") =>
             {
-                let path = search_path(query).ok_or(error)?;
+                // Named by path earlier (possibly in another helper), or findable by Windows.
+                let path = self
+                    .known
+                    .path(query)
+                    .or_else(|| search_path(query))
+                    .ok_or(error)?;
                 let id = executable_id(&path);
                 self.known.remember(&id, &path);
                 return Ok(Resolved {
@@ -372,7 +375,6 @@ impl Service {
         let Self {
             uia,
             sessions,
-            injected,
             clipboard,
             ..
         } = self;
@@ -409,7 +411,6 @@ impl Service {
                 activity: &mut activity,
                 check,
                 person: &person,
-                injected,
                 clipboard,
                 pids: pids.clone(),
             };

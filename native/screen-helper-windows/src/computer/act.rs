@@ -21,7 +21,6 @@ use std::time::{Duration, Instant};
 use windows::core::Interface;
 use windows::Win32::{
     Foundation::*,
-    System::SystemInformation::GetTickCount,
     UI::{Accessibility::*, WindowsAndMessaging::*},
 };
 
@@ -33,7 +32,6 @@ pub struct Actor<'a> {
     pub activity: &'a mut Activity,
     pub check: &'a Checkpoint,
     pub person: &'a PersonWatch,
-    pub injected: &'a mut Option<u32>,
     pub clipboard: &'a mut Option<Clipboard>,
     /// The app's processes, for telling its own popups from other apps' windows.
     pub pids: Vec<u32>,
@@ -97,10 +95,7 @@ impl Actor<'_> {
             ));
         }
         if let Ok(hwnd) = self.session.hwnd() {
-            if timing::person_active(
-                apps::is_foreground(hwnd),
-                desktop::since_person_input(*self.injected),
-            ) {
+            if timing::person_active(apps::is_foreground(hwnd), desktop::since_person_input()) {
                 return Err(CuError::new(
                     "person_active",
                     format!("The person is using {} right now. Wait a moment and try again, or work in another app.", self.session.name),
@@ -161,10 +156,6 @@ impl Actor<'_> {
 
     pub fn label(&self, id: u64) -> String {
         self.session.label(id)
-    }
-
-    pub fn injected_now(&mut self) {
-        *self.injected = Some(unsafe { GetTickCount() });
     }
 
     /// Whether synthesized input would reach the window: it is in front on the normal desktop.
@@ -263,7 +254,26 @@ impl Actor<'_> {
                 format!("{label} is disabled."),
             ));
         }
+        // Rows and tabs are chosen by selection: their legacy default action is a synthesized
+        // click, which would bring the window forward.
+        let item = matches!(
+            facts.control_type,
+            outline::control::LIST_ITEM
+                | outline::control::TREE_ITEM
+                | outline::control::DATA_ITEM
+                | outline::control::TAB_ITEM
+        );
         unsafe {
+            if item && facts.selected.is_some() {
+                pattern::<IUIAutomationSelectionItemPattern>(
+                    element,
+                    UIA_SelectionItemPatternId,
+                    "selection",
+                )?
+                .Select()
+                .map_err(|e| stale_or(e, "selection"))?;
+                return Ok(format!("selected {label}"));
+            }
             if facts.invoke {
                 pattern::<IUIAutomationInvokePattern>(element, UIA_InvokePatternId, "press")?
                     .Invoke()
@@ -326,7 +336,6 @@ impl Actor<'_> {
             let point = self.center(element, &label)?;
             self.uncovered(point)?;
             input::click(point, Button::Left, 1, &[], Duration::ZERO)?;
-            self.injected_now();
             return Ok(format!("clicked {label}"));
         }
         if facts.focusable {
@@ -374,7 +383,6 @@ impl Actor<'_> {
             self.front("A click by position")?;
             self.uncovered(point)?;
             input::click(point, button, count, &mods, held)?;
-            self.injected_now();
             return Ok(format!("clicked at {x},{y}"));
         }
         let (id, element) = self.target(step)?;
@@ -408,7 +416,6 @@ impl Actor<'_> {
         let point = self.center(&element, &label)?;
         self.uncovered(point)?;
         input::click(point, button, count, &mods, held)?;
-        self.injected_now();
         let what = match (button, count) {
             (Button::Right, _) => "right-clicked",
             (Button::Middle, _) => "middle-clicked",
@@ -434,7 +441,6 @@ impl Actor<'_> {
         };
         self.uncovered(point)?;
         input::pointer_move(point)?;
-        self.injected_now();
         Ok(format!("moved the pointer to {place}"))
     }
 
@@ -467,7 +473,6 @@ impl Actor<'_> {
         let (to, to_label) = self.endpoint(step.get("to"))?;
         self.uncovered(from)?;
         input::drag(from, to, &modifiers(step)?, hold(step))?;
-        self.injected_now();
         Ok(format!("dragged from {from_label} to {to_label}"))
     }
 

@@ -512,7 +512,6 @@ impl Actor<'_> {
         if self.in_front() {
             self.uncovered(point)?;
             input::wheel(point, !vertical, notches)?;
-            self.injected_now();
             return Ok(format!(
                 "scrolled {place} {direction} {amount} (mouse wheel)"
             ));

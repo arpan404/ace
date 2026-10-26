@@ -173,7 +173,6 @@ impl Actor<'_> {
                 unsafe { element.SetFocus() }.map_err(|e| stale_or(e, "focus"))?;
             }
             input::text(&text)?;
-            self.injected_now();
             return Ok(format!("typed {count} characters{into}"));
         }
         match self.sink(target.as_ref().map(|(_, e)| e))? {
@@ -219,7 +218,6 @@ impl Actor<'_> {
             }
             self.borrow_clipboard(&source, html.as_deref())?;
             let pasted = input::chord(&parse_chord("ctrl+v")?, std::time::Duration::ZERO);
-            self.injected_now();
             self.activity.begin();
             let _ = self.activity.settle(&timing::BEFORE_LOOK, self.check);
             self.clipboard.as_mut().map(Clipboard::restore);
@@ -287,7 +285,6 @@ impl Actor<'_> {
                 self.check.check()?;
                 input::chord(&chord, hold(step))?;
             }
-            self.injected_now();
             return Ok(format!("pressed {}{times}", chord.name));
         }
         let hwnd = self.session.hwnd()?;

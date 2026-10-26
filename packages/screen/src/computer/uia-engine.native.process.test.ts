@@ -235,6 +235,8 @@ describe.runIf(windows)("Windows computer-use engine", () => {
     expect(Buffer.from(pictured.screenshot?.jpeg ?? "", "base64").subarray(0, 2)).toEqual(
       Buffer.from([0xff, 0xd8]),
     );
+    // Reading and capturing never bring the window forward.
+    expect((await target.values()).front).toBe(false);
 
     const shortcut = ComputerActResult.parse(
       await client.request("act", { app, actions: [{ type: "key", key: "ctrl+shift+k" }] }),

@@ -193,31 +193,15 @@ impl Drop for PersonWatch {
     }
 }
 
-/// How long ago the person last used the keyboard or mouse, as far as the helper can tell:
-/// the hooks while a batch runs, and the system's last-input time otherwise (minus the
-/// helper's own injections).
-pub fn since_person_input(injected_tick: Option<u32>) -> Option<Duration> {
+/// How long ago the person last used the keyboard or mouse, as the hooks saw it. Only real
+/// input counts: the system's last-input time also includes input other programs (and UI
+/// Automation proxies) synthesize, so it is not used.
+pub fn since_person_input() -> Option<Duration> {
     let hooked = LAST_PERSON_INPUT.load(Ordering::Relaxed);
-    let from_hooks = (hooked > 0).then(|| {
+    (hooked > 0).then(|| {
         let epoch = *EPOCH.get_or_init(Instant::now);
         epoch
             .elapsed()
             .saturating_sub(Duration::from_millis(hooked - 1))
-    });
-    let mut info = LASTINPUTINFO {
-        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
-        dwTime: 0,
-    };
-    let from_system = unsafe { GetLastInputInfo(&mut info) }
-        .as_bool()
-        .then(|| {
-            let now = unsafe { windows::Win32::System::SystemInformation::GetTickCount() };
-            (!super::timing::own_input(info.dwTime, injected_tick))
-                .then(|| Duration::from_millis(u64::from(now.wrapping_sub(info.dwTime))))
-        })
-        .flatten();
-    match (from_hooks, from_system) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, b) => a.or(b),
-    }
+    })
 }
