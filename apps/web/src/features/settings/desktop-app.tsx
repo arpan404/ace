@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { AppUpdateRow } from "./app-updates.tsx";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { DesktopShortcut } from "./desktop-shortcut.tsx";
+import { TerminalCommandRow } from "./terminal-command.tsx";
 import { useSettingWrite } from "./data/use-settings.ts";
 
 /** The desktop bridge's platform, set on the root element before the app loads. */
@@ -66,6 +67,7 @@ export function DesktopAppPreferences() {
         />
       </SettingRow>
       {shortcutHint && <p className="select-text text-sm text-muted-foreground">{shortcutHint}</p>}
+      <TerminalCommandRow />
       <AppUpdateRow />
     </SettingSection>
   );

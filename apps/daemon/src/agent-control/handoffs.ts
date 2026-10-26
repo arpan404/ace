@@ -160,7 +160,13 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       wait: false,
       estimatedLoad: 0,
     };
-    const model = await delegations.prepareModels(caller, request);
+    const budget = delegations.loadBudget(signal);
+    let model;
+    try {
+      model = await delegations.prepareModels(caller, request, budget);
+    } finally {
+      budget.end();
+    }
     signal.throwIfAborted();
     const reservation = delegations.reserve(caller, request, undefined, model);
     const watched = delegations.watchReservation(reservation);

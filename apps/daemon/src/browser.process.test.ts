@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { detectChromium } from "@ace/browser";
-import { type StreamMessage } from "@ace/browser/stream";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
@@ -17,9 +16,6 @@ import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts"
 
 const executablePath = await detectChromium();
 const exec = promisify(execFile);
-/** The first picture a video viewer gets: an H.264 keyframe. */
-const keyframe = (message: StreamMessage) =>
-  message.kind === "browser.video" && message.chunk.key && message.chunk.bytes.length > 0;
 describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
   it("streams to two authenticated clients, lets both use the page beside an agent, and persists recordings as thread artifacts", async () => {
     if (!executablePath) throw new Error("Missing explicit test Chromium");
@@ -67,11 +63,18 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           }),
         ),
       );
-      await Promise.all(clients.map((client) => client.untilStreamed(keyframe)));
-      for (const client of clients) {
-        const found = client.streamed.find(keyframe);
-        if (found?.kind !== "browser.video") throw new Error("Expected a keyframe");
-        const key = found.chunk;
+      for (const key of await Promise.all(
+        clients.map((client) =>
+          client.nextStream((message) =>
+            message.kind === "browser.video" &&
+            message.threadId === thread.id &&
+            message.chunk.key &&
+            message.chunk.bytes.length > 0
+              ? message.chunk
+              : undefined,
+          ),
+        ),
+      )) {
         expect(key.codec).toBe("avc1.42E033");
         // Sized as the picture is (one scale on both axes), not as an encoder pads it.
         expect(key.codedHeight / key.height).toBeCloseTo(key.codedWidth / key.width, 2);

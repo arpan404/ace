@@ -1,6 +1,7 @@
 import { prIndicatorFields, prIndicators, viewerLogin } from "./github-browser-enrichment.ts";
 import { avatars, labelColors, logins } from "./github-row-facts.ts";
 import { z } from "zod";
+import { restFiles } from "./rest-records.ts";
 import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/protocol/forge";
 import {
   ForgePrSearch,
@@ -369,24 +370,7 @@ export class GitHubBrowser {
       baseSha = parent.sha;
       records = commit.files;
     } else records = decode(z.array(FileRecord).max(25), response.body);
-    // A page carries at most 256 KB of patches. One that doesn't fit is left out whole (never
-    // cut short): the page diffs it from the file's content when it is wanted.
-    let remaining = 262_144;
-    const files = records.map((file) => {
-      const fits = file.patch !== undefined && file.patch.length <= remaining;
-      const patch = fits ? (file.patch ?? null) : null;
-      remaining -= patch?.length ?? 0;
-      return {
-        raw: Object.assign({}, file, { patch }),
-        path: file.filename,
-        previousPath: file.previous_filename,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        patch,
-        truncated: patch === null,
-      };
-    });
+    const files = restFiles(records);
     const next = this.#api.next(response, path);
     const [comparison] = await Promise.allSettled([mergeBase]);
     // Revalidate after the reads, so a moved head never labels old data as current. A moved

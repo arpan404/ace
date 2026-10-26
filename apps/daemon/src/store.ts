@@ -3,7 +3,8 @@ import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
-import { decodeThreadRow } from "./thread-row.ts";
+import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
+import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
@@ -20,6 +21,7 @@ import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
+import { indexThreadRows } from "./thread-row-indexes.ts";
 import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
@@ -38,6 +40,7 @@ import { WorkspaceReservations } from "./workspace-reservations.ts";
 import { migrateRunClient } from "./run-client-storage.ts";
 import { executionWorkspace } from "./workspace-root.ts";
 import { migrateThreadClient, seedThreadClient } from "./thread-client-storage.ts";
+import { migrateThreadCold } from "./thread-cold.ts";
 import { HistoryIndex } from "./history-index.ts";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
@@ -56,11 +59,13 @@ import {
   ThreadId,
   type ItemId,
   type ThreadView,
+  type ProjectKind,
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
+import { SqlitePairingCodes } from "./pairing-codes.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
@@ -86,6 +91,8 @@ type Listener = (events: Event[]) => void;
 const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
+  /** Pairing links waiting to be redeemed; they outlive a restart until they expire. */
+  readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
@@ -128,6 +135,9 @@ export class Store {
   private readonly navigation: LongThreadQueries;
   private readonly sidebarReads: SidebarReads;
   private sidebarSnapshotSeq = 0;
+  /** A read-only snapshot opened outside any write sees committed data only. */
+  private committedSnapshot = false;
+  private readonly threads: ThreadCache;
   private readonly receipts: CommandReceipts;
   private readonly eventWriter: EventWriter;
   private publications: Event[][] = [];
@@ -157,9 +167,25 @@ export class Store {
       inTransaction: () => this.transactionEvents !== undefined,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
+    this.threads = new ThreadCache({
+      revision: (id) => {
+        const value = this.statement(
+          "SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?",
+        ).get(id)?.revision;
+        return typeof value === "number" ? value : undefined;
+      },
+      row: (id) =>
+        this.statement(
+          `SELECT ${threadRowColumns}, revisions.revision AS row_revision FROM ${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id = ?`,
+        ).get(id),
+      committed: () => !this.db.isTransaction || this.committedSnapshot,
+    });
     this.sidebarReads = new SidebarReads({
       statement: (sql) => this.statement(sql),
       snapshot: (read) => this.sidebarSnapshot(read),
+      decode: (row, revision) => this.threads.decode(row, revision),
+      read: (id) => this.threads.read(id),
+      committed: () => !this.db.isTransaction || this.committedSnapshot,
     });
     this.receipts = new CommandReceipts({
       statement: (sql) => this.statement(sql),
@@ -201,6 +227,7 @@ export class Store {
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
+      this.atomic(migrateThreadCold);
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
@@ -214,6 +241,7 @@ export class Store {
       this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
       this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
+      this.atomic(indexThreadRows);
       this.history = new HistoryIndex(
         this.db,
         (sql) => this.statement(sql),
@@ -246,6 +274,7 @@ export class Store {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
+      this.pairingCodes = new SqlitePairingCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {
@@ -302,6 +331,11 @@ export class Store {
         measurements: this.measurements,
         statement: (sql) => this.statement(sql),
         getThread: (id) => this.getThread(id),
+        checkoutThread: (id) => this.threads.checkout(id),
+        rememberThread: (id, revision, thread, written) =>
+          this.threads.remember(id, revision, thread, written),
+        rememberCreatedThread: (id, revision, thread, row) =>
+          this.threads.rememberCreated(id, revision, thread, row),
         nextId: this.nextId,
         wakeSearch: () => this.searchMaintenance.wake(),
       });
@@ -431,6 +465,7 @@ export class Store {
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
         this.sidebarReads.invalidate();
@@ -442,6 +477,7 @@ export class Store {
       }
     }
     this.db.exec("BEGIN IMMEDIATE");
+    this.threads.begin();
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -450,6 +486,7 @@ export class Store {
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
       events = this.transactionEvents;
       this.db.exec("COMMIT");
+      this.threads.commit();
       this.transactions++;
       this.readCache.invalidate();
       this.wal.wake();
@@ -461,6 +498,7 @@ export class Store {
       this.settle(this.settlements.splice(0), "rolledBack");
       throw error;
     } finally {
+      this.threads.end();
       this.transactionEvents = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
@@ -738,11 +776,17 @@ export class Store {
       this.deferredAfter = Math.max(this.deferredAfter, through);
     this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
-  getWorkspace(
-    id: WorkspaceId,
-  ): { path: string; name: string; icon?: string | null; defaultIcon?: string | null } | undefined {
+  getWorkspace(id: WorkspaceId):
+    | {
+        path: string;
+        name: string;
+        icon?: string | null;
+        defaultIcon?: string | null;
+        kind?: ProjectKind;
+      }
+    | undefined {
     const row = this.statement(
-      "SELECT id,path,name,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=?",
+      "SELECT w.id,w.path,w.name,m.icon,m.default_icon AS defaultIcon,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id WHERE w.id=?",
     ).get(id);
     if (!row) return undefined;
     const project = decodeProjectRow(row);
@@ -751,6 +795,7 @@ export class Store {
       name: project.name,
       ...(project.icon === undefined ? {} : { icon: project.icon }),
       ...(project.defaultIcon === undefined ? {} : { defaultIcon: project.defaultIcon }),
+      ...(project.kind ? { kind: project.kind } : {}),
     };
   }
   executionWorkspace(id: ThreadId) {
@@ -789,7 +834,7 @@ export class Store {
   }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
-      "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
+      `SELECT ${threadRowColumns} FROM ${threadRowSource} WHERE json_extract(imported,'$.sourceId')=?`,
     ).get(sourceId);
     return row ? decodeThreadRow(row) : undefined;
   }
@@ -842,10 +887,13 @@ export class Store {
       });
     }
   }
+  /** The caller's own copy, free to change. */
   getThread(id: ThreadId): Thread | undefined {
-    const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
-    if (!row) return undefined;
-    return decodeThreadRow(row);
+    return this.threads.copy(id);
+  }
+  /** Shared and deeply frozen: for reads that only look at fields, without the copy. */
+  readThread(id: ThreadId): FrozenThread | undefined {
+    return this.threads.read(id);
   }
   /** Live authorization checks do not need to deserialize a thread's historical payload. */
   hasLiveThread(id: ThreadId): boolean {
@@ -872,6 +920,8 @@ export class Store {
   /** Store owns all SQLite savepoints; SidebarReads owns only its page caches. */
   private sidebarSnapshot<T>(read: () => T): T {
     const name = `sidebar_read_${++this.sidebarSnapshotSeq}`;
+    const outer = this.committedSnapshot;
+    this.committedSnapshot = outer || !this.db.isTransaction;
     this.db.exec(`SAVEPOINT ${name}`);
     try {
       return read();
@@ -880,10 +930,13 @@ export class Store {
       throw error;
     } finally {
       this.db.exec(`RELEASE ${name}`);
+      this.committedSnapshot = outer;
     }
   }
   listThreads(): Thread[] {
-    return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")
+    return this.statement(
+      `SELECT ${threadRowColumns} FROM ${threadRowSource} ORDER BY updated_at DESC, threads.id`,
+    )
       .all()
       .map((row) => decodeThreadRow(row));
   }

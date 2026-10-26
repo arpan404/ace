@@ -48,6 +48,9 @@
       },
       "maxItems": 8,
       "type": "array"
+    },
+    "transfers": {
+      "type": "boolean"
     }
   },
   "required": [

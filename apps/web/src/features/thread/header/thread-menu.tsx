@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import {
-  ChatCircleTextIcon,
   MagnifyingGlassIcon,
   TreeStructureIcon,
   PaperclipIcon,
@@ -100,13 +99,6 @@ export function ThreadMenuItems(props: {
             onClick={() => findInThread(nav)}
           >
             Search this thread
-          </MenuItem>
-          <MenuItem
-            icon={<ChatCircleTextIcon aria-hidden size={16} />}
-            shortcut="turns"
-            onClick={() => nav.setTurnsOpen(!nav.turnsOpen)}
-          >
-            {nav.turnsOpen ? "Hide turns" : "Turns"}
           </MenuItem>
         </>
       }

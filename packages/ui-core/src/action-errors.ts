@@ -112,6 +112,8 @@ const copy: Record<string, string> = {
     "Source control settings changed during this action. Rescan this computer and retry with the intended account.",
   forge_forbidden:
     "GitHub denied access: check your permissions on the repository, or run `gh auth login`.",
+  forge_notifications_unavailable:
+    "Your gh sign-in can't read GitHub notifications: run `gh auth refresh -s notifications`, then retry.",
   forge_rate_limit: "GitHub's rate limit was reached: wait a few minutes, then retry.",
   forge_unsupported:
     "This forge or GitHub feature isn't supported here: open the pull request on its website.",
@@ -141,6 +143,11 @@ const copy: Record<string, string> = {
   forge_read_failed: "GitHub's answer couldn't be used: retry, or check the daemon's logs.",
   forge_status_unavailable:
     "GitHub accepted the action, but its new state couldn't be read: refresh to load it.",
+  forge_branch_in_use:
+    "Another open pull request uses this branch: deleting it would close that pull request.",
+  forge_branch_gone: "The branch is already deleted on GitHub: refresh to see it.",
+  forge_pr_details_incomplete:
+    "The pull request is open, but GitHub didn't take all of its reviewers, labels, assignees or milestone: set them on its page.",
   forge_action_reconciled:
     "The earlier action is reconciled: review the pull request before changing it again.",
   forge_write_pending: "An earlier action is still running on GitHub: wait, then refresh.",

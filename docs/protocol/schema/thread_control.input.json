@@ -31,7 +31,7 @@
       "type": "string"
     },
     "model": {
-      "description": "configure: a model id from `models`.",
+      "description": "configure: a model id from `models`, or its name (\"opus 5.5\") on the thread's account.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

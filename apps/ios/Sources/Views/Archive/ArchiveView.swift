@@ -27,7 +27,10 @@ struct ArchiveView: View {
                 }
                 .accessibilityIdentifier("archive.machine")
             }
-            if let client { ArchiveRows(client: client) { open(machineId, $0) }.listRowBackground(Color.clear) }
+            if let client {
+                ArchiveRows(client: client) { open(machineId, $0) }
+                    .listRowBackground(Color.clear).listSectionSeparator(.hidden, edges: .top)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -105,7 +108,7 @@ struct ArchivedNote: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             if canOperate {
                 Button("Unarchive") { working = true; Task { _ = await unarchive(); working = false } }
-                    .buttonStyle(.bordered).disabled(working)
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).disabled(working)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("thread.unarchive")
             }

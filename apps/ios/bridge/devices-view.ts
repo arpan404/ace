@@ -1,14 +1,15 @@
 import type { DeviceClientSnapshot } from "@ace/client/devices";
-import type { DeviceState } from "@ace/protocol";
+import type { AppDevice, DeviceState } from "@ace/protocol";
 import {
   activityCaption,
-  defaultScreens,
   deviceButtons,
   deviceCatalog,
   deviceControls,
   deviceKind,
   deviceProblem,
+  inventoryNotes,
   deviceRows,
+  deviceScreen,
   frameGeometry,
   type DeviceProblem,
   type DeviceRow,
@@ -40,6 +41,11 @@ export interface DevicesViewInput {
   >;
   /** The channel was up and closed since. */
   closed: boolean;
+  /** The channel never opened, or never answered its first reads, in their time: the screen
+   * says so while ace keeps trying. */
+  unreachable?: boolean;
+  /** The machine answered the first reads with a refusal (no administrator access, say). */
+  refused?: DeviceProblem | undefined;
   threadId: string | undefined;
   /** The device whose screen is open. */
   deviceId: string | undefined;
@@ -51,6 +57,8 @@ export interface DevicesViewInput {
   agent(holder: Holder): AgentLabel | undefined;
   /** The agent each device was taken from, so the person can hand it back. */
   previous: ReadonlyMap<string, Holder>;
+  /** The key of the device's real look the bridge has sent (`devices.chrome`), if any. */
+  chrome?: ((device: AppDevice) => string | null) | undefined;
 }
 
 export interface DeviceTile {
@@ -97,9 +105,18 @@ export interface DeviceScreenView {
   frame: { portrait: FrameGeometry; landscape: FrameGeometry };
   /** The screen's size upright, in points, until its first picture says otherwise. */
   screen: { width: number; height: number };
+  /**
+   * The key of the device's real look from its SDK (a `devices.chrome` patch), drawn instead
+   * of `frame` once Swift has it; null when there is none.
+   */
+  chrome: string | null;
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
   touch: string;
+  /** A foldable device's posture (closed, partiallyOpen or open); null when it doesn't fold. */
+  posture: string | null;
+  /** The picture already shows the device's own body (a Simulator window): no frame around it. */
+  framed: boolean;
 }
 
 export interface PhoneDevicesView {
@@ -188,7 +205,7 @@ function screen(
     };
   const controls = deviceControls(device, state, input.now);
   const kind = deviceKind(row);
-  const upright = defaultScreens[kind];
+  const upright = deviceScreen(kind, row.name);
   const portrait = {
     width: Math.min(upright.width, upright.height),
     height: Math.max(upright.width, upright.height),
@@ -222,6 +239,7 @@ function screen(
       landscape: frameGeometry(kind, row.name, { width: portrait.height, height: portrait.width }),
     },
     screen: { width: upright.width, height: upright.height },
+    chrome: input.chrome?.(device) ?? null,
     activity: activity
       ? {
           sequence: activity.sequence,
@@ -232,6 +250,8 @@ function screen(
       : null,
     problem: controls.error ?? null,
     touch: state?.touch ?? "gestures",
+    posture: state?.posture ?? null,
+    framed: controls.framed,
   };
 }
 
@@ -255,7 +275,14 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     .map((row) => tile(input, row, states.get(row.id)));
   const selected = input.deviceId ? rows.find((row) => row.id === input.deviceId) : undefined;
   const offline: DeviceProblem | null = snapshot.connected
-    ? null
+    ? !snapshot.inventoryLoaded && input.refused
+      ? input.refused
+      : input.unreachable && !snapshot.inventoryLoaded
+        ? {
+            message: "Can't read this machine's simulators and emulators.",
+            hint: "ace keeps trying.",
+          }
+        : null
     : snapshot.error
       ? deviceProblem({
           code: snapshot.error.code,
@@ -268,7 +295,12 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
             message: "Lost the connection to this machine's simulators and emulators.",
             hint: "Reconnect to see them again.",
           }
-        : null;
+        : input.unreachable
+          ? {
+              message: "Can't reach this machine's simulators and emulators.",
+              hint: "ace keeps trying.",
+            }
+          : null;
   return {
     connected: snapshot.connected,
     loading: !snapshot.inventoryLoaded,
@@ -278,7 +310,7 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     offline,
     running,
     groups,
-    notes: snapshot.issues.map((issue) => deviceProblem(issue)),
+    notes: inventoryNotes(snapshot.issues),
     toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
     device: selected ? screen(input, selected, states.get(selected.id)) : null,
   };

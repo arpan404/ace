@@ -8,7 +8,13 @@
     "reopen",
     "update.merge",
     "update.rebase",
-    "revert"
+    "revert",
+    "lock",
+    "unlock",
+    "branch.delete",
+    "branch.restore",
+    "issue.link",
+    "issue.unlink"
   ],
   "type": "string"
 }

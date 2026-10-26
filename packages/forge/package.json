@@ -21,6 +21,7 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "parse5": "^8.0.0",
     "zod": "^4.6.5"
   }
 }

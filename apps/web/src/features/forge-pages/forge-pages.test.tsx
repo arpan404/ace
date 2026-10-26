@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-/** The design's world, with the `ace` repository's pull requests and issues on GitHub. */
+/**
+ * The design's world, with the `ace` repository's pull requests and issues on GitHub, including
+ * the rich-content samples (PR #245, issue #246; ADR 0096).
+ */
 function withRepository() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -43,7 +46,7 @@ test("by default open pull requests are grouped by what each needs next", async 
       // Reviews asked of you come before your own branch that fell behind.
       "Needs you": ["229", "226", "222"],
       "Ready to merge": ["233", "224"],
-      Waiting: ["231"],
+      Waiting: ["231", "245"],
       Drafts: ["227"],
     }),
   );
@@ -54,33 +57,41 @@ test("sorted by activity, open pull requests are grouped as yours, waiting on yo
   await app.open("/pulls?project=ace&sort=updated");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      "Authored by you": ["231", "227", "222"],
+      "Authored by you": ["231", "245", "227", "222"],
       "Review requested": ["229", "226"],
       Others: ["233", "224"],
     }),
   );
   await waitFor(async () =>
     expect(await headings("Pull requests")).toEqual([
-      "Authored by you3",
+      "Authored by you4",
       "Review requested2",
       "Others2",
     ]),
   );
 });
 
+/** Picks one choice of a Filters menu part, such as Involvement → Reviewing. */
+async function chooseFilter(part: string, choice: string) {
+  await userEvent.click(screen.getByRole("button", { name: /^Filters/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: new RegExp(`^${part}`) }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: choice }));
+}
+
 test("Reviewing narrows the list to pull requests asking for your review", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
+  await chooseFilter("Involvement", "Reviewing");
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
 });
 
-test("the state choices count each state and Merged lists merged pull requests", async () => {
+test("the state menu counts each state and Merged lists merged pull requests", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await userEvent.click(await screen.findByRole("button", { name: "Merged 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: /^State: Open/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: /^Merged\s*1$/ }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["212"]));
 });
 
@@ -98,7 +109,7 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
+  await chooseFilter("Involvement", "Reviewing");
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   const nav = screen.getByRole("navigation", { name: "Pull requests" });
   await userEvent.click(within(nav).getByRole("link", { name: /Reconnect the client worker/ }));
@@ -109,9 +120,7 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   await screen.findByRole("navigation", { name: "Merge gates" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
-  expect(screen.getByRole("button", { name: "Reviewing" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(screen.getByRole("button", { name: "Filters: 1 on" })).toBeTruthy();
 });
 
 test("Escape on a pull request's page goes back to the list", async () => {
@@ -147,7 +156,11 @@ test("an issue's page shows its conversation, and a comment posted joins it", as
   const box = within(page).getByRole("textbox", { name: "Comment" });
   await userEvent.type(box, "Fixed in #231.");
   await userEvent.click(within(page).getByRole("button", { name: "Comment" }));
-  expect(await within(page).findByText("Fixed in #231.")).toBeTruthy();
+  // The reference reads as GitHub shows it: a link inside the comment's text.
+  const posted = await within(page).findByText(
+    (_, element) => element?.tagName === "P" && element.textContent === "Fixed in #231.",
+  );
+  expect(within(posted).getByRole("link", { name: "#231" })).toBeTruthy();
   await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
 });
 
@@ -156,13 +169,13 @@ test("issues are grouped as assigned to you, opened by you, and the rest", async
   await app.open("/issues?project=ace");
   await waitFor(async () =>
     expect(await groups("Issues")).toEqual({
-      "Assigned to you": ["240"],
+      "Assigned to you": ["246", "240"],
       "Created by you": ["235"],
       Others: ["238"],
     }),
   );
   await waitFor(async () =>
-    expect(await headings("Issues")).toEqual(["Assigned to you1", "Created by you1", "Others1"]),
+    expect(await headings("Issues")).toEqual(["Assigned to you2", "Created by you1", "Others1"]),
   );
 });
 
@@ -175,7 +188,7 @@ test("an issue closed on its page has left the open list when going back", async
   await userEvent.click(await within(page).findByRole("button", { name: "Close issue" }));
   expect(await within(page).findByRole("button", { name: "Reopen issue" })).toBeTruthy();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
-  await waitFor(async () => expect(await numbers("Issues")).toEqual(["235", "238"]));
+  await waitFor(async () => expect(await numbers("Issues")).toEqual(["246", "235", "238"]));
 });
 
 test("creating an issue from the New issue page opens it, and Back returns to the list", async () => {
@@ -191,12 +204,12 @@ test("creating an issue from the New issue page opens it, and Back returns to th
     "- after closing a dialog{Enter}in the sidebar",
   );
   await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
-  const page = await screen.findByRole("article", { name: "Issue #241" });
+  const page = await screen.findByRole("article", { name: "Issue #247" });
   expect(await within(page).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
   // Enter carried the list on, so the description reads as two items.
   expect((await within(page).findByText("in the sidebar")).closest("li")).not.toBeNull();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
-  await waitFor(async () => expect(await numbers("Issues")).toContain("241"));
+  await waitFor(async () => expect(await numbers("Issues")).toContain("247"));
 });
 
 test("a draft survives leaving the New issue page and coming back, and is gone once created", async () => {
@@ -216,7 +229,7 @@ test("a draft survives leaving the New issue page and coming back, and is gone o
     within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
   ).toBe("More later");
   await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
-  const page = await screen.findByRole("article", { name: "Issue #241" });
+  const page = await screen.findByRole("article", { name: "Issue #247" });
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
   form = await screen.findByRole("article", { name: "New issue" });

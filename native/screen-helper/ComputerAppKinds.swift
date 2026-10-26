@@ -18,6 +18,12 @@ func cuIsChromiumFamily(bundleId: String?, frameworks: [String]) -> Bool {
     }
 }
 
+/// Whether a Chromium window's walk came back before its web content. The window's own
+/// buttons and wrapper groups are there at once; the web area follows a moment later.
+func cuChromiumTreePending(_ nodes: [CUNode]) -> Bool {
+    !nodes.contains { $0.axRole == "AXWebArea" }
+}
+
 /// Framework folder names inside an app bundle; empty when unreadable.
 func cuBundleFrameworks(_ bundle: URL?) -> [String] {
     guard let bundle else { return [] }

@@ -37,25 +37,24 @@ test("⌘K finds a thread by its branch and opens it", async () => {
 });
 
 test("moving the highlight to a thread follows it before it is opened", async () => {
+  // Threads that need the person are kept live anyway, so this uses two that don't.
   const app = await openApp();
   const search = await palette();
-  await userEvent.type(search, "app-server");
+  await userEvent.type(search, "ro");
   await waitFor(() => {
-    expect(options().some((text) => text.includes("Retry budget for app-server restarts"))).toBe(
-      true,
-    );
-    expect(options().some((text) => text.includes("Bump Codex app-server to 0.48"))).toBe(true);
+    expect(options()[0]).toContain("Approval sheet loses its state on rotate");
+    expect(options()[1]).toContain("Backpressure on broadcast fan-out");
   });
   await waitFor(() =>
-    expect(app.client.cachedThread?.("thread-bump-codex")?.thread?.title).toBe(
-      "Bump Codex app-server to 0.48",
+    expect(app.client.cachedThread?.("thread-sheet-rotate")?.thread?.title).toBe(
+      "Approval sheet loses its state on rotate",
     ),
   );
-  expect(app.client.cachedThread?.("thread-retry-budget")?.thread).toBeUndefined();
+  expect(app.client.cachedThread?.("thread-fan-out")?.thread).toBeUndefined();
   await userEvent.keyboard("{ArrowDown}");
   await waitFor(() =>
-    expect(app.client.cachedThread?.("thread-retry-budget")?.thread?.title).toBe(
-      "Retry budget for app-server restarts",
+    expect(app.client.cachedThread?.("thread-fan-out")?.thread?.title).toBe(
+      "Backpressure on broadcast fan-out",
     ),
   );
 });
@@ -116,6 +115,16 @@ test("New thread in… lists the projects and opens a draft in the one chosen", 
   await userEvent.type(within(step).getByRole("combobox", { name: "Search projects" }), "billing");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("button", { name: "Project: billing-api" })).toBeTruthy();
+});
+
+test("New thread in… offers Add project, which opens in its place", async () => {
+  await openApp();
+  const search = await palette();
+  await userEvent.type(search, "new thread in");
+  await userEvent.click(await screen.findByRole("option", { name: /^New thread in…/ }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 });
 
 test("with several projects ⌘N asks which, and ⇧⌘N starts in the open thread's project", async () => {

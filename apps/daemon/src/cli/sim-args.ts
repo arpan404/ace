@@ -17,6 +17,7 @@ Every command takes --thread THREAD_ID: your own thread (the context tool's stat
   ace sim act SIM tap X Y | swipe X Y TOX TOY [--duration MS] | key home|back|enter|rotate|power|recents|volumeUp|volumeDown|action|side
   ace sim act SIM open_app ID | open_url URL | install PATH | record_start | record_stop
   ace sim act SIM clipboard_get | clipboard_set TEXT   read the clipboard, or set it without pasting
+  ace sim act SIM posture closed|partiallyOpen|open     fold or unfold a foldable simulator (iPhone Duo)
   ace sim screenshot SIM [--out FILE]  JPEG of the screen, with or without the live view
   ace sim logs SIM [--limit N]
   ace sim stop SIM                     release it when you finish
@@ -111,6 +112,8 @@ function actArgs(simId: string, action: string, words: string[], args: Args) {
       return single("path");
     case "clipboard_set":
       return single("text");
+    case "posture":
+      return single("posture");
     case "record_start":
     case "record_stop":
     case "clipboard_get":

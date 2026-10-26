@@ -110,3 +110,4 @@ export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
 export { workCardScenario, type WorkCardState } from "./scenarios/work-card.ts";
+export type { SkillSeed } from "./skill-library.ts";

@@ -7,7 +7,7 @@ export function readThreadTree(
   threadId: ThreadId,
 ): CliTree | undefined {
   const { store, services } = context;
-  if (!services.engine || !store.getThread(threadId)) return undefined;
+  if (!services.engine || !store.readThread(threadId)) return undefined;
   const journal = services.agentControl?.delegations.journal;
   // Without agent control the thread is its whole tree only when no delegated child was
   // ever persisted for it; otherwise its children's facts are not ready yet.

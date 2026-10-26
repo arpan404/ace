@@ -16,7 +16,7 @@ export interface TrayActions {
 export class StatusTray {
   private tray: Tray | undefined;
   private status: DaemonStatus | undefined;
-  private summary: WorkSummary = { needsYou: 0, working: 0 };
+  private summary: WorkSummary = { needsYou: 0, working: 0, held: 0 };
   /** What the tray shows now; a status or summary update that changes none of it is skipped. */
   private shown: string | undefined;
   private actions: TrayActions;

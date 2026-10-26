@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agents": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SkillPresence.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "argumentHint": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "editable": {
+      "type": "boolean"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/SkillId.json"
+    },
+    "manual": {
+      "type": "boolean"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/SkillScope.json"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/SkillSource.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description",
+    "scope",
+    "path",
+    "agents",
+    "manual",
+    "editable",
+    "hash"
+  ],
+  "type": "object"
+}

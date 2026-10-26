@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { BrowserServerMessage, ServerMessage } from "@ace/protocol";
-import { StreamAssembler, decodeStreamMessage, type StreamMessage } from "@ace/browser/stream";
+import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "@ace/browser/stream";
 
 const Message = z.union([BrowserServerMessage, ServerMessage]);
 type Message = z.infer<typeof Message>;
@@ -15,12 +15,22 @@ export class BrowserClient {
     reject: (error: Error) => void;
   }[] = [];
   private closed = false;
+  /** Binary stream messages (live video), assembled from their pieces. */
+  private streamed: StreamMessage[] = [];
+  private streamWaiters = new Set<() => void>();
+  private assembler = new StreamAssembler();
   receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
-    this.socket.on("message", (data, isBinary) => {
-      if (isBinary) {
-        this.receiveStream(data);
+    this.socket.on("message", (data, binary) => {
+      if (binary) {
+        const pieces = Array.isArray(data) ? data : [data];
+        for (const piece of pieces) {
+          const envelope = this.assembler.push(new Uint8Array(piece));
+          const message = envelope && decodeStreamMessage(envelope);
+          if (message) this.streamed.push(message);
+        }
+        for (const waiter of this.streamWaiters) waiter();
         return;
       }
       const message = Message.parse(JSON.parse(data.toString()));
@@ -36,30 +46,27 @@ export class BrowserClient {
       this.closed = true;
       for (const waiter of this.waiters.splice(0))
         waiter.reject(new Error("Browser socket closed"));
+      for (const waiter of this.streamWaiters) waiter();
     });
   }
-  /** Binary stream messages (video, audio, pictures) received so far, decoded. */
-  readonly streamed: StreamMessage[] = [];
-  private assembler = new StreamAssembler();
-  private streamWaiters: { predicate: (message: StreamMessage) => boolean; resolve(): void }[] = [];
-  private receiveStream(data: import("ws").RawData): void {
-    const pieces = Array.isArray(data) ? data : [data];
-    for (const piece of pieces) {
-      const envelope = this.assembler.push(new Uint8Array(piece));
-      const message = envelope && decodeStreamMessage(envelope);
-      if (!message) continue;
-      this.streamed.push(message);
-      this.streamWaiters = this.streamWaiters.filter((waiter) => {
-        if (!waiter.predicate(message)) return true;
-        waiter.resolve();
-        return false;
-      });
-    }
-  }
-  /** Resolves once a binary stream message matching `predicate` has arrived. */
-  untilStreamed(predicate: (message: StreamMessage) => boolean): Promise<void> {
-    if (this.streamed.some(predicate)) return Promise.resolve();
-    return new Promise((resolve) => this.streamWaiters.push({ predicate, resolve }));
+  /** The first binary stream message that matches, waiting for it if none has come yet. */
+  nextStream<T>(pick: (message: StreamMessage) => T | undefined): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        for (const message of this.streamed) {
+          const picked = pick(message);
+          if (picked === undefined) continue;
+          this.streamWaiters.delete(check);
+          resolve(picked);
+          return;
+        }
+        if (!this.closed) return;
+        this.streamWaiters.delete(check);
+        reject(new Error("Browser socket closed"));
+      };
+      this.streamWaiters.add(check);
+      check();
+    });
   }
   next(predicate: (message: Message) => boolean): Promise<Message> {
     const index = this.messages.findIndex(predicate);

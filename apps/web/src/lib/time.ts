@@ -78,6 +78,14 @@ export function useNow(): number {
 }
 
 /**
+ * The wall clock to read at the moment something happens (a click), to the second. Unlike
+ * `useNow`, it is never a minute behind.
+ */
+export function useClock(): () => number {
+  return useContext(TimeContext).read;
+}
+
+/**
  * Wall-clock time, re-rendering every second while `live`, for "Working for 12s" and
  * background task ages. Without `live` there is no timer; it reads the time when rendered.
  */

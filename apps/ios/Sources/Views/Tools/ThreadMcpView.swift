@@ -47,7 +47,7 @@ struct ThreadMcpView: View {
             } else if problem == nil { ProgressView("Reading servers…") }
         }
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }.refreshable { await read() }
+        .readWhenConnected(model) { await read() }.refreshable { await read() }
     }
     private func read() async {
         do { sources = try await model.service(["type": "mcp.sources", "threadId": threadId], as: McpReply.self).result; problem = nil }

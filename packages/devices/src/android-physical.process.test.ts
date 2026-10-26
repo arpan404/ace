@@ -226,6 +226,7 @@ it("on Linux arm64 the distribution's adb runs phones, and the missing emulator 
       code: "not_supported",
       message: "Android emulators aren't available on Linux arm64",
       hint: expect.stringContaining("phones on USB and devices on the network work here"),
+      platform: "android",
     },
   ]);
 });

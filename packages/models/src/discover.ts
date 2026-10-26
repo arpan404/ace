@@ -59,7 +59,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           cwd: instance.cwd,
           env: instance.env,
           signal,
-          spawn,
+          // Only an injected spawn: without one the SDK runs in a helper process, not here.
+          ...(options.spawn ? { spawn: options.spawn } : {}),
         }),
         instance,
       );
@@ -99,7 +100,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       command: instance.executable,
       args,
       cwd: instance.cwd,
-      env: instance.env,
+      env: {
+        ...instance.env,
+        // Unset over the daemon environment the process would otherwise inherit.
+        ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
+      },
       name: "model-discovery",
       maxOutputBytes: 4 * 1024 * 1024,
     });

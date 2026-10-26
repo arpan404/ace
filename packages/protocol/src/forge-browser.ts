@@ -8,12 +8,17 @@ import {
   ForgeLabelColors,
   ForgeAvatars,
 } from "./forge-issues.ts";
+import { ForgeInboxOperations, ForgeInboxResults } from "./forge-inbox.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
 import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
 import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
+import { ForgePeopleOperations, ForgePeopleResults } from "./forge-people.ts";
+import { ForgeMediaOperations, ForgeMediaResults } from "./forge-media.ts";
 import { z } from "zod";
+import { ForgeCommit, ForgeFile } from "./forge-changes.ts";
+import { ForgeNewPrOperations, ForgeNewPrResults } from "./forge-new-pr.ts";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
 
@@ -176,29 +181,7 @@ export const ForgePrDetail = z.object({
   relatedThreadsTruncated: z.boolean(),
 });
 export type ForgePrDetail = z.infer<typeof ForgePrDetail>;
-export const ForgeCommit = z.object({
-  raw: z.unknown().optional(),
-  sha,
-  message: text,
-  author: text,
-  authorAvatarUrl: text.optional(),
-  additions: z.number().int().nonnegative().optional(),
-  deletions: z.number().int().nonnegative().optional(),
-  date: text.nullable(),
-  url: text,
-});
-export type ForgeCommit = z.infer<typeof ForgeCommit>;
-export const ForgeFile = z.object({
-  raw: z.unknown().optional(),
-  path: text,
-  previousPath: text.optional(),
-  status: text,
-  additions: z.number().int().nonnegative(),
-  deletions: z.number().int().nonnegative(),
-  patch: z.string().max(262_144).nullable(),
-  truncated: z.boolean(),
-});
-export type ForgeFile = z.infer<typeof ForgeFile>;
+export { ForgeCommit, ForgeFile } from "./forge-changes.ts";
 export const ForgePrFiles = z.object({
   ref: ForgePrRef,
   baseSha: sha,
@@ -224,7 +207,9 @@ const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional()
 export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   ...ForgeIssueOperations,
+  ...ForgeInboxOperations,
   ...ForgeFileContentOperations,
+  ...ForgePeopleOperations,
   z.object({
     op: z.literal("forge.pr.merge-state"),
     ...scope,
@@ -274,11 +259,15 @@ export const ForgeBrowserOperations = [
     commit: sha.optional(),
   }),
   ...ForgeCheckOperations,
+  ...ForgeNewPrOperations,
+  ...ForgeMediaOperations,
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   ...ForgeIssueResults,
+  ...ForgeInboxResults,
   ...ForgeFileContentResults,
+  ...ForgePeopleResults,
   z.object({ resource: z.literal("prMergeState"), value: ForgeMergeState }),
   z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),
   z.object({
@@ -319,6 +308,8 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   }),
   z.object({ resource: z.literal("prFiles"), value: ForgePrFiles }),
   ...ForgeCheckResults,
+  ...ForgeNewPrResults,
+  ...ForgeMediaResults,
 ]);
 export type ForgeBrowserResult = z.infer<typeof ForgeBrowserResult>;
 export type ForgeBrowserOperation = z.infer<(typeof ForgeBrowserOperations)[number]>;

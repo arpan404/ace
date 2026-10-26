@@ -58,6 +58,10 @@ export function embeddedTabPage(
       if (isShown()) await shown.resize(width, height);
       else await tabs.resize(id, width, height);
     },
+    // The desktop keeps a touch device over its panel's size until the next resize.
+    touchResize: async (width, height) => {
+      await cdp().send("ace.touchDevice", { width, height });
+    },
     viewport: () => tabs.tab(id).viewport,
     ...(shown.video ? { video: shown.video } : {}),
     // The desktop applies these to the view itself: native zoom, and its partition's data.

@@ -16,6 +16,7 @@ import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provid
 import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import { ProviderRow } from "./provider-card.tsx";
 
 const steps = [
@@ -26,7 +27,7 @@ const steps = [
   },
   {
     heading: "Choose your first project",
-    lede: "Pick a folder your agents can work in.",
+    lede: "Pick a folder your agents can work in, or start with a chat that needs none.",
     icon: FolderOpenIcon,
   },
 ] as const;
@@ -49,6 +50,10 @@ export function SetupScreen() {
   const leave = () => {
     void dismissOnboarding(client, queryClient, true);
     void navigate({ to: "/" });
+  };
+  const chat = () => {
+    void dismissOnboarding(client, queryClient, true);
+    void navigate({ to: "/new", search: { project: chatChoice } });
   };
   const checkAgain = async () => {
     setChecking(true);
@@ -97,6 +102,11 @@ export function SetupScreen() {
                 {current.lede}
               </p>
             </div>
+            {step === 1 && (
+              <Button variant="ghost" onClick={chat}>
+                Start a chat
+              </Button>
+            )}
             {step === 0 && (
               <div className="flex w-full flex-col gap-4">
                 {onboarding.isError ? (

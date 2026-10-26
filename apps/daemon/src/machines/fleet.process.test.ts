@@ -106,6 +106,8 @@ it("one machine links another from Settings, and its agents reach that machine u
         deviceId: linked.link.deviceId,
         status: "online",
         access: "operate",
+        // Paired with read and operate only, so it can't take projects.
+        projects: false,
       },
     ],
   });

@@ -8,7 +8,7 @@ import { OpenCodeTranslator } from "@ace/adapter-opencode";
 import { createCodexTranslator as codex } from "@ace/adapter-codex";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
-import { Attachment, Capabilities, Command } from "@ace/protocol";
+import { Attachment, Capabilities } from "@ace/protocol";
 import { Engine } from "@ace/daemon";
 import { harness, scriptFrames } from "./test-support.ts";
 
@@ -276,7 +276,7 @@ test("attachment user echoes preserve deeply nested unknown native fields withou
   }
 });
 
-test("a resumed native echo resolves attachments even when the daemon stopped before persisting any user item", async () => {
+test("a native echo replayed when a restarted turn continues resolves attachments even when the daemon stopped before persisting any user item", async () => {
   const h = await fixture("codex");
   let restarted: Engine | undefined;
   try {
@@ -295,24 +295,11 @@ test("a resumed native echo resolves attachments even when the daemon stopped be
       onError: (error) => h.errors.push(error),
     });
     await restarted.ready();
-    const command = Command.parse({
-      id: "resume",
-      deviceId: "reader",
-      payload: {
-        type: "thread.resume",
-        threadId: h.threadId,
-        expectedRevision: restarted.queue(h.threadId).revision,
-      },
-    });
-    const resumed = h.store.recordCommand(command.id, command.deviceId, () => {
-      if (!restarted) throw new Error("Missing engine");
-      return restarted.handler.handle(command, h.store);
-    });
-    expect(resumed).toMatchObject({ ok: true });
+    // The interrupted turn continues by itself; reopening the session replays the native echo.
     await restarted.flush();
     const page = h.store.readItemPage(h.threadId, Number.MAX_SAFE_INTEGER, 20);
     const users = page.items.filter(
-      (item) => item.type === "message" && item.role === "user" && item.id !== "input:resume",
+      (item) => item.type === "message" && item.role === "user" && item.origin?.kind !== "restart",
     );
     expect(users.length).toBeGreaterThan(0);
     for (const item of users) expect(item).toMatchObject({ attachments: [h.attachment] });

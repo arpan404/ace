@@ -33,30 +33,20 @@ async function openLong(
 const ask = (n: number) => `Migrate checkpoint ${n}, inspect files and report failures.`;
 const answer = (n: number) => new RegExp(`^Checkpoint ${n} completed\\. Migration paths validated`);
 
-async function openTurns(user: ReturnType<typeof userEvent.setup>) {
-  // Turns lives in the header's ⋯ menu.
-  await user.click(screen.getByRole("button", { name: "More actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: /^Turns/ }));
-  return screen.findByRole("listbox", { name: "Turns of this thread" });
+/** Jump to a turn from its tick on the conversation rail. */
+async function jumpTo(user: ReturnType<typeof userEvent.setup>, ordinal: number) {
+  const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
+  await user.click(within(rail).getByRole("button", { name: `Turn ${ordinal}` }));
 }
 
-test("the turn timeline lists every turn with its digest and jumps to one", async () => {
+test("the rail jumps to a turn outside the live tail", async () => {
   const user = userEvent.setup();
   const { feed } = await openLong(12, 12);
-  expect(within(feed).queryByText(ask(2))).toBeNull();
+  expect(within(feed).queryByText(ask(1))).toBeNull();
 
-  const list = await openTurns(user);
-  list.focus();
-  await user.keyboard("{Home}");
-  const first = await within(list).findByRole("option", { name: /^Turn 1: / });
-  expect(first.getAttribute("aria-selected")).toBe("true");
-  // The digest: its steps (the command and the edit), the file and its lines, the approval.
-  expect(first.getAttribute("aria-label")).toBe(
-    `Turn 1: ${ask(1)} Completed, 3 steps, 1 file, +2 −1, 1 approval, 1 subagent`,
-  );
-  await user.keyboard("{ArrowDown}{Enter}");
+  await jumpTo(user, 1);
 
-  expect(await within(feed).findByText(ask(2))).toBeTruthy();
+  expect(await within(feed).findByText(ask(1))).toBeTruthy();
   // No overlay bar at the top: history is one continuous list.
   expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
   // Only the window shows: the live end is not there, and the gap says what lies between.
@@ -67,15 +57,13 @@ test("the turn timeline lists every turn with its digest and jumps to one", asyn
   await user.click(within(gap).getByRole("button", { name: "Scroll to end" }));
   await waitFor(() => expect(screen.queryByRole("group", { name: "Gap to live" })).toBeNull());
   expect(await within(feed).findByText(answer(12))).toBeTruthy();
-  expect(within(feed).queryByText(ask(2))).toBeNull();
+  expect(within(feed).queryByText(ask(1))).toBeNull();
 });
 
 test("a turn already in the live tail is scrolled to without leaving it", async () => {
   const user = userEvent.setup();
   const { feed } = await openLong(6, 200);
-  const list = await openTurns(user);
-  list.focus();
-  await user.keyboard("{End}{ArrowUp}{Enter}");
+  await jumpTo(user, 5);
   expect(within(feed).getByText(answer(6))).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
 });
@@ -117,9 +105,7 @@ test("leaving a held window by pill lands at the newest item and resumes followi
 
   // Turn 1 is already in the live tail: jumping to it holds the tail's rows as a window
   // instead of leaving them, so the pill offers the way back.
-  const list = await openTurns(user);
-  list.focus();
-  await user.keyboard("{Home}{Enter}");
+  await jumpTo(user, 1);
   const pill = await screen.findByRole("button", { name: "Scroll to end" });
   expect(view.scrollTop).toBeLessThan(end());
 
@@ -153,9 +139,7 @@ test("leaving a held window by pill lands at the newest item and resumes followi
 test("Scroll to end counts what reached the thread while the reader was in its history", async () => {
   const user = userEvent.setup();
   const { app, feed } = await openLong(8, 12);
-  const list = await openTurns(user);
-  list.focus();
-  await user.keyboard("{Home}{Enter}");
+  await jumpTo(user, 1);
   expect(await within(feed).findByText(ask(1))).toBeTruthy();
   // The window's end offers the live end, and so does the pill over the transcript.
   expect(screen.getAllByRole("button", { name: "Scroll to end" })).toHaveLength(2);

@@ -1,17 +1,19 @@
 import { parseFolderQuery } from "@ace/ui-core";
 import { useMemo } from "react";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryMachine, useScopedMachine } from "@/lib/machines.ts";
 import { useProjectCommands } from "./project-commands.ts";
 import { useHostHome, useRecentFolders } from "./use-folders.ts";
 import { useNewFolder } from "./use-new-folder.ts";
 
 /**
- * A project search read as a folder to create on this window's machine: the folder the typed
+ * A project search read as a folder to create on the machine in view (another machine's inside
+ * its `MachineScope`, else this window's own): the folder the typed
  * text would make (a path, `~` included, or a bare name beside the latest project) while it
  * doesn't exist, and the call that makes it there and adds it.
  */
 export function useNewProjectFolder(text: string) {
-  const machine = usePrimaryMachine();
+  const own = usePrimaryMachine();
+  const machine = useScopedMachine() ?? own;
   const home = useHostHome(machine).data;
   const scope = useMemo(() => [machine], [machine]);
   const recent = useRecentFolders(scope).folders;

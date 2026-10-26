@@ -11,3 +11,12 @@ test("a paused output consumer does not retain chunks it already consumed", asyn
   ]);
   expect(result.stdout).toBe("");
 });
+
+test("the live thread does not keep jumped windows alive after the reader drops them", async () => {
+  const run = promisify(execFile);
+  const result = await run(process.execPath, [
+    "--expose-gc",
+    fileURLToPath(new URL("./window-retention.fixture.ts", import.meta.url)),
+  ]);
+  expect(result.stdout).toBe("");
+});

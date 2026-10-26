@@ -4,19 +4,23 @@ import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
 import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
 import {
+  chromeLayout,
+  chromeTurn,
   screenFraction,
   bodyTurn,
   deviceButtons,
   deviceKind,
-  defaultScreens,
+  deviceScreen,
   frameGeometry,
   framePoints,
   type Size,
 } from "@ace/ui-core/devices";
+import { ChromeFrame } from "./chrome-frame.tsx";
 import { bareGeometry, DeviceFrame } from "./device-frame.tsx";
 import { DeviceScreen, type ShownScreen, type StreamObserver } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
 import type { HardwarePress } from "./hardware-buttons.tsx";
+import { useDeviceChrome } from "./use-device-chrome.ts";
 import { useElementSize } from "./use-element-size.ts";
 
 /** Room for the device when the page can't measure the stage (tests, a hidden panel). */
@@ -90,14 +94,48 @@ export function DeviceStage({
   const kind = deviceKind(row);
   const room = useRef<HTMLDivElement>(null);
   const measured = useElementSize(room);
-  const [screen, setScreen] = useState<Size>(defaultScreens[kind]);
+  const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
   const [pictureTurn, setPictureTurn] = useState(0);
+  const [framed, setFramed] = useState(false);
   const fit = measured.width > 0 && measured.height > 0 ? measured : fallbackRoom;
   const geometry = props.bare ? bareGeometry : frameGeometry(kind, row.name, screen);
   const turn = bodyTurn(row.platform, screen, pictureTurn);
   const hardware = props.bare
     ? undefined
     : { buttons: deviceButtons(kind, row.name, turn), turn, press: props.press };
+  // The real body from the SDK, when the daemon's machine has it; else the drawn frame.
+  const chrome = useDeviceChrome(props.session, row, !props.bare);
+  // Before the first picture, the chrome's own screen stands in for its shape.
+  const picture = framed || !chrome ? screen : chrome.screen;
+  const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
+  const layout = chrome && chromeLayout(chrome, bodyTurned, picture, fit);
+  const dimmed = !props.live && !row.running && "opacity-40";
+  const overlay = (
+    <>
+      <ActivityRipple shown={props.activity} screen={screen} />
+      {props.highlight && <BoundsOutline bounds={props.highlight} screen={screen} />}
+    </>
+  );
+  const live = props.live && (
+    <DeviceScreen
+      session={props.session}
+      deviceId={row.id}
+      name={row.name}
+      interactive={props.interactive}
+      onInput={props.onInput}
+      stream={props.stream}
+      onFrame={(header) => {
+        props.onFrame(header);
+        setPictureTurn(header.rotation);
+        setFramed(true);
+        const next = framePoints(header);
+        setScreen((before) =>
+          before.width === next.width && before.height === next.height ? before : next,
+        );
+      }}
+      className="h-full max-h-none w-full max-w-none rounded-none shadow-none"
+    />
+  );
   return (
     <div
       ref={ref}
@@ -105,42 +143,31 @@ export function DeviceStage({
       className="relative min-h-0 flex-1 overflow-hidden bg-(--device-stage)"
     >
       <div ref={room} className="absolute inset-x-16 inset-y-5 grid place-items-center">
-        <DeviceFrame
-          geometry={geometry}
-          screen={screen}
-          room={fit}
-          hardware={hardware}
-          className={cn(
-            "transition-opacity duration-(--motion-slow)",
-            !props.live && !row.running && "opacity-40",
-          )}
-          overlay={
-            <>
-              <ActivityRipple shown={props.activity} screen={screen} />
-              {props.highlight && <BoundsOutline bounds={props.highlight} screen={screen} />}
-            </>
-          }
-        >
-          {props.live && (
-            <DeviceScreen
-              session={props.session}
-              deviceId={row.id}
-              name={row.name}
-              interactive={props.interactive}
-              onInput={props.onInput}
-              stream={props.stream}
-              onFrame={(header) => {
-                props.onFrame(header);
-                setPictureTurn(header.rotation);
-                const next = framePoints(header);
-                setScreen((before) =>
-                  before.width === next.width && before.height === next.height ? before : next,
-                );
-              }}
-              className="h-full max-h-none w-full max-w-none rounded-none shadow-none"
-            />
-          )}
-        </DeviceFrame>
+        {chrome && layout ? (
+          <ChromeFrame
+            chrome={chrome}
+            layout={layout}
+            kind={kind}
+            turn={bodyTurned}
+            press={props.press}
+            hardware={hardware}
+            className={cn("transition-opacity duration-(--motion-slow)", dimmed)}
+            overlay={overlay}
+          >
+            {live}
+          </ChromeFrame>
+        ) : (
+          <DeviceFrame
+            geometry={geometry}
+            screen={screen}
+            room={fit}
+            hardware={hardware}
+            className={cn("transition-opacity duration-(--motion-slow)", dimmed)}
+            overlay={overlay}
+          >
+            {live}
+          </DeviceFrame>
+        )}
       </div>
       {!props.live && props.idle && (
         <div className="absolute inset-0 grid place-items-center p-6">{props.idle}</div>

@@ -21,18 +21,13 @@ struct BrowserPageState: View {
     private var content: AnyView? {
         guard let view = browser.view else { return AnyView(ProgressView("Opening the browser…")) }
         guard let state = view.state, !state.closed else {
-            return AnyView(ContentUnavailableView {
-                Label("No page open", systemImage: "safari")
-            } actions: {
+            return AnyView(EmptyState(icon: .compass, title: "No page open") {
                 if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: 200) }
             })
         }
         if state.disconnected == true {
-            return AnyView(ContentUnavailableView {
-                Label("The browser disconnected", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(state.reason ?? "Reopen it to continue where it left off.")
-            } actions: {
+            return AnyView(EmptyState(icon: .warning, title: "The browser disconnected",
+                                      line: state.reason ?? "Reopen it to continue where it left off.") {
                 if model.canOperate { Button("Reopen") { model.browserReopen() }.buttonStyle(.pillPrimary).frame(maxWidth: 200) }
             })
         }
@@ -52,9 +47,7 @@ struct BrowserPageState: View {
             return AnyView(ProgressView(state.reason ?? "The browser is restarting…").padding(AceTheme.Spacing.xl))
         }
         if state.blank == true && !state.loading {
-            return AnyView(ContentUnavailableView {
-                Label("New tab", systemImage: "safari")
-            } actions: {
+            return AnyView(EmptyState(icon: .compass, title: "New tab") {
                 if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: 200) }
             })
         }
@@ -65,7 +58,7 @@ struct BrowserPageState: View {
     /// A load that failed, said plainly, with the address it was for.
     private func failure<Actions: View>(_ failure: BrowserViewInfo.Failure, @ViewBuilder actions: () -> Actions) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 30)).foregroundStyle(AceTheme.Colours.mutedForeground)
+            AceIcon(.warning, size: 30, relativeTo: .title).foregroundStyle(AceTheme.Colours.mutedForeground)
                 .padding(.bottom, AceTheme.Spacing.sm)
             Text(failure.title).aceFont(AceTheme.Typography.title, relativeTo: .title3)
             Text(failure.host).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.mutedForeground)

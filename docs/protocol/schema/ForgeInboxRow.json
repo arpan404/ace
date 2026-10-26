@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeInboxRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ForgeInboxThreadId.json"
+    },
+    "lastReadAt": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "number": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "reason": {
+      "$ref": "https://ace.local/protocol/v1/ForgeInboxReason.json"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/ForgeInboxSubjectState.json"
+    },
+    "title": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/ForgeInboxSubjectType.json"
+    },
+    "unread": {
+      "type": "boolean"
+    },
+    "updatedAt": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "repository",
+    "type",
+    "title",
+    "reason",
+    "unread",
+    "updatedAt",
+    "lastReadAt"
+  ],
+  "type": "object"
+}

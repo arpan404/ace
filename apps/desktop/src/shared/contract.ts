@@ -240,6 +240,11 @@ export const DesktopSettings = z.object({
    * setting.
    */
   browserDownloads: z.string().min(1).max(4096).nullable().default(null),
+  /**
+   * Put the `ace` command on the terminal's PATH (a link or a line in the shell's profile).
+   * Changed only through `cli.setOnPath`, which edits PATH too; never by a settings patch.
+   */
+  terminalCommand: z.boolean().default(true),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 /**
@@ -263,6 +268,28 @@ export const DesktopSettingsPatch = z.object({
   browserDownloads: z.string().min(1).max(4096).nullable().optional(),
 });
 export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
+
+const LongPath = z.string().min(1).max(4096);
+/** Whether a terminal on this computer runs `ace`, for Settings › General. */
+export const TerminalCommand = z.discriminatedUnion("state", [
+  /** A terminal runs this app's `ace` now (`command` is what it finds on PATH). */
+  z.object({ state: z.literal("ready"), command: LongPath }),
+  /** ace added its folder to these startup files; new terminal windows find it. */
+  z.object({ state: z.literal("added"), files: z.array(LongPath).min(1).max(8) }),
+  /** Turned off in Settings: the command is only at its full path. */
+  z.object({ state: z.literal("off"), command: LongPath }),
+  /** Another `ace` comes first on PATH, so ace left PATH alone. */
+  z.object({ state: z.literal("other"), command: LongPath }),
+  /** ace can't edit this shell's PATH: the person adds `directory` themselves. */
+  z.object({
+    state: z.literal("manual"),
+    directory: LongPath,
+    reason: z.string().max(2000).optional(),
+  }),
+  /** There is no `ace` command to put on PATH (a development build, a failed install). */
+  z.object({ state: z.literal("unavailable"), reason: z.string().max(2000) }),
+]);
+export type TerminalCommand = z.infer<typeof TerminalCommand>;
 
 export const ScreenPermission = z.enum([
   "granted",

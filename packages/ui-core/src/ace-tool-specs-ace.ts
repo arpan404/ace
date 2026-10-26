@@ -231,16 +231,11 @@ const projectSpecs: Record<string, AceToolSpec> = {
   ),
   automation_run: spec("ace", ({ args }) =>
     say(
-      ["Ran an automation", "Running an automation", "Run an automation"],
-      "",
-      named(args, ["id"]),
-    ),
-  ),
-  automation_pause: spec("ace", ({ args }) =>
-    say(
-      args.paused === false
-        ? ["Resumed an automation", "Resuming an automation", "Resume an automation"]
-        : ["Paused an automation", "Pausing an automation", "Pause an automation"],
+      args.action === "pause"
+        ? ["Paused an automation", "Pausing an automation", "Pause an automation"]
+        : args.action === "resume"
+          ? ["Resumed an automation", "Resuming an automation", "Resume an automation"]
+          : ["Ran an automation", "Running an automation", "Run an automation"],
       "",
       named(args, ["id"]),
     ),

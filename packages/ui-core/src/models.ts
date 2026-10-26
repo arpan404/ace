@@ -531,6 +531,16 @@ export function effortLabel(effort: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+const effortShortNames: Readonly<Record<string, string>> = {
+  minimal: "Min",
+  medium: "Med",
+};
+
+/** A short name for a compact chip ("Med"), without relabelling an ordinary High as Max. */
+export function effortShortLabel(effort: string): string {
+  return effortShortNames[effort.toLowerCase()] ?? effortLabel(effort);
+}
+
 /** A thread's effort selector: the levels on offer and the current one, or why it can't change. */
 export interface EffortControl {
   efforts: readonly string[];

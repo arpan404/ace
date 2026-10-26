@@ -76,11 +76,13 @@ export function ProjectFilter() {
   const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
   const rows = useMemo(() => {
     const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
-    const ids = [...new Set([...directory.projects.map((p) => p.id), ...counts.keys()])];
+    const ids = [...new Set([...directory.projects.map((p) => p.id), ...counts.keys()])].filter(
+      (id) => !directory.isChat(id),
+    );
     return ids
       .map((id) => ({ id, label: name(id), threads: counts.get(id) ?? 0 }))
       .toSorted((a, b) => a.label.localeCompare(b.label));
-  }, [withThreads, directory.projects, name]);
+  }, [withThreads, directory, name]);
 
   return (
     <Menu>

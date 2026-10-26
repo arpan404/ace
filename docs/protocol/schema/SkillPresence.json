@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillPresence.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "honoursManual": {
+      "type": "boolean"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/SkillAgent.json"
+    },
+    "removable": {
+      "type": "boolean"
+    },
+    "via": {
+      "enum": [
+        "native",
+        "link",
+        "copy"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "via",
+    "path",
+    "removable",
+    "honoursManual"
+  ],
+  "type": "object"
+}

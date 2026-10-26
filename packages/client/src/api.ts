@@ -81,7 +81,7 @@ export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 /** Wire/store operations used inside workers; convenience APIs stay in the page client. */
 export type ClientCoreApi = Omit<
   ClientApi,
-  "attachmentBytes" | "projects" | "downloadFile" | "uploadFile"
+  "attachmentBytes" | "projects" | "transfers" | "downloadFile" | "uploadFile"
 >;
 
 export interface ClientApi {
@@ -91,6 +91,7 @@ export interface ClientApi {
     options?: RequestOptions,
   ): Promise<{ bytes: Uint8Array; mimeType: string }>;
   readonly projects: ProjectsApi;
+  readonly transfers: import("./transfers.ts").TransfersApi;
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;

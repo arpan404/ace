@@ -4,6 +4,9 @@ import { dirname } from "node:path";
 import { durableJson } from "@ace/service";
 import { DesktopSettings, type DesktopSettingsPatch } from "../shared/contract.ts";
 
+/** A settings change, including the keys only the main process changes. */
+export type StoredSettingsPatch = DesktopSettingsPatch & { terminalCommand?: boolean };
+
 /** Desktop-only preferences in Electron's userData. Invalid files fall back to defaults. */
 export class SettingsStore {
   private value: DesktopSettings;
@@ -28,7 +31,7 @@ export class SettingsStore {
    * patch names change. The new value is kept (and listeners hear of it) only once it is on
    * disk; a failed save changes nothing.
    */
-  async update(patch: DesktopSettingsPatch): Promise<DesktopSettings> {
+  async update(patch: StoredSettingsPatch): Promise<DesktopSettings> {
     const saved = this.writing.then(async () => {
       const next = DesktopSettings.parse(merge(this.value, patch));
       await mkdir(dirname(this.path), { recursive: true });
@@ -44,7 +47,7 @@ export class SettingsStore {
 }
 
 /** The saved settings with the patch's defined keys laid over them, notifications key by key. */
-function merge(saved: DesktopSettings, patch: DesktopSettingsPatch): DesktopSettings {
+function merge(saved: DesktopSettings, patch: StoredSettingsPatch): DesktopSettings {
   const { notifications, ...top } = patch;
   return {
     ...saved,

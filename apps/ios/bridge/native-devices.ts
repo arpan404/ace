@@ -2,16 +2,21 @@ import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
   DeviceAck,
+  DeviceChromeResult,
   DeviceOperation,
   ScreenUITreeResult,
   ThreadId,
 } from "@ace/protocol";
 import {
   deviceGesture,
+  deviceKind,
   deviceProblem,
+  deviceScreen,
   holdsControl,
   type DeviceProblem,
 } from "@ace/ui-core/devices";
+import type { AppDevice } from "@ace/protocol";
+import { phoneChrome, type PhoneChrome } from "./phone-chrome.ts";
 import { z } from "zod";
 import { appendLogs, logView, treeRows, type LogTail } from "./device-details.ts";
 import { phoneDevicesView, type AgentLabel, type Holder } from "./devices-view.ts";
@@ -71,6 +76,10 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
 type ViewWatch = Extract<z.infer<typeof NativeDeviceControl>, { type: "native.devices.view" }>;
 
 const noop = () => {};
+/** Devices of one model share a look; a device without a model is its own. */
+const chromeKey = (device: Pick<AppDevice, "id" | "model">) => device.model ?? device.id;
+/** The machine's answers that say the channel may not be used at all, not that it failed. */
+const refusals = new Set(["permission_denied", "not_supported"]);
 
 /** A failed device request in a person's words, with the macOS permission it lacks if any. */
 export function deviceFailure(error: unknown): DeviceProblem {
@@ -92,6 +101,7 @@ const controlled = new Set<DeviceOperation["op"]>([
   "open_app",
   "open_url",
   "configure",
+  "posture",
   "input",
   "record.start",
   "record.stop",
@@ -107,6 +117,9 @@ export interface NativeDevicesOptions {
 }
 
 /** The shared authenticated devices channel. Input is never queued or replayed. */
+/** How long a Devices screen waits before trying an unreachable channel again. */
+const retryMs = 10_000;
+
 export class NativeDevices {
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
@@ -115,11 +128,22 @@ export class NativeDevices {
   #view: ViewWatch | undefined;
   #stopView: (() => void) | undefined;
   #closed = false;
+  /** The last open failed; a retry is scheduled while the screen stays open. */
+  #unreachable = false;
+  #retry: (() => void) | undefined;
   #leaseTimer: (() => void) | undefined;
   /** The agent each device was taken from, for Hand back. */
   #previous = new Map<string, Holder>();
   #logs: { deviceId: string; filter: string; tail: LogTail; release: () => void } | undefined;
   #claim: Promise<unknown> | undefined;
+  /** Why the machine refused this screen's first reads. */
+  #refused: DeviceProblem | undefined;
+  /**
+   * Each model's real look, asked once (`devices:chrome:<model>`); null when the machine has
+   * none, absent while asking or after a failed ask.
+   */
+  #chromes = new Map<string, PhoneChrome | null>();
+  #asking = new Set<string>();
   constructor(config: NativeFeatureConfig, options?: NativeDevicesOptions) {
     this.options = options;
     this.client = new DeviceClient({
@@ -259,17 +283,67 @@ export class NativeDevices {
   /** Read the inventory and states each time the screen opens or asks again. */
   async #load(): Promise<void> {
     const signal = new AbortController().signal;
+    this.#retry?.();
+    this.#retry = undefined;
     try {
       await this.connection.ready(signal);
       await this.client.request({ op: "inventory.watch", watching: true });
       await this.client.request({ op: "list" });
       await this.client.request({ op: "states" });
-    } catch {
-      // The snapshot carries the channel's failure; the view says it.
+      this.#unreachable = false;
+      this.#refused = undefined;
+    } catch (error) {
+      // The snapshot carries the channel's failure. A refusal arrives only as this answer, and
+      // trying again won't change it: keep it so the screen says why instead of loading.
+      this.#refused =
+        error instanceof DeviceClientError && refusals.has(error.code)
+          ? deviceFailure(error)
+          : undefined;
+      // A channel that never opened or never answered has no refusal, so the view would spin
+      // forever. Say so, and try again while the screen stays open.
+      const snapshot = this.client.getSnapshot();
+      if (!this.#refused && this.#view && (!snapshot.connected || !snapshot.inventoryLoaded)) {
+        this.#unreachable = true;
+        this.#retry = scheduler.set(retryMs, () => {
+          this.#retry = undefined;
+          if (this.#view) void this.#load();
+        });
+      }
     }
     this.#putView();
   }
+  /** Ask the machine for a model's look once, as PNG; the view names it when it arrives. */
+  #askChrome(device: AppDevice): void {
+    const key = chromeKey(device);
+    if (this.#chromes.has(key) || this.#asking.has(key)) return;
+    this.#asking.add(key);
+    this.client
+      .request({ op: "chrome", deviceId: device.id, format: "png" })
+      .then((data) => {
+        const chrome = DeviceChromeResult.parse(data).chrome;
+        const kind = deviceKind(device);
+        // A Simulator's look is in points already; a skin's pixels take the device's points.
+        const upright =
+          device.platform === "ios" && chrome ? chrome.screen : deviceScreen(kind, device.name);
+        const shaped = chrome ? (phoneChrome(chrome, kind, upright) ?? null) : null;
+        this.#chromes.set(key, shaped);
+        if (shaped)
+          this.options?.sink.put(`devices:chrome:${key}`, () => ({
+            type: "devices.chrome",
+            key,
+            chrome: shaped,
+          }));
+        this.#putView();
+      })
+      .catch(() => {
+        // Asked again when the screen next shows the device.
+      })
+      .finally(() => this.#asking.delete(key));
+  }
   #closeView(): void {
+    this.#retry?.();
+    this.#retry = undefined;
+    this.#unreachable = false;
     this.#stopView?.();
     this.#stopView = undefined;
     this.#view = undefined;
@@ -292,6 +366,10 @@ export class NativeDevices {
     this.#leaseTimer = ends.length
       ? scheduler.set(Math.min(...ends) + 50, () => this.#putView())
       : undefined;
+    const open = watch.deviceId
+      ? this.client.getSnapshot().devices.find((device) => device.id === watch.deviceId)
+      : undefined;
+    if (open) this.#askChrome(open);
     options.sink.put("devices:view", () => {
       const current = this.#view;
       if (!current) return undefined;
@@ -301,6 +379,10 @@ export class NativeDevices {
         view: phoneDevicesView({
           snapshot: this.client.getSnapshot(),
           closed: this.#closed,
+          refused: this.#refused,
+          unreachable:
+            this.#unreachable &&
+            (!this.client.getSnapshot().connected || !this.client.getSnapshot().inventoryLoaded),
           threadId: current.threadId,
           deviceId: current.deviceId,
           query: current.query,
@@ -308,6 +390,7 @@ export class NativeDevices {
           now: options.now(),
           agent: options.agent,
           previous: this.#previous,
+          chrome: (device) => (this.#chromes.get(chromeKey(device)) ? chromeKey(device) : null),
         }),
       };
     });

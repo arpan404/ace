@@ -13,7 +13,7 @@ import {
   PublicToolError,
 } from "@ace/mcp-server";
 import { builtinGuides } from "@ace/plugins";
-import { devicesToolkit } from "@ace/devices";
+import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { computerToolkit, screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
@@ -29,6 +29,7 @@ import { GitService } from "@ace/git";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
+  const devices = services.devices;
 
   const asks = new Asks({
     store,
@@ -158,7 +159,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           ]
         : []),
       ...(help ? [browserHelpToolkit(help)] : []),
-      ...(services.devices ? [devicesToolkit(services.devices)] : []),
+      // Registered at startup; the devices implementation loads on an agent's first call.
+      ...(devices ? [devicesToolkit(() => devices.load())] : []),
       // Agents use the background engine on macOS and Linux; Windows keeps the session tools.
       ...(services.computer
         ? [

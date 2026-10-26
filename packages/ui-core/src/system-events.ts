@@ -238,7 +238,9 @@ function backgroundTitle(text: string): string | undefined {
 export function inputLine(input: SystemInput): EventLine | undefined {
   switch (input.kind) {
     case "restart":
-      return { icon: "restart", text: "Resumed after restart" };
+      return input.origin?.afterExit
+        ? { icon: "resume", text: "Resumed after the agent stopped" }
+        : { icon: "restart", text: "Resumed after restart" };
     case "limit_resume":
       return { icon: "resume", text: "Resumed after the usage limit" };
     case "background_completion": {

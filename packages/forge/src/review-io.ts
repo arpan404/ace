@@ -14,7 +14,7 @@ export type ReviewIo = {
     source: "inline" | "issue",
     id: number,
     signal: AbortSignal,
-  ): Promise<{ id: number; body: string } | undefined>;
+  ): Promise<{ id: number; body: string; node_id?: string | undefined } | undefined>;
 };
 
 export function decode<T>(schema: z.ZodType<T>, body: unknown): T {

@@ -1,10 +1,16 @@
-import { ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
+import { ClientError, ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
 import { createThreadView } from "@ace/projection";
 import { Agent, BackgroundTask, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
-import { subagentLabels, subagentStatusLine, subagentTerminal } from "@ace/ui-core";
+import {
+  subagentDetail,
+  subagentLabels,
+  subagentRunning,
+  subagentStatusLine,
+  subagentTerminal,
+} from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { agentFactsOf } from "@/lib/agent-facts.ts";
-import { readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
+import { listedSubagentState, readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
 
 const thread = Thread.parse({
   id: "group",
@@ -209,6 +215,54 @@ test("a cancelling launch with an old completion stays live until canonical sett
   expect(line(store([], [launch]), ["launch"])).toBe("1 working");
 });
 
+const queuedTestLaunch = (childThreadId: string, phase: "created" | "running", status: unknown) =>
+  Item.parse({
+    id: `launch-${childThreadId}`,
+    agentId: "root",
+    createdAt: 1000,
+    type: "delegation.started",
+    origin: "ace",
+    childThreadId,
+    provider: "claude",
+    title: childThreadId,
+    role: childThreadId,
+    phase,
+    status,
+    updatedAt: 1000,
+    generation: 0,
+    complete: false,
+  });
+// The parent follows each child through an agent of its own; a queued one is blocked on the queue.
+const follower = (childThreadId: string, status: AgentStatus) =>
+  Agent.parse({
+    ...agent(`ace-child:${childThreadId}`, status),
+    origin: "ace",
+    childThreadId,
+  });
+
+test("a delegated child waiting for its parent's run slot reads queued, with no running time", () => {
+  const reader = store(
+    [
+      follower("queued", { state: "blocked", on: "queue", refs: ["queued"] }),
+      follower("running", { state: "working", activity: "responding" }),
+    ],
+    [
+      queuedTestLaunch("queued", "created", { state: "waiting", on: "queue" }),
+      queuedTestLaunch("running", "running", { state: "working", agents: 1 }),
+    ],
+  );
+  const entries = readSubagentGroup(reader, ["launch-queued", "launch-running"]).value;
+  const queued = entries.find((entry) => entry.childThreadId === "queued");
+  expect(queued && subagentLabels[queued.state]).toBe("Queued");
+  expect(queued && subagentRunning(queued.state)).toBe(false);
+  expect(queued && subagentDetail(queued, undefined, undefined, true).detail).toBe(
+    "Starts when a running agent finishes",
+  );
+  expect(subagentStatusLine(entries.map((entry) => entry.state))).toBe("1 working · 1 queued");
+  // Still unfinished: a queued child keeps its group, and its parent, open.
+  expect(queued && subagentTerminal(queued.state)).toBe(false);
+});
+
 test("appending unrelated output does no historical or membership reads for 50 mounted groups", () => {
   const children = Array.from({ length: 50 }, (_, at) => `review-${at}`);
   const reader = store(
@@ -358,4 +412,34 @@ test("a named subagent keeps its own name in the subagent group", () => {
   expect(readSubagentGroup(reader, ["spawn-review"]).value.map((entry) => entry.title)).toEqual([
     "review",
   ]);
+});
+
+test("the thread list speaks for a delegated child only while the daemon keeps it current", () => {
+  const child = Thread.parse({
+    ...thread,
+    id: "child",
+    status: { state: "needs_you", interactions: 1 },
+  });
+  const fresh = Thread.parse({ ...thread, id: "fresh", status: { state: "new" } });
+  const rows = new Map<string, typeof child>([
+    [child.id, child],
+    [fresh.id, fresh],
+  ]);
+  const list = (flags: { unconfirmed?: boolean; syncing?: boolean; error?: ClientError }) => ({
+    ...flags,
+    error: flags.error,
+    thread: (id: string) => rows.get(id),
+  });
+  // A finished child that asks the person again: the list can say so before the parent hears.
+  expect(listedSubagentState(list({}), "child")).toBe("human");
+  // Old rows say nothing: restored or unfollowed, waiting for a snapshot, or kept after the
+  // list's subscription failed.
+  expect(listedSubagentState(list({ unconfirmed: true }), "child")).toBeUndefined();
+  expect(listedSubagentState(list({ syncing: true }), "child")).toBeUndefined();
+  expect(
+    listedSubagentState(list({ error: new ClientError("offline", "Lost the list") }), "child"),
+  ).toBeUndefined();
+  // A child that never started, or one the list doesn't hold, adds nothing either.
+  expect(listedSubagentState(list({}), "fresh")).toBeUndefined();
+  expect(listedSubagentState(list({}), "elsewhere")).toBeUndefined();
 });

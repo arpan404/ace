@@ -18,13 +18,12 @@ import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
 import { hostedFileShow, renderedKind } from "./pr-file-kind.ts";
 import { sideTexts, usePrFileSides } from "./pr-file-sides.ts";
 import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
-import type { PrDiffContext, PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import type { PrDiffContext, PrWorkspaceContext } from "./pr-extensions.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
-import { composerClearance } from "./pr-composer.tsx";
-import { cn } from "@/lib/cn.ts";
 import { PrMoreFiles } from "./pr-more-files.tsx";
 import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
 import { usePrViewedMarks } from "./pr-viewed-marks.ts";
+import { usePrReview } from "./pr-review-context.tsx";
 
 // The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
 const FileTree = DeferredFileTree.Component;
@@ -43,7 +42,6 @@ interface PrFilesProps {
   repository: ForgeRepository;
   detail: ForgePrDetail;
   context: PrWorkspaceContext;
-  extensions?: PrWorkspaceExtensions | undefined;
   /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
   focus?: { path: string; seq: number } | undefined;
 }
@@ -99,8 +97,19 @@ function PrCodeRange(
       setWanted((previous) => (previous.has(path) ? previous : new Set(previous).add(path))),
     [],
   );
-  // Markdown and notebooks draw rendered; these paths show their source diff instead.
-  const [sources, setSources] = useState<ReadonlySet<string>>(noPaths);
+  // Markdown and notebooks draw rendered, except where conversations sit on their lines (and in
+  // the review being written): those show their source diff. A file the person switched keeps
+  // their choice, whatever conversations come and go.
+  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(noChoices);
+  const review = usePrReview();
+  const discussed = useMemo(
+    () =>
+      new Set([
+        ...props.detail.status.reviewThreads.filter((t) => !t.outdated).map((t) => t.file),
+        ...(review?.state?.drafts ?? []).map((d) => d.anchor.path),
+      ]),
+    [props.detail.status.reviewThreads, review?.state?.drafts],
+  );
   const read = usePrFileSides({
     workspaceId: props.workspaceId,
     repository: props.repository,
@@ -113,7 +122,7 @@ function PrCodeRange(
   const diffs = useFileChanges(inputs);
   const byPath = useMemo(() => new Map(diffs.files.map((diff) => [diff.path, diff])), [diffs]);
   const context: PrDiffContext | undefined = range && { ...props.context, files: range };
-  const marks = usePrViewedMarks(context, props.extensions);
+  const marks = usePrViewedMarks(context);
   const markByPath = new Map(files.map((file) => [file.path, marks.markOf(file)]));
   // A file marked viewed folds; unmarking it, or a new version of its diff, opens it again.
   const versions = new Map(
@@ -164,14 +173,8 @@ function PrCodeRange(
   const readOf = (file: ForgeFile): HostedFileRead => ({
     show: hostedFileShow(file),
     rendered: renderedKind(file.path),
-    source: sources.has(file.path),
-    onSource: (source) =>
-      setSources((previous) => {
-        const next = new Set(previous);
-        if (source) next.add(file.path);
-        else next.delete(file.path);
-        return next;
-      }),
+    source: chosen.get(file.path) ?? discussed.has(file.path),
+    onSource: (source) => setChosen((previous) => new Map(previous).set(file.path, source)),
     sides: read.sides.get(file.path),
     root: scroller,
     onWant: () => want(file.path),
@@ -187,7 +190,6 @@ function PrCodeRange(
           file={file}
           diff={diff}
           context={context}
-          extensions={props.extensions}
           view={diff ? views.viewOf(diff) : freshView}
           onView={(next) => views.setView(file.path, next)}
           mode={props.options.mode}
@@ -233,12 +235,12 @@ function PrCodeRange(
       )}
       {range && context && (
         <>
-          <PrOffDiffThreads threads={threads} onFile={jump} />
+          <PrOffDiffThreads threads={threads} />
           <div className="flex min-h-0 flex-1">
             <div
               ref={scroller}
               data-diff-scroller=""
-              className={cn("min-h-0 min-w-0 flex-1 overflow-auto", composerClearance)}
+              className="min-h-0 min-w-0 flex-1 overflow-auto pb-16"
             >
               <p className="sr-only">
                 {props.commit
@@ -313,4 +315,5 @@ function PrCodeRange(
 const pathOf = (file: ForgeFile) => file.path;
 const noFiles: readonly ForgeFile[] = [];
 const noPaths: ReadonlySet<string> = new Set();
+const noChoices: ReadonlyMap<string, boolean> = new Map();
 const noComments: ReadonlyMap<string, number> = new Map();

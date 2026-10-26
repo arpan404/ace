@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderSignInReturnUrl.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One-time sign-in return address handed only to the agent's loopback listener. Never log or persist.",
+  "maxLength": 8192,
+  "minLength": 18,
+  "pattern": "^http:\\/\\/(?:127\\.0\\.0\\.1|localhost):\\d{1,5}\\/[^\\s#]*\\?[^\\s#]+$",
+  "secret": true,
+  "type": "string",
+  "writeOnly": true,
+  "x-ace-secret": true
+}

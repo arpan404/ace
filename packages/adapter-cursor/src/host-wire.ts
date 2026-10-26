@@ -1,5 +1,6 @@
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
+import { HostRefusal } from "./host-refusal.ts";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
@@ -149,6 +150,8 @@ export function hostWire(
               message: "Cursor SDK operation failed; check safe lifecycle notice",
               data: {
                 code: discoveryFailureCode(error),
+                // The SDK never saw this request, so the caller may report it as not taken.
+                ...(error instanceof HostRefusal ? { refused: true } : {}),
                 ...(method === "models" && discoveryFailureCode(error) === "discovery_failed"
                   ? {
                       detail: discoveryFailureReason(error, {

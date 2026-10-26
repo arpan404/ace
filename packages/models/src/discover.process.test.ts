@@ -188,6 +188,29 @@ test("an agent needing its sign-in method selected lists models with the method 
   expect(rows.map((row) => row.id)).toEqual(["gemini"]);
 });
 
+test("model discovery never inherits a variable its instance unsets from the daemon's environment", async () => {
+  const { config } = await launch("antigravity", {
+    models: { currentModelId: "gemini", availableModels: [{ modelId: "gemini", name: "Gemini" }] },
+  });
+  const discover = createModelDiscovery();
+  const before = process.env["FAKE_NEEDS_SIGN_IN"];
+  // Set on the daemon itself, not in the instance's environment.
+  process.env["FAKE_NEEDS_SIGN_IN"] = "1";
+  try {
+    await expect(discover(config, new AbortController().signal)).rejects.toThrow(
+      "Authentication required",
+    );
+    const rows = await discover(
+      { ...config, unsetEnv: ["FAKE_NEEDS_SIGN_IN"] },
+      new AbortController().signal,
+    );
+    expect(rows.map((row) => row.id)).toEqual(["gemini"]);
+  } finally {
+    if (before === undefined) delete process.env["FAKE_NEEDS_SIGN_IN"];
+    else process.env["FAKE_NEEDS_SIGN_IN"] = before;
+  }
+});
+
 test("ACP grouped model options and per-model effort configuration remain distinct", () => {
   const rows = normalizeAcp(
     {

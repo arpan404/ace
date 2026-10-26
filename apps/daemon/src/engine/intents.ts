@@ -102,11 +102,13 @@ export class IntentStore {
   /** Where an input command's intent stands, with its error and whether delivery is uncertain. */
   delivery(threadId: ThreadId, commandId: CommandId) {
     const row = this.sql(
-      "SELECT status,uncertain,error FROM intents WHERE thread_id=? AND command_id=? LIMIT 1",
+      "SELECT status,uncertain,error,delivery,trigger FROM intents WHERE thread_id=? AND command_id=? LIMIT 1",
     ).get(threadId, commandId);
     return row
       ? {
           status: Header.shape.status.parse(row.status),
+          delivery: Header.shape.delivery.parse(row.delivery),
+          trigger: Header.shape.trigger.parse(row.trigger ?? undefined),
           uncertain: row.uncertain === 1,
           error: typeof row.error === "string" ? row.error : undefined,
         }
@@ -347,6 +349,15 @@ export class IntentStore {
     this.sql(
       "UPDATE intents SET status='queued',awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0 WHERE id=?",
     ).run(intent.id);
+  }
+  /**
+   * Puts a send the provider refused unread back in the queue as a plain queued message, so it
+   * goes in when the running turn ends instead of trying to steer again.
+   */
+  requeue(intent: IntentHeader, error: string): void {
+    this.sql(`UPDATE intents SET status='queued',delivery='queue',
+      payload=json_set(payload,'$.payload.delivery','queue'),awaiting=0,ack_target=NULL,
+      submitted_generation=NULL,uncertain=0,error=? WHERE id=?`).run(error, intent.id);
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.store.atomic(() => {

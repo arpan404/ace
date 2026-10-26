@@ -1,4 +1,4 @@
-export { ClientProvider, useClient, useNotifyBatch } from "./context.ts";
+export { ClientProvider, useClient, useNotifyBatch, useOptionalClient } from "./context.ts";
 export { frameBatch, immediate } from "./batch.ts";
 export type { NotifyBatch } from "./batch.ts";
 export { useSelection, arrayEqual, shallowEqual } from "./selection.ts";
@@ -34,3 +34,11 @@ export {
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";
 export { useConnectionState, useIntent, useIntentSender, usePendingSends } from "./intents.ts";
+export {
+  transferStore,
+  useProjectTransfer,
+  useThreadTransfer,
+  useTransferDismissal,
+  useTransfers,
+  useTransfersSeeded,
+} from "./transfers.ts";

@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillScope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "project",
+    "personal",
+    "plugin",
+    "builtin"
+  ],
+  "type": "string"
+}

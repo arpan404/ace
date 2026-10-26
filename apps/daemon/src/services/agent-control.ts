@@ -15,7 +15,7 @@ export function startAgentControl(context: ServiceContext): void {
   const { services, store, options, now, id, log, resources, onListen } = context;
   const engine = services.engine;
   if (!engine || !services.models) return;
-  let maintenance: { admit(): boolean } | undefined;
+  let maintenance: { admit(): boolean } | undefined = context.maintenance;
   onListen.push((server) => {
     maintenance = server.maintenance;
   });
@@ -74,6 +74,16 @@ export function startAgentControl(context: ServiceContext): void {
         services.machines
           ? services.machines.caller.cancel(child)
           : { ok: false, code: "not_found" },
+      message: async (child, message) =>
+        services.machines
+          ? services.machines.caller.message(child, message)
+          : { ok: false, code: "not_found" },
+    },
+    // Transfers start after this service too (ADR 0101).
+    transfer: async (caller, operation) => {
+      const transfers = services.transfers;
+      if (!transfers) throw new AgentControlError("machine_unavailable", "transfers_not_ready");
+      return transfers.agents.transfer(caller, operation);
     },
     runRole: (role) => services.roles?.get(role),
     startConversation: createConversationStarts(context, delegations, delegations.conversations),

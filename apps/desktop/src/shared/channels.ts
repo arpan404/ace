@@ -30,6 +30,7 @@ import {
   VisualizationWindow,
   SocketUrl,
   SandboxNotice,
+  TerminalCommand,
   UpdateStatus,
   WindowAction,
   WindowState,
@@ -109,6 +110,10 @@ export const requests = {
   "browser.focus-app": { request: None, result: None },
   /** Print or developer tools for the thread's shown native tab; false: no such view here. */
   "browser.page": { request: BrowserPageAction, result: z.boolean() },
+  /** Whether a terminal runs `ace`; waits for the launch's own install to finish. */
+  "cli.status": { request: None, result: TerminalCommand },
+  /** Turn the `ace` command on the terminal's PATH on or off, and save the choice. */
+  "cli.setOnPath": { request: z.boolean(), result: TerminalCommand },
   "updates.check": { request: None, result: UpdateStatus },
   /** A page diagnostic for the desktop log, rate-limited there; the page never waits on it. */
   "diagnostics.report": { request: DiagnosticReport, result: None },

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { z } from "zod";
 import { fakeGh, sha, nextSha } from "./testing/fixtures.ts";
 const signal = () => new AbortController().signal;
 const pr = {
@@ -425,3 +426,75 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "NOT_FOUND"])(
     }
   },
 );
+
+test("GitHub's own merge and squash commit text is read for the person to edit", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read({
+        mergeHeadline: "Merge pull request #7 from octo/fix",
+        mergeBody: "Fix build",
+        squashHeadline: "Fix build (#7)",
+        squashBody: "* Fix build\n\n* Add test",
+      }),
+    ],
+  });
+  try {
+    expect((await f.forge.prMergeState(7, signal())).commitMessages).toEqual({
+      merge: { title: "Merge pull request #7 from octo/fix", message: "Fix build" },
+      squash: { title: "Fix build (#7)", message: "* Fix build\n\n* Add test" },
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("auto-merge carries the edited commit for a squash, and none for a rebase", async () => {
+  for (const method of ["squash", "rebase"] as const) {
+    const f = await fakeGh({
+      graphql: [
+        read(),
+        { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
+      ],
+    });
+    try {
+      await f.forge.changeMergeState(7, sha, "enable", method, signal(), () => true, undefined, {
+        title: "Fix the build (#7)",
+        message: "Edited body",
+      });
+      const input = z
+        .object({ variables: z.object({ input: z.record(z.string(), z.unknown()) }) })
+        .parse((await f.requests())[1]?.body).variables.input;
+      if (method === "squash")
+        expect(input).toMatchObject({
+          commitHeadline: "Fix the build (#7)",
+          commitBody: "Edited body",
+        });
+      else expect(input).not.toHaveProperty("commitHeadline");
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("a merge sends the edited commit title and message, and a rebase sends neither", async () => {
+  for (const method of ["merge", "rebase"] as const) {
+    const f = await fakeGh({ "repos/octo/ace/pulls/7/merge": [{ body: { merged: true } }] });
+    try {
+      await f.forge.merge(7, sha, method, signal(), undefined, {
+        title: "Merge #7: fix the build",
+        message: "Closes #3",
+      });
+      const body = (await f.requests())[0]?.body;
+      if (method === "merge")
+        expect(body).toEqual({
+          sha,
+          merge_method: "merge",
+          commit_title: "Merge #7: fix the build",
+          commit_message: "Closes #3",
+        });
+      else expect(body).toEqual({ sha, merge_method: "rebase" });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});

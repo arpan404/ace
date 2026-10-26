@@ -19,6 +19,24 @@ test("retry and compaction after agent end keep the thread live until Pi settles
   h.recv(settled);
   expect(h.state.status.state).toBe("done");
 });
+test("a Pi thread reads working again once its retried request streams or succeeds", () => {
+  const h = replay();
+  h.recv(start);
+  h.recv({ type: "auto_retry_start", attempt: 1, errorMessage: "overloaded" });
+  expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
+  h.recv({ type: "message_start" });
+  h.recv({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Back" },
+  });
+  expect(h.state.status.state).toBe("working");
+  h.recv({ type: "auto_retry_start", attempt: 1, errorMessage: "overloaded" });
+  expect(h.state.status.state).toBe("waiting");
+  h.recv({ type: "auto_retry_end", success: true });
+  expect(h.state.status.state).toBe("working");
+  h.recv(settled);
+  expect(h.state.status.state).toBe("done");
+});
 test("a throttle or quota retry from Pi is a wait that never limits the thread", () => {
   const h = replay();
   h.recv(start);

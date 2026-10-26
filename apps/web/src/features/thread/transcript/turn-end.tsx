@@ -125,7 +125,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       <div
         role="note"
         aria-label="Interrupted by you"
-        className="flex items-center justify-center gap-2 text-[11px] leading-4 text-subtle-foreground"
+        className="flex items-center justify-center gap-2 text-meta leading-4 text-subtle-foreground"
       >
         <span aria-hidden className="h-px w-6 bg-border" />
         Interrupted by you
@@ -149,6 +149,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
         errorId={block.errorId}
         error={ending.error}
         latest={block.latest ?? false}
+        held={block.held}
         limitInStrip
       />
     </Suspense>

@@ -12,7 +12,7 @@ import type { Agent } from "@ace/protocol";
 import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import {
@@ -36,13 +36,14 @@ import { ThreadLoadError } from "../thread-load-error.tsx";
 import { AgentTranscript } from "../transcript/agent-transcript.tsx";
 import { SubagentCrumb } from "../header/thread-crumb.tsx";
 import { WorkButton } from "../header/work-button.tsx";
-import { createWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { useRememberedWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
 import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
 const overlays = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
@@ -68,18 +69,20 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   // An unnamed subagent goes by its task, as its row in the Summary does.
   const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
-  const [details] = useState(createWorkCardStore);
+  const details = useRememberedWorkCardStore();
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
   // Esc steps back up to the parent, as Open parent does, once nothing above the page has it.
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   useHotkey(
     "escape",
     () =>
       void (root || !agent?.parentId
-        ? navigate({ to: "/t/$threadId", params: { threadId } })
+        ? navigate({ to: "/t/$threadId", params: { threadId }, search: machine })
         : navigate({
             to: "/t/$threadId/agents/$agentId",
             params: { threadId, agentId: agent.parentId },
+            search: machine,
           })),
     { when: () => !overlayOpen() },
   );

@@ -49,6 +49,7 @@ export {
   utf8Tail,
 } from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
+export { decodeTextPage, wholeCharacterLength, type StreamEncoding } from "./text-page.ts";
 import type {
   DeliveryEvent,
   Event,
@@ -182,6 +183,9 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.provider !== undefined) thread.provider = payload.provider;
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
     if (payload.delegatedBy !== undefined) thread.delegatedBy = payload.delegatedBy;
+    if (payload.queuedLaunch === null) delete thread.queuedLaunch;
+    else if (payload.queuedLaunch !== undefined)
+      thread.queuedLaunch = structuredCopy(payload.queuedLaunch);
     if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
     if (payload.switch !== undefined) thread.switch = structuredCopy(payload.switch);
     if (payload.title !== undefined) thread.title = payload.title;
@@ -433,4 +437,8 @@ export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-
 export { sidebarSettled, sidebarVisible, sidebarPage } from "./sidebar-page.ts";
 
 export { distinctRetainedInputs } from "./retained-inputs.ts";
-export { diagnosticNoticeText, isDiagnosticNotice } from "./diagnostic-notice.ts";
+export {
+  diagnosticNoticeText,
+  isDiagnosticNotice,
+  isWorkStoppedNotice,
+} from "./diagnostic-notice.ts";

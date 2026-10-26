@@ -1,10 +1,14 @@
 import SwiftUI
 
-/// One glass capsule: + · the message · the model · send. When the message wraps it grows into a
-/// card with the controls on a row below. While the agent works an empty composer's button stops
-/// the whole tree; a typed message goes the way the bridge says (steer or queue), and a long press
-/// offers the other delivery where the provider can steer. The model opens the model list.
-struct ComposerView<Leading: View, Trailing: View>: View {
+/// The thread's composer. At rest it is one slim capsule: +, the message, a settings button and the
+/// round Send. Once it is big (tapped into, or the message wraps or holds words) it opens like the
+/// web's: the message on top and, inside the same glass, one row of + and the access mode on the
+/// left, the model, its effort and Send on the right; the settings button goes, its controls now
+/// showing. The message keeps its place in both, so focus and the draft never drop. While the agent works an empty composer's round
+/// button stops the whole tree; a typed message goes the way the bridge says (steer or queue), and
+/// a long press offers the other delivery where the provider can steer. Files on the next message
+/// sit above the field.
+struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Settings: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
@@ -15,43 +19,84 @@ struct ComposerView<Leading: View, Trailing: View>: View {
     var mention: ComposerMention? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
+    var draftKey: String? = nil
+    @ViewBuilder var top: () -> Top
+    /// The + at the row's start.
     @ViewBuilder var leading: () -> Leading
-    @ViewBuilder var trailing: () -> Trailing
+    /// The access mode, beside +.
+    @ViewBuilder var access: () -> Access
+    /// The model and its effort, before Send.
+    @ViewBuilder var model: () -> Model
+    /// The button that opens the model, effort and access while the composer is one line.
+    @ViewBuilder var settings: () -> Settings
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     @State private var wraps = false
+    @State private var focused = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var card: Bool { ComposerFit.card(focused: focused, wraps: wraps) }
+    /// Big: the web's layout, with the controls row under the message.
+    private var big: Bool { card || !empty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
+        let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(spacing: AceTheme.Spacing.xxs) {
-                if !wraps { leading() }
-                input
-                if !wraps { trailing(); action }
-            }
-            if wraps {
-                HStack(spacing: AceTheme.Spacing.xxs) {
-                    leading()
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    trailing()
-                    action
+            top()
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
+                    if !big { plus }
+                    input
+                    if !big {
+                        settings()
+                            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
+                            .background(AceTheme.Colours.fill, in: Circle())
+                            .padding(.trailing, AceTheme.Spacing.xxs)
+                        action
+                    }
+                }
+                .padding(.horizontal, big ? AceTheme.Spacing.none : AceTheme.Spacing.xs)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+                if big {
+                    HStack(spacing: AceTheme.Spacing.none) {
+                        plus
+                        access()
+                        Spacer(minLength: AceTheme.Spacing.xs)
+                        model()
+                        action
+                    }
+                    .padding(.horizontal, AceTheme.Spacing.xs)
+                    .padding(.bottom, AceTheme.Spacing.xxs)
+                    // The row keeps its height when a tall request and the keyboard leave little room.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
                 }
             }
+            .aceContainerShape(AceShape.field)
+            .composerGlass(in: AceShape.field)
+            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
         }
-        .padding(.leading, wraps ? AceTheme.Spacing.xs : AceTheme.Spacing.xxs)
-        .padding(.trailing, AceTheme.Spacing.xxs)
-        .padding(.vertical, wraps ? AceTheme.Spacing.xs : AceTheme.Spacing.xxs)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.sm)
-        .aceGlass(in: RoundedRectangle(cornerRadius: wraps ? AceTheme.Radii.composer : (AceTheme.Dimensions.touchTarget + AceTheme.Spacing.sm) / 2, style: .continuous))
+        .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
-        .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+        .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
+        .onDisappear { draft.flush() }
+    }
+    private var plus: some View {
+        leading()
+            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
+            .contentShape(Rectangle())
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
-                        wraps: wraps, onWrap: { wraps = $0 })
+                        wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,
+                        onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } })
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -61,19 +106,20 @@ struct ComposerView<Leading: View, Trailing: View>: View {
                 }
             }
             .accessibilityLabel(placeholder)
-            .padding(.leading, wraps ? AceTheme.Spacing.md : AceTheme.Spacing.none)
-            .padding(.trailing, wraps ? AceTheme.Spacing.md : AceTheme.Spacing.xs)
+            .padding(.horizontal, big ? AceTheme.Spacing.lg : AceTheme.Spacing.xs)
     }
     private var action: some View {
-        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label) {
+        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, size: ComposerControlRow.height + AceTheme.Spacing.xs) {
             feedback += 1
             if stops { stop() } else { submit(alternate: false) }
         }
         .contextMenu {
             if !empty, let alternate = controls?.alternate {
-                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
+                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowElbowDownRight : .queue) { submit(alternate: true) }
             }
         }
+        // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
+        .keyboardShortcut(stops ? nil : KeyboardShortcut(.return, modifiers: .command))
         .accessibilityIdentifier("composer.send")
     }
     private var disabled: Bool { draft.saving || (stops ? stopping : empty) }

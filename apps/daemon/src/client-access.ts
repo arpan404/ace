@@ -1,7 +1,9 @@
 import { DeviceCredential } from "@ace/protocol";
+import { parsePairingLink } from "@ace/client/access";
 import { Agent, request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
-import { connect, type ConnectionOptions } from "node:tls";
+import { checkServerIdentity, connect, type ConnectionOptions } from "node:tls";
+import { isIP } from "node:net";
 import { X509Certificate } from "node:crypto";
 import { WebSocket } from "ws";
 import { z } from "zod";
@@ -28,12 +30,31 @@ function accessFailure(status: number, body: string): ClientError {
     : new ClientError(failure.code, `${failure.message}: ${detail.slice(0, 512)}`);
 }
 
-/** Handshake pinning happens before HTTP headers or credentials are written. */
-export function pinnedAgent(fingerprint: string, now: () => number = Date.now): Agent {
+/** A Tailscale MagicDNS name (`mac.tailnet.ts.net`), whose certificate only that machine can get. */
+function tailnetName(host: string | undefined): string | undefined {
+  const name = host?.toLowerCase().replace(/\.$/, "");
+  return name && isIP(name) === 0 && name.endsWith(".ts.net") ? name : undefined;
+}
+
+/**
+ * Handshake pinning happens before HTTP headers or credentials are written. The pinned public key
+ * authenticates ace's own certificate. A ts.net host may instead present the publicly trusted
+ * certificate Tailscale issues for that exact name, which rotates its key on renewal (ADR 0097).
+ * `roots` replaces the system's certificate authorities, for tests only.
+ */
+export function pinnedAgent(
+  fingerprint: string,
+  now: () => number = Date.now,
+  roots?: string[],
+): Agent {
   if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error("Invalid public-key fingerprint");
   const agent = new Agent({ keepAlive: false });
   agent.createConnection = (options: ConnectionOptions, callback) => {
-    const socket = connect({ ...options, rejectUnauthorized: false });
+    const socket = connect({
+      ...options,
+      rejectUnauthorized: false,
+      ...(roots ? { ca: roots } : {}),
+    });
     let complete = false;
     const finish = (error?: Error) => {
       if (complete) return;
@@ -49,8 +70,12 @@ export function pinnedAgent(fingerprint: string, now: () => number = Date.now): 
     socket.once("error", finish);
     socket.once("secureConnect", () => {
       try {
-        const certificate = new X509Certificate(socket.getPeerCertificate().raw);
-        if (publicKeyFingerprint(certificate.raw) !== fingerprint)
+        const peer = socket.getPeerCertificate();
+        const certificate = new X509Certificate(peer.raw);
+        const name = tailnetName(options.servername ?? options.host ?? undefined);
+        const trustedName =
+          name !== undefined && socket.authorized && checkServerIdentity(name, peer) === undefined;
+        if (publicKeyFingerprint(certificate.raw) !== fingerprint && !trustedName)
           throw new ClientError("auth", "TLS public-key fingerprint mismatch");
         const at = now();
         if (at < Date.parse(certificate.validFrom) || at >= Date.parse(certificate.validTo))
@@ -141,15 +166,14 @@ export async function accessRequest(
   }
 }
 export async function redeemPairing(url: string, name: string): Promise<DeviceCredential> {
-  const pairing = new URL(url);
-  if (pairing.protocol !== "https:" || pairing.search)
+  const link = parsePairingLink(url);
+  if (!link.daemon.startsWith("https:"))
     throw new Error("Pairing requires an HTTPS URL with credentials in its fragment");
-  const fragment = new URLSearchParams(pairing.hash.slice(1));
   return DeviceCredential.parse(
-    await accessRequest(pairing.origin, "/v1/pair", {
+    await accessRequest(new URL(link.daemon).origin, "/v1/pair", {
       method: "POST",
-      fingerprint: fragment.get("fingerprint") ?? "",
-      body: { code: fragment.get("code"), name },
+      fingerprint: link.fingerprint,
+      body: { code: link.code, name },
     }),
   );
 }

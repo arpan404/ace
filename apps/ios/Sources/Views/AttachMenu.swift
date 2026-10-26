@@ -19,11 +19,11 @@ struct AttachMenu<Title: View>: View {
     @State private var usingCamera = false
     var body: some View {
         Menu {
-            Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
+            Button("Photo Library", ace: .images) { choosingPhotos = true }
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button("Take Photo", systemImage: "camera") { usingCamera = true }
+                Button("Take Photo", ace: .camera) { usingCamera = true }
             }
-            Button("Choose File", systemImage: "folder") { choosingFiles = true }
+            Button("Choose File", ace: .folder) { choosingFiles = true }
         } label: {
             title().frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
         }
@@ -68,10 +68,10 @@ struct AttachMenu<Title: View>: View {
     }
 }
 
-extension AttachMenu where Title == Image {
+extension AttachMenu where Title == AceIcon {
     /// The composer's bare + button.
     init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach") {
-        self.init(stage: stage, problem: problem, identifier: identifier) { Image(systemName: "plus") }
+        self.init(stage: stage, problem: problem, identifier: identifier) { AceIcon(.plus, size: 20) }
     }
 }
 
@@ -81,7 +81,7 @@ struct AttachmentChip: View {
     let remove: () -> Void
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Image(systemName: file.state == "failed" ? "exclamationmark.triangle" : file.kind == "image" ? "photo" : "doc")
+            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : .file, size: 14, relativeTo: .footnote)
                 .foregroundStyle(file.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.decoration)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(file.name).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
@@ -89,12 +89,12 @@ struct AttachmentChip: View {
                 else if file.state == "uploading" { ProgressView(value: file.progress).progressViewStyle(.linear) }
                 else { Text(ByteCountFormatter.string(fromByteCount: Int64(file.bytes), countStyle: .file)).monospacedDigit() }
             }
-            Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(AceTheme.Colours.decoration) }
+            Button(action: remove) { AceIcon(.xCircle, size: 16, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
                 .buttonStyle(.plain).accessibilityLabel("Remove \(file.name)")
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+        .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.attachment")
     }

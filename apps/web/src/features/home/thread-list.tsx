@@ -1,5 +1,4 @@
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
-import { useSidebarStore } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
@@ -43,6 +42,8 @@ import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
 import { useFocusAfterExit } from "./use-exit-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
+import { MachineRow } from "./machine-row.tsx";
+import { machineRow } from "@/lib/machine-threads.ts";
 import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { useHomeSort, type HomeList } from "./use-home-threads.ts";
@@ -51,10 +52,9 @@ import { useSettledPaging } from "./settled-paging.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
-  useOrganizeOverlay,
   useOrganizer,
   useOrganizerState,
-  useThreadActions,
+  useWindowThreads,
 } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
@@ -162,9 +162,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const [announcement, setAnnouncement] = useState("");
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
-  const store = useSidebarStore();
-  const overlay = useOrganizeOverlay();
-  const actions = useThreadActions();
+  // Rows of every machine: each action runs on the row's own machine (ADR 0102).
+  const threads = useWindowThreads();
+  const { actions } = threads;
   const keys = useResolvedKeymap();
   // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer's callbacks are unstable by design.
   const virtualizer = useVirtualizer({
@@ -210,11 +210,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     if (listRef.current) roveListFocus(listRef.current, lastFocused.current);
   });
 
-  /** A thread as this window shows it, with organize actions not yet confirmed. */
-  const shownEntry = (id: string) => {
-    const found = store?.thread(id);
-    return found && overlay.apply(found);
-  };
+  /** A row's thread as this window shows it, with organize actions not yet confirmed. */
+  const shownEntry = (id: string) => threads.entry(id);
   /** What a drag or keyboard move reads and does: measured rows, the pinned group, commands. */
   const host = (): DragHost | undefined => {
     const scroller = viewport.current;
@@ -497,10 +494,18 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   </span>
                 )}
                 <div className={rowMotion(entry.phase)}>
-                  {(row.kind === "thread" || row.kind === "pinned" || row.kind === "snoozed") && (
-                    <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                  {thread && machineRow(thread) ? (
+                    <MachineRow id={thread} settled={row.kind === "settled"} leaving={leaving} />
+                  ) : (
+                    <>
+                      {(row.kind === "thread" ||
+                        row.kind === "pinned" ||
+                        row.kind === "snoozed") && (
+                        <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                      )}
+                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
+                    </>
                   )}
-                  {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
                   {row.kind === "settled-more" && (
                     <button
                       type="button"

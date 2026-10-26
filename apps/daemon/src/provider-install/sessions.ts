@@ -10,6 +10,7 @@ import type {
 import { InstallPlanner, type InstallEnvironment, type InstallTarget } from "./planner.ts";
 import { installRefusal } from "./admission.ts";
 import { InstallVersions } from "./versions.ts";
+import { installFailureMessage } from "./failure.ts";
 
 export interface InstallRuntime {
   now(): number;
@@ -184,8 +185,14 @@ export class ProviderInstalls {
           maxOutputBytes: 16 * 1024 * 1024,
         });
         job.process = proc;
-        proc.stdout.on("line", (line: string) => this.line(job, line));
-        proc.stderr.on("line", (line: string) => this.line(job, line));
+        // The first lines say why a command failed; keep a few for the failure message.
+        const output: string[] = [];
+        const take = (line: string) => {
+          if (output.length < 20) output.push(line);
+          this.line(job, line);
+        };
+        proc.stdout.on("line", take);
+        proc.stderr.on("line", take);
         proc.stdin.end();
         const exit = await proc.exited;
         delete job.process;
@@ -194,7 +201,7 @@ export class ProviderInstalls {
           this.publish(job, {
             state: "failed",
             exit: exit.code,
-            message: "Installer failed. Review the sanitized log and retry.",
+            message: installFailureMessage(plan, output),
           });
           return;
         }

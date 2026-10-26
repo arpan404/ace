@@ -1,5 +1,5 @@
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { effortLabel, speedLabel } from "@ace/ui-core";
+import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
-import { isDeepReasoning, reasoningShortLabel } from "./reasoning-level.ts";
+import { isDeepReasoning } from "./reasoning-level.ts";
 import { SpeedGlyph } from "./speed-glyph.tsx";
 
 /** The popover's Tune and Picker panes: loaded on hover, focus or idle. */
@@ -174,7 +174,7 @@ function EffortSignal(props: { view: ModelControlView; compact: boolean }) {
             : "text-muted-foreground"
         }
       >
-        {props.compact ? reasoningShortLabel(effort) : effortLabel(effort)}
+        {props.compact ? effortShortLabel(effort) : effortLabel(effort)}
       </span>
     </span>
   );

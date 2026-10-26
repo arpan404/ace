@@ -41,6 +41,8 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
     );
     await chmod(binary, 0o755);
     const thread = createDevThread(store, store.createWorkspace(directory, "MCP"));
+    // A current time: a thread last active long ago settles for inactivity, closing its browser.
+    const at = Date.now();
     store.appendEvents(
       thread.id,
       [
@@ -55,11 +57,11 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
             fidelity: "full",
             cwd: directory,
             status: { state: "idle" },
-            createdAt: 1,
+            createdAt: at,
           }),
         },
       ],
-      1,
+      at,
     );
     await features.handOver(thread.id);
     const discovery = {

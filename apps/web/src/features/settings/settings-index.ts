@@ -1,3 +1,4 @@
+import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
@@ -216,6 +217,12 @@ const entries = [
     keywords: ["flash", "window", "taskbar", "urgent"],
   },
   {
+    id: "app.terminalCommand",
+    page: "/settings/general",
+    title: "ace command in terminals",
+    keywords: ["cli", "command line", "shell", "path", "install", "terminal"],
+  },
+  {
     id: "app.updates",
     page: "/settings/general",
     title: "Updates",
@@ -315,10 +322,28 @@ const entries = [
     keywords: ["lan", "tailscale", "relay", "transport", "network"],
   },
   {
+    id: "remote.hostedPairingLink",
+    page: "/settings/remote",
+    title: "Pairing links open app.acehq.dev",
+    keywords: ["app.acehq.dev", "web", "browser", "pair", "phone", "hosted"],
+  },
+  {
     id: "remote.agentAccess",
     page: "/settings/remote",
     title: "Agents from other machines",
     keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser", "fleet"],
+  },
+  {
+    id: "remote.agentTransfers",
+    page: "/settings/remote",
+    title: "Agents can move projects and threads to other machines",
+    keywords: ["transfer", "continue on", "open on", "machines", "agents", "move", "fleet"],
+  },
+  {
+    id: "remote.transferIgnoredFiles",
+    page: "/settings/remote",
+    title: "Bring ignored files",
+    keywords: ["transfer", "gitignore", "ignored", ".env", "continue on", "open on", "machines"],
   },
   {
     id: "fleet.link",
@@ -473,6 +498,7 @@ export function searchSettings(query: string): SettingEntry[] {
           "app.attention",
         ].includes(entry.id)) &&
       (entry.id !== "app.updates" || hasDesktopUpdates()) &&
+      (entry.id !== "app.terminalCommand" || desktopCli() !== undefined) &&
       matches(entry, text),
   );
   return found.toSorted(

@@ -59,6 +59,7 @@ struct AgentsSheet: View {
             .navigationDestination(for: String.self) { id in
                 if let row = sheet?.rows.first(where: { $0.id == id }) { AgentTranscriptView(row: row, provider: provider, thread: thread) }
             }
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }

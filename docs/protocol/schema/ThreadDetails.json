@@ -30,6 +30,12 @@
         }
       ]
     },
+    "continuedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
+    },
+    "continuedOn": {
+      "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
+    },
     "diff": {
       "properties": {
         "additions": {
@@ -177,6 +183,9 @@
         "id": {
           "minLength": 1,
           "type": "string"
+        },
+        "kind": {
+          "$ref": "https://ace.local/protocol/v1/ProjectKind.json"
         },
         "name": {
           "maxLength": 256,

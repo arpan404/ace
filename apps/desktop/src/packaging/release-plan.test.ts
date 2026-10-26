@@ -92,10 +92,10 @@ it("a Linux feed without the AppImage its updater installs is caught before publ
   expect(missingUpdatePackages(["ace-1.2.0-x64.AppImage", "latest-linux.yml"])).toEqual([]);
 });
 
-it("a Linux host releases only its own daemon target; a Mac releases both macOS ones", () => {
+it("a Linux host releases only its own daemon target; a Mac releases the Apple silicon one", () => {
   expect(daemonTargetsFor("linux", "arm64")).toEqual(["linux-arm64"]);
   expect(daemonTargetsFor("linux", "x64")).toEqual(["linux-x64"]);
-  expect(daemonTargetsFor("darwin", "arm64")).toEqual(["darwin-arm64", "darwin-x64"]);
+  expect(daemonTargetsFor("darwin", "arm64")).toEqual(["darwin-arm64"]);
   expect(() => daemonTargetsFor("win32", "x64")).toThrow();
 });
 

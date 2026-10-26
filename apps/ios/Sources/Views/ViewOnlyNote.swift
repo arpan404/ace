@@ -4,7 +4,7 @@ import SwiftUI
 struct ViewOnlyNote: View {
     let message: String
     var body: some View {
-        Label(message, systemImage: "eye")
+        Label(message, ace: .eye)
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             .frame(maxWidth: .infinity, alignment: .leading)

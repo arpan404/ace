@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The sheets the thread header's Agents and Changes buttons and its ⋯ menu open. ThreadView
+/// The sheets the thread header's ⋯ menu opens: the agent tree, Changes and Terminal. ThreadView
 /// applies it with one line, so the header and sheets stay out of the transcript's file.
 struct ThreadSheetButtons: ViewModifier {
     @Bindable var model: ClientModel

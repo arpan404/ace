@@ -6,9 +6,17 @@ import type { FileSource } from "./attachment-format.ts";
 
 type Source = Extract<FileSource, { kind: "artifact" }>;
 const limit = 64 * 1024 * 1024;
+const keyOf = (source: Source) => JSON.stringify([source.threadId, source.artifactId]);
+/** An image's own size in pixels. */
+export interface ImageSize {
+  width: number;
+  height: number;
+}
 interface Owner {
   queue: WorkQueue<Source, Blob>;
   cache: LruCache<string, Blob>;
+  /** The size each image artifact showed at, so it holds its place before its bytes are back. */
+  sizes: LruCache<string, ImageSize>;
 }
 const owners = new WeakMap<ClientApi, Owner>();
 function owner(client: ClientApi) {
@@ -21,7 +29,7 @@ function owner(client: ClientApi) {
   });
   const queue = new WorkQueue(
     async (source: Source, signal) => {
-      const key = JSON.stringify([source.threadId, source.artifactId]);
+      const key = keyOf(source);
       const cached = cache.get(key);
       if (cached) return cached;
       const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -52,10 +60,24 @@ function owner(client: ClientApi) {
     },
     { jobs: 16, bytes: limit },
   );
-  const owned = { queue, cache };
+  const owned = { queue, cache, sizes: new LruCache<string, ImageSize>({ maxEntries: 500 }) };
   owners.set(client, owned);
   return owned;
 }
+/** The artifact's bytes if this connection still keeps them, without reading anything. */
+export function keptArtifact(client: ClientApi, source: Source): Blob | undefined {
+  return owner(client).cache.get(keyOf(source));
+}
+
+/** The size an image artifact showed at on this connection, once it has. */
+export function artifactSize(client: ClientApi, source: Source): ImageSize | undefined {
+  return owner(client).sizes.get(keyOf(source));
+}
+
+export function rememberArtifactSize(client: ClientApi, source: Source, size: ImageSize): void {
+  owner(client).sizes.set(keyOf(source), size);
+}
+
 /** Inline images, dialogs and downloads share bytes within their owning connection and thread. */
 export async function artifactBlob(
   client: ClientApi,
@@ -64,7 +86,7 @@ export async function artifactBlob(
 ): Promise<Blob> {
   if (signal.aborted) throw new Error("Preview cancelled");
   const owned = owner(client);
-  const key = JSON.stringify([source.threadId, source.artifactId]);
+  const key = keyOf(source);
   const cached = owned.cache.get(key);
   if (cached) return cached;
   const lease = owned.queue.acquire(key, source, source.bytes || limit);

@@ -35,6 +35,13 @@
         "accessibility"
       ],
       "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "ios",
+        "android"
+      ],
+      "type": "string"
     }
   },
   "required": [

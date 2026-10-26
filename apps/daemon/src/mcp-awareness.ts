@@ -50,14 +50,20 @@ export function mcpAwareness(deps: {
       const delegations = deps.delegations();
       if (!delegations) return [];
       const page = delegations.catalog(caller, AgentCatalogInput.parse({ limit: 1 }));
-      const byProvider = new Map<string, Set<string>>();
+      const byProvider = new Map<string, { modes: Set<string>; accounts: string[] }>();
       for (const instance of page.instances) {
         if (!instance.installed || instance.auth === "logged_out") continue;
-        const modes = byProvider.get(instance.provider) ?? new Set<string>();
-        for (const mode of instance.allowedAccessModes) modes.add(mode);
-        byProvider.set(instance.provider, modes);
+        const entry = byProvider.get(instance.provider) ?? { modes: new Set(), accounts: [] };
+        for (const mode of instance.allowedAccessModes) entry.modes.add(mode);
+        // An ACP login has no label; its account id is what an agent passes, never its catalog key.
+        entry.accounts.push(instance.accountLabel ?? instance.accountId);
+        byProvider.set(instance.provider, entry);
       }
-      return [...byProvider].map(([provider, modes]) => ({ provider, modes: [...modes] }));
+      return [...byProvider].map(([provider, entry]) => ({
+        provider,
+        modes: [...entry.modes],
+        accounts: entry.accounts,
+      }));
     },
   };
 }

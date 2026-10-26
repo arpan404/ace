@@ -19,6 +19,8 @@ export interface Project {
   id: string;
   name: string;
   path: string;
+  /** `chat`: the hidden project of a chat started with no project (ADR 0099). */
+  kind?: "chat" | undefined;
 }
 
 export const projectsKey = ["projects"];

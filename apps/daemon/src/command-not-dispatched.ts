@@ -17,6 +17,15 @@ export function commandNotDispatched(command: Command, error: string): CommandRe
             error,
           } as const,
         }
-      : {}),
+      : payload.type === "forge.inbox.write"
+        ? {
+            inboxAction: {
+              id: command.id,
+              action: payload.input.action,
+              state: "failed",
+              error,
+            } as const,
+          }
+        : {}),
   };
 }

@@ -12,6 +12,7 @@ import { describeWake } from "./snooze.ts";
 import { projectBadge, type ProjectBadge } from "./project-badge.ts";
 import {
   runningSubagents,
+  queuedPill,
   taskPill,
   threadStatusLabel,
   threadStatusMark,
@@ -383,10 +384,12 @@ function currentCard(input: ThreadCardInput): ThreadCard {
               ? livePill(live)
               : run
                 ? { label: "Waiting", tone: "waiting", icon: "waiting" }
-                : taskPill(entry.status, {
-                    unread,
-                    since: entry.live?.workingSince ?? activityOf(entry),
-                  }),
+                : entry.queuedLaunch && entry.status.state === "new"
+                  ? queuedPill
+                  : taskPill(entry.status, {
+                      unread,
+                      since: entry.live?.workingSince ?? activityOf(entry),
+                    }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff

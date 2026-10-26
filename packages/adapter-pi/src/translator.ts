@@ -19,6 +19,8 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   let lastAnswer: Key | undefined;
   let poisoned = false;
   let settled = false;
+  // Pi is retrying a failed request: the next output it streams proves the retry got through.
+  let retrying = false;
   let prefix = "pi",
     deadline: number | undefined;
   const refreshDeadline = () => {
@@ -39,6 +41,11 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     item: `${prefix}:notice:${frame.seq}`,
     draft: { type: "notice", complete: true, text, level, raw: raw(frame.data) },
   });
+  const recovered = (): Fact[] => {
+    if (!retrying) return [];
+    retrying = false;
+    return [{ type: "retry.cleared", agent }];
+  };
   const start = (): Fact[] => {
     settled = false;
     if (active) return [];
@@ -59,6 +66,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   function finish(): Fact[] {
     if (!active || !settled || poisoned || dialogs.size) return [];
     active = false;
+    retrying = false;
     return [
       { type: "retry.cleared", agent },
       { type: "turn.ended", agent, nativeTurnId: `${prefix}:run:${run}`, outcome },
@@ -113,6 +121,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         deadline = undefined;
         active = false;
         settled = false;
+        retrying = false;
         return [
           { type: "process.exited", deliberate: e.deliberate === true, message: str(e.message) },
         ];
@@ -177,6 +186,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         if (kind !== "text_delta" && kind !== "thinking_delta") return [];
         return [
           ...start(),
+          ...recovered(),
           {
             type: "item.delta",
             agent,
@@ -206,6 +216,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         const detail = toolDetail(name, e.args);
         return [
           ...start(),
+          ...recovered(),
           {
             type: "item.upsert",
             agent,
@@ -344,6 +355,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         return [];
       case "auto_retry_start":
       case "summarization_retry_scheduled":
+        retrying = true;
         return [
           ...start(),
           {
@@ -355,9 +367,13 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           },
         ];
       case "auto_retry_end":
-        if (e.success === false) outcome = "failed";
-        return [];
+        if (e.success === false) {
+          outcome = "failed";
+          return [];
+        }
+        return recovered();
       case "summarization_retry_finished":
+        retrying = false;
         return [{ type: "retry.cleared", agent }];
       case "extension_error":
         return [notice(frame, str(e.error) || "Pi operation failed", "error")];

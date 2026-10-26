@@ -11,7 +11,8 @@ import type {
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import { NotificationDatabase } from "./database.ts";
 import { PresenceIndex } from "./presence.ts";
-import { isQuiet, retryDelay } from "./policy.ts";
+import { isQuiet, maxRetries, retryDelay } from "./policy.ts";
+import type { NoticeWindow } from "./sleep-boundary.ts";
 
 export type DeliveryResult = "accepted" | "retry" | "gone" | "revoked" | "failed";
 export interface NotificationTransport {
@@ -31,8 +32,20 @@ export interface NotificationOptions {
   jitter: () => number;
   transport: NotificationTransport;
   windowMs?: number;
+  /**
+   * Events after the sleep boundary and before this time raise no alerts: they happened while
+   * the worker was stopped on purpose, so no device could take one.
+   */
+  alertsFrom?: number;
+  /** A sleep boundary to add on open: the daemon ran without a worker from this point. */
+  sleptAfter?: { seq: number; at: number } | undefined;
   preview?: (thread: ThreadId) => string | undefined;
   onError?: (error: unknown) => void;
+}
+/** When delivery next has work, and whether the service could stop without missing any. */
+export interface NotificationState {
+  deadline: number | null;
+  idle: boolean;
 }
 export class NotificationService {
   private database: NotificationDatabase;
@@ -46,10 +59,38 @@ export class NotificationService {
   private closed = false;
   constructor(options: NotificationOptions) {
     this.options = options;
-    this.database = new NotificationDatabase(options.path, options.windowMs);
+    this.database = new NotificationDatabase(options.path, options.windowMs, {
+      ...(options.alertsFrom === undefined ? {} : { alertsFrom: options.alertsFrom }),
+      ...(options.sleptAfter ? { sleptAfter: options.sleptAfter } : {}),
+    });
+  }
+  state(): NotificationState {
+    return {
+      deadline: this.database.nextDue() ?? null,
+      idle:
+        !this.running &&
+        this.inFlight.size === 0 &&
+        this.presence.empty() &&
+        !this.database.retains(),
+    };
   }
   cursor(): number {
     return this.database.cursor();
+  }
+  /** Records a deliberate stop at the current cursor, before the worker closes. */
+  sleep(): void {
+    this.database.sleep.mark({ seq: this.database.cursor(), at: this.options.now() });
+  }
+  /**
+   * Replay has caught up after a wake: closes the sleep window and returns the spans in which
+   * queued agent notices are too old to send. They stay recorded until `forgetSleep`.
+   */
+  closeSleep(): NoticeWindow[] {
+    return this.database.closeSleep();
+  }
+  /** Every agent notice the sleep windows cover has been acknowledged. */
+  forgetSleep(): void {
+    this.database.sleep.forget();
   }
   ingest(events: readonly Event[], coverage?: { afterSeq: number; throughSeq: number }): void {
     const first = events[0],
@@ -97,15 +138,23 @@ export class NotificationService {
     for (const flight of this.inFlight.values())
       if (flight.device === id) flight.controller.abort();
   }
+  /**
+   * A socket for `id` is up. A device seen before gets one catch-up alert for whatever still
+   * needs the person that it missed; a new one starts from now (it missed nothing).
+   */
   connectDevice(id: DeviceId): void {
-    if (!this.database.device(id))
+    if (!this.database.device(id)) {
       this.database.register(
         id,
         { channel: "websocket", platform: "web" },
         this.options.now(),
         this.presence.activeDevices(this.options.now()),
       );
+      this.database.touch(id, this.options.now());
+      return;
+    }
     this.database.touch(id, this.options.now());
+    this.database.catchUp(id, this.options.now());
   }
   getPreferences(id: DeviceId) {
     return this.database.device(id)?.preferences;
@@ -152,27 +201,34 @@ export class NotificationService {
     await Promise.all(
       this.database.due(now).map(async (job) => {
         const device = this.database.device(job.device.id);
+        // A catch-up is rebuilt from the waits it covers that still stand, before every send;
+        // those checks stand in for the single-thread ones below.
+        const catchUp = job.notification.status === "catch_up";
+        const notice = catchUp ? this.database.catchUpNow(job.device.id, now) : job.notification;
         if (
           !device ||
+          !notice ||
           job.expires <= now ||
-          !this.database.current(job.notification, job.generation) ||
-          this.database.snoozed(job.notification.threadId, now) ||
+          (!catchUp &&
+            (!this.database.current(job.notification, job.generation) ||
+              this.database.snoozed(job.notification.threadId, now))) ||
           isQuiet(device.preferences, now) ||
           (job.notification.status === "agent_says" && device.preferences.agentSays === false) ||
           (device.address.platform === "phone" &&
             this.presence.viewedElsewhere(job.notification.threadId, device.id, now))
         ) {
-          this.database.remove(job.id);
+          this.database.finish(job, false);
           return;
         }
         const controller = new AbortController();
         this.inFlight.set(job.id, { device: device.id, address: device.address, controller });
         let result: DeliveryResult;
         try {
-          const preview = device.preferences.includePreview
-            ? this.options.preview?.(job.notification.threadId)?.slice(0, 300)
-            : undefined;
-          const notification = preview ? { ...job.notification, preview } : job.notification;
+          const preview =
+            device.preferences.includePreview && !catchUp
+              ? this.options.preview?.(notice.threadId)?.slice(0, 300)
+              : undefined;
+          const notification = preview ? { ...notice, preview } : notice;
           // A phone can be suspended with its socket open; its app catches up from this record.
           if (device.address.platform === "phone")
             this.database.inbox.record(device.id, notification, job.generation, job.expires);
@@ -195,8 +251,8 @@ export class NotificationService {
               JSON.stringify(flight.address) === JSON.stringify(device.address)
             )
               flight.controller.abort();
-        if (result !== "retry" || job.attempts >= 4 || controller.signal.aborted)
-          this.database.remove(job.id);
+        if (result !== "retry" || job.attempts >= maxRetries || controller.signal.aborted)
+          this.database.finish(job, result === "accepted");
         else
           this.database.retry(
             job.id,
@@ -228,6 +284,8 @@ export function attachNotifications(
   },
   log: NotificationLog,
   onError: (error: unknown) => void,
+  /** Live ingestion paused for replay; the caller should replay soon. */
+  onBehind?: () => void,
 ): { recover(): Promise<boolean>; tick(): Promise<void>; close(): Promise<void> } {
   let running: Promise<void> | undefined;
   let closed = false;
@@ -237,6 +295,7 @@ export function attachNotifications(
   let live = true;
   const failed = (error: unknown) => {
     live = false;
+    onBehind?.();
     if (!(error instanceof Error && error.message.includes(replayGap))) onError(error);
   };
   const replay = async () => {

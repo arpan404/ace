@@ -18,6 +18,9 @@ export class Snapshot {
   private metadata: Records<Item>;
   private readonly sections = new Set<{ flush(): void; persist(): void; committed(): void }>();
   private readonly cache: RecordBudget;
+  /** Every dictionary this snapshot made, including ones agent reads add later. */
+  private readonly owned: { release(): void }[] = [];
+  private released = false;
   private readonly transaction: RecordTransaction & { tracking: boolean } = {
     tracking: false,
     touch: (section) => {
@@ -38,6 +41,7 @@ export class Snapshot {
         this.cache,
         this.transaction,
       );
+      this.own(records);
       return records.values;
     };
     const nativeRuns = new Map<string, Record<string, RunId>>();
@@ -67,6 +71,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(agents);
     state.agents = agents.values;
     this.items = new Records(
       db,
@@ -79,6 +84,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(this.items);
     state.items = this.items.values;
     this.metadata = new Records(
       db,
@@ -91,6 +97,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(this.metadata);
     state.runs = segment("runs", recordSchemas.runs, state.runs);
     state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);
     state.tasks = segment("tasks", recordSchemas.tasks, state.tasks);
@@ -127,6 +134,21 @@ export class Snapshot {
       indexes.pendingItemLinks,
     );
     this.state = state;
+  }
+  private own(records: { release(): void }): void {
+    // A state kept past release can still open an agent's nativeRuns for the first time; that
+    // dictionary must not cache either, or later repository writes would leave it stale.
+    if (this.released) records.release();
+    else this.owned.push(records);
+  }
+  /**
+   * Called once the repository drops this snapshot: frees its entries in the shared budget.
+   * Permanent: dictionaries this snapshot opens afterwards are released as they are made.
+   */
+  release(): void {
+    this.released = true;
+    for (const records of this.owned) records.release();
+    this.owned.length = 0;
   }
   prepare(fact: Fact): () => void {
     if (

@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferBegin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "method": {
+      "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "op": {
+      "const": "begin",
+      "type": "string"
+    },
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/TransferOrigin.json"
+    },
+    "parent": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "remote": {
+      "properties": {
+        "normalized": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "normalized"
+      ],
+      "type": "object"
+    },
+    "transferId": {
+      "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+    }
+  },
+  "required": [
+    "op",
+    "transferId",
+    "origin",
+    "method",
+    "name"
+  ],
+  "type": "object"
+}

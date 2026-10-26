@@ -47,12 +47,23 @@ export async function startScreen({ config, options, resources, services, store 
   resources.own(() => manager.close());
   services.screen = manager;
   if (!helper || options.screen) return;
+  // Opt-in per-action timings, written to stderr as JSON lines.
+  const timings = config.computerUseTimings
+    ? {
+        timing: {
+          report: (entry: object) => {
+            process.stderr.write(`${JSON.stringify({ component: "computer-use", ...entry })}\n`);
+          },
+        },
+      }
+    : {};
   const computer =
     process.platform === "darwin"
       ? // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
         new ComputerClient({
           helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
           nextId: randomUUID,
+          ...timings,
         })
       : session
         ? // The live-view helper binary; `--computer` selects the background engine.
@@ -62,6 +73,7 @@ export async function startScreen({ config, options, resources, services, store 
             environment: linuxComputerEnvironment(session),
             // Wayland screen-sharing approvals (portal restore tokens) outlive the helper.
             helperArgs: ["--data-dir", join(config.dataDir, "screen")],
+            ...timings,
           })
         : undefined;
   if (!computer) return;

@@ -4,29 +4,37 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "bundle": "bun build bridge/main.ts --target browser --format iife --outfile Resources/client.js",
-    "generate": "bun run theme && bun run marks && bun run bundle && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
+    "bundle": "bun build bridge/main.ts --target browser --format iife --minify --outfile Resources/client.js",
+    "generate": "bun run theme && bun run marks && bun run icons && bun run bundle && bun run mermaid && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
     "spike:daemon": "bun scripts/spike-daemon.ts",
     "e2e:pairing": "bun scripts/pairing-e2e.ts",
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "theme": "bun scripts/generate-theme.ts",
     "marks": "bun scripts/generate-provider-marks.ts",
     "theme:check": "bun scripts/generate-theme.ts --check",
-    "bundle:tests": "bun build bridge-tests/delivery.ts --target browser --format iife --outfile .build/bridge-tests.js"
+    "bundle:tests": "bun build bridge-tests/delivery.ts --target browser --format iife --outfile .build/bridge-tests.js",
+    "icons": "bun scripts/generate-icons.ts",
+    "mermaid": "bun scripts/copy-mermaid.ts"
   },
   "dependencies": {
     "@ace/client": "workspace:*",
     "@ace/design-tokens": "workspace:*",
     "@ace/html": "workspace:*",
+    "@ace/native-host": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/ui-core": "workspace:*",
+    "gemoji": "^8.1.0",
+    "marked": "^18.0.14",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@ace/browser": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/devices": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
-    "@types/bun": "^1.3.10"
+    "@phosphor-icons/react": "^2.1.10",
+    "@types/bun": "^1.3.10",
+    "mermaid": "^12.2.0"
   }
 }

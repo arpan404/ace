@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ContentPart } from "@ace/protocol";
-import type { SessionContext } from "@ace/engine-api";
+import { InputRejected, type SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import type { Observe } from "./observation.ts";
@@ -24,7 +24,8 @@ export class SessionPrompts {
   private admission = new AdmissionQueue();
   private sequence = 0;
   private started = false;
-  private rejected = false;
+  /** The server answered 4xx: it turned the input down without storing it. */
+  private refused = false;
   constructor(ports: Ports) {
     this.ports = ports;
   }
@@ -33,8 +34,8 @@ export class SessionPrompts {
     const data = object(value);
     if (!/\/(?:prompt|command)$/.test(String(data.path))) return;
     if (dir === "send") this.started = true;
-    if (dir === "recv" && typeof data.status === "number" && data.status >= 400)
-      this.rejected = true;
+    if (dir !== "recv" || typeof data.status !== "number") return;
+    if (data.status >= 400 && data.status < 500) this.refused = true;
   }
   async send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
     if (commandId !== undefined) z.string().min(1).max(512).parse(commandId);
@@ -42,7 +43,7 @@ export class SessionPrompts {
       release = await this.admission.acquire(p.signal);
     try {
       await p.barrier();
-      this.started = this.rejected = false;
+      this.started = this.refused = false;
       const id = messageId(p.runtime.wallTime(), ++this.sequence, p.runtime.entropy(16));
       let admitted = false;
       try {
@@ -71,11 +72,13 @@ export class SessionPrompts {
           p.frame("note", "input.accepted", reply);
         }
       } catch {
-        if (!admitted && (this.rejected || !this.started)) {
+        // Never sent, or turned down outright: nothing ran, so ace may send it again.
+        if (!admitted && (this.refused || !this.started)) {
           p.frame("note", "input.rejected", { id });
-          throw new Error("OpenCode rejected input admission");
+          throw new InputRejected("OpenCode rejected input admission");
         }
-        // A committed prompt may have lost its receipt. Never resubmit it automatically.
+        // A committed prompt may have lost its receipt, and a 5xx may follow a stored prompt.
+        // Never resubmit it automatically: reconcile the inbox instead.
         p.frame("note", "input.uncertain", { id });
         p.uncertain();
         throw new Error(

@@ -102,7 +102,8 @@ export class Repository {
     return (await this.state(root)).status;
   }
 
-  async state(root: string, env: Record<string, string> = {}) {
+  /** `directoryFd`: run in that held directory instead of entering `root` by path. */
+  async state(root: string, env: Record<string, string> = {}, directoryFd?: number) {
     return parseStatus(
       (
         await this.cli.call(
@@ -118,7 +119,7 @@ export class Repository {
             "--renames",
             "--ignore-submodules=none",
           ],
-          { env },
+          { env, directoryFd },
         )
       ).stdout,
     );
@@ -144,19 +145,29 @@ export class Repository {
     });
   }
 
-  async commit(root: string, ref: string, signal?: AbortSignal): Promise<string> {
+  /** `directoryFd`: run in that held directory instead of entering `root` by path. */
+  async commit(
+    root: string,
+    ref: string,
+    signal?: AbortSignal,
+    directoryFd?: number,
+  ): Promise<string> {
     if (!ref || ref.includes("\0")) throw new GitError("invalid_ref", "A commit ref is required");
     const result = await this.cli.call(
       root,
       ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-      { allowFailure: true, ...(signal ? { signal } : {}) },
+      { allowFailure: true, directoryFd, ...(signal ? { signal } : {}) },
     );
     if (result.exitCode !== 0) {
       // HEAD naming a branch that has no commit yet is a new repository, not a bad ref.
       if (
         ref === "HEAD" &&
-        (await this.cli.call(root, ["symbolic-ref", "--quiet", "HEAD"], { allowFailure: true }))
-          .exitCode === 0
+        (
+          await this.cli.call(root, ["symbolic-ref", "--quiet", "HEAD"], {
+            allowFailure: true,
+            directoryFd,
+          })
+        ).exitCode === 0
       )
         throw new GitError("unborn_head", "The repository has no commits yet");
       throw new GitError("invalid_ref", `Commit not found: ${ref}`);

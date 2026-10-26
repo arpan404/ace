@@ -34,9 +34,9 @@ struct ConnectionTarget: Sendable {
         if isLoopbackFixture { return }
         throw HostError.transport
     }
-    /// Release builds compile this to false: production requires WSS and an exact pin.
+    /// Release builds (no `ACE_FIXTURE`) compile this to false: production requires WSS and an exact pin.
     var isLoopbackFixture: Bool {
-        #if DEBUG
+        #if ACE_FIXTURE
         endpoint.scheme == "ws" && secretKey == nil && ["127.0.0.1", "localhost", "::1"].contains(endpoint.host ?? "")
         #else
         false
@@ -44,10 +44,13 @@ struct ConnectionTarget: Sendable {
     }
 }
 
-/// Delegates are serial. The callback transfers owned strings back onto the JSC run loop.
+/// What a socket event carries: text, or a binary message's own bytes.
+enum SocketPayload: Sendable { case text(String), bytes(Data) }
+
+/// Delegates are serial. The callback transfers owned values back onto the JSC run loop.
 final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     private let target: ConnectionTarget
-    private let event: @Sendable (String, String) -> Void
+    private let event: @Sendable (String, SocketPayload) -> Void
     private let now: @Sendable () -> Date
     /// Browser stream pieces are assembled here, on the delegate queue, and go to `streams`
     /// without entering JavaScriptCore; other binary messages reach the SDK.
@@ -59,7 +62,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     private let queue = OperationQueue()
 
     init(target: ConnectionTarget, now: @escaping @Sendable () -> Date = { Date() }, streams: BrowserStreamHub? = nil,
-         event: @escaping @Sendable (String, String) -> Void) {
+         event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
         self.event = event
         self.now = now
@@ -68,7 +71,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         queue.maxConcurrentOperationCount = 1
     }
     func open() {
-        do { try target.validate() } catch { event("close", "4003"); return }
+        do { try target.validate() } catch { event("close", .text("4003")); return }
         let config = URLSessionConfiguration.ephemeral
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
         config.urlCache = nil
@@ -78,6 +81,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         let task = session.webSocketTask(with: target.endpoint)
         task.maximumMessageSize = 2 * 1024 * 1024
         self.task = task
+        LaunchTrace.mark("socket.open", target.endpoint.host ?? "")
         task.resume()
     }
     func send(_ text: String) {
@@ -102,14 +106,14 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
             self?.queue.addOperation { [weak self] in
                 guard let self, !self.ended else { return }
                 switch result {
-                case .success(.string(let text)): self.event("message", text); self.receive()
+                case .success(.string(let text)): self.event("message", .text(text)); self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break
                     case .stream(let message): self.streams?.deliver(message)
                     case .device(let message): self.streams?.deliver(message)
                     case .screen(let message): self.streams?.deliverScreen(message)
-                    case .sdk: self.event("binary", bytes.base64EncodedString())
+                    case .sdk: self.event("binary", .bytes(bytes))
                     case .broken: self.finish(1002); return
                     }
                     self.receive()
@@ -122,7 +126,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     private func finish(_ code: Int) {
         guard !ended else { return }
         ended = true
-        event("close", String(code))
+        event("close", .text(String(code)))
         task?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         task = nil
@@ -130,7 +134,8 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         guard !ended else { return }
-        event("open", "")
+        LaunchTrace.mark("socket.ready")
+        event("open", .text(""))
         receive()
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
@@ -146,7 +151,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         case .failure:
             completionHandler(.cancelAuthenticationChallenge, nil)
             // Report why before the fatal close: 4003 alone also means a revoked device.
-            if !ended { event("trust", "pin") }
+            if !ended { event("trust", .text("pin")) }
             finish(4003)
         }
     }

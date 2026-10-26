@@ -1,4 +1,4 @@
-import { configure, act, screen, waitFor } from "@testing-library/react";
+import { configure, act, screen } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -68,18 +68,6 @@ function discoveryReply(app: ReturnType<typeof cold>) {
   return { release: () => released.resolve(), replied: replied.promise };
 }
 
-test("Skills stays loading until discovery arrives in the open tab and opens the discovered skill", async () => {
-  const app = cold();
-  await app.open("/skills");
-  expect(await screen.findAllByRole("status", { name: /Loading skills/ })).not.toHaveLength(0);
-  expect(screen.queryByText("No skills yet")).toBeNull();
-  act(() => app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } }));
-  await userEvent.click(await screen.findByRole("link", { name: /^Test Driven Development/ }));
-  expect(
-    await screen.findByRole("heading", { level: 2, name: "Test Driven Development" }),
-  ).toBeTruthy();
-});
-
 test("a cold slash menu reports loading and finds tdd when discovery completes without retyping", async () => {
   const app = cold();
   await app.open("/t/cold");
@@ -101,40 +89,6 @@ test("a cold slash query reports no matches only after discovery completes", asy
   act(() => app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } }));
   expect(await screen.findByText("No matching suggestions")).toBeTruthy();
   expect(screen.queryByText("Loading suggestions…")).toBeNull();
-});
-
-test("switching the Skills provider closes a detail from the previous provider", async () => {
-  const app = cold();
-  app.daemon.seedServices({ extensionCatalogs: { claude: [tdd], pi: [] } });
-  await app.open("/skills");
-  await userEvent.click(await screen.findByRole("link", { name: /^Test Driven Development/ }));
-  await screen.findByRole("heading", { level: 2, name: "Test Driven Development" });
-  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
-  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Pi$/ }));
-  await waitFor(() =>
-    expect(screen.queryByRole("heading", { name: "Test Driven Development" })).toBeNull(),
-  );
-  await waitFor(() => expect(screen.queryByText("This isn't installed")).toBeNull());
-  await screen.findByText("No skills yet");
-  const filter = screen.getByRole("button", { name: "Filter skills" });
-  if (!screen.queryByRole("combobox", { name: "Skills provider" })) await userEvent.click(filter);
-  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Claude Code$/ }));
-  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
-});
-
-test("the Skills source menu stays available while the catalog is loading", async () => {
-  const app = cold();
-  app.daemon.seedServices({
-    extensionCatalogs: { codex: [], claude: [] },
-    catalogLoading: ["codex", "claude"],
-  });
-  await app.open("/skills");
-  await screen.findAllByRole("status", { name: /Loading skills/ });
-  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
-  expect(await screen.findByRole("combobox", { name: "Skills project" })).toBeTruthy();
-  expect(await screen.findByRole("combobox", { name: "Skills provider" })).toBeTruthy();
 });
 
 test("the composer discovers skills before the first slash so a warm tdd menu needs no new request", async () => {
@@ -159,19 +113,6 @@ test("the composer discovers skills before the first slash so a warm tdd menu ne
   }
 });
 
-test("Skills discovers fallback-provider entries while provider readiness never answers", async () => {
-  const app = cold();
-  app.daemon.holdRequests("providers.request", "models.list");
-  app.daemon.seedServices({
-    extensionCatalogs: {
-      claude: [],
-      codex: [{ ...tdd, id: "codex-tdd", source: { provider: "codex", scope: "global" } }],
-    },
-  });
-  await app.open("/skills");
-  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
-});
-
 test("a failed slash catalog offers Retry and restores suggestions without closing the menu", async () => {
   const app = cold();
   app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } });
@@ -182,13 +123,4 @@ test("a failed slash catalog offers Retry and restores suggestions without closi
   app.daemon.restoreRequests();
   await userEvent.click(screen.getByRole("button", { name: "Retry suggestions" }));
   expect(await screen.findByRole("option", { name: /^Test Driven Development / })).toBeTruthy();
-});
-
-test("native skills appear while the portable plugin read is still pending", async () => {
-  const app = cold();
-  app.daemon.holdRequests("pluginRequest", "providers.request");
-  app.daemon.seedServices({ extensionCatalogs: { codex: [tdd] } });
-  await app.open("/skills");
-  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
-  expect(screen.queryByText("No skills yet")).toBeNull();
 });

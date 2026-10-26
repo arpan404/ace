@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
+import { AgentId, ItemId, RunId, ThreadId } from "@ace/protocol";
 import {
   commands,
   connect,
@@ -12,6 +13,8 @@ import {
   sent,
   until,
 } from "./thread-harness.ts";
+
+const idle = () => {};
 
 /*
  * The thread screen's bridge messages over the real SDK and an in-process fake daemon
@@ -99,11 +102,94 @@ test("a subagent group reads working while its child still runs after the parent
     () => rows("thread.block").find((row) => row.kind === "subagents"),
     "a subagent group",
   );
-  const agents = group.agents as { entries: { state: string; agentId: string }[]; status: string };
+  const agents = group.agents as {
+    entries: { state: string; agentId: string }[];
+    status: string;
+    counts: { text: string; token: string }[];
+  };
   expect(agents.entries).toHaveLength(1);
   expect(agents.entries[0]?.state).toBe("working");
   expect(agents.entries[0]?.agentId).not.toBe("");
   expect(agents.status).toBe("1 working");
+  expect(agents.counts).toEqual([{ text: "1 working", token: "working" }]);
+});
+
+/** The first agent of the transcript's subagent group, as Swift holds it. */
+const firstAgent = () => {
+  const group = rows("thread.block").find((row) => row.kind === "subagents");
+  return (group?.agents as { entries: { state: string; result: string }[] } | undefined)
+    ?.entries[0];
+};
+
+test("a delegate's group follows its launch in place to its failure and result, with no second row", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "delegate", workspaceId: "ace", title: "Delegate", provider: "codex" });
+  const child = ThreadId.parse("child-review");
+  const launch = (settled: boolean) => ({
+    type: "item.upsert" as const,
+    agent: "root",
+    item: "launch-review",
+    draft: {
+      type: "delegation.started" as const,
+      origin: "ace" as const,
+      childThreadId: child,
+      provider: "codex" as const,
+      title: "Review the diff",
+      role: "review",
+      phase: settled ? ("settled" as const) : ("running" as const),
+      status: settled ? { state: "failed" as const } : { state: "working" as const, agents: 1 },
+      updatedAt: settled ? 2000 : 1000,
+      generation: 0,
+      complete: settled,
+      outcome: settled
+        ? {
+            threadId: child,
+            outcome: "failed" as const,
+            result: "Couldn't fetch the branch",
+            truncated: false,
+            before: null,
+          }
+        : null,
+    },
+  });
+  fake.apply("delegate", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Have Codex review it."),
+    launch(false),
+  ]);
+  open(connect(fake), "delegate");
+  expect((await until(firstAgent, "the running delegate")).state).toBe("working");
+  fake.apply("delegate", [
+    launch(true),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "results-review",
+      draft: {
+        type: "delegation.settled",
+        origin: "ace",
+        delivery: "tool",
+        complete: true,
+        results: [
+          {
+            threadId: child,
+            outcome: "failed",
+            result: "Couldn't fetch the branch",
+            truncated: false,
+            before: null,
+          },
+        ],
+      },
+    },
+  ]);
+  const failed = await until(
+    () => firstAgent()?.state === "failed" && firstAgent(),
+    "the failed delegate",
+  );
+  expect(failed.result).toBe("Couldn't fetch the branch");
+  expect(rows("thread.block").filter((row) => row.kind === "subagents")).toHaveLength(1);
+  expect(rows("thread.block").map((row) => row.items)).not.toContainEqual(["results-review"]);
 });
 
 test("while the agent works a send queues by default and steers when the person asks", async () => {
@@ -131,6 +217,32 @@ test("while the agent works a send queues by default and steers when the person 
   );
   await until(() => commands("thread.send").length === 2, "both sends on the wire");
   expect(commands("thread.send").map((payload) => payload.delivery)).toEqual(["queue", "steer"]);
+});
+
+test("while the main agent only waits on its subagents a message goes in now", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "wait", workspaceId: "ace", title: "Wait", provider: "codex" });
+  fake.apply("wait", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review it."),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Review PID reuse",
+      detail: { kind: "agent.spawn", description: "Review PID reuse", childAgent: "reviewer" },
+    }),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  const thread = open(connect(fake), "wait");
+  await until(
+    () => (latest("thread.controls")?.row as { delivery?: string })?.delivery === "steer",
+    "a send that goes in now",
+  );
+  thread.handle({ type: "send", text: "Also check the docs", opposite: false, requestId: "now-1" });
+  await until(() => commands("thread.send").length === 1, "the send on the wire");
+  expect(commands("thread.send")[0]?.delivery).toBe("steer");
 });
 
 test("Stop interrupts the whole tree of the running turn", async () => {
@@ -398,3 +510,115 @@ test("a simulator step opens its device and a computer-use step opens computer u
   const opens = steps.map((row) => (row.step as { opens: string } | null)?.opens);
   expect(opens).toEqual([`device:${simId}`, "computer"]);
 });
+
+/** A fork's copy of its source's message. */
+const copy = (key: string, role: "user" | "assistant", text: string) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item: key,
+  draft: {
+    type: "message" as const,
+    role,
+    complete: true,
+    parts: [{ type: "text" as const, text }],
+    inherited: { threadId: ThreadId.parse("turn"), itemId: ItemId.parse(`source-${key}`) },
+  },
+});
+
+const forkOf = (fake: ReturnType<typeof fixture>) =>
+  fake.createThread({
+    id: "fork",
+    workspaceId: "ace",
+    title: "Turn (fork)",
+    provider: "codex",
+    lineage: {
+      parentThreadId: ThreadId.parse("turn"),
+      parentAgentId: AgentId.parse("turn.root"),
+      point: { type: "turn", runId: RunId.parse("turn.run.1") },
+      mode: "portable",
+      lossy: true,
+    },
+  });
+
+/** The open thread's blocks in feed order. */
+const feed = () => rows("thread.block").toSorted((a, b) => Number(a.index) - Number(b.index));
+
+test("a fork waiting for its first message shows its copied history, then the Forked from divider", async () => {
+  const fake = fixture();
+  forkOf(fake);
+  fake.apply("fork", [
+    facts.rootAgent("codex"),
+    copy("ask", "user", "Fix the flaky test."),
+    copy("answer", "assistant", "The test now pins the clock."),
+  ]);
+  open(connect(fake), "fork");
+  await until(() => feed().some((row) => row.kind === "forked") || undefined, "the divider");
+  const blocks = feed();
+  expect(blocks.map((row) => row.kind)).toEqual(["user", "message", "forked"]);
+  expect(blocks.map((row) => row.index)).toEqual([0, 1, 2]);
+  expect(blocks[2]?.forked).toEqual({ threadId: "turn" });
+});
+
+test("a fork's divider sits between the source's history and the fork's own first message", async () => {
+  const fake = fixture();
+  forkOf(fake);
+  fake.apply("fork", [
+    facts.rootAgent("codex"),
+    copy("ask", "user", "Fix the flaky test."),
+    copy("answer", "assistant", "The test now pins the clock."),
+    facts.turn("root"),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "own",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        origin: { kind: "person" },
+        parts: [{ type: "text", text: "Now do the same for the other test." }],
+      },
+    },
+  ]);
+  open(connect(fake), "fork");
+  await until(
+    () => feed().filter((row) => row.kind === "user").length === 2 || undefined,
+    "the own ask",
+  );
+  const blocks = feed();
+  expect(blocks.map((row) => row.kind).slice(0, 4)).toEqual(["user", "message", "forked", "user"]);
+  const own = (blocks[3]?.items as string[] | undefined)?.[0];
+  const ask = rows("thread.item").findLast((row) => row.id === own);
+  expect(ask?.text).toBe("Now do the same for the other test.");
+});
+
+test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
+  fake.apply("long", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Summarise the log."),
+    facts.endTurn("root"),
+  ]);
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  // An earlier launch keeps the thread's snapshot.
+  open(connect(fake, { readSnapshots: storage }), "long");
+  await until(() => latest("thread.ready"), "the transcript shown");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
+  // thread patch, ready included. The transcript must show again rather than load forever.
+  let release = idle;
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "long");
+  await until(() => latest("thread.ready"), "the kept transcript shown");
+  native.frames.length = 0;
+  release();
+  await until(() => latest("thread.reset"), "the daemon's snapshot");
+  await until(() => latest("thread.ready"), "the transcript shown after the daemon's snapshot");
+}, 20_000);

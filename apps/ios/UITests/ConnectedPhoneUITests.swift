@@ -30,7 +30,7 @@ import XCTest
         app.launch()
         let group = app.buttons["work.group.fixture-tools"]
         XCTAssertTrue(group.waitForExistence(timeout: 20))
-        // A running turn has no fold of its own: the live capsule carries its timer.
+        // A running turn has no fold of its own: its live "Working for" line carries the timer.
         XCTAssertFalse(app.buttons["work.toggle"].exists)
         XCTAssertTrue(app.staticTexts["Checking the phone result."].exists)
         XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
@@ -74,8 +74,6 @@ import XCTest
     func testNewTaskKeepsMessageAndChoicesReachableAboveTheKeyboard() {
         let app = launch()
         let start = app.newThreadButton
-        let filter = app.buttons["inbox.projects"]
-        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
         start.tap()
         capture("new-task-idle", app)
@@ -96,7 +94,7 @@ import XCTest
         let app = launch()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 30))
+        app.composerControl("composer.model", timeout: 30)
         waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         let model = app.buttons["composer.model"]
@@ -111,7 +109,9 @@ import XCTest
         XCTAssertTrue(app.buttons["composer.model"].isHittable)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
-        XCTAssertLessThan(abs(app.buttons["composer.model"].frame.midY - app.buttons["composer.attach"].frame.midY), 8)
+        // The model chip stays under the field and above the keyboard while writing.
+        XCTAssertGreaterThanOrEqual(app.buttons["composer.model"].frame.minY, input.frame.maxY)
+        XCTAssertLessThanOrEqual(app.buttons["composer.model"].frame.maxY, app.keyboards.firstMatch.frame.minY)
         capture("thread-keyboard", app)
         app.buttons["composer.model"].tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
@@ -191,7 +191,7 @@ import XCTest
         let app = launch()
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
-        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         waitForConversation(app)
         let work = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(work.waitForExistence(timeout: 20))

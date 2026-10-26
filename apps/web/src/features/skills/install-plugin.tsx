@@ -1,4 +1,3 @@
-import { PlusIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   createContext,
@@ -22,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -178,11 +176,6 @@ export function InstallDialogProvider(props: { children: ReactNode }) {
 }
 
 /** "+" in the Skills header. */
-export function InstallPluginButton() {
-  const dialog = useInstallDialog();
-  return <IconButton icon={PlusIcon} label="Install plugin" onClick={dialog.install} />;
-}
-
 function Field(props: {
   label: string;
   value: string;

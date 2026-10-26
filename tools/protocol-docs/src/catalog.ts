@@ -20,10 +20,14 @@ import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forgeLifecycle from "@ace/protocol/forge-lifecycle";
 import * as forgeIssues from "@ace/protocol/forge-issues";
+import * as forgeInbox from "@ace/protocol/forge-inbox";
 import * as forgeMergeState from "@ace/protocol/forge-merge-state";
 import * as forgeReview from "@ace/protocol/forge-review";
 import * as forgeChecks from "@ace/protocol/forge-checks";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
+import * as forgeNewPr from "@ace/protocol/forge-new-pr";
+import * as forgePeople from "@ace/protocol/forge-people";
+import * as forgeMedia from "@ace/protocol/forge-media";
 import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
@@ -57,6 +61,9 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
+  ["./forge-new-pr", forgeNewPr],
+  ["./forge-people", forgePeople],
+  ["./forge-media", forgeMedia],
   ["./forge-file-content", forgeFileContent],
   ["./forge-worktree", forgeWorktree],
   ["./forge-lifecycle", forgeLifecycle],
@@ -74,6 +81,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./thread-transitions", transitions],
   ["./handoff-read", handoffRead],
   ["./pi", pi],
+  ["./forge-inbox", forgeInbox],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

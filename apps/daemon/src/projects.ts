@@ -9,7 +9,7 @@ import { ProjectPicker } from "./project-picker.ts";
 import { projectRemotes } from "./project-git.ts";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { ProjectDirectory } from "./project-directory.ts";
 import {
   GitService,
@@ -42,6 +42,7 @@ import {
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
+import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
 
 export interface ProjectsOptions {
@@ -59,6 +60,10 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
+  /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
+  chatsRoot?: string;
+  /** Folder names for new chats. */
+  chatId?: () => string;
   /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
   clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
 }
@@ -87,6 +92,7 @@ export class Projects {
   private stopRevocation: () => void;
   private now: () => number;
   private noteId: () => string;
+  private chats: ChatProjects | undefined;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
     this.now = now;
@@ -108,7 +114,13 @@ export class Projects {
       ? new RepositoryPublications(store, options.sourceControl, now)
       : undefined;
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
-    this.ready = this.restoreIcons().catch(() => undefined);
+    this.chats = options.chatsRoot
+      ? new ChatProjects(store, this.catalog, options.chatsRoot, now, options.chatId ?? randomUUID)
+      : undefined;
+    this.ready = Promise.all([
+      this.restoreIcons().catch(() => undefined),
+      this.chats?.sweep().catch(() => undefined),
+    ]).then(() => undefined);
   }
   /** Backfill persisted defaults once per daemon start; it never blocks service readiness. */
   private async restoreIcons(): Promise<void> {
@@ -304,13 +316,54 @@ export class Projects {
       await made?.close();
     }
   }
-  execute(input: Command, allowed: () => boolean = () => true): Promise<CommandResult> {
+  /**
+   * A canonical folder inside the allowed roots that a project may be made in (ADR 0101):
+   * `requested`, or else the folder of the newest project, or else home. It comes back open, so
+   * the transfer makes and fills its folder through that descriptor; the caller closes it.
+   */
+  async transferParent(requested: string | undefined): Promise<ProjectDirectory> {
+    const allowed = async (path: string) => {
+      const directory = await ProjectDirectory.open(this.paths, path);
+      try {
+        assertProjectPath(directory.path, await this.paths.roots());
+        return directory;
+      } catch (error) {
+        await directory.close();
+        throw error;
+      }
+    };
+    if (requested !== undefined) return allowed(requested);
+    const latest = this.store
+      .statement(
+        "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 1",
+      )
+      .get();
+    const newest = typeof latest?.["path"] === "string" ? latest["path"] : undefined;
+    if (newest) {
+      const parent = await allowed(dirname(newest)).catch(() => undefined);
+      if (parent) return parent;
+    }
+    return allowed(this.home);
+  }
+  execute(
+    input: Command,
+    allowed: () => boolean = () => true,
+    transferClone?: {
+      signal: AbortSignal;
+      timeoutMs: number;
+      /** The clone's folder was just made: its identity, before anything is written in it. */
+      made?: (directory: { dev: number; ino: number }) => void;
+    },
+  ): Promise<CommandResult> {
     const existing = this.clones.get(input.id);
     if (existing)
       return existing.device === input.deviceId
         ? existing.finished
         : Promise.resolve({ commandId: input.id, ok: false, error: "forbidden" });
     const controller = new AbortController();
+    const cancelTransfer = () => controller.abort();
+    transferClone?.signal.addEventListener("abort", cancelTransfer, { once: true });
+    if (transferClone?.signal.aborted) controller.abort();
     const flight = this.commands.run(input, async () => {
       try {
         this.check(allowed);
@@ -323,6 +376,10 @@ export class Projects {
           return { ...result, commandId: input.id };
         }
         if (p.type === "workspace.add") return await this.add(p, allowed);
+        if (p.type === "workspace.chat.create") {
+          if (!this.chats) throw new ProjectError("projects_unavailable");
+          return { ok: true, workspace: await this.chats.create() };
+        }
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
         if (
           p.type === "workspace.rename" ||
@@ -330,6 +387,7 @@ export class Projects {
           p.type === "workspace.remove"
         ) {
           const project = this.catalog.get(p.workspaceId);
+          if (project.kind === "chat") throw new ProjectError("chat_project");
           assertProjectPath(project.path, await this.paths.roots());
           this.check(allowed);
           if (this.destinations.has(project.path)) throw new ProjectError("project_busy");
@@ -426,6 +484,7 @@ export class Projects {
             (this.options.gitPolicy?.validateUrl ?? validateCloneUrl)(cloneUrl);
           this.store.workspaceReservations.assertAvailable(path);
           directory = await parentDirectory.destination(p.name);
+          if (p.type === "workspace.clone") transferClone?.made?.(directory.handle.stat());
           this.check(allowed);
           if (p.type === "workspace.create") {
             if (p.git) await this.git.init(path, p.git.initialBranch, directory.handle.fd);
@@ -447,6 +506,7 @@ export class Projects {
                 url: cloneUrl ?? p.url,
                 directoryFd: directory.handle.fd,
                 signal: controller.signal,
+                ...(transferClone ? { transfer: { timeoutMs: transferClone.timeoutMs } } : {}),
                 progress: (value) => {
                   if (!allowed()) controller.abort();
                   else
@@ -502,6 +562,11 @@ export class Projects {
         return { ok: false, error: cancelled ? "clone_cancelled" : projectErrorCode(error) };
       }
     });
+    if (transferClone) {
+      const forgetTransfer = () =>
+        transferClone.signal.removeEventListener("abort", cancelTransfer);
+      void flight.then(forgetTransfer, forgetTransfer);
+    }
     if (input.payload.type === "workspace.clone") {
       this.clones.set(input.id, {
         committed: false,
@@ -648,6 +713,7 @@ export class Projects {
       this.metadataGit.close(),
       this.commands.drained(),
       this.ready,
+      this.chats?.close(),
     ]);
   }
 }

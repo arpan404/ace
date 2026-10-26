@@ -61,7 +61,7 @@ test("reactions read for the description, conversation and inline comments, with
   ];
   const f = await fakeGh(fixtures);
   try {
-    expect(await f.forge.reviews.reactions(7, signal())).toEqual([
+    expect((await f.forge.reviews.decorations(7, signal())).reactions).toEqual([
       { subject: { kind: "pr" }, groups: [{ content: "heart", count: 2, viewer: true }] },
       {
         subject: { kind: "issue", commentId: 6 },

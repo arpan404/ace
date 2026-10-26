@@ -14,6 +14,8 @@ const config = z
     airSubagents: z.boolean().default(false),
     // Like Antigravity's ACP server: sessions need a sign-in method selected in each process.
     requireSignIn: z.boolean().default(false),
+    // Like Antigravity's ACP server: takes text appended to its system prompt.
+    systemPrompt: z.boolean().default(false),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -85,6 +87,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         mcpCapabilities: { http: config.http },
         promptCapabilities: { image: true },
         futureExtension: { preserved: true },
+        ...(config.systemPrompt
+          ? { _meta: { antigravity: { systemPrompt: { append: true } } } }
+          : {}),
       },
       authMethods: [{ id: "not-login-status", name: "CLI-owned login" }],
       future: "kept",

@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeMediaUnavailable.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "too_large",
+    "unsupported",
+    "not_found",
+    "forbidden",
+    "offline",
+    "rate_limited",
+    "failed"
+  ],
+  "type": "string"
+}

@@ -3,7 +3,7 @@ import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import { measureSession } from "./measurement.ts";
-import { humanDeviceInput } from "./device-input-policy.ts";
+import { deviceWindowBundles, humanDeviceInput } from "./device-input-policy.ts";
 import { SessionObservations } from "./session-observations.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { ScreenAccessPolicy } from "./access-policy.ts";
@@ -416,9 +416,7 @@ export class ScreenManager {
     const inventory = ScreenInventory.parse(await this.inspect("targets"));
     return {
       displays: [],
-      windows: inventory.windows.filter(
-        (window) => window.bundleId === "com.apple.iphonesimulator",
-      ),
+      windows: inventory.windows.filter((window) => deviceWindowBundles.has(window.bundleId)),
     };
   }
   async targets(): Promise<ScreenInventory> {

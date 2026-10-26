@@ -124,7 +124,8 @@ test("restart stops a thread that needed a person, says so, holds its queued mes
       expect.objectContaining({
         type: "notice",
         code: "restart_interrupted",
-        text: "Interrupted by a restart",
+        // The request it was waiting on is named, so the person sees it again.
+        text: 'Interrupted by a restart while waiting for your answer to "Continue?". Continue and the agent asks again.',
       }),
     );
     server = await startServer({

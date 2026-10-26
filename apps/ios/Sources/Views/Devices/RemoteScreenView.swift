@@ -110,11 +110,11 @@ struct RemoteScreenView: View {
 
     private var menu: some View {
         Menu {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await screen.refresh(model) } }
+            Button("Refresh", ace: .arrowClockwise) { Task { await screen.refresh(model) } }
             if model.canOperate, screen.status?.enabled == true {
-                Button("Turn off computer use…", systemImage: "nosign", role: .destructive) { turningOff = true }
+                Button("Turn off computer use…", ace: .prohibit, role: .destructive) { turningOff = true }
             }
-        } label: { Label("Computer use options", systemImage: "ellipsis") }
+        } label: { Label("Computer use options", ace: .dotsThree) }
     }
 }
 
@@ -123,7 +123,7 @@ private struct SessionRow: View {
     let session: ScreenSessionInfo
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: "macwindow").font(.system(size: 21))
+            AceIcon(.appWindow, size: 21)
                 .foregroundStyle(AceTheme.Colours.foreground).frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(session.app).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
@@ -133,7 +133,7 @@ private struct SessionRow: View {
                     .foregroundStyle(session.error.isEmpty ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed).lineLimit(1)
             }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+            AceIcon(.caretRight, size: 14, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
         }
         .frame(minHeight: 60)
@@ -151,6 +151,9 @@ private struct ScreenTargetPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var bundleId = ""
     @State private var query = ""
+    @State private var searching = false
+    /// One share at a time: a second tap while the first starts would share the app twice.
+    @State private var starting = false
     var body: some View {
         NavigationStack {
             List {
@@ -171,7 +174,7 @@ private struct ScreenTargetPicker: View {
                 Section {
                     ForEach(screen.windows.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.bundleId.localizedCaseInsensitiveContains(query) }) { window in
                         Button { share(window.target) } label: {
-                            InsetRow(systemImage: "macwindow", title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
+                            InsetRow(icon: .appWindow, title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
                         }
                         .buttonStyle(.plain).insetRowBackground()
                     }
@@ -180,13 +183,13 @@ private struct ScreenTargetPicker: View {
                 if let problem = screen.problem { Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear) }
             }
             .insetGroupedList()
-            .disabled(screen.busy)
-            .searchable(text: $query, prompt: "Search app windows")
+            .disabled(screen.busy || starting)
+            .searchable(text: $query, isPresented: $searching, prompt: "Search app windows")
             .navigationTitle("Share an app window").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Share", systemImage: "checkmark") { share(.init(kind: "app", bundleId: bundleId, windowId: nil, displayId: nil, bundleIds: nil)) }
+                    Button("Share", ace: .check) { share(.init(kind: "app", bundleId: bundleId, windowId: nil, displayId: nil, bundleIds: nil)) }
                         .disabled(bundleId.isEmpty)
                 }
             }
@@ -196,7 +199,14 @@ private struct ScreenTargetPicker: View {
         .task { await screen.targets(model) }
     }
     private func share(_ target: RemoteScreenTarget) {
-        guard target.kind != "app" || !(target.bundleId ?? "").isEmpty else { return }
-        Task { if let id = await screen.start(model, target: target, threadId: threadId) { selected(id) } }
+        guard !starting, target.kind != "app" || !(target.bundleId ?? "").isEmpty else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            guard let id = await screen.start(model, target: target, threadId: threadId) else { return }
+            // An active search holds the sheet open; end it so the sheet closes onto the app.
+            searching = false
+            selected(id)
+        }
     }
 }

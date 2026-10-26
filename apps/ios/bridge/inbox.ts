@@ -1,9 +1,7 @@
 import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
+import { settledTotal, type HomeSort } from "@ace/ui-core";
 import {
-  inboxGroupRank,
   inboxNextChange,
-  inboxSections,
-  inboxStatus,
   snoozePresets,
   unsentStatus,
   unsentText,
@@ -12,7 +10,11 @@ import {
 import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
 import { host } from "./host.ts";
-import { preview, threadRow } from "./presentation.ts";
+import { preview } from "./presentation.ts";
+import { followAccounts } from "./inbox-accounts.ts";
+import { inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
+import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
+import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchSink } from "./agents.ts";
 
@@ -38,11 +40,7 @@ export function makeActivityGeneration(): ActivityGeneration {
   };
 }
 
-/** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
-export interface InboxClock {
-  now(): number;
-  set(delayMs: number, run: () => void): () => void;
-}
+export type { InboxClock } from "./inbox-rows.ts";
 /** Native timers take 32-bit delays; a longer wait re-arms when it fires. */
 const longestWait = 2 ** 31 - 1;
 
@@ -51,6 +49,11 @@ const longestWait = 2 ** 31 - 1;
  * as ordered sections, and the outbox's unsent sends. Swift draws them and maps token keys to
  * colours; it never groups or labels. Rows are keyed by thread id and carry their machine; each
  * section row carries its shared rank, so the app merges every machine's runtime by rank.
+ *
+ * Nothing is sent until the SDK holds a list (read back from disk or from the daemon), so the
+ * rows the phone kept from its last launch stay on screen instead of an empty inbox. While the
+ * list is the daemon's current one, `save` keeps a checkpoint of it for the next launch
+ * (`inbox-checkpoint.ts`).
  */
 
 function inboxThread(store: SidebarSource, machineId: string, id: string): InboxThread | undefined {
@@ -72,11 +75,25 @@ export function followInbox(
   pump: PatchSink,
   clock: InboxClock,
   generation: ActivityGeneration = makeActivityGeneration(),
+  save?: (checkpoint: string) => void,
+  /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
+  lastSort?: HomeSort,
 ): () => void {
   const store = owner.threads().store;
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
   const online = () => connection.getSnapshot() === "ready";
+  // Results that finished before this phone started following count as seen.
+  const baseline = clock.now();
+  // A sort chosen on any device regroups the list at once.
+  const sort = followInboxSort(owner, clock, lastSort, () => sections());
+  const context = () => ({
+    machineId,
+    now: clock.now(),
+    baseline,
+    accounts: accounts.views(),
+    sortBy: sort.current(),
+  });
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
       const thread = inboxThread(store, machineId, id);
@@ -85,17 +102,26 @@ export function followInbox(
         id,
         row: thread
           ? {
-              ...threadRow(thread.entry),
-              machineId,
-              status: inboxStatus(thread, clock.now()),
-              activityAt: thread.entry.activityAt ?? thread.entry.updatedAt,
-              archivedAt: thread.entry.archivedAt ?? null,
+              ...inboxRow(thread, context()),
               confirmed: isConfirmed(store, online()),
               generation: generation.current(),
             }
           : null,
       };
     });
+  /** Whether the phone has been sent a list yet; until then it keeps what it last showed. */
+  let shown = false;
+  // A fresh account list re-issues every row, so provider marks gain or lose their bubble.
+  const accounts = followAccounts(owner, () => {
+    if (!shown) return;
+    for (const id of store.ids) row(id);
+  });
+  const checkpoint = followCheckpoint(
+    clock,
+    () => store.loaded && isConfirmed(store, online()),
+    () => inboxCheckpoint(store, context()),
+    (json) => save?.(json),
+  );
   // A snooze runs out on this phone's clock even while its machine is offline (and so can't
   // wake it): at the soonest end, the rows it ends say so and the sections regroup.
   let wake: { at: number; cancel: () => void } | undefined;
@@ -116,7 +142,9 @@ export function followInbox(
     wake = { at, cancel };
   };
   // Read at delivery, so a burst of changes costs one grouping per frame.
-  const sections = () =>
+  const sections = () => {
+    if (!shown) return;
+    if (save) checkpoint.touch();
     pump.put("inbox:sections", () => {
       const now = clock.now();
       const threads: InboxThread[] = [];
@@ -126,29 +154,30 @@ export function followInbox(
       }
       arm(inboxNextChange(threads, now));
       const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
-      return {
-        type: "inbox.sections",
-        sections: inboxSections(threads, unsent, now).map((section) => ({
-          key: section.key,
-          label: section.label,
-          ids: section.keys,
-          // A merged inbox orders sections from every machine by these (`inboxRank`).
-          ranks: section.ranks,
-          order: inboxGroupRank(section.key),
-        })),
-        // The inbox pages home; while the archive is open the store's own window is the archive's.
-        more: (store.homeWindow ?? store.window)?.before != null,
-        snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),
-      };
+      // The inbox pages home; while the archive is open the store's own window is the archive's.
+      // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
+      return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
+        settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
+        sortBy: sort.current(),
+      });
     });
+  };
   const pending = (id: string) =>
     pump.put(`pending:${id}`, () => {
       const send = owner.pendingSend(id);
       return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
     });
+  /** The thread ids the phone holds rows for, so one that leaves the list loses only its row. */
+  let listed = new Set<string>();
+  const gone = (id: string) =>
+    pump.put(`inbox:${id}`, () => ({ type: "inbox.row", id, row: null }));
   let unconfirmed = store.unconfirmed === true;
   let fresh = isConfirmed(store, online());
-  const change: ChangeTap = (keys) => {
+  const change: ChangeTap = (changed) => {
+    if (!shown && !store.loaded) return;
+    // The first list the phone sees replaces what it kept, whatever changed to bring it.
+    const keys = shown ? changed : "all";
+    shown = true;
     const nowUnconfirmed = store.unconfirmed === true;
     const nowFresh = isConfirmed(store, online());
     // Losing confirmation advances the fence so older confirmed rows stop matching,
@@ -157,15 +186,32 @@ export function followInbox(
     const flipped = nowUnconfirmed !== unconfirmed || nowFresh !== fresh;
     unconfirmed = nowUnconfirmed;
     fresh = nowFresh;
-    if (keys === "all" || keys.has("ids")) {
+    if (keys === "all") {
       pump.clear("inbox:");
-      pump.put("inbox:reset", () => ({ type: "inbox.reset" }));
-      for (const id of store.ids) row(id);
-    } else if (flipped) for (const id of store.ids) row(id);
-    else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
+      listed = new Set(store.ids);
+      // The reset names every row that follows, so the phone keeps those it holds until each
+      // fresh copy lands and drops only the rest: the list never blanks or jumps to the top.
+      const ids = [...listed];
+      pump.put("inbox:reset", () => ({ type: "inbox.reset", ids }));
+      for (const id of listed) row(id);
+    } else {
+      // A thread joining or leaving the list touches only its own row. A reset here would
+      // blank every row on the phone until the rest arrive, throwing the list to the top.
+      // The SDK names "ids" on every thread patch, so only rows that joined are sent beside the
+      // changed ones; each row's rank depends on that row alone, so the rest stay as they are.
+      if (keys.has("ids")) {
+        const now = new Set(store.ids);
+        for (const id of listed) if (!now.has(id)) gone(id);
+        if (!flipped) for (const id of now) if (!listed.has(id)) row(id);
+        listed = now;
+      }
+      if (flipped) for (const id of store.ids) row(id);
+      else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
+    }
     sections();
   };
   const stops = [
+    accounts.stop,
     store.observe(change),
     owner.observePendingSends((id) => {
       pending(id);
@@ -186,7 +232,7 @@ export function followInbox(
       if (fresh && !nowFresh) generation.bump();
       const flipped = nowFresh !== fresh;
       fresh = nowFresh;
-      if (flipped) {
+      if (flipped && shown) {
         for (const id of store.ids) row(id);
         sections();
       }
@@ -196,6 +242,8 @@ export function followInbox(
   change("all");
   return () => {
     for (const stop of stops) stop();
+    sort.stop();
+    checkpoint.stop();
     arm(undefined);
   };
 }

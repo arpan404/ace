@@ -146,7 +146,8 @@ function SelectedDevice(props: { devices: Devices }) {
           session={session}
           live={live}
           interactive={live}
-          bare={bare}
+          // A Simulator window picture wears the device's own bezel: no second frame around it.
+          bare={bare || controls.framed}
           press={{
             enabled: live,
             onPress: (key) => void devices.input({ kind: "key", key }),
@@ -167,6 +168,8 @@ function SelectedDevice(props: { devices: Devices }) {
               recording={devices.recording}
               keyboardOpen={keyboard}
               onKey={(key) => void devices.input({ kind: "key", key })}
+              posture={devices.posture}
+              onPosture={(posture) => void devices.fold(posture)}
               onKeyboard={() => setKeyboard((open) => !open)}
               onScreenshot={devices.screenshot}
               onRecord={devices.record}

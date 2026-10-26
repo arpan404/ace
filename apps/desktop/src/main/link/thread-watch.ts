@@ -6,6 +6,12 @@ export interface WorkSummary {
   needsYou: number;
   /** Threads with an agent working or waiting on something other than a person. */
   working: number;
+  /**
+   * Threads not done that neither move nor wait on the person right now: paused at a usage
+   * limit (a provider may be retrying until the reset) or with an agent that stopped
+   * answering (its process may still be alive). Stopping the daemon would lose either.
+   */
+  held: number;
 }
 
 type Work = keyof WorkSummary;
@@ -14,6 +20,7 @@ function workOf(entry: ThreadListEntry): Work | undefined {
   if (entry.archivedAt) return undefined;
   if (entry.status.state === "needs_you") return "needsYou";
   if (entry.status.state === "working" || entry.status.state === "waiting") return "working";
+  if (entry.status.state === "limited" || entry.status.state === "unresponsive") return "held";
   return undefined;
 }
 
@@ -23,7 +30,7 @@ function workOf(entry: ThreadListEntry): Work | undefined {
  */
 export class WorkTally {
   private work = new Map<string, Work>();
-  private counts: WorkSummary = { needsYou: 0, working: 0 };
+  private counts: WorkSummary = { needsYou: 0, working: 0, held: 0 };
 
   /** Record a thread's latest entry (undefined once it is gone); true if the counts moved. */
   set(id: string, entry: ThreadListEntry | undefined): boolean {

@@ -1,3 +1,4 @@
+import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
@@ -26,16 +27,18 @@ import { commandContext } from "../commands.ts";
 import { AccessError, type PermissionSettings } from "./permissions.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
-import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
+import { ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { DelegationFacts } from "./delegation-facts.ts";
+import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { timeOrderedIds } from "../time-ordered-id.ts";
-import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
+import { type IdSource } from "@ace/core";
 import { SteerLane } from "./steer-lane.ts";
 import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
@@ -46,6 +49,12 @@ import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { inputFate, type InputFate } from "./input-fate.ts";
+import {
+  readMessageFacts,
+  readyForInput,
+  threadCapabilities,
+  type MessageFacts,
+} from "./message-facts.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
 import { SettledTrees } from "./settled-trees.ts";
@@ -147,6 +156,7 @@ export class Engine {
   private delivery: IntentDelivery;
   private transitions: ThreadTransitions;
   private liveness: ThreadLiveness;
+  private delegationFacts: DelegationFacts;
   private readyPromise: Promise<void>;
   private readyState = false;
   private closing = false;
@@ -290,6 +300,7 @@ export class Engine {
       report: this.report,
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
+    this.delegationFacts = new DelegationFacts(this.repo, this.clock, (id) => this.wake(id));
     this.liveness = new ThreadLiveness({
       repo: this.repo,
       clock: this.clock,
@@ -410,6 +421,7 @@ export class Engine {
         (intent, message) => this.delivery.fail(intent, message),
         (id) => this.wake(id),
         unreadable,
+        (id) => continuesNatively(this.repo, this.registry, id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -436,7 +448,7 @@ export class Engine {
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {
-    if (!this.readyState || this.closing || this.repo.store.getThread(id)?.settledAt === undefined)
+    if (!this.readyState || this.closing || this.repo.store.readThread(id)?.settledAt === undefined)
       return;
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
@@ -495,31 +507,13 @@ export class Engine {
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
   }
-  /**
-   * Whether this thread's provider can steer mid-turn. Delegated child results
-   * use it to decide steer (inject now) versus queue (wait for the turn end).
-   * Providers differ: codex/claude/cursor/opencode/pi steer, acp never does,
-   * and old CLIs without support report steer false.
-   */
+  /** Whether this thread's provider can steer mid-turn (acp and old CLIs can't). */
   supportsSteering(id: ThreadId): boolean {
-    const thread = this.repo.store.getThread(id);
-    if (!thread) return false;
-    const provider = thread.provider;
-    if (!this.registry.has(provider)) return false;
-    const effective =
-      thread.effectiveCapabilities ??
-      thread.capabilities ??
-      this.registry.get(provider).capabilities;
-    if (!effective.steer) return false;
-    // Backend-specific capability (e.g. cursor-sdk vs acp) wins when present.
-    try {
-      return (
-        this.repo.store.getThread(id)?.effectiveCapabilities ??
-        this.registry.get(provider, this.repo.backend(id)).capabilities
-      ).steer;
-    } catch {
-      return effective.steer;
-    }
+    return threadCapabilities(this.repo, this.registry, id)?.steer ?? false;
+  }
+  /** What decides when accepted message `commandId` reaches thread `id`'s model. */
+  messageFacts(id: ThreadId, commandId: import("@ace/protocol").CommandId): MessageFacts {
+    return readMessageFacts(this.repo, this.registry, id, commandId, this.inputFate(id, commandId));
   }
   /**
    * Daemon-owned child results run before the person's queued messages. A
@@ -703,167 +697,59 @@ export class Engine {
     );
     this.wake(parentId);
   }
-  /**
-   * A child on another paired machine (ADR 0078): its launch row names the machine, and a
-   * background hold keeps the parent from reading done while the child works there.
-   */
-  machineChild(
-    child: {
-      id: ThreadId;
-      parentId: ThreadId;
-      parentAgentId: AgentId;
-      machine: string;
-      name: string;
-      provider: import("@ace/protocol").ProviderKind;
-      model?: string | undefined;
-      role: string;
-      title: string;
-      status: import("@ace/protocol").ThreadStatus;
-      outcome: import("@ace/protocol").DelegationOutcome | null;
-    },
-    hold: "start" | "end" | undefined,
-  ): void {
-    const state = this.repo.requireState(child.parentId);
-    const agent = state.indexes.agentKeysById[child.parentAgentId];
-    if (!agent) throw new Error("Unknown machine delegation parent");
-    const task = `ace-machine:${child.id}`;
-    const settled = child.outcome !== null;
-    const now = this.clock.now();
-    this.repo.apply(
-      child.parentId,
-      [
-        {
-          type: "item.upsert",
-          agent,
-          item: `ace-delegation:${child.id}`,
-          draft: {
-            type: "delegation.started",
-            origin: "ace",
-            childThreadId: child.id,
-            provider: child.provider,
-            ...(child.model ? { model: child.model } : {}),
-            title: child.title,
-            role: child.role,
-            phase: settled ? "settled" : "running",
-            status: child.status,
-            updatedAt: now,
-            generation: 0,
-            complete: settled,
-            outcome: child.outcome,
-            machine: { machine: child.machine, name: child.name },
-          },
-        },
-        ...(hold === "start"
-          ? [
-              {
-                type: "background.started" as const,
-                owner: "ace" as const,
-                agent,
-                task,
-                kind: "subagent" as const,
-                title: `${child.role} · ${child.name}`,
-                stoppable: true,
-              },
-            ]
-          : hold === "end"
-            ? [
-                {
-                  type: "background.ended" as const,
-                  task,
-                  status:
-                    child.outcome?.outcome === "completed"
-                      ? ("completed" as const)
-                      : child.outcome?.outcome === "cancelled"
-                        ? ("stopped" as const)
-                        : ("failed" as const),
-                },
-              ]
-            : []),
-      ],
-      now,
-    );
-    if (hold === "end") this.wake(child.parentId);
+  machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
+    this.delegationFacts.machineChild(...args);
   }
-  /** One stable parent item follows each independently owned child thread. */
-  delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
-    const state = this.repo.requireState(record.parentId);
-    const agent = state.indexes.agentKeysById[record.parentAgentId];
-    if (!agent) throw new Error("Unknown delegation parent");
-    const selection = this.repo.session(child.id);
+  /**
+   * A transfer an agent started (ADR 0101) holds its thread open like a background task, so the
+   * tree never reads done while the work is still moving to another machine.
+   */
+  transferHold(
+    threadId: ThreadId,
+    agentId: import("@ace/protocol").AgentId,
+    transferId: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
+    const state = this.repo.requireState(threadId);
+    const agent = state.indexes.agentKeysById[agentId];
+    if (!agent) throw new Error("Unknown transfer owner");
+    const task = `ace-transfer:${transferId}`;
     this.repo.apply(
-      record.parentId,
+      threadId,
       [
-        {
-          type: "item.upsert",
-          agent,
-          item: `ace-delegation:${child.id}`,
-          draft: {
-            type: "delegation.started",
-            origin: "ace",
-            childThreadId: child.id,
-            provider: child.provider,
-            ...(selection.model ? { model: selection.model } : {}),
-            ...(selection.instanceId ? { accountId: selection.instanceId } : {}),
-            title: child.title,
-            role: record.request.role,
-            phase: record.phase,
-            status: child.status,
-            updatedAt: this.clock.now(),
-            generation: record.generation,
-            complete: record.phase === "settled",
-            outcome: record.outcome ?? null,
-          },
-        },
+        "title" in hold
+          ? {
+              type: "background.started",
+              owner: "ace",
+              agent,
+              task,
+              kind: "other",
+              title: hold.title,
+              stoppable: true,
+            }
+          : { type: "background.ended", task, status: hold.status },
       ],
       this.clock.now(),
     );
+    if (!("title" in hold)) this.wake(threadId);
   }
-  /** Host-only result attribution; ordinary wire sends cannot impersonate ace. */
-  delegationSettled(
-    parentId: ThreadId,
-    parentAgentId: AgentId,
-    commandId: string,
-    results: import("@ace/protocol").DelegationOutcome[],
-    delivery: "tool" | "ace-input",
-    text?: string,
-  ) {
-    const state = this.repo.requireState(parentId);
-    const agent = state.indexes.agentKeysById[parentAgentId];
-    if (!agent) throw new Error("Unknown delegation parent");
-    const item = `ace-results:${commandId}`;
-    const summaries = results.map((result) => ({
-      ...result,
-      result: result.result.slice(0, 128),
-      truncated: result.truncated || result.result.length > 128,
-    }));
-    this.repo.store.atomic(() => {
-      if (text) {
-        this.repo.inputs.register(parentId, `input:${commandId}`, [{ type: "text", text }], {
-          kind: "subagent_result",
-          commandId: CommandId.parse(commandId),
-          threadIds: results.map((result) => result.threadId),
-        });
-        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
-      }
-      this.repo.apply(
-        parentId,
-        [
-          {
-            type: "item.upsert",
-            agent,
-            item,
-            draft: {
-              type: "delegation.settled",
-              origin: "ace",
-              delivery,
-              results: summaries,
-              complete: true,
-            },
-          },
-        ],
-        this.clock.now(),
-      );
-    });
+  /** The bounded history another machine's new thread starts from (ADR 0101). */
+  machineHandoff(threadId: ThreadId): import("@ace/protocol").PortableHandoff {
+    return captureMachineHandoff(
+      this.repo,
+      threadId,
+      this.repo.requireState(threadId).config.provider,
+    );
+  }
+  /** Keeps a carried handoff waiting on a new thread, for the person's next message there. */
+  adoptMachineHandoff(threadId: ThreadId, input: Parameters<typeof adoptMachineHandoff>[2]): void {
+    adoptMachineHandoff(this.repo, threadId, input);
+  }
+  delegationStarted(...args: Parameters<DelegationFacts["delegationStarted"]>): void {
+    this.delegationFacts.delegationStarted(...args);
+  }
+  delegationSettled(...args: Parameters<DelegationFacts["delegationSettled"]>): void {
+    this.delegationFacts.delegationSettled(...args);
   }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
@@ -1229,6 +1115,18 @@ export class Engine {
   queue(id: ThreadId): QueueSnapshot {
     return this.repo.queue.snapshot(id);
   }
+  /** The maintenance gate reopened: turns ace deferred while it was closed can start now. */
+  admissionReopened(): void {
+    if (this.closing) return;
+    this.recovery.schedule();
+  }
+  /** A resume or limit continuation of the thread is accepted and not yet started. */
+  resuming(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined && this.repo.pending.recovering(id);
+  }
+  heldInterrupted(id: ThreadId): boolean {
+    return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
+  }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {
     if (this.closing || this.repo.store.isHistoryWriting()) return;
@@ -1237,7 +1135,6 @@ export class Engine {
         if (this.repo.session(id).instanceId === instanceId) this.recovery.accountRecovered(id);
     });
   }
-
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
@@ -1272,13 +1169,9 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (
-      this.closing ||
-      this.repo.cleaning(id) ||
-      this.repo.store.getThread(id)?.deletedAt !== undefined ||
-      this.repo.store.getThread(id)?.continuation
-    )
-      return;
+    if (this.closing || this.repo.cleaning(id)) return;
+    const thread = this.repo.store.readThread(id);
+    if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
       if (!this.deferredWakes.has(id)) {
         this.deferredWakes.add(id);
@@ -1397,19 +1290,7 @@ export class Engine {
       this.repo.mark(intent, "queued");
       this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
-      const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
-      const ready =
-        intent.trigger === "subagent_result"
-          ? readyForChildResults(state)
-          : ["new", "done", "failed"].includes(status.state) ||
-            this.repo.quiescent(state) ||
-            // A plain message only needs the provider between turns. One that changes the
-            // model or options may reopen the session, which would end its background
-            // commands, so it still waits for the whole tree.
-            (intent.kind === "thread.send" &&
-              (intent.trigger === undefined || intent.trigger === "user") &&
-              !this.repo.pending.hasSelection(intent.id) &&
-              this.repo.acceptsPersonInput(state));
+      const ready = readyForInput(this.repo, state, intent);
       if (!this.repo.pending.awaiting(actor.id) && ready) {
         await this.delivery.run(actor, intent);
         this.wake(actor.id);
@@ -1466,7 +1347,7 @@ export class Engine {
       this.recovery.close();
       for (const actor of this.actors.values()) {
         await actor.flush();
-        this.recovery.capture(actor.id);
+        this.recovery.captureRestart(actor.id);
       }
       this.sends.stop();
       this.controls.stop();
