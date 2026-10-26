@@ -17,8 +17,7 @@ import type { PrivilegedRunner } from "@ace/screen";
  */
 
 /** Where the components live once installed. Mirrors the read-only detector's constants. */
-const bundleDestination =
-  "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle";
+const bundleDestination = "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle";
 const right = "system.login.screensaver";
 const mechanism = "AceLockedUseAuthorization:permit";
 const brokerLabel = "dev.ace.locked-use.authorization";
@@ -156,16 +155,19 @@ function installDaemonStep(label: string, executable: string): string {
 
 function removeDaemonStep(label: string): string {
   const plist = shellQuote(daemonPlistPath(label));
-  return [
-    `launchctl bootout system/${label} 2>/dev/null || true`,
-    `rm -f ${plist}`,
-  ].join("\n");
+  return [`launchctl bootout system/${label} 2>/dev/null || true`, `rm -f ${plist}`].join("\n");
 }
 
 /** The plist embeds the raw executable path; it is validated before the script is built. */
 function stripQuotes(quoted: string): string {
   return quoted.slice(1, -1).replaceAll(`'\\''`, "'");
 }
+
+/** A runner that refuses both actions when the staged artifact paths are unusable. */
+const refuseInvalidArtifacts: PrivilegedRunner = {
+  install: () => Promise.reject(new Error("Locked use components are staged at an invalid path.")),
+  remove: () => Promise.reject(new Error("Locked use components are staged at an invalid path.")),
+};
 
 /** Rejects any artifact path that isn't an absolute, control-character-free POSIX path. */
 function validArtifact(path: string): boolean {
@@ -188,11 +190,7 @@ export function privilegedRunner(
   admin: AdminAuthorization,
 ): PrivilegedRunner {
   const paths = [artifacts.pluginBundle, artifacts.brokerExecutable, artifacts.guardianExecutable];
-  if (!paths.every(validArtifact)) {
-    const refuse = () =>
-      Promise.reject(new Error("Locked use components are staged at an invalid path."));
-    return { install: refuse, remove: refuse };
-  }
+  if (!paths.every(validArtifact)) return refuseInvalidArtifacts;
   return {
     install: () => admin.run("install locked computer use", buildInstallScript(artifacts)),
     remove: () => admin.run("remove locked computer use", buildRemoveScript()),

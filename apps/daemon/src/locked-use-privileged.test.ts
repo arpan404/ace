@@ -42,8 +42,12 @@ describe("locked use privileged install", () => {
     expect(script).toContain(
       "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle",
     );
-    expect(script).toContain("launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.authorization.plist'");
-    expect(script).toContain("launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.guardian.plist'");
+    expect(script).toContain(
+      "launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.authorization.plist'",
+    );
+    expect(script).toContain(
+      "launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.guardian.plist'",
+    );
     // set -e so a half-finished install cannot look successful.
     expect(script.startsWith("set -e")).toBe(true);
   });
@@ -53,7 +57,9 @@ describe("locked use privileged install", () => {
     expect(script).toContain("launchctl bootout system/dev.ace.locked-use.authorization");
     expect(script).toContain("launchctl bootout system/dev.ace.locked-use.guardian");
     expect(script).toContain("m for m in right.get('mechanisms', []) if m != mechanism");
-    expect(script).toContain("rm -rf '/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle'");
+    expect(script).toContain(
+      "rm -rf '/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle'",
+    );
     // Missing pieces must not fail removal.
     expect(script).toContain("|| exit 0");
   });
