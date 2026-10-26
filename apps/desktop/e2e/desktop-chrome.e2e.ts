@@ -66,7 +66,9 @@ async function launch(scale: number): Promise<Launched> {
     worker.on("close", () => console.log(`[worker closed] ${worker.url()}`));
   });
   try {
-    await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 150_000 });
+    await page
+      .getByRole("navigation", { name: "App" })
+      .waitFor({ timeout: Number(process.env.ACE_E2E_BOOT_MS ?? 150_000) });
   } catch (error) {
     captureScreen(join(screens, `launch-failed-${scale * 100}.png`));
     console.log(`[page url] ${page.url()}`);
@@ -92,7 +94,10 @@ async function launch(scale: number): Promise<Launched> {
       .catch((reason: unknown) => String(reason));
     console.log(`[page bundle] ${bundle}`);
     const visibility = await page
-      .evaluate(() => `${document.visibilityState} focus=${document.hasFocus()}`)
+      .evaluate(
+        () =>
+          `${document.visibilityState} focus=${document.hasFocus()} fakeBoot=${"aceFake" in globalThis} bridge=${Object.keys(Reflect.get(globalThis, "ace") ?? {}).join(",")}`,
+      )
       .catch((reason: unknown) => String(reason));
     console.log(`[page visibility] ${visibility}`);
     const state = await windowsReport(app);
