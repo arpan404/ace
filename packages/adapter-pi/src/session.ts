@@ -55,6 +55,8 @@ export async function openPiSession(
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };
+  // Windows has no SIGTERM for a console child: closing stdin is the polite stop there.
+  const windows = (io.platform ?? process.platform) === "win32";
   const cli =
     (ctx.executable ? undefined : options.cli) ??
     (await io.discover({
@@ -263,6 +265,7 @@ export async function openPiSession(
     release();
     rpc.close();
     detachStderr();
+    if (windows) proc.stdin.end();
     closePromise = proc.stop({ graceMs: 1000 }).then(() => {});
     return closePromise;
   }
@@ -326,6 +329,7 @@ export async function openPiSession(
     // detaching, so the open failure's Details carry it.
     if (!closePromise) {
       deliberate = false;
+      if (windows) proc.stdin.end();
       await proc.stop({ graceMs: 1000 });
       await drained;
     }
