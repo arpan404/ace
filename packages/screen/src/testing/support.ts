@@ -70,3 +70,35 @@ export function windowsFakeOverrides(directory: string): { args?: string[]; endp
     endpoint: `unix:\\\\.\\pipe\\ace-screen-test-${directory.split(/[\\/]/).at(-1)}`,
   };
 }
+
+/**
+ * A screen manager over the protocol-v2 fake helper, as the given platform's host sees it.
+ * Only Windows speaks v2 today.
+ */
+export async function helperFixture(platform: "win32", overrides: Partial<ScreenOptions> = {}) {
+  const directory = await mkdtemp(join(tmpdir(), "screen-review-"));
+  const screen = new ScreenManager({
+    command: process.execPath,
+    args: [new URL("./fake-helper-v2.ts", import.meta.url).pathname],
+    nextId: ids(),
+    platform,
+    endpoint: `unix:${join(directory, "pipe")}`,
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+    ...windowsFakeOverrides(directory),
+    ...overrides,
+  });
+  await screen.enable(true);
+  return {
+    manager: screen,
+    directory,
+    start: () => screen.start(target),
+    async close() {
+      try {
+        await screen.close();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}

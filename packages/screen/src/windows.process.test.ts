@@ -10,7 +10,7 @@ import {
   computerUseHandler,
   type Frame,
 } from "./index.ts";
-import { spawnWindowsHelper } from "./windows-process.ts";
+import { spawnWindowsHelper } from "./helper.ts";
 import { deferred, ids, target } from "./testing/support.ts";
 import { windowsFakeOverrides } from "./testing/support.ts";
 async function fixture(env: NodeJS.ProcessEnv = {}) {
