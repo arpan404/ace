@@ -73,6 +73,11 @@ export default defineConfig({
       "packages/accounts/src/usage-sources/read.test.ts",
       "packages/provider-kit/src/discovery/pi-profile.process.test.ts",
       "packages/history-import/src/profile-history.process.test.ts",
+      // Providers: Claude and Codex sessions
+      "packages/adapter-codex/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-session.process.test.ts",
+      "packages/adapter-claude/src/cmd-shim-metadata.process.test.ts",
+      "packages/adapter-claude/src/fork.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
