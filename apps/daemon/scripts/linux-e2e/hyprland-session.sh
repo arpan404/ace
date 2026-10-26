@@ -1,15 +1,15 @@
 # Sourced by the Linux e2e runners (apps/daemon/scripts/linux-e2e/run.sh and
-# apps/desktop/scripts/linux-e2e.sh): Hyprland (Omarchy's desktop) and Sway sessions. Each
-# runs inside the runner's dbus-run-session with a private runtime dir, so its Wayland socket,
-# portals and PipeWire are its own. Xwayland stays off: these sessions run native Wayland apps
-# only, and an Xwayland server would claim a shared X display number.
+# apps/desktop/scripts/linux-e2e.sh): a Hyprland session (Omarchy's desktop). It runs inside
+# the runner's dbus-run-session with a private runtime dir, so its Wayland socket, portals and
+# PipeWire are its own. Xwayland stays off: the session runs native Wayland apps only, and an
+# Xwayland server would claim a shared X display number.
 #
 # Hyprland needs a KMS device: hyprland_device loads vkms (a virtual display; Mesa renders in
-# software) and libseat's noop backend opens it without a seat daemon. Sway uses wlroots'
-# headless backend. The screen-sharing chooser is portal-picker.sh (test-only).
+# software) and libseat's noop backend opens it without a seat daemon. The screen-sharing
+# chooser is portal-picker.sh (test-only).
 #
 # The sourcing script defines wait_for <seconds> <command...> and exports $logs and $root.
-wlroots_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+session_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Waits for a compositor's socket and exposes it as <name> for the session's clients.
 compositor_socket() { compgen -G "$XDG_RUNTIME_DIR/wayland-[0-9]" >/dev/null; }
@@ -21,9 +21,9 @@ wayland_socket() { # <name>
   export WAYLAND_DISPLAY=$1
 }
 
-wlroots_env() { # <XDG_CURRENT_DESKTOP>
+hyprland_env() {
   unset DISPLAY
-  export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=$1 GDK_BACKEND=wayland
+  export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=Hyprland GDK_BACKEND=wayland
   export QT_QPA_PLATFORM=wayland ACE_E2E_PICKER_CHOICE=$XDG_RUNTIME_DIR/ace-e2e-picker
   # GTK 4's Vulkan renderer crashes on software Vulkan (lavapipe) over vkms; real GPUs are fine.
   export GSK_RENDERER=cairo
@@ -32,13 +32,13 @@ wlroots_env() { # <XDG_CURRENT_DESKTOP>
   wireplumber >"$logs/wireplumber.log" 2>&1 &
 }
 
-# What every wlroots-style session shares once its compositor is up: the session bus learns
-# the display, then the AT-SPI bus, the desktop's own bar, notifications and idle daemon (as
-# Omarchy starts them; they must never reach an agent or cover the app under test).
-wlroots_shell() {
+# Once the compositor is up: the session bus learns the display, then the AT-SPI bus, the
+# desktop's own bar, notifications and idle daemon (as Omarchy starts them; they must never
+# reach an agent or cover the app under test).
+hyprland_shell() {
   dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE \
     XDG_CURRENT_DESKTOP GDK_BACKEND GSK_RENDERER QT_QPA_PLATFORM XDG_DATA_DIRS XDG_CONFIG_HOME XDG_DATA_HOME \
-    HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK ACE_E2E_PICKER_CHOICE >/dev/null 2>&1 || true
+    HYPRLAND_INSTANCE_SIGNATURE ACE_E2E_PICKER_CHOICE >/dev/null 2>&1 || true
   /usr/libexec/at-spi-bus-launcher --launch-immediately >"$logs/at-spi.log" 2>&1 &
   sleep 1
   waybar >"$logs/waybar.log" 2>&1 &
@@ -65,7 +65,7 @@ hyprland_portal() { # <prefix>
 # Starts Hyprland on the vkms device (see hyprland_device) with one <width>x<height> monitor
 # at scale 1, then the desktop's shell.
 hyprland_session() { # <size>
-  wlroots_env Hyprland
+  hyprland_env
   local config=$XDG_CONFIG_HOME/hypr
   mkdir -p "$config"
   cat >"$config/hyprland.conf" <<EOF
@@ -88,7 +88,7 @@ animations {
 EOF
   cat >"$config/xdph.conf" <<EOF
 screencopy {
-  custom_picker_binary = $wlroots_dir/portal-picker.sh
+  custom_picker_binary = $session_dir/portal-picker.sh
 }
 EOF
   printf 'general {\n  lock_cmd = true\n}\n' >"$config/hypridle.conf"
@@ -98,39 +98,7 @@ EOF
   HYPRLAND_INSTANCE_SIGNATURE=$(ls "$XDG_RUNTIME_DIR/hypr")
   export HYPRLAND_INSTANCE_SIGNATURE
   [ -z "${ACE_E2E_XDPH_PREFIX:-}" ] || hyprland_portal "$ACE_E2E_XDPH_PREFIX"
-  wlroots_shell
-}
-
-# Starts Sway on wlroots' headless backend with one <width>x<height> output at scale 1, then
-# the desktop's shell.
-sway_session() { # <size>
-  wlroots_env sway
-  local config=$XDG_CONFIG_HOME/sway
-  mkdir -p "$config" "$XDG_CONFIG_HOME/xdg-desktop-portal-wlr"
-  cat >"$config/config" <<EOF
-output HEADLESS-1 resolution $1 position 0 0
-xwayland disable
-EOF
-  cat >"$XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config" <<EOF
-[screencast]
-chooser_type=dmenu
-chooser_cmd=$wlroots_dir/portal-picker.sh wlr
-EOF
-  WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
-    sway -c "$config/config" >"$logs/sway.log" 2>&1 &
-  wayland_socket ace-hypr-sway-0
-  SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -n 1)
-  export SWAYSOCK
-  wlroots_shell
-}
-
-# What each compositor knows about its windows, for the logs after a run.
-wlroots_windows() { # <hyprland|sway>
-  if [ "$1" = hyprland ]; then
-    hyprctl clients >"$logs/clients.txt" 2>&1 || true
-  else
-    swaymsg -t get_tree >"$logs/tree.json" 2>&1 || true
-  fi
+  hyprland_shell
 }
 
 # Outside the session: a KMS device Hyprland may open (vkms, made once, opened to this user).

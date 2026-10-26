@@ -102,7 +102,7 @@ async function main() {
 /**
  * Every native file in the release must run on the target: the right architecture (a host
  * `descriptor.node` or guardian copied into another target fails only on the user's machine)
- * and, on Linux, nothing newer than the glibc 2.31 floor.
+ * and, on Linux, nothing newer than the glibc 2.36 floor.
  */
 async function assertTargetNatives(root: string, target: string) {
   const [platform, arch] = target.split("-");

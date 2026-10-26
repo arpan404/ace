@@ -32,7 +32,7 @@ export function phoneScreenSessions(
       awaitingChoice: view.awaitingChoice,
       /** Watch only: a whole display captured without a sharing dialog, or a desktop that shares without input. */
       viewOnly: view.viewOnly,
-      /** Why that desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway). */
+      /** Why that desktop lets the person watch but not control (Linux on KDE and Hyprland). */
       watchOnlyReason: view.watchOnlyReason ?? "",
       /** A screen shared in the machine's dialog: the person's to control, never an agent's. */
       personOnly: view.personOnly,
