@@ -471,6 +471,9 @@ export class MachineChildren implements RemoteChildren {
     const outcome = outcomeOf(view.state);
     const result = view.result ?? "";
     const key = `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`;
+    // The same settle read again after a reopen that ran nothing: its parent already has it, so
+    // it is delivered again in the ledger only, and the poll can go quiet.
+    if (this.outbox.wasSent(key)) return this.ledger.markResultDelivered(row.id);
     this.outbox.queue({
       key,
       child: row.id,

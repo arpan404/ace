@@ -54,6 +54,14 @@ export class ChildOutbox {
       )
       .map((row) => Entry.parse(row));
   }
+  /** True once the entry named `key` reached its parent. */
+  wasSent(key: string): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db.prepare("SELECT 1 FROM machine_child_outbox WHERE key=? AND sent=1").get(key),
+      ),
+    );
+  }
   hasUnsent(): boolean {
     return Boolean(
       this.store.atomic((db) =>

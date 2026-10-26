@@ -5,6 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import { AgentId, ThreadId, type MachineMessage, type MachineThreadView } from "@ace/protocol";
 import { Store } from "@ace/daemon";
 import { MachineChildren } from "./children.ts";
+import { RECHECK_POLLS } from "./child-recheck.ts";
 import { RequestMirror } from "./mirror.ts";
 
 const homes: string[] = [];
@@ -16,6 +17,7 @@ afterEach(() => {
 
 const parent = ThreadId.parse("parent");
 const POLL_MS = 50;
+const HOUR = 60 * 60 * 1000;
 const working: Partial<MachineThreadView> = {
   state: "working",
   status: { state: "working", agents: 1 },
@@ -197,4 +199,25 @@ it("an answer the store could not save is not lost: the message is sent again an
   await h.fire();
   expect(h.state(id)).toBe("done");
   expect(h.delivered).toEqual([expect.stringContaining("Follow-up done.")]);
+});
+
+it("an unchanged result after a follow-up that never ran is not repeated, and polling goes quiet", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("First pass done."));
+  await h.fire();
+  expect(h.delivered).toHaveLength(1);
+  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+
+  // A follow-up its machine refused: the child reopens, then reads the same result again.
+  h.children.send(id, message("refused"))(true);
+  await h.fire();
+  await h.fire();
+  expect(h.state(id)).toBe("done");
+  expect(h.delivered).toHaveLength(1);
+  // Back at the slow re-check pace, and after the re-check window, no polling at all.
+  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+  h.clock.now += 25 * HOUR;
+  await h.fire();
+  expect(h.timers).toEqual([]);
 });
