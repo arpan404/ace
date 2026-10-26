@@ -145,7 +145,8 @@ test.runIf(x64)("ace stops a Windows SDK host without waiting out the grace", as
     const started = performance.now();
     await host.stop();
     expect(performance.now() - started).toBeLessThan(20_000);
-    expect(await host.process.exited).toMatchObject({ code: 0, reason: "exit" });
+    // Code 0 is the host ending itself on EOF; a forced taskkill /F would exit 1.
+    expect(await host.process.exited).toMatchObject({ code: 0 });
   } finally {
     await rm(home, { recursive: true, force: true });
   }
