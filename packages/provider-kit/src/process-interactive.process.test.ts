@@ -95,6 +95,8 @@ describe("Windows interactive login", () => {
       }),
     );
     expect(await proc.exited).toEqual({ code: 0, signal: null, reason: "exit" });
+    expect(tree.calls).toHaveLength(1);
+    expect(tree.calls[0]?.force).toBe(true);
   });
 
   it("stops the tree gracefully, then forces after the grace", async () => {
@@ -119,8 +121,8 @@ describe("Windows interactive login", () => {
     const exit = await proc.stop({ graceMs: 50 });
     expect(exit).toMatchObject({ reason: "stopped" });
     expect(await proc.exited).toMatchObject({ reason: "stopped" });
-    // The stand-in taskkill signals, so the forced stop shows as SIGKILL.
-    expect(exit).toMatchObject({ signal: "SIGKILL" });
+    expect(tree.calls[0]).toMatchObject({ force: false });
+    expect(tree.calls.some((call) => call.force)).toBe(true);
   });
 
   it("routes batch login entrypoints through cmd.exe with inherited stdio", async () => {
@@ -164,7 +166,7 @@ describe("Windows interactive login", () => {
     expect(await proc.exited).toMatchObject({ reason: "spawn-error" });
   });
 
-  it("releases its Windows job when the login ends", async () => {
+  it("joins the Windows job and leaves it when the login ends", async () => {
     const tree = killTree(false);
     const job = fakeJob();
     const proc = track(
@@ -178,6 +180,7 @@ describe("Windows interactive login", () => {
       }),
     );
     expect(await proc.exited).toMatchObject({ code: 0, reason: "exit" });
+    expect(job.assigned).toHaveLength(1);
     expect(job.isDisposed()).toBe(true);
   });
 
@@ -201,10 +204,8 @@ describe("Windows interactive login", () => {
       }),
     );
     await waitForFile(ready);
-    expect(await proc.stop({ graceMs: 50 })).toMatchObject({
-      reason: "stopped",
-      signal: "SIGKILL",
-    });
+    expect(await proc.stop({ graceMs: 50 })).toMatchObject({ reason: "stopped" });
+    expect(tree.calls.some((call) => call.force)).toBe(true);
   });
 });
 
