@@ -39,9 +39,16 @@ export async function startScreen({ config, options, resources, services, store 
       : undefined);
   if (!manager) return;
   const settings = new ScreenSettings(store);
+  // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
+  // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
+  // only a helper that has connected to the accessibility bus turns it on.
+  let wakeAccessibility: (() => void) | undefined;
   manager.configureAccess({
     enabled: () => settings.enabled(),
-    enable: (enabled) => settings.enable(enabled),
+    enable: (enabled) => {
+      settings.enable(enabled);
+      if (enabled) wakeAccessibility?.();
+    },
     // Agent MCP notices are emitted by the result observer, covering pre-dispatch failures too.
     audit() {},
   });
@@ -78,6 +85,13 @@ export async function startScreen({ config, options, resources, services, store 
           })
         : undefined;
   if (!computer) return;
+  if (session) {
+    wakeAccessibility = () => {
+      // No session yet, or none at all: the first look tries again.
+      computer.request("hello", {}).catch(() => {});
+    };
+    if (settings.enabled()) wakeAccessibility();
+  }
   resources.own(() => computer.close());
   services.computer = computer;
   if (process.platform === "darwin") {

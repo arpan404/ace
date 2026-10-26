@@ -198,6 +198,25 @@ describe("header and footer", () => {
     expect(stateHeader(locked)).toContain("Screenshots, activate and posted input are unavailable");
     expect(stateFooter(locked, false)).not.toContain("Activating");
   });
+
+  it("tell the agent why an app shows only its window and how to fix it", () => {
+    const note = "Chrome was started without accessibility. Ask the person to quit Chrome.";
+    expect(stateHeader(state([window], { accessibilityNote: note }), "linux")).toContain(note);
+  });
+
+  it("on Linux say the screen is locked and that accessibility still works", () => {
+    const header = stateHeader(state([window], { screenLocked: true }), "linux");
+    expect(header).toContain(
+      "The screen is locked. Controls exposed through accessibility still work",
+    );
+    expect(header).not.toContain("Mac");
+    const away = stateHeader(
+      state([], { sessionState: "unavailable", window: undefined, windows: [] }),
+      "linux",
+    );
+    expect(away).toContain("another user’s session");
+    expect(away).not.toContain("Mac");
+  });
 });
 
 describe("unavailable desktop controls", () => {

@@ -76,8 +76,8 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 
 ## Linux packages
 
-Linux packages are built per architecture in a Debian 11 container on a Linux host of that
-architecture, so they run on Ubuntu 20.04+ and Debian 11+ ([ADR 0093](adr/0093-linux-release.md)).
+Linux packages are built per architecture in a Debian 12 container on a Linux host of that
+architecture, so they run on Ubuntu 24.04+, Debian 12+, Fedora and Arch ([ADR 0093](adr/0093-linux-release.md)).
 `.github/workflows/release.yml` does this on GitHub's x64 and arm64 runners and uploads each
 staged folder as `ace-desktop-linux-<arch>`; locally, follow
 [tools/release](../tools/release/README.md). Either way it is the same `release:build`, which

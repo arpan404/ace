@@ -25,7 +25,7 @@ export type { ComputerRequestTiming } from "./computer/client.ts";
 export { uiReadShape, uiReadRequest, perAction } from "./tool-schemas.ts";
 export type { Scheduler } from "./runtime.ts";
 
-export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";
+export { installedLinuxHelper } from "./linux.ts";
 export {
   graphicalSessionEnvironment,
   parseManagerEnvironment,

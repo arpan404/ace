@@ -1,28 +1,21 @@
 use crate::{
+    keysym::keysym,
     protocol::{Fault, Request, Result, internal},
     runtime::Runtime,
-    x11::keysym,
 };
 use serde_json::{Value, json};
 impl Runtime {
-    pub(crate) async fn click(&self, x: f64, y: f64, button: &str, person: bool) -> Result<()> {
-        if let (Some(backend), Some(w)) = (&self.x, &self.window) {
-            backend.click(w, x, y, button, person)
-        } else {
-            let p = self.portal.as_ref().ok_or_else(|| internal("No portal"))?;
-            p.motion(x, y).await?;
-            p.button(button, true).await?;
-            p.button(button, false).await
-        }
+    pub(crate) async fn click(&self, x: f64, y: f64, button: &str) -> Result<()> {
+        let p = &self.portal;
+        p.motion(x, y).await?;
+        p.button(button, true).await?;
+        p.button(button, false).await
     }
     pub(crate) async fn key(&self, key: &str, modifiers: &[String]) -> Result<()> {
-        if let (Some(x), Some(w)) = (&self.x, &self.window) {
-            return x.key(w, key, modifiers);
-        }
         if modifiers.len() > 4 {
             return Err(Fault::new("bounds", "Modifier limit"));
         }
-        let p = self.portal.as_ref().ok_or_else(|| internal("No portal"))?;
+        let p = &self.portal;
         let symbol = keysym(key)?;
         let mut held = Vec::new();
         for m in modifiers {
@@ -54,8 +47,8 @@ impl Runtime {
     }
     /// A person's input to a shared Wayland window waits until that window is in front.
     async fn front_for_person(&self, r: &Request) -> Result<()> {
-        let (Some(p), Some(ui), true, false, true) =
-            (&self.portal, &self.ui, r.person, self.view_only, self.ui_active)
+        let p = &self.portal;
+        let (Some(ui), true, false, true) = (&self.ui, r.person, self.view_only, self.ui_active)
         else {
             return Ok(());
         };
@@ -71,20 +64,11 @@ impl Runtime {
         match r.op.as_str() {
             "pointer.move" => {
                 let (px, py) = coordinates(r)?;
-                if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.motion(w, px, py, r.person)?;
-                } else {
-                    self.portal
-                        .as_ref()
-                        .ok_or_else(|| internal("No portal"))?
-                        .motion(px, py)
-                        .await?;
-                }
+                self.portal.motion(px, py).await?;
             }
             "pointer.click" => {
                 let (x, y) = coordinates(r)?;
-                self.click(x, y, r.button.as_deref().unwrap_or("left"), r.person)
-                    .await?;
+                self.click(x, y, r.button.as_deref().unwrap_or("left")).await?;
             }
             "pointer.drag" => {
                 let (px, py) = coordinates(r)?;
@@ -93,24 +77,20 @@ impl Runtime {
                     r.to_y.ok_or_else(|| Fault::new("bounds", "Missing toY"))?,
                 );
                 let duration = std::time::Duration::from_millis(r.duration_ms.unwrap_or(300).clamp(1, 10_000));
-                if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.drag(w, (px, py), (tx, ty), duration, r.person)?;
-                } else {
-                    let p = self.portal.as_ref().ok_or_else(|| internal("No portal"))?;
-                    p.motion(px, py).await?;
-                    p.button("left", true).await?;
-                    let mut moved = Ok(());
-                    for step in 1..=12u32 {
-                        tokio::time::sleep(duration / 12).await;
-                        let t = f64::from(step) / 12.;
-                        moved = p.motion(px + (tx - px) * t, py + (ty - py) * t).await;
-                        if moved.is_err() {
-                            break;
-                        }
+                let p = &self.portal;
+                p.motion(px, py).await?;
+                p.button("left", true).await?;
+                let mut moved = Ok(());
+                for step in 1..=12u32 {
+                    tokio::time::sleep(duration / 12).await;
+                    let t = f64::from(step) / 12.;
+                    moved = p.motion(px + (tx - px) * t, py + (ty - py) * t).await;
+                    if moved.is_err() {
+                        break;
                     }
-                    let released = p.button("left", false).await;
-                    moved.and(released)?;
                 }
+                let released = p.button("left", false).await;
+                moved.and(released)?;
             }
             "key.press" => {
                 self.key(
@@ -131,16 +111,13 @@ impl Runtime {
                 }
                 // The person's typing, or typing without the app's accessibility, goes through the
                 // portal's keyboard key by key, wherever the window's focus is.
-                if let (Some(p), true) = (&self.portal, r.person || !self.ui_active) {
+                if r.person || !self.ui_active {
+                    let p = &self.portal;
                     for c in text.chars() {
                         let symbol = unicode_keysym(c);
                         p.key_symbol(symbol, true).await?;
                         p.key_symbol(symbol, false).await?;
                     }
-                    return Ok(json!({}));
-                }
-                if let (Some(x), Some(w), false, true) = (&self.x, &self.window, self.ui_active, r.person) {
-                    x.type_text(w, text)?;
                     return Ok(json!({}));
                 }
                 self.check_ui()?;
@@ -154,15 +131,7 @@ impl Runtime {
                 let dx = r.dx.unwrap_or(0.);
                 let dy = r.dy.unwrap_or(0.);
                 let at = r.x.zip(r.y);
-                if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.scroll(w, at, dx, dy, r.person)?;
-                } else {
-                    self.portal
-                        .as_ref()
-                        .ok_or_else(|| internal("No portal"))?
-                        .scroll(at, dx, dy)
-                        .await?;
-                }
+                self.portal.scroll(at, dx, dy).await?;
             }
             _ => return Err(Fault::new("not_supported", "Unknown input")),
         }
@@ -203,7 +172,7 @@ impl Runtime {
     }
 }
 
-/// The X keysym for a character: Latin-1 as itself, the rest as Unicode keysyms; line breaks
+/// The keysym for a character: Latin-1 as itself, the rest as Unicode keysyms; line breaks
 /// and tabs as the keys that type them.
 pub(crate) fn unicode_keysym(c: char) -> u32 {
     match c {

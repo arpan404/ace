@@ -1,5 +1,6 @@
 import { Screen } from "@/features/shell/index.ts";
-import { ProjectsEmptyState } from "@/features/projects/index.ts";
+import { useProjectDialogs } from "@/features/projects/index.ts";
+import { Button } from "@/components/ui/button.tsx";
 import { readDraft } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { preparation, preparationKey } from "./preparations.ts";
@@ -13,6 +14,7 @@ export function UnavailablePreparation(props: {
   issue?: string | undefined;
 }) {
   const { storage } = useLayout();
+  const projects = useProjectDialogs();
   const key = preparationKey(
     props.host,
     props.project,
@@ -37,7 +39,9 @@ export function UnavailablePreparation(props: {
             ))}
           </ul>
         )}
-        <ProjectsEmptyState />
+        <Button className="mt-4" onClick={() => projects.open({ kind: "add", tab: "sources" })}>
+          Add a project
+        </Button>
       </div>
     </Screen>
   );

@@ -69,7 +69,8 @@ export function computerToolkit(
   options: ComputerToolkitOptions = {},
 ): Toolkit {
   const memory = new ComputerMemory();
-  const computerSchemas = computerSchemasFor(options.platform ?? "macos");
+  const platform = options.platform ?? "macos";
+  const computerSchemas = computerSchemasFor(platform);
   const computerToolMetadata = computerToolMetadataFor(options.platform ?? "macos");
   const personBlocked = async () => (await options.blockedApps?.()) ?? [];
 
@@ -86,7 +87,7 @@ export function computerToolkit(
       : outlineBody(lines, windowId, view.full ? undefined : memory.baseline(key));
     if (!view.find) memory.remember(key, baselineOf(lines, windowId));
     const note = appNote(state.app.bundleId);
-    const parts = [stateHeader(state)];
+    const parts = [stateHeader(state, platform)];
     if (note && memory.firstNote(key)) parts.push(`Note: ${note}`);
     parts.push(body.text || "(the window exposes no accessible elements)");
     if (body.kind === "unchanged" && view.ran && sentInput(view.ran))
@@ -187,7 +188,10 @@ export function computerToolkit(
       if (pictureOnly) {
         const picture = screenshotNote(state);
         return {
-          content: withPicture(state, [stateHeader(state), picture].filter(Boolean).join("\n\n")),
+          content: withPicture(
+            state,
+            [stateHeader(state, platform), picture].filter(Boolean).join("\n\n"),
+          ),
         };
       }
       return {
