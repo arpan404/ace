@@ -40,12 +40,24 @@ export interface PictureRendererPorts<P extends LivePicture> {
    * is drawn as it decodes.
    */
   nextFrame?(draw: () => void): () => void;
+  /**
+   * Runs `run` after `ms`; the result cancels it. Given, a decoder that takes pictures but
+   * answers none of them is restarted from a fresh keyframe, and a keyframe asked for is asked
+   * again while it doesn't come, even when the source has gone still and sends nothing more.
+   */
+  after?(ms: number, run: () => void): () => void;
+  /** The decoder stopped answering through every retry: the view says the live view stopped. */
+  stalled?(): void;
 }
 
 /** Decoder errors in a row without a picture before the codec counts as unsupported here. */
 const failureLimit = 3;
 /** Pictures in the decoder whose details are kept for its output: about a second at 60 fps. */
 const submittedLimit = 64;
+/** How long the decoder may hold pictures without handing any back before it is restarted. */
+export const decodeDeadlineMs = 1000;
+/** How long a keyframe asked for may take before it is asked for again. */
+export const keyframeRetryMs = 1000;
 
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
@@ -82,6 +94,39 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     return found;
   };
   const forget = () => submitted.clear();
+  /** One timer: a deadline for the decoder's next picture, or a wait for an asked keyframe. */
+  let timer: { kind: "output" | "keyframe"; cancel: () => void } | undefined;
+  /** The picture the outstanding keyframe request was acked with. */
+  let asking: P | undefined;
+  const disarm = () => {
+    timer?.cancel();
+    timer = undefined;
+  };
+  const arm = (kind: "output" | "keyframe") => {
+    const after = ports.after;
+    if (!after || closed) return;
+    disarm();
+    const ms = kind === "output" ? decodeDeadlineMs : keyframeRetryMs;
+    timer = { kind, cancel: after(ms, () => due(kind)) };
+  };
+  const due = (kind: "output" | "keyframe") => {
+    timer = undefined;
+    if (closed || unsupported) return;
+    if (kind === "keyframe") {
+      if (!needKey || !asking) return;
+      ack(asking, true);
+      arm("keyframe");
+      return;
+    }
+    // The decoder holds pictures and has answered none in time: start it again.
+    let newest: P | undefined;
+    for (const picture of submitted.values()) newest = picture;
+    if (!newest) return;
+    video?.reset();
+    forget();
+    if (++failures >= failureLimit) stall(newest);
+    else recover(newest);
+  };
   /** Deltas can't be decoded until a keyframe comes; `asked`: one was asked for. */
   let needKey = true;
   let asked = 0;
@@ -114,8 +159,10 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   const recover = (picture: P) => {
     needKey = true;
     asked = 1;
+    asking = picture;
     ports.pressure();
     ack(picture, true);
+    arm("keyframe");
   };
   const toVideo = (): VideoStream | undefined => {
     const factory = ports.decoder;
@@ -133,6 +180,9 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         const shown = take(picture.sequence);
         if (closed || !shown) return picture.close();
         failures = 0;
+        // Progress: a fresh deadline for what the decoder still holds, or none.
+        if (submitted.size) arm("output");
+        else if (timer?.kind === "output") disarm();
         const nextFrame = ports.nextFrame;
         if (nextFrame) {
           // Newest wins: a picture replaced before the refresh is freed undrawn, but acked.
@@ -160,16 +210,25 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     });
     return video;
   };
-  const giveUp = (picture: P) => {
+  const stop = (picture: P) => {
     ack(picture, false);
-    if (unsupported) return;
+    if (unsupported) return false;
     unsupported = true;
+    disarm();
     video?.close();
     video = undefined;
-    ports.fallback();
+    return true;
+  };
+  const giveUp = (picture: P) => {
+    if (stop(picture)) ports.fallback();
+  };
+  const stall = (picture: P) => {
+    if (stop(picture)) (ports.stalled ?? ports.fallback)();
   };
   const reset = () => {
     dropQueued();
+    disarm();
+    asking = undefined;
     video?.reset();
     forget();
     previous = -1;
@@ -208,14 +267,18 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       }
       needKey = false;
       asked = 0;
+      asking = undefined;
       latest = picture;
       submit(picture);
+      // A deadline for the decoder's answer, unless one already runs: new pictures don't move it.
+      if (timer?.kind !== "output") arm("output");
       decoder.receive({ ...picture, codedWidth: picture.width, codedHeight: picture.height });
     },
     /** Forget the decoder's place (a hidden page, a reconnect): the next keyframe starts over. */
     reset,
     close() {
       closed = true;
+      disarm();
       dropQueued();
       video?.close();
       video = undefined;

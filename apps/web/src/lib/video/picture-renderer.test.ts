@@ -228,3 +228,117 @@ test("a late picture from before a new capture is never shown with the new captu
   view.decoders.at(-1)?.output(1);
   expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 270, scale: 1 }]);
 });
+
+/** Timers the test runs by hand: `fire` runs every one still pending. */
+function manualTimers() {
+  let live: { run: () => void; ms: number }[] = [];
+  return {
+    after: (ms: number, run: () => void) => {
+      const timer = { run, ms };
+      live.push(timer);
+      return () => {
+        live = live.filter((candidate) => candidate !== timer);
+      };
+    },
+    fire() {
+      const due = live;
+      live = [];
+      for (const timer of due) timer.run();
+    },
+    get pending() {
+      return live.length;
+    },
+  };
+}
+
+/** A renderer whose decoder takes every chunk and never answers: no picture, no error. */
+function silentSetup() {
+  const timers = manualTimers();
+  const acks: { sequence: number; keyframe: boolean }[] = [];
+  const events: string[] = [];
+  let answers = false;
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: (handlers) => ({
+      configure: () => {},
+      decode: (chunk) => {
+        if (answers) handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} });
+      },
+      close: () => {},
+    }),
+    show: () => events.push("shown"),
+    ack: (target, keyframe) => acks.push({ sequence: target.sequence, keyframe }),
+    fallback: () => events.push("fallback"),
+    stalled: () => events.push("stalled"),
+    pressure: () => {},
+    after: timers.after,
+  });
+  return {
+    renderer,
+    timers,
+    acks,
+    events,
+    answer: () => {
+      answers = true;
+    },
+  };
+}
+
+test("a decoder that takes a picture but never answers is restarted from a fresh keyframe, without new pictures", async () => {
+  const view = silentSetup();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(2));
+  expect(view.acks).toEqual([]);
+  // The source goes still: nothing else arrives. The deadline alone asks for a keyframe.
+  view.timers.fire();
+  expect(view.acks).toEqual([{ sequence: 2, keyframe: true }]);
+  // The keyframe decodes this time.
+  view.answer();
+  await view.renderer.render(picture(3, { key: true }));
+  expect(view.events).toEqual(["shown"]);
+});
+
+test("a decoder that stays silent through every retry says the live view stopped", async () => {
+  const view = silentSetup();
+  for (let sequence = 1; sequence <= 3; sequence++) {
+    await view.renderer.render(picture(sequence, { key: true }));
+    view.timers.fire();
+  }
+  expect(view.events).toEqual(["stalled"]);
+  expect(view.timers.pending).toBe(0);
+});
+
+test("a keyframe request on a still source is asked again after a while, not only after more deltas", async () => {
+  const view = silentSetup();
+  view.answer();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(3));
+  expect(view.acks.at(-1)).toEqual({ sequence: 3, keyframe: true });
+  view.timers.fire();
+  expect(view.acks.at(-1)).toEqual({ sequence: 3, keyframe: true });
+  expect(view.acks.filter((ack) => ack.keyframe)).toHaveLength(2);
+  // The keyframe comes: nothing more is asked.
+  await view.renderer.render(picture(4, { key: true }));
+  view.timers.fire();
+  expect(view.acks.filter((ack) => ack.keyframe)).toHaveLength(2);
+});
+
+test("a hidden, reset or closed view never asks for recovery later", async () => {
+  const view = silentSetup();
+  await view.renderer.render(picture(1, { key: true }));
+  view.renderer.reset();
+  view.timers.fire();
+  await view.renderer.render(picture(2, { key: true }));
+  view.renderer.close();
+  view.timers.fire();
+  expect(view.acks).toEqual([]);
+  expect(view.events).toEqual([]);
+});
+
+test("a decoder that keeps answering is never interrupted by the deadline", async () => {
+  const view = silentSetup();
+  view.answer();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(2));
+  view.timers.fire();
+  expect(view.acks.filter((ack) => ack.keyframe)).toEqual([]);
+});

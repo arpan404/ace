@@ -13,6 +13,7 @@ import { webCodecsDecoder, type DecoderPreference } from "@/lib/video/codecs.ts"
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
+import { later } from "@/lib/later.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
@@ -23,6 +24,10 @@ import type { DeviceProblem } from "./use-devices.ts";
 const noDecoder: DeviceProblem = {
   message: "This browser can't decode H.264 video",
   hint: "Live views are video only. Open this device in a browser with WebCodecs H.264, such as current Chrome, Edge or Safari.",
+};
+const decoderStalled: DeviceProblem = {
+  message: "The live view stopped",
+  hint: "This browser's video decoder stopped answering. Open the device again.",
 };
 /**
  * Why the daemon refused this view's stream, in its own words: its hint names the fix (the
@@ -211,6 +216,10 @@ export function DeviceScreen(props: {
         latestStream.current?.decoder(preference, reason),
       ),
       nextFrame,
+      after: later,
+      stalled: () => {
+        if (!disposed) setUnavailable(decoderStalled);
+      },
       show,
       ack: (picture, keyframe) => {
         if (keyframe) latestStream.current?.keyframeAsked(Date.now());
