@@ -23,7 +23,6 @@ on:
       - packages/workspace/**
       - apps/daemon/src/local-files*
       - packages/preview/**
-      - packages/service/**
       - native/screen-helper-windows/**
       - packages/screen/**
       - packages/browser/**
@@ -272,9 +271,6 @@ jobs:
           ACE_VIDEO_LINK_REPORT_ONLY: "1"
           ACE_VIDEO_LINK_BASELINE_SECONDS: "10"
         run: node packages/browser/bench/video-link.ts
-
-      - name: Observe bounded stdin search performance
-        run: node packages/workspace/bench/ripgrep-input.ts
 
       - name: Native evidence summary
         if: always()

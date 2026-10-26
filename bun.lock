@@ -940,9 +940,6 @@
         "node-api-headers": "^1.9.0",
         "zod": "^4.6.5",
       },
-      "devDependencies": {
-        "@vscode/ripgrep": "1.18.0",
-      },
     },
     "tools/daemon-bench": {
       "name": "@ace/daemon-bench",
