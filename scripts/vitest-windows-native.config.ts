@@ -67,6 +67,12 @@ export default defineConfig({
       "packages/adapter-cursor/src/sdk-admission.process.test.ts",
       "packages/adapter-cursor/src/host-stop.process.test.ts",
       "packages/accounts/src/usage-sources/cursor-login.test.ts",
+      // Providers: accounts, usage, history
+      "packages/accounts/src/profile-accounts.process.test.ts",
+      "packages/accounts/src/usage-sources/profile-read.test.ts",
+      "packages/accounts/src/usage-sources/read.test.ts",
+      "packages/provider-kit/src/discovery/pi-profile.process.test.ts",
+      "packages/history-import/src/profile-history.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
