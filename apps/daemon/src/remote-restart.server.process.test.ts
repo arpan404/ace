@@ -40,12 +40,14 @@ it.runIf(process.platform === "win32")(
     const ticket = (fingerprint: string) =>
       accessRequest(remote, "/v1/tickets", { token: paired.token, fingerprint, method: "POST" });
     expect(SocketTicket.parse(await ticket(second.fingerprint)).ticket).toBeTruthy();
-    // A client pinned to another key drops the connection before sending its token.
-    await expect(ticket("0".repeat(64))).rejects.toThrow("Access transport unavailable");
+    // A client pinned to another key never sends its token.
+    await expect(ticket("0".repeat(64))).rejects.toThrow(/fingerprint mismatch/);
 
+    // The restarted daemon listens on a new local port (the test binds port 0).
+    const local = readFileSync(join(home, "daemon-endpoint"), "utf8");
     expect(
-      await accessRequest(origin, `/v1/devices/${paired.device.id}`, {
-        token: credential,
+      await accessRequest(local, `/v1/devices/${paired.device.id}`, {
+        token: readFileSync(second.tokenPath, "utf8"),
         method: "DELETE",
       }),
     ).toEqual({ revoked: true });
