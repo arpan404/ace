@@ -174,3 +174,38 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     viewer.bridge.close();
   }, 120_000);
 });
+
+// Windows draws ace's Chrome at device scale 1 where it has no GPU (`gpu-scale.ts`): the
+// picture is the page's own device pixels at that scale, held to the same sharpness bars.
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: a Retina viewer sees a still page, after a scroll too, as sharp as the page at the scale ace's Chrome draws",
+  async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.execute({ action: "resize", width: 659, height: 825 });
+    await f.evaluate(
+      `document.body.style.cssText = "font: 13px sans-serif"; document.body.innerHTML = ${JSON.stringify(prose)}; 1`,
+    );
+    const scale = Number(await f.evaluate("devicePixelRatio"));
+    const viewer = await localViewer(f);
+    for (let tries = 0; tries < 100 && !viewer.chunks.length; tries++) {
+      await f.evaluate(
+        `document.body.style.background = document.body.style.background ? "" : "#fff"; 1`,
+      );
+      await sleep(200);
+    }
+    await sleep(2_000);
+    const joined = await shownVersusPage(f, viewer.chunks);
+    expect([joined.width, joined.height]).toEqual([659 * scale, 825 * scale].map(Math.round));
+    expect(joined.psnr).toBeGreaterThan(34);
+    await f.execute({ action: "scroll", x: 0, y: 400 });
+    await sleep(2_000);
+    const after = (await shownVersusPage(f, viewer.chunks)).psnr;
+    // VP9 at a variable rate has no sharp still keyframe: it returns to the still page's level.
+    if (viewer.chunks.at(-1)?.codec.startsWith("vp09"))
+      expect(after).toBeGreaterThan(joined.psnr - 0.5);
+    else expect(after).toBeGreaterThan(37);
+    viewer.bridge.close();
+  },
+  120_000,
+);
