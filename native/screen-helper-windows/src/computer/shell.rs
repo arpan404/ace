@@ -77,6 +77,13 @@ fn enumerate() -> Vec<StartApp> {
                     CoTaskMemFree(Some(text.0 as *const _));
                     value
                 });
+            // Shortcuts that open a folder point at explorer.exe; they are not apps.
+            if target
+                .as_deref()
+                .is_some_and(|path| executable_id(path) == "explorer.exe")
+            {
+                continue;
+            }
             let id = match &target {
                 Some(path) if path.to_lowercase().ends_with(".exe") => executable_id(path),
                 // File Explorer's entry names the shell, not an executable.

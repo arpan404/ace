@@ -114,6 +114,21 @@ pub fn resolve(query: &str, candidates: &[Candidate]) -> CuResult<Candidate> {
             system_component_message(query.trim()),
         ));
     }
+    // An exact name wins even when another entry for the same app came first (a Start
+    // shortcut that opens a folder also points at explorer.exe).
+    if let Some(found) = candidates
+        .iter()
+        .filter(|c| !is_system_component(&c.id))
+        .find(|c| c.name.to_lowercase() == wanted)
+    {
+        let running = candidates
+            .iter()
+            .any(|c| c.running && c.id.eq_ignore_ascii_case(&found.id));
+        return Ok(Candidate {
+            running,
+            ..found.clone()
+        });
+    }
     let mut unique: Vec<&Candidate> = Vec::new();
     for candidate in candidates {
         if is_system_component(&candidate.id) {
@@ -252,6 +267,21 @@ mod tests {
             "Calculator"
         );
         assert_eq!(resolve("studio", &apps()).unwrap().id, "code.exe");
+    }
+
+    #[test]
+    fn an_exact_name_finds_its_app_behind_another_entry_with_the_same_id() {
+        let entries = vec![
+            app("explorer.exe", "Windows Software Development Kit", false),
+            app("explorer.exe", "File Explorer", false),
+            app("explorer.exe", "Windows Explorer", true),
+        ];
+        let found = resolve("file explorer", &entries).unwrap();
+        assert_eq!(
+            (found.id.as_str(), found.name.as_str()),
+            ("explorer.exe", "File Explorer")
+        );
+        assert!(found.running);
     }
 
     #[test]
