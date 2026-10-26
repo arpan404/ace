@@ -53,7 +53,7 @@ test.runIf(process.platform === "win32")(
       HOME: bashHome,
       PI_CODING_AGENT_DIR: undefined,
     };
-    expect(await discoverPiStatus({ executable, env, platform: "win32" })).toMatchObject({
+    expect(await discoverPiStatus({ executable, env })).toMatchObject({
       installed: true,
       auth: "logged_in",
     });

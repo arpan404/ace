@@ -79,14 +79,10 @@ const Endpoint = z
       !url.search &&
       !url.hash,
   );
-export async function daemonCursorAuth(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform = process.platform,
-): Promise<CursorCliAuth> {
-  const root = resolveDaemonHome(
-    platform === "win32" ? profileHome(env, homedir) : (env.HOME ?? homedir()),
-    env.ACE_HOME,
-  );
+export async function daemonCursorAuth(env: NodeJS.ProcessEnv): Promise<CursorCliAuth> {
+  // On Windows the daemon's home follows USERPROFILE (os.homedir()), never Git Bash's HOME.
+  if (process.platform === "win32") env = { ...env, HOME: profileHome(env, homedir) };
+  const root = resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME);
   const endpoint = Endpoint.parse(await readFile(join(root, "daemon-endpoint"), "utf8"));
   endpoint.protocol = "ws:";
   const token = z

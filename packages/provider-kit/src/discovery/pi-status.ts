@@ -12,29 +12,18 @@ import { piCredentialProviders } from "./pi-sdk.ts";
 
 /** Only non-secret settings select the native readiness check. Never open Pi's auth files. */
 export async function discoverPiStatus(
-  options: Omit<DiscoveryOptions, "overrides"> & {
-    executable?: string;
-    platform?: NodeJS.Platform;
-  } = {},
+  options: Omit<DiscoveryOptions, "overrides"> & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const result = await discoverPi(options);
   if (!result.installed || !result.path) return result;
   const env = { ...process.env, ...options.env };
+  // Pi's home is `os.homedir()`, which reads USERPROFILE on Windows, never HOME.
+  if (process.platform === "win32")
+    env.PI_CODING_AGENT_DIR ??= join(env.USERPROFILE || homedir(), ".pi", "agent");
   let provider: string | undefined;
   try {
     const file = await open(
-      join(
-        env.PI_CODING_AGENT_DIR ??
-          join(
-            // Pi's home is `os.homedir()`, which reads USERPROFILE on Windows, never HOME.
-            (options.platform ?? process.platform) === "win32"
-              ? env.USERPROFILE || homedir()
-              : (env.HOME ?? homedir()),
-            ".pi",
-            "agent",
-          ),
-        "settings.json",
-      ),
+      join(env.PI_CODING_AGENT_DIR ?? join(env.HOME ?? homedir(), ".pi", "agent"), "settings.json"),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
