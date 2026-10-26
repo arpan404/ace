@@ -10,6 +10,7 @@ import {
   fingerUp,
   noFingers,
   simulatorFinger,
+  type FingerMessage,
   type FingerPoint,
   type FingerStep,
   type HeldFingers,
@@ -70,6 +71,10 @@ export class SimulatorInput {
     dimensions(): { width: number; height: number };
     orientation(): string;
     send(tag: number, payload: unknown, cleanup?: boolean): void;
+    /**
+     * Touches through Xcode's own input service when it can; false sends the touch to serve-sim.
+     */
+    touch?(message: FingerMessage): boolean;
   };
   constructor(options: SimulatorInput["options"]) {
     this.options = options;
@@ -96,7 +101,8 @@ export class SimulatorInput {
   /** Sends a finger step's messages; lifting fingers is never held back by input backlog. */
   private apply(epoch: AbortController, step: FingerStep) {
     for (const message of step.messages)
-      this.options.send(message.tag, message.payload, message.payload.type === "end");
+      if (!this.options.touch?.(message))
+        this.options.send(message.tag, message.payload, message.payload.type === "end");
     this.held = { fingers: step.held, epoch };
   }
   /** Fingers held under this control epoch; a revoked epoch's fingers were already lifted. */

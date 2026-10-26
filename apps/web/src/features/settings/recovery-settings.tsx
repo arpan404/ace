@@ -8,6 +8,7 @@ import { settingKeys, type FollowUp, type LimitPolicy } from "./data/setting-key
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { ChildLimitRow } from "./child-limit.tsx";
 
 const followUps: { value: FollowUp; label: string }[] = [
   { value: "queue", label: "Queue" },
@@ -22,8 +23,8 @@ const limitPolicies: { value: LimitPolicy; label: string }[] = [
 ];
 
 /**
- * How threads carry on: messages sent while the agent works, and what a thread does when its
- * account runs out. Daemon settings, so every device follows them. Work a restart interrupts
+ * How threads carry on: messages sent while the agent works, how many delegated agents run at
+ * once, and what a thread does when its account runs out. Daemon settings, so every device follows them. Work a restart interrupts
  * never continues by itself, so it has no setting.
  */
 export function RecoverySettings() {
@@ -63,6 +64,7 @@ export function RecoverySettings() {
           />
         </DaemonSlot>
       </SettingRow>
+      <ChildLimitRow />
     </SettingSection>
   );
 }

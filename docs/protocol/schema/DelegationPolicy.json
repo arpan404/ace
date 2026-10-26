@@ -10,7 +10,6 @@
       "type": "integer"
     },
     "maxConcurrent": {
-      "default": 4,
       "maximum": 64,
       "minimum": 1,
       "type": "integer"

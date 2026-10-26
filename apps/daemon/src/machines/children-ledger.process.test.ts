@@ -38,6 +38,7 @@ function ledger() {
     schedule: () => () => {},
     pollMs: 50,
     status: async () => (view ? [view] : []),
+    resend: async () => "taken" as const,
     mirror: new RequestMirror({
       store,
       engine: () => undefined,

@@ -378,7 +378,9 @@ it("a Simulator that can only make JPEG refuses the live view and names serve-si
   await client.request({ op: "start", deviceId, fps: 60 });
   await expect(client.request({ op: "subscribe", deviceId })).rejects.toMatchObject({
     code: "tool_missing",
-    hint: expect.stringContaining("Download device tools in Devices for ace's serve-sim 0.1.48"),
+    hint: expect.stringContaining(
+      "Download device tools in Devices for ace's serve-sim 0.1.49-beta.139.1",
+    ),
   });
   await expect(
     client.request({

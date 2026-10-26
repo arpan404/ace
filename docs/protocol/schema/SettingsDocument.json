@@ -22,6 +22,18 @@
           },
           "type": "object"
         },
+        "agents.maxRunningChildren": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "automations.enabled": {
           "type": "boolean"
         },

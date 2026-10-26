@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { z } from "zod";
 import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
-import { hashFile } from "@ace/service";
+import { hashFile, releaseArchiveLimits } from "@ace/service";
 import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
 import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
@@ -66,6 +66,10 @@ async function main() {
       "\n",
   );
   const paths = await releaseFiles(root);
+  // files.json and release.json are added too; the updater's budget counts every entry.
+  process.stdout.write(
+    `[release] ${paths.length + 1} of ${releaseArchiveLimits.entries} archive entries used\n`,
+  );
   const checksums: Record<string, string> = {};
   for (const path of paths) {
     await chmod(

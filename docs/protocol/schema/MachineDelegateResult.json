@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/MachineDelegateResult.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "queued": {
+      "type": "boolean"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

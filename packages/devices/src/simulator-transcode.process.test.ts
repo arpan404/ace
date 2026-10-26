@@ -70,7 +70,7 @@ it("serve-sim's stream passes through for a good link and is re-encoded smaller 
   await mkdir(join(home, "transcoder"));
   const log = join(home, "transcoder.log");
   const transcoder = await nodeBinary(join(home, "transcoder"), "transcode", fakeTranscoder(log));
-  await fakeServeSim(home, "0.1.48", udid);
+  await fakeServeSim(home, "0.1.49-beta.139.1", udid);
   const platform = new DevicePlatform({
     platform: "darwin",
     home,
