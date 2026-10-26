@@ -35,38 +35,6 @@ pub struct Accessibility {
     pub(crate) refs: crate::references::References<Object>,
     pub(crate) scope: Option<Object>,
 }
-/// Which of an app's accessible windows is the X window at `bounds` (`None` where a window's
-/// extents couldn't be read). By screen position first: the window, or its frame with the
-/// decorations around it. GTK 4 doesn't know where its window is on X11 and puts every window
-/// at 0,0, so failing that, the one window of its size (within 2 pixels of rounding), or the
-/// app's only window when none is that size.
-pub fn window_for_bounds(windows: &[Option<Bounds>], bounds: &Bounds) -> Option<usize> {
-    let placed = windows.iter().position(|w| {
-        w.as_ref().is_some_and(|w| {
-            w.x <= bounds.x
-                && w.y <= bounds.y
-                && w.x + w.w >= bounds.x + bounds.w
-                && w.y + w.h >= bounds.y + bounds.h
-                && (w.x - bounds.x).abs() < 128
-                && (w.y - bounds.y).abs() < 128
-        })
-    });
-    if placed.is_some() {
-        return placed;
-    }
-    let sized: Vec<usize> = (0..windows.len())
-        .filter(|&i| {
-            windows[i]
-                .as_ref()
-                .is_some_and(|w| (w.w - bounds.w).abs() <= 2 && (w.h - bounds.h).abs() <= 2)
-        })
-        .collect();
-    match (sized.as_slice(), windows.len()) {
-        ([only], _) => Some(*only),
-        ([], 1) => Some(0),
-        _ => None,
-    }
-}
 impl Accessibility {
     pub async fn connect() -> Result<Self> {
         let session = Connection::session().await.map_err(internal)?;
@@ -151,7 +119,7 @@ impl Accessibility {
             if executable.file_name().and_then(|s| s.to_str()) != Some(identity) {
                 let name: Option<String> = a.get_property("Name").await.ok();
                 let installed = installed.get_or_insert_with(crate::computer::apps::installed);
-                if crate::computer::apps::process_app_id(pid, name, installed) != identity {
+                if crate::computer::apps::process_app_id(pid, name.as_deref(), installed) != identity {
                     continue;
                 }
             }
@@ -196,64 +164,6 @@ impl Accessibility {
             .build()
             .await
             .map_err(target)
-    }
-    pub async fn scope(&mut self, pid: u32, bounds: &Bounds) -> Result<()> {
-        self.clear();
-        let registry = (
-            "org.a11y.atspi.Registry".into(),
-            OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").map_err(internal)?,
-        );
-        let root = self.proxy(&registry, "Accessible").await?;
-        let count: i32 = root.get_property("ChildCount").await.map_err(internal)?;
-        let dbus = zbus::fdo::DBusProxy::new(&self.conn)
-            .await
-            .map_err(internal)?;
-        for index in 0..count.clamp(0, 256) {
-            let app: Object = root
-                .call("GetChildAtIndex", &(index,))
-                .await
-                .map_err(internal)?;
-            let app_pid = dbus
-                .get_connection_unix_process_id(app.0.as_str().try_into().map_err(internal)?)
-                .await;
-            if app_pid.ok() != Some(pid) {
-                continue;
-            }
-            let accessible = self.proxy(&app, "Accessible").await?;
-            let windows: i32 = accessible
-                .get_property("ChildCount")
-                .await
-                .map_err(internal)?;
-            let mut found = Vec::new();
-            for i in 0..windows.clamp(0, 256) {
-                let window: Object = accessible
-                    .call("GetChildAtIndex", &(i,))
-                    .await
-                    .map_err(internal)?;
-                let component = self.proxy(&window, "Component").await?;
-                if let Ok((x, y, w, h)) = component
-                    .call::<_, _, (i32, i32, i32, i32)>("GetExtents", &(0u32,))
-                    .await
-                {
-                    found.push((window, Some(Bounds { x, y, w, h })));
-                } else {
-                    found.push((window, None));
-                }
-            }
-            let extents: Vec<Option<Bounds>> = found.iter().map(|(_, b)| b.clone()).collect();
-            if let Some(index) = window_for_bounds(&extents, bounds) {
-                self.scope = Some(found.swap_remove(index).0);
-                return Ok(());
-            }
-            return Err(Fault::new(
-                "target_gone",
-                "AT-SPI window does not match target bounds",
-            ));
-        }
-        Err(Fault::new(
-            "not_supported",
-            "Application has no AT-SPI accessibility tree",
-        ))
     }
     pub fn clear(&mut self) {
         self.scope = None;

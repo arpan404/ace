@@ -45,7 +45,7 @@ impl Accessibility {
 }
 
 /// Asks the app to bring its window forward; false when the bus or the app refuses.
-async fn activate(app_id: &str) -> bool {
+pub(crate) async fn activate(app_id: &str) -> bool {
     let Ok(session) = Connection::session().await else {
         return false;
     };

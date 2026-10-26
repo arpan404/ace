@@ -1,13 +1,11 @@
 //! One app the agent works in: its windows, the chosen window, stable ids and the last walk.
 use crate::computer::bus::{Bus, BusError, Obj, key};
-use crate::computer::element::{self, COORD_SCREEN, COORD_WINDOW};
+use crate::computer::element::{self, COORD_WINDOW};
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::ids::Ids;
-use crate::computer::outline::{Node, Rect, content_offset};
+use crate::computer::outline::{Node, Rect};
 use crate::computer::walk::{FrameMap, Tree, Walker};
-use crate::computer::xdisplay::XDisplay;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -34,11 +32,17 @@ pub struct AppSession {
     /// while its window is active, so background key steps fall back to this.
     pub text_focus: Option<Obj>,
     pub not_responding: bool,
-    /// X windows already redirected for capture.
-    pub redirected: HashSet<u32>,
+    /// For a suite module sharing its process: its name, which ends its windows' titles.
+    pub title_hint: Option<String>,
+    /// How the last marked screenshot's pixels map to element frames: (dx, dy) to add after
+    /// dividing by `scale`. None until a window screenshot with marks, when x,y steps can't be
+    /// placed.
+    pub shot_offset: Option<(f64, f64)>,
     /// Screenshot pixels per window pixel in the last screenshot; maps x,y steps.
     pub scale: f64,
     pub last_used: Instant,
+    /// The last look's walk and what was true then, for reuse (`walk::still_current`).
+    last_walk: Option<(crate::computer::walk::WalkStamp, Tree)>,
 }
 
 const WINDOW_ROLES: [&str; 5] = ["frame", "dialog", "alert", "file chooser", "window"];
@@ -57,9 +61,11 @@ impl AppSession {
             menu_bar: None,
             text_focus: None,
             not_responding: false,
-            redirected: HashSet::new(),
+            title_hint: None,
+            shot_offset: None,
             scale: 1.0,
             last_used: Instant::now(),
+            last_walk: None,
         }
     }
 
@@ -148,46 +154,22 @@ impl AppSession {
             self.window = Some(found.clone());
             return Ok(all);
         }
-        let current = self.window.as_ref().and_then(|w| all.iter().find(|e| e.obj == w.obj));
+        let hint = self.title_hint.as_deref();
+        let of_module = |w: &&WindowEntry| hint.is_none_or(|hint| w.title.trim_end().ends_with(hint));
+        let current = self
+            .window
+            .as_ref()
+            .and_then(|w| all.iter().find(|e| e.obj == w.obj))
+            .filter(of_module);
         self.window = current
+            .or_else(|| all.iter().filter(of_module).find(|w| w.active))
+            .or_else(|| all.iter().filter(of_module).find(|w| w.showing && !w.minimized))
+            .or_else(|| all.iter().find(of_module))
             .or_else(|| all.iter().find(|w| w.active))
             .or_else(|| all.iter().find(|w| w.showing && !w.minimized))
             .or_else(|| all.first())
             .cloned();
         Ok(all)
-    }
-
-    /// The X window showing the chosen accessible window.
-    pub fn x_window(&self, x: &XDisplay) -> Option<u32> {
-        let window = self.window.as_ref()?;
-        x.window_for(self.pid, &window.title)
-    }
-
-    /// How extents map to window pixels. Toolkits that know their screen position (GTK3, Qt)
-    /// report screen coordinates; GTK4 reports window-relative ones only.
-    pub async fn frame_map(&self, bus: &Bus, x: &XDisplay, xid: u32) -> Option<FrameMap> {
-        let window = self.window.as_ref()?;
-        let (wx, wy, ww, wh) = x.geometry(xid)?;
-        let screen = element::extents(bus, &window.obj, COORD_SCREEN).await.ok().flatten();
-        if let Some(frame) = screen {
-            let near = (frame.x - f64::from(wx)).abs() < 96.0 && (frame.y - f64::from(wy)).abs() < 96.0;
-            if near && !(frame.x == 0.0 && frame.y == 0.0 && (wx, wy) != (0, 0)) {
-                return Some(FrameMap {
-                    coord: COORD_SCREEN,
-                    dx: f64::from(wx),
-                    dy: f64::from(wy),
-                });
-            }
-        }
-        // GTK4: the window's content sits centred in the X window (inside its shadow margin),
-        // whatever offset the frame itself reports.
-        let content = self.content(bus).await?;
-        let (dx, dy) = content_offset((f64::from(ww), f64::from(wh)), content);
-        Some(FrameMap {
-            coord: COORD_WINDOW,
-            dx,
-            dy,
-        })
     }
 
     /// The window's content box in window-relative coordinates: its largest child, else the
@@ -206,6 +188,27 @@ impl AppSession {
             Some(content) => Some(content),
             None => element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten(),
         }
+    }
+
+    /// A look's walk: the last one when nothing can have changed since, else a fresh one.
+    pub async fn look(&mut self, bus: &Bus, frames: Option<FrameMap>, budget: Duration, last_event: Option<Instant>) -> Tree {
+        let now = crate::computer::walk::WalkStamp {
+            at: Instant::now(),
+            last_event,
+            window: self.window.as_ref().map(|w| key(&w.obj)),
+            framed: frames.is_some(),
+        };
+        if let Some((stamp, tree)) = &self.last_walk {
+            if crate::computer::walk::still_current(stamp, &now) && !tree.not_responding {
+                let tree = tree.clone();
+                self.nodes = tree.nodes.clone();
+                self.focused = tree.focused.clone();
+                return tree;
+            }
+        }
+        let tree = self.walk(bus, frames, budget).await;
+        self.last_walk = Some((now, tree.clone()));
+        tree
     }
 
     /// Walks the chosen window and any open popup windows, updating ids and the node list.

@@ -3,6 +3,8 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useProjectDirectory } from "@/lib/projects.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import { undoWindowMs } from "@/features/organize/index.ts";
 import { readDraft, writeDraft } from "@/features/thread/index.ts";
 import { discardPreparation } from "./discard-preparation.ts";
@@ -22,6 +24,7 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
   const navigate = useNavigate();
   const router = useRouter();
   const toast = useToast();
+  const directory = useProjectDirectory();
   // Another machine's draft (under its MachineScope) reopens on that machine.
   const machine = useMachineSearch();
   return (key: string, row: Preparation): string | undefined => {
@@ -29,19 +32,24 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
     if (!discardPreparation(storage, host, key)) return refused;
     // Remount an open preparation so its in-memory content cannot recreate the discarded row,
     // or, after Undo, so it shows the content put back.
-    const remount = () =>
+    const remount = (project: string) =>
       void navigate({
         to: "/new",
         search: (previous) => ({
           ...machine,
-          project: row.project,
+          project,
           skill: row.skill,
           issue: row.issue,
           pullRequest: row.pullRequest,
           discard: (previous.discard ?? 0) + 1,
         }),
       });
-    remount();
+    // Discarding the saved work also leaves a removed project's recovery page.
+    remount(
+      !directory.loaded || directory.projects.some((project) => project.id === row.project)
+        ? row.project
+        : chatChoice,
+    );
     let undone = false;
     const release = () => {
       if (undone || !row.draftId) return;
@@ -63,7 +71,7 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
           writeDraft(storage, key, content) &&
           savePreparation(storage, host, key, { ...row, discardRecovery: undefined });
         if (!restored) toast.error({ title: "Couldn't bring the draft back" });
-        else if (router.state.location.pathname === "/new") remount();
+        else if (router.state.location.pathname === "/new") remount(row.project);
       },
       // Undo runs before its toast closes, so a used Undo never releases.
       onClose: release,

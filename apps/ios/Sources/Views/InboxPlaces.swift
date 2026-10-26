@@ -2,15 +2,32 @@ import SwiftUI
 
 /// Threads and Pull requests at the foot of the sidebar, where a regular window (iPad, the
 /// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
-/// switch, the place showing filled. A compact window has the tab bar back.
+/// switch, the place showing filled. A compact window has the tab bar back while its list fills
+/// the window; as the drawer over a thread the list keeps New thread here too, beside the switch
+/// where the tab bar keeps it, since the list's bar has no room for it.
 struct InboxPlaces: View {
     @Binding var tab: InboxTab
+    var compose: (() -> Void)? = nil
 
     var body: some View {
-        GlassSwitch(selection: $tab, choices: [
-            .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
-            .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls"),
-        ])
+        HStack(spacing: AceTheme.Spacing.sm) {
+            GlassSwitch(selection: $tab, choices: [
+                .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
+                .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls", short: "Pulls"),
+            ])
+            if let compose {
+                Button(action: compose) {
+                    AceIcon(.notePencil, size: 20)
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .frame(width: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs, height: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+                        .contentShape(AceShape.capsule)
+                }
+                .buttonStyle(.plain)
+                .aceGlass(in: AceShape.capsule, interactive: true)
+                .accessibilityLabel("New thread")
+                .accessibilityIdentifier("inbox.compose")
+            }
+        }
         .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.vertical, AceTheme.Spacing.sm)
     }

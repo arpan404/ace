@@ -22,8 +22,8 @@ async function verdicts(context: DoctorContext, feature: DoctorFeature) {
 const running = (facts: ScreenFacts) =>
   computerUseFeature({ screen: async () => facts, helper: computerUsePorts.helper });
 
-it("computer use has no checks off macOS", async () => {
-  const { context, cleanup } = await doctorTestContext({ platform: "linux" });
+it("computer use has no checks on Windows", async () => {
+  const { context, cleanup } = await doctorTestContext({ platform: "win32" });
   cleanups.push(cleanup);
   expect(computerUseFeature().checks(context)).toEqual([]);
 });

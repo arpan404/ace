@@ -18,6 +18,7 @@ import {
 } from "@ace/protocol/devices";
 import { DeviceChromeReader } from "./device-chrome-reader.ts";
 import { SimulatorPostures } from "./simulator-posture.ts";
+import { EmulatorPostures, type EmulatorConsole } from "./android-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import {
@@ -97,6 +98,7 @@ export class DevicePlatform {
   private readonly appProcesses = new Map<string, string>();
   private readonly chromes: DeviceChromeReader;
   private readonly postures: SimulatorPostures | undefined;
+  private readonly emulatorPostures = new EmulatorPostures();
   diagnostics(): DeviceFailure[] {
     // Each issue says which platform it concerns, so a missing Android SDK never reads as a
     // fault of a working Simulator.
@@ -167,26 +169,39 @@ export class DevicePlatform {
     return this.chromes.chrome(device, format, posture);
   }
   /**
-   * A foldable Simulator's posture (the iPhone Duo's), or undefined for a device ace can't fold:
-   * anything else, or a Simulator on an Xcode without the hinge service.
+   * A foldable device's posture: an iPhone Duo Simulator's or a hinged Android emulator's (a
+   * Pixel Fold). Undefined for a device ace can't fold.
    */
   async posture(device: Device, authorize?: () => void): Promise<DevicePosture | undefined> {
-    if (device.platform !== "ios" || device.state !== "booted" || !this.postures) return undefined;
+    if (device.state !== "booted") return undefined;
+    if (device.platform === "android")
+      return this.emulatorPostures.read(device.id, this.emulatorConsole(device), authorize);
+    if (device.platform !== "ios" || !this.postures) return undefined;
     return this.postures.read(nativeId(device), authorize);
   }
-  /** Folds a foldable Simulator; returns its posture afterwards. */
+  /** Folds a foldable Simulator or emulator; returns its posture afterwards. */
   async setPosture(
     device: Device,
     posture: DevicePosture,
     authorize?: () => void,
   ): Promise<DevicePosture> {
+    if (device.platform === "android")
+      return this.emulatorPostures.set(device.id, this.emulatorConsole(device), posture, authorize);
     if (device.platform !== "ios" || !this.postures)
       throw new DeviceError(
         "not_supported",
         "This device doesn't fold",
-        "Only foldable simulators, such as the iPhone Duo, have a posture.",
+        "Only foldable simulators and emulators, such as the iPhone Duo, have a posture.",
       );
     return this.postures.set(nativeId(device), posture, authorize);
+  }
+  /** The device's emulator console through adb; a failed command answers with its exit code. */
+  private emulatorConsole(device: Device): EmulatorConsole {
+    return (args, authorize) =>
+      this.android.adb(device, args, 64 * 1024, authorize, 10_000).then(
+        (output) => ({ code: output.code, stdout: output.stdout }),
+        () => ({ code: 1, stdout: "" }),
+      );
   }
   /** A booted Simulator's built-in screens, from devicectl; empty when it can't say. */
   async simulatorScreens(device: Device): Promise<SimulatorScreen[]> {

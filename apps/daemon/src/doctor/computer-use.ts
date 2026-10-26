@@ -1,5 +1,7 @@
 import type { Check } from "@ace/diagnostics";
 import { computerUsePorts, type ComputerUsePorts, type ScreenFacts } from "./computer-use-facts.ts";
+import { linuxComputerPorts } from "./computer-use-linux-facts.ts";
+import { linuxComputerChecks, type LinuxComputerPorts } from "./computer-use-linux.ts";
 import type { DoctorContext, DoctorFeature } from "./feature.ts";
 
 const helperFix = "Open the ace desktop app; it installs Ace Screen Helper and starts ace with it.";
@@ -23,12 +25,17 @@ const grants = [
 /**
  * macOS computer use: Ace Screen Helper is installed, and holds the Accessibility and Screen
  * Recording grants. Grants are known only through the running daemon's helper; while ace is
- * stopped they read as unknown, which is not a problem.
+ * stopped they read as unknown, which is not a problem. Linux: the Wayland session and what
+ * the helper needs on its bus (`computer-use-linux.ts`).
  */
-export function computerUseFeature(ports: ComputerUsePorts = computerUsePorts): DoctorFeature {
+export function computerUseFeature(
+  ports: ComputerUsePorts = computerUsePorts,
+  linux: LinuxComputerPorts = linuxComputerPorts,
+): DoctorFeature {
   return {
     id: "computer",
     checks(context) {
+      if (context.platform === "linux") return linuxComputerChecks(context, linux);
       if (context.platform !== "darwin") return [];
       let facts: Promise<ScreenFacts | undefined> | undefined;
       const load = () => (facts ??= ports.screen(context));

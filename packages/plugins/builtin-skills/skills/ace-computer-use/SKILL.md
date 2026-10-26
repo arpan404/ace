@@ -60,15 +60,18 @@ In a shared window or tab, target fields by id with `set_value`, `type` or `past
 
 Keep the person's focus where it is. `activate` brings the app forward and interrupts their work; use it only when the person explicitly wants foreground control. If background alternatives fail, report the unsupported action.
 
-While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
+While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable. If the person has turned on locked computer use and the component is installed and verified, an approved turn's `screen_state` and `screen_act` may briefly run on a locked Mac behind opaque covers; the person's input ends that at once and the Mac locks again afterwards. Otherwise locked use stays refused with `screen_locked` or `session_unavailable`, and a failed unlock leaves the Mac locked with an error: do not retry it in a loop. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
 ### On Linux
 
 - `app` is the desktop-file id (`org.gnome.TextEditor`, a Flatpak app id) or the app's name; `screen_apps` shows both.
-- Clicks by id, `set_value`, `type` into a field, `select_text`, `action` and menus work with the window in the background.
-- Key presses, x,y clicks, drags and pixel scrolls need the window in front. A step that needs it fails and says so: put `{"type":"activate"}` first and retry, and tell the person you brought the app forward.
+- Everything goes through accessibility with the window in the background: clicks by id or at screenshot x,y (the element there), `set_value`, `type` into a field, `select_text`, `action`, menus, scrolling, shortcuts the app's menus list (`ctrl+s` presses File › Save), copy/cut/paste in text and Tab between controls.
+- Hover and drags can't be sent (Wayland lets no program send pointer input to another app).
+- Chrome, VS Code, Slack and other Chromium or Electron apps take no typing in the background, and some keys have no accessible equivalent. When the person wants that done, put `activate` first in the same batch: the app comes forward and the text and keys go through the keyboard, in front, taking the person's focus (GNOME and KDE; Hyprland has no way to do it). The first time, the person allows the keyboard in a dialog (`keyboard_not_allowed` says so; try again once they have). Typing stops with `focus_changed` if another window gets the focus, and waits with `person_active` while the person is typing. Prefer background steps; for web pages use ace's browser.
 - Shortcuts use `ctrl` (`ctrl+s`), not `cmd`.
-- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in.
+- While you act, a notification tells the person "ace is using <app>" that they can click (or press its Stop) to stop you. `stopped_by_person` means they did: stop and ask how to continue. `person_active` means they are using that control right now: pick another element or wait.
+- `app_inaccessible`, or a note that an app shows only its window, means it was started before accessibility was on (Firefox) or without it (Chrome, VS Code and other Chromium apps): ask the person to quit it; `screen_state` then reopens it so you can see it.
+- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in. An X11 session is refused: ask them to log in to a Wayland session.
 
 ### Limits
 

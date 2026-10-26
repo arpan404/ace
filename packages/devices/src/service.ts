@@ -1,6 +1,11 @@
 import { DeviceStreamOwners } from "./stream-owners.ts";
 import { watchDeviceLease } from "./lease-expiry.ts";
-import { DeviceStreamControl, deviceVideoStream } from "./stream-control.ts";
+import {
+  DeviceStreamControl,
+  deviceImageStream,
+  deviceStillStream,
+  deviceVideoStream,
+} from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import {
@@ -128,6 +133,9 @@ export class DevicesService {
       } else if (changed) {
         this.emit(session);
         void this.refreshPosture(session);
+      } else if (!session.posture && device?.state === "booted") {
+        // A fold read made while the device was still booting finds nothing; ask again.
+        void this.refreshPosture(session);
       }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
@@ -174,7 +182,8 @@ export class DevicesService {
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
   private refreshPosture(session: DeviceSession): Promise<void> {
-    return this.options.platform
+    if (session.readingPosture) return session.readingPosture;
+    const reading = this.options.platform
       .posture(session.device)
       .then((posture) => {
         if (posture === session.posture) return;
@@ -182,7 +191,12 @@ export class DevicesService {
         else delete session.posture;
         this.emit(session);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (session.readingPosture === reading) delete session.readingPosture;
+      });
+    session.readingPosture = reading;
+    return reading;
   }
   /**
    * An agent acted on a device: viewers are told what it did and where, numbered so each action
@@ -484,6 +498,15 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
+        // Nobody may be watching yet: a capture that makes stills on demand drops to its heartbeat.
+        if (session.capture?.still)
+          await this.streamControlFor(session)
+            .refresh()
+            .catch((error) =>
+              this.options.log?.("warn", "Device stream update failed", {
+                message: String(error),
+              }),
+            );
         // An agent starting a foldable device learns its posture from the reply.
         await this.refreshPosture(session);
         return this.state(session);
@@ -742,6 +765,12 @@ export class DevicesService {
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
       return oneOffFrame(shot, this.options.runtime);
     }
+    if (session.capture?.still) {
+      // Stills come on demand while nobody watches: make one of the screen as it is now.
+      await session.capture.still();
+      this.authorize(session, actor);
+      if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+    }
     return session.latest;
   }
   /** A viewer's stream preference; one the capture can't stream is withdrawn, not kept. */
@@ -759,11 +788,14 @@ export class DevicesService {
     }
   }
   private streamControlFor(session: DeviceSession): DeviceStreamControl {
-    session.streamControl ??= new DeviceStreamControl(async (settings) => {
-      this.authorize(session, { kind: "human", owner: "capture" });
-      if (session.lifecycle !== "live") throw new Error("Device stream stopped");
-      return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
-    });
+    session.streamControl ??= new DeviceStreamControl(
+      async (settings) => {
+        this.authorize(session, { kind: "human", owner: "capture" });
+        if (session.lifecycle !== "live") throw new Error("Device stream stopped");
+        return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+      },
+      () => (session.capture?.still ? deviceStillStream : deviceImageStream),
+    );
     return session.streamControl;
   }
   /** The live view's frames, the newest one whenever `sink` is ready for another. */

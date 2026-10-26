@@ -58,7 +58,6 @@ fn user_entries_hide_system_entries_with_the_same_id() {
     let apps = scan(&application_dirs(&env));
     let editor = apps.iter().find(|a| a.id == "org.gnome.TextEditor").unwrap();
     assert_eq!(editor.name, "My Editor");
-    assert_eq!(editor.wm_class.as_deref(), Some("gnome-text-editor"));
     assert_eq!(editor.exec_name().as_deref(), Some("gnome-text-editor"));
     assert!(apps.iter().any(|a| a.id == "kde-org.kde.kate"));
     assert!(!apps.iter().find(|a| a.id == "hidden").unwrap().listed);
@@ -94,7 +93,6 @@ fn exec_lines_lose_field_codes_and_keep_quoted_arguments() {
         name: "X".into(),
         path: PathBuf::new(),
         exec: Some("env FOO=1 /usr/bin/app %f".into()),
-        wm_class: None,
         listed: true,
     };
     assert_eq!(app.exec_name().as_deref(), Some("app"));

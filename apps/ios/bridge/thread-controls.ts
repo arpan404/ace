@@ -1,5 +1,11 @@
 import type { ThreadReader } from "@ace/client";
-import type { CommandPayload, FollowUpBehavior, Interaction, ThreadId } from "@ace/protocol";
+import type {
+  CommandPayload,
+  FollowUpBehavior,
+  Interaction,
+  ProviderKind,
+  ThreadId,
+} from "@ace/protocol";
 import {
   followUpDelivery,
   isBusy,
@@ -45,14 +51,23 @@ function deliveryOf(
   return followUpDelivery({ status: thread?.status, canSteer, setting, opposite });
 }
 
-export function controlsRow(reader: ThreadReader, setting: FollowUpBehavior | undefined) {
+/**
+ * `next`: a model picked here that the daemon hasn't reported yet, or that the next message
+ * continues on in a new thread; the model control names it, with its note.
+ */
+export function controlsRow(
+  reader: ThreadReader,
+  setting: FollowUpBehavior | undefined,
+  next?: { provider: ProviderKind; model: string; note: string; continues: boolean },
+) {
   const thread = reader.thread;
   const status = thread?.status;
   const delivery = deliveryOf(reader, setting, false);
   const alternate = deliveryOf(reader, setting, true);
   const selection = runsOn(thread);
   const busy = isBusy(status);
-  const provider = selection?.provider ?? thread?.provider;
+  const provider = next?.provider || selection?.provider || thread?.provider;
+  const model = next?.model || (selection?.model ? modelLabel(selection.model) : "");
   return {
     busy,
     delivery: delivery ?? null,
@@ -62,8 +77,12 @@ export function controlsRow(reader: ThreadReader, setting: FollowUpBehavior | un
     provider: provider ?? "",
     /** "Claude": the model sheet's section header. */
     providerName: provider ? providerDisplayName(provider) : "",
-    model: preview(selection?.model ? modelLabel(selection.model) : "", 128),
+    model: preview(model, 128),
     switching: thread?.switch?.state ?? "",
+    /** Why the control names something the agent doesn't run on yet: "Applies at the agent's next turn". */
+    note: next?.note ?? "",
+    /** The next message starts a new thread on that model, carrying this one's context. */
+    continues: next?.continues ?? false,
   };
 }
 

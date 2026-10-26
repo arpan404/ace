@@ -31,7 +31,7 @@ const SimActFields = z.strictObject({
       "posture",
     ])
     .describe(
-      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting. posture: fold a foldable simulator (iPhone Duo) to posture.",
+      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting. posture: fold a foldable simulator or emulator (iPhone Duo, Pixel Fold) to posture.",
     ),
   ref: SimRef.optional().describe(
     "Element ref from sim_ui, e.g. @e3: required for ui; for tap, long_press and type, instead of x,y.",
@@ -76,7 +76,7 @@ const SimActFields = z.strictObject({
     .optional()
     .describe("Absolute path to a Simulator-built .app or an .apk."),
   posture: DevicePosture.optional().describe(
-    "closed (cover screen), partiallyOpen (half open, like a book) or open (flat, inner screen). Only foldable simulators; sim_start reports their current posture.",
+    "closed (cover screen), partiallyOpen (half open, like a book) or open (flat, inner screen). Only foldable simulators and emulators; sim_start reports their current posture.",
   ),
 });
 const base = ["simId"] as const;

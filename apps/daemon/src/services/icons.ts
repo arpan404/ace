@@ -12,7 +12,7 @@ import { githubAvatarUrl } from "../icons/avatar-url.ts";
 import { faviconPng } from "../icons/favicon-image.ts";
 import { fetchFavicon } from "../icons/favicon-fetch.ts";
 import { IconCache } from "../icons/icon-cache.ts";
-import { rasterPng } from "../icons/icon-image.ts";
+import { installedIconPng, rasterPng } from "../icons/icon-image.ts";
 import { IconService } from "../icons/icon-service.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -24,7 +24,13 @@ export function startIcons({ config, services, now }: ServiceContext): void {
     site: (icon) => fetchFavicon(icon.origin),
     app: (icon) => appIcon(icon.identity, { platform: process.platform, run: runFile }),
     avatar: (icon) => fetchAvatar(icon.url),
-    normalize: (bytes, icon) => (icon.kind === "site" ? faviconPng(bytes) : rasterPng(bytes)),
+    // An app's icon is installed on this machine; a Linux one may be its theme's SVG.
+    normalize: (bytes, icon) =>
+      icon.kind === "site"
+        ? faviconPng(bytes)
+        : icon.kind === "app"
+          ? installedIconPng(bytes)
+          : rasterPng(bytes),
     now,
   });
 }

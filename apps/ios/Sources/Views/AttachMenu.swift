@@ -2,9 +2,10 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The + menu that adds photos (library or camera) and files to a message: the thread's next one
-/// or New thread's first. It copies and hashes the picked bytes on the phone and hands them on;
-/// every check (size, what the agent can read) is the bridge's.
+/// The + menu, "Add files and context": photos (library or camera) and files for the message (the
+/// thread's next one or New thread's first), then the catalog's other builtins the phone can run
+/// (`more`: files to mention, plan mode, the model, ...). It copies and hashes the picked bytes on
+/// the phone and hands them on; every check (size, how many) is the bridge's.
 struct AttachMenu<Title: View>: View {
     let stage: (StagedAttachment) -> Void
     /// Why the last pick couldn't be read; nil when it could.
@@ -12,6 +13,11 @@ struct AttachMenu<Title: View>: View {
     var identifier = "composer.attach"
     /// Where picked bytes are copied: the temporary folder, or New thread's draft folder.
     var staging = AttachmentStaging()
+    /// The + list's builtins besides attaching, and what picking one does.
+    var more: [SuggestionRow] = []
+    var pickMore: (SuggestionRow) -> Void = { _ in }
+    /// Set from elsewhere ("Attach files" picked from the `/` list): offers the same three sources.
+    var ask: Binding<Bool> = .constant(false)
     @ViewBuilder var title: () -> Title
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
@@ -24,12 +30,18 @@ struct AttachMenu<Title: View>: View {
                 Button("Take Photo", ace: .camera) { usingCamera = true }
             }
             Button("Choose File", ace: .folder) { choosingFiles = true }
+            ComposerAddRows(rows: more, pick: pickMore)
         } label: {
             title().frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
         }
-        .accessibilityLabel("Add photos or files")
+        .accessibilityLabel("Add files and context")
         .accessibilityIdentifier(identifier)
-        .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .images)
+        .confirmationDialog("Attach files", isPresented: ask, titleVisibility: .hidden) {
+            Button("Photo Library") { choosingPhotos = true }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo") { usingCamera = true } }
+            Button("Choose File") { choosingFiles = true }
+        }
+        .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, picked in
             guard !picked.isEmpty else { return }
             photos = []
@@ -43,11 +55,15 @@ struct AttachMenu<Title: View>: View {
             CameraPicker { image in Task { await stageCamera(image) } }.ignoresSafeArea()
         }
     }
+    /// Anything Photos holds: a picture (HEIC re-encoded so the agent sees it) or a video.
     private func stagePhoto(_ item: PhotosPickerItem) async {
-        let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
-        guard let data = try? await item.loadTransferable(type: Data.self) else { problem = "Couldn't read that photo."; return }
-        let name = "Photo.\(type.preferredFilenameExtension ?? "jpg")"
-        await staged { [staging] in try staging.stage(data: data, name: name, mimeType: type.preferredMIMEType ?? "image/jpeg") }
+        do {
+            let file = try await PhotoLibraryPick.stage(item, into: staging)
+            problem = nil
+            stage(file)
+        } catch {
+            problem = item.supportedContentTypes.contains { $0.conforms(to: .movie) } ? "Couldn't read that video." : "Couldn't read that photo."
+        }
     }
     private func stageCamera(_ image: UIImage) async {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
@@ -70,8 +86,9 @@ struct AttachMenu<Title: View>: View {
 
 extension AttachMenu where Title == AceIcon {
     /// The composer's bare + button.
-    init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach") {
-        self.init(stage: stage, problem: problem, identifier: identifier) { AceIcon(.plus, size: 20) }
+    init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach",
+         more: [SuggestionRow] = [], pickMore: @escaping (SuggestionRow) -> Void = { _ in }, ask: Binding<Bool> = .constant(false)) {
+        self.init(stage: stage, problem: problem, identifier: identifier, more: more, pickMore: pickMore, ask: ask) { AceIcon(.plus, size: 20) }
     }
 }
 
@@ -81,7 +98,7 @@ struct AttachmentChip: View {
     let remove: () -> Void
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : .file, size: 14, relativeTo: .footnote)
+            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: 14, relativeTo: .footnote)
                 .foregroundStyle(file.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.decoration)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(file.name).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)

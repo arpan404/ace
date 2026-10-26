@@ -175,32 +175,17 @@ test("the row the reader sees stays held while older rows settle above it", () =
   expect(heldKey(following, above, seen)).toBeUndefined();
 });
 
-test("a small scroll up at the live end keeps following, so no Scroll to end shows", () => {
-  const nudge = wheel(true, 100, true);
-  expect(run(following, nudge, scrolled(true, true)).mode.kind).toBe("following");
-  expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
+test("even a small upward gesture releases live following before the scroll event", () => {
+  const after = run(following, wheel(true, 100, true));
+  expect(after.mode.kind).toBe("free");
+  expect(transition(after.mode, scrolled(true, true)).mode.kind).toBe("free");
+  expect(correction(after.mode, undefined, undefined, 5000)).toEqual({ kind: "none" });
 });
 
-test("a scroll that lands off the end without the reader's gesture keeps following", () => {
-  // Rows grew between a scroll and its event: no Scroll to end, and the end is kept in view.
+test("growth without a reader gesture keeps following the live end", () => {
   const after = run(following, scrolled(false));
   expect(after.mode.kind).toBe("following");
   expect(correction(after.mode, undefined, undefined, 200)).toEqual({ kind: "end" });
-  // Long after a nudge at the end, the same scroll still keeps following.
-  const nudged = run(following, wheel(true, 100, true), scrolled(true, true, 150)).mode;
-  expect(transition(nudged, scrolled(false, true, 5_000)).mode.kind).toBe("following");
-});
-
-test("new content does not pull back a reader still scrolling up from the live end", () => {
-  const nudged = run(following, wheel(true, 100, true), scrolled(true, true)).mode;
-  expect(correction(nudged, undefined, undefined, 200)).toEqual({ kind: "none" });
-  const still = run(nudged, wheel(true, 350, true)).mode;
-  expect(correction(still, undefined, undefined, 600)).toEqual({ kind: "none" });
-  // They stopped short of leaving: the next content keeps the end in view again.
-  expect(correction(still, undefined, undefined, 1_000)).toEqual({ kind: "end" });
-  expect(correction(run(nudged, wheel(false, 150, true)).mode, undefined, undefined, 200)).toEqual({
-    kind: "end",
-  });
 });
 
 test("following stays at the end through growth and resizes", () => {

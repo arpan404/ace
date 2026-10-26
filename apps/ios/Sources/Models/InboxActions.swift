@@ -13,5 +13,9 @@ extension ClientModel {
         await inboxCommand(["kind": "snooze", "threadId": threadId, "preset": preset])
     }
     func wake(_ threadId: String) async -> Bool { await inboxCommand(["kind": "wake", "threadId": threadId]) }
+    /// Pins (leading Pinned) or unpins; the row moves at once and goes back if refused.
+    func pin(_ threadId: String, _ pinned: Bool) async -> Bool {
+        await inboxCommand(["kind": "pin", "threadId": threadId, "pinned": pinned])
+    }
     func loadOlderThreads() { inboxRequest(["kind": "more"]) }
 }

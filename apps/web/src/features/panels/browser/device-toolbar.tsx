@@ -5,7 +5,12 @@ import { Input } from "@/components/ui/input.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
-import { clampDimension, devicePresets, deviceScales, responsive } from "./devices.ts";
+import {
+  clampDimension,
+  devicePresets,
+  deviceScales,
+  responsive,
+} from "@ace/ui-core/browser-devices";
 import type { PageTools } from "./use-page-tools.ts";
 
 const presetOptions: readonly SelectOption<string>[] = [

@@ -14,6 +14,11 @@ export const deviceImageStream: ScreenStreamSettings = {
   fps: 30,
   bitrate: 4000000,
 };
+/**
+ * A capture nobody watches or records, which makes a fresh still whenever an agent asks for one
+ * (`DeviceCapture.still`): a slow heartbeat instead of a still for every change of the screen.
+ */
+export const deviceStillStream: ScreenStreamSettings = { ...deviceImageStream, fps: 2 };
 /** A live view that hasn't sized its stream yet: H.264 at 60 fps in a phone-sized box. */
 export const deviceVideoStream: ScreenStreamSettings = {
   codec: "h264",
@@ -64,6 +69,8 @@ export function sameDeviceStream(a: ScreenStreamSettings, b: ScreenStreamSetting
 export class DeviceStreamControl {
   private readonly viewers = new Map<string, ScreenStreamSettings>();
   private readonly apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>;
+  /** What the capture streams while nobody watches or records. */
+  private readonly idle: () => ScreenStreamSettings;
   private revision = 0;
   private applied = -1;
   private settings: ScreenStreamSettings | undefined;
@@ -71,8 +78,12 @@ export class DeviceStreamControl {
   private running: Promise<{ codec: "jpeg" | "h264" }> | undefined;
   private closed = false;
   private recordings = 0;
-  constructor(apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>) {
+  constructor(
+    apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>,
+    idle: () => ScreenStreamSettings = () => deviceImageStream,
+  ) {
     this.apply = apply;
+    this.idle = idle;
   }
   has(owner: string): boolean {
     return this.viewers.has(owner);
@@ -120,7 +131,7 @@ export class DeviceStreamControl {
         ? commonDeviceStream([...this.viewers.values()])
         : this.recordings
           ? { ...deviceImageStream, ...recordingImages }
-          : deviceImageStream;
+          : this.idle();
       if (!this.settings || !sameDeviceStream(this.settings, next)) {
         // A refused update may have half-applied: the next one always reaches the capture.
         this.settings = undefined;
