@@ -67,6 +67,10 @@ import QuartzCore
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
     var providers: MachineProvidersInfo?
+    /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
+    var projectLooks: [String: ProjectMarkLook] = [:]
+    /// The mark this machine chose; nil until it says (rows then draw a laptop).
+    var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
     /// A thread a tapped notification asked to open.
@@ -120,7 +124,7 @@ import QuartzCore
         hostId = target.hostId
         inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
-        machineStatus = nil; providers = nil
+        machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); generation = 0
@@ -277,6 +281,8 @@ import QuartzCore
             case .problem(let notice): problem = notice
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
+            case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
+            case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
