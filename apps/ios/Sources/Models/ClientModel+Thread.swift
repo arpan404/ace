@@ -13,13 +13,14 @@ extension ClientModel {
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
     /// `reply` is the question card on the strip: the bridge sends the words as its answer when
     /// they can be one (`@ace/ui-core` composerReply), else as a message.
-    func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil) async -> Bool {
+    func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil, references: [Any] = []) async -> Bool {
         guard canOperate, let thread else { return false }
         // Words, files or both; the bridge checks again with the shared rule.
         guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "requestId": id]
         if let reply { action["reply"] = reply.payload }
+        if !references.isEmpty { action["references"] = references }
         return await admissions.wait(id: id) { threadAction(action) }
     }
     /// Stop the whole agent tree of the turn on screen.

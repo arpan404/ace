@@ -34,9 +34,10 @@ type Row = {
 };
 type List = { seq: number; state: string; rows: Row[] };
 const list = () => latest("composer.suggestions") as List | undefined;
-const settled = (seq: number) =>
+const plus = () => latest("composer.add") as List | undefined;
+const settled = (seq: number, read = list) =>
   until(() => {
-    const shown = list();
+    const shown = read();
     return shown?.seq === seq && shown.state !== "loading" && shown;
   }, `list ${seq}`);
 
@@ -82,7 +83,7 @@ test("typing / lists the thread's skills and commands, and + offers only what th
   expect(typed.rows.some((row) => row.group === "Add")).toBe(false);
 
   lists.handle({ kind: "query", scope: thread, list: "add", query: "", seq: 2 });
-  const adding = await settled(2);
+  const adding = await settled(2, plus);
   expect(adding.rows.map((row) => row.label)).toEqual([
     "Attach files",
     "Files and folders",
@@ -96,7 +97,7 @@ test("New thread's + follows the draft rules: a project to choose, no stored fil
   const lists = suggest(client, "codex");
   const draft = { type: "draft", workspaceId: "ace", provider: "codex" };
   lists.handle({ kind: "query", scope: draft, list: "add", query: "", seq: 1 });
-  const adding = await settled(1);
+  const adding = await settled(1, plus);
   expect(adding.rows.map((row) => row.action)).toEqual(["attach", "files", "project", "goal"]);
 });
 

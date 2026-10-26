@@ -57,7 +57,7 @@ export const SuggestAction = z.discriminatedUnion("kind", [
     values: z.record(z.string().max(128), z.string().max(4096)),
   }),
   /** A file picked from `@`, offered first next time nothing is typed. */
-  z.object({ kind: z.literal("remember"), workspaceId: id, path: z.string().min(1).max(4096) }),
+  z.object({ kind: z.literal("remember"), scope: Scope, path: z.string().min(1).max(4096) }),
   /** A workflow from the + or `/` list, run now. */
   z.object({
     kind: z.literal("automation"),
@@ -151,9 +151,14 @@ export class ComposerSuggest {
         this.#arguments(action.row, action.values);
         break;
       case "remember": {
-        const list = this.#recent.get(action.workspaceId) ?? [];
+        const workspaceId =
+          action.scope.type === "draft"
+            ? action.scope.workspaceId
+            : this.#target(action.scope)?.workspaceId;
+        if (!workspaceId) break;
+        const list = this.#recent.get(workspaceId) ?? [];
         this.#recent.set(
-          action.workspaceId,
+          workspaceId,
           [action.path, ...list.filter((path) => path !== action.path)].slice(0, 20),
         );
         break;
@@ -191,16 +196,26 @@ export class ComposerSuggest {
   }
 
   #query(action: Extract<SuggestAction, { kind: "query" }>): void {
-    this.#seq = action.seq;
-    this.#cancel?.();
-    this.#cancel = undefined;
     const { seq, list, query } = action;
+    // The + list is read ahead while typing goes on, so it never cancels the `@` or `/` list.
+    const adding = list === "add";
+    if (!adding) {
+      this.#seq = seq;
+      this.#cancel?.();
+      this.#cancel = undefined;
+    }
+    const current = () => adding || seq === this.#seq;
+    const scopeKey =
+      action.scope.type === "thread"
+        ? `thread:${action.scope.threadId}`
+        : `draft:${action.scope.workspaceId}:${action.scope.provider ?? ""}`;
     const put = (state: string, sources: RowSource[] = []) => {
-      if (seq !== this.#seq) return;
-      this.#rows = new Map(sources.map((source) => [source.id, source]));
+      if (!current()) return;
+      if (!adding) this.#rows = new Map(sources.map((source) => [source.id, source]));
       const held = action.held ?? { all: 0, threads: 0, tabs: 0 };
-      this.#ports.sink.put("composer:suggestions", () => ({
-        type: "composer.suggestions",
+      this.#ports.sink.put(adding ? "composer:add" : "composer:suggestions", () => ({
+        type: adding ? "composer.add" : "composer.suggestions",
+        scope: scopeKey,
         seq,
         list,
         query,
@@ -232,7 +247,7 @@ export class ComposerSuggest {
         query,
         provider: target.provider,
         draft: target.type === "draft",
-        adding: list === "add",
+        adding,
         actions: target.type === "draft" ? draftActions : threadActions,
       }).map((item) => Object.assign(item, { id: `entry:${item.entry?.id ?? item.label}` }));
       if (!rows.length && catalog.stale) return put("loading");
@@ -242,15 +257,16 @@ export class ComposerSuggest {
     const catalog = this.#catalogs.get(target.key);
     if (!catalog || catalog.failed || catalog.stale || this.#ports.now() - catalog.at > fresh)
       void this.#catalog(target).then(() => {
-        if (seq !== this.#seq) return;
+        if (!current()) return;
         show();
         const read = this.#catalogs.get(target.key);
         // Discovery still running: read again shortly while the list stays open.
         if (read?.stale && read.retries < staleRetries) {
           read.retries++;
-          this.#cancel = this.#ports.schedule(staleRetry, () => {
-            if (seq === this.#seq) this.#query(action);
+          const again = this.#ports.schedule(staleRetry, () => {
+            if (current()) this.#query(action);
           });
+          if (!adding) this.#cancel = again;
         }
       });
   }
