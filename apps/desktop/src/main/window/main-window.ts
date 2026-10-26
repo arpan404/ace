@@ -11,8 +11,8 @@ import { installMainWindowDownloads } from "./downloads.ts";
 import { navigationDecision } from "./navigation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
 import {
+  captionSymbolColor,
   macTitleBarCss,
-  titleBarSymbolColor,
   windowOptions,
   windowsTitleBarCss,
 } from "./options.ts";
@@ -113,7 +113,9 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     if (window.isDestroyed()) return;
     const dark = nativeTheme.shouldUseDarkColors;
     if (process.platform === "win32")
-      window.setTitleBarOverlay({ symbolColor: titleBarSymbolColor(dark) });
+      window.setTitleBarOverlay({
+        symbolColor: captionSymbolColor(options.background(dark), dark),
+      });
     window.setBackgroundColor(options.background(dark));
   };
   nativeTheme.on("updated", themeChanged);

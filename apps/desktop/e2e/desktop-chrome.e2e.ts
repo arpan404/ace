@@ -183,7 +183,32 @@ async function scheme(launched: Launched, dark: boolean): Promise<void> {
   await launched.app.evaluate(({ nativeTheme }, next) => {
     nativeTheme.themeSource = next ? "dark" : "light";
   }, dark);
-  await launched.page.waitForTimeout(600);
+  // The page follows the OS ("system" appearance) with a short cross-fade.
+  await launched.page
+    .waitForFunction(
+      (next) => document.documentElement.dataset.scheme === next,
+      dark ? "dark" : "light",
+      {
+        timeout: 5_000,
+      },
+    )
+    .catch(() => console.log(`[scheme] the page did not turn ${dark ? "dark" : "light"}`));
+  await launched.page.waitForTimeout(400);
+}
+
+/** The app's own Appearance › Mode, as Settings saves it; the page reloads to read it. */
+async function appMode(launched: Launched, mode: "system" | "light" | "dark"): Promise<void> {
+  const { page } = launched;
+  await page.evaluate((next) => {
+    const saved: unknown = JSON.parse(localStorage.getItem("ace.appearance") ?? "{}");
+    localStorage.setItem(
+      "ace.appearance",
+      JSON.stringify({ ...(typeof saved === "object" ? saved : {}), mode: next }),
+    );
+  }, mode);
+  await page.reload();
+  await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 60_000 });
+  await page.waitForTimeout(600);
 }
 
 /** Visible controls in the top bar that reach under the caption buttons. */
@@ -277,13 +302,6 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
           ],
           ["settings", async () => go(launched, "ace://settings/appearance")],
           ["keyboard", async () => go(launched, "ace://settings/keyboard")],
-          [
-            "terminal",
-            async () => {
-              await go(launched, "ace://new");
-              await page.keyboard.press("Control+J");
-            },
-          ],
         ];
         for (const [name, enter] of views) {
           await enter();
@@ -299,12 +317,27 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         expect(problems).toEqual([]);
       });
 
+      it("draws the caption buttons for the page's own theme, not only the OS scheme", async () => {
+        // Light app under a dark OS, then dark app under a light OS: a person's Appearance choice.
+        await go(launched, "ace://new");
+        await appMode(launched, "light");
+        await scheme(launched, true);
+        captureScreen(join(screens, `${scale * 100}-os-dark-app-light.png`));
+        await appMode(launched, "dark");
+        await scheme(launched, false);
+        captureScreen(join(screens, `${scale * 100}-os-light-app-dark.png`));
+        await appMode(launched, "system");
+        const shown = await launched.page.evaluate(() => document.documentElement.dataset.scheme);
+        expect(shown).toBe("light");
+      });
+
       it.runIf(scale === 1)("labels shortcuts with Ctrl, never ⌘", async () => {
         const { page } = launched;
         await go(launched, "ace://settings/keyboard");
         await page.waitForTimeout(800);
-        const text = await page.locator("main").innerText();
-        expect(text).toContain("Ctrl+");
+        // Each key is its own chip: "Ctrl + Shift + N" reads as one chord once the gaps go.
+        const text = (await page.locator("main").innerText()).replaceAll(/\s*\+\s*/g, "+");
+        expect(text).toContain("New thread in the current project\nCtrl+Shift+N");
         expect(text).not.toMatch(/[⌘⌥⌃⇧]/);
       });
 

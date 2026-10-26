@@ -58,8 +58,11 @@ export function windowOptions(options: {
       titleBarStyle: "hidden",
       titleBarOverlay: {
         color: "#00000000",
-        symbolColor: titleBarSymbolColor(options.dark),
-        height: 50,
+        symbolColor: options.background
+          ? captionSymbolColor(options.background)
+          : titleBarSymbolColor(options.dark),
+        // The page's top bar (`--header-h`), so the glyphs share its centre line.
+        height: 44,
       },
     };
   return base;
@@ -73,6 +76,22 @@ export function solidBackground(dark: boolean): string {
 /** Windows: the colour of the caption buttons drawn over the page. */
 export function titleBarSymbolColor(dark: boolean): string {
   return dark ? "#e8e8ea" : "#1d1d20";
+}
+
+/**
+ * Windows: the caption buttons' colour on the window's own background. The page's theme can be
+ * light while the OS is dark (and the other way round), so the OS scheme alone could draw
+ * light glyphs on a light page. `background` is `#rrggbb`; anything else keeps the OS choice.
+ */
+function linear(channel: number): number {
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
+export function captionSymbolColor(background: string, osDark = false): string {
+  const hex = /^#([0-9a-f]{6})$/i.exec(background)?.[1];
+  if (!hex) return titleBarSymbolColor(osDark);
+  const [r, g, b] = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
+  const luminance = 0.2126 * linear(r ?? 0) + 0.7152 * linear(g ?? 0) + 0.0722 * linear(b ?? 0);
+  return titleBarSymbolColor(luminance < 0.18);
 }
 
 /**

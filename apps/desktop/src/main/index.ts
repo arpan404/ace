@@ -55,6 +55,7 @@ import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
 import {
   disableDnsPrefetching,
@@ -562,6 +563,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+        // Windows: the caption buttons follow the page's theme, not only the OS scheme.
+        if (process.platform === "win32")
+          window.setTitleBarOverlay({
+            symbolColor: captionSymbolColor(
+              windowBackground(value, nativeTheme.shouldUseDarkColors),
+              nativeTheme.shouldUseDarkColors,
+            ),
+          });
       },
       updateKeymap: (next) => {
         bindings = next;
