@@ -51,20 +51,20 @@ export async function v2Helper(platform: NodeJS.Platform, env: NodeJS.ProcessEnv
 /** An enabled ScreenManager over the protocol-v2 fake helper on `platform`. */
 export async function v2Fixture(platform: NodeJS.Platform, overrides: Partial<ScreenOptions> = {}) {
   const helper = await v2Helper(platform);
-  const manager = new ScreenManager({
+  const screen = new ScreenManager({
     ...helper.options,
     recordingDirectory: helper.directory,
     publishArtifact: async () => {},
     ...overrides,
   });
-  await manager.enable(true);
+  await screen.enable(true);
   return {
-    manager,
+    manager: screen,
     directory: helper.directory,
-    start: () => manager.start(target),
+    start: () => screen.start(target),
     async close() {
       try {
-        await manager.close();
+        await screen.close();
       } finally {
         await helper.clean();
       }

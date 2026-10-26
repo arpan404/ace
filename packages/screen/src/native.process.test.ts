@@ -1,10 +1,19 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
-import { ScreenInventory, ScreenPermissions } from "@ace/protocol";
+import {
+  ScreenInventory,
+  ScreenPermissions,
+  ScreenTarget,
+  ScreenUIActResult,
+  ScreenUIFindResult,
+  ScreenUITree,
+} from "@ace/protocol";
 import { Helper, type Frame } from "./index.ts";
+import { nativeWindowsHelper, ownedWindow } from "./testing/owned-window.ts";
 import { deferred, ids } from "./testing/support.ts";
 const directory = new URL("../../../native/screen-helper/", import.meta.url).pathname;
 it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !== "1")(
@@ -233,4 +242,201 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     }
   },
   180_000,
+);
+
+// Real Windows: the CI-built helper against owned fixture windows (scripts/vitest-windows-screen.config.ts).
+const EditStartup = z.object({
+  hwnd: z.number().int().positive(),
+  visible: z.boolean(),
+  dwmStatus: z.number().int(),
+  session: z.number().int().nonnegative(),
+});
+const Allowlist = z.array(z.string().min(1).max(256));
+
+function isJpeg(payload: Buffer): boolean {
+  if (payload.length < 4) return false;
+  const head = payload.readUInt16BE(0) === 0xffd8;
+  const tail = payload.readUInt16BE(payload.length - 2) === 0xffd9;
+  return head && tail;
+}
+
+function findRefInTree(node: unknown, wanted: string): string | undefined {
+  const parsed = z
+    .object({
+      ref: z.string(),
+      name: z.string(),
+      value: z.string().optional(),
+      children: z.array(z.unknown()),
+    })
+    .safeParse(node);
+  if (parsed.success === false) return undefined;
+  if (parsed.data.name === wanted || parsed.data.value === wanted) return parsed.data.ref;
+  for (const child of parsed.data.children) {
+    const found = findRefInTree(child, wanted);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+it.runIf(process.platform === "win32")(
+  "native Windows helper answers inventory then typed refusals without side effects",
+  async () => {
+    const failures: Error[] = [];
+    const { helper } = await nativeWindowsHelper({ onFailure: (error) => failures.push(error) });
+    try {
+      expect(helper.capabilities?.platform).toBe("windows");
+      expect(helper.capabilities?.codecs).toContain("jpeg");
+      expect(await helper.request({ op: "permissions" })).toEqual({
+        screenRecording: true,
+        accessibility: true,
+      });
+      const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
+      expect(inventory.windows.length).toBeLessThanOrEqual(2048);
+      expect(inventory.displays.length).toBeLessThanOrEqual(64);
+      await expect(
+        helper.request({ op: "ui.tree", allowlist: [], maxDepth: 1, maxNodes: 1 }),
+      ).rejects.toMatchObject({ code: "target_gone" });
+      await expect(
+        helper.request({
+          op: "open.url",
+          bundleId: "ace.test",
+          allowlist: ["ace.test"],
+          url: "https://example.test/",
+        }),
+      ).rejects.toMatchObject({ code: "not_supported", phase: "rejected-before-dispatch" });
+      expect(await helper.request({ op: "permissions" })).toEqual({
+        screenRecording: true,
+        accessibility: true,
+      });
+      const again = ScreenInventory.parse(await helper.request({ op: "targets" }));
+      expect(again.windows.length).toBeLessThanOrEqual(2048);
+      expect(again.displays.length).toBeLessThanOrEqual(64);
+      expect(failures).toEqual([]);
+    } finally {
+      await helper.close();
+    }
+  },
+);
+
+it.runIf(process.platform === "win32")(
+  "owned Windows form captures JPEG, edits Unicode through UIA and repaints pixels",
+  async () => {
+    const { started } = await ownedWindow(
+      "owned-edit-fixture.ps1",
+      { ACE_OWNED_TITLE: `ace-owned-${randomUUID()}` },
+      EditStartup,
+    );
+    const hwnd = started.hwnd;
+    const fixtureFacts = JSON.stringify(started);
+    const frames: Frame[] = [];
+    const failures: Error[] = [];
+    const listeners: Array<() => void> = [];
+    const notify = () => {
+      const pending = listeners.splice(0, listeners.length);
+      for (const listener of pending) listener();
+    };
+    const native = await nativeWindowsHelper({
+      onFrame: (frame: Frame) => {
+        frames.push(frame);
+        notify();
+      },
+      onFailure: (error: Error) => {
+        failures.push(error);
+        notify();
+      },
+    });
+    const helper = native.helper;
+    try {
+      const waitFrame = (from: number, timeoutMs: number, different: Buffer | undefined) =>
+        new Promise<Frame>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Frame deadline elapsed")), timeoutMs);
+          const poll = () => {
+            if (failures.length > 0) {
+              clearTimeout(timer);
+              const failure = failures[0];
+              void Promise.resolve(native.exited()).then((exit) => {
+                reject(
+                  new Error(
+                    `Helper failed during frame wait: ${failure?.message}; exit=${JSON.stringify(exit)}; stderr=${native.stderr()}`,
+                    { cause: failure },
+                  ),
+                );
+              });
+              return;
+            }
+            for (let index = from; index < frames.length; index += 1) {
+              const frame = frames[index];
+              if (frame === undefined) continue;
+              if (different !== undefined && Buffer.compare(frame.payload, different) === 0)
+                continue;
+              clearTimeout(timer);
+              resolve(frame);
+              return;
+            }
+            listeners.push(poll);
+          };
+          poll();
+        });
+      const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
+      const owned = inventory.windows.find((entry) => entry.windowId === hwnd);
+      if (owned === undefined)
+        throw new Error(
+          `Owned window missing from ${inventory.windows.length} visible targets: ${fixtureFacts}`,
+        );
+      const target = ScreenTarget.parse({
+        kind: "window",
+        bundleId: owned.bundleId,
+        windowId: hwnd,
+      });
+      const allowlist = Allowlist.parse([owned.bundleId]);
+      await helper.request({ op: "start", sessionId: "ownedcap1", target, allowlist, fps: 10 });
+      const first = await waitFrame(0, 30_000, undefined);
+      expect(first.header.width).toBeGreaterThan(0);
+      expect(first.header.height).toBeGreaterThan(0);
+      expect(isJpeg(first.payload)).toBe(true);
+      const tree = ScreenUITree.parse(
+        await helper.request({ op: "ui.tree", target, allowlist, maxDepth: 8, maxNodes: 128 }),
+      );
+      const fromTree = tree.root === null ? undefined : findRefInTree(tree.root, "OwnedEdit");
+      const found = ScreenUIFindResult.parse(
+        await helper.request({
+          op: "ui.find",
+          target,
+          allowlist,
+          query: { name: "OwnedEdit" },
+          limit: 8,
+        }),
+      );
+      const ref = found.nodes[0]?.ref ?? fromTree;
+      if (ref === undefined) throw new Error("Owned textbox was not found");
+      expect(found.nodes[0]?.actions).toContain("setValue");
+      const repaintFrom = frames.length;
+      const value = "Hello \u4f60\u597d \ud83d\ude00";
+      const acted = ScreenUIActResult.parse(
+        await helper.request({ op: "ui.act", target, allowlist, ref, action: "setValue", value }),
+      );
+      expect(acted.fallback).toBe(false);
+      const reread = ScreenUIFindResult.parse(
+        await helper.request({
+          op: "ui.find",
+          target,
+          allowlist,
+          query: { text: value },
+          limit: 8,
+        }),
+      );
+      expect(reread.nodes.some((node) => node.value === value)).toBe(true);
+      const repainted = await waitFrame(repaintFrom, 30_000, first.payload);
+      expect(repainted.header.width).toBeGreaterThan(0);
+      expect(repainted.header.height).toBeGreaterThan(0);
+      expect(isJpeg(repainted.payload)).toBe(true);
+      expect(Buffer.compare(repainted.payload, first.payload) === 0).toBe(false);
+      await helper.request({ op: "stop" });
+      expect(await helper.request({ op: "permissions" })).toBeDefined();
+      expect(failures).toEqual([]);
+    } finally {
+      await helper.close();
+    }
+  },
+  120_000,
 );
