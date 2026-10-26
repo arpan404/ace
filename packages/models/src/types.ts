@@ -34,6 +34,8 @@ export const ModelInstance = z
       .record(z.string().max(256), z.string().max(8192))
       .default({})
       .refine((env) => Object.keys(env).length <= 256),
+    /** Variables the discovery process must not inherit from the daemon's own environment. */
+    unsetEnv: z.array(z.string().min(1).max(256)).max(64).optional(),
   })
   .refine(
     (instance) =>
@@ -90,6 +92,8 @@ export interface CatalogStorage {
 export interface ModelCatalogApi {
   updatePermissionModes?(instance: string, modes: readonly NativePermissionMode[]): void;
   listen?(listener: (filter: ModelFilter) => void): () => void;
+  /** Keeps CLI-owned connections re-checked while the returned stop is not called. */
+  observeConnections?(): () => void;
   list(options?: ModelListOptions): ModelListResult;
   resolve(spec: ModelRoleSpec): ModelResolution;
   /** Resolve retained choices without scheduling discovery. Optional for embedded catalogs. */
@@ -97,5 +101,12 @@ export interface ModelCatalogApi {
   /** Account revocation removes retained choices and drains obsolete writes before deletion. */
   invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
+  /**
+   * Wait for the accounts in `filter` that have never loaded a model list, or loaded an empty one
+   * that is due for discovery, as lazy discovery loads them: a discovery already running is
+   * shared, and one that failed waits out its retry pause instead of running again. Optional for
+   * embedded catalogs.
+   */
+  loadMissing?(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
 }
 export type Deadline = (expire: () => void, milliseconds: number) => () => void;

@@ -19,6 +19,8 @@ export const BlockedReason = z.enum([
   "human",
   /** Waiting for its own subagents to finish. */
   "subagents",
+  /** A child ace delegated past its parent's run slots: it starts when a running sibling ends. */
+  "queue",
   /** Turn ended but a background shell, monitor or subagent is still live. */
   "background_task",
   "rate_limit",

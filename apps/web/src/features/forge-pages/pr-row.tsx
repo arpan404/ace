@@ -1,24 +1,15 @@
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import type { LocalCheckResult } from "@ace/ui-core";
+import { middleTruncateText, type LinkedThread, type LocalCheckResult } from "@ace/ui-core";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { LinkedThread } from "./linked-threads.ts";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { Avatars, ChecksMark, PrStateGlyph, ReviewMark } from "./marks.tsx";
 import { StepButton, StepSpace } from "./pr-step.tsx";
-import {
-  Age,
-  Author,
-  Comments,
-  middleTruncate,
-  RowActions,
-  rowClass,
-  Thread,
-} from "./row-parts.tsx";
+import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
 
 /** The row's next step as a button, or a quiet word when it waits on someone else. */
 export interface RowStepView {
@@ -118,7 +109,7 @@ export function PrRow(props: {
                   className="min-w-0 truncate font-mono text-xs text-subtle-foreground"
                   title={`${row.headBranch} → ${row.baseBranch}`}
                 >
-                  {`${middleTruncate(row.headBranch, 32)} → ${middleTruncate(row.baseBranch, 20)}`}
+                  {`${middleTruncateText(row.headBranch, 32)} → ${middleTruncateText(row.baseBranch, 20)}`}
                 </span>
               </>
             )}

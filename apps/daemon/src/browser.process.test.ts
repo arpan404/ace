@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { detectChromium } from "@ace/browser";
-import { BrowserFrame } from "@ace/protocol";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
@@ -50,21 +49,31 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
-      const frames = clients.map((client) =>
-        client.next((message) => message.type === "browser.frame"),
-      );
+      // Viewers get the live view as encoded video, starting at a keyframe of the page.
       await Promise.all(
         clients.map((client, index) =>
           client.request({
             type: "browser.subscribe",
             requestId: `subscribe-${index}`,
             threadId: thread.id,
+            binaryFrames: true,
+            viewport: { width: 640, height: 400, devicePixelRatio: 1 },
+            video: { codecs: ["avc1.42E033", "vp8"] },
           }),
         ),
       );
-      for (const reply of await Promise.all(frames)) {
-        if (reply.type !== "browser.frame") throw new Error("Expected frame");
-        expect(BrowserFrame.parse(reply.frame).data.length).toBeGreaterThan(0);
+      const keyframes = await Promise.all(
+        clients.map((client) =>
+          client.nextStream((message) =>
+            message.kind === "browser.video" && message.threadId === thread.id
+              ? message.chunk
+              : undefined,
+          ),
+        ),
+      );
+      for (const chunk of keyframes) {
+        expect(chunk.key).toBe(true);
+        expect(chunk.bytes.length).toBeGreaterThan(0);
       }
       // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(

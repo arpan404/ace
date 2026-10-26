@@ -7,38 +7,8 @@ import { checkFixRequest } from "./pr-check-model.ts";
  * filters and paging the tab offers. Pure.
  */
 
-export type ReviewOutcome = "approved" | "changes" | "commented" | "dismissed";
-
-const outcomes: Record<string, ReviewOutcome> = {
-  APPROVED: "approved",
-  CHANGES_REQUESTED: "changes",
-  COMMENTED: "commented",
-  DISMISSED: "dismissed",
-};
-
 const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
   comment.createdAt ?? comment.updatedAt;
-
-/** Each reviewer's most recent review verdict, by login. */
-export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string, ReviewOutcome> {
-  const latest = new Map<string, { at: string; outcome: ReviewOutcome }>();
-  for (const comment of comments) {
-    if (comment.kind !== "review" || !comment.reviewState) continue;
-    const outcome = outcomes[comment.reviewState.toUpperCase()];
-    if (!outcome) continue;
-    const seen = latest.get(comment.author);
-    if (!seen || time(comment) >= seen.at)
-      latest.set(comment.author, { at: time(comment), outcome });
-  }
-  return new Map([...latest].map(([author, value]) => [author, value.outcome]));
-}
-
-export const reviewOutcomeLabels: Record<ReviewOutcome, string> = {
-  approved: "Approved",
-  changes: "Changes requested",
-  commented: "Commented",
-  dismissed: "Dismissed",
-};
 
 /** Something on the PR an agent could fix: a failing check or an open review thread. */
 export type AttentionItem =
@@ -60,9 +30,14 @@ export type AttentionItem =
       body: string;
     };
 
-/** Failing checks first, then review threads nobody resolved, each as one actionable row. */
+/**
+ * Failing checks first, then review threads nobody resolved, each as one actionable row. A
+ * thread whose first comment is hidden on GitHub (`hidden`) is left out: its text must never
+ * reach a row or an agent's request.
+ */
 export function attentionItems(
   status: Pick<ForgePrStatus, "checks" | "reviewThreads">,
+  hidden: (comment: ForgeComment) => boolean = () => false,
 ): AttentionItem[] {
   const checks = status.checks
     .filter((check) => check.status === "failure")
@@ -75,14 +50,18 @@ export function attentionItems(
       url: check.url,
     }));
   const threads = status.reviewThreads
-    .filter((thread) => !thread.resolved && thread.comments.length > 0)
+    .filter((thread) => {
+      const first = thread.comments[0];
+      return !thread.resolved && first !== undefined && !hidden(first);
+    })
     .map((thread): AttentionItem => {
       const first = thread.comments[0];
       return {
         kind: "thread",
         key: `thread:${thread.id}`,
         title: (first?.body ?? "").split("\n")[0] ?? "",
-        detail: `${thread.file}:${thread.line ?? ""}`,
+        // An outdated conversation has no line on the current diff: just its file.
+        detail: thread.line === null ? thread.file : `${thread.file}:${thread.line}`,
         at: first ? time(first) : null,
         author: first?.author ?? "",
         body: first?.body ?? "",

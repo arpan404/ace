@@ -9,14 +9,12 @@ export function findInThread(nav: ThreadNav): void {
 }
 
 /**
- * The ways into a long thread from the keyboard: search it (⌘F) and its turns (⌥⌘G). Bound with
- * the thread screen, so they work before the tools' code has loaded; the header's ⋯ menu lists
- * them too.
+ * The way into a long thread from the keyboard: search it (⌘F). Bound with the thread screen,
+ * so it works before the tools' code has loaded; the header's ⋯ menu lists it too.
  */
 export function LongThreadHotkeys() {
   const nav = useThreadNav();
   // "mod+f" is also the terminal's find: name the shortcut so its rebinding applies.
   useHotkey(keymap.findInThread.keys, () => findInThread(nav), { id: "findInThread" });
-  useHotkey(keymap.turns.keys, () => nav.setTurnsOpen(!nav.turnsOpen));
   return null;
 }

@@ -41,7 +41,7 @@ import {
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
  * stages the files with their SHA-256 under `dist/releases/v<version>`. `--with-daemon` adds
- * the signed standalone daemon archives for both macOS architectures, so `ace update` on
+ * the signed standalone daemon archive for Apple silicon, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
  * draft release tagged at the built commit, then publishes it.
  */
@@ -61,7 +61,7 @@ const run = (file: string, args: string[], env: NodeJS.ProcessEnv = process.env)
   execFileSync(file, args, { cwd: repo, stdio: "inherit", env });
 const staging = (version: string) => join(repo, "dist/releases", releaseTag(version));
 const daemonOutput = join(repo, "tools/release/dist");
-const daemonTargets = ["darwin-arm64", "darwin-x64"] as const;
+const daemonTargets = ["darwin-arm64"] as const;
 
 try {
   if (command === "doctor") doctor();

@@ -168,8 +168,7 @@ export class EngineRepository {
   private syncSnapshots(): void {
     const generation = this.store.rollbackGeneration();
     if (generation === this.snapshotGeneration) return;
-    for (const id of this.snapshots.keys())
-      if (!this.store.hasLiveWrite(id)) this.snapshots.delete(id);
+    for (const id of this.snapshots.keys()) if (!this.store.hasLiveWrite(id)) this.drop(id);
     this.snapshotGeneration = generation;
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -180,7 +179,7 @@ export class EngineRepository {
       .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
       .get(id);
     if (!row) {
-      this.snapshots.delete(id);
+      this.drop(id);
       return undefined;
     }
     let snapshot = this.snapshots.get(id);
@@ -192,6 +191,7 @@ export class EngineRepository {
       );
       this.snapshotSeq.set(snapshot, Number(row.seq));
     }
+    this.retire(id, snapshot);
     this.snapshots.delete(id);
     this.snapshots.set(id, snapshot);
     this.trim();
@@ -203,7 +203,7 @@ export class EngineRepository {
   }
   evict(id: ThreadId): void {
     if (this.store.hasLiveWrite(id)) return;
-    this.snapshots.delete(id);
+    this.drop(id);
   }
   requireState(id: ThreadId): ThreadState {
     const state = this.state(id);
@@ -285,6 +285,7 @@ export class EngineRepository {
         .run(state.threadId, snapshot.header(), this.store.headSeq());
       snapshot.flush();
       this.snapshotSeq.set(snapshot, this.store.headSeq());
+      this.retire(state.threadId, snapshot);
       this.snapshots.set(state.threadId, snapshot);
       this.trim();
     });
@@ -292,18 +293,36 @@ export class EngineRepository {
   private trim(): void {
     if (this.snapshots.size > this.capacity) {
       const oldest = [...this.snapshots.keys()].find((id) => !this.store.hasLiveWrite(id));
-      if (oldest !== undefined) this.snapshots.delete(oldest);
+      if (oldest !== undefined) this.drop(oldest);
     }
+  }
+  /**
+   * Every snapshot that leaves the map is released. Its cached entries are unreachable once it
+   * goes, yet their decorated values point back at it, so the shared budget would hold whole
+   * old snapshots until 8192 newer entries pushed them out.
+   */
+  private drop(id: ThreadId): void {
+    const snapshot = this.snapshots.get(id);
+    if (!snapshot) return;
+    this.snapshots.delete(id);
+    snapshot.release();
+  }
+  /** Releases the thread's resident snapshot when `next` is about to replace it. */
+  private retire(id: ThreadId, next: Snapshot): void {
+    const previous = this.snapshots.get(id);
+    if (previous !== next) previous?.release();
   }
   attributeAction(state: ThreadState, fact: Fact): Fact {
     return attributeAceAction(state, fact, this.aceAction);
   }
-  /** Only established append streams bypass the durable control-fact transaction. */
+  /**
+   * Only established append streams and an agent's own transport signals bypass the durable
+   * control-fact transaction. Any control event they emit flushes the live batch at once.
+   */
   stream(id: ThreadId, facts: Fact[], now: number): boolean {
     if (
       !facts.length ||
       facts.length > 256 ||
-      !facts.some((fact) => fact.type === "item.delta") ||
       facts.some((fact) => fact.type !== "item.delta" && fact.type !== "signal")
     )
       return false;
@@ -425,13 +444,12 @@ export class EngineRepository {
     return cancelPending(this, id, now);
   }
   cancelled(intentId: number): boolean {
-    return this.store.atomic(
-      (_db) =>
-        this.store
-          .statement(
-            "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
-          )
-          .get(intentId) !== undefined,
+    return (
+      this.store
+        .statement(
+          "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
+        )
+        .get(intentId) !== undefined
     );
   }
   quiescent(state: ThreadState): boolean {
@@ -534,14 +552,13 @@ export class EngineRepository {
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
-    return this.store.atomic((_db) =>
-      Number(
-        this.store
-          .statement(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) + (SELECT COUNT(*) FROM workspace_root_reservations WHERE thread_id=?) AS count",
-          )
-          .get(id, id, id, id)?.count,
-      ),
+    // One SELECT over intents and queues, which live output never writes: no transaction.
+    return Number(
+      this.store
+        .statement(
+          "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) + (SELECT COUNT(*) FROM workspace_root_reservations WHERE thread_id=?) AS count",
+        )
+        .get(id, id, id, id)?.count,
     );
   }
   /**

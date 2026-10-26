@@ -11,6 +11,16 @@ type CallInput = {
 };
 
 const record = z.record(z.string(), z.unknown());
+/**
+ * Built once: this runs for every tool call each time a transcript is rebuilt, and zod keeps a
+ * cache entry for every schema instance it parses with.
+ */
+const callDetail = z.object({
+  kind: z.string(),
+  server: z.string().optional(),
+  tool: z.string().optional(),
+  arguments: z.unknown().optional(),
+});
 const screen = new Set([
   "open_app",
   "windows",
@@ -82,14 +92,7 @@ export function aceToolInput(call: CallInput): { name: string; input: unknown } 
 }
 
 function calledAceTool(call: CallInput): { name: string; input: unknown } | undefined {
-  const detail = z
-    .object({
-      kind: z.string(),
-      server: z.string().optional(),
-      tool: z.string().optional(),
-      arguments: z.unknown().optional(),
-    })
-    .safeParse(call.detail).data;
+  const detail = callDetail.safeParse(call.detail).data;
   if (detail?.kind === "mcp") {
     const name = aceMcpToolName(detail.server, detail.tool);
     if (name) return { name, input: detail.arguments ?? {} };

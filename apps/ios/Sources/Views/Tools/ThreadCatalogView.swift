@@ -34,7 +34,7 @@ struct ThreadCatalogView: View {
         }
         .searchable(text: $query, prompt: "Find a skill or command")
         .navigationTitle("Skills and commands").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }.refreshable { await read() }
+        .readWhenConnected(model) { await read() }.refreshable { await read() }
     }
     private func read() async {
         do {

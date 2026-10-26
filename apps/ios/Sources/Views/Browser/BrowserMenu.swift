@@ -18,49 +18,52 @@ struct BrowserMenu: View {
     var body: some View {
         Menu {
             Section {
-                Button("Find in page", systemImage: "doc.text.magnifyingglass") { finding = true }
+                Button("Find in page", ace: .fileMagnifyingGlass) { finding = true }
                     .disabled(!page)
-                Menu("Zoom\(state?.shown?.zoom.map { " · \($0)" } ?? "")", systemImage: "plus.magnifyingglass") {
-                    Button("Zoom in", systemImage: "plus.magnifyingglass") { model.browserZoom("in") }
-                    Button("Zoom out", systemImage: "minus.magnifyingglass") { model.browserZoom("out") }
-                    Button("Actual size", systemImage: "1.magnifyingglass") { model.browserZoom("reset") }
+                Menu {
+                    Button("Zoom in", ace: .magnifyingGlassPlus) { model.browserZoom("in") }
+                    Button("Zoom out", ace: .magnifyingGlassMinus) { model.browserZoom("out") }
+                    Button("Actual size", ace: .magnifyingGlass) { model.browserZoom("reset") }
                         .disabled(state?.shown?.zoom == nil)
+                } label: {
+                    Label("Zoom\(state?.shown?.zoom.map { " · \($0)" } ?? "")", ace: .magnifyingGlassPlus)
                 }
                 .disabled(!operate)
-                Menu("Take screenshot", systemImage: "camera") {
+                Menu {
                     Button("Visible area") { screenshot(false) }
                     Button("Full page") { screenshot(true) }
+                } label: {
+                    Label("Take screenshot", ace: .camera)
                 }
                 .disabled(!operate || state?.shown?.private == true)
                 if let url {
-                    ShareLink(item: url) { Label("Share address", systemImage: "square.and.arrow.up") }
-                    Button("Copy address", systemImage: "doc.on.doc") { UIPasteboard.general.url = url }
+                    ShareLink(item: url) { Label("Share address", ace: .export) }
+                    Button("Copy address", ace: .copy) { UIPasteboard.general.url = url }
                 }
             }
             Section {
-                Button("History", systemImage: "clock.arrow.circlepath") { sheet = .history }
-                Button(downloadsTitle, systemImage: "arrow.down.circle") { sheet = .downloads }
+                Button("History", ace: .clockCounterClockwise) { sheet = .history }
+                Button(downloadsTitle, ace: .arrowCircleDown) { sheet = .downloads }
                     .disabled(state == nil)
-                Button("Console", systemImage: "terminal") { sheet = .console }
+                Button("Console", ace: .terminal) { sheet = .console }
                     .disabled(!page)
             }
             if model.canOperate, let tabId = state?.activeTabId, state?.closed == false {
                 Section {
                     if state?.shown?.private == true {
-                        Button("Hand back to agents", systemImage: "person.2") { model.browserTakeOver(tabId, false) }
+                        Button("Hand back to agents", ace: .users) { model.browserTakeOver(tabId, false) }
                     } else {
-                        Button("Take over", systemImage: "hand.raised") { model.browserTakeOver(tabId, true) }
+                        Button("Take over", ace: .hand) { model.browserTakeOver(tabId, true) }
                     }
-                    Button("New tab", systemImage: "plus.square.on.square") { model.browserNewTab() }
-                    Button("Close tab", systemImage: "xmark.square", role: .destructive) { model.browserCloseTab(tabId) }
+                    Button("New tab", ace: .plusSquare) { model.browserNewTab() }
+                    Button("Close tab", ace: .xSquare, role: .destructive) { model.browserCloseTab(tabId) }
                 }
             }
             Section {
-                Button("Browser settings", systemImage: "gearshape") { sheet = .settings }
+                Button("Browser settings", ace: .gear) { sheet = .settings }
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 17, weight: .medium))
+            AceIcon(.dotsThree, size: 17, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())

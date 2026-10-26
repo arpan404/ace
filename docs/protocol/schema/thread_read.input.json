@@ -18,14 +18,14 @@
     },
     "maxBytes": {
       "default": 8192,
-      "description": "With streamId: bytes to read, up to 16384.",
+      "description": "With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.",
       "maximum": 16384,
       "minimum": 1,
       "type": "integer"
     },
     "offset": {
       "default": 0,
-      "description": "With streamId: byte offset, from nextOffset.",
+      "description": "With streamId: 0 to start, then the previous page's nextOffset, unchanged.",
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"

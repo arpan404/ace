@@ -18,6 +18,7 @@ import type {
   WindowBackground,
 } from "../shared/contract.ts";
 import type { DiagnosticReport } from "../shared/diagnostics.ts";
+import type { TerminalCommandControl } from "./os/cli-command.ts";
 import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
@@ -61,6 +62,8 @@ export function createHandlers(options: {
   reportDiagnostic(report: DiagnosticReport): void;
   /** Problems the app found itself (the `ace` command), listed after the doctor's checks. */
   desktopChecks(): DoctorReport["checks"];
+  /** The `ace` command on the terminal's PATH. */
+  terminalCommand: TerminalCommandControl;
   /** The page's theme colours, for the window behind it (now and from the next launch). */
   setWindowBackground(value: WindowBackground): void;
   /** A chat visualization in its own window, in the locked visualization session. */
@@ -214,6 +217,8 @@ export function createHandlers(options: {
       options.reportDiagnostic(report);
       return undefined;
     },
+    "cli.status": () => options.terminalCommand.status(),
+    "cli.setOnPath": (on) => options.terminalCommand.set(on),
     "updates.check": () => options.updates.check("person"),
     "updates.current": () => options.updates.current(),
     "updates.download": () => options.updates.download(),

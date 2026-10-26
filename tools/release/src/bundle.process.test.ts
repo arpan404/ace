@@ -16,6 +16,25 @@ import { generateKeyPairSync } from "node:crypto";
 import { bundleDaemon } from "@ace/release";
 import { ServerMessage, NotificationDevice } from "@ace/protocol";
 const roots: string[] = [];
+/** The connected host's saved notification device, once the daemon's worker has written it. */
+function savedHostDevice(path: string): unknown {
+  let persisted: DatabaseSync;
+  try {
+    persisted = new DatabaseSync(path, { readOnly: true });
+  } catch {
+    return undefined;
+  }
+  try {
+    const row = persisted
+      .prepare("SELECT body FROM devices WHERE id=? AND revoked=0")
+      .get("bundle-host");
+    return typeof row?.body === "string" ? JSON.parse(row.body) : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    persisted.close();
+  }
+}
 afterEach(async () => {
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
@@ -111,6 +130,7 @@ try {
         headers: { authorization: `Bearer ${token}` },
       });
       expect(await response.json()).toMatchObject({ running: true, version: "1.2.3" });
+      const notificationStore = join(root, "data/notifications.sqlite");
       const socket = new WebSocket(endpoint.replace("http:", "ws:"));
       try {
         await new Promise<void>((ready, reject) => {
@@ -165,6 +185,14 @@ try {
             }
           });
         });
+        // A fresh home starts the notification worker on first use: the connected host wakes
+        // it in the background, and quitting before it saves the device would abort that.
+        const deadline = Date.now() + 20_000;
+        while (savedHostDevice(notificationStore) === undefined) {
+          if (Date.now() > deadline)
+            throw new Error("Notification worker did not persist the host device");
+          await new Promise((wake) => setTimeout(wake, 50));
+        }
       } finally {
         const closed = new Promise<void>((closedReady) =>
           socket.addEventListener("close", () => closedReady(), { once: true }),
@@ -175,22 +203,11 @@ try {
       const exit = once(child, "exit");
       child.kill("SIGTERM");
       expect((await exit)[0]).toBe(0);
-      const persisted = new DatabaseSync(join(root, "data/notifications.sqlite"), {
-        readOnly: true,
+      // The saved device outlives the daemon.
+      expect(NotificationDevice.parse(savedHostDevice(notificationStore))).toMatchObject({
+        id: "bundle-host",
+        address: { channel: "websocket", platform: "web" },
       });
-      try {
-        const row = persisted
-          .prepare("SELECT body FROM devices WHERE id=? AND revoked=0")
-          .get("bundle-host");
-        if (typeof row?.body !== "string")
-          throw new Error("Notification worker did not persist the host device");
-        expect(NotificationDevice.parse(JSON.parse(row.body))).toMatchObject({
-          id: "bundle-host",
-          address: { channel: "websocket", platform: "web" },
-        });
-      } finally {
-        persisted.close();
-      }
       const records = (await readFile(join(root, "data/logs/ace.jsonl"), "utf8"))
         .trim()
         .split("\n")

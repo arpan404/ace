@@ -32,8 +32,7 @@ export const minTickSpacing = 3;
  * pointer grow longer, the one under it most, without any tick moving; they relax when it leaves.
  * Resting on a tick, or focusing it from the keyboard, opens its turn's preview beside it; a quick
  * sweep past opens nothing, an open card follows the pointer from tick to tick, and leaving the
- * rail, Escape or a click closes it. A click jumps. Shown only with a fine pointer: on touch the
- * Turns panel reaches the same turns.
+ * rail, Escape or a click closes it. A click jumps.
  */
 export function ConversationRail(props: {
   markers: readonly ConversationMarker[];
@@ -93,6 +92,8 @@ export function ConversationRail(props: {
       sendHover({ type: "dismiss" });
       return;
     }
+    // A modified arrow is an app shortcut (next or previous turn): leave it to the app.
+    if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const target = targets[event.key];
     if (target === undefined) return;
     event.preventDefault();

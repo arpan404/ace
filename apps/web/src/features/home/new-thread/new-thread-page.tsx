@@ -1,6 +1,7 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectPicker } from "./project-picker.tsx";
+import { chatChoice, forgetChatProject, useChatProject } from "./chat-project.ts";
 import { StartFrom, type StartSource } from "./start-from.tsx";
 import type { AccessMode, BranchRef, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
@@ -26,7 +27,6 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
-import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import {
   defaultWorktreeBase,
@@ -54,6 +54,10 @@ import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { noWorktreeReason, useDefaultWorkMode } from "./work-mode.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
+import { rememberMachine, rememberedProject } from "./machine-choice.ts";
+import { MachineLine } from "./machine-picker.tsx";
 import {
   preparation,
   preparationSaveFailed,
@@ -64,6 +68,7 @@ import {
   type Preparation,
   usePreparationsChanged,
 } from "./preparations.ts";
+import { NoProjects } from "./no-projects.tsx";
 import { UnavailablePreparation } from "./unavailable-preparation.tsx";
 import { NewThreadSkeleton } from "./new-thread-skeleton.tsx";
 import { launchBeforeCatalog, loadLaunch, saveLaunch } from "./remembered-launch.ts";
@@ -138,10 +143,21 @@ export function NewThreadPage(props: {
   const { ids: projects, loaded } = useRegisteredProjects();
   const host = useHostIdentity()?.hostId;
   const navigate = useNavigate();
-  const project =
-    props.project ?? pickProject(projects, undefined, loadChoices(storage).project, filter);
+  // On another machine every link from here stays on it (ADR 0102).
+  const machine = useMachineSearch();
+  const scoped = useScopedMachine()?.id;
+  // "No project" is offered after every project, and is the choice when there are none.
+  const choice =
+    props.project ??
+    pickProject(
+      [...projects, chatChoice],
+      undefined,
+      (host && rememberedProject(storage, host)) ?? loadChoices(storage).project,
+      filter,
+    );
+  const chat = useChatProject(choice === chatChoice, storage);
   if (!loaded || !host) return <NewThreadSkeleton />;
-  if (props.project && !projects.includes(props.project))
+  if (props.project && props.project !== chatChoice && !projects.includes(props.project))
     return (
       <UnavailablePreparation
         host={host}
@@ -151,23 +167,35 @@ export function NewThreadPage(props: {
         issue={props.issue}
       />
     );
-  if (!projects.length || !project)
+  if (chat.state === "failed")
     return (
       <Screen title="New thread">
-        <ProjectsEmptyState />
+        <div className="px-5 py-6">
+          <p role="alert" className="text-ui text-status-failed">
+            Couldn't start a chat without a project. Check the connection and try again.
+          </p>
+          <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={chat.retry}>
+            Try again
+          </Button>
+        </div>
       </Screen>
     );
+  const project = choice === chatChoice ? chat.state === "ready" && chat.project : choice;
+  if (!project) return <NewThreadSkeleton />;
   return (
     <PreparationPage
       key={preparationKey(host, project, props.skill, props.issue ?? props.pullRequest)}
       {...props}
       host={host}
       project={project}
+      chat={choice === chatChoice}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
+        rememberMachine(storage, scoped, { host, id: next });
         void navigate({
           to: "/new",
           search: {
+            ...machine,
             project: next,
             skill: props.skill,
             pullRequest: props.pullRequest,
@@ -178,7 +206,7 @@ export function NewThreadPage(props: {
       onSource={(source) =>
         void navigate({
           to: "/new",
-          search: { project, pullRequest: source.pullRequest, issue: source.issue },
+          search: { ...machine, project, pullRequest: source.pullRequest, issue: source.issue },
         })
       }
     />
@@ -189,6 +217,8 @@ function PreparationPage(props: {
   recoverStart: boolean;
   host: string;
   project: string;
+  /** `project` is the hidden project of a chat with no project (ADR 0099). */
+  chat: boolean;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -200,15 +230,17 @@ function PreparationPage(props: {
   // rendering, by version (`usePreparationsChanged`), and a memoized read would show stale rows.
   "use no memo";
   const { storage } = useLayout();
+  const scopedMachine = useScopedMachine()?.id;
   const readinessId = useId();
   const { ids: projects, name, loaded } = useRegisteredProjects();
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
   const issueSource = useIssueSource(project, props.issue);
+  // A chat's draft outlives the hidden project made for it, which the daemon may replace.
   const draftKey = preparationKey(
     props.host,
-    project,
+    props.chat ? chatChoice : project,
     props.skill,
     props.issue ?? props.pullRequest,
   );
@@ -273,9 +305,14 @@ function PreparationPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const defaultMode = useDefaultWorkMode();
-  const branches = useBaseRefs(project);
-  // A folder that isn't a Git repository, or one with no commit yet, can only run locally.
-  const noWorktree = props.pullRequest ? undefined : noWorktreeReason(branches);
+  const branches = useBaseRefs(props.chat ? undefined : project);
+  // A folder that isn't a Git repository, or one with no commit yet, can only run locally. A
+  // chat's folder never is one.
+  const noWorktree = props.pullRequest
+    ? undefined
+    : props.chat
+      ? "not_a_repo"
+      : noWorktreeReason(branches);
   const selected = resolve(
     options,
     choices,
@@ -436,6 +473,7 @@ function PreparationPage(props: {
   const {
     create,
     error,
+    dismissError,
     claims: claimed,
   } = useCreateThread(
     (payload) => {
@@ -466,6 +504,7 @@ function PreparationPage(props: {
       !preparationSaveFailed(storage, draftKey),
     draftKey,
     props.recoverStart,
+    () => !!latestContent.current?.text.trim() || !!latestContent.current?.attachments.length,
   );
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
@@ -582,7 +621,11 @@ function PreparationPage(props: {
     forgetReturned();
     // ⌘N opens the project of the thread started last; the next one may start on this model
     // before the catalog loads.
-    saveChoices(storage, { ...loadChoices(storage), project });
+    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : project });
+    rememberMachine(storage, scopedMachine, {
+      host: props.host,
+      id: props.chat ? chatChoice : project,
+    });
     if (resolved.model)
       saveLaunch(storage, {
         scope: resolved.model.scope,
@@ -628,6 +671,7 @@ function PreparationPage(props: {
       draft.opposite ? "stay" : "open",
     );
     submitting.current = false;
+    if (sent && props.chat) forgetChatProject(storage, project);
     const current = preparation(storage, props.host, draftKey);
     const content = readDraft(storage, draftKey);
     const unchanged =
@@ -673,13 +717,8 @@ function PreparationPage(props: {
   // Mount only after the project-scoped draft key is known, so restoration cannot race
   // the project directory on a fresh load.
   if (!loaded) return <NewThreadSkeleton />;
-  // The first run: nothing to start a thread in until a project is added.
-  if (loaded && !projects.length)
-    return (
-      <Screen title="New thread">
-        <ProjectsEmptyState />
-      </Screen>
-    );
+  // Nothing to start a thread in until a project is added, unless it's a chat.
+  if (loaded && !projects.length && !props.chat) return <NoProjects />;
   const recoverable =
     readDraft(storage, draftKey) ?? preparation(storage, props.host, draftKey)?.discardRecovery;
   const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
@@ -716,19 +755,34 @@ function PreparationPage(props: {
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
         {/* The thread's reading column: a question naming the project (its name picks another),
-            the composer high on the page, and the project's open work to start from below it. */}
+            the machine under it while there are several, the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
-          <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
-            What should we build in{" "}
-            <ProjectPicker
-              projects={projects}
-              projectName={name}
-              project={project}
-              onProject={chooseProject}
-              returnFocus={messageField}
-            />
-            ?
-          </h2>
+          {props.chat ? (
+            // A chat names no project: a plain question, with the picker after it to choose one.
+            <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+              What should we work on?{" "}
+              <ProjectPicker
+                projects={projects}
+                projectName={name}
+                project={chatChoice}
+                onProject={chooseProject}
+                returnFocus={messageField}
+              />
+            </h2>
+          ) : (
+            <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+              What should we build in{" "}
+              <ProjectPicker
+                projects={projects}
+                projectName={name}
+                project={project}
+                onProject={chooseProject}
+                returnFocus={messageField}
+              />
+              ?
+            </h2>
+          )}
+          <MachineLine returnFocus={messageField} />
           <div className="shrink-0">
             <Composer
               ref={composer}
@@ -765,6 +819,8 @@ function PreparationPage(props: {
                 }
                 contentSaveRefused.current = false;
                 if (!content.text.trim() && !content.attachments.length) {
+                  // A discarded message takes the last start's problem with it.
+                  if (!submitting.current) dismissError();
                   if (!submitting.current && preparation(storage, props.host, draftKey))
                     remember({ title: "New preparation" });
                   return;
@@ -785,7 +841,7 @@ function PreparationPage(props: {
               onSubmit={send}
               otherSend={{ shortcut: "startInBackground", hint: "starts it without opening" }}
               autoFocus
-              placeholder="Describe a task"
+              placeholder={props.chat ? "Ask anything" : "Describe a task"}
               // Nothing renders below the composer. Its one strip above holds the project and
               // where the thread runs; a notice takes the place of where it runs while there is
               // one. Sign-in decides for itself whether it shows, so the row steps aside for it
@@ -863,7 +919,8 @@ function PreparationPage(props: {
                       {readiness.pending}
                     </p>
                   )}
-                  {!notice && (
+                  {/* A chat runs in its own folder: there is nowhere else to choose. */}
+                  {!notice && !props.chat && (
                     <div data-environment="" className={composerEnvironmentRow}>
                       <div className="flex min-w-0 flex-1 items-center">
                         <Suspense fallback={<Skeleton className="mx-2 w-28" />}>
@@ -935,11 +992,13 @@ function PreparationPage(props: {
               }
             />
           </div>
-          <StartFrom
-            project={props.project}
-            source={{ pullRequest: props.pullRequest, issue: props.issue }}
-            onPick={props.onSource}
-          />
+          {!props.chat && (
+            <StartFrom
+              project={props.project}
+              source={{ pullRequest: props.pullRequest, issue: props.issue }}
+              onPick={props.onSource}
+            />
+          )}
         </div>
       </div>
     </Screen>

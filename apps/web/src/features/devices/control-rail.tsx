@@ -1,12 +1,16 @@
 import {
   ArrowUUpLeftIcon,
+  BookOpenIcon,
   CameraIcon,
+  DeviceMobileIcon,
   DeviceRotateIcon,
+  DeviceTabletIcon,
   HouseSimpleIcon,
   KeyboardIcon,
   RecordIcon,
   TextAaIcon,
 } from "@phosphor-icons/react";
+import type { DevicePosture } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
 import { useEffect, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -41,8 +45,16 @@ function useRecordingTime(recording: boolean): string | undefined {
   return recording ? formatElapsed(elapsed) : undefined;
 }
 
+/** A foldable device's postures, as its hardware shows them: shut, half open, flat. */
+const postures = [
+  { posture: "closed", label: "Closed", icon: DeviceMobileIcon },
+  { posture: "partiallyOpen", label: "Half open", icon: BookOpenIcon },
+  { posture: "open", label: "Open flat", icon: DeviceTabletIcon },
+] as const;
+
 /**
- * The floating rail on the stage's right edge: Home, Back (Android), Rotate, Software keyboard
+ * The floating rail on the stage's right edge: Home, Back (Android), Rotate, a foldable device's
+ * postures (closed, half open, open flat, the current one pressed), Software keyboard
  * (brings back the device's on-screen keyboard; toggles it on iOS) and Type text while it is
  * live, then Screenshot and Record (with its running time). Each has a tooltip and a key.
  */
@@ -55,6 +67,9 @@ export function ControlRail(props: {
   recording: boolean;
   keyboardOpen: boolean;
   onKey(key: "home" | "back" | "rotate" | "keyboard"): void;
+  /** A foldable device's posture; the posture buttons show only when it has one. */
+  posture?: DevicePosture | undefined;
+  onPosture?(posture: DevicePosture): void;
   onKeyboard(): void;
   onScreenshot(): void;
   onRecord(): void;
@@ -103,6 +118,20 @@ export function ControlRail(props: {
         disabled={!drive}
         onClick={() => props.onKey("rotate")}
       />
+      {props.posture &&
+        postures.map((item) => (
+          <IconButton
+            key={item.posture}
+            icon={item.icon}
+            label={item.label}
+            resolve={false}
+            pressed={props.posture === item.posture}
+            disabled={!drive}
+            onClick={() => {
+              if (props.posture !== item.posture) props.onPosture?.(item.posture);
+            }}
+          />
+        ))}
       <IconButton
         icon={KeyboardIcon}
         label="Software keyboard"
@@ -123,7 +152,7 @@ export function ControlRail(props: {
       <span aria-hidden className={railDivider} />
       <IconButton
         icon={CameraIcon}
-        label="Screenshot"
+        label="Copy screenshot"
         keys={railKeys.screenshot}
         resolve={false}
         disabled={!props.live || props.pending}

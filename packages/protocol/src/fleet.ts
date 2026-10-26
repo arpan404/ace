@@ -22,6 +22,11 @@ export const FleetLink = z.object({
   /** `refused`: paired, but that machine doesn't let agents from other machines in. */
   status: z.enum(["online", "offline", "refused"]),
   access: z.enum(["read", "operate"]).optional(),
+  /**
+   * Whether this machine's device there holds `projects` (ADR 0063). Transfers need it with
+   * `operate` (ADR 0101); absent when unknown.
+   */
+  projects: z.boolean().optional(),
 });
 export type FleetLink = z.infer<typeof FleetLink>;
 

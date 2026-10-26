@@ -1,11 +1,15 @@
-import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
+import { perWindow } from "@/lib/per-window.ts";
 import type { ThreadTarget } from "./use-thread-actions.ts";
 
 /** Threads waiting for the person to pick the project they move to. */
 export interface MoveRequest {
   entries: readonly ThreadTarget[];
+  /**
+   * The machine the threads are on, when it isn't this window's own (ADR 0102): the picker then
+   * lists that machine's projects and moves them there. A thread never moves between machines.
+   */
+  hostId?: string | undefined;
   /** After the move is sent (a bulk move clears the selection then). */
   onMoved?(): void;
 }
@@ -18,7 +22,7 @@ interface State {
 
 /**
  * "Move to project…" from any thread menu, the selection bar or the palette: one picker per
- * window (keyed by its client, like the organize overlay), so every surface opens the same one.
+ * window, so every surface opens the same one, another machine's thread too (`perWindow`).
  */
 export class ThreadMover {
   private state: State = { request: undefined, open: false };
@@ -41,19 +45,9 @@ export class ThreadMover {
   }
 }
 
-const movers = new WeakMap<ClientApi, ThreadMover>();
-
-export function useThreadMover(): ThreadMover {
-  const client = useClient();
-  return useMemo(() => {
-    let mover = movers.get(client);
-    if (!mover) {
-      mover = new ThreadMover();
-      movers.set(client, mover);
-    }
-    return mover;
-  }, [client]);
-}
+const movers = perWindow(() => new ThreadMover());
+export const ThreadMoverProvider = movers.Provider;
+export const useThreadMover = movers.use;
 
 /** The move waiting on a project, and whether its picker shows. */
 export function useMoveState(): State {

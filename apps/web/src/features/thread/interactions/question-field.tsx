@@ -7,7 +7,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
-import { otherAnswer } from "./question-draft.ts";
+import { otherAnswer } from "@ace/ui-core";
 
 /** A question with nothing to pick that takes words: the answer is its one field. */
 export const typedOnly = (question: Question) =>

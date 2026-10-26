@@ -30,6 +30,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "projects": {
+      "type": "boolean"
+    },
     "status": {
       "enum": [
         "online",

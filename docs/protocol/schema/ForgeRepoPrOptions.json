@@ -1,0 +1,68 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeRepoPrOptions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assignable": {
+      "items": {
+        "properties": {
+          "avatarUrl": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "login": {
+            "maxLength": 100,
+            "pattern": "^[\\w-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "labels": {
+      "items": {
+        "properties": {
+          "color": {
+            "$ref": "https://ace.local/protocol/v1/ForgeLabelColor.json"
+          },
+          "description": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 65536,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "milestones": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeMilestone.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "labels",
+    "assignable",
+    "milestones",
+    "truncated"
+  ],
+  "type": "object"
+}

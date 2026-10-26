@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import {
   ArrowSquareOutIcon,
   ChatsCircleIcon,
@@ -8,17 +9,23 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.t
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
-import { Prose } from "@/components/markdown/prose.tsx";
+import {
+  ForgeCompletions,
+  ForgeContentScope,
+  ForgeProse,
+  issueParticipants,
+  useTaskSave,
+} from "@/features/forge/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { useBackToList } from "./back-to-list.ts";
+import { backLabel, useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
-import { IssueTimeline } from "./issue-timeline.tsx";
+import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { cachedRow, useIssueDetail } from "./lists.ts";
@@ -32,7 +39,12 @@ import { repositoryFromParam } from "@/lib/pull-request-route.ts";
 /** A page's reading width, as a pull request's page has. */
 export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 
-function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
+function Header(props: {
+  project: string;
+  issue: ForgeIssueDetail;
+  backLabel: string;
+  onBack(): void;
+}) {
   const { issue } = props;
   const toast = useToast();
   const openWeb = useOpenWebAddress();
@@ -40,7 +52,7 @@ function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): voi
   const threads = issue.relatedThreads.filter((thread) => !thread.archived);
   return (
     <WorkHeading
-      back={{ label: "Issues", onBack: props.onBack }}
+      back={{ label: props.backLabel, onBack: props.onBack }}
       title={<WorkTitle text={issue.title} number={issue.ref.number} />}
       actions={
         <>
@@ -132,28 +144,70 @@ function IssueBody(props: {
   /** The issue's repository when it isn't the project's own. */
   repository: ForgeRepository | undefined;
   issue: ForgeIssueDetail;
+  backLabel: string;
   onBack(): void;
 }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
+  // Read when a search runs: everyone who has spoken on the pages read so far, latest first.
+  const cache = useQueryClient();
+  const { project, repository } = props;
+  const participants = useCallback(
+    () => issueParticipants(issue, timelineSpeakers(cache, project, repository, issue.ref.number)),
+    [cache, project, repository, issue],
+  );
+  const issueRepository = issue.ref.repository;
+  const scope = useMemo(
+    () => ({ workspaceId: props.project, repository: issueRepository }),
+    [props.project, issueRepository],
+  );
+  // Ticking a task box edits the body, guarded by the version it was read at.
+  const tasks = useTaskSave(
+    issue.permissions.edit
+      ? (body: string) =>
+          writes
+            .write({
+              action: "edit",
+              number: issue.ref.number,
+              expectedUpdatedAt: issue.updatedAt,
+              title: issue.title,
+              body,
+            })
+            .then((written) => written !== undefined)
+      : undefined,
+    `${issue.ref.number}:${issue.updatedAt}`,
+  );
   return (
-    <div className={`${readable} pt-6 pb-16`}>
-      <Header project={props.project} issue={issue} onBack={props.onBack} />
-      <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
-      <div className="mt-6 border-t border-border pt-5">
-        {issue.body.trim() ? (
-          <Prose text={issue.body} className="text-ui" />
-        ) : (
-          <p className="text-ui text-subtle-foreground">No description.</p>
-        )}
-      </div>
-      <IssueTimeline
-        project={props.project}
-        repository={props.repository}
-        number={issue.ref.number}
-      />
-      <IssueComposer project={props.project} issue={issue} writes={writes} />
-    </div>
+    <ForgeContentScope value={scope}>
+      <ForgeCompletions
+        workspaceId={props.project}
+        repository={issue.ref.repository}
+        participants={participants}
+      >
+        <div className={`${readable} pt-6 pb-16`}>
+          <Header
+            project={props.project}
+            issue={issue}
+            backLabel={props.backLabel}
+            onBack={props.onBack}
+          />
+          <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
+          <div className="mt-6 border-t border-border pt-5">
+            {issue.body.trim() ? (
+              <ForgeProse text={issue.body} tasks={tasks} className="text-ui" />
+            ) : (
+              <p className="text-ui text-subtle-foreground">No description.</p>
+            )}
+          </div>
+          <IssueTimeline
+            project={props.project}
+            repository={props.repository}
+            number={issue.ref.number}
+          />
+          <IssueComposer project={props.project} issue={issue} writes={writes} />
+        </div>
+      </ForgeCompletions>
+    </ForgeContentScope>
   );
 }
 
@@ -171,6 +225,7 @@ export function IssuePage(props: {
 }) {
   const choice = useProjectChoice(props.project);
   const back = useBackToList("/issues", props.project, props.back);
+  const label = backLabel(props.back, "Issues");
   const repository = repositoryFromParam(props.repo);
   const query = useIssueDetail(props.project, props.number, repository);
   const cache = useQueryClient();
@@ -185,6 +240,7 @@ export function IssuePage(props: {
                 project={props.project}
                 repository={repository}
                 issue={issue}
+                backLabel={label}
                 onBack={back}
               />
             ) : query.isError ? (
@@ -205,6 +261,7 @@ export function IssuePage(props: {
                     ? undefined
                     : cachedRow(cache, props.project, "issueList", props.number)
                 }
+                backLabel={label}
                 onBack={back}
                 readable={readable}
               />

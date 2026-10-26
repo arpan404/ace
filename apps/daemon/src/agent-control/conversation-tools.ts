@@ -9,11 +9,14 @@ import { WorkspaceId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { resolveProject } from "./projects.ts";
 import type { DelegationService } from "./delegations.ts";
+import type { ModelLoadBudget } from "./model-load-budget.ts";
 
 export type ConversationStartPort = (
   caller: McpAttribution,
   operation: ThreadStartOperation,
   signal: AbortSignal,
+  /** The call's budget for waiting on model lists, shared with matching its model name. */
+  budget?: ModelLoadBudget,
 ) => Promise<AgentControlResult>;
 
 /** Project scope is supplied before search ranking and cursor construction. */
@@ -24,9 +27,10 @@ export async function conversationTool(
   operation: AgentControlOperation,
   signal: AbortSignal,
   start?: ConversationStartPort,
+  budget?: ModelLoadBudget,
 ): Promise<AgentControlResult | undefined> {
   if (operation.op === "thread.start")
-    return start ? start(caller, operation, signal) : { ok: false, code: "unsupported" };
+    return start ? start(caller, operation, signal, budget) : { ok: false, code: "unsupported" };
   if (operation.op === "thread.configure") {
     const result = await service.configure(caller, operation, signal);
     return { ok: result.ok, ...(result.ok ? {} : { code: "invalid" as const }) };

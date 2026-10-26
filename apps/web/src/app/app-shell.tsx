@@ -1,14 +1,19 @@
+import { TransferHost } from "@/features/transfers/index.ts";
+import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import { NavRow } from "@/components/nav-row.tsx";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { ForgeButton } from "@/components/forge-button.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
-import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
+import {
+  DeleteConfirmationHost,
+  MoveToProjectHost,
+  OrganizeWindow,
+} from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
-import { ProjectsHost, useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
+import { ProjectsHost, useNewThreadEntry } from "@/features/projects/index.ts";
 import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -47,114 +52,115 @@ export function AppShell() {
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
   useDesktopUpdates();
   return (
-    <ProjectsHost>
-      <SignInHost>
-        <AddAccountHost>
-          <div
-            ref={shell}
-            data-connection={connection}
-            data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
-            className={cn(
-              // Focus belongs to the inner panes; the shell must never become a scrollport.
-              // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
-              "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
-              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
-            )}
-          >
-            <a
-              href="#main"
-              // The desktop's macOS traffic lights cover the window's top-left corner.
-              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
-            >
-              Skip to content
-            </a>
-            <SidebarFrame
-              sidebar={
-                <LocalBoundary label="the sidebar">
-                  <ShellSidebar />
+    <TransferOpenerProvider>
+      <OrganizeWindow>
+        <ProjectsHost>
+          <SignInHost>
+            <AddAccountHost>
+              <div
+                ref={shell}
+                data-connection={connection}
+                data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
+                className={cn(
+                  // Focus belongs to the inner panes; the shell must never become a scrollport.
+                  // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
+                  "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
+                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
+                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
+                )}
+              >
+                <a
+                  href="#main"
+                  // The desktop's macOS traffic lights cover the window's top-left corner.
+                  className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+                >
+                  Skip to content
+                </a>
+                <SidebarFrame
+                  sidebar={
+                    <LocalBoundary label="the sidebar">
+                      <ShellSidebar />
+                    </LocalBoundary>
+                  }
+                >
+                  <ThreadLeaveProvider>
+                    <PullRequestViewProvider value={PullRequestTab.Component}>
+                      <Outlet />
+                    </PullRequestViewProvider>
+                  </ThreadLeaveProvider>
+                </SidebarFrame>
+                <LocalBoundary label="the command palette" fallback={null}>
+                  <CommandPalette />
                 </LocalBoundary>
-              }
-            >
-              <ThreadLeaveProvider>
-                <PullRequestViewProvider value={PullRequestTab.Component}>
-                  <Outlet />
-                </PullRequestViewProvider>
-              </ThreadLeaveProvider>
-            </SidebarFrame>
-            <LocalBoundary label="the command palette" fallback={null}>
-              <CommandPalette />
-            </LocalBoundary>
-            <LocalBoundary label="search" fallback={null}>
-              <SearchHost />
-            </LocalBoundary>
-            <LocalBoundary label="the project picker" fallback={null}>
-              <MoveToProjectHost />
-            </LocalBoundary>
-            <LocalBoundary label="the delete confirmation" fallback={null}>
-              <DeleteConfirmationHost />
-            </LocalBoundary>
-            <LocalBoundary label="the shortcuts sheet" fallback={null}>
-              <ShortcutHost />
-            </LocalBoundary>
-            <LocalBoundary label="keyboard shortcuts" fallback={null}>
-              <ShellHotkeys />
-              <ThreadStepKeys />
-            </LocalBoundary>
-            <LocalBoundary label="notifications" fallback={null}>
-              <Notifier />
-            </LocalBoundary>
-            <LocalBoundary label="picture in picture" fallback={null}>
-              <Suspense fallback={null}>
-                <FloatingBrowsers />
-              </Suspense>
-            </LocalBoundary>
-            <LocalBoundary label="open work" fallback={null}>
-              <OpenWorkWarmup />
-            </LocalBoundary>
-          </div>
-        </AddAccountHost>
-      </SignInHost>
-    </ProjectsHost>
+                <LocalBoundary label="search" fallback={null}>
+                  <SearchHost />
+                </LocalBoundary>
+                <LocalBoundary label="the project picker" fallback={null}>
+                  <MoveToProjectHost />
+                </LocalBoundary>
+                <LocalBoundary label="the machine chooser" fallback={null}>
+                  <TransferHost />
+                </LocalBoundary>
+                <LocalBoundary label="the delete confirmation" fallback={null}>
+                  <DeleteConfirmationHost />
+                </LocalBoundary>
+                <LocalBoundary label="the shortcuts sheet" fallback={null}>
+                  <ShortcutHost />
+                </LocalBoundary>
+                <LocalBoundary label="keyboard shortcuts" fallback={null}>
+                  <ShellHotkeys />
+                  <ThreadStepKeys />
+                </LocalBoundary>
+                <LocalBoundary label="notifications" fallback={null}>
+                  <Notifier />
+                </LocalBoundary>
+                <LocalBoundary label="picture in picture" fallback={null}>
+                  <Suspense fallback={null}>
+                    <FloatingBrowsers />
+                  </Suspense>
+                </LocalBoundary>
+                <LocalBoundary label="open work" fallback={null}>
+                  <OpenWorkWarmup />
+                </LocalBoundary>
+              </div>
+            </AddAccountHost>
+          </SignInHost>
+        </ProjectsHost>
+      </OrganizeWindow>
+    </TransferOpenerProvider>
   );
 }
 
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar's Pull requests row and its needs-you dot, loaded after the first paint. */
-const PullRequestsRow = deferredComponent(() =>
-  import("@/features/forge-pages/index.ts").then((m) => m.PullRequestsNavRow),
+/** The sidebar's GitHub button with its counts, loaded after the first paint. */
+const ForgeButtonWithCounts = deferredComponent(() =>
+  import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
-const pullRequests = (active: boolean) => {
-  // Until its code (and the list it reads) arrives, the row shows without its dot.
-  const plain = (
-    <NavRow to="/pulls" icon={GitPullRequestIcon} label="Pull requests" active={active} />
-  );
+
+/** The GitHub button beside Settings, lit while Inbox, Pull requests or Issues is open. */
+function ForgeNav(props: { forgeOpen: boolean }) {
+  // Until its code (and the lists it reads) arrives, the button shows without counts.
+  const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
   return (
-    <LocalBoundary label="pull requests row" fallback={plain}>
+    <LocalBoundary label="GitHub button" fallback={plain}>
       <Suspense fallback={plain}>
-        <PullRequestsRow.Component active={active} />
+        <ForgeButtonWithCounts.Component active={props.forgeOpen} />
       </Suspense>
     </LocalBoundary>
   );
-};
+}
+const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and the Pull requests row. */
+/** The sidebar with what other slices own: the thread list and the GitHub button. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} pages={pullRequests} />;
+  return <AppSidebar threads={threads} forge={forgeNav} />;
 }
 
 function ShellHotkeys() {
-  const projects = useProjectDialogs();
   const entry = useNewThreadEntry();
-  return (
-    <GlobalHotkeys
-      onAddProject={() => projects.open({ kind: "add", tab: "sources" })}
-      onNewThread={entry.start}
-      onNewThreadHere={entry.here}
-    />
-  );
+  return <GlobalHotkeys onNewThread={entry.start} onNewThreadHere={entry.here} />;
 }
 
 /** Where focus already is on purpose; a navigation must not pull it out of these. */

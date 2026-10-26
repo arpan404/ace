@@ -21,64 +21,68 @@ struct AutomationEditor: View {
     }
     var body: some View {
         Form {
-            TextField("Title", text: $row.title)
-            TextField("Task instructions", text: $row.prompt, axis: .vertical).lineLimit(4...12)
-            Section("Project and agent") {
-                if !model.compose.projects.isEmpty {
-                    Picker("Project", selection: $row.workspace) {
-                        Text(row.workspace.isEmpty ? "Choose a project" : row.workspace).tag(row.workspace)
-                        ForEach(model.compose.projects.filter { $0.path != row.workspace }) { project in Text(project.name).tag(project.path) }
+            Group {
+                TextField("Title", text: $row.title)
+                TextField("Task instructions", text: $row.prompt, axis: .vertical).lineLimit(4...12)
+                Section {
+                    if !model.compose.projects.isEmpty {
+                        Picker("Project", selection: $row.workspace) {
+                            Text(row.workspace.isEmpty ? "Choose a project" : row.workspace).tag(row.workspace)
+                            ForEach(model.compose.projects.filter { $0.path != row.workspace }) { project in Text(project.name).tag(project.path) }
+                        }
+                    } else { TextField("Project folder on your machine", text: $row.workspace).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    Picker("Coding agent", selection: $row.provider) {
+                        ForEach(Array(Set((model.providers?.providers.map(\.provider) ?? []) + [row.provider])).sorted(), id: \.self) { Text($0.capitalized).tag($0) }
                     }
-                } else { TextField("Project folder on your machine", text: $row.workspace).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                Picker("Coding agent", selection: $row.provider) {
-                    ForEach(Array(Set((model.providers?.providers.map(\.provider) ?? []) + [row.provider])).sorted(), id: \.self) { Text($0.capitalized).tag($0) }
+                    TextField("Model (optional)", text: Binding(get: { row.model ?? "" }, set: { row.model = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Toggle("Use a worktree", isOn: $row.worktree)
+                } header: { InsetHeader("Project and agent") }
+                Section {
+                    Picker("Run", selection: $trigger) {
+                        Text("Keep configured trigger").tag("keep")
+                        Text("Manually").tag("manual")
+                        Text("Cron schedule").tag("cron")
+                    }
+                    if trigger == "keep" {
+                        Text(describeAutomationTrigger(row.trigger))
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text("GitHub and file triggers stay as configured. Pick Cron schedule to replace the trigger.")
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    if trigger == "cron" {
+                        TextField("Cron expression", text: $cron).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("Time zone", text: $timezone).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Picker("Missed runs", selection: $row.missedRun) { Text("Skip").tag("skip"); Text("Run once").tag("run_once") }
+                        if let cronProblem {
+                            Text(cronProblem)
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.StatusText.failed)
+                        } else if let timezoneProblem {
+                            Text(timezoneProblem)
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.StatusText.failed)
+                        }
+                    }
+                    Toggle("Enabled", isOn: $row.enabled)
+                    Stepper("Concurrent runs: \(row.concurrency)", value: $row.concurrency, in: 1...32)
+                } header: { InsetHeader("Trigger") }
+                if !model.canOperate {
+                    ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.")
                 }
-                TextField("Model (optional)", text: Binding(get: { row.model ?? "" }, set: { row.model = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Toggle("Use a worktree", isOn: $row.worktree)
-            }
-            Section("Trigger") {
-                Picker("Run", selection: $trigger) {
-                    Text("Keep configured trigger").tag("keep")
-                    Text("Manually").tag("manual")
-                    Text("Cron schedule").tag("cron")
-                }
-                if trigger == "keep" {
-                    Text(describeAutomationTrigger(row.trigger))
+                if let validationProblem, model.canOperate {
+                    Text(validationProblem)
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    Text("GitHub and file triggers stay as configured. Pick Cron schedule to replace the trigger.")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
-                if trigger == "cron" {
-                    TextField("Cron expression", text: $cron).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Time zone", text: $timezone).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Picker("Missed runs", selection: $row.missedRun) { Text("Skip").tag("skip"); Text("Run once").tag("run_once") }
-                    if let cronProblem {
-                        Text(cronProblem)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.StatusText.failed)
-                    } else if let timezoneProblem {
-                        Text(timezoneProblem)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.StatusText.failed)
-                    }
-                }
-                Toggle("Enabled", isOn: $row.enabled)
-                Stepper("Concurrent runs: \(row.concurrency)", value: $row.concurrency, in: 1...32)
+                ServiceProblem(message: problem)
+                Button("Save automation") { Task { await save() } }
+                    .disabled(saving || validationProblem != nil || !model.canOperate)
             }
-            if !model.canOperate {
-                ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.")
-            }
-            if let validationProblem, model.canOperate {
-                Text(validationProblem)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            ServiceProblem(message: problem)
-            Button("Save automation") { Task { await save() } }
-                .disabled(saving || validationProblem != nil || !model.canOperate)
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Automation").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         .task { model.composeAction(["kind": "projects"]) }

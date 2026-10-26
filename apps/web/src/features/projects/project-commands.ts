@@ -11,7 +11,7 @@ import type {
 import { projectProblem, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import type { Machine } from "@/lib/machines.ts";
+import { useScopedMachine, type Machine } from "@/lib/machines.ts";
 import { forgetProject, rememberProject } from "@/lib/project-cache.ts";
 import { useOrganizer } from "@/features/organize/index.ts";
 
@@ -100,8 +100,8 @@ function unreachable(): never {
 
 /**
  * The project commands with their receipts checked, on `machine` (this window's daemon when
- * none is given). Commands for this window's daemon keep the shared project list in step as
- * soon as it answers (its push follows); another machine's projects aren't in that list. Each
+ * none is given, or the scope's machine inside a `MachineScope`). Commands for the machine whose
+ * project list this cache holds keep it in step as soon as it answers (its push follows). Each
  * rejects with `ProjectRefused` (`machine_offline` when the machine isn't connected; nothing
  * falls back to another machine) or the client's error.
  */
@@ -113,12 +113,16 @@ export function useProjectCommands(machine?: Machine) {
 /** `useProjectCommands` for a machine chosen at call time (a row from any machine). */
 export function useProjectCommandsOn() {
   const primary = useClient();
+  // Inside a `MachineScope` the query cache is that machine's own.
+  const scoped = useScopedMachine();
   const queryClient = useQueryClient();
   const organizer = useOrganizer();
   return useCallback(
     (machine?: Machine) => {
       const client = machine ? machine.client : primary;
-      const shared = machine === undefined || machine.primary;
+      const shared = !machine || (scoped ? machine.id === scoped.id : machine.primary);
+      // Home's project filter names this window's own projects.
+      const own = !scoped && (!machine || machine.primary);
       const reach = () => client ?? unreachable();
       const keep = (result: Added) => {
         if (shared) rememberProject(queryClient, result.project);
@@ -147,11 +151,11 @@ export function useProjectCommandsOn() {
           if (!shared) return;
           forgetProject(queryClient, workspaceId);
           // Home stops filtering on a project that is gone.
-          if (organizer.getState().project === workspaceId) organizer.setProject(null);
+          if (own && organizer.getState().project === workspaceId) organizer.setProject(null);
         },
       };
     },
-    [primary, queryClient, organizer],
+    [primary, scoped, queryClient, organizer],
   );
 }
 

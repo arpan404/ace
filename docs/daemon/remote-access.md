@@ -31,6 +31,8 @@ In Settings > Remote devices, turn on Remote access and choose LAN or Tailscale.
 
 Enable remote access before running `ace pair`. Pairing prints an HTTPS URL and a terminal QR code. A companion client reads the URL's fragment, verifies the daemon's public-key fingerprint during TLS negotiation, then posts the code to the redemption endpoint. The fragment is never part of the HTTP request URL. Opening `/pair` loads the shipped web app from the TLS listener. Confirm this device's name to redeem the code, save its device token and connect using a one-use ticket. The connect screen also accepts a pairing link or a code plus computer address. Browsers require trusted HTTPS and cannot perform native public-key pinning; use only a link obtained from your own computer and trust its certificate before pairing. The Node client helper verifies the fragment's public-key fingerprint before sending credentials.
 
+By default a pairing link opens the web app this computer serves (`https://<lan-or-tailscale-address>/pair#…`), whose version always matches the daemon. Turning on the global `remote.hostedPairingLink` setting (Settings > Remote devices > Pairing links open app.acehq.dev) makes new links open ace's hosted web app instead: `https://app.acehq.dev/pair#host=<this computer's address>&fingerprint=…&code=…`. The hosted app may run a different version. Every client reads the computer's address from `host` when it is present, and the browser still has to trust this computer's HTTPS certificate.
+
 Treat the pairing URL as a credential until redeemed or expired. A code lasts five minutes and can create one device. Restarting the daemon invalidates all pending codes and tickets. Paired devices and the TLS identity persist across restarts.
 
 ## Listeners and configuration
@@ -44,7 +46,7 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 | `ACE_ADVERTISE_HOST` | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
 | `ACE_WEB_ORIGINS`    | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
 
-LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
+LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. When the tailnet has MagicDNS and HTTPS certificates turned on (Tailscale admin console › DNS), the listener serves Tailscale's publicly trusted certificate to clients that ask for this machine's ts.net name, and pairing links name that host (`https://<machine>.<tailnet>.ts.net:<port>`), so browsers pair with no warning. Until that certificate is served, or if it can't be fetched or has expired, links use the 100.x address, which works for native clients and the CLI. The daemon fetches it with `tailscale cert`, refreshes it twice a day and keeps ace's own certificate for every other name. On Linux, let ace fetch it with `sudo tailscale set --operator=$USER`. Native clients still pin ace's key, and also accept a publicly trusted certificate for the exact ts.net name ([ADR 0097](../adr/0097-tailscale-https-certificates.md)). A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
 
 Global `remote.enabled` and `remote.transport` settings control direct access. The legacy `local` transport value selects LAN when enabled. Selecting Relay starts the existing encrypted file, browser, screen and device channels at `remote.relayUrl`, without opening a LAN listener. Pair over LAN or Tailscale before switching to Relay; the main conversation channel and pairing redemption do not travel through the relay yet. The UI states this limitation.
 
@@ -67,7 +69,7 @@ OpenSSL creates an RSA-2048 self-signed certificate valid for ten years under `A
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
 
-`GET /v1/status`, `GET /v1/devices`, `POST /v1/pairings`, `POST /v1/pair`, `POST /v1/tickets` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets accept only the same configured origins, so the desktop connect screen and an explicitly allowed web app can pair.
+`GET /v1/status`, `GET /v1/devices`, `POST /v1/pairings`, `POST /v1/pair`, `POST /v1/tickets` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054), ace's hosted web app (`https://app.acehq.dev`) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets accept only the same configured origins, so the desktop connect screen, the hosted web app and an explicitly allowed web app can pair.
 
 The loopback WebSocket listener shares the HTTP access allowlist: an upgrade carrying any other `Origin` gets 403. The remote listener authenticates paired devices by a single-use ticket, independent of `Origin`. React Native WebSockets may send a URL-derived `Origin` (`https://<lan-ip>:<port>`); those clients need no origin configuration. Remote browser clients likewise require a ticket, rather than an origin allowlist entry. An Origin header is never a substitute for authentication. Sockets that have not authenticated have their own budget (128 on loopback, 64 on the remote listener with at most 16 per address) and are terminated if they send no valid `hello` within 5 seconds.
 
@@ -104,11 +106,13 @@ The daemon exports `@ace/daemon/client-access` for Node consumers:
 
 ```ts
 import { redeemPairing, accessRequest, ticketSocket } from "@ace/daemon/client-access";
+import { parsePairingLink } from "@ace/client/access";
 import { SocketTicket } from "@ace/protocol";
 
-const pairing = new URL(pairingUrl);
-const origin = pairing.origin;
-const fingerprint = new URLSearchParams(pairing.hash.slice(1)).get("fingerprint");
+// Reads both link forms: the daemon's own address, or app.acehq.dev naming it in `host=`.
+const link = parsePairingLink(pairingUrl);
+const origin = new URL(link.daemon).origin;
+const fingerprint = link.fingerprint;
 if (!fingerprint) throw new Error("Missing pin");
 const { device, token } = await redeemPairing(pairingUrl, "My phone");
 const ticket = SocketTicket.parse(

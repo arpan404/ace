@@ -314,7 +314,7 @@ const simulatorTarget = {
   bundleId: "com.apple.iphonesimulator",
   windowId: 42,
 } as const;
-async function simulator(duplicate = false) {
+async function simulator(duplicate = false, windowBundle = "com.apple.iphonesimulator") {
   const root = await mkdtemp(join(tmpdir(), "ace-simulator-capture-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   for (const name of ["xcode-select", "xcrun", "open"]) {
@@ -362,7 +362,10 @@ async function simulator(duplicate = false) {
   let id = 0;
   const screen = new ScreenManager({
     command: process.execPath,
-    args: [new URL("./testing/capture-helper.ts", import.meta.url).pathname],
+    args: [
+      new URL("./testing/capture-helper.ts", import.meta.url).pathname,
+      `--window-bundle=${windowBundle}`,
+    ],
     platform: "darwin",
     protocolVersion: 1,
     nextId: () => `native-simulator-${++id}`,
@@ -450,6 +453,27 @@ it("iOS device capture forwards the native session and original image packet wit
   await capture.stop();
   expect(f.screen.states()).toEqual([]);
 });
+
+it.each(["com.apple.iphonesimulator", "com.apple.dt.Devices"])(
+  "without serve-sim, the %s window shows the device alone, its own body the only frame",
+  async (bundleId) => {
+    const f = await simulator(false, bundleId);
+    const capture = await f.start();
+    cleanup.push(() => capture.stop());
+    const nativeId = capture.screenSessionId;
+    if (!nativeId) throw new Error("Missing Simulator native session");
+    // The helper crops the title bar and toolbar off and takes input below them.
+    expect(f.screen.state(nativeId).target).toEqual({
+      kind: "window",
+      bundleId,
+      windowId: 42,
+      content: true,
+    });
+    // The window shows the Simulator's bezel, so viewers draw no frame of their own.
+    expect(capture.framed).toBe(true);
+    await capture.stop();
+  },
+);
 
 it("identically named booted Simulators cannot capture or control the only visible other window", async () => {
   const f = await simulator(true);

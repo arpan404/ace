@@ -64,6 +64,13 @@ export class LaunchQueue {
       .all(parent, limit)
       .map((row) => ThreadId.parse(row.child_id));
   }
+  /** Every waiting child of one parent, oldest first: positions shift as the head starts. */
+  ordered(parent: ThreadId): ThreadId[] {
+    return this.store
+      .statement("SELECT child_id FROM delegation_launch_queue WHERE parent_id=? ORDER BY seq")
+      .all(parent)
+      .map((row) => ThreadId.parse(row.child_id));
+  }
   parents(): ThreadId[] {
     return this.store
       .statement("SELECT DISTINCT parent_id FROM delegation_launch_queue ORDER BY parent_id")

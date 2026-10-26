@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import {
   AccessMode,
+  ForgeIssueRef,
   KnownSpeed,
   WorkspaceId,
   type CatalogModel,
@@ -8,6 +9,7 @@ import {
 } from "@ace/protocol";
 import {
   baseOptions,
+  catalogModelIds,
   createPayload,
   defaultWorktreeBase,
   messageHasContent,
@@ -27,7 +29,8 @@ import { z } from "zod";
 import { submitCommand } from "./commands.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
-import { agentsPatch } from "./new-thread-agents.ts";
+import { ModelFavorites } from "./model-favorites.ts";
+import { agentsPatch, type Stars } from "./new-thread-agents.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
 
 /*
@@ -48,6 +51,14 @@ export type NewThreadOwner = Pick<
 export interface NewThreadFiles {
   tray(workspaceId: string): AttachmentTray | undefined;
   adopt(draftId: string): void;
+}
+/**
+ * The sheet's last project and agent lists (`native-reads.ts`), kept between openings and
+ * launches so the sheet opens on them while they are read again.
+ */
+export interface NewThreadMemory {
+  recall(key: string): Record<string, unknown> | undefined;
+  keep(key: string, family: "projects" | "catalog", patch: Record<string, unknown>): void;
 }
 
 const id = z.string().min(1).max(128);
@@ -76,6 +87,8 @@ export const CreateAction = z.object({
   base: z.object({ ref: z.string().min(1).max(1024), remote: id.optional() }).optional(),
   /** Empty when the first message carries only files. */
   text: z.string().max(100_000),
+  /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
+  issue: ForgeIssueRef.optional(),
 });
 type Create = z.infer<typeof CreateAction>;
 type Choice = z.infer<typeof ChoiceAction>;
@@ -93,24 +106,30 @@ export class NewThread {
   #access: NewThreadAccessReader;
   #agents: NewThreadAgents | undefined;
   #catalog: readonly CatalogModel[] = [];
+  #favorites: ModelFavorites;
+  #stars: Stars = { keys: [], problem: null };
   #choice: Choice = { kind: "choice" };
   /** Each project's own default access for new threads, from `workspaces.list`. */
   #projectAccess = new Map<string, AccessMode>();
   /** Each command id once: a repeated send waits on the first. */
-  #flights = new Map<string, Promise<void>>();
+  #flights = new Map<string, Promise<boolean>>();
+  #memory: NewThreadMemory | undefined;
   constructor(
     owner: NewThreadOwner,
     sink: PatchSink,
     preview: Preview,
     now: () => number,
     files: NewThreadFiles,
+    memory?: NewThreadMemory,
   ) {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
     this.#now = now;
     this.#files = files;
+    this.#memory = memory;
     this.#access = new NewThreadAccessReader(owner, sink);
+    this.#favorites = new ModelFavorites(owner);
   }
 
   /** Read the machine's projects, coding agents and default access for a sheet that opened. */
@@ -143,7 +162,12 @@ export class NewThread {
   }
 
   async projects(): Promise<void> {
-    this.#put("compose:projects", { type: "compose.projects", state: "loading", projects: [] });
+    // The last list stays on screen while it is read again; only a first read says loading.
+    const last = this.#memory?.recall("compose:projects");
+    this.#put(
+      "compose:projects",
+      last ?? { type: "compose.projects", state: "loading", projects: [] },
+    );
     try {
       const listed: Project[] = [];
       let after: string | undefined;
@@ -156,7 +180,8 @@ export class NewThread {
           quiet,
         );
         if (reply.result.kind !== "workspaces") throw new Error(reply.result.kind);
-        listed.push(...reply.result.workspaces);
+        // A chat's hidden project is never one to pick (ADR 0099).
+        listed.push(...reply.result.workspaces.filter((project) => project.kind !== "chat"));
         after = reply.result.next;
       } while (after && listed.length < maxProjects);
       this.#projectAccess.clear();
@@ -175,27 +200,39 @@ export class NewThread {
         path: this.#preview(row.path, 1024),
         recent: row.recent,
       }));
-      this.#put("compose:projects", { type: "compose.projects", state: "ready", projects });
+      const patch = { type: "compose.projects", state: "ready", projects };
+      this.#put("compose:projects", patch);
+      this.#memory?.keep("compose:projects", "projects", patch);
       void this.#access.target(this.#accessTarget(this.#choice));
     } catch {
-      this.#put("compose:projects", { type: "compose.projects", state: "failed", projects: [] });
+      if (!last)
+        this.#put("compose:projects", { type: "compose.projects", state: "failed", projects: [] });
     }
   }
 
   async agents(): Promise<void> {
-    this.#put("compose:agents", { type: "compose.agents", state: "loading", providers: [] });
+    // As with projects: the last agents show while they are read again. Starting a thread
+    // still waits for this read, so a choice is never checked against an old list.
+    const last = this.#memory?.recall("compose:agents");
+    this.#put(
+      "compose:agents",
+      last ?? { type: "compose.agents", state: "loading", providers: [] },
+    );
     try {
-      const [readiness, accounts, catalog] = await Promise.all([
+      const catalogRead = readModelCatalog(this.#owner, {}).catch((): ModelCatalog => ({
+        models: [],
+        instances: [],
+      }));
+      const [readiness, accounts, catalog, stars] = await Promise.all([
         this.#owner.request({ type: "providers.request", operation: "readiness" }, quiet),
         this.#owner
           .request({ type: "accounts.list" }, quiet)
           .then((reply) => reply.accounts)
           .catch(() => []),
-        readModelCatalog(this.#owner, {}).catch((): ModelCatalog => ({
-          models: [],
-          instances: [],
-        })),
+        catalogRead,
+        catalogRead.then((read) => this.#favorites.read(catalogModelIds(read.models))),
       ]);
+      this.#stars = { keys: stars, problem: null };
       if (!readiness.result.ok) throw new Error(readiness.result.error);
       const agents = newThreadAgents({
         statuses: readiness.result.providers,
@@ -206,11 +243,33 @@ export class NewThread {
       this.#agents = agents;
       this.#catalog = catalog.models;
       this.#emitAgents(agents);
+      this.#memory?.keep(
+        "compose:agents",
+        "catalog",
+        agentsPatch(agents, this.#choice, this.#preview, this.#stars),
+      );
       void this.#access.target(this.#accessTarget(this.#choice));
     } catch {
       this.#agents = undefined;
-      this.#put("compose:agents", { type: "compose.agents", state: "failed", providers: [] });
+      if (!last)
+        this.#put("compose:agents", { type: "compose.agents", state: "failed", providers: [] });
     }
+  }
+
+  /** Star or unstar a model where the web keeps stars; the picker redraws with them saved. */
+  async favorite(key: string): Promise<void> {
+    try {
+      this.#stars = {
+        keys: await this.#favorites.toggle(key, catalogModelIds(this.#catalog)),
+        problem: null,
+      };
+    } catch {
+      this.#stars = {
+        ...this.#stars,
+        problem: "Couldn't save this favourite. Reconnect and try again.",
+      };
+    }
+    if (this.#agents) this.#emitAgents(this.#agents);
   }
 
   /** A project's branches for a worktree's base, with why it can't have worktrees. */
@@ -257,7 +316,8 @@ export class NewThread {
    * Start the thread. Admission (saved on this phone, or why not) answers on `admission:<id>`;
    * the daemon's receipt, naming the new thread, on `compose.start`.
    */
-  create(action: Create): Promise<void> {
+  /** Resolves true once the thread is saved on this phone to start. */
+  create(action: Create): Promise<boolean> {
     const running = this.#flights.get(action.commandId);
     if (running) return running;
     const flight = this.#create(action).finally(() => this.#flights.delete(action.commandId));
@@ -265,7 +325,7 @@ export class NewThread {
     return flight;
   }
 
-  async #create(action: Create): Promise<void> {
+  async #create(action: Create): Promise<boolean> {
     const admission = (ok: boolean, message: string) =>
       this.#put(`admission:${action.commandId}`, {
         type: "admission",
@@ -275,22 +335,22 @@ export class NewThread {
       });
     if (!this.#agents) {
       admission(false, "Still reading this computer's coding agents. Try again in a moment.");
-      return;
+      return false;
     }
     const start = selectNewThreadAgent(this.#agents, action);
     if (!start.ok) {
       admission(false, start.reason);
-      return;
+      return false;
     }
     const tray = this.#files.tray(action.workspaceId);
     if (!messageHasContent(action.text, tray?.size ?? 0)) {
       admission(false, "Write the first message or attach a file.");
-      return;
+      return false;
     }
     const files = tray?.context() ?? { context: undefined };
     if ("refused" in files) {
       admission(false, files.refused);
-      return;
+      return false;
     }
     const access = this.#access.decide({
       provider: start.provider,
@@ -300,7 +360,7 @@ export class NewThread {
     });
     if (access.problem) {
       admission(false, access.problem);
-      return;
+      return false;
     }
     const payload = createPayload({
       project: action.workspaceId,
@@ -313,6 +373,7 @@ export class NewThread {
       permission: access.permission,
       text: action.text,
       context: files.context,
+      ...(action.issue ? { issue: action.issue } : {}),
     });
     const draftId = files.context?.draftId;
     try {
@@ -337,8 +398,10 @@ export class NewThread {
           }),
         action.commandId,
       );
+      return true;
     } catch {
       admission(false, "Couldn't save the new thread on this phone. Your draft is still here.");
+      return false;
     }
   }
 
@@ -355,7 +418,7 @@ export class NewThread {
 
   /** The agents and their models, the one in use (else each account's default) first. */
   #emitAgents(agents: NewThreadAgents): void {
-    this.#put("compose:agents", agentsPatch(agents, this.#choice, this.#preview));
+    this.#put("compose:agents", agentsPatch(agents, this.#choice, this.#preview, this.#stars));
   }
 
   #put(key: string, patch: Record<string, unknown>): void {

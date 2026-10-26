@@ -16,15 +16,18 @@ import XCTest
         feedback.tap()
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 25))
-        app.buttons["composer.model"].tap()
-        let tune = app.buttons["composer.tune"]
-        XCTAssertTrue(tune.waitForExistence(timeout: 25))
-        tune.tap()
-        XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 10))
-        screenshot("tune-menu")
-        app.buttons["High"].tap()
-        app.buttons["modelSheet.close"].tap()
+        // The model chip's effort part opens effort and speed, the levels in words.
+        app.composerControl("composer.effort", timeout: 25).tap()
+        let high = app.buttons["composer.tune.high"]
+        XCTAssertTrue(high.waitForExistence(timeout: 25))
+        high.tap()
+        XCTAssertTrue(app.buttons["composer.tune.high"].waitForExistence(timeout: 10))
+        let selected = NSPredicate(format: "isSelected == true")
+        expectation(for: selected, evaluatedWith: app.buttons["composer.tune.high"])
+        waitForExpectations(timeout: 10)
+        screenshot("tune-effort")
+        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
+        XCTAssertTrue(app.buttons["composer.tune.high"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))
@@ -43,7 +46,8 @@ import XCTest
         XCTAssertTrue(worked.waitForExistence(timeout: 25))
         app.scrollViews["transcript"].swipeDown(velocity: .fast)
         worked.tap()
-        XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
+        // The turn's steps open grouped, as on the web: sentence rows on a rail.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
         app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]

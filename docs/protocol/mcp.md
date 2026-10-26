@@ -27,9 +27,8 @@ Example:
 
 ```json
 {
-  "height": 88,
   "html": "example",
-  "title": "9"
+  "title": "u"
 }
 ```
 
@@ -71,8 +70,10 @@ Example:
 
 ```json
 {
-  "alt": "F",
-  "mimeType": "image/gif"
+  "alt": "p",
+  "data": "2y==",
+  "mimeType": "image/png",
+  "path": "example"
 }
 ```
 
@@ -111,7 +112,6 @@ Example:
 
 ```json
 {
-  "level": "warning",
   "text": "example"
 }
 ```
@@ -146,7 +146,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one serving `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Model id or name (\"opus 5.5\").","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
 | waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
@@ -156,12 +156,18 @@ Example:
 {
   "tasks": [
     {
-      "provider": "opencode",
-      "requestId": "1yxYuNF",
+      "access": "full-access",
+      "model": "example",
+      "provider": "antigravity",
+      "requestId": "r",
       "role": "example",
+      "runRole": "build",
       "task": "example",
       "workspace": {
-        "kind": "project"
+        "base": {
+          "ref": "example"
+        },
+        "kind": "new_worktree"
       }
     }
   ]
@@ -177,12 +183,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
+  "code": "not_ready",
   "hint": "example",
   "ok": false
 }
@@ -223,13 +230,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
+| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
 
 Example:
 
 ```json
 {
-  "code": "limit",
+  "code": "not_found",
   "hint": "example",
   "ok": false
 }
@@ -237,7 +244,7 @@ Example:
 
 ## agents_status
 
-Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
+Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, queued messages, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -264,30 +271,20 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": {
-    "children": [],
-    "counts": {
-      "cancelled": 4,
-      "done": 5,
-      "failed": 5,
-      "needs_you": 6,
-      "working": 0
-    }
-  },
+  "hint": "example",
   "ok": true
 }
 ```
 
 ## agent_message
 
-Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
+Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -300,13 +297,13 @@ Required capability: agents. Timeout: 630000 ms.
 | threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
-| delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
+| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer for your children, queue for other threads."} |
 
 Example:
 
 ```json
 {
-  "requestId": "ClO",
+  "requestId": "944ViXFDX",
   "text": "example",
   "threadId": "example"
 }
@@ -321,13 +318,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","restarting","queued","held","delivered"]}},"required":["arrival"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "code": "unsupported",
-  "hint": "example",
+  "code": "limit",
   "ok": true
 }
 ```
@@ -351,7 +348,7 @@ Example:
 
 ```json
 {
-  "requestId": "FZvPgTvMRT",
+  "requestId": "1FKQ-T2ELW8",
   "threadId": "example"
 }
 ```
@@ -370,15 +367,14 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
 ## machines
 
-Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.
+Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -409,13 +405,61 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
+}
+```
+
+## transfer
+
+Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread's project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.
+
+Required capability: agents. Timeout: 630000 ms.
+
+## transfer.input
+
+[JSON Schema](schema/transfer.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| machine | yes | string | {"pattern":"^[a-zA-Z0-9_.-]{1,64}$","description":"A machine from `machines` whose transfers is true."} |
+| project | no | string | {"description":"A project on this machine, by id or name. Default: this thread's.","minLength":1,"maxLength":256} |
+| thread | no | `"self"` | {"description":"Continue this thread there; the person sends its next message there."} |
+| includeChanges | no | boolean | {"description":"Send uncommitted changes. Default true."} |
+| includeIgnored | no | boolean | {"description":"Send ignored files like .env. Default: setting."} |
+
+Example:
+
+```json
+{
+  "includeIgnored": true,
+  "machine": "PNgdRfaTasLnIVrkYf9tiEPHNcFsjRjRPL3Fys_PEnXFyNXRY0U.Aptjx-4xmHcw"
+}
+```
+
+## transfer.output
+
+[JSON Schema](schema/transfer.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"transferId":{"type":"string"}},"required":["transferId"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "code": "not_found",
+  "ok": false
 }
 ```
 
 ## models
 
-Models a child can run on, with their efforts, and the installed providers with their login state and the access modes a child may take. Pass a model's id to delegate. Page with offset.
+Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -426,13 +470,15 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Only this provider's models."} |
+| query | no | string | {"description":"A model name as the person wrote it, such as \"opus 5.5\" or \"gpt 6.1 sol\".","minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"description":"From nextOffset.","minimum":0,"maximum":40960} |
 
 Example:
 
 ```json
 {
-  "provider": "opencode"
+  "provider": "opencode",
+  "query": "example"
 }
 ```
 
@@ -451,7 +497,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": true
 }
 ```
@@ -480,7 +525,7 @@ Example:
 
 ```json
 {
-  "project": "example"
+  "cursor": "example"
 }
 ```
 
@@ -499,7 +544,12 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "forbidden",
+  "data": {
+    "cursor": null,
+    "hits": []
+  },
+  "ok": false
 }
 ```
 
@@ -540,13 +590,13 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues as plain text: pass streamId with offset 0, then each page's nextOffset unchanged, until eof.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -560,16 +610,15 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
 | limit | no | integer | {"default":10,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
 | streamId | no | string | {"description":"Read a truncated part's retained output instead of the transcript.","minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
-| maxBytes | no | integer | {"default":8192,"description":"With streamId: bytes to read, up to 16384.","minimum":1,"maximum":16384} |
+| offset | no | integer | {"default":0,"description":"With streamId: 0 to start, then the previous page's nextOffset, unchanged.","minimum":0,"maximum":9007199254740991} |
+| maxBytes | no | integer | {"default":8192,"description":"With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.","minimum":1,"maximum":16384} |
 
 Example:
 
 ```json
 {
   "before": 9,
-  "maxBytes": 5,
-  "offset": 0
+  "offset": 5
 }
 ```
 
@@ -582,12 +631,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"description":"Pass as before for the previous page; null when nothing is earlier.","type":["number","null"]},"omitted":{"description":"Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).","type":"array","items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"description":"Pass as before for the previous page; null when nothing is earlier.","type":["number","null"]},"omitted":{"description":"Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).","type":"array","items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"text":{"description":"With streamId: this page of the part's text, decoded.","type":"string"},"nextOffset":{"description":"With streamId: pass back unchanged as offset for the next page.","type":"number"},"eof":{"description":"With streamId: true when the text ends with this page.","type":"boolean"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
@@ -610,7 +660,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
-| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"A model id from `models`, or its name as written (\"opus 5.5\").","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never broader than yours."} |
 
@@ -618,14 +668,12 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "model": "example",
-  "provider": "antigravity",
-  "requestId": "cKG_Ao",
+  "requestId": "1RPMJ1Cd",
   "text": "example",
   "title": "example",
   "workspace": {
-    "kind": "project"
+    "kind": "existing_worktree",
+    "path": "example"
   }
 }
 ```
@@ -645,6 +693,8 @@ Example:
 
 ```json
 {
+  "data": null,
+  "hint": "example",
   "ok": false
 }
 ```
@@ -666,7 +716,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
 | title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
 | runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
-| model | no | string | {"description":"Another model of the same provider, from `models`. Default: the thread's.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, with model.","minLength":1,"maxLength":64} |
 
 Example:
@@ -674,10 +724,9 @@ Example:
 ```json
 {
   "model": "example",
-  "requestId": "fIPlzra",
-  "runId": "example",
+  "requestId": "SSA",
   "text": "example",
-  "threadId": "example"
+  "title": "example"
 }
 ```
 
@@ -696,7 +745,8 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "code": "not_ready",
+  "data": null,
   "ok": false
 }
 ```
@@ -722,7 +772,10 @@ Example:
 
 ```json
 {
-  "requestId": "I",
+  "itemIds": [
+    "example"
+  ],
+  "requestId": ".x7477M0h8m",
   "summary": "example",
   "threadId": "example"
 }
@@ -744,7 +797,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -773,10 +826,9 @@ Example:
 
 ```json
 {
-  "action": "edit",
+  "action": "steer",
   "entryId": "example",
-  "requestId": "X7",
-  "text": "example",
+  "requestId": "kGRyjv8Vd",
   "threadId": "example"
 }
 ```
@@ -795,6 +847,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
@@ -823,10 +876,8 @@ Example:
 ```json
 {
   "answers": {},
-  "dismissed": true,
-  "feedback": "example",
   "interactionId": "example",
-  "requestId": "f4UZXTZ191",
+  "requestId": "WpFyZet",
   "threadId": "example"
 }
 ```
@@ -845,8 +896,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -874,8 +925,7 @@ Example:
 
 ```json
 {
-  "unlink": false,
-  "url": "https://example.invalid/"
+  "number": 7
 }
 ```
 
@@ -894,7 +944,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "unavailable",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -917,7 +969,7 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
-| model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"configure: a model id from `models`, or its name (\"opus 5.5\") on the thread's account.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
 | serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
 | branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |
@@ -929,11 +981,8 @@ Example:
 
 ```json
 {
-  "action": "settle",
-  "branch": "example",
-  "name": "example",
-  "threadId": "example",
-  "title": "example",
+  "action": "rename",
+  "serviceTier": "default",
   "until": null
 }
 ```
@@ -954,7 +1003,8 @@ Example:
 ```json
 {
   "data": null,
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -994,16 +1044,31 @@ Example:
 ```json
 {
   "action": "playbooks",
-  "criterion": {
-    "description": "example",
-    "id": "C",
-    "requiredKinds": [
-      "human"
-    ]
-  },
-  "requestId": "QzNLTjK2YUn",
+  "criteria": [
+    {
+      "description": "example",
+      "id": "p_40jB",
+      "independent": true,
+      "requiredKinds": [
+        "human"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "action": "example",
+      "artifact": "example",
+      "criterionId": "OSsDSRz7KP",
+      "kind": "ui",
+      "note": "example",
+      "result": "pass",
+      "revision": "example"
+    }
+  ],
+  "note": "example",
+  "requestId": "q7",
   "state": "done",
-  "stepId": "MAze"
+  "version": 3
 }
 ```
 
@@ -1022,43 +1087,8 @@ Example:
 
 ```json
 {
-  "data": {
-    "next": "example",
-    "pending": [],
-    "revision": "example",
-    "run": {
-      "blocker": "example",
-      "createdAt": 9,
-      "criteria": [
-        {
-          "description": "example",
-          "id": "PNKVU8jC",
-          "independent": true,
-          "requiredKinds": [
-            "ui"
-          ]
-        }
-      ],
-      "endpoint": "example",
-      "evidence": [],
-      "id": "l7Rw2pJz4x",
-      "note": "example",
-      "outcome": "example",
-      "owner": {
-        "model": "example",
-        "provider": "claude",
-        "threadId": "example"
-      },
-      "phase": "review",
-      "steps": [],
-      "threadId": "example",
-      "updatedAt": 7,
-      "version": 1
-    },
-    "state": "waiting_on_tree",
-    "treeState": "needs_you"
-  },
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -1082,9 +1112,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 7
-}
+{}
 ```
 
 ## automations_list.output
@@ -1102,6 +1130,7 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "hint": "example",
   "ok": true
 }
@@ -1131,8 +1160,11 @@ Example:
 ```json
 {
   "id": "example",
-  "missedRun": "run_once",
   "prompt": "example",
+  "schedule": {
+    "expression": "example",
+    "kind": "cron"
+  },
   "title": "example"
 }
 ```
@@ -1152,7 +1184,6 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
   "ok": true
 }
@@ -1160,7 +1191,7 @@ Example:
 
 ## automation_run
 
-Run a saved automation now: its message arrives in this thread, after any turn already going. The run and its answer appear in automations_list {runs: true}.
+Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1168,18 +1199,21 @@ Required capability: automations. Timeout: 630000 ms.
 
 [JSON Schema](schema/automation_run.input.json), input validation.
 
+Semantic rule: run needs requestId.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"Values for {{name}} placeholders in its prompt."} |
+| action | no | ["run","pause","resume"] | {"default":"run"} |
+| requestId | no | string | {"description":"run: any stable id; repeats run once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"run: values for {{name}} placeholders in its prompt."} |
 
 Example:
 
 ```json
 {
   "id": "example",
-  "requestId": "Xjtw"
+  "requestId": "PUx-nsQXh"
 }
 ```
 
@@ -1198,50 +1232,7 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "ok": false
-}
-```
-
-## automation_pause
-
-Pause an automation (paused: true) or resume it (paused: false). Pausing skips a run waiting to start and stops one still going in this thread; resuming picks the schedule up from now.
-
-Required capability: automations. Timeout: 630000 ms.
-
-## automation_pause.input
-
-[JSON Schema](schema/automation_pause.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| paused | no | boolean | {"default":true,"description":"true pauses it; false resumes it."} |
-
-Example:
-
-```json
-{
-  "id": "example"
-}
-```
-
-## automation_pause.output
-
-[JSON Schema](schema/automation_pause.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "code": "invalid",
-  "hint": "example",
+  "code": "forbidden",
   "ok": true
 }
 ```
@@ -1282,7 +1273,8 @@ Example:
 
 ```json
 {
-  "code": "limit",
+  "code": "invalid",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -1310,7 +1302,7 @@ Example:
 
 ```json
 {
-  "limit": 4,
+  "offset": 5,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1335,9 +1327,10 @@ Example:
 
 ```json
 {
-  "encoding": "utf-8",
+  "eof": false,
   "itemsBefore": null,
-  "nextOffset": 6
+  "nextOffset": 3,
+  "threadId": "example"
 }
 ```
 
@@ -1378,17 +1371,12 @@ Example:
 
 ```json
 {
+  "changes": null,
   "diagnostics": {
     "blocking": [],
     "failures": []
   },
-  "recent": [],
-  "status": {
-    "access": "full-access",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
+  "notes": []
 }
 ```
 
@@ -1428,7 +1416,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 3
+  "notes": 9
 }
 ```
 
@@ -1466,7 +1454,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -1491,7 +1479,6 @@ Example:
 
 ```json
 {
-  "allowOther": false,
   "question": "example"
 }
 ```
@@ -1512,7 +1499,7 @@ Example:
 {
   "answer": [],
   "askId": "example",
-  "status": "pending"
+  "status": "declined"
 }
 ```
 
@@ -1536,6 +1523,7 @@ Example:
 
 ```json
 {
+  "limit": 4,
   "query": "example"
 }
 ```
@@ -1595,6 +1583,6 @@ Example:
 ```json
 {
   "content": [],
-  "isError": true
+  "isError": false
 }
 ```

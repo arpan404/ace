@@ -47,10 +47,11 @@ struct MachineDetailView: View {
             providers
             if let client {
                 Section {
-                    ForEach(RemoteSettingsCategory.all) { category in
+                    ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
                             InsetRow(category.title, systemImage: category.symbol)
                         }
+                        .accessibilityIdentifier("machine.settings.\(category.title)")
                     }
                 } header: { InsetHeader("On this machine") }
                 .insetRowBackground()
@@ -135,7 +136,9 @@ struct ProviderRow: View {
             line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 18) }.aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                    Text([provider.summary, provider.version].compactMap { $0 }.joined(separator: " · "))
+                    // The status word beside it already says "Sign in needed"; the line adds only what's new.
+                    let summary = provider.summary.caseInsensitiveCompare(provider.status.label) == .orderedSame ? nil : provider.summary
+                    Text([summary, provider.version].compactMap { $0 }.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)
                 }

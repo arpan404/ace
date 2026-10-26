@@ -70,14 +70,29 @@ export function useProjectMetadata(): (id: string) => Project | undefined {
   return useCallback((id: string) => byId.get(id), [byId]);
 }
 
+function useChatTest(data: readonly Project[] | undefined): (id: string) => boolean {
+  const chats = useMemo(
+    () => new Set((data ?? []).flatMap((project) => (project.kind === "chat" ? [project.id] : []))),
+    [data],
+  );
+  return useCallback((id: string) => chats.has(id), [chats]);
+}
+
+/** Whether a project id is a chat's hidden project (ADR 0099). */
+export function useIsChat(): (id: string) => boolean {
+  return useChatTest(useProjectList());
+}
+
 export function useProjectIcon(): (id: string) => string | null | undefined {
   const project = useProjectMetadata();
   return useCallback((id: string) => project(id)?.icon ?? project(id)?.defaultIcon, [project]);
 }
 
 export interface ProjectDirectory {
-  /** Every project the daemon knows, by name. Empty until read. */
+  /** Every project the daemon knows, by name, without chats' hidden ones. Empty until read. */
   projects: readonly Project[];
+  /** Whether an id is a chat's hidden project, which no project list shows. */
+  isChat(id: string): boolean;
   /** False until the daemon's list has been read, so no screen claims there are none. */
   loaded: boolean;
   name(id: string): string;
@@ -104,11 +119,15 @@ export function useProjectDirectory(): ProjectDirectory {
     if (unknown) void refetch({ cancelRefetch: false });
   }, [unknown, refetch]);
   const projects = useMemo(
-    () => (data ?? []).toSorted((a, b) => a.name.localeCompare(b.name)),
+    () =>
+      (data ?? [])
+        .filter((project) => project.kind !== "chat")
+        .toSorted((a, b) => a.name.localeCompare(b.name)),
     [data],
   );
+  const isChat = useChatTest(data);
   const loaded = data !== undefined;
-  return useMemo(() => ({ projects, name, loaded }), [projects, name, loaded]);
+  return useMemo(() => ({ projects, name, loaded, isChat }), [projects, name, loaded, isChat]);
 }
 
 /**
@@ -121,13 +140,13 @@ export function useProjectChoices(extra: readonly string[] = none): {
 } {
   const directory = useProjectDirectory();
   const fromThreads = useThreadProjects();
-  const { projects, name } = directory;
+  const { projects, name, isChat } = directory;
   const ids = useMemo(
     () =>
       [...new Set([...projects.map((p) => p.id), ...fromThreads, ...extra])]
-        .filter(Boolean)
+        .filter((id) => id && !isChat(id))
         .toSorted((a, b) => name(a).localeCompare(name(b))),
-    [projects, fromThreads, extra, name],
+    [projects, fromThreads, extra, name, isChat],
   );
   return { ids, name };
 }

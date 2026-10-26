@@ -3,7 +3,6 @@ import { ArrowLeftIcon, GearSixIcon, MagnifyingGlassIcon } from "@phosphor-icons
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useProjectDirectory } from "@/lib/projects.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
@@ -16,15 +15,6 @@ const quick =
 /** Back to app spans the sidebar's foot, the profile row's place on the app's own screens. */
 const backRow =
   "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-ui text-sidebar-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
-/**
- * Whether the person has no project yet, once the daemon's list is in: then the way forward
- * is adding one, not a new thread.
- */
-export function useNoProjects(): boolean {
-  const directory = useProjectDirectory();
-  return directory.loaded && directory.projects.length === 0;
-}
-
 /**
  * Where Back to app goes: the app screen the person left for Settings, Automations or Skills
  * (the thread, with its search), or New thread when they came straight to one of them.
@@ -40,17 +30,16 @@ function useBackToApp(section: boolean) {
 /**
  * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
  * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
- * section's list) as its only scrolling part, then Pull requests as a quiet row, and at the foot
- * the profile with the Settings gear
- * (and, beside it, the app's update when there is one to act on).
+ * section's list) as its only scrolling part, and at the foot the profile with the GitHub
+ * button and the Settings gear (and, beside them, the app's update when there is one to act on).
  * Settings, Automations and Skills hide app navigation and the profile, with a full-width Back
  * to app at the foot in its place.
  */
 export function AppSidebar(props: {
   /** The thread list, the body's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
-  /** Quiet rows over the profile that open full pages (Pull requests), lit while open. */
-  pages?: ((forgeOpen: boolean) => ReactNode) | undefined;
+  /** The GitHub button beside Settings that opens Inbox, Pull requests and Issues, lit while open. */
+  forge?: ((forgeOpen: boolean) => ReactNode) | undefined;
 }) {
   const { sheet, setBody, bodyClaimed, hideSidebar } = useViewFrame();
   const { setPaletteOpen } = useLayout();
@@ -108,9 +97,6 @@ export function AppSidebar(props: {
           </Link>
         </div>
       )}
-      {!section && props.pages && (
-        <div className="shrink-0 px-2 pt-2">{props.pages(current === "forge")}</div>
-      )}
       <div
         hidden={section}
         inert={section}
@@ -118,6 +104,7 @@ export function AppSidebar(props: {
       >
         <AccountMenu />
         <UpdateButton />
+        {!section && props.forge?.(current === "forge")}
         <Tip label="Settings" shortcut="settings">
           <Link to="/settings" aria-label="Settings" className={cn(quick, "size-8")}>
             <Icon icon={GearSixIcon} />

@@ -289,3 +289,19 @@ it("project icon normalization inputs reject without safeParse throwing and vali
   for (const value of ["hTtPs://example.test/icon.png", "HTTPS://例え.テスト/icon.png"])
     expect(ProjectIcon.parse(value)).toBe(value);
 });
+
+it("a change to one schema leaves every other schema's example as it was", () => {
+  const other = { name: "Widget", schema: z.object({ size: z.number().int(), label: z.string() }) };
+  const before = [{ name: "Alpha", schema: z.object({ id: z.string() }) }, other];
+  const after = [
+    { name: "Alpha", schema: z.object({ id: z.string(), note: z.string().optional() }) },
+    other,
+  ];
+  const section = (entries: typeof before) =>
+    [...renderReference(entries, [], convertSchemas(entries)).values()]
+      .join("\n")
+      .split("\n## ")
+      .find((part) => part.startsWith("Widget"));
+  expect(section(before)).toBeDefined();
+  expect(section(after)).toBe(section(before));
+});

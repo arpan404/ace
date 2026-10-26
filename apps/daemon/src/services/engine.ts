@@ -15,7 +15,7 @@ import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorCheckpointLimitOverride } from "./cursor-limits.ts";
-import { bindCursorSdk, createInstance } from "@ace/accounts";
+import { antigravityIdentity, bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import { adapterWarning, type ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
@@ -254,10 +254,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       }),
     selectInstance:
       engineOptions.selectInstance ??
-      ((_provider, backend) =>
+      ((provider, backend) =>
         backend === "cursor-sdk"
           ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
-          : undefined),
+          : provider === "antigravity"
+            ? // An added Antigravity account the person made the default; else its CLI login.
+              accountRegistry?.selectedAcp(antigravityIdentity.acpAgentId)
+            : undefined),
     ...(services.workspaceActions
       ? {
           prepareWorkspace: (id, policy) =>
@@ -350,6 +353,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
   resources.own(() => engine.close());
+  // Turns deferred while maintenance held new work start when it reopens.
+  const stopReopen = context.maintenance?.onReopen(() => engine.admissionReopened());
+  if (stopReopen) resources.own(() => stopReopen());
   // DB recovery orders startup; each projection's kernel process lease separately gates deletion.
   await recoverSkillRoots(engine.ready(), (error) =>
     log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),

@@ -314,7 +314,7 @@ describe("Pull-request publication recovery", () => {
       state: "open",
       head: "octo:work/card",
       base: "main",
-      per_page: "2",
+      per_page: "10",
     });
     fixtures[`repos/octo/ace/pulls?${query}`] = [
       { body: [{ ...pr, head: { sha, ref: "work/card" }, base: { ref: "main" } }] },
@@ -327,7 +327,7 @@ describe("Pull-request publication recovery", () => {
       state: "open",
       head: "octo:work/card",
       base: "main",
-      per_page: "2",
+      per_page: "10",
     });
     const wrong = standard();
     wrong[`repos/octo/ace/pulls?${query}`] = [{ body: [{ ...pr, base: { ref: "main" } }] }];

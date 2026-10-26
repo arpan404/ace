@@ -20,6 +20,7 @@ export class StorageInventory {
   async thread(
     id: ThreadId,
     queries?: readonly string[],
+    going: () => boolean = () => true,
   ): Promise<OwnedStorageCandidate | undefined> {
     const { store } = this.owner;
     // Measure first: it yields to the loop. Ownership and protections are read after the last
@@ -28,9 +29,10 @@ export class StorageInventory {
       (sql) => store.statement(sql),
       id,
       queries ?? store.atomic((db) => transcriptQueries(db)),
+      going,
     );
     const thread = store.getThread(id);
-    if (!thread) return undefined;
+    if (!thread || bytes === undefined) return undefined;
     const members = storageTree(store, id);
     const protections = storageProtections(this.owner, members);
     if (thread.archivedAt === undefined && thread.deletedAt === undefined)
@@ -193,9 +195,11 @@ export class StorageInventory {
    * Candidates of the requested kinds only. `complete` speaks for those kinds: a checkout Git
    * cannot inspect never makes a thread or log pass look unfinished. Thread sizes are measured
    * one statement per macrotask, so a long history never holds the event loop for the scan.
+   * Once `going` turns false (the daemon is stopping) the scan ends early, incomplete.
    */
   async scan(
     kinds: ReadonlySet<StorageKind>,
+    going: () => boolean = () => true,
   ): Promise<{ candidates: OwnedStorageCandidate[]; complete: boolean }> {
     const { store, services } = this.owner;
     const files = this.files.inventory(kinds);
@@ -209,14 +213,17 @@ export class StorageInventory {
       if (threads.length > 256) complete = false;
       const queries = store.atomic((db) => transcriptQueries(db));
       for (const row of threads.slice(0, 256)) {
-        const candidate = await this.thread(ThreadId.parse(row.id), queries);
+        const candidate = await this.thread(ThreadId.parse(row.id), queries, going);
         if (candidate) candidates.push(candidate);
+        if (!going()) return { candidates, complete: false };
       }
     }
+    if (!going()) return { candidates, complete: false };
     if (kinds.has("attachments") && services.context) {
       const attachments = await services.context.uploads.cleanupInventory();
       complete &&= attachments.complete;
       for (const entry of attachments.entries) {
+        if (!going()) return { candidates, complete: false };
         const candidate = await this.attachment(entry.hash);
         if (candidate) candidates.push(candidate);
       }
@@ -225,6 +232,7 @@ export class StorageInventory {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
       for (const record of records.slice(0, 256)) {
+        if (!going()) return { candidates, complete: false };
         try {
           const candidate = await this.worktree(record.repo, record.path);
           if (candidate) candidates.push(candidate);

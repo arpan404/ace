@@ -3,10 +3,94 @@ import {
   executionModelId,
   isDefaultSelection,
   matchesModel,
+  resolveModelName,
   selectionModelFilter,
   type ModelCatalogApi,
 } from "@ace/models";
-import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
+import {
+  AcpIdentity,
+  type CatalogModel,
+  type DelegationRequest,
+  type ModelListOptions,
+  type Thread,
+} from "@ace/protocol";
+
+const listed = (models: readonly CatalogModel[]) =>
+  models
+    .slice(0, 8)
+    .map((model) => `${model.id} (${model.provider})`)
+    .join(", ");
+const accounts = (models: readonly CatalogModel[]) =>
+  models
+    .slice(0, 8)
+    .map((model) => model.instanceId ?? model.instance)
+    .join(", ");
+
+/** A loose model name that fits several models equally, refused with the ids to choose from. */
+export function ambiguousModel(name: string, options: readonly CatalogModel[]): AgentControlError {
+  return new AgentControlError(
+    "invalid_arguments",
+    `model_ambiguous: ${name}`,
+    undefined,
+    `That name fits several models: ${listed(options)}. Pass one of these ids as model.`,
+  );
+}
+
+/** One model several ACP logins serve as different agents, refused with the logins to choose. */
+export function ambiguousLogin(model: string, rows: readonly CatalogModel[]): AgentControlError {
+  return new AgentControlError(
+    "invalid_arguments",
+    `login_ambiguous: ${model}`,
+    undefined,
+    `That model is served by several ACP logins: ${accounts(rows)}. Pass one as accountId.`,
+  );
+}
+
+/** A provider names models elsewhere that fit, refused with where they are. */
+export function modelElsewhere(
+  provider: string,
+  name: string,
+  options: readonly CatalogModel[],
+): AgentControlError {
+  return new AgentControlError(
+    "model_unavailable",
+    `model_on_other_provider: ${name}`,
+    undefined,
+    `No ${provider} model fits that name. Other providers have ${listed(options)}; pass that provider, or omit provider.`,
+  );
+}
+
+/** Every model one account (or filter) lists, across pages. */
+function catalogRows(catalog: ModelCatalogApi, filter: ModelListOptions): CatalogModel[] {
+  const rows = [];
+  let offset = 0;
+  for (;;) {
+    const page = catalog.list({ ...filter, offset, limit: 100 });
+    rows.push(...page.models);
+    // A page that does not move forward ends the read rather than looping.
+    if (page.nextOffset === undefined || page.nextOffset <= offset) break;
+    offset = page.nextOffset;
+  }
+  return rows;
+}
+
+/**
+ * The catalog id a loosely written name ("opus 5.5") means on one account, for configuring or
+ * forking a thread that stays on it. An exact id, alias or default stays as given, as does a name
+ * nothing fits (the caller refuses it); a name that fits several models is refused.
+ */
+export function accountModelName(
+  catalog: ModelCatalogApi,
+  filter: ModelListOptions,
+  name: string,
+): string {
+  if (isDefaultSelection(name)) return name;
+  const available = catalogRows(catalog, filter).filter((row) => !row.hidden && !row.deprecated);
+  if (available.some((row) => matchesModel(row, name))) return name;
+  const near = resolveModelName(available, name);
+  if (near.kind === "ambiguous") throw ambiguousModel(name, near.options);
+  return near.kind === "match" ? near.model.id : name;
+}
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
 export function selectedDelegationModel(
@@ -24,15 +108,7 @@ export function selectedDelegationModel(
       "Cannot delegate without a source-qualified model identity",
     );
   // Page the selected account, preserving the catalog's explicit default and aliases.
-  const rows = [];
-  let offset = 0;
-  for (;;) {
-    const page = catalog.list({ ...filter, offset, limit: 100 });
-    rows.push(...page.models);
-    if (page.nextOffset === undefined) break;
-    offset = page.nextOffset;
-  }
-  const available = rows.filter((row) => !row.hidden && !row.deprecated);
+  const available = catalogRows(catalog, filter).filter((row) => !row.hidden && !row.deprecated);
   const find = (id: string | undefined) => {
     if (!id || isDefaultSelection(id)) return undefined;
     const exact = available.find((row) => matchesModel(row, id));
@@ -42,15 +118,29 @@ export function selectedDelegationModel(
     );
     return aliases.length === 1 ? aliases[0] : undefined;
   };
-  const chosen =
-    find(request.model) ??
-    find(configured) ??
-    available.find((row) => row.isDefault) ??
-    (parent.provider === request.provider ? find(parent.execution?.model) : undefined);
+  // A model the agent named runs as named or is refused: neither the account's default nor a
+  // role model the person set for other work stands in for it. Those fill only an open choice.
+  const named = request.model !== undefined && !isDefaultSelection(request.model);
+  const target = `${request.provider}${instance ? ` account ${instance}` : ""}`;
+  const chosen = named
+    ? find(request.model)
+    : (find(configured) ??
+      available.find((row) => row.isDefault) ??
+      (parent.provider === request.provider ? find(parent.execution?.model) : undefined));
+  if (!chosen && named) {
+    const role = find(configured);
+    // What the agent reads names only catalog ids, never the text it sent.
+    throw new AgentControlError(
+      "model_unavailable",
+      `Cannot delegate to ${target}: requested model ${request.model} is unavailable there.`,
+      undefined,
+      `This account does not serve that model. Call models and pass a listed id, or another accountId.${role ? ` Settings → Roles names ${role.id} for ${request.provider}.` : ""}`,
+    );
+  }
   if (!chosen)
     throw new AgentControlError(
       "model_unavailable",
-      `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
+      `Cannot delegate to ${target}: no model was named and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
   if (
     request.options?.serviceTier &&

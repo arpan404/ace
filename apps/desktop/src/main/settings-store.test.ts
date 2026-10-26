@@ -89,6 +89,7 @@ const customised: DesktopSettings = {
   attention: false,
   globalShortcut: "CommandOrControl+J",
   browserDownloads: "/Users/me/Downloads",
+  terminalCommand: false,
   notifications: {
     enabled: false,
     categories: { finished: false, failed: true },

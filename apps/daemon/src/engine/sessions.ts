@@ -273,7 +273,12 @@ export class Sessions {
         rootKey,
         cwd: metadata.cwd,
         ...(transition.fork && metadata.nativeSessionId === undefined
-          ? { fork: transition.fork }
+          ? {
+              fork: {
+                nativeSessionId: transition.fork.nativeSessionId,
+                point: transition.fork.point,
+              },
+            }
           : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined || isDefaultSelection(metadata.model)

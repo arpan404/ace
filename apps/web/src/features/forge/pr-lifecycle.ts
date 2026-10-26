@@ -6,24 +6,12 @@ import {
   type ForgeLifecycleAction,
   type ForgePrDetail,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, lifecycleLabels } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { readForge } from "@/lib/forge-read.ts";
-
-/** What each lifecycle write is called wherever it shows: menu rows, result strips, toasts. */
-export const lifecycleLabels: Record<ForgeLifecycleAction["kind"], string> = {
-  edit: "Edit pull request",
-  ready: "Ready for review",
-  draft: "Convert to draft",
-  close: "Close pull request",
-  reopen: "Reopen pull request",
-  "update.merge": "Update branch",
-  "update.rebase": "Update with rebase",
-  revert: "Revert changes",
-};
 
 type Operation = z.infer<typeof ForgeHostedLifecycleCommand>["operation"];
 
@@ -136,6 +124,14 @@ export function usePrLifecycle(props: {
       version
         ? execute({ kind: "apply", expectedVersion: version, action }, lifecycleLabels[action.kind])
         : Promise.resolve(false),
+    /** Apply `action` against the PR as GitHub has it now, read again first. */
+    async applyLatest(action: ForgeLifecycleAction): Promise<boolean> {
+      const fresh = await query.refetch();
+      const version = fresh.data?.snapshot.version;
+      return version
+        ? execute({ kind: "apply", expectedVersion: version, action }, lifecycleLabels[action.kind])
+        : false;
+    },
     reconcile: (operationId: string) =>
       execute({ kind: "reconcile", operationId }, "Check the result"),
   };

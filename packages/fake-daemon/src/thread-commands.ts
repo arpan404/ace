@@ -32,6 +32,7 @@ export function releaseHold(host: ThreadHost): Fact[] {
   host.queue.paused = false;
   host.queue.reason = null;
   host.queue.resumeAt = null;
+  delete host.queue.exited;
   host.queueDirty = true;
   const root = host.state.rootKey;
   return root !== undefined && host.state.agents[root]?.limited

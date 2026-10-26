@@ -208,6 +208,72 @@ test("delayed canonical launch records deduplicate at the original batch without
   ]);
 });
 
+const settled = (id: string, at: number, children: readonly string[]) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: "turn",
+    createdAt: at,
+    complete: true,
+    type: "delegation.settled",
+    origin: "ace",
+    delivery: "tool",
+    results: children.map((child) => ({
+      threadId: `thread-${child}`,
+      outcome: "completed",
+      result: `${child} finished`,
+      truncated: false,
+      before: null,
+    })),
+  });
+
+test("a delegate's finished result reads once, on its launch row, never as a second row", () => {
+  const items = [
+    mcpTool("delegate", 0),
+    delegationLaunch("review", 1),
+    settled("settled-review", 2, ["review"]),
+    // A child launched before this window loaded: its receipt is the only row it has.
+    settled("settled-earlier", 3, ["earlier"]),
+    // One child in view and one not: the receipt still names the one out of view.
+    settled("settled-mixed", 4, ["review", "earlier"]),
+    // Only the provider's spawn call of a child is in view, not ace's launch: the call doesn't
+    // carry the delivered result, so the receipt keeps its row.
+    Item.parse({
+      id: "native-spawned",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 5,
+      complete: true,
+      type: "tool_call",
+      call: {
+        id: "native-spawned",
+        agentId: "root",
+        kind: "agent.spawn",
+        title: "Spawn",
+        detail: { kind: "agent.spawn", childAgentId: "spawned" },
+        status: "succeeded",
+        startedAt: 5,
+        raw: [],
+      },
+    }),
+    settled("settled-spawned", 6, ["spawned"]),
+  ];
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => items.find((item) => item.id === id),
+    background: new Map(),
+    launchThread: (id) => (id === "spawned" ? "thread-spawned" : undefined),
+  });
+  expect(
+    blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
+  ).toEqual([["review"], ["native-spawned"]]);
+  expect(shown(blocks).filter((row) => row?.startsWith("settled-"))).toEqual([
+    "settled-earlier",
+    "settled-mixed",
+    "settled-spawned",
+  ]);
+});
+
 test("subagents that run in the background retain one launch card rather than separate task lines", () => {
   const items = ["first", "second"].map((id) =>
     Item.parse({

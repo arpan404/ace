@@ -20,16 +20,16 @@ it("counts threads that need the person and threads with work in flight", () => 
   tally.set("b", entry("b", { state: "working", agents: 2 }));
   tally.set("c", entry("c", { state: "waiting", on: "rate_limit" }));
   tally.set("d", entry("d", { state: "done" }));
-  expect(tally.summary()).toEqual({ needsYou: 1, working: 2 });
+  expect(tally.summary()).toEqual({ needsYou: 1, working: 2, held: 0 });
 });
 
 it("moves a thread between counts as its status changes, and drops it when it goes", () => {
   const tally = new WorkTally();
   tally.set("a", entry("a", { state: "working", agents: 1 }));
   expect(tally.set("a", entry("a", { state: "needs_you", interactions: 1 }))).toBe(true);
-  expect(tally.summary()).toEqual({ needsYou: 1, working: 0 });
+  expect(tally.summary()).toEqual({ needsYou: 1, working: 0, held: 0 });
   expect(tally.set("a", undefined)).toBe(true);
-  expect(tally.summary()).toEqual({ needsYou: 0, working: 0 });
+  expect(tally.summary()).toEqual({ needsYou: 0, working: 0, held: 0 });
 });
 
 it("reports no change while a busy thread streams without changing what it counts as", () => {
@@ -45,5 +45,15 @@ it("never counts an archived thread, whatever its status", () => {
   const tally = new WorkTally();
   tally.set("a", entry("a", { state: "needs_you", interactions: 1 }));
   expect(tally.set("a", entry("a", { state: "needs_you", interactions: 1 }, 5))).toBe(true);
-  expect(tally.summary()).toEqual({ needsYou: 0, working: 0 });
+  expect(tally.summary()).toEqual({ needsYou: 0, working: 0, held: 0 });
+});
+
+it("counts a thread paused at a usage limit or with a silent agent as held, not done", () => {
+  const tally = new WorkTally();
+  tally.set("a", entry("a", { state: "limited", until: 10 }));
+  tally.set("b", entry("b", { state: "unresponsive" }));
+  tally.set("c", entry("c", { state: "failed" }));
+  expect(tally.summary()).toEqual({ needsYou: 0, working: 0, held: 2 });
+  tally.set("a", entry("a", { state: "working", agents: 1 }));
+  expect(tally.summary()).toEqual({ needsYou: 0, working: 1, held: 1 });
 });

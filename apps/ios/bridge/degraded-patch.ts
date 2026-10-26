@@ -35,6 +35,7 @@ export function degradedPatch(patch: Record<string, unknown>): Record<string, un
           text: "Content unavailable. Check your machine.",
           truncated: true,
           step: null,
+          bubble: null,
           attachments: [],
         },
       };

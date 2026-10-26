@@ -50,6 +50,15 @@ export interface RouterOptions {
 
 /** Map the daemon's notification statuses onto the desktop categories. */
 export function alertFromDaemon(notification: Notification): Alert {
+  // One alert for the threads still waiting after the app was away; it opens the first.
+  if (notification.status === "catch_up")
+    return {
+      category: "needsYou",
+      id: notification.id,
+      title: notification.title,
+      body: notification.message ?? "",
+      link: { kind: "thread", threadId: notification.threadId },
+    };
   const category: NotificationCategory =
     notification.status === "agent_says"
       ? "agentSays"

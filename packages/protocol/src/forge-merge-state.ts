@@ -1,5 +1,14 @@
 import { z } from "zod";
 const text = z.string().max(65_536);
+/**
+ * The commit a merge or squash writes, as the person edited it. Absent, GitHub writes its
+ * own. Rebase writes no new commit and takes none.
+ */
+export const ForgeMergeCommit = z.object({
+  title: z.string().min(1).max(1_024).regex(/\S/),
+  message: text,
+});
+export type ForgeMergeCommit = z.infer<typeof ForgeMergeCommit>;
 export const ForgeMergeState = z.object({
   headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
   state: text,
@@ -28,6 +37,10 @@ export const ForgeMergeState = z.object({
   canDequeue: z.boolean(),
   blockers: z.array(text).max(20),
   writeState: z.enum(["pending", "uncertain"]).optional(),
+  /** GitHub's own prefill for this account's merge commit and squash commit. */
+  commitMessages: z
+    .object({ merge: ForgeMergeCommit.optional(), squash: ForgeMergeCommit.optional() })
+    .optional(),
   raw: z.unknown(),
 });
 export type ForgeMergeState = z.infer<typeof ForgeMergeState>;

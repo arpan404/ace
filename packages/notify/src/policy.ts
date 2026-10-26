@@ -44,3 +44,15 @@ export function retryDelay(attempts: number, jitter: number): number {
     Math.min(60_000, 1000 * 2 ** (attempts - 1)) * (1 + Math.max(0, Math.min(1, jitter)) * 0.25)
   );
 }
+/** Failed sends retried before a job is dropped. */
+export const maxRetries = 4;
+/**
+ * How long an alert stays deliverable to a device that is offline when it is raised: the
+ * coalescing window, every retry at its longest jitter, and a second of scheduling slack.
+ * A worker started after sleeping alerts only on events this recent, as a running one would.
+ */
+export function deliverableFor(windowMs: number): number {
+  let span = windowMs + 1000;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) span += retryDelay(attempt, 1);
+  return span;
+}

@@ -85,20 +85,23 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
   expect(await dismissedOnDaemon(app)).toBe(true);
 }, 30_000);
 
-test("Skip for now goes on to adding a project, and Home doesn't send this device back to setup", async () => {
+test("Skip for now goes on to Home, which offers a project to add and doesn't send this device back to setup", async () => {
   const app = firstRun();
   await app.open("/");
   await screen.findByRole("list", { name: "Providers on this computer" }, { timeout: 10_000 });
   await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-  // The first run's next step: a project to work in.
-  expect(await screen.findByRole("heading", { name: "Add your first project" })).toBeTruthy();
+  // Home's empty list: a chat needs no project, and Add a project is on offer.
+  expect(await screen.findByRole("heading", { level: 1, name: "No threads yet" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("main")).getByRole("button", { name: "Add a project" }),
+  ).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
 
   // Home again: it stays Home.
   await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByRole("heading", { name: "Add your first project" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "No threads yet" })).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();
 }, 30_000);
 

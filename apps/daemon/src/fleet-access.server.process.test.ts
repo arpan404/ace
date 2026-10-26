@@ -1,4 +1,8 @@
 import { expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SettingsService } from "@ace/settings";
 import {
   FleetResult,
   PairingResponse,
@@ -49,6 +53,28 @@ it("a pairing link's label names the device that redeems it, and the link works 
   const credential = await redeemPairing(pairing.url, "iPad");
   expect(credential.device).toMatchObject({ name: "Kitchen iPad", scopes: ["read"] });
   await expect(redeemPairing(pairing.url, "iPad")).rejects.toThrow("HTTP 401");
+});
+
+it("Pair a device opens app.acehq.dev once pairing links are set to, and the link still pairs", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-fleet-hosted-"));
+  const settings = new SettingsService({ dataDir: home });
+  onTestFinished(async () => {
+    await settings.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  const f = await setup({ settings });
+  const host = await welcomed(await f.connect());
+  const own = await issue(host, { op: "pairing", scopes: ["read"] });
+  expect(new URL(own.url).origin).toBe(
+    new URL(f.server.remoteUrl.replace("wss:", "https:")).origin,
+  );
+
+  await settings.set("remote.hostedPairingLink", true, { kind: "global" });
+  const hosted = await issue(host, { op: "pairing", scopes: ["read"] });
+  expect(new URL(hosted.url).origin).toBe("https://app.acehq.dev");
+  expect((await redeemPairing(hosted.url, "iPhone")).device.name).toBe("iPhone");
 });
 
 it("a pairing link stops working once its lifetime passes", async () => {

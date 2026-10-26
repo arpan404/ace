@@ -48,7 +48,13 @@ function fakePorts(overrides: Partial<RemoteAccessPorts>): RemoteAccessPorts {
           },
         ],
       }),
-      status: async () => JSON.stringify({ BackendState: "Running", TailscaleIPs: ["100.64.0.1"] }),
+      status: async () =>
+        JSON.stringify({
+          BackendState: "Running",
+          TailscaleIPs: ["100.64.0.1"],
+          Self: { DNSName: "studio-mac.tail1234.ts.net." },
+          CurrentTailnet: { MagicDNSEnabled: true },
+        }),
     },
     ...overrides,
   };
@@ -151,6 +157,41 @@ it("Tailscale remote access warns when Tailscale is missing or not connected", a
     status: "ok",
     message: `Remote access is on: Tailscale at 100.64.0.1:${context.config.remotePort}`,
   });
+});
+
+it("over Tailscale, doctor warns until the tailnet can issue this machine's HTTPS certificate", async () => {
+  const { context, cleanup } = await doctorTestContext();
+  cleanups.push(cleanup);
+  const https = async (status: object) =>
+    (
+      await verdicts(
+        context,
+        fakePorts({
+          preferences: async () => tailscale,
+          network: { interfaces: () => ({}), status: async () => JSON.stringify(status) },
+        }),
+      )
+    ).get("remote.tailscale-https");
+  const running = {
+    BackendState: "Running",
+    TailscaleIPs: ["100.64.0.1"],
+    Self: { DNSName: "studio-mac.tail1234.ts.net." },
+  };
+
+  expect(await https({ ...running, CertDomains: null })).toMatchObject({
+    status: "warn",
+    message:
+      "Browsers can't pair over Tailscale: HTTPS certificates are off for studio-mac.tail1234.ts.net",
+  });
+  expect(await https({ ...running, CertDomains: ["studio-mac.tail1234.ts.net"] })).toMatchObject({
+    status: "ok",
+    message: "Browsers trust studio-mac.tail1234.ts.net",
+  });
+  expect(
+    (await verdicts(context, fakePorts({ preferences: async () => lan }))).get(
+      "remote.tailscale-https",
+    ),
+  ).toMatchObject({ status: "ok" });
 });
 
 it("the relay transport still listens directly, and needs a saved relay address", async () => {

@@ -81,7 +81,8 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
 test("tasks expose status, linked PR, provider and branch details", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
-  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
+  // The branch is drawn whole, its middle the part that gives way when it doesn't fit.
+  expect(within(refund).getByTitle("fix/refund-tax").textContent).toBe("fix/refund-tax");
   expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
     "Waiting for your approval",
   );
@@ -94,7 +95,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
 
   // Rows waiting on their subagents expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
+  expect(within(dedupe).getByTitle("fix/replay-dedupe").textContent).toBe("fix/replay-dedupe");
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
     /\. Waiting for 2 subagents, /,
@@ -344,7 +345,7 @@ test("a row's name and tooltip give its whole branch, including main", async () 
 
   const onMain = card(/^Tidy the README/);
   expect(onMain.getAttribute("aria-label")).toContain("Branch main");
-  expect(within(onMain).getByText("main", { exact: true })).toBeTruthy();
+  expect(within(onMain).getByTitle("main").textContent).toBe("main");
   await userEvent.unhover(hashed);
   onMain.focus();
   const details = await screen.findByLabelText(/^Details for Tidy the README/);

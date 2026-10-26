@@ -61,6 +61,8 @@ const limits = {
   retainedHeapGrowth: 8 * MiB,
   retainedRssGrowth: 64 * MiB,
   shutdownMs: 1500,
+  /** Making a fork of a 5,000-item thread, its copy included (measured near 130 ms). */
+  forkMs: 400,
 };
 try {
   await checkIdleImports();
@@ -109,6 +111,27 @@ try {
       ),
     );
     process.stdout.write(historyIdle.stdout);
+    // A fork of a long thread copies its conversation inside the fork's write transaction.
+    await phase("fork history copy", async () => {
+      const forked = await runTimed([join(import.meta.dirname, "fork-history.ts")], {
+        cwd: root,
+        timeout: 120000,
+        maxBuffer: 1024 * 1024,
+      });
+      process.stdout.write(forked.stdout);
+      const result = z
+        .object({ forkItems: z.number(), copiedAtMost: z.number(), maxForkMs: bytes })
+        .parse(JSON.parse(forked.stdout.trim().split("\n").at(-1) ?? "{}"));
+      const violations =
+        result.forkItems > result.copiedAtMost + 1
+          ? [`fork copies: ${result.forkItems} exceeds ${result.copiedAtMost + 1}`]
+          : [];
+      const timing =
+        result.maxForkMs > limits.forkMs
+          ? [`fork ms: ${result.maxForkMs} exceeds ${limits.forkMs}`]
+          : [];
+      checkBudgets(violations, overloaded() ? [] : timing);
+    });
     await phase("daemon measurement", async () => {
       const output = join(directory, "measurement.json");
       const { raw, deadline: deadlineFailure } = await readFreshMeasurement(output, () =>

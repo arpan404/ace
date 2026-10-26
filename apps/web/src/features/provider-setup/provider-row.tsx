@@ -24,6 +24,13 @@ const progressNames: Record<ProviderInstallProgress["state"], string> = {
   needs_admin: "Approval needed",
 };
 
+// A failed update or removal leaves the installed CLI in place, so it never reads as an install.
+const failedNames: Record<ProviderInstallProgress["action"], string> = {
+  install: "Install failed",
+  update: "Update failed",
+  uninstall: "Removal failed",
+};
+
 export interface ProviderSetupActions {
   requestRemoval(): void;
 }
@@ -97,7 +104,7 @@ export function ProviderSetupRow({
           : "Installing…"
       : progressNames[progress?.state ?? "planning"]
     : failed
-      ? "Install failed"
+      ? failedNames[progress?.action ?? action]
       : progress?.state === "succeeded"
         ? progress.action === "uninstall"
           ? "Removed"

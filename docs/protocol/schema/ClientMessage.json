@@ -51,6 +51,9 @@
       "$ref": "https://ace.local/protocol/v1/FleetRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/TransfersRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ProvidersRequest.json"
     },
     {
@@ -73,6 +76,9 @@
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
         },
         "type": {
           "const": "provider.login.start",
@@ -904,6 +910,12 @@
       "$ref": "https://ace.local/protocol/v1/CatalogUnsubscribe.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SkillsRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SkillsUnsubscribe.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,
@@ -912,7 +924,7 @@
           "type": "string"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1019,7 +1031,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1199,7 +1211,7 @@
       "additionalProperties": false,
       "properties": {
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1231,7 +1243,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1240,6 +1252,9 @@
         },
         "shortLabel": {
           "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
+        },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
         },
         "type": {
           "const": "provider.accounts.add",
@@ -1293,7 +1308,7 @@
           "type": "string"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1324,7 +1339,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1359,7 +1374,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1391,12 +1406,15 @@
           "default": "login"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
         },
         "type": {
           "const": "provider.accounts.reauth",

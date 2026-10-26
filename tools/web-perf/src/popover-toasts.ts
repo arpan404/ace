@@ -33,9 +33,11 @@ export async function verifyPopoverToasts(page: Page): Promise<void> {
   await showNotice();
   await checkModel();
 
-  // On a phone, Work card remains in the header and More actions opens a menu. Menus close
+  // On a phone, Thread details remains in the header and More actions opens a menu. Menus close
   // by unmounting; the old kept-mounted header popover is no longer part of this journey.
-  await expect(page.getByRole("banner").getByRole("button", { name: /^Work card/ })).toBeVisible();
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: /^Thread details/ }),
+  ).toBeVisible();
   await expect(more).toHaveAttribute("aria-expanded", "false");
   await more.click();
   const menu = page.getByRole("menu");

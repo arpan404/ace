@@ -52,12 +52,13 @@ struct LiveActivityCommitGate {
         let activity = try Activity.request(attributes: ThreadActivityAttributes(hostId: hostId, threadId: row.id), content: content(row, online: online, at: at), pushType: nil)
         last[activity.id] = (Self.key(row: row, online: online), at)
     }
-    func update(rows: [String: ThreadRow], hostId: String, online: Bool) {
+    /// `row` reads one thread's row, so an inbox change costs nothing while no activity runs.
+    func update(row: (String) -> ThreadRow?, hostId: String, online: Bool) {
         prune()
         for activity in Activity<ThreadActivityAttributes>.activities where activity.attributes.hostId == hostId && (activity.activityState == .active || activity.activityState == .stale) {
             // The thread left the inbox (deleted, archived, reset): revoke any queued end.
             // Rows stay normalized by ClientModel, the single generation authority.
-            guard let row = rows[activity.attributes.threadId] else {
+            guard let row = row(activity.attributes.threadId) else {
                 _ = gate.note(id: activity.id)
                 last.removeValue(forKey: activity.id)
                 continue

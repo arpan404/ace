@@ -415,7 +415,7 @@ test("a live link publication leads the card's PR line, and the sidebar counts b
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
   expect(row.textContent).toContain("#283+1");
   expect(
-    within(row).getAllByRole("img", { name: /pull request #283, 1 more linked/i }),
+    within(row).getAllByRole("button", { name: /^Open .*pull request #283, 1 more linked/i }),
   ).toHaveLength(1);
 });
 

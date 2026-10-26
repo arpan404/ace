@@ -14,14 +14,22 @@ export type AgentWorkspace = z.infer<typeof AgentWorkspace>;
 export const AgentCatalogInput = ModelFilter.extend({
   offset: z.number().int().min(0).max(40960).default(0),
   limit: z.number().int().min(1).max(20).default(10),
-  instanceOffset: z.number().int().min(0).max(64).default(0),
+  /** A model name as a person writes it ("opus 5.5"); the page holds the nearest models. */
+  query: z.string().min(1).max(256).optional(),
 });
 const { raw: _raw, ...catalogModelShape } = CatalogModel.shape;
-export const AgentCatalogModel = z.object(catalogModelShape);
+export const AgentCatalogModel = z.object(catalogModelShape).extend({
+  /** The accountIds of every account that serves this model, as `delegate` takes them. */
+  accounts: z.array(z.string().min(1).max(256)).max(64).optional(),
+});
+/** Native permission selectors stay in ace: an agent chooses by `allowedAccessModes`. */
 export const AgentCatalogInstance = ModelInstanceStatus.omit({
   sources: true,
   permissionModes: true,
+  accessModes: true,
 }).extend({
+  /** The id `delegate` takes as accountId for this account. */
+  accountId: z.string().min(1).max(256),
   installed: z.boolean(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   accountLabel: z.string().max(256).optional(),
@@ -34,7 +42,8 @@ export const AgentCatalogPage = z.object({
   models: z.array(AgentCatalogModel).max(20),
   instances: z.array(AgentCatalogInstance).max(64),
   nextOffset: z.number().int().nonnegative().optional(),
-  nextInstanceOffset: z.number().int().nonnegative().optional(),
+  /** Accounts left out because their details would not fit one page; never set in practice. */
+  instancesOmitted: z.number().int().positive().optional(),
   caller: z.object({ threadId: ThreadId, access: AccessMode.nullable() }),
 });
 export type AgentCatalogPage = z.infer<typeof AgentCatalogPage>;

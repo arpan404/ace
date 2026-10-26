@@ -15,6 +15,11 @@ export const ScreenTarget = z.discriminatedUnion("kind", [
     kind: z.literal("window"),
     bundleId: ScreenBundle,
     windowId: z.number().int().positive(),
+    /**
+     * Show the window below its title bar and toolbar (a Simulator's device alone); pointer
+     * input is then in points from the top of what is shown. Older helpers show it whole.
+     */
+    content: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("display"),

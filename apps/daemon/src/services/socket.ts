@@ -2,6 +2,7 @@ import type {
   DeviceId,
   DeviceScope,
   Command,
+  CommandResult,
   ClientMessage,
   BrowserClientMessage,
   BrowserBackendClientMessage,
@@ -22,10 +23,18 @@ export interface CommandRegistration {
   types: readonly Command["payload"]["type"][];
   scope(command: Command): DeviceScope;
   accept(command: Command, device: DeviceId): void | Promise<void>;
+  /**
+   * The receipt for a command refused before it is accepted (scope, device, maintenance), for
+   * commands whose receipts carry their own codes and words; omitted: the generic error.
+   */
+  refused?(command: Command, code: string): CommandResult;
 }
 export interface SocketService {
   binary?(frame: Buffer): boolean;
-  authenticated?(channel: Extract<ClientMessage, { type: "hello" }>["channel"]): void;
+  /** Runs before welcome; a rejection with code "limit" refuses the socket as over capacity. */
+  authenticated?(
+    channel: Extract<ClientMessage, { type: "hello" }>["channel"],
+  ): void | Promise<void>;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
@@ -58,6 +67,8 @@ export interface SocketContext {
   access?: {
     auth: import("../remote-auth.ts").RemoteAuth;
     pairing(): import("../pairing-issue.ts").PairingConnection | undefined;
+    /** Origin of the web app new pairing links open; this daemon's own when undefined. */
+    pairingApp?(): Promise<string | undefined>;
   };
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;

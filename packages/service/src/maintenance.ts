@@ -3,6 +3,7 @@ import type { Command } from "@ace/protocol";
 export class MaintenanceGate {
   private draining = false;
   private readonly blockers: () => number;
+  private readonly reopened = new Set<() => void>();
   constructor(blockers: () => number) {
     this.blockers = blockers;
   }
@@ -11,8 +12,16 @@ export class MaintenanceGate {
     return this.status();
   }
   leave() {
+    const was = this.draining;
     this.draining = false;
+    // Work ace deferred while admission was closed (its own resumes) can start now.
+    if (was) for (const listener of this.reopened) listener();
     return this.status();
+  }
+  /** Calls `listener` each time admission reopens; returns the unsubscribe. */
+  onReopen(listener: () => void): () => void {
+    this.reopened.add(listener);
+    return () => this.reopened.delete(listener);
   }
   status() {
     return { draining: this.draining, blockers: this.blockers() };

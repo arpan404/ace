@@ -1,5 +1,10 @@
-import type { Item, ProviderKind } from "@ace/protocol";
-import { describeProviderError, isLimitError, type ErrorInput, type ErrorView } from "@ace/ui-core";
+import {
+  describeProviderError,
+  errorRowText,
+  isLimitError,
+  type ErrorInput,
+  type ErrorView,
+} from "@ace/ui-core";
 import { HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
@@ -7,6 +12,7 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
 import { rowClass } from "./transcript-row.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 const linkButton = buttonVariants({ variant: "primary", size: "sm" });
 /** A limit's way out is an option, not the one fix: it stays quiet beside the row. */
@@ -16,26 +22,6 @@ const quietLinkButton = buttonVariants({ variant: "ghost", size: "sm" });
 function openModelPicker(from: HTMLElement | null) {
   const scope = from?.closest("main") ?? document;
   scope.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')?.click();
-}
-
-/** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
-export function noticeError(item: Extract<Item, { type: "notice" }>): ErrorInput {
-  const record = item as Record<string, unknown>;
-  const text = (key: string) =>
-    typeof record[key] === "string" ? (record[key] as string) : undefined;
-  const details =
-    typeof record["details"] === "object" && record["details"] !== null
-      ? (record["details"] as Record<string, unknown>)
-      : {};
-  return {
-    text: item.text,
-    code: text("code") ?? (typeof details["code"] === "string" ? details["code"] : undefined),
-    title: text("title"),
-    detail: text("detail"),
-    provider:
-      typeof details["provider"] === "string" ? (details["provider"] as ProviderKind) : undefined,
-    model: typeof details["model"] === "string" ? details["model"] : undefined,
-  };
 }
 
 /**
@@ -57,12 +43,12 @@ export function ErrorRow(props: {
   const view = "text" in props.error ? describeProviderError(props.error) : props.error;
   const signIn = useSignIn();
   const signInTo = view.provider;
+  // Settings and Usage read this window's own machine: another machine's thread leaves them out.
+  const elsewhere = useScopedMachine() !== undefined;
   const [open, setOpen] = useState(false);
   const details = useId();
   const [row, setRow] = useState<HTMLDivElement | null>(null);
-  const title = props.heading ?? view.title;
-  const message = props.heading ? (view.message ?? view.title) : view.message;
-  const raw = view.raw && view.raw !== title && view.raw !== message ? view.raw : undefined;
+  const { title, message, details: raw } = errorRowText(view, props.heading);
   return (
     <div
       ref={setRow}
@@ -105,12 +91,12 @@ export function ErrorRow(props: {
               >
                 Sign in
               </Button>
-            ) : (
+            ) : elsewhere ? null : (
               <Link to="/settings/providers" className={linkButton}>
                 Sign in
               </Link>
             ))}
-          {view.action === "switch_account" && (
+          {view.action === "switch_account" && !elsewhere && (
             <Link to="/usage" className={quietLinkButton}>
               Use another account
             </Link>

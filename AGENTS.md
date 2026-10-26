@@ -71,6 +71,12 @@ Reviews reject PRs containing such tests.
 - `bun run check:deps` checks module boundaries in the web app and client packages (dependency-cruiser).
 - `bun run check` runs the checks listed in the root script. It must pass before a task is complete.
 
+## Commit attribution
+
+Every commit made through ace carries exactly this trailer, no variants:
+
+`Co-Authored-By: ace <bot@acehq.dev>`
+
 ## Recording fixtures
 
 `tools/recorder` starts real sessions on the user's CLIs and spends their subscription quota. Only run it when the user has asked for it.

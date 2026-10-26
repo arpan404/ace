@@ -33,13 +33,17 @@ function latestFinishedRun(store: Store, threadId: ThreadId): RunId | undefined 
   return row ? RunId.parse(row.id) : undefined;
 }
 
-/** The fork's latest assistant answer: what a merge cites when the agent names no items. */
+/**
+ * The fork's latest assistant answer: what a merge cites when the agent names no items. The
+ * answers it copied from its source when it was made are not its own work.
+ */
 function latestAnswer(store: Store, threadId: ThreadId): ItemId | undefined {
   const row = store.atomic((db) =>
     db
       .prepare(
         `SELECT id FROM items WHERE thread_id=? AND json_extract(item,'$.type')='message'
-        AND json_extract(item,'$.role')='assistant' ORDER BY created_seq DESC LIMIT 1`,
+        AND json_extract(item,'$.role')='assistant' AND json_extract(item,'$.inherited') IS NULL
+        ORDER BY created_seq DESC LIMIT 1`,
       )
       .get(threadId),
   );
@@ -69,6 +73,7 @@ export function createForks(
   async function fork(
     caller: McpAttribution,
     operation: ThreadForkOperation,
+    signal?: AbortSignal,
   ): Promise<AgentControlResult> {
     const previous = journal.receipt(caller, operation.requestId);
     if (previous)
@@ -84,11 +89,25 @@ export function createForks(
         code: "not_ready",
         hint: "The thread has no finished turn to fork from yet; fork it once a turn ends.",
       };
-    const selection = operation.model
-      ? await service.threadSelection(caller, source, operation.requestId, operation.model, {
-          effort: operation.effort,
-        })
-      : undefined;
+    const budget = operation.model ? service.loadBudget(signal) : undefined;
+    let selection;
+    try {
+      selection =
+        operation.model && budget
+          ? await service.threadSelection(
+              caller,
+              source,
+              operation.requestId,
+              operation.model,
+              { effort: operation.effort },
+              budget,
+            )
+          : undefined;
+    } finally {
+      budget?.end();
+    }
+    // A call cancelled while its model lists loaded starts no fork.
+    signal?.throwIfAborted();
     const command = Command.parse({
       id: controlCommandId(caller.threadId, operation.requestId, "thread.fork"),
       deviceId: "ace-agent",

@@ -21,21 +21,24 @@ import { Composer, type Draft } from "../composer/composer.tsx";
 import { ComposerDock } from "../composer/composer-dock.tsx";
 import { ContinuationRefused, forkWithDraft } from "../composer/continue-in-thread.ts";
 import { runsNow } from "../composer/execution.ts";
-import { ParentCrumb } from "../header/thread-crumb.tsx";
+import { ProjectCrumb } from "../header/thread-crumb.tsx";
+import { ForkedDivider } from "../items/forked-divider.tsx";
+import { readingColumn } from "../lib/column.ts";
 import { useShownTitle } from "../lib/shown-title.ts";
 import { useThreadSources, type Selection, type ThreadRef } from "../sources/index.ts";
 import { ThreadLoading } from "../thread-loading.tsx";
 import { ForkModelPicker } from "./fork-model-picker.tsx";
 import type { ForkDraftSearch } from "./fork-opener.ts";
 import { forkDraftKey, removeForkDraft, saveForkDraft, type ForkDraft } from "./fork-drafts.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** Desktop widths put the caret in the composer when the fork opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
 
 /**
- * A fork of `threadId` at a turn (`run`) or an answer (`item`), before its first message: a thread of its own with its
- * composer ready. Sending starts the fork with that message (its files and mentions go with it)
+ * A fork of `threadId` at a turn (`run`) or an answer (`item`), before its first message: a thread
+ * of its own, in its project, with "Forked from" above its composer, ready. Sending starts the fork with that message (its files and mentions go with it)
  * and opens it in place of this page; leaving creates nothing. The source thread is untouched.
  */
 export function ForkDraftView(props: { threadId: string; at: ForkDraftSearch }) {
@@ -64,12 +67,18 @@ export function ForkDraftView(props: { threadId: string; at: ForkDraftSearch }) 
     [props.threadId, meta, parentTitle],
   );
   return (
-    <Screen crumb={meta && <ParentCrumb threadId={props.threadId} />} title={title}>
+    <Screen crumb={meta && <ProjectCrumb workspaceId={meta.workspaceId} />} title={title}>
       {thread && meta ? (
         <div
           data-thread-column
           className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
         >
+          {/* Where the fork's own work will start, as its transcript will show it. */}
+          <div
+            className={`${readingColumn} col-start-1 row-start-1 self-end pb-[calc(var(--composer-clearance,0px)+1rem)]`}
+          >
+            <ForkedDivider sourceThreadId={props.threadId} />
+          </div>
           <ForkComposer thread={thread} point={point} title={title} runsNow={runsNow(meta)} />
         </div>
       ) : (
@@ -87,6 +96,7 @@ function ForkComposer(props: {
 }) {
   const sources = useThreadSources();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const toast = useToast();
   const catalog = useModelCatalog();
   const choices = useModelChoices();
@@ -132,7 +142,7 @@ function ForkComposer(props: {
         title: props.title || undefined,
       });
       if (host) removeForkDraft(storage, host, draftKey);
-      void navigate({ to: "/t/$threadId", params: { threadId }, replace: true });
+      void navigate({ to: "/t/$threadId", params: { threadId }, search: machine, replace: true });
       return true;
     } catch (error) {
       toast.error({

@@ -1,84 +1,175 @@
 import SwiftUI
 
-/// A permission request, right above the composer: what it asks in bold, one muted line, the
-/// command in mono, then Allow once (primary), Always (quiet) and Deny (pale red), each the
-/// request's own option. Every other offered option waits behind ⋯.
+/// A permission request above the composer: what it asks as a semibold line, the command in a
+/// code block, a high or medium risk on one line, then Details › on the left and the request's
+/// own verbs as plain words on the right (Allow once in semibold ink). Details holds the reason
+/// and any other option the request offers.
 struct ApprovalCard: View {
     let approval: ApprovalRow
     let submission: ApprovalSubmission?
     /// False on a view-only pairing: the card still shows the request, without live choices.
     var canAct = true
     let resolve: (ApprovalRow.Option) -> Void
+    @State private var details = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(title: nonEmpty(approval.heading) ?? approval.title, detail: nonEmpty(approval.reason) ?? approval.description)
-            if approval.risk == "high", let risk = nonEmpty(approval.riskText) {
-                Text(risk).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.md - AceTheme.Spacing.xxs) {
+            RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)
+            if !approval.command.isEmpty { CommandBlock(command: approval.command) }
+            if let level = riskLevel, let text = nonEmpty(approval.riskText) {
+                (Text(level).fontWeight(.medium).foregroundStyle(approval.risk == "high" ? AceTheme.StatusText.failed : AceTheme.StatusText.needsYou)
+                 + Text(" · \(text)").foregroundStyle(AceTheme.Colours.mutedForeground))
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if !approval.command.isEmpty {
-                ScrollView(.vertical) {
-                    Text(approval.command).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.md - AceTheme.Spacing.xxs)
+            if approval.truncated {
+                Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
+            // One row when it fits; else Details above the answers; at large text everything stacks.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AceTheme.Spacing.xxs) {
+                    detailsToggle
+                    Spacer(minLength: AceTheme.Spacing.none)
+                    answerRow
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
-                .fixedSize(horizontal: false, vertical: true)
-                .requestInset(cornerRadius: AceTheme.Radii.code)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    detailsToggle
+                    HStack(spacing: AceTheme.Spacing.xxs) { Spacer(minLength: AceTheme.Spacing.none); answerRow }
+                }
+                VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) {
+                    VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { answers }.disabled(submission != nil || !canAct)
+                    detailsToggle
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            if approval.truncated { Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-            Group {
-                if approval.verbs.isEmpty { offeredButtons } else { verbButtons }
-            }.disabled(submission != nil || !canAct)
+            if details { detailsBody }
             RequestFooter(submission: submission, canAct: canAct)
         }
         .modifier(RequestCardFrame(submission: submission))
     }
-    /// The verbs with the primary one first, then Always, then Deny.
-    private var verbButtons: some View {
-        let order = ["allow_once": 0, "always_allow": 1, "deny": 2]
-        let verbs = approval.verbs.sorted { (order[$0.decision.verb] ?? 1) < (order[$1.decision.verb] ?? 1) }
-        let remaining = approval.remaining
-        return HStack(spacing: AceTheme.Spacing.sm) {
-            ForEach(verbs) { verb in
-                pill(verb.decision.label, kind: verb.decision.emphasis == "primary" ? .primary : verb.decision.verb == "deny" ? .refuse : .secondary) { resolve(verb.option) }
+    private var riskLevel: String? {
+        switch approval.risk {
+        case "high": "High risk"
+        case "medium": "Medium risk"
+        default: nil
+        }
+    }
+    private var reason: String? { nonEmpty(approval.reason) ?? nonEmpty(approval.description) }
+    private var hasDetails: Bool { reason != nil || !others.isEmpty }
+    /// Options beyond the buttons: the request's other options, or, from a daemon that sends no
+    /// verbs, everything past Allow once and Deny.
+    private var others: [ApprovalRow.Remaining] {
+        if !approval.verbs.isEmpty { return approval.remaining }
+        let shown = Set(offered.map(\.id))
+        return approval.options.filter { !shown.contains($0.id) }.map { ApprovalRow.Remaining(label: $0.label, option: $0) }
+    }
+    /// From a daemon that sends no verbs: Allow once and Deny, as offered.
+    private var offered: [ApprovalRow.Option] {
+        approval.options.filter { $0.kind == "allow_once" || $0.kind == "deny" }.sorted { $0.kind == "allow_once" && $1.kind != "allow_once" }
+    }
+    private var answerRow: some View {
+        HStack(spacing: AceTheme.Spacing.xxs) { answers }.disabled(submission != nil || !canAct)
+    }
+    @ViewBuilder private var detailsToggle: some View {
+        if hasDetails {
+            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { details.toggle() } } label: {
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    Text("Details")
+                    AceIcon(.caretRight, size: 12, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .rotationEffect(.degrees(details ? 90 : 0))
+                }
+            }
+            .buttonStyle(StripTextButtonStyle())
+            .accessibilityValue(details ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("approval.details")
+        }
+    }
+    @ViewBuilder private var answers: some View {
+        if approval.verbs.isEmpty {
+            ForEach(offered) { option in
+                Button(option.label) { resolve(option) }
+                    .buttonStyle(RequestButtonStyle(primary: option.kind == "allow_once"))
+                    .accessibilityIdentifier("approval.\(option.kind)")
+            }
+        } else {
+            // Allow once first, then Always allow, then Deny: the web's order.
+            let order = ["allow_once": 0, "always_allow": 1, "deny": 2]
+            ForEach(approval.verbs.sorted { (order[$0.decision.verb] ?? 1) < (order[$1.decision.verb] ?? 1) }) { verb in
+                Button(verb.decision.label) { resolve(verb.option) }
+                    .buttonStyle(RequestButtonStyle(primary: verb.decision.emphasis == "primary"))
                     .accessibilityLabel(verb.decision.scope.isEmpty ? verb.decision.label : "\(verb.decision.label): \(verb.decision.scope)")
                     .accessibilityIdentifier("approval.\(verb.option.kind)")
             }
-            if !remaining.isEmpty {
-                Menu {
-                    ForEach(remaining) { other in Button(other.label) { resolve(other.option) } }
-                } label: { moreLabel }.accessibilityIdentifier("approval.more")
-            }
         }
     }
-    /// A row from a daemon that sends no verbs: the offered options as they come.
-    private var offeredButtons: some View {
-        // Allow once and Deny always stay in view; anything past three waits behind ⋯.
-        let options = approval.options.sorted { rank($0.kind) < rank($1.kind) }
-        let shown = options.prefix(options.count > 3 ? 2 : options.count).sorted { (rank($0.kind) == 1 ? 3 : rank($0.kind)) < (rank($1.kind) == 1 ? 3 : rank($1.kind)) }
-        return HStack(spacing: AceTheme.Spacing.sm) {
-            ForEach(shown) { option in
-                pill(option.label, kind: option.kind == "allow_once" ? .primary : option.kind == "deny" ? .refuse : .secondary) { resolve(option) }
-                    .accessibilityIdentifier("approval.\(option.kind)")
+    private var detailsBody: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            if let reason {
+                Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if options.count > 3 {
-                Menu {
-                    ForEach(options.dropFirst(2)) { option in Button(option.label) { resolve(option) } }
-                } label: { moreLabel }.accessibilityIdentifier("approval.more")
+            if !others.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: AceTheme.Spacing.xs) {
+                        ForEach(others) { other in
+                            Button(other.label) { resolve(other.option) }
+                                .buttonStyle(StripTextButtonStyle())
+                                .accessibilityIdentifier("approval.\(other.option.kind)")
+                        }
+                    }
+                }
+                .disabled(submission != nil || !canAct)
             }
         }
-    }
-    private func pill(_ words: String, kind: PillButtonStyle.Kind, action: @escaping () -> Void) -> some View {
-        Button(words, action: action).buttonStyle(PillButtonStyle(kind: kind))
-    }
-    private var moreLabel: some View {
-        Image(systemName: "ellipsis")
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-            .background(AceTheme.Colours.fill, in: Circle())
-            .accessibilityLabel("More choices")
+        .transition(.opacity)
     }
     private func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
-    private func rank(_ kind: String) -> Int { kind == "allow_once" ? 0 : kind == "deny" ? 1 : 2 }
+}
+
+/// A command the request acts on: `$ command` in mono on the code surface, scrolling past a few
+/// lines.
+struct CommandBlock: View {
+    let command: String
+    var body: some View {
+        ScrollView(.vertical) {
+            (Text("$ ").foregroundStyle(AceTheme.Colours.subtleForeground) + Text(command).foregroundStyle(AceTheme.Colours.foreground))
+                .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
+        .fixedSize(horizontal: false, vertical: true)
+        .requestInset()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Command")
+        .accessibilityValue(command)
+    }
+}
+
+/// A request's answer as plain words, as a system alert draws them: the one primary in semibold
+/// ink, the rest muted, a soft fill only while pressed. 44pt tall for a finger.
+struct RequestButtonStyle: ButtonStyle {
+    var primary = false
+    /// Takes the card's full width.
+    var wide = false
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = AceShape.capsule
+        configuration.label
+            .aceFont(AceTheme.Typography.body, relativeTo: .body)
+            .fontWeight(primary ? .semibold : .regular)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+            .frame(maxWidth: wide ? .infinity : nil, minHeight: AceTheme.Dimensions.touchTarget)
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: shape)
+            .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+            .contentShape(shape)
+    }
 }

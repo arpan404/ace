@@ -1,4 +1,5 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
+import { seedFakeSkills } from "./fake-skills.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -92,6 +93,12 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedFakeSkills(daemon, Date.now());
+    // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
+    // with its lines moved, for trying what survives a push.
+    (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
+      number,
+    ) => daemon.workspace.pushPullRequest(number);
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
@@ -142,7 +149,32 @@ export function bootFake(): {
     { path: "/home/ci/services/web-gateway", git: true },
     { path: "/home/ci/infra/terraform", git: true },
   ]);
+  // One project there already, so New thread can start on the build server.
+  if (!empty) {
+    const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
+    // A thread there, so Continue on… runs from the build server too.
+    if (added?.workspace)
+      server.createThread({
+        id: "thread-build-rate-limits",
+        workspaceId: added.workspace.id,
+        title: "Add rate limits to the api",
+        provider: "claude",
+        hasSentMessage: true,
+        details: { workspace: added.workspace },
+      });
+  }
   seedBuildServerUsage(server, Date.now());
+  // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
+  // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
+  // that is off, which the chooser shows as offline (ADR 0101).
+  server.linkTo(daemon);
+  daemon.linkTo(server);
+  daemon.linkTo(
+    new FakeDaemon({ clock: () => Date.now(), hostId: "studio", displayName: "Studio" }),
+    {
+      status: "offline",
+    },
+  );
   if (!empty) seedLimitReadings(daemon, Date.now());
   const machines = fakeMachinePool([server], (other) =>
     createBrowserClient({

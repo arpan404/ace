@@ -2,7 +2,9 @@ import { expect, test } from "vitest";
 import {
   compensation,
   correction,
+  handOver,
   heldKey,
+  heldSuccessor,
   joinedAtTop,
   transition,
   type ScrollEvent,
@@ -27,12 +29,13 @@ const wheel = (upward: boolean, at = 100, atEnd = false): ScrollEvent => ({
   detached: false,
   at,
 });
-const scrolled = (atEnd: boolean, upward = false): ScrollEvent => ({
+const scrolled = (atEnd: boolean, upward = false, at = 150): ScrollEvent => ({
   type: "scrolled",
   atEnd,
   upward,
   detached: false,
   gliding: false,
+  at,
 });
 
 test("the reader's gesture cancels a jump still re-aiming at its row", () => {
@@ -116,6 +119,36 @@ test("loading older turns keeps the reader's first visible row in place", () => 
   expect(compensation(mode, { index: 3, grewAtTop: true })?.({ index: 3 })).toBe(true);
 });
 
+test("a held row dropped as older history loads hands the reader's place to the row after it", () => {
+  const { mode } = run(following, wheel(true));
+  // The reader's first row in view was a delegate's result, 24px under the view's top. The older
+  // page brought its launch row, which carries that result, so the result row left; the rows
+  // after it now sit 900px lower, under the older page.
+  const before = ["work:turn-9", "results-9", "message:answer-9", "files:turn-9"];
+  const now = new Map([
+    ["work:turn-9", { index: 40, top: 900 - 380 }],
+    ["message:answer-9", { index: 41, top: 24 + 900 }],
+    ["files:turn-9", { index: 42, top: 24 + 900 + 120 }],
+  ]);
+  const next = heldSuccessor(before, 1, (key) => now.get(key));
+  expect(next).toEqual({ index: 41, top: 924 });
+  // The answer that followed it takes its place where the reader saw the result.
+  const held = { key: "results-9", itemId: "results-9", top: 24 };
+  expect(correction(mode, held, next, 0)).toEqual({ kind: "shift", by: 900 });
+  // With nothing shown after it, there is no place to keep.
+  expect(heldSuccessor(["work:turn-9", "results-9"], 1, (key) => now.get(key))).toBeUndefined();
+  // A jump to the gone row holds the row that took its place from then on, not the gone one.
+  const jumped = run(following, { ...jump, key: "results-9", itemId: "results-9" }).mode;
+  const after = handOver(jumped, { key: "message:answer-9", itemId: "answer-9" });
+  expect(heldKey(after, { key: "work:turn-9", itemId: "step-1" })).toEqual({
+    key: "message:answer-9",
+    itemId: "answer-9",
+  });
+  // A free reader's mode names no row; it holds whatever is first in view.
+  const free = run(following, wheel(true)).mode;
+  expect(handOver(free, { key: "message:answer-9", itemId: "answer-9" })).toEqual(free);
+});
+
 test("older rows that already moved the view as they measured are not counted again", () => {
   const { mode } = run(following, wheel(true));
   // The reader sat at the very top, the first row 24px down. A page of older rows (2,016px by
@@ -146,6 +179,16 @@ test("a small scroll up at the live end keeps following, so no Scroll to end sho
   const nudge = wheel(true, 100, true);
   expect(run(following, nudge, scrolled(true, true)).mode.kind).toBe("following");
   expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
+});
+
+test("a scroll that lands off the end without the reader's gesture keeps following", () => {
+  // Rows grew between a scroll and its event: no Scroll to end, and the end is kept in view.
+  const after = run(following, scrolled(false));
+  expect(after.mode.kind).toBe("following");
+  expect(correction(after.mode, undefined, undefined, 200)).toEqual({ kind: "end" });
+  // Long after a nudge at the end, the same scroll still keeps following.
+  const nudged = run(following, wheel(true, 100, true), scrolled(true, true, 150)).mode;
+  expect(transition(nudged, scrolled(false, true, 5_000)).mode.kind).toBe("following");
 });
 
 test("new content does not pull back a reader still scrolling up from the live end", () => {
@@ -198,6 +241,7 @@ test("a free reader back at the end follows again; a detached window never follo
       upward: false,
       detached: true,
       gliding: false,
+      at: 0,
     }).mode.kind,
   ).toBe("free");
   expect(transition(following, { type: "detached" }).mode.kind).toBe("free");

@@ -15,6 +15,7 @@ import {
   optionEffort,
   threadEffortControl,
   effortLabel,
+  effortShortLabel,
   recordedChoice,
 } from "./models.ts";
 import { threadSwitchRoute } from "./model-switch-route.ts";
@@ -380,6 +381,16 @@ test("effort levels read as words people use, whatever the provider calls them",
   expect(effortLabel("very_deep")).toBe("Very deep");
 });
 
+test("a compact model chip shortens only the long effort names", () => {
+  expect(["minimal", "medium", "high", "xhigh", "max"].map(effortShortLabel)).toEqual([
+    "Min",
+    "Med",
+    "High",
+    "XHigh",
+    "Max",
+  ]);
+});
+
 test("offline, a thread's model reads from its own record, claiming no account or usage", () => {
   expect(recordedChoice({ provider: "claude", model: "claude-opus-4-1" })).toMatchObject({
     provider: "claude",
@@ -414,4 +425,39 @@ test("a provider-default sentinel uses the recommended model and is not a disapp
   const selection = { provider: "claude" as const, model: "default" };
   expect(currentModelChoice(modelChoices(rows, [], 0), selection)?.model).toBe("Opus 5.5");
   expect(unavailableSelection(rows, selection)).toBeUndefined();
+});
+
+const antigravity = (id: string, home: "default_cli" | "managed") =>
+  accountView(
+    AccountSummary.parse({
+      id,
+      provider: "acp",
+      label: id,
+      acpAgentId: "official:antigravity-acp",
+      installationId: "antigravity-cli",
+      instanceId: id,
+      homeStrategy: home,
+      isDefault: home === "default_cli",
+      availability: "available",
+      quota: { auth: "logged_in", observedAt: 0, windows: {}, usage: {} },
+    }),
+  );
+
+test("a new Antigravity thread picked under an added account starts on that account, not the CLI login", () => {
+  const { models, accounts } = newThreadOptions(
+    [
+      model("antigravity", "antigravity-cli-default", "gemini-3.8-flash", true),
+      model("antigravity", "account-work", "gemini-3.8-flash", true),
+    ],
+    [antigravity("antigravity-cli-default", "default_cli"), antigravity("account-work", "managed")],
+    [{ provider: "antigravity", state: "ready" }],
+  );
+  const picked = selectNewThreadModel({
+    models,
+    accounts,
+    provider: "antigravity",
+    model: modelKey("antigravity", "gemini-3.8-flash"),
+    account: "account-work",
+  });
+  expect([picked.account?.id, picked.model?.account]).toEqual(["account-work", "account-work"]);
 });

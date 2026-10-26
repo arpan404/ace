@@ -12,7 +12,7 @@ import { defaultTicketLimits } from "./ticket-pool.ts";
 import type { IncomingMessage, Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
-import { webOriginAllowlist } from "./web-origins.ts";
+import { hostedWebOrigin, webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
 import { activeDevice, allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
@@ -20,6 +20,7 @@ import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
@@ -74,6 +75,7 @@ export async function startServer(options: ServerOptions): Promise<{
         perMinute: z.number().int().positive(),
       })
       .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+    options.store.pairingCodes,
   );
   let remoteOrigin: string | undefined;
   const pairing = () =>
@@ -82,7 +84,8 @@ export async function startServer(options: ServerOptions): Promise<{
       : dynamicRemote?.pairing();
   let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
-  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  const maintenance =
+    options.maintenanceGate ?? new MaintenanceGate(() => options.store.updateBlockers());
   let ready = options.ready === undefined;
   void options.ready?.then(() => {
     ready = true;
@@ -100,6 +103,12 @@ export async function startServer(options: ServerOptions): Promise<{
         ...relayRoute(options.relay, options.hostId),
       },
     allowedOrigins: webOriginAllowlist(options.webOrigins),
+    // A failed settings read falls back to this computer's own link rather than failing pairing.
+    pairingApp: async () =>
+      (await options.settings?.get("remote.hostedPairingLink").catch(() => undefined))?.value ===
+      true
+        ? hostedWebOrigin
+        : undefined,
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
     ...(options.eventLoop ? { eventLoop: options.eventLoop } : {}),
@@ -209,7 +218,8 @@ export async function startServer(options: ServerOptions): Promise<{
       runtime.now,
       encoder,
     );
-    const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
+    const send = (message: ServerMessage | PluginServerMessage) =>
+      outbox.send(busyRefusal(message));
     const fail = (
       code: string,
       message: string,
@@ -250,7 +260,7 @@ export async function startServer(options: ServerOptions): Promise<{
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential: () => authenticated.get(socket)?.revocable === false,
-      access: { auth, pairing },
+      access: { auth, pairing, pairingApp: access.pairingApp },
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
       send,
       fail,
@@ -376,13 +386,14 @@ export async function startServer(options: ServerOptions): Promise<{
           connections.set(socket, send);
         }
         try {
-          for (const service of sessions) service.authenticated?.(message.channel);
+          for (const service of sessions) await service.authenticated?.(message.channel);
         } catch (error) {
           const limit = error instanceof Error && "code" in error && error.code === "limit";
           const code = limit ? "connection_limit" : "service_unavailable";
           socket.close(limit ? 4013 : 1011, code);
           return;
         }
+        if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         welcomed = true;
         send({
           type: "welcome",

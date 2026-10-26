@@ -58,6 +58,11 @@ export const ComputerState = z.looseObject({
     })
     .optional(),
   launched: z.boolean().optional(),
+  screenLocked: z.boolean().optional(),
+  /** "active", "locked" or "unavailable"; kept as a string so a newer helper's value never fails the state. */
+  sessionState: z.string().optional(),
+  /** Nodes may be only conservative search candidates and their ancestors. */
+  searchFiltered: z.boolean().optional(),
   screenshot: z
     .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
     .optional(),

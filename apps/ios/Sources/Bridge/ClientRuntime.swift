@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import CoreFoundation
+import QuartzCore
 
 /// Owns one VM on one dedicated thread with a live run loop. No JSValue reaches SwiftUI.
 final class ClientRuntime: ClientSession, @unchecked Sendable {
@@ -12,39 +13,85 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private var stopped = false
     private var finished = false
     private var completions: [@Sendable () -> Void] = []
-    private let target: ConnectionTarget?
-    private let storageURL: URL?
-    private let services: HostServices
-    private let receive: @Sendable (Data) -> Void
-    private let fail: @Sendable (String) -> Void
+    /// What the runtime serves; a warm runtime gets it from `adopt`. Guarded by `lock`.
+    private var binding: HostBinding
+    private var failure: (@Sendable (String) -> Void)?
+    /// A problem a warm runtime met before it had a machine to report it to.
+    private var early: String?
+    /// How the VM thread competes for the CPU: below the machines' runtimes for background reads.
+    private let priority: QualityOfService
     /// Browser stream messages this runtime's sockets decode natively, for the live view.
     let browserStreams: BrowserStreamHub? = BrowserStreamHub()
 
     init(target: ConnectionTarget, storageURL: URL,
          receive: @escaping @Sendable (Data) -> Void, fail: @escaping @Sendable (String) -> Void) {
-        self.target = target
-        self.storageURL = storageURL
-        self.services = .connection(target)
-        self.receive = receive
-        self.fail = fail
+        binding = HostBinding(target: target, storageURL: storageURL, services: .connection(target), receive: receive)
+        failure = fail
+        priority = .userInitiated
     }
     /// A pairing or machine-directory runtime: no outbox database and no client patches.
-    init(access target: ConnectionTarget?, services: HostServices, fail: @escaping @Sendable (String) -> Void) {
-        self.target = target
-        self.storageURL = nil
-        self.services = services
-        self.receive = { _ in }
-        self.fail = fail
+    init(access target: ConnectionTarget?, services: HostServices, priority: QualityOfService = .userInitiated,
+         fail: @escaping @Sendable (String) -> Void) {
+        binding = HostBinding(target: target, storageURL: nil, services: services, receive: { _ in })
+        failure = fail
+        self.priority = priority
     }
-    func start(itemLimit: Int = 200) {
-        guard let target else { fail("Could not load the shared client"); return }
+    private init(priority: QualityOfService) {
+        binding = .unbound
+        self.priority = priority
+    }
+    /// A machine runtime whose VM evaluates the client bundle now, before its machine is known,
+    /// reading nothing and connecting nowhere until `adopt` gives it one (`RuntimeWarmup`).
+    static func warm() -> ClientRuntime {
+        let runtime = ClientRuntime(priority: .userInitiated)
+        runtime.boot(then: nil)
+        return runtime
+    }
+    /// Gives a warm runtime its machine. The host is bound on the VM thread after the bundle has
+    /// evaluated and before `start` runs its entry, so no host call ever sees the unbound one.
+    func adopt(target: ConnectionTarget, storageURL: URL,
+               receive: @escaping @Sendable (Data) -> Void, fail: @escaping @Sendable (String) -> Void) -> ClientRuntime {
+        let bound = HostBinding(target: target, storageURL: storageURL, services: .connection(target), receive: receive)
+        let early = lock.withLock {
+            binding = bound
+            failure = fail
+            defer { self.early = nil }
+            return self.early
+        }
+        if let early { fail(early) }
+        execute { [weak self] _ in self?.host?.bind(bound) }
+        return self
+    }
+    private func fail(_ message: String) {
+        let report = lock.withLock {
+            if failure == nil { early = early ?? message }
+            return failure
+        }
+        report?(message)
+    }
+    func start(itemLimit: Int = 200) { start(itemLimit: itemLimit, inboxSort: nil) }
+    func start(itemLimit: Int, inboxSort: String?) {
+        guard let target = lock.withLock({ binding.target }) else { fail("Could not load the shared client"); return }
         let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
-                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) })
+                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) }, inboxSort: inboxSort)
         guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
-        boot(entry: "aceStart", json: String(decoding: json, as: UTF8.self))
+        let entry = (name: "aceStart", json: String(decoding: json, as: UTF8.self))
+        if lock.withLock({ thread == nil }) { boot(then: entry); return }
+        // Warm: the bundle is evaluated (or evaluating) on its thread; the entry runs after it.
+        execute { [weak self] context in self?.run(entry, in: context) }
     }
-    func startAccess(_ json: String) { boot(entry: "aceAccess", json: json) }
-    private func boot(entry: String, json: String) {
+    func startAccess(_ json: String) { boot(then: (name: "aceAccess", json: json)) }
+    private func run(_ entry: (name: String, json: String), in context: JSContext) {
+        let starting = LaunchTrace.begin("script.start", entry.name)
+        defer { starting.end() }
+        guard let function = context.objectForKeyedSubscript(entry.name), !function.isUndefined else {
+            fail("Could not load the shared client"); return
+        }
+        function.call(withArguments: [entry.json])
+    }
+    /// Starts the VM thread and evaluates the bundle; then runs `entry`, unless the runtime is warm.
+    private func boot(then entry: (name: String, json: String)?) {
+        let label = entry?.name ?? "warm"
         let ready = DispatchSemaphore(value: 0)
         let worker = Thread { [self] in
             let runLoop = CFRunLoopGetCurrent()
@@ -53,19 +100,25 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
             lock.withLock { loop = runLoop }
             ready.signal()
             autoreleasepool {
+                let creating = LaunchTrace.begin("vm.create", label)
                 guard let context = JSContext(virtualMachine: JSVirtualMachine()) else {
-                    fail("Could not create the JavaScript runtime"); ready.signal(); return
+                    fail("Could not create the JavaScript runtime"); return
                 }
                 self.context = context
+                creating.end()
                 context.exceptionHandler = { [weak self] _, _ in self?.fail("The client runtime encountered a JavaScript error") }
-                let native = NativeHost(runtime: self, target: target, storageURL: storageURL, services: services, receive: receive)
+                let native = NativeHost(runtime: self, binding: lock.withLock { binding })
                 host = native
                 native.install(in: context)
                 do {
                     guard let path = Bundle.main.url(forResource: "client", withExtension: "js") else { throw HostError.unsupported }
+                    let reading = LaunchTrace.begin("script.read", label)
                     let script = try String(contentsOf: path, encoding: .utf8)
+                    reading.end()
+                    let evaluating = LaunchTrace.begin("script.evaluate", label)
                     context.evaluateScript(script, withSourceURL: path)
-                    context.objectForKeyedSubscript(entry)?.call(withArguments: [json])
+                    evaluating.end()
+                    if let entry { run(entry, in: context) }
                 } catch { fail("Could not load the shared client") }
             }
             CFRunLoopRun()
@@ -84,8 +137,8 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
             for callback in callbacks { callback() }
         }
         worker.name = "ace.client.javascript"
-        worker.qualityOfService = .userInitiated
-        thread = worker
+        worker.qualityOfService = priority
+        lock.withLock { thread = worker }
         worker.start()
         ready.wait()
     }
@@ -94,7 +147,10 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
-            autoreleasepool { work(context) }
+            let began = CACurrentMediaTime()
+            HostTrace.measure("js.run") { autoreleasepool { work(context) } }
+            let spent = CACurrentMediaTime() - began
+            ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }
         CFRunLoopWakeUp(runLoop)
     }
@@ -119,6 +175,13 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
 }
 private struct PairedConfig: Encodable { let secretKey: String }
-private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig? }
+private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig?; let inboxSort: String? }
 /// The value is retained across an async native operation, then read/released only on the VM thread.
-final class Callback: @unchecked Sendable { let value: JSValue; init(_ value: JSValue) { self.value = value } }
+final class Callback: @unchecked Sendable {
+    let value: JSValue
+    private let traced: String?
+    private let began: Double
+    init(_ value: JSValue, traced: String? = nil, began: Double = 0) { self.value = value; self.traced = traced; self.began = began }
+    /// Adds the operation's time, request to native reply, to the host totals when traced.
+    func finish() { if let traced { HostTrace.add("host.call:" + traced, seconds: CACurrentMediaTime() - began) } }
+}

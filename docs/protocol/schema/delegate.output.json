@@ -87,13 +87,29 @@
                     "maxItems": 8,
                     "type": "array"
                   },
+                  "queuePosition": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer"
+                  },
                   "result": {
                     "maxLength": 4096,
                     "type": "string"
                   },
+                  "slotLimit": {
+                    "maximum": 64,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "slotsInUse": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "state": {
                     "enum": [
                       "working",
+                      "queued",
                       "needs_you",
                       "done",
                       "failed",

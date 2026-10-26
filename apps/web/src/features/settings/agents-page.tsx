@@ -1,6 +1,6 @@
 import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
-import { providerChoiceLabel, providerNames } from "@ace/ui-core";
+import { homeSortOptions, providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
@@ -25,17 +25,11 @@ const autoSettleOptions: { value: AutoSettle; label: string }[] = [
   { value: "never", label: "Never" },
 ];
 
-const sortByNotes: Record<SortBy, string> = {
-  activity: "Threads that need you or are working rise to the top.",
-  created: "Threads stay where they started; new ones lead.",
-  manual: "Drag threads into your own order; new ones lead.",
-};
-
-const sortByOptions: { value: SortBy; label: string }[] = [
-  { value: "activity", label: "Live activity" },
-  { value: "created", label: "Newest first" },
-  { value: "manual", label: "Manual" },
-];
+const sortByOptions: { value: SortBy; label: string }[] = homeSortOptions.map((option) => ({
+  value: option.id,
+  label: option.label,
+}));
+const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.id === sortBy)?.note;
 
 /**
  * How agents run on the machine picked in Settings: what new threads start with, what happens
@@ -80,7 +74,7 @@ function ThreadListSettings() {
   const sortBy = useSettingControl(settingKeys.sortBy, settingRow("threads.sortBy").title);
   return (
     <SettingSection label="Thread list" card scope="daemon">
-      <SettingRow {...settingRow("threads.sortBy")} description={sortByNotes[sortBy.value]}>
+      <SettingRow {...settingRow("threads.sortBy")} description={sortByNote(sortBy.value)}>
         <DaemonSlot control={sortBy}>
           <Select
             label="Sort threads"

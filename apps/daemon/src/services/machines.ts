@@ -13,6 +13,7 @@ import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { machineRequest } from "../machines/transport.ts";
+import { TransferClient, transferTransport } from "../transfers/client.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The shell's timers for polls; nothing waits on them at exit. */
@@ -39,9 +40,11 @@ export function startMachines(context: ServiceContext): void {
   const threads = new TargetThreads({
     store,
     engine,
+    models: () => services.models,
     journal: () => services.agentControl?.delegations.journal,
     now,
   });
+  resources.own(() => threads.close());
   const browser = new TargetBrowser({
     store,
     engine,
@@ -68,6 +71,8 @@ export function startMachines(context: ServiceContext): void {
       }
     },
     transport: options.machines?.transport ?? machineRequest,
+    transfers: async (profile) =>
+      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
     log: record("info"),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
@@ -89,6 +94,8 @@ export function startMachines(context: ServiceContext): void {
       ),
     redeem: options.machines?.redeem ?? redeemPairing,
     hostName,
+    transfers: (profile) =>
+      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
   });
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;
@@ -113,11 +120,13 @@ export function startMachines(context: ServiceContext): void {
     },
     mirror,
     label: (machine) => directory.label(machine),
-    deliver: (parentThreadId, id, text) => {
+    deliver: (parentThreadId, key, text) => {
       const parent = store.getThread(parentThreadId);
+      if (!parent || parent.deletedAt !== undefined) return;
+      // Not ready yet is a failure the poll retries, never a delivery.
       const delegations = services.agentControl?.delegations;
-      if (!parent || parent.deletedAt !== undefined || !delegations) return;
-      const result = delegations.command(`machine-result:${id}`, {
+      if (!delegations) throw new Error("Agent control is not ready");
+      const result = delegations.command(`machine-result:${key}`, {
         type: "thread.send",
         threadId: parentThreadId,
         input: [{ type: "text", text }],

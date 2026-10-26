@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./skill-library.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
@@ -84,10 +85,13 @@ export {
 
 export * from "./run-client.ts";
 export * from "./agent-control.ts";
+export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./fleet.ts";
+export * from "./transfers.ts";
+export * from "./machine-transfers.ts";
 export * from "./queue.ts";
 export * from "./context-meter.ts";
 export {
@@ -95,6 +99,7 @@ export {
   AppDeviceId,
   DeviceActivity,
   DeviceInput,
+  DevicePosture,
   DeviceSettings,
   DeviceFailure,
   DeviceInventory,
@@ -106,6 +111,11 @@ export {
   DeviceAck,
   DeviceScreenshot,
   DeviceServerMessage,
+  DeviceChrome,
+  DeviceChromeButton,
+  DeviceChromeImage,
+  DeviceChromeRect,
+  DeviceChromeResult,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
@@ -135,6 +145,7 @@ export { ProviderConfiguration, ProviderConfigurations } from "./provider-config
 export * from "./interaction-measurement.ts";
 
 export * from "./provider-login.ts";
+export * from "./antigravity-sign-in.ts";
 
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";
@@ -154,6 +165,8 @@ export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";
 export * from "./forge-file-content.ts";
+export * from "./forge-people.ts";
+export * from "./forge-media.ts";
 
 export * from "./forge-lifecycle.ts";
 export * from "./source-control.ts";
@@ -167,6 +180,7 @@ export * from "./forge-stacks.ts";
 export * from "./forge-review.ts";
 export * from "./forge-checks.ts";
 export * from "./forge-hosted-merge.ts";
+export * from "./forge-new-pr.ts";
 export * from "./hosted-repositories.ts";
 
 export * from "./cli-control.ts";
@@ -174,3 +188,4 @@ export * from "./storage.ts";
 
 export * from "./html.ts";
 export * from "./image-share.ts";
+export * from "./forge-inbox.ts";

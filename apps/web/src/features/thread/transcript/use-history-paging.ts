@@ -75,6 +75,11 @@ export interface HistoryPagingOptions {
 
 const distanceToLive = (el: HTMLElement | null) =>
   el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
+/**
+ * Rows that fit the view leave nothing to scroll: an upward gesture can't move it off the live
+ * end, so it stays following, and only the gesture itself can page older history in.
+ */
+const fitsView = (el: HTMLElement | null) => !!el && el.scrollHeight <= el.clientHeight;
 
 export function useHistoryPaging(options: HistoryPagingOptions) {
   const { viewport, pager, jump, nav, detached, following, now } = options;
@@ -128,8 +133,8 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
       setNewerIntent(false);
       return;
     }
-    if (fresh(olderIntent) && !following) {
-      const el = viewport.current;
+    const el = viewport.current;
+    if (fresh(olderIntent) && (!following || fitsView(el))) {
       if (
         (el?.scrollTop ?? 0) < ahead(el, true) &&
         hasOlder &&

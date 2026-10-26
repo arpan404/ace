@@ -17,7 +17,7 @@ export function AddAccountDialog(props: { provider: ProviderKind; onClose(): voi
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ProviderIcon provider={props.provider} size={20} decorative />
-            Add {props.provider === "opencode" ? "an" : "a"} {name} account
+            Add {/^[aeiou]/i.test(name) ? "an" : "a"} {name} account
           </DialogTitle>
         </DialogHeader>
         <AddAccountForm provider={props.provider} name={name} onClose={props.onClose} />

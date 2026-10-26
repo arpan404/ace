@@ -50,6 +50,7 @@ import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
+import { MaintenanceGate } from "@ace/service";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -300,6 +301,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
+    const eventStore = new Store(
+      join(config.dataDir, "events.sqlite"),
+      (error) => log.log("error", "Event subscriber failed", logError(error)),
+      { now },
+    );
+    // One admission gate for the server and the engine, closed before any service starts when
+    // maintenance was asked for, so startup recovery honours it too (ADR 0041).
+    const maintenance = new MaintenanceGate(() => eventStore.updateBlockers());
+    if (process.env.ACE_MAINTENANCE === "1") maintenance.enter();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,
       config,
@@ -314,11 +324,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
         },
       },
       onListen: [],
-      store: new Store(
-        join(config.dataDir, "events.sqlite"),
-        (error) => log.log("error", "Event subscriber failed", logError(error)),
-        { now },
-      ),
+      maintenance,
+      store: eventStore,
     };
     const store = serviceContext.store;
     resources.own(() => store.close(), "event store");
@@ -361,6 +368,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get promptFiles() {
         return services.promptFiles;
       },
+      get skillLibrary() {
+        return services.skillLibrary;
+      },
       get commands() {
         return services.commands;
       },
@@ -373,6 +383,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         ? resolve(import.meta.dirname, "web")
         : resolve(import.meta.dirname, "../../web/dist"),
       maintenance: process.env.ACE_MAINTENANCE === "1",
+      maintenanceGate: maintenance,
       version: process.env.ACE_VERSION ?? "development",
       port: config.port,
       ...(config.webOrigins ? { webOrigins: config.webOrigins } : {}),

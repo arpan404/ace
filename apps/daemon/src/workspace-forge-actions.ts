@@ -226,7 +226,14 @@ export class WorkspaceForgeActions {
       else if (action.type === "forge.review.request")
         await backend.requestReviews(pr.number, action.reviewers, signal, dispatch);
       else if (action.type === "forge.pr.merge" || action.type === "forge.hosted.merge")
-        await backend.merge(pr.number, action.headSha, action.method, signal, dispatch);
+        await backend.merge(
+          pr.number,
+          action.headSha,
+          action.method,
+          signal,
+          dispatch,
+          action.commit,
+        );
       else {
         const change = mergeStateWrite(action);
         if (!change) throw new ForgeError("invalid_data", undefined, false);
@@ -238,6 +245,7 @@ export class WorkspaceForgeActions {
           signal,
           allowed,
           dispatch,
+          change.commit,
         );
       }
     } catch (error) {

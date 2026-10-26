@@ -44,19 +44,36 @@ const quiet = { timeoutMs: 15_000 };
  * Reads the machine's CLIs and usage once connected; a request made while offline runs on the
  * next ready connection. A machine that refuses its accounts still lists its CLIs.
  */
+/** What reading the machine's CLIs needs of the SDK client. */
+export type ProvidersOwner = Pick<ClientCore, "request" | "connectionState" | "onMessage">;
+
 export class MachineProviders {
-  #owner: ClientCore;
+  #owner: ProvidersOwner;
   #pump: PatchPump;
   #wanted = false;
   #loading = false;
   #stop: () => void;
-  constructor(owner: ClientCore, pump: PatchPump) {
+  /** The last rows read, kept on screen when a later read fails. */
+  #last: { providers: unknown[]; absent: unknown[]; version: string | null } | undefined;
+  constructor(owner: ProvidersOwner, pump: PatchPump) {
     this.#owner = owner;
     this.#pump = pump;
     const connection = owner.connectionState();
-    this.#stop = connection.subscribe(() => {
+    const stopConnection = connection.subscribe(() => {
       if (connection.getSnapshot() === "ready" && this.#wanted) void this.#load();
     });
+    // The daemon says when its CLIs or accounts change; a screen showing them reads again.
+    const stopEvents = owner.onMessage((message) => {
+      if (
+        this.#wanted &&
+        (message.type === "providers.changed" || message.type === "accounts.changed")
+      )
+        void this.#load();
+    });
+    this.#stop = () => {
+      stopConnection();
+      stopEvents();
+    };
   }
   refresh(): void {
     this.#wanted = true;
@@ -80,19 +97,25 @@ export class MachineProviders {
       const result = providers.status === "fulfilled" ? providers.value.result : undefined;
       const listed = accounts.status === "fulfilled" ? accounts.value.accounts : [];
       const rows = result?.ok ? machineProviders(result.providers, listed, host.now()) : undefined;
+      const shown = rows
+        ? {
+            providers: rows.providers.map((row) => ({
+              provider: row.provider,
+              status: row.status,
+              name: preview(row.name, 128),
+              summary: preview(row.summary, 512),
+              version: row.version ? preview(row.version, 64) : null,
+              usage: row.usage.slice(0, 8),
+            })),
+            absent: rows.absent,
+            version:
+              identity.status === "fulfilled" ? preview(identity.value.identity.version, 64) : null,
+          }
+        : (this.#last ?? { providers: [], absent: [], version: null });
+      if (rows) this.#last = shown;
       this.#pump.put("machine:providers", () => ({
         type: "machine.providers",
-        providers: (rows?.providers ?? []).map((row) => ({
-          provider: row.provider,
-          status: row.status,
-          name: preview(row.name, 128),
-          summary: preview(row.summary, 512),
-          version: row.version ? preview(row.version, 64) : null,
-          usage: row.usage.slice(0, 8),
-        })),
-        absent: rows?.absent ?? [],
-        version:
-          identity.status === "fulfilled" ? preview(identity.value.identity.version, 64) : null,
+        ...shown,
         problem: rows
           ? null
           : result && !result.ok && result.error === "forbidden"

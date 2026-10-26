@@ -7,6 +7,9 @@ import { z } from "zod";
  */
 export const desktopOrigin = "app://ace";
 
+/** ace's hosted web app (`app.acehq.dev`). Always allowed; `remote.hostedPairingLink` decides whether links open it. */
+export const hostedWebOrigin = "https://app.acehq.dev";
+
 /** One http(s) origin exactly as a browser sends it: scheme, host and port, nothing else. */
 const WebOrigin = z
   .string()
@@ -29,7 +32,10 @@ export const WebOrigins = z
   .transform((value) => value.split(",").filter((entry) => entry.trim() !== ""))
   .pipe(z.array(WebOrigin).max(32));
 
-/** The origins a browser page may read the access routes from: the configured ones plus the desktop app. */
+/**
+ * The origins a browser page may read the access routes from: the desktop app, ace's hosted web
+ * app and the configured ones. Every route still needs a token or a one-use pairing code.
+ */
 export function webOriginAllowlist(configured: readonly string[] = []): ReadonlySet<string> {
-  return new Set([desktopOrigin, ...configured]);
+  return new Set([desktopOrigin, hostedWebOrigin, ...configured]);
 }

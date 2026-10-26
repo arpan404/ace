@@ -1,3 +1,4 @@
+import { prPrimaryLabel, type PrPrimary } from "@ace/ui-core";
 import { useEffect, useState } from "react";
 import {
   EyeIcon,
@@ -14,7 +15,6 @@ import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { prPrimaryLabel, type PrPrimary } from "./pr-primary-action.ts";
 
 /** How long the first press of a merge waits for the second. */
 const confirmWindowMs = 3_000;
@@ -63,7 +63,7 @@ function StateBadge(props: { primary: PrPrimary; text: string }) {
 
 /**
  * The header's one primary control. Merging takes two presses: the first asks "Confirm merge?"
- * for a few seconds, the second acts. Merged and closed PRs, armed auto-merge and a queued PR
+ * for a few seconds, the second acts; a merge that opens its commit to edit takes one. Merged and closed PRs, armed auto-merge and a queued PR
  * show a badge instead.
  */
 export function PrPrimaryButton(props: {
@@ -75,6 +75,8 @@ export function PrPrimaryButton(props: {
   onDisable?: (() => void) | undefined;
   /** Why auto-merge can't be turned off now. */
   disableBlocked?: string | undefined;
+  /** The action opens its own confirmation (the commit to write): one press is enough. */
+  confirmsItself?: boolean | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -84,11 +86,21 @@ export function PrPrimaryButton(props: {
   }, [confirming]);
   const { primary } = props;
   const text = prPrimaryLabel(primary);
+  // In a narrow PR view the words after the first " · " (method, who armed it) step aside on
+  // screen; assistive tech and the tooltip keep them.
+  const [lead = text, ...details] = text.split(" · ");
+  const detail = details.length ? ` · ${details.join(" · ")}` : "";
+  const fitted = (
+    <>
+      {lead}
+      {detail && <span className="@max-[32rem]/pr:sr-only">{detail}</span>}
+    </>
+  );
   if (primary.kind === "none") return null;
   if (primary.kind === "auto-merge-armed")
     return (
       <span className="inline-flex items-center gap-1">
-        <span className="text-xs text-muted-foreground">{text}</span>
+        <span className="text-xs text-muted-foreground">{fitted}</span>
         {props.onDisable && (
           <Button
             size="xs"
@@ -105,9 +117,10 @@ export function PrPrimaryButton(props: {
   if (primary.kind === "state" || primary.kind === "queued")
     return <StateBadge primary={primary} text={text} />;
   const twoPress =
-    primary.kind === "merge" ||
-    primary.kind === "auto-merge" ||
-    primary.kind === "auto-merge-ready";
+    !props.confirmsItself &&
+    (primary.kind === "merge" ||
+      primary.kind === "auto-merge" ||
+      primary.kind === "auto-merge-ready");
   const shown = props.working
     ? primary.kind === "merge"
       ? "Merging…"
@@ -138,7 +151,7 @@ export function PrPrimaryButton(props: {
         props.onRun();
       }}
     >
-      {shown}
+      {shown === text ? fitted : shown}
     </Button>
   );
   // One wrapper whether or not it's blocked, so the button keeps its identity as state changes.

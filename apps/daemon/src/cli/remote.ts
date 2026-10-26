@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { DeviceToken } from "@ace/protocol";
+import { parsePairingLink } from "@ace/client/access";
 import { redeemPairing, accessRequest } from "../client-access.ts";
 import { Profiles, RemoteProfile, profileSummary } from "./profiles.ts";
 import { option, validateArgs, type Args } from "./args.ts";
@@ -63,16 +64,15 @@ export async function remoteCommand(args: Args, home: string) {
 export async function redeemCommand(args: Args, home: string) {
   validateArgs(args, ["name", "profile"], 2, 3);
   const url = await prompt(args, 2);
-  const parsed = new URL(url.trim());
-  const fragment = new URLSearchParams(parsed.hash.slice(1));
+  const link = parsePairingLink(url);
   const name = option(args, "name") ?? "ace CLI";
   const credential = await redeemPairing(url.trim(), name);
   const profiles = new Profiles(home);
   try {
     const profile = profiles.add({
       name: option(args, "profile") ?? "remote",
-      origin: `${parsed.origin}/`,
-      fingerprint: fragment.get("fingerprint") ?? "",
+      origin: link.daemon,
+      fingerprint: link.fingerprint,
       deviceId: credential.device.id,
       token: credential.token,
     });

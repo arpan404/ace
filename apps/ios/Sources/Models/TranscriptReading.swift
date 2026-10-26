@@ -1,79 +1,115 @@
 import Foundation
 import Observation
+import QuartzCore
 
 private struct TranscriptReadingReply: Decodable {
-    struct Block: Decodable { let id: String; let row: BlockRow }
     let active: Bool
     let hasOlder: Bool
     let hasNewer: Bool
     let joined: Bool
-    let items: [TranscriptRow]
-    let blocks: [Block]
+    let focus: String?
+    let count: Int
 }
 
-/// Native presentation of the shared bounded reading window. The live model stays subscribed.
+/// An item a search hit asked to bring into view in its thread.
+struct ThreadFocus: Equatable {
+    let thread: String
+    let item: String
+}
+
+/// The phone's side of the shared history window (`bridge/native-transcript.ts`). The bridge
+/// slides, evicts and joins the window; its rows arrive as patches under this view's own
+/// negative epoch into `thread`, so a page brings only the rows it added or evicted, and a window
+/// joined to the live tail keeps streaming. The live thread stays subscribed beside it.
 @MainActor @Observable final class TranscriptReading {
     private(set) var thread: ThreadModel?
+    /// The reading rows once the first of them has landed; until then the live rows stay shown.
+    var shown: ThreadModel? { thread.flatMap { $0.order.isEmpty ? nil : $0 } }
     private(set) var hasOlder = true
     private(set) var hasNewer = false
     private(set) var joined = true
     private(set) var loading = false
     private(set) var problem: String?
+    /// Moves after each frame that moved the reading rows.
     private(set) var revision = 0
     private(set) var paged = false
     private(set) var operation = ""
-    @ObservationIgnored var willReplace: (() -> Void)?
+    /// The item a jump aimed at, until the feed has scrolled to it.
+    var focus: String?
     @ObservationIgnored private var request: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var retryOperation = "older"
+    @ObservationIgnored private var retryItem: String?
+    /// Each reading view's epoch, below every navigation epoch; never reused in a run.
+    @ObservationIgnored private static var epochs = 0
 
-    func read(_ operation: String, model: ClientModel, live: ThreadModel) {
+    func read(_ operation: String, model: ClientModel, live: ThreadModel, item: String? = nil) {
         guard !loading else { return }
         loading = true
         problem = nil
         retryOperation = operation
+        retryItem = item
         self.operation = operation
         let version = generation
+        let asked = CACurrentMediaTime()
+        // Going live only ends the window; every other read shows rows under this view's epoch.
+        let epoch = operation == "live" ? (thread?.epoch ?? -1) : (thread ?? open(model: model, live: live)).epoch
+        var payload: [String: Any] = ["type": "native.transcript", "threadId": live.id, "epoch": epoch, "operation": operation]
+        if let item { payload["itemId"] = item }
+        // A page's rows land together once the bridge says the read settled.
+        if operation != "live" { model.holdReading() }
         request = Task {
             defer { if generation == version { loading = false } }
             do {
-                let reply = try await model.service(["type": "native.transcript", "threadId": live.id, "operation": operation], as: TranscriptReadingReply.self)
+                let reply = try await model.service(payload, as: TranscriptReadingReply.self)
                 guard !Task.isCancelled, generation == version else { return }
-                guard reply.active else { thread = nil; revision += 1; return }
-                let next = ThreadModel(id: live.id)
-                next.epoch = live.epoch
-                next.metadata = live.metadata
-                next.interactions = live.interactions
-                for row in reply.items {
-                    let item = thread?.items[row.id] ?? ItemModel(row)
-                    item.row = row
-                    next.items[row.id] = item
-                    next.order.append(row.id)
-                }
-                for block in reply.blocks { next.screen.apply(.block(live.id, live.epoch, block.id, block.row)) }
-                next.screen.commit()
-                next.loaded = true
+                guard reply.active else { close(model: model); revision += 1; return }
                 hasOlder = reply.hasOlder
                 hasNewer = reply.hasNewer
                 joined = reply.joined
-                willReplace?()
-                thread = next
-                if operation == "older" || operation == "newer" { paged = true }
-                revision += 1
+                if let target = reply.focus { focus = target }
+                if operation != "hold" { paged = true }
+                ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
             } catch {
-                if !Task.isCancelled, generation == version { problem = error.localizedDescription }
+                guard !Task.isCancelled, generation == version else { return }
+                model.releaseReading()
+                problem = error.localizedDescription
             }
         }
     }
-    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live) }
+    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live, item: retryItem) }
     func live(model: ClientModel, thread: ThreadModel) {
-        cancel()
+        cancel(model: model)
         read("live", model: model, live: thread)
     }
-    func cancel() {
+    /// Open a window around `item` (a search hit) and bring it into view.
+    func jump(to item: String, model: ClientModel, live: ThreadModel) {
+        cancel(model: model)
+        read("item", model: model, live: live, item: item)
+    }
+    func cancel(model: ClientModel) {
         generation += 1
         request?.cancel(); request = nil
-        loading = false; problem = nil
-        thread = nil; paged = false; hasOlder = true; hasNewer = false; joined = true
+        loading = false; problem = nil; focus = nil
+        close(model: model)
+        paged = false; hasOlder = true; hasNewer = false; joined = true
+    }
+    /// The reading rows moved: the feed restores the reader's place against them.
+    func moved() { revision += 1 }
+
+    private func open(model: ClientModel, live: ThreadModel) -> ThreadModel {
+        Self.epochs += 1
+        let next = ThreadModel(id: live.id)
+        next.epoch = -Self.epochs
+        next.disclosures = live.disclosures
+        next.metadata = live.metadata
+        next.loaded = true
+        model.reading = next
+        thread = next
+        return next
+    }
+    private func close(model: ClientModel) {
+        if model.reading === thread { model.dropReading() }
+        thread = nil
     }
 }

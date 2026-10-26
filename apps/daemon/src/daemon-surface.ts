@@ -53,6 +53,8 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "onboarding",
     "agentControl",
     "machineCalls",
+    "transferTarget",
+    "transfers",
     "fleet",
     "mcp",
     "notifications",
@@ -156,6 +158,15 @@ export function daemonHandle({
     get devices() {
       return services.devices;
     },
+    get projects() {
+      return requireService(services.projects, "projects");
+    },
+    get transfers() {
+      return requireService(services.transfers, "transfers");
+    },
+    get workspaceActions() {
+      return services.workspaceActions;
+    },
     storage: services.storage,
     engine: services.engine,
     agentControl: services.agentControl,
@@ -165,6 +176,9 @@ export function daemonHandle({
     cursorAuth: services.cursorAuth,
     get promptFiles() {
       return services.promptFiles;
+    },
+    get skillLibrary() {
+      return services.skillLibrary;
     },
     get commands() {
       return services.commands;

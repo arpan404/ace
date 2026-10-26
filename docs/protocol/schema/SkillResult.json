@@ -1,0 +1,195 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillEntry.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "kind": {
+          "const": "list",
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "entries",
+        "stale"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "entry": {
+          "$ref": "https://ace.local/protocol/v1/SkillEntry.json"
+        },
+        "kept": {
+          "items": {
+            "properties": {
+              "provider": {
+                "$ref": "https://ace.local/protocol/v1/SkillAgent.json"
+              },
+              "reason": {
+                "enum": [
+                  "canonical",
+                  "copy",
+                  "shared"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "kind": {
+          "const": "skill",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 262144,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entry",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "deleted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commit": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "updateStatus",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "current",
+            "available"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "status",
+        "commit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "updateReview",
+          "type": "string"
+        },
+        "review": {
+          "$ref": "https://ace.local/protocol/v1/SkillUpdateReview.json"
+        }
+      },
+      "required": [
+        "kind",
+        "review"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "cancelled",
+          "type": "string"
+        },
+        "reviewId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reviewId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "usage",
+          "type": "string"
+        },
+        "usage": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillUsage.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "usage"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "$ref": "https://ace.local/protocol/v1/SkillErrorCode.json"
+        },
+        "kind": {
+          "const": "error",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2048,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

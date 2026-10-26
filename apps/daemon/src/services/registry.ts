@@ -3,12 +3,14 @@ import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
+import { createSkillLibrarySession } from "./skill-library.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createFleetSession } from "./fleet.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
+import { createTransfersSession } from "./transfers.ts";
 import { createLongThreadSession } from "./long-thread.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createAutomationsSession } from "./automations.ts";
@@ -71,6 +73,7 @@ export const socketServiceFactories = [
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,
+  createTransfersSession,
   createTerminalSession,
   createRecoverySession,
   createDevicesSession,
@@ -81,6 +84,7 @@ export const socketServiceFactories = [
   createCursorAuthSession,
   createCommandsSession,
   createPromptFilesSession,
+  createSkillLibrarySession,
   // Before files: the files channel claims every binary message on a socket, and the desktop's
   // backend socket sends its video encoder's (ADR 0088).
   createBrowserSession,

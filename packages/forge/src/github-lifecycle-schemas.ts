@@ -45,3 +45,63 @@ export const SupportedMutations = z.object({
   }),
 });
 export const lifecyclePrFields = `id number title body state isDraft headRefOid baseRefOid baseRefName updatedAt mergeCommit { oid } viewerCanUpdate viewerCanClose viewerCanReopen viewerCanUpdateBranch viewerCanLabel viewerCanAssign canBeRebased labels(first:100){ nodes { id name } pageInfo { hasNextPage } } assignees(first:100){ nodes { id login } pageInfo { hasNextPage } }`;
+const owner = z.looseObject({ login: text });
+const closing = z.looseObject({
+  nodes: z
+    .array(
+      z
+        .looseObject({
+          number: z.number().int().positive(),
+          title: text,
+          state: text,
+          url: text,
+          repository: z.looseObject({ name: text, owner }),
+        })
+        .nullable(),
+    )
+    .max(50),
+  pageInfo: info,
+});
+/**
+ * Facts newer hosts add to the snapshot: milestone, lock, head branch and closing issues. A
+ * host that refuses them still answers the base snapshot, without these controls.
+ */
+export const LifecycleExtras = z.object({
+  data: z.object({
+    repository: z.looseObject({
+      deleteBranchOnMerge: z.boolean(),
+      defaultBranchRef: z.looseObject({ name: text }).nullable(),
+      pullRequest: z.looseObject({
+        milestone: z
+          .looseObject({
+            number: z.number().int().positive(),
+            title: text,
+            state: text,
+            dueOn: text.nullable(),
+          })
+          .nullable(),
+        locked: z.boolean(),
+        activeLockReason: text.nullable(),
+        headRefName: text,
+        headRef: z
+          .looseObject({
+            name: text,
+            // Open PRs whose head is this branch: deleting it would close them.
+            associatedPullRequests: z.looseObject({
+              nodes: z
+                .array(z.looseObject({ number: z.number().int().positive() }).nullable())
+                .max(10),
+            }),
+          })
+          .nullable(),
+        isCrossRepository: z.boolean(),
+        viewerCanDeleteHeadRef: z.boolean(),
+        closingIssuesReferences: closing,
+        manualClosingIssues: closing,
+      }),
+    }),
+  }),
+});
+export const lifecycleExtraRepositoryFields = `deleteBranchOnMerge defaultBranchRef { name }`;
+const closingFields = `nodes { number title state url repository { name owner { login } } } pageInfo { hasNextPage }`;
+export const lifecycleExtraPrFields = `milestone { number title state dueOn } locked activeLockReason headRefName headRef { name associatedPullRequests(states:OPEN,first:10){ nodes { number } } } isCrossRepository viewerCanDeleteHeadRef closingIssuesReferences(first:50){ ${closingFields} } manualClosingIssues:closingIssuesReferences(first:50,userLinkedOnly:true){ ${closingFields} }`;

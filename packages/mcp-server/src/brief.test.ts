@@ -34,6 +34,34 @@ test("the brief states where the agent is and what its access allows", () => {
   expect(brief).toContain("claude (bypassPermissions)");
 });
 
+test("the brief names each provider's accounts when it has more than one", () => {
+  const brief = renderBrief({
+    ...facts,
+    delegates: [
+      { provider: "claude", modes: ["full-access"], accounts: ["Your CLI login"] },
+      { provider: "codex", modes: ["read-only", "ask"], accounts: ["Your CLI login", "346"] },
+    ],
+  });
+  expect(brief).toContain(
+    'Delegate (tool delegate) to: claude (full-access); codex (accounts "Your CLI login", "346"; read-only, ask).',
+  );
+});
+
+test("account labels give way before the providers line does", () => {
+  const brief = renderBrief({
+    ...facts,
+    delegates: ["claude", "codex", "cursor", "opencode"].map((provider) => ({
+      provider,
+      modes: ["full-access"],
+      accounts: Array.from({ length: 6 }, (_, index) => `${provider} account ${index}`.repeat(3)),
+    })),
+  });
+  expect(brief).toContain(
+    "Delegate (tool delegate) to: claude (full-access); codex (full-access); cursor (full-access); opencode (full-access).",
+  );
+  expect(brief.length).toBeLessThanOrEqual(maxBriefChars);
+});
+
 test("the brief is the same text whatever the live counts, so a cached prompt prefix holds", () => {
   const busy = renderBrief({
     ...facts,

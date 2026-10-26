@@ -13,6 +13,13 @@ export const forbiddenInitialModules = [
   "/src/features/palette/palette-dialog.tsx",
   "/src/features/projects/project-dialogs.tsx",
   "/@base-ui/react/menu/root/MenuRoot.mjs",
+  // PR and issue text, settings rows and the forge request and settings schemas: each once
+  // joined the first paint through a slice index with code of its own or a warmup's imports.
+  "/src/features/forge/rich/forge-prose.tsx",
+  "/parse5/dist/index.js",
+  "/src/components/setting-row.tsx",
+  "/packages/protocol/src/workspace-actions.ts",
+  "/packages/protocol/src/settings.ts",
 ];
 
 /** Inspect the page's actual static closure, independently of chunk names. */

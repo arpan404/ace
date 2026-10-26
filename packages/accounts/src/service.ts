@@ -11,6 +11,7 @@ import { object } from "./quota-decode.ts";
 import { loginAcpAccount, type AcpLoginResolver } from "./acp-login.ts";
 import { AcpIdentity } from "@ace/protocol";
 import { instanceEnv } from "./instances.ts";
+import { accountProvider } from "./acp-instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, noMigrationLease, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
@@ -279,7 +280,12 @@ export class AccountService {
       throw new Error("Resuming requires a pinned provider instance");
     if (assignment.instanceId && this.registry.isPending(assignment.instanceId))
       throw new Error("Account sign-in is not complete");
-    const provider = AccountProvider.parse(adapter.provider);
+    // Antigravity, ace's built-in ACP agent, runs on ACP accounts of its own installation; it is
+    // never scheduled, only bound to the account a thread names.
+    if (adapter.provider === "antigravity" && !assignment.instanceId)
+      throw new Error("An Antigravity session needs the account it runs on");
+    const provider =
+      adapter.provider === "antigravity" ? "acp" : AccountProvider.parse(adapter.provider);
     const chosen = assignment.instanceId
       ? this.registry.get(assignment.instanceId)?.instance
       : pickInstance(
@@ -298,7 +304,7 @@ export class AccountService {
             ),
           this.now(),
         );
-    if (provider === "acp") {
+    if (adapter.provider === "acp") {
       const identity = AcpIdentity.parse(context.acpIdentity);
       if (
         !chosen ||
@@ -308,7 +314,7 @@ export class AccountService {
       )
         throw new Error("No matching ACP account identity");
     }
-    if (!chosen || chosen.provider !== adapter.provider)
+    if (!chosen || accountProvider(chosen) !== adapter.provider)
       throw new Error("No matching provider instance");
     if (chosen.implicit && adapter.backend === "cursor-sdk")
       throw new Error("The normal Cursor CLI login cannot authenticate the SDK backend");
@@ -320,9 +326,16 @@ export class AccountService {
     if (context.signal.aborted) abort();
     let released = false;
     let closer: (() => Promise<void>) | undefined;
+    // Every streamed frame carries the billing mode. Read it once, and again only after the
+    // registry reports this account's quota changed, never from SQLite per frame.
+    let billingMode: "api" | "subscription" | "unknown" | undefined;
+    const stopBilling = this.registry.subscribeQuota((id) => {
+      if (id === chosen.id) billingMode = undefined;
+    });
     const release = () => {
       if (released) return;
       released = true;
+      stopBilling();
       if (closer) this.closers.get(chosen.id)?.delete(closer);
       if (this.closers.get(chosen.id)?.size === 0) this.closers.delete(chosen.id);
       context.signal.removeEventListener("abort", abort);
@@ -391,7 +404,8 @@ export class AccountService {
             ...frame,
             usageAccount: {
               id: chosen.id,
-              billingMode: this.registry.get(chosen.id)?.quota.billingMode ?? "unknown",
+              billingMode:
+                (billingMode ??= this.registry.get(chosen.id)?.quota.billingMode) ?? "unknown",
             },
           });
         },
@@ -470,6 +484,7 @@ export class AccountService {
         },
       };
     } catch (error) {
+      stopBilling();
       if (!frameFailed) release();
       throw error;
     }

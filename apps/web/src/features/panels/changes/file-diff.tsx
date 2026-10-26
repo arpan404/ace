@@ -36,6 +36,30 @@ export const inRange = (range: LineRange | undefined, target: LineTarget) =>
   !!range && range.side === target.side && target.line >= range.start && target.line <= range.end;
 /** The protocol's limit on a comment's lines. */
 const maxRange = 100;
+/** The line numbers `rows` show on `side`; folded lines that aren't known aren't shown. */
+function shownLines(rows: readonly DiffRow[], side: LineRange["side"]): ReadonlySet<number> {
+  const shown = new Set<number>();
+  for (const row of rows) {
+    if (row.kind === "fold") continue;
+    const line =
+      side === "old"
+        ? row.kind === "add"
+          ? undefined
+          : row.old
+        : row.kind === "del"
+          ? undefined
+          : row.new;
+    if (line !== undefined) shown.add(line);
+  }
+  return shown;
+}
+/** How far from `from` toward `to` a pick reaches without crossing lines the diff doesn't show. */
+function reach(shown: ReadonlySet<number>, from: number, to: number): number {
+  const step = to < from ? -1 : 1;
+  let line = from;
+  while (line !== to && shown.has(line + step)) line += step;
+  return line;
+}
 const ordered = (side: LineRange["side"], a: number, b: number): LineRange => {
   const start = Math.min(a, b);
   return { side, start, end: Math.min(Math.max(a, b), start + maxRange - 1) };
@@ -90,7 +114,9 @@ export function FileDiffBlock(props: {
     event.preventDefault();
     const extending = event.shiftKey && props.selection?.side === target.side;
     const from = extending ? (props.selection?.start ?? target.line) : target.line;
-    let range = ordered(target.side, from, target.line);
+    // A pick never spans a fold whose lines aren't known: GitHub can't anchor a comment there.
+    const shown = shownLines(rows, target.side);
+    let range = ordered(target.side, from, reach(shown, from, target.line));
     setDrag(range);
     const move = (over: globalThis.PointerEvent) => {
       const line =
@@ -99,7 +125,7 @@ export function FileDiffBlock(props: {
               .line
           : undefined;
       if (line === undefined) return;
-      range = ordered(target.side, from, Number(line));
+      range = ordered(target.side, from, reach(shown, from, Number(line)));
       setDrag(range);
     };
     const end = () => {
@@ -188,7 +214,8 @@ export function FileDiffBlock(props: {
               props.wrap
                 ? "whitespace-pre-wrap [word-break:normal] [overflow-wrap:normal]"
                 : "whitespace-pre",
-              props.mode === "unified" && "overflow-x-auto overflow-y-hidden",
+              // A container, so a comment under a line can span the visible width (100cqw).
+              props.mode === "unified" && "@container overflow-x-auto overflow-y-hidden",
             )}
           >
             {props.mode === "unified" ? (
@@ -288,7 +315,7 @@ function Split(props: RowsProps) {
           tabIndex={0}
           data-diff-side={side}
           className={cn(
-            "min-w-0 overflow-x-auto overflow-y-hidden focus-ring-inset",
+            "@container min-w-0 overflow-x-auto overflow-y-hidden focus-ring-inset",
             side === "new" && "border-l",
           )}
         >

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { prTimeline, prTimelineItems, eventText } from "./pr-timeline.ts";
+import { prTimeline, prTimelineItems, eventText } from "@ace/ui-core";
 import { detail } from "./pr-workspace.fixture.ts";
 const commit = {
   sha: "a".repeat(40),
@@ -265,4 +265,97 @@ test("newest-first lists the same groups in reverse order, keeping their identit
     "references:r1",
   ]);
   expect(newest).toEqual(oldest.toReversed());
+});
+
+const inline = (id: number, when: string, replyTo: number | null) => ({
+  kind: "inline" as const,
+  id,
+  body: `Inline ${id}`,
+  author: "reviewer",
+  file: "src/a.ts",
+  line: 3,
+  updatedAt: when,
+  createdAt: when,
+  replyTo,
+});
+
+test("review comments show once, as their whole conversation, where it began", () => {
+  const root = inline(31, "2026-10-11T12:05:00Z", null);
+  const reply = inline(32, "2026-10-11T14:00:00Z", 31);
+  const loose = inline(33, "2026-10-11T12:06:00Z", null);
+  const shown = {
+    ...detail,
+    status: {
+      ...detail.status,
+      comments: [...detail.status.comments, root, reply, loose],
+      reviewThreads: [
+        {
+          id: "T9",
+          resolved: false,
+          outdated: false,
+          file: "src/a.ts",
+          line: 3,
+          comments: [root, reply],
+        },
+      ],
+    },
+  };
+  const items = prTimelineItems(shown, [], [], "oldest");
+  const threads = items.filter((item) => item.kind === "thread");
+  expect(threads.map((item) => item.id)).toEqual(["thread:T9"]);
+  expect(threads[0]?.at).toBe(root.createdAt);
+  // The reply lives in its conversation; a review comment outside any conversation stays a row.
+  const ids = items.flatMap((item) =>
+    item.kind === "comment"
+      ? [item.comment.id]
+      : item.kind === "comments"
+        ? item.comments.map((c) => c.id)
+        : [],
+  );
+  expect(ids).not.toContain(31);
+  expect(ids).not.toContain(32);
+  expect(ids).toContain(33);
+});
+
+test("a conversation whose first comment wasn't read still shows, at its first comment that was", () => {
+  const root = inline(41, "2026-10-11T12:05:00Z", null);
+  const reply = inline(42, "2026-10-11T13:00:00Z", 41);
+  const shown = {
+    ...detail,
+    status: {
+      ...detail.status,
+      // The root is past the read cap: only the reply is among the PR's comments.
+      comments: [...detail.status.comments, reply],
+      reviewThreads: [
+        {
+          id: "T7",
+          resolved: false,
+          outdated: false,
+          file: "src/a.ts",
+          line: 3,
+          comments: [root, reply],
+        },
+      ],
+    },
+  };
+  const threads = prTimelineItems(shown, [], [], "oldest").filter((item) => item.kind === "thread");
+  expect(threads.map((item) => [item.id, item.at])).toEqual([["thread:T7", reply.createdAt]]);
+});
+
+const said = (name: string, subject?: string) =>
+  eventText({
+    id: name,
+    event: name,
+    actor: "octo",
+    at: null,
+    raw: {},
+    ...(subject ? { subject } : {}),
+  });
+
+test("branch, lock and milestone events read as what happened, with the lock's reason", () => {
+  expect(said("locked", "too heated")).toBe("locked the conversation as too heated");
+  expect(said("locked")).toBe("locked the conversation");
+  expect(said("head_ref_restored")).toBe("restored the branch");
+  expect(said("milestoned", "October polish")).toBe("added this to the milestone October polish");
+  expect(said("connected")).toBe("linked an issue");
 });

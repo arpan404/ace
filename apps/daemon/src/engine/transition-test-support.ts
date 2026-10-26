@@ -21,6 +21,10 @@ import type { TransitionIO } from "./transitions.ts";
 export function transitionHarness(
   options: {
     native?: boolean;
+    /** A native fork brings the source's turns along itself, as Codex's does. */
+    forkTranscript?: boolean;
+    /** What the provider translates from the source while a native fork opens, as Codex does. */
+    forkReplay?: Fact[];
     cursorBackend?: import("@ace/engine-api").ProviderBackend;
     forkPoints?: ("turn" | "item" | "end")[];
     outcome?: "completed" | "failed" | "interrupted";
@@ -116,6 +120,7 @@ export function transitionHarness(
           resume: true,
           fork: options.native ?? false,
           forkPoints: options.forkPoints ?? ["turn", "item"],
+          ...(options.forkTranscript ? { forkTranscript: true } : {}),
           sessionOptions: true,
           subagentTranscripts: true,
           backgroundTaskControl: true,
@@ -149,6 +154,7 @@ export function transitionHarness(
                 );
           if (at < 0) throw new Error("Unknown native boundary");
           histories.set(nativeId, source.slice(0, at + 1));
+          if (options.forkReplay) context.onFrame(frames.frame(...options.forkReplay));
         }
         if (!histories.has(nativeId)) histories.set(nativeId, []);
         const entry: (typeof sessions)[number] = {

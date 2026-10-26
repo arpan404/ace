@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { antigravityPage } from "@/test/antigravity-page.ts";
 
 beforeEach(() => localStorage.clear());
 const accounts = () =>
@@ -327,32 +328,62 @@ test("an ACP agent's one account can sign in again, sign out and be renamed, but
 }, 30_000);
 
 test("Antigravity's page lists its sign-in, which ace keeps as its agent's account", async () => {
-  const app = harness();
-  const services = app.daemon.services;
-  services.installed.add("antigravity");
-  const status = services.providerStatuses.find((row) => row.provider === "antigravity");
-  if (!status) throw new Error("Missing Antigravity status");
-  Object.assign(status, { installed: true, version: "1.4.1", auth: "logged_in" });
-  const example = services.accounts.find((entry) => entry.provider === "acp");
-  if (!example) throw new Error("Missing ACP account fixture");
-  services.accounts.push({
-    ...example,
-    id: "antigravity-cli-default",
-    acpAgentId: "official:antigravity-acp",
-    installationId: "antigravity-cli",
-    instanceId: "antigravity-cli-default",
-    label: "Antigravity",
-  });
-  await app.open("/settings/providers");
-  await userEvent.click(
-    await screen.findByRole("link", { name: "Antigravity" }, { timeout: 10_000 }),
-  );
-  const list = await screen.findByRole("list", { name: "Antigravity accounts" });
-  const row = (await within(list).findByText("Antigravity")).closest("li");
-  if (!row) throw new Error("No Antigravity row");
+  const { list, row } = await antigravityPage();
   // Only Antigravity's own sign-in: the Gemini CLI agent's account belongs to its own page.
   expect(within(list).queryByText("Google")).toBeNull();
-  await userEvent.click(within(row).getByRole("button", { name: "Manage Antigravity" }));
+  const cli = await row("Antigravity");
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Antigravity" }));
+  // Its CLI login can't be removed, only signed in and out.
+  expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Antigravity" })).toBeTruthy();
+}, 30_000);
+
+test("an Antigravity account added in Settings signs in on its own, beside the CLI login, and can become the default or be removed", async () => {
+  const { app, list, row, listed } = await antigravityPage();
+  await userEvent.click(within(list).getByRole("button", { name: "Add account" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add an Antigravity account" }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Work");
+  await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
+  await dialog.findByText("Waiting for you to finish signing in…", {}, { timeout: 10_000 });
+  // Nothing is added until its own sign-in finishes.
+  expect((await listed()).map((entry) => entry.label)).not.toContain("Work");
+  app.daemon.services.providerLogin.complete("fake-login-1");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Add an Antigravity account" })).toBeNull(),
+  );
+  const work = await row("Work");
+  expect(await row("Antigravity")).toBeTruthy();
+  const added = (await listed()).find((entry) => entry.label === "Work");
+  expect(added).toMatchObject({
+    provider: "acp",
+    homeStrategy: "managed",
+    installationId: "antigravity-cli",
+    // Signed in on its own: it can run, and has a catalog of its own.
+    quota: { auth: "logged_in" },
+  });
+  const models = await app.client.request({
+    type: "models.list",
+    options: { provider: "antigravity" },
+  });
+  if (!("models" in models.result)) throw new Error("Model list unavailable");
+  expect(
+    models.result.models.filter((entry) => entry.instance === added?.id).map((entry) => entry.id),
+  ).toEqual(["gemini-3.8-flash"]);
+  expect(screen.queryByText(/keeps one sign-in/)).toBeNull();
+
+  // Signed in, it offers Make default on its row.
+  await userEvent.click(within(work).getByRole("button", { name: "Make default" }));
+  await waitFor(async () =>
+    expect((await listed()).filter((entry) => entry.isDefault).map((entry) => entry.label)).toEqual(
+      ["Work"],
+    ),
+  );
+
+  await userEvent.click(within(await row("Work")).getByRole("button", { name: "Manage Work" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  const confirm = within(await screen.findByRole("dialog", { name: "Remove Work?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Remove" }));
+  await waitFor(() => expect(within(list).queryByText("Work")).toBeNull());
+  expect((await listed()).map((entry) => entry.label)).toEqual(["Antigravity"]);
 }, 30_000);

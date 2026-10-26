@@ -27,12 +27,36 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "notice": {
+      "maxLength": 400,
+      "type": "string"
+    },
     "parent": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "queuePosition": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "queued": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
     },
     "role": {
       "maxLength": 40,
       "type": "string"
+    },
+    "slotLimit": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "slotsInUse": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     },
     "state": {
       "$ref": "https://ace.local/protocol/v1/WatchedState.json"

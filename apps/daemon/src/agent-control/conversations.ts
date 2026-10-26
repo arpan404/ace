@@ -1,3 +1,4 @@
+import type { ModelLoadBudget } from "./model-load-budget.ts";
 import { createHash } from "node:crypto";
 import {
   Command,
@@ -52,6 +53,7 @@ export function createConversationStarts(
   async function start(
     caller: McpAttribution,
     operation: ThreadStartOperation,
+    budget: ModelLoadBudget,
   ): Promise<AgentControlResult> {
     const previous = journal.receipt(caller, operation.requestId);
     if (previous) {
@@ -79,7 +81,7 @@ export function createConversationStarts(
       wait: false,
       estimatedLoad: 0,
     };
-    const configured = await service.prepareModels(caller, request);
+    const configured = await service.prepareModels(caller, request, budget);
     context.signal.throwIfAborted();
     const reservation = service.reserve(caller, request, "owner", configured);
     const watched = service.watchReservation(reservation);
@@ -136,7 +138,12 @@ export function createConversationStarts(
       }
     }
   }
-  return async (caller: McpAttribution, operation: ThreadStartOperation, signal: AbortSignal) => {
+  return async (
+    caller: McpAttribution,
+    operation: ThreadStartOperation,
+    signal: AbortSignal,
+    budget?: ModelLoadBudget,
+  ) => {
     const key = `${caller.threadId}:${operation.requestId}`,
       identity = JSON.stringify([caller.agentId, operation]);
     const previous = pending.get(key);
@@ -145,7 +152,14 @@ export function createConversationStarts(
       return untilAborted(previous.work, signal);
     }
     // A retry with the same requestId joins this creation until it settles, then reads the receipt.
-    const work = start(caller, operation).finally(() => pending.delete(key));
+    // The creation outlives the call, so it keeps the call's deadline but not its cancellation;
+    // a call with no budget gives the creation its own.
+    // The creation holds the call's deadline (or its own) until it is done.
+    const creation = budget ? budget.detached() : service.loadBudget();
+    const work = start(caller, operation, creation).finally(() => {
+      pending.delete(key);
+      creation.end();
+    });
     pending.set(key, { identity, work });
     return untilAborted(work, signal);
   };

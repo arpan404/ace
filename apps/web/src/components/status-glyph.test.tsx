@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { StatusGlyph } from "./status-glyph.tsx";
-import { agentGlyph, threadGlyph, type GlyphState } from "./status-glyph-state.ts";
+import { agentGlyph, threadGlyph, type GlyphState } from "@ace/ui-core";
 
 /** Whether the glyph's CSS animation runs: its moving parts sit inside a `[data-live]` glyph. */
 function moving(state: GlyphState, still?: boolean) {

@@ -1,5 +1,6 @@
 import {
   GitHubForge,
+  GitHubInbox,
   ForgeError,
   ForgeListCaches,
   repositoryKey,
@@ -17,6 +18,8 @@ export class ForgeBackends {
   private backends = new Map<string, GitHubForge>();
   /** Open PR and issue lists per repository and identity, whichever checkout reads them. */
   private lists = new Map<string, ForgeListCaches>();
+  /** Each host's notifications per signed-in account, kept so conditional reads find their page. */
+  private inboxes = new Map<string, GitHubInbox>();
   private git: WorkspaceForgeGit;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -41,6 +44,7 @@ export class ForgeBackends {
   clear(): void {
     this.backends.clear();
     this.lists.clear();
+    this.inboxes.clear();
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     return (await this.checkoutRepository(cwd)).repository;
@@ -102,6 +106,33 @@ export class ForgeBackends {
       if (first !== undefined) this.backends.delete(first);
     }
     return backend;
+  }
+  /**
+   * The signed-in account's notifications on `host`, or on the host of the checkout's own
+   * repository. Every request goes through the identity-checked runner.
+   */
+  async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
+    const target = host || (await this.repository(cwd)).host;
+    const identity = await this.sourceControl?.identity(cwd, target, this.signal);
+    const key = JSON.stringify({
+      host: target,
+      account: identity?.account,
+      revision: identity?.revision,
+    });
+    const inbox =
+      this.inboxes.get(key) ??
+      new GitHubInbox({
+        host: target,
+        runner: identity?.runner ?? this.runner(cwd),
+        now: this.now,
+      });
+    this.inboxes.delete(key);
+    this.inboxes.set(key, inbox);
+    if (this.inboxes.size > 8) {
+      const first = this.inboxes.keys().next().value;
+      if (first !== undefined) this.inboxes.delete(first);
+    }
+    return inbox;
   }
   private listCaches(key: string): ForgeListCaches {
     const lists = this.lists.get(key) ?? new ForgeListCaches(this.now);

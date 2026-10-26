@@ -3,6 +3,11 @@ import { readJsonLines, RpcWriter } from "@ace/provider-kit/jsonl";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Response } from "./native.ts";
 export type Schedule = (callback: () => void, ms: number) => () => void;
+/**
+ * A command Pi never took: refused before it was written, or answered with `success: false`,
+ * which Pi documents as "rejected before acceptance" (single authoritative response since 0.67.3).
+ */
+export class PiCommandRefused extends Error {}
 /** Pi's correlated command protocol is JSONL, not JSON-RPC. */
 export class PiRpc {
   private writer: RpcWriter;
@@ -52,7 +57,7 @@ export class PiRpc {
           this.pending.delete(r.id);
           p.cancel();
           if (r.command !== p.command) p.reject(new Error("Pi response command mismatch"));
-          else if (!r.success) p.reject(new Error(r.error ?? "Pi command rejected"));
+          else if (!r.success) p.reject(new PiCommandRefused(r.error ?? "Pi command rejected"));
           else p.resolve(r.data);
         } catch (error) {
           this.fail(error instanceof Error ? error : new Error("Invalid Pi frame"));
@@ -63,18 +68,19 @@ export class PiRpc {
     );
   }
   write(data: Record<string, unknown>): Promise<void> {
-    if (this.closed) return Promise.reject(new Error("Pi RPC closed"));
+    if (this.closed) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
     const line = JSON.stringify(data);
     if (Buffer.byteLength(line) > 1024 * 1024)
-      return Promise.reject(new Error("Pi command exceeds frame limit"));
+      return Promise.reject(new PiCommandRefused("Pi command exceeds frame limit"));
     const payload = new ProviderPayload(this.redact(line));
     return this.writer
       .send(line + "\n", Buffer.byteLength(line) + 1)
       .then(() => this.frame("send", payload));
   }
   request(command: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error("Pi RPC closed"));
-    if (this.pending.size >= 64) return Promise.reject(new Error("Pi command capacity exceeded"));
+    if (this.closed) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
+    if (this.pending.size >= 64)
+      return Promise.reject(new PiCommandRefused("Pi command capacity exceeded"));
     const id = `ace-${++this.seq}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { command, resolve, reject, cancel: () => {} });

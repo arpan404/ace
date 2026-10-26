@@ -43,6 +43,12 @@ export const QueueState = z.object({
       "model_unavailable",
     ])
     .nullable(),
+  /**
+   * With `reason: "restart"`: the provider's process died on its own while ace kept running,
+   * rather than ace restarting. The turn holds and resumes exactly as after a restart; only
+   * what it is called differs ("Cursor stopped unexpectedly", not "Stopped by a restart").
+   */
+  exited: z.boolean().optional(),
   resumeAt: z.number().int().nonnegative().nullable(),
 });
 export const QueueSnapshot = QueueState.extend({

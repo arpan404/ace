@@ -9,7 +9,7 @@ import { AllMachinesScope } from "./all-machines-scope.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
-import { ConfirmDialog, type Confirming } from "./confirm-dialog.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames } from "./data/list-names.ts";
 
 export const transportOptions = [
@@ -20,7 +20,8 @@ export const transportOptions = [
 
 export const transportNotes: Record<(typeof transportOptions)[number]["value"], string> = {
   lan: "Same network only. Browsers must trust its HTTPS certificate.",
-  tailscale: "Your private Tailscale network, from anywhere. Tailscale must be running.",
+  tailscale:
+    "Your private Tailscale network, from anywhere. For browsers, turn on HTTPS certificates in Tailscale.",
   relay: "Through a relay you host. The local network stays on for pairing.",
 };
 
@@ -69,7 +70,16 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Reached over");
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const hosted = useSettingControl(
+    settingKeys.hostedPairingLink,
+    "Pairing links open app.acehq.dev",
+  );
   const agents = useSettingControl(settingKeys.agentAccess, "Agents from other machines");
+  const transfers = useSettingControl(
+    settingKeys.agentTransfers,
+    "Agents can move projects and threads to other machines",
+  );
+  const ignored = useSettingControl(settingKeys.transferIgnoredFiles, "Bring ignored files");
   // "local" is remote access off; the choice shows the network it would open on.
   const selected = transport.value === "local" ? "lan" : transport.value;
   return (
@@ -135,6 +145,22 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
         </SettingRow>
       )}
       <SettingRow
+        id="remote.hostedPairingLink"
+        title="Pairing links open app.acehq.dev"
+        description="Off, links open the web app this computer serves, which always matches its version."
+        htmlFor={`${id}-hosted`}
+        inline
+      >
+        <DaemonSlot control={hosted}>
+          <Switch
+            id={`${id}-hosted`}
+            checked={hosted.value}
+            disabled={hosted.offline || hosted.pending}
+            onCheckedChange={(on) => void hosted.set(on)}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
         id="remote.agentAccess"
         title="Agents from other machines"
         description={agentAccessNotes[agents.value]}
@@ -146,6 +172,37 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
             options={agentAccessOptions}
             disabled={agents.offline || agents.pending}
             onValueChange={agents.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
+        id="remote.agentTransfers"
+        title="Agents can move projects and threads to other machines"
+        htmlFor={`${id}-transfers`}
+        inline
+      >
+        <DaemonSlot control={transfers}>
+          <Switch
+            id={`${id}-transfers`}
+            checked={transfers.value}
+            disabled={transfers.offline || transfers.pending}
+            onCheckedChange={(on) => void transfers.set(on)}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
+        id="remote.transferIgnoredFiles"
+        title="Bring ignored files"
+        description="Local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead."
+        htmlFor={`${id}-ignored`}
+        inline
+      >
+        <DaemonSlot control={ignored}>
+          <Switch
+            id={`${id}-ignored`}
+            checked={ignored.value}
+            disabled={ignored.offline || ignored.pending}
+            onCheckedChange={(on) => void ignored.set(on)}
           />
         </DaemonSlot>
       </SettingRow>

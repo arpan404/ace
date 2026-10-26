@@ -12,6 +12,7 @@ import { openCursorMcp } from "./services/cursor-mcp.ts";
 import { providerFeatures } from "./testing/provider-features.ts";
 import { proof } from "./testing/provider-mcp-proof.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
+import { lazyDevices } from "./lazy-devices.ts";
 
 it("Cursor SDK consumes the daemon lease and calls browser, screen and device tools before any provider turn", async (test) => {
   const chromium = await detectChromium();
@@ -51,7 +52,7 @@ it("Cursor SDK consumes the daemon lease and calls browser, screen and device to
         mcp: f.daemon.mcp,
         browser: f.daemon.browser,
         screen: f.screen,
-        devices: f.devices,
+        devices: lazyDevices(f.devices),
       },
       id: () => "cursor-tools",
     },

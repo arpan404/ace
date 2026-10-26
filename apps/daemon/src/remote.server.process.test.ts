@@ -252,6 +252,34 @@ describe("remote access", () => {
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     expect(readConfig({ ACE_HOME: home }).listen).toBe("local");
   });
+  it("a pairing link issued before a daemon restart pairs once after it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "ace-remote-pairing-restart-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const config = readConfig({
+      ACE_HOME: home,
+      ACE_PORT: "0",
+      ACE_LISTEN: "lan",
+      ACE_ADVERTISE_HOST: "127.0.0.1",
+      ACE_LOG_LEVEL: "silent",
+    });
+    const first = await startDaemon({ config: config });
+    const credential = readFileSync(first.tokenPath, "utf8");
+    const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
+    const issued = PairingResponse.parse(
+      await accessRequest(origin, "/v1/pairings", { token: credential, method: "POST", body: {} }),
+    );
+    await first.close();
+    const second = await startDaemon({ config: config });
+    cleanups.push(() => second.close());
+    if (!second.remoteUrl) throw new Error("Remote listener missing");
+    // The same link, at wherever the restarted daemon listens (the test binds port 0).
+    const link = new URL(issued.url);
+    const restarted = new URL(second.remoteUrl.replace("wss:", "https:"));
+    link.host = restarted.host;
+    const paired = await redeemPairing(link.toString(), "Phone");
+    expect(paired.device).toMatchObject({ name: "Phone", scopes: ["read", "operate"] });
+    await expect(redeemPairing(link.toString(), "Second phone")).rejects.toThrow("HTTP 401");
+  });
   it("persists device credentials and the private TLS identity across daemon restarts in LAN mode", async () => {
     const home = mkdtempSync(join(tmpdir(), "ace-remote-restart-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));

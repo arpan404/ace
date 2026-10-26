@@ -52,6 +52,15 @@ function typeLabel(schema: Record<string, unknown>): string {
   if (schema.allOf) return "intersection";
   return text(schema.type ?? "any JSON value");
 }
+/** A stable 32-bit seed for `name` (FNV-1a). */
+export function seedOf(name: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < name.length; index++) {
+    hash ^= name.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash;
+}
 export function renderReference(
   entries: SchemaEntry[],
   tools: ToolEntry[],
@@ -59,7 +68,6 @@ export function renderReference(
 ): Map<string, string> {
   const files = new Map<string, string>();
   const validator = jsonValidator(snapshot);
-  const random = seededRandom(42);
   function section(entry: SchemaEntry): string {
     const schema = snapshot.schemas[entry.name];
     if (!Object.hasOwn(snapshot.schemas, entry.name) || !schema)
@@ -89,6 +97,9 @@ export function renderReference(
           result += `| ${key} | ${node.required?.includes(key) ? "yes" : "no"} | ${typeLabel(field)} | ${Object.keys(constraints).length ? text(JSON.stringify(constraints)) : ""} |\n`;
         }
       } else result += `\nType: ${typeLabel(node)}. See JSON Schema for constraints.\n`;
+      // Each example draws from its own schema's sequence, so a change to one schema never
+      // reshuffles the examples of the others.
+      const random = seededRandom(seedOf(`${entry.name}#${index}`));
       const example = validExample(entry.name, entry.schema, variant, snapshot, random, validator);
       result += `\nExample:\n\n\`\`\`json\n${canonical(example).trimEnd()}\n\`\`\`\n`;
     }
