@@ -144,7 +144,7 @@ async function stageNodePty(root: string): Promise<void> {
   const source = dirname(require.resolve("node-pty/package.json"));
   if (process.platform === "win32") {
     const { stageWindowsPty } = await import("@ace/release/pty-assets");
-    await stageWindowsPty(source, join(root, "node_modules/node-pty"), `win32-${process.arch}`);
+    await stageWindowsPty(source, join(root, "node_modules/node-pty"), `win32-${arch}`);
     return;
   }
   const target = join(root, "node_modules/node-pty");
