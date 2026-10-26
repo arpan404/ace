@@ -84,7 +84,7 @@ test("the project control shows a shortened selected device name and reveals its
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  expect(control.textContent).toContain("All projects·Build server wi…");
+  expect(control.textContent).toContain("All projectsBuild server wi…");
   await userEvent.hover(control);
   expect((await screen.findByRole("tooltip")).textContent).toBe(name);
   await userEvent.unhover(control);
