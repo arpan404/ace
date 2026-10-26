@@ -44,8 +44,6 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
-    /// The composer's own height (field and chips), which the page's floor sits behind.
-    @State private var composerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// The composer's `@`, `/` and + lists.
@@ -84,7 +82,7 @@ struct ThreadView: View {
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
-            .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -241,7 +239,6 @@ struct ThreadView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
                     .task(id: thread.id) {
                         suggester.attach(model)
                         suggester.scope = .thread(thread.id)
@@ -328,13 +325,11 @@ private struct GoalPresentation: Identifiable {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, request included, at its end. Behind the composer the
-/// page is solid, fading in just above it, so words never show around the field, in the gap above
-/// the keyboard or behind the home indicator.
+/// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
+/// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
+/// words never show in the gap above the keyboard or behind the home indicator.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
-    /// How tall the composer is, from the bar's lower edge.
-    let floor: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
@@ -343,16 +338,15 @@ private struct FloatingBar<Bar: View>: ViewModifier {
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor(height: floor) }
+                .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour from just above the composer on down, behind the keyboard's translucent edge
-/// and the home indicator.
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
+/// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
-    let height: CGFloat
     private let below = AceTheme.Dimensions.touchTarget * 8
     private let fade = AceTheme.Spacing.lg
     var body: some View {
@@ -361,7 +355,7 @@ private struct BarFloor: View {
                 .frame(height: fade)
             AceTheme.Colours.background
         }
-        .frame(height: height + fade + below)
+        .frame(height: fade + below)
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
