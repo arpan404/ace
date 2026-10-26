@@ -251,6 +251,31 @@ Revised 2026-10-19 (#1102):
   `serve-sim repair-input -d <udid>` restores them but restarts SpringBoard and closes
   running apps, so ace never runs it automatically; it is a documented manual repair.
   serve-sim is Apple Silicon only; Intel Macs use the screen helper.
+- **Touch through Xcode 27's input service (amended 2026-10-25).** An Xcode 27 simulator
+  runs a HID daemon (dtuhidd). When it becomes active, SimulatorHID switches its legacy
+  touch service off and back on at the next legacy event; that reconnect can lose the
+  service from iOS's event system (added and removed in the same millisecond) while
+  SimulatorHID still reports it connected, after which every serve-sim touch is dropped.
+  Measured on a booted iPhone Air: serve-sim taps never reached backboardd. So touches go
+  through the daemon's `com.apple.coredevice.feature.remote.hid.digitizer` service, the
+  route Xcode's device tool uses, via the screen helper's `--sim-touch <udid>` mode
+  (`SimTouch.swift`, sharing its connection with `--sim-posture`). One finger or two,
+  points normalized to the portrait framebuffer, an edge flag held for the whole gesture,
+  and a target display. A helper that can't reach the service leaves touches on
+  serve-sim; one that dies is started again on a later touch. Buttons, rotation and
+  typing stay on serve-sim, which still delivers them.
+- **Several screens (the iPhone Duo).** serve-sim starts on a device's smallest screen and
+  moves only when it sees a fold, so a Duo opened earlier streamed its dark cover. At
+  attach ace reads `devicectl device info displays`, asks serve-sim (control tag 13) for
+  the lit screen's size, and keeps that size, or the stream's own, over serve-sim's later
+  announcements, which can keep naming the cover. Touches target the screen whose size
+  the picture has (the lit one before there is a picture). Such a device is not turned at
+  attach: its inner screen keeps its own orientation, which serve-sim follows.
+- **Turned layouts.** serve-sim's accessibility root keeps the window's portrait frame,
+  but its elements are laid out in the app's own orientation. On a device turned a
+  quarter, elements reaching past the portrait width mean a turned layout, and their
+  bounds (and scroll directions) are turned back onto the portrait framebuffer; a
+  portrait-only app on a turned iPhone keeps its portrait bounds.
 
 The adapter validates the announced UDID and loopback endpoints before opening
 any connection. Frame decoding is bounded, retains only the latest immutable
