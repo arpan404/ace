@@ -32,9 +32,10 @@ struct ThreadView: View {
     @State private var showBrowser = false
     @State private var showSearch = false
     @State private var showQueue = false
-    @State private var showGoal = false
-    /// The navigation generation the goal's sheet was opened on: its changes are for that one.
-    @State private var goalEpoch = 0
+    /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
+    /// that one. The generation rides on the presentation itself, since a sheet keeps the content
+    /// it was first built with and a value captured beside it would be the one before opening.
+    @State private var goalSheet: GoalPresentation?
     /// The person reads away from the live end: Scroll to end floats beside the pill.
     @State private var behind = false
     /// Each Scroll to end the person taps.
@@ -136,9 +137,9 @@ struct ThreadView: View {
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
-            .sheet(isPresented: $showGoal) {
+            .sheet(item: $goalSheet) { opened in
                 if let goal = screen.goal {
-                    GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
+                    GoalSheet(goal: goal, canOperate: model.canOperate) { change in await model.changeGoal(change, epoch: opened.epoch) }
                 }
             }
             .sheet(isPresented: $showQueue) {
@@ -150,7 +151,7 @@ struct ThreadView: View {
                 }
             }
             // A sheet whose subject went away closes.
-            .onChange(of: screen.goal == nil) { _, gone in if gone { showGoal = false } }
+            .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
             // The agent may open its browser after the thread was opened: ask again as it works.
             .onChange(of: metadata?.state) { model.probeBrowser() }
@@ -243,7 +244,7 @@ struct ThreadView: View {
         switch opens {
         case "agents": showAgents = true
         case "queue": showQueue = true
-        case "goal": goalEpoch = thread.epoch; showGoal = true
+        case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
     }
@@ -286,6 +287,12 @@ struct ThreadView: View {
         guard scenePhase == .active, screen.controls?.busy == true, !model.threadHasBrowser else { return nil }
         return thread.epoch
     }
+}
+
+/// The goal's sheet as presented: the navigation generation it belongs to.
+private struct GoalPresentation: Identifiable {
+    let epoch: Int
+    var id: Int { epoch }
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
