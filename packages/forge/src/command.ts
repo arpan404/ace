@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { findExecutable } from "@ace/provider-kit/discovery";
+import { createKillOnCloseJob, type WindowsJob } from "@ace/provider-kit/process-containment";
 import { ForgeError } from "./errors.ts";
 import { LogTail } from "./tail.ts";
 
@@ -56,6 +58,8 @@ export function createCommandRunner(options: {
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;
+    if (process.platform === "win32")
+      request = { ...request, command: await windowsCommand(request.command, env) };
     request.dispatch?.prepare?.();
     const launch = () =>
       spawn(request.command, [...request.args], {
@@ -70,10 +74,17 @@ export function createCommandRunner(options: {
     } catch {
       throw new ForgeError("cli", undefined, false);
     }
+    let job: WindowsJob | undefined;
+    if (process.platform === "win32" && child.pid !== undefined) {
+      // gh starts git and credential helpers; a job ends that whole tree with gh.
+      job = createKillOnCloseJob();
+      job?.assign(child.pid);
+    }
     let failure: ForgeError | undefined;
     const stop = () => {
       if (child.pid === undefined) return;
       try {
+        if (process.platform === "win32") job?.terminate?.();
         if (process.platform === "win32") child.kill("SIGKILL");
         else process.kill(-child.pid, "SIGKILL");
       } catch {
@@ -138,6 +149,21 @@ export function createCommandRunner(options: {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", abort);
       stop();
+      if (process.platform === "win32") job?.dispose();
     }
   };
+}
+
+/**
+ * Windows: the absolute `.exe` a bare command names on PATH. Node's own search of a bare name
+ * tries the working directory (a checkout, maybe someone else's PR) first, and `.cmd` shims
+ * can't start without a shell.
+ */
+async function windowsCommand(command: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const searched = Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
+  );
+  const found = await findExecutable(command, { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
+  if (found === undefined) throw new ForgeError("cli", undefined, false);
+  return found;
 }

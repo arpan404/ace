@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
+import { findExecutable } from "@ace/provider-kit/discovery";
 
 function executable(path: string): Promise<boolean> {
   return access(path, constants.X_OK).then(
@@ -29,6 +30,7 @@ export async function developerToolsGit(
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
+  if (platform === "win32") return windowsPathGit(env);
   if (platform !== "darwin" || (await firstOnPath(env.PATH)) !== "/usr/bin/git") return undefined;
   const found = await new Promise<string | undefined>((resolve) => {
     execFile(
@@ -41,4 +43,16 @@ export async function developerToolsGit(
   if (!found || !isAbsolute(found) || found.includes("\n") || found === "/usr/bin/git")
     return undefined;
   return (await executable(found)) ? found : undefined;
+}
+
+/**
+ * Windows: the absolute `git.exe` on PATH. Node's search for a bare `git` tries the working
+ * directory (a checkout, maybe someone else's PR) before PATH; `.cmd` shims can't start without
+ * a shell.
+ */
+function windowsPathGit(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const searched = Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
+  );
+  return findExecutable("git", { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
 }
