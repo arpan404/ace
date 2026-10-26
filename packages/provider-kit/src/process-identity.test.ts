@@ -5,7 +5,7 @@ import {
   filetimeToStart,
   readWindowsProcessIdentity,
   type WindowsProcessIdentityApi,
-} from "./windows-process-identity.ts";
+} from "./process-identity.ts";
 
 const ownerSid = "S-1-5-21-123-456-789-1001";
 const sidPointer = 0x1_000n;
@@ -165,52 +165,18 @@ test.each([null, undefined, 0, 0n] as const)(
   },
 );
 
-test("a failed creation-time read throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ creation: "fail" });
+test.each([
+  ["creation-time read", { creation: "fail" }, { process: true, token: false }],
+  ["token open", { tokenOpen: "fail" }, { process: true, token: false }],
+  ["NULL token handle", { tokenOut: 0n }, { process: true, token: false }],
+  ["token query", { tokenInfo: "fail-second" }, { process: true, token: true }],
+  ["SID conversion", { sidConvert: "fail" }, { process: true, token: true }],
+] as const)("a failed %s throws and still closes what it opened", (_, options, closed) => {
+  const { api, flags } = fakeApi(options);
   expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
     "Kernel process identity unavailable",
   );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a failed token open throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ tokenOpen: "fail" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a NULL token handle as 0n throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ tokenOut: 0n });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-});
-
-test("a failed token query throws and still closes both handles", () => {
-  const { api, flags } = fakeApi({ tokenInfo: "fail-second" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a failed SID conversion throws and still closes both handles", () => {
-  const { api, flags } = fakeApi({ sidConvert: "fail" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
+  expect({ process: flags.closedProcess, token: flags.closedToken }).toEqual(closed);
   expect(flags.freedSid).toBe(false);
 });
 

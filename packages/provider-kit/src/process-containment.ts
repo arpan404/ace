@@ -3,28 +3,29 @@ import type koffiModule from "koffi";
 import { z } from "zod";
 
 /**
- * Kernel containment for one supervised tree. The OS kills every member when
- * the daemon's last job handle closes, including after a hard kill or crash
- * where no userspace hook can run. Assignment is best-effort: a process that
- * cannot join stays under the taskkill tree stop.
+ * Kernel containment for one supervised tree where process groups do not exist: a Windows Job
+ * Object. (POSIX trees are owned through their process group in `process-owner.ts`.) The OS kills
+ * every member when the daemon's last job handle closes, including after a hard kill or crash
+ * where no userspace hook can run. Assignment is best-effort: a process that cannot join stays
+ * under the taskkill tree stop. kernel32 loads only when a job is created, never on import.
  */
-export type WindowsJob = {
+export type ProcessJob = {
   /** A failing join never throws; the tree stop remains the owner. */
   assign(pid: number): void;
   dispose(): void;
 };
-export type WindowsJobFactory = () => WindowsJob | undefined;
+export type ProcessJobFactory = () => ProcessJob | undefined;
 
 /** Raw Win32 surface behind the job. Tests inject a fake; production uses koffi. */
-export type WindowsJobApi = {
+export type JobObjectApi = {
   create: () => unknown;
   setKillOnClose: (job: unknown) => boolean;
   openProcess: (pid: number) => unknown;
   assignProcess: (job: unknown, target: unknown) => boolean;
   close: (handle: unknown) => void;
   unload: () => void;
-  activeCount?: (job: unknown) => number;
-  terminate?: (job: unknown) => void;
+  activeCount: (job: unknown) => number;
+  terminate: (job: unknown) => void;
 };
 
 const killOnJobClose = 0x2000;
@@ -39,7 +40,7 @@ const integer = z.number().int();
  * The complete SDK layout is 144 bytes on x64/ARM64, 112 bytes on x86/32-bit ARM.
  * https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information
  */
-export function killOnCloseInfo(): Buffer {
+function killOnCloseInfo(): Buffer {
   const info = Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
   info.writeUInt32LE(killOnJobClose, 16);
   return info;
@@ -51,7 +52,7 @@ export function killOnCloseInfo(): Buffer {
  * process reaches this through `process.ts`) still build; there a failing load leaves the
  * taskkill tree stop in charge.
  */
-export function loadWindowsJobApi(): WindowsJobApi {
+export function loadJobObjectApi(): JobObjectApi {
   const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
   const library = koffi.load("kernel32.dll");
   try {
@@ -114,7 +115,7 @@ export function loadWindowsJobApi(): WindowsJobApi {
 }
 
 /** Retains the kernel job independently of its original shell's lifetime. */
-export interface RetainedWindowsJob {
+export interface RetainedJob {
   assign(pid: number): void;
   activeCount(): number;
   terminate(): void;
@@ -126,9 +127,7 @@ function nullHandle(value: unknown): boolean {
 }
 
 /** Required containment. Setup, assignment and inspection failures stay visible. */
-export function createRetainedWindowsJob(
-  load: () => WindowsJobApi = loadWindowsJobApi,
-): RetainedWindowsJob {
+export function createRetainedJob(load: () => JobObjectApi = loadJobObjectApi): RetainedJob {
   const api = load();
   let handle: unknown;
   try {
@@ -184,12 +183,10 @@ export function createRetainedWindowsJob(
     },
     activeCount() {
       requireOpen();
-      if (!api.activeCount) throw new Error("Windows job inspection is unavailable");
       return z.number().int().nonnegative().parse(api.activeCount(handle));
     },
     terminate() {
       requireOpen();
-      if (!api.terminate) throw new Error("Windows job termination is unavailable");
       api.terminate(handle);
     },
     dispose() {
@@ -212,10 +209,10 @@ export function createRetainedWindowsJob(
 
 /** Optional containment for existing supervised processes using tree-stop fallback. */
 export function createKillOnCloseJob(
-  load: () => WindowsJobApi = loadWindowsJobApi,
-): WindowsJob | undefined {
+  load: () => JobObjectApi = loadJobObjectApi,
+): ProcessJob | undefined {
   try {
-    const job = createRetainedWindowsJob(load);
+    const job = createRetainedJob(load);
     return {
       assign(pid) {
         try {

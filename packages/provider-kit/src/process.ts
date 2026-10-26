@@ -9,10 +9,8 @@ import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { toWindowsCommand } from "./windows-command.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { registerGroup, unregisterGroup } from "./process-owner.ts";
+import { ownedTree, type TreePorts } from "./process-tree.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 export {
   stopOwnedGroups,
@@ -47,7 +45,7 @@ export type SupervisedProcess = {
   signal: AbortSignal;
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
-export type SpawnOptions = {
+export type SpawnOptions = TreePorts & {
   /** Durable resource ownership brackets the native spawn, including the crash gap. */
   lease?: ProcessLease;
   outputFlow?: OutputFlow;
@@ -60,12 +58,6 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
   /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
-  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
-  platform?: NodeJS.Platform;
-  /** Whole-tree stop used on Windows instead of process-group signals. */
-  windowsKillTree?: WindowsKillTree;
-  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
-  windowsJobFactory?: WindowsJobFactory;
   /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
   onStdoutLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
@@ -91,41 +83,24 @@ function elide(input: Readable, limits: ElisionLimits): Readable {
   return input.pipe(elider);
 }
 
-/** Own a POSIX process group, including grandchildren that keep its pipes open. */
+/** Own the child's whole tree, including grandchildren that keep its pipes open. */
 function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): RawSupervisedProcess {
-  // No process groups exist on Windows; stop the whole tree with taskkill instead.
-  const windows = (options.platform ?? process.platform) === "win32";
-  const killTree = options.windowsKillTree ?? killWindowsTree;
-  const terminate = (pid: number) => {
-    if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
-  };
-  const destroy = (pid: number) => {
-    if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
-  };
-  const stopRetained = (pid: number, graceMs: number) =>
-    windows ? stopRetainedWindowsTree(pid, graceMs, killTree) : stopRetainedGroup(pid, graceMs);
+  const tree = ownedTree(options.command, options.args ?? [], options);
+  const { terminate, destroy } = tree;
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
       : byteLimit(options.maxOutputBytes, "maxOutputBytes");
   options.lease?.preparing();
-  const target = windows
-    ? toWindowsCommand(options.command, options.args ?? [])
-    : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
-  const child = spawn(target.command, target.args, {
+  const child = spawn(tree.command, tree.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
-    ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
-    windowsVerbatimArguments: target.verbatim,
+    ...tree.spawnOptions,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
   const pid = child.pid;
-  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
-  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
-  if (pid !== undefined) job?.assign(pid);
+  const job = tree.contain(pid);
   let outputBytes = 0;
   let outputLimited = false;
   const admit = (bytes: number) => {
@@ -227,14 +202,8 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
         if (!retainedStop) {
           stopped = true;
           killAt = performance.now() + graceMs;
-          // A retained Windows tree has no group owner to release it; the stop
-          // completion releases ownership and its job handle, like the POSIX path.
-          const stopping = windows
-            ? stopRetained(pid, graceMs).finally(() => {
-                unregisterGroup(pid);
-                job?.dispose();
-              })
-            : stopRetained(pid, graceMs);
+          // The stop releases ownership; the job handle goes with it.
+          const stopping = tree.stopRetained(pid, graceMs).finally(() => job?.dispose());
           retainedStop = stopping.then(() => exited);
           void stopping.finally(() => clearTimeout(retainedKill));
         } else if (shortens(graceMs)) {

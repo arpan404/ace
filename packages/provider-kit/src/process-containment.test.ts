@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 import {
   createKillOnCloseJob,
-  createRetainedWindowsJob,
-  type WindowsJobApi,
-} from "./windows-job.ts";
+  createRetainedJob,
+  type JobObjectApi,
+} from "./process-containment.ts";
 
 function fixture(
   options: { arm?: boolean; join?: boolean; handle?: unknown; closeFails?: boolean } = {},
@@ -19,7 +19,7 @@ function fixture(
     members: 0,
     failClose: options.closeFails ?? false,
   };
-  const api: WindowsJobApi = {
+  const api: JobObjectApi = {
     create() {
       const handle = Object.hasOwn(options, "handle") ? options.handle : jobHandle;
       state.held = handle === jobHandle;
@@ -61,7 +61,7 @@ function fixture(
 
 test("a retained job owns descendants until termination even after its leader leaves", () => {
   const { api, state } = fixture();
-  const job = createRetainedWindowsJob(() => api);
+  const job = createRetainedJob(() => api);
   job.assign(4242);
   state.members = 2;
   state.members--; // The leader exits; one descendant remains.
@@ -76,7 +76,7 @@ test("a retained job owns descendants until termination even after its leader le
 
 test("a denied assignment is visible and releases the process handle", () => {
   const { api, state } = fixture({ join: false });
-  const job = createRetainedWindowsJob(() => api);
+  const job = createRetainedJob(() => api);
   expect(() => job.assign(4242)).toThrow("assignment failed");
   expect(state.processHeld).toBe(false);
   expect(job.activeCount()).toBe(0);
@@ -85,21 +85,21 @@ test("a denied assignment is visible and releases the process handle", () => {
 
 test("failed job setup closes the created handle and unloads the library", () => {
   const { api, state } = fixture({ arm: false });
-  expect(() => createRetainedWindowsJob(() => api)).toThrow("setup failed");
+  expect(() => createRetainedJob(() => api)).toThrow("setup failed");
   expect(state.held).toBe(false);
   expect(state.loaded).toBe(false);
 });
 
 test.each([null, undefined, 0, 0n])("a null job cannot masquerade as containment: %s", (handle) => {
   const { api, state } = fixture({ handle });
-  expect(() => createRetainedWindowsJob(() => api)).toThrow("creation failed");
+  expect(() => createRetainedJob(() => api)).toThrow("creation failed");
   expect(state.held).toBe(false);
   expect(state.loaded).toBe(false);
 });
 
 test("a failed close keeps ownership available for a later shutdown retry", () => {
   const { api, state } = fixture({ closeFails: true });
-  const job = createRetainedWindowsJob(() => api);
+  const job = createRetainedJob(() => api);
   job.assign(4242);
   expect(() => job.dispose()).toThrow("close denied");
   expect(state.held).toBe(true);
@@ -127,7 +127,7 @@ test("optional containment keeps the existing tree fallback on setup and join fa
 
 test("a failed library unload retries without reopening or double-closing the job", () => {
   const { api, state } = fixture();
-  const job = createRetainedWindowsJob(() => api);
+  const job = createRetainedJob(() => api);
   state.failUnload = true;
   expect(() => job.dispose()).toThrow("unload denied");
   expect(state.held).toBe(false);
@@ -140,7 +140,7 @@ test("a failed library unload retries without reopening or double-closing the jo
 
 test("assignment and cleanup failures remain visible and retained handles can retry", () => {
   const { api, state } = fixture({ join: false });
-  const job = createRetainedWindowsJob(() => api);
+  const job = createRetainedJob(() => api);
   state.failProcessClose = true;
   let failure: unknown;
   try {

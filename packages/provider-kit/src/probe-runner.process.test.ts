@@ -22,7 +22,7 @@ function windows() {
     spawnRawSupervised({
       ...options,
       platform: "win32",
-      windowsKillTree(pid, force) {
+      killTree(pid, force) {
         kills.push({ pid, force });
         try {
           process.kill(pid, force ? "SIGKILL" : "SIGTERM");
@@ -30,7 +30,7 @@ function windows() {
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
         }
       },
-      windowsJobFactory: () => ({
+      jobFactory: () => ({
         assign: (pid) => assigned.push(pid),
         dispose: () => disposed++,
       }),

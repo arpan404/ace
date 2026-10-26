@@ -1,6 +1,11 @@
+import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import { killWindowsTree } from "./windows-tree.ts";
+
+/** Whole-tree stop where process groups do not exist (Windows); `force` ends it outright. */
+export type KillTree = (pid: number, force: boolean) => void;
+/** Tests inject a platform and tree stop; production reads the host. */
+export type GroupPorts = { platform?: NodeJS.Platform; killTree?: KillTree };
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -16,10 +21,25 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
   return () => journals.delete(journal);
 }
 
-export function killGroup(pid: number, signal: NodeJS.Signals): void {
-  if (process.platform === "win32") {
-    // No process groups exist; reap the tree like every other Windows stop.
-    killWindowsTree(pid, true);
+/** taskkill /T stops the tree the way a process-group signal would; /F forces it. No shell. */
+function taskkillTree(pid: number, force: boolean): void {
+  try {
+    const killer = spawn("taskkill", ["/pid", String(pid), "/T", ...(force ? ["/F"] : [])], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.once("error", () => {});
+    killer.unref();
+  } catch {
+    /* Exit polling still reaps a survivor; the next stop escalates. */
+  }
+}
+
+export function killGroup(pid: number, signal: NodeJS.Signals, ports: GroupPorts = {}): void {
+  const platform = ports.platform ?? process.platform;
+  if (platform === "win32") {
+    // No process groups exist; SIGKILL forces the tree, anything else asks it to close.
+    (ports.killTree ?? taskkillTree)(pid, signal === "SIGKILL");
     return;
   }
   try {
@@ -27,24 +47,33 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     // Darwin can report EPERM for groups containing only zombies before reaping.
-    if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
+    if (code !== "ESRCH" && !(platform === "darwin" && code === "EPERM")) throw error;
+  }
+}
+function groupGone(pid: number, platform: NodeJS.Platform): boolean {
+  try {
+    // Windows has no group to probe; the tree is tracked through its leader.
+    process.kill(platform === "win32" ? pid : -pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH" || (platform === "darwin" && code === "EPERM")) return true;
+    throw error;
   }
 }
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
-export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
-  killGroup(pid, "SIGTERM");
+export async function stopRetainedGroup(
+  pid: number,
+  graceMs: number,
+  ports: GroupPorts = {},
+): Promise<void> {
+  const platform = ports.platform ?? process.platform;
+  killGroup(pid, "SIGTERM", ports);
   const deadline = performance.now() + graceMs;
-  while (true) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
-      throw error;
-    }
+  while (!groupGone(pid, platform)) {
     const remaining = deadline - performance.now();
     if (remaining <= 0) {
-      killGroup(pid, "SIGKILL");
+      killGroup(pid, "SIGKILL", ports);
       break;
     }
     await delay(Math.min(25, remaining));
