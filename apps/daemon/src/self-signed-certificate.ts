@@ -14,6 +14,7 @@ export function selfSignedCertificate(input: { commonName: string; days: number;
   // A positive serial with no leading zero byte, as RFC 5280 asks.
   serial[0] = ((serial[0] ?? 0) & 0x7f) | 0x40;
   const subject = name(input.commonName);
+  const sha256WithRsa = der(0x30, oid("1.2.840.113549.1.1.11"), der(0x05));
   const tbs = der(
     0x30,
     der(0xa0, der(0x02, Buffer.from([2]))),
@@ -57,8 +58,6 @@ function oid(dotted: string): Buffer {
   }
   return der(0x06, Buffer.from(bytes));
 }
-
-const sha256WithRsa = der(0x30, oid("1.2.840.113549.1.1.11"), der(0x05));
 
 /** `CN=<commonName>` as a UTF8String. */
 function name(commonName: string): Buffer {

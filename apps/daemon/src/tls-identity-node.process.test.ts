@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { createServer } from "node:https";
 import { expect, it, onTestFinished } from "vitest";
 import { pinnedAgent } from "./client-access.ts";
+import { readConfig } from "./config.ts";
+import { remoteListener, systemNetwork } from "./network.ts";
 import { loadIdentity } from "./tls-identity.ts";
 
 function fetchStatus(port: number, fingerprint: string): Promise<number> {
@@ -26,12 +28,18 @@ it.runIf(process.platform === "win32")(
     const path = process.env.PATH;
     // No OpenSSL to find: the runner's Git ships one, and Windows itself doesn't.
     process.env.PATH = "";
-    let identity;
+    let listener;
     try {
-      identity = loadIdentity(home);
+      // Starting LAN access with the real identity loader makes the identity first.
+      listener = await remoteListener(
+        readConfig({ ACE_HOME: home, ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" }, home),
+        { ...systemNetwork, identity: loadIdentity },
+      );
     } finally {
       process.env.PATH = path;
     }
+    if (!listener) throw new Error("LAN listener missing");
+    const { identity } = listener;
     const certificate = new X509Certificate(identity.cert);
     expect(certificate.subject).toBe("CN=ace");
     expect(certificate.verify(certificate.publicKey)).toBe(true);

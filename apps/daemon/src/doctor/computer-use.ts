@@ -29,7 +29,7 @@ export function computerUseFeature(ports: ComputerUsePorts = computerUsePorts): 
   return {
     id: "computer",
     checks(context) {
-      if (context.platform === "win32") return [windowsGrantsCheck];
+      if (context.platform === "win32") return [windowsGrantsCheck()];
       if (context.platform !== "darwin") return [];
       let facts: Promise<ScreenFacts | undefined> | undefined;
       const load = () => (facts ??= ports.screen(context));
@@ -119,15 +119,17 @@ function tilde(path: string, context: DoctorContext): string {
 }
 
 /** Windows has no per-app screen or input grant; integrity levels are the only limit. */
-const windowsGrantsCheck: Check = {
-  id: "computer.grants",
-  fix: "Nothing to do.",
-  async run() {
-    return {
-      status: "ok",
-      message:
-        "Windows needs no Accessibility or Screen Recording grant for computer use; apps running as administrator stay out of reach",
-      fix: "Nothing to do.",
-    };
-  },
-};
+function windowsGrantsCheck(): Check {
+  return {
+    id: "computer.grants",
+    fix: "Nothing to do.",
+    async run() {
+      return {
+        status: "ok",
+        message:
+          "Windows needs no Accessibility or Screen Recording grant for computer use; apps running as administrator stay out of reach",
+        fix: "Nothing to do.",
+      };
+    },
+  };
+}

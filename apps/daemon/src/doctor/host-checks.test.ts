@@ -1,17 +1,12 @@
 import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
 import { localDoctorChecks, repairDoctor } from "../doctor-repairs.ts";
 import { doctorFeatures } from "./features.ts";
 import { cliOrigin } from "./install-versions.ts";
 import { doctorTestContext } from "./test-support.ts";
 
 const windows = process.platform === "win32";
-const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
-});
-const signal = new AbortController().signal;
 
 it.runIf(windows)(
   "on Windows, every doctor feature check finishes with ace stopped, and none fails",
@@ -20,7 +15,8 @@ it.runIf(windows)(
       env: { ...process.env },
       platform: "win32",
     });
-    cleanups.push(cleanup);
+    onTestFinished(cleanup);
+    const { signal } = new AbortController();
     const results: { id: string; status: string; message: string }[] = [];
     for (const feature of doctorFeatures)
       for (const check of feature.checks(context)) {
@@ -41,7 +37,8 @@ it.runIf(windows)(
   "on Windows, doctor --fix recreates a missing logs folder and then reads both folders as fine",
   async () => {
     const { dataDir, cleanup } = await doctorTestContext();
-    cleanups.push(cleanup);
+    onTestFinished(cleanup);
+    const { signal } = new AbortController();
     await rm(join(dataDir, "logs"), { recursive: true, force: true });
     const before = await Promise.all(
       localDoctorChecks(dataDir, undefined).map((check) => check.run(signal)),
