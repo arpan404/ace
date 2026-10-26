@@ -1,28 +1,18 @@
 import { z } from "zod";
 import type { DeviceChrome, DeviceChromeButton, DeviceChromeRect } from "@ace/protocol/devices";
 import { pdfArt, svgDocument, type SvgArt } from "./pdf-svg.ts";
+import { bodyLayout, svgBody, type BodyPainter, type BodyPiece } from "./simulator-body.ts";
+import type { SimulatorPanel } from "./simulator-panels.ts";
 
 /*
- * A Simulator's look from Apple's own files for its device type: the profile (screen size and
- * scale, the screen-shape PDF, the notch PDF, which chrome it wears) and that chrome's
- * description (nine body pieces, their stretch sizes, the buttons and where they sit). Pure:
- * the parsed files and a reader for the PDFs they name come in; the wire shape comes out.
+ * A Simulator's look from Apple's own files for one of its screens: the screen (its size, the
+ * screen-shape PDF, the notch PDF, which chrome it wears) and that chrome's description (nine
+ * body pieces, their stretch sizes, the buttons and where they sit). Pure: the parsed files and
+ * a reader for the PDFs they name come in; the wire shape comes out.
  */
 
-const size = z.number().finite().positive().max(100_000);
 const offset = z.number().finite().min(-100_000).max(100_000);
 const name = z.string().min(1).max(256);
-
-/** The fields of a device type's profile.plist ace uses; every other one is ignored. */
-export const SimulatorProfile = z.object({
-  mainScreenWidth: size,
-  mainScreenHeight: size,
-  mainScreenScale: size,
-  framebufferMask: name.optional().catch(undefined),
-  sensorBarImage: name.optional().catch(undefined),
-  chromeIdentifier: name.optional().catch(undefined),
-});
-export type SimulatorProfile = z.infer<typeof SimulatorProfile>;
 
 const ChromeInput = z.object({
   name: z.string().min(1).max(64),
@@ -46,7 +36,7 @@ const pieces = [
   "bottomLeft",
   "left",
 ] as const;
-type Piece = (typeof pieces)[number];
+type Piece = BodyPiece;
 
 /** The fields of a chrome bundle's chrome.json ace uses. A button it can't read is left out. */
 export const SimulatorChromeFile = z.object({
@@ -84,90 +74,15 @@ export const SimulatorChromeFile = z.object({
 });
 export type SimulatorChromeFile = z.infer<typeof SimulatorChromeFile>;
 
-/** Reads a PDF named by the profile (from the device type) or the chrome (from its bundle). */
+/** Reads a PDF named by the device type (a mask, a notch) or the chrome (from its bundle). */
 export type ArtReader = (
   from: "profile" | "chrome",
   name: string,
 ) => Promise<Uint8Array | undefined>;
 
-const round = (value: number) => Math.round(value * 1000) / 1000;
 const svgUrl = (svg: string) =>
   `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
 const artUrl = (art: SvgArt) => svgUrl(svgDocument(art));
-
-/** One body piece placed in the body, stretched to `rect` (edges stretch, corners don't). */
-function placed(art: SvgArt, rect: DeviceChromeRect): string {
-  return `<svg x="${round(rect.x)}" y="${round(rect.y)}" width="${round(rect.width)}" height="${round(rect.height)}" viewBox="0 0 ${round(art.width)} ${round(art.height)}" preserveAspectRatio="none" overflow="hidden">${art.svg}</svg>`;
-}
-
-/**
- * The body drawn from its nine pieces around a screen of `screen` points: the corners at their
- * own size, the edges stretched between them, as Simulator lays them out.
- */
-function bodyArt(
-  art: Record<Piece, SvgArt> & { middle?: SvgArt | undefined },
-  width: number,
-  height: number,
-): string {
-  const { topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left, middle } = art;
-  const parts = [
-    ...(middle
-      ? [
-          placed(middle, {
-            x: left.width,
-            y: top.height,
-            width: Math.max(0.001, width - left.width - right.width),
-            height: Math.max(0.001, height - top.height - bottom.height),
-          }),
-        ]
-      : []),
-    // Edges tuck one unit under the corners drawn over them, so no seam shows where they meet.
-    placed(top, {
-      x: topLeft.width - 1,
-      y: 0,
-      width: Math.max(0.001, width - topLeft.width - topRight.width + 2),
-      height: top.height,
-    }),
-    placed(bottom, {
-      x: bottomLeft.width - 1,
-      y: height - bottom.height,
-      width: Math.max(0.001, width - bottomLeft.width - bottomRight.width + 2),
-      height: bottom.height,
-    }),
-    placed(left, {
-      x: 0,
-      y: topLeft.height - 1,
-      width: left.width,
-      height: Math.max(0.001, height - topLeft.height - bottomLeft.height + 2),
-    }),
-    placed(right, {
-      x: width - right.width,
-      y: topRight.height - 1,
-      width: right.width,
-      height: Math.max(0.001, height - topRight.height - bottomRight.height + 2),
-    }),
-    placed(topLeft, { x: 0, y: 0, width: topLeft.width, height: topLeft.height }),
-    placed(topRight, {
-      x: width - topRight.width,
-      y: 0,
-      width: topRight.width,
-      height: topRight.height,
-    }),
-    placed(bottomLeft, {
-      x: 0,
-      y: height - bottomLeft.height,
-      width: bottomLeft.width,
-      height: bottomLeft.height,
-    }),
-    placed(bottomRight, {
-      x: width - bottomRight.width,
-      y: height - bottomRight.height,
-      width: bottomRight.width,
-      height: bottomRight.height,
-    }),
-  ];
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${round(width)} ${round(height)}" width="${round(width)}" height="${round(height)}">${parts.join("")}</svg>`;
-}
 
 /**
  * Where a button sits on a body of `width` × `height`. Its anchor is the edge it stands on and
@@ -204,6 +119,23 @@ export function buttonRect(
   }
 }
 
+/**
+ * A side button's art lying along the edge it stands on. Some chromes (an iPhone Duo's inner
+ * panel) draw their buttons for the body turned a quarter, so a rocker anchored to the left
+ * edge comes long side across; turned back, it lies along the edge as the hardware does.
+ */
+export function alongEdge(art: SvgArt, input: Pick<ChromeInput, "anchor" | "onTop">): SvgArt {
+  if (input.onTop) return art;
+  const upright = input.anchor === "left" || input.anchor === "right";
+  const across = upright ? art.width > art.height * 1.5 : art.height > art.width * 1.5;
+  if (!across) return art;
+  return {
+    width: art.height,
+    height: art.width,
+    svg: `<g transform="translate(${art.height} 0) rotate(90)">${art.svg}</g>`,
+  };
+}
+
 async function readArt(read: ArtReader, from: "profile" | "chrome", file: string, prefix: string) {
   const bytes = await read(from, file);
   return bytes ? pdfArt(bytes, prefix) : undefined;
@@ -213,6 +145,11 @@ interface Frame {
   body: { width: number; height: number };
   /** Where the screen's top left corner sits in the body. */
   origin: { x: number; y: number };
+  /**
+   * The screen's size in body units, when the body was drawn for a screen of the same shape
+   * but another size; absent, the screen's own size in points.
+   */
+  screen?: { width: number; height: number };
   image: string;
 }
 
@@ -222,10 +159,16 @@ interface Frame {
  */
 const compositeSlack = 4;
 
+/** How far a composite's screen opening may differ in shape from the screen's, as a share. */
+const shapeSlack = 0.01;
+
 /**
- * The body as the chrome's single composite drawing, when it was made for a screen this size:
- * seamless, as Simulator shows it. The screen sits where the stretch sizes put it, scaled to the
- * composite's own margins.
+ * The body as the chrome's single composite drawing, seamless, as Simulator shows it: when it
+ * was made for a screen this size, the screen sits where the stretch sizes put it, scaled to
+ * the composite's own margins. A composite made for a screen of the same shape but another size
+ * (an iPhone Duo's inner panel wears one) is used whole, its opening standing for the screen:
+ * only proportions matter. Newer chromes ship nothing else worth drawing, their nine pieces
+ * being blank placeholders.
  */
 async function compositeFrame(
   chrome: SimulatorChromeFile,
@@ -244,8 +187,18 @@ async function compositeFrame(
     spare.y <= 0 ||
     Math.abs(spare.x - across) > compositeSlack ||
     Math.abs(spare.y - down) > compositeSlack
-  )
-    return undefined;
+  ) {
+    const opening = { width: art.width - across, height: art.height - down };
+    if (opening.width <= 0 || opening.height <= 0) return undefined;
+    const shape = screen.width / screen.height;
+    if (Math.abs(opening.width / opening.height - shape) > shape * shapeSlack) return undefined;
+    return {
+      body: { width: art.width, height: art.height },
+      origin: { x: sizing.leftWidth, y: sizing.topHeight },
+      screen: opening,
+      image: artUrl(art),
+    };
+  }
   return {
     body: { width: art.width, height: art.height },
     origin: {
@@ -261,6 +214,7 @@ async function slicedFrame(
   chrome: SimulatorChromeFile,
   screen: { width: number; height: number },
   read: ArtReader,
+  paint: BodyPainter,
 ): Promise<Frame | undefined> {
   const { sizing } = chrome.images;
   const body = {
@@ -289,33 +243,34 @@ async function slicedFrame(
   if (!topLeft || !top || !topRight || !right || !bottomRight || !bottom || !bottomLeft || !left)
     return undefined;
   const parts = { topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left, middle };
-  return {
-    body,
-    origin: { x: sizing.leftWidth, y: sizing.topHeight },
-    image: svgUrl(bodyArt(parts, body.width, body.height)),
-  };
+  const image = await paint(body, bodyLayout(parts, body.width, body.height));
+  if (!image) return undefined;
+  return { body, origin: { x: sizing.leftWidth, y: sizing.topHeight }, image };
 }
 
 /**
- * A Simulator's look, or undefined when its chrome can't be drawn (a piece missing or
- * unreadable). The screen mask and notch are added when the profile has them.
+ * A Simulator's look around one of its screens, or undefined when its chrome can't be drawn (a
+ * piece missing or unreadable). The screen mask and notch are added when the screen has them.
  */
 export async function simulatorChrome(
-  profile: SimulatorProfile,
+  panel: SimulatorPanel,
   chrome: SimulatorChromeFile,
   read: ArtReader,
+  /** How a body built from pieces is painted; SVG unless the caller can paint better. */
+  paint: BodyPainter = svgBody,
 ): Promise<DeviceChrome | undefined> {
-  const screen = {
-    width: profile.mainScreenWidth / profile.mainScreenScale,
-    height: profile.mainScreenHeight / profile.mainScreenScale,
-  };
+  const screen = { width: panel.width, height: panel.height };
   const frame =
-    (await compositeFrame(chrome, screen, read)) ?? (await slicedFrame(chrome, screen, read));
+    (await compositeFrame(chrome, screen, read)) ??
+    (await slicedFrame(chrome, screen, read, paint));
   if (!frame) return undefined;
   const { body, origin } = frame;
+  // Body units per point of the screen: 1, unless the body was drawn for a bigger or smaller one.
+  const shown = frame.screen ?? screen;
+  const unit = shown.width / screen.width;
   const [mask, sensorBar, buttons] = await Promise.all([
-    profile.framebufferMask ? readArt(read, "profile", profile.framebufferMask, "m") : undefined,
-    profile.sensorBarImage ? readArt(read, "profile", profile.sensorBarImage, "s") : undefined,
+    panel.framebufferMask ? readArt(read, "profile", panel.framebufferMask, "m") : undefined,
+    panel.sensorBarImage ? readArt(read, "profile", panel.sensorBarImage, "s") : undefined,
     Promise.all(
       chrome.inputs.map(async (input): Promise<DeviceChromeButton | undefined> => {
         const [image, pressed] = await Promise.all([
@@ -323,12 +278,13 @@ export async function simulatorChrome(
           input.imageDown ? readArt(read, "chrome", input.imageDown, "d") : undefined,
         ]);
         if (!image) return undefined;
+        const art = alongEdge(image, input);
         return {
           name: input.name,
           ...(input.accessibilityTitle ? { title: input.accessibilityTitle } : {}),
-          rect: buttonRect(input, image, body),
-          image: artUrl(image),
-          ...(pressed ? { pressed: artUrl(pressed) } : {}),
+          rect: buttonRect(input, art, body),
+          image: artUrl(art),
+          ...(pressed ? { pressed: artUrl(alongEdge(pressed, input)) } : {}),
           onTop: input.onTop ?? false,
         };
       }),
@@ -336,16 +292,16 @@ export async function simulatorChrome(
   ]);
   return {
     body: { ...body, image: frame.image },
-    screen: { ...origin, ...screen },
+    screen: { ...origin, ...shown },
     ...(mask ? { mask: artUrl(mask) } : {}),
     ...(sensorBar
       ? {
           cutout: {
             rect: {
-              x: origin.x + (screen.width - sensorBar.width) / 2,
+              x: origin.x + (shown.width - sensorBar.width * unit) / 2,
               y: origin.y,
-              width: sensorBar.width,
-              height: sensorBar.height,
+              width: sensorBar.width * unit,
+              height: sensorBar.height * unit,
             },
             image: artUrl(sensorBar),
           },

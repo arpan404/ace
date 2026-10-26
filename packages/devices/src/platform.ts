@@ -160,9 +160,13 @@ export class DevicePlatform {
    * The device's real hardware look from the SDK on this machine: Xcode's device profile and
    * chrome for a Simulator, the emulator skin for an AVD. Undefined when there is none.
    */
-  async chrome(device: Device, format?: "svg" | "png"): Promise<DeviceChrome | undefined> {
+  async chrome(
+    device: Device,
+    format?: "svg" | "png",
+    posture?: DevicePosture,
+  ): Promise<DeviceChrome | undefined> {
     if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
-    return this.chromes.chrome(device, format);
+    return this.chromes.chrome(device, format, posture);
   }
   /**
    * A foldable device's posture: an iPhone Duo Simulator's or a hinged Android emulator's (a

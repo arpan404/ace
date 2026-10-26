@@ -21,7 +21,11 @@ const black = (width: number, height: number) =>
  * names a chrome, a mask and a notch, and that chrome's nine body pieces and two buttons.
  */
 function install(
-  options: { profile?: Record<string, unknown>; chrome?: Record<string, unknown> } = {},
+  options: {
+    profile?: Record<string, unknown>;
+    chrome?: Record<string, unknown>;
+    capabilities?: Record<string, unknown>;
+  } = {},
 ) {
   const bundle = join(root, "DeviceTypes/Test Phone.simdevicetype");
   const resources = join(bundle, "Contents/Resources");
@@ -39,6 +43,8 @@ function install(
     ...options.profile,
   };
   writeFileSync(join(resources, "profile.json"), JSON.stringify(profile));
+  if (options.capabilities)
+    writeFileSync(join(resources, "capabilities.json"), JSON.stringify(options.capabilities));
   writeFileSync(join(resources, "MASK.pdf"), black(1170, 2532));
   writeFileSync(join(resources, "notch.pdf"), black(176, 34));
   const chromeResources = join(root, "Chrome/testphone.devicechrome/Contents/Resources");
@@ -89,9 +95,9 @@ function source(bundle: string): SimulatorChromeSource {
   return {
     deviceTypes: async () =>
       JSON.stringify({ devicetypes: [{ identifier: deviceType, bundlePath: bundle, name: "x" }] }),
-    // Stands in for `plutil -convert json`: the profile is already JSON here.
+    // Stands in for `plutil -convert json`: the property lists are already JSON here.
     plistJson: async (path) => {
-      const bytes = await readSmallFile(path.replace(/profile\.plist$/, "profile.json"));
+      const bytes = await readSmallFile(path.replace(/\.plist$/, ".json"));
       if (!bytes) throw new Error("plutil failed");
       return Buffer.from(bytes).toString("utf8");
     },
@@ -159,4 +165,128 @@ test("a profile naming a resource outside its bundle is never read", async () =>
   writeFileSync(join(root, "secret.pdf"), black(10, 10));
   const chrome = await readSimulatorChrome(source(bundle), deviceType);
   expect(chrome?.mask).toBeUndefined();
+});
+
+/** A built-in screen as Xcode 27's capabilities.plist lists it; other displays sit beside it. */
+const integrated = (width: number, height: number, extra: Record<string, unknown> = {}) => ({
+  displayType: "integrated",
+  width,
+  height,
+  scale: 3,
+  ...extra,
+});
+const tvOut = { displayType: "tvOut", width: 720, height: 480, scale: 1 };
+const xcode27Profile = {
+  mainScreenWidth: undefined,
+  mainScreenHeight: undefined,
+  mainScreenScale: undefined,
+};
+
+test("on Xcode 27, whose profile no longer sizes the screen, the look comes from the listed screen", async () => {
+  const bundle = install({
+    profile: xcode27Profile,
+    capabilities: { capabilities: { displays: [integrated(1170, 2532), tvOut] } },
+  });
+
+  const chrome = await readSimulatorChrome(source(bundle), deviceType);
+
+  expect(chrome?.screen).toEqual({ x: 22, y: 22, width: 390, height: 844 });
+  expect(chrome?.mask).toBeDefined();
+  expect(chrome?.cutout?.rect).toEqual({ x: 129, y: 22, width: 176, height: 34 });
+});
+
+test("a foldable wears its cover's chrome while shut and its inner screen's chrome once open", async () => {
+  const bundle = install({
+    profile: xcode27Profile,
+    capabilities: {
+      capabilities: {
+        displays: [
+          integrated(1398, 2034, { chromeIdentifier: "com.apple.dt.devicekit.chrome.testphone" }),
+          integrated(2007, 2853, {
+            chromeIdentifier: "com.apple.dt.devicekit.chrome.inner",
+            framebufferMaskIdentifier: "INNER",
+          }),
+          tvOut,
+        ],
+      },
+    },
+  });
+  const inner = join(root, "Chrome/inner.devicechrome/Contents/Resources");
+  mkdirSync(inner, { recursive: true });
+  for (const name of ["TL", "T", "TR", "R", "BR", "B", "BL", "L"])
+    writeFileSync(join(inner, `${name}.pdf`), black(16, 64));
+  writeFileSync(
+    join(inner, "chrome.json"),
+    JSON.stringify({
+      identifier: "com.apple.dt.devicekit.chrome.inner",
+      images: {
+        topLeft: "TL",
+        top: "T",
+        topRight: "TR",
+        right: "R",
+        bottomRight: "BR",
+        bottom: "B",
+        bottomLeft: "BL",
+        left: "L",
+        sizing: { leftWidth: 17, rightWidth: 17, topHeight: 17, bottomHeight: 17 },
+      },
+    }),
+  );
+  writeFileSync(join(bundle, "Contents/Resources/INNER.pdf"), black(669, 951));
+
+  const shut = await readSimulatorChrome(source(bundle), deviceType, "closed");
+  const open = await readSimulatorChrome(source(bundle), deviceType, "open");
+  const halfOpen = await readSimulatorChrome(source(bundle), deviceType, "partiallyOpen");
+
+  expect(shut?.screen).toEqual({ x: 22, y: 22, width: 466, height: 678 });
+  expect(shut?.buttons.map((button) => button.name)).toEqual(["volume-up", "power"]);
+  expect(shut?.cutout).toBeDefined();
+  expect(open?.screen).toEqual({ x: 17, y: 17, width: 669, height: 951 });
+  expect(open?.mask).toBeDefined();
+  // The cover's island isn't on the inner screen.
+  expect(open?.cutout).toBeUndefined();
+  expect(halfOpen?.screen).toEqual(open?.screen);
+});
+
+test("a device type that sizes its screen nowhere has no look", async () => {
+  const bundle = install({
+    profile: xcode27Profile,
+    capabilities: { capabilities: { displays: [tvOut] } },
+  });
+  expect(await readSimulatorChrome(source(bundle), deviceType)).toBeUndefined();
+});
+
+test("a composite drawn for a screen of the same shape but another size is the body, its opening the screen", async () => {
+  const bundle = install();
+  const resources = join(root, "Chrome/testphone.devicechrome/Contents/Resources");
+  // 390 × 844 points shown, but drawn around a 360 × 779 opening with 22-unit margins (the
+  // shape is the same to within a tenth of a percent).
+  writeFileSync(join(resources, "Whole.pdf"), black(404, 823));
+  const file = join(resources, "chrome.json");
+  const json = JSON.parse(Buffer.from((await readSmallFile(file)) ?? []).toString("utf8"));
+  json.images.composite = "Whole";
+  writeFileSync(file, JSON.stringify(json));
+
+  const chrome = await readSimulatorChrome(source(bundle), deviceType);
+
+  expect(chrome?.body).toMatchObject({ width: 404, height: 823 });
+  expect(chrome?.screen).toEqual({ x: 22, y: 22, width: 360, height: 779 });
+  // The notch is drawn to the body's scale, still centred on the screen.
+  const notch = chrome?.cutout?.rect;
+  expect((notch?.x ?? 0) * 2 + (notch?.width ?? 0)).toBeCloseTo(22 * 2 + 360);
+  expect(notch?.width).toBeCloseTo((176 * 360) / 390);
+});
+
+test("a side button drawn across the edge it stands on is turned to lie along it", async () => {
+  const bundle = install();
+  // The volume button on the left edge, drawn 64 wide and 16 tall: for a body turned a quarter.
+  writeFileSync(
+    join(root, "Chrome/testphone.devicechrome/Contents/Resources/Vol.pdf"),
+    black(64, 16),
+  );
+
+  const chrome = await readSimulatorChrome(source(bundle), deviceType);
+
+  const volume = chrome?.buttons.find((button) => button.name === "volume-up");
+  expect(volume?.rect).toEqual({ x: -8, y: 221, width: 16, height: 64 });
 });

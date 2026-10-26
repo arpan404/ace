@@ -2,7 +2,7 @@ import type { DeviceChrome } from "@ace/protocol";
 import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { deviceBrowser, openDevices } from "@/test/device-browser.ts";
+import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
 
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
@@ -48,4 +48,75 @@ test("running tiles wear the real body, and a list of one model asks the daemon 
   // One ask covers both (the fake's own iPhone names no model, so it is asked for itself).
   const sameModel = devices.chromeAsks.filter((id) => !id.startsWith("ios:7d1b"));
   expect(sameModel).toHaveLength(1);
+});
+
+/** A body drawing told apart by its title. */
+const art = (label: string) =>
+  `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg"><title>${label}</title></svg>`)}`;
+
+test("a foldable wears its cover's body while shut and its inner screen's body while open", async () => {
+  const { app, panel } = await openDevices();
+  const devices = app.daemon.appDevices;
+  const duo = "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
+  devices.chromes.set(duo, { ...look, body: { ...look.body, image: art("cover") } });
+  // The fake streams one picture size for every device, so both looks are made for it.
+  devices.chromes.set(`${duo}:open`, { ...look, body: { ...look.body, image: art("inner") } });
+  const shut = "ios:11111111-2222-4333-8444-555555555555";
+  const open = "ios:66666666-7777-4888-9999-aaaaaaaaaaaa";
+  act(() => {
+    for (const [id, name] of [
+      [shut, "iPhone Duo (shut)"],
+      [open, "iPhone Duo (open)"],
+    ] as const)
+      devices.addDevice({
+        id,
+        platform: "ios",
+        name,
+        state: "booted",
+        runtime: "iOS 27.1",
+        model: duo,
+      });
+    devices.folds.set(shut, "closed");
+    devices.folds.set(open, "open");
+  });
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const running = await within(panel).findByRole("list", { name: "Running devices" });
+
+  const body = (name: string) =>
+    within(running)
+      .getByRole("button", { name: new RegExp(`^${name.replace(/[()]/g, "\\$&")}`) })
+      .querySelector("[data-device-chrome] img")
+      ?.getAttribute("src");
+  await waitFor(() => {
+    expect(body("iPhone Duo (shut)")).toBe(art("cover"));
+    expect(body("iPhone Duo (open)")).toBe(art("inner"));
+  });
+});
+
+test("a tablet whose skin is drawn on its side wears that body before its first picture arrives", async () => {
+  // No picture is ever decoded here: the skin's own screen has to stand in for it.
+  browser.restore();
+  browser = deviceBrowser("none");
+  const { app, panel } = await openDevices();
+  const devices = app.daemon.appDevices;
+  const tablet = "android:Pixel_Tablet_API_36";
+  devices.chromes.set(tablet, {
+    body: { width: 2636, height: 1676, image: svg },
+    screen: { x: 38, y: 38, width: 2560, height: 1600 },
+    buttons: [],
+  });
+  act(() =>
+    devices.addDevice({
+      id: tablet,
+      platform: "android",
+      name: "Pixel Tablet",
+      state: "booted",
+      runtime: "Android 16",
+    }),
+  );
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+
+  const view = await openDevice(panel, "Pixel Tablet");
+
+  await waitFor(() => expect(view.querySelector("[data-device-chrome]")).not.toBeNull());
 });
