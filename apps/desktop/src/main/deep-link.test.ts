@@ -64,3 +64,39 @@ describe("ace:// links", () => {
     ]);
   });
 });
+
+describe.runIf(process.platform === "win32")("Windows links never reach another computer", () => {
+  it("refuses an ace://open link to a network share", () => {
+    for (const folder of [
+      "//attacker/share",
+      "\\\\attacker\\share",
+      "\\\\?\\UNC\\attacker\\share",
+      "\\\\.\\pipe\\x",
+    ])
+      expect(parseDeepLink(`ace://open?folder=${encodeURIComponent(folder)}`)).toBeUndefined();
+    expect(parseDeepLink("ace://open?folder=C%3A%5Cwork%5Cace")).toEqual({
+      kind: "open-folder",
+      path: "C:\\work\\ace",
+    });
+  });
+
+  it("never looks at a network folder handed over as an argument", () => {
+    const looked: string[] = [];
+    const isDirectory = (path: string) => {
+      looked.push(path);
+      return true;
+    };
+    const links = linksFromArgv(
+      [
+        "\\\\attacker\\share",
+        "//attacker/share",
+        "file:////attacker/share",
+        "ace://open?folder=%5C%5Cattacker%5Cshare",
+        "C:\\work\\ace",
+      ],
+      isDirectory,
+    );
+    expect(links).toEqual([{ kind: "open-folder", path: "C:\\work\\ace" }]);
+    expect(looked).toEqual(["C:\\work\\ace"]);
+  });
+});
