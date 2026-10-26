@@ -28,49 +28,44 @@ import { z } from "zod";
  * as `context.mentions`, threads and browser tabs as `context.items`. Pure.
  */
 
+const offset = z.number().int().nonnegative().max(1_000_000);
 export const Reference = z.object({
   label: z.string().min(1).max(1024),
+  /** Where the words stand in the message (UTF-16 offsets), kept current as the person edits. */
+  start: offset,
+  end: offset,
   catalog: CatalogMention.optional().catch(undefined),
   file: Mention.optional().catch(undefined),
   thread: ThreadRefContextItem.optional().catch(undefined),
   browserTab: BrowserTabContextItem.optional().catch(undefined),
 });
 export type Reference = z.infer<typeof Reference>;
-/** What a send carries beside its words; a malformed entry is dropped, never fatal. */
+/**
+ * What a send carries beside its words: a malformed entry is dropped and past the per-message
+ * limit the rest are left out, never failing the send.
+ */
 export const References = z
   .array(z.unknown())
-  .max(referenceLimits.all)
-  .transform((raw) => raw.flatMap((value) => Reference.safeParse(value).data ?? []));
-
-/** A reference's words start a word and end one, so `@main.ts` never claims `@main.tsx`. */
-function at(text: string, label: string, from: number): number {
-  for (let index = text.indexOf(label, from); index >= 0; index = text.indexOf(label, index + 1)) {
-    const before = text[index - 1];
-    const after = text[index + label.length];
-    if ((before === undefined || /\s/.test(before)) && (after === undefined || !/\w/.test(after)))
-      return index;
-  }
-  return -1;
-}
+  .max(1024)
+  .transform((raw) =>
+    raw.flatMap((value) => Reference.safeParse(value).data ?? []).slice(0, referenceLimits.all),
+  );
 
 /**
- * Each reference at the first place its words are still written and not claimed by another,
- * in the message's order. One whose words are gone is left out.
+ * The references whose words still stand where they were picked, in the message's order. One
+ * whose words were edited or deleted is left out, so a deleted pick never comes back, and one
+ * overlapping another already kept goes too.
  */
 export function placeReferences(text: string, references: readonly Reference[]): ComposerToken[] {
   const placed: ComposerToken[] = [];
-  const overlaps = (start: number, end: number) =>
-    placed.some((token) => start < token.end && token.start < end);
-  for (const reference of references) {
-    let start = at(text, reference.label, 0);
-    while (start >= 0 && overlaps(start, start + reference.label.length))
-      start = at(text, reference.label, start + 1);
-    if (start < 0) continue;
-    const { label, catalog, file, thread, browserTab } = reference;
+  for (const reference of references.toSorted((a, b) => a.start - b.start)) {
+    const { label, start, end, catalog, file, thread, browserTab } = reference;
+    if (end - start !== label.length || text.slice(start, end) !== label) continue;
     if (!catalog && !file && !thread && !browserTab) continue;
+    if (placed.some((token) => start < token.end && token.start < end)) continue;
     placed.push({
       start,
-      end: start + label.length,
+      end,
       label,
       ...(catalog ? { catalog } : {}),
       ...(file ? { file } : {}),
@@ -78,7 +73,7 @@ export function placeReferences(text: string, references: readonly Reference[]):
       ...(browserTab ? { browserTab } : {}),
     });
   }
-  return placed.toSorted((a, b) => a.start - b.start);
+  return placed;
 }
 
 export interface MessageContent {

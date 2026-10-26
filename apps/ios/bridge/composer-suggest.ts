@@ -40,7 +40,7 @@ export const SuggestAction = z.discriminatedUnion("kind", [
     scope: Scope,
     list: z.enum(["mention", "command", "add"]),
     query: z.string().max(256),
-    seq: count.max(Number.MAX_SAFE_INTEGER),
+    seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     /** The references already in the message, for the per-message limits. */
     held: z.object({ all: count, threads: count, tabs: count }).optional(),
   }),
@@ -221,7 +221,8 @@ export class ComposerSuggest {
       return;
     }
     const target = this.#target(scope);
-    if (!target) return put("loading");
+    // New thread with no agent chosen has no catalog; neither has a thread the phone left.
+    if (!target) return put("empty");
     const show = () => {
       const catalog = this.#catalogs.get(target.key);
       if (!catalog || (catalog.reading && !catalog.entries.length && !catalog.failed))

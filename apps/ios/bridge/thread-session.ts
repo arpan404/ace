@@ -176,6 +176,8 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
+        // `/goal` goes first, as the web's composer checks it: a pending question never takes it.
+        if (this.#goal(action.text, action.references ?? [], action.requestId)) break;
         if (!this.#reply(action.text, action.reply, action.requestId))
           this.#send(action.text, action.opposite, action.requestId, action.references ?? []);
         break;
@@ -320,12 +322,8 @@ export class ThreadSession {
     this.#resolve(reply.interactionId, resolution, id, "That answer doesn't fit the question.");
     return true;
   }
-  /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
-  #send(text: string, opposite: boolean, id: string, references: readonly Reference[]): void {
-    if (!this.#settingKnown) {
-      void this.#whenKnown.then(() => this.#send(text, opposite, id, references));
-      return;
-    }
+  /** `/goal <objective>` sets the provider's own goal; true when it did (or was refused). */
+  #goal(text: string, references: readonly Reference[], id: string): boolean {
     const content = messageContent(text, references, this.#catalog(this.#threadId));
     const goal = goalCommand(
       this.#threadId,
@@ -333,10 +331,16 @@ export class ThreadSession {
       text,
       this.#tray.size > 0 || content.references !== undefined,
     );
-    if (goal) {
-      this.#dispatch(goal, id, "This thread's goal can't be changed right now.");
+    if (goal) this.#dispatch(goal, id, "This thread's goal can't be changed right now.");
+    return goal !== undefined;
+  }
+  /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
+  #send(text: string, opposite: boolean, id: string, references: readonly Reference[]): void {
+    if (!this.#settingKnown) {
+      void this.#whenKnown.then(() => this.#send(text, opposite, id, references));
       return;
     }
+    const content = messageContent(text, references, this.#catalog(this.#threadId));
     if (!messageHasContent(text, this.#tray.size)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;

@@ -12,6 +12,7 @@ import {
   open,
   pump,
   reset,
+  rows,
   sent,
   until,
 } from "./thread-harness.ts";
@@ -138,6 +139,8 @@ test("a message carries the references still written in it, and a picked skill g
     references: [
       {
         label: "Writing",
+        start: 0,
+        end: 7,
         catalog: {
           type: "mention",
           entryId: "claude:skill:writing",
@@ -146,10 +149,12 @@ test("a message carries the references still written in it, and a picked skill g
           arguments: "",
         },
       },
-      { label: "@README.md", file: { path: "README.md" } },
+      { label: "@README.md", start: 13, end: 23, file: { path: "README.md" } },
       // Deleted from the words before sending: it goes nowhere.
       {
         label: "Login fix",
+        start: 31,
+        end: 40,
         thread: { type: "thread_ref", threadId: "other", budgetBytes: 4096 },
       },
     ],
@@ -163,4 +168,74 @@ test("a message carries the references still written in it, and a picked skill g
     context: { mentions: [{ path: "README.md" }] },
   });
   expect(commands("thread.send")[0]?.context).not.toHaveProperty("items");
+});
+
+test("lists keep answering after a thousand queries", async () => {
+  const client = await ready(daemon());
+  const lists = suggest(client);
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1_234_567 });
+  const shown = await settled(1_234_567);
+  expect(shown.state).toBe("ready");
+});
+
+test("a 65th pick leaves the rest of the message going", async () => {
+  const session = open(connect(daemon()), "here");
+  await until(() => latest("thread.controls"), "the composer");
+  const text = Array.from({ length: 65 }, (_, index) => `@f${index}.ts`).join(" ");
+  let at = 0;
+  const references = Array.from({ length: 65 }, (_, index) => {
+    const label = `@f${index}.ts`;
+    const reference = { label, start: at, end: at + label.length, file: { path: `f${index}.ts` } };
+    at += label.length + 1;
+    return reference;
+  });
+  session.handle({ type: "send", text, opposite: false, requestId: "many", references });
+  await until(() => commands("thread.send").length === 1, "the message");
+  const context = commands("thread.send")[0]?.context as { mentions: unknown[] };
+  expect(context.mentions).toHaveLength(64);
+});
+
+test("/goal sets the goal even while a question waits on the person", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "here", workspaceId: "ace", title: "Goal work", provider: "codex" });
+  fake.apply("here", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "scope",
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "scope",
+            text: "Which part first?",
+            multiSelect: false,
+            allowOther: true,
+            secret: false,
+            options: [{ id: "api", label: "The API" }],
+          },
+        ],
+      },
+    },
+  ]);
+  const session = open(connect(fake), "here");
+  const card = await until(
+    () => rows("thread.interaction").find((row) => row.kind === "question"),
+    "the question",
+  );
+  session.handle({
+    type: "send",
+    text: "/goal ship the release",
+    opposite: false,
+    requestId: "goal",
+    reply: { interactionId: String(card.id), picked: {}, written: {}, at: 0 },
+  });
+  await until(() => commands("thread.goal.set").length === 1, "the goal");
+  expect(commands("thread.goal.set")[0]).toMatchObject({
+    change: { objective: "ship the release" },
+  });
+  expect(commands("interaction.resolve")).toHaveLength(0);
 });
