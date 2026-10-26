@@ -119,6 +119,8 @@ export class EmbeddedPage implements ViewPage {
   /** The scale the page is drawn at under device emulation; CDP input is scaled to match. */
   private inputScale = 1;
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
+  /** The CSS size an agent gave this view while no panel showed it; a placement replaces it. */
+  private agentSize: { width: number; height: number } | undefined;
   /**
    * A person on a phone elsewhere sized this tab (`ace.touchDevice`): it lays out as that phone
    * over the panel's size until the daemon resizes it again.
@@ -508,6 +510,7 @@ export class EmbeddedPage implements ViewPage {
       this.appliedZoom = zoom;
       if (this.contents.getZoomFactor() !== zoom) this.contents.setZoomFactor(zoom);
       this.target = { bounds: target.bounds, zoom, device: target.device };
+      this.agentSize = undefined;
       const params =
         touch?.emulation ??
         (target.device ? deviceEmulation(target.device, target.bounds, this.appZoom) : undefined);
@@ -819,6 +822,10 @@ export class EmbeddedPage implements ViewPage {
     };
     if (this.presence === "parked") this.options.park(bounds);
     this.options.view.setBounds({ x: 0, y: 0, ...bounds });
+    // The daemon sizes this view's video and maps viewers' input by its viewport: an unseen
+    // view's own size is the one asked for, not the panel's size from its last placement.
+    this.agentSize = { width, height };
+    this.emit("ace.viewport", this.agentSize);
   }
 
   /**
@@ -963,6 +970,7 @@ export class EmbeddedPage implements ViewPage {
 
   viewport() {
     if (this.touchDevice) return { ...this.touchDevice };
+    if (this.agentSize && !this.placed) return this.agentSize;
     return this.target
       ? (this.target.device ?? {
           width: Math.round(this.target.bounds.width / this.target.zoom),

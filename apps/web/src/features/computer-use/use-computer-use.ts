@@ -1,4 +1,4 @@
-import type { ScreenAgentScope, ScreenOperation } from "@ace/protocol";
+import type { ScreenAgentScope, ScreenInput, ScreenOperation } from "@ace/protocol";
 import { screenProblem } from "@ace/ui-core/computer-use";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -119,6 +119,17 @@ export function useComputerUse() {
         { op: "secure.input", sessionId, allowed },
         { failure: "Couldn't change secure input", sessionId },
       ),
+    /**
+     * The person's click, scroll or key in a live view they control. Not a pending control (it
+     * would flicker every button); a refusal shows on the session's card.
+     */
+    input: (sessionId: string, input: ScreenInput) => {
+      if (!session) return;
+      void session.request({ op: "input", sessionId, input }).then(
+        () => setProblem(sessionId, undefined),
+        (error: unknown) => setProblem(sessionId, describeProblem(error)),
+      );
+    },
     stop: (sessionId: string) =>
       run({ op: "stop", sessionId }, { failure: "Couldn't stop it", sessionId }),
   };

@@ -220,8 +220,8 @@ export async function startCapture(options: {
   if (!options.device.serial || options.device.state !== "booted")
     throw new DeviceError(
       "not_booted",
-      "Android emulator is not booted",
-      "Boot the emulator and wait for adb to report device state.",
+      "Android device is not booted",
+      "Boot the emulator, or connect and unlock the device, and wait for adb to report device state.",
     );
   let why = "ACE_ANDROID_SCRCPY is off";
   if (options.env["ACE_ANDROID_SCRCPY"] !== "off") {
@@ -261,7 +261,7 @@ function androidLiveViewError(why: string): DeviceError {
   return new DeviceError(
     "not_supported",
     `The Android live view needs scrcpy-server: ${why}`,
-    "Use an emulator image with Android 5 or later, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
+    "Use an Android 5 or later device or emulator image, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
   );
 }
 /**

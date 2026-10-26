@@ -31,6 +31,44 @@ it("toolchain hints reflect the supplied Git and Android SDK installations", asy
   }
 });
 
+it("an Android Studio SDK in ~/Android/Sdk is found without ANDROID_HOME, as emulators find it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-toolchains-home-"));
+  try {
+    const tools = join(home, "Android", "Sdk", "platform-tools");
+    await mkdir(tools, { recursive: true });
+    await writeFile(join(tools, "adb"), "#!/bin/sh\necho 'Version 36.0.0-13206524'\n");
+    await chmod(join(tools, "adb"), 0o700);
+    const found = await detectToolchains({ PATH: "", HOME: home }, "linux");
+    expect(found.find((tool) => tool.id === "android")).toMatchObject({
+      available: true,
+      version: "36.0.0",
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("on Linux a distribution's adb on PATH is found with an ANDROID_HOME that has none, as the devices service finds it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-toolchains-path-"));
+  try {
+    await writeFile(join(root, "adb"), "#!/bin/sh\necho 'Version 34.0.5-debian'\n");
+    await chmod(join(root, "adb"), 0o700);
+    const tools = await detectToolchains(
+      { PATH: root, ANDROID_HOME: join(root, "missing-sdk") },
+      "linux",
+    );
+    expect(tools.find((tool) => tool.id === "android")).toMatchObject({
+      available: true,
+      version: "34.0.5",
+    });
+    await rm(join(root, "adb"));
+    const missing = await detectToolchains({ PATH: root }, "linux");
+    expect(missing.find((tool) => tool.id === "android")?.hint).toContain("sudo apt install adb");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("a Mac without Simulator tools receives an Xcode setup hint", async () => {
   const tools = await detectToolchains({ PATH: "" }, "darwin", async (command) =>
     command.endsWith("git") ? "git version 2.50" : undefined,

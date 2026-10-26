@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 /*
- * An agent signing in opens its sign-in page with the system opener (`open`, `xdg-open`) or
- * `$BROWSER`. For the sign-in process only, ace puts a stand-in for both first on PATH: it
+ * An agent signing in opens its sign-in page with the system opener (`open`, `xdg-open` and
+ * Linux's other openers) or `$BROWSER`. For the sign-in process only, ace puts a stand-in for both first on PATH: it
  * records the page instead of opening it, so ace can hand the page to the person's client (the
  * desktop app opens it, another device shows the link) or, for a page it can't relay, open it
  * here as the agent meant to. Anything else the agent opens goes to the real opener unchanged.
@@ -27,6 +27,35 @@ if [ -n "$ACE_SIGN_IN_BROWSER" ]; then BROWSER="$ACE_SIGN_IN_BROWSER"; export BR
 if [ -n "$ACE_SIGN_IN_OPENER" ]; then exec "$ACE_SIGN_IN_OPENER" "$@"; fi
 exit 0
 `;
+
+/*
+ * Linux desktops and WSL open pages through more names than `xdg-open`. Each of these records
+ * the pages it is given (`gio` only for `gio open`) and otherwise runs the real command of the
+ * same name, so `gio info` or a browser started without a page still work.
+ */
+const namedStandIn = `#!/bin/sh
+recorded=
+name=\${0##*/}
+if [ "$name" != gio ] || [ "$1" = open ]; then
+  for arg in "$@"; do
+    case "$arg" in
+      http://*|https://*) printf '%s\\n' "$arg" >> "$ACE_SIGN_IN_PAGES"; recorded=1 ;;
+    esac
+  done
+fi
+[ -n "$recorded" ] && exit 0
+PATH="$ACE_SIGN_IN_PATH"; export PATH
+if [ -n "$ACE_SIGN_IN_BROWSER" ]; then BROWSER="$ACE_SIGN_IN_BROWSER"; export BROWSER; else unset BROWSER; fi
+exec "$name" "$@"
+`;
+
+const linuxOpeners = ["gio", "sensible-browser", "x-www-browser", "www-browser", "wslview"];
+
+async function writeStandIn(path: string, script: string): Promise<void> {
+  await writeFile(path, script, { mode: 0o700 });
+  // The process umask may narrow the mode; the stand-ins must stay executable.
+  await chmod(path, 0o700);
+}
 
 export interface SignInPages {
   /** The sign-in process's environment. */
@@ -90,11 +119,10 @@ export async function signInPages(
   const pages = join(dir, "pages");
   const command = join(dir, "open");
   await writeFile(pages, "", { mode: 0o600 });
-  await writeFile(command, standIn, { mode: 0o700 });
-  await writeFile(join(dir, "xdg-open"), standIn, { mode: 0o700 });
-  // The process umask may narrow the mode; the stand-ins must stay executable.
-  await chmod(command, 0o700);
-  await chmod(join(dir, "xdg-open"), 0o700);
+  await writeStandIn(command, standIn);
+  await writeStandIn(join(dir, "xdg-open"), standIn);
+  if (platform !== "darwin")
+    for (const name of linuxOpeners) await writeStandIn(join(dir, name), namedStandIn);
   let offset = 0;
   let partial = "";
   return {

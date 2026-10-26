@@ -34,7 +34,7 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   const runChecks = () => collectFullReport(context);
   const watched = interactive && !json;
   const before = watched ? await withSpinner(config, runChecks) : await runChecks();
-  const plan = planAllRepairs(before, context);
+  const plan = await planAllRepairs(before, context);
   const format = args.flags.all ? formatAllChecks : formatChecks;
   if (!json) await print(args, format(before) + "\n\n" + describePlan(plan));
 

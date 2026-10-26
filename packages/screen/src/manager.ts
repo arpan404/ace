@@ -291,7 +291,12 @@ export class ScreenManager {
     if (!current.helper.capabilities?.windowSelection) {
       const caller = agentScope(owner),
         target = current.state.target;
-      if (!caller || this.agentSession(caller, id) !== id || target.kind === "display")
+      if (
+        !caller ||
+        this.agentSession(caller, id) !== id ||
+        target.kind === "display" ||
+        target.kind === "chooser"
+      )
         throw new Error("Agent app session required");
       const epoch = current.epoch;
       const validate = () => {
@@ -505,7 +510,12 @@ export class ScreenManager {
         if (input.kind === "pointer.down") session.pointerDown = true;
         return session.helper
           .request(
-            { op: "input", input, humanDeviceInput: humanDeviceInput(actor, session.state.target) },
+            {
+              op: "input",
+              input,
+              humanDeviceInput: humanDeviceInput(actor, session.state.target),
+              person: actor === "human",
+            },
             () => {
               validate();
               beforeDispatch?.();

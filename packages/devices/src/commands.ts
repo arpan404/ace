@@ -14,7 +14,6 @@ const AVD = z
   .min(1)
   .max(256)
   .regex(/^[a-zA-Z0-9_.-]+$/);
-const Serial = z.string().regex(/^emulator-\d{4,5}$/);
 export function nativeId(device: Device): string {
   const prefix = `${device.platform}:`;
   if (!device.id.startsWith(prefix))
@@ -26,24 +25,6 @@ export function nativeId(device: Device): string {
   return device.platform === "ios"
     ? z.string().uuid().parse(device.id.slice(prefix.length))
     : AVD.parse(device.id.slice(prefix.length));
-}
-export function adbDevices(
-  output: string,
-): { serial: string; state: "booted" | "offline" | "unauthorized" }[] {
-  const result: { serial: string; state: "booted" | "offline" | "unauthorized" }[] = [];
-  for (const line of output.split("\n")) {
-    const [serial, state] = line.trim().split(/\s+/);
-    if (!Serial.safeParse(serial).success) continue;
-    if (state !== "device" && state !== "offline" && state !== "unauthorized") continue;
-    if (result.length >= 128)
-      throw new DeviceError(
-        "limit",
-        "Too many Android emulator transports",
-        "Close unused emulator instances.",
-      );
-    result.push({ serial: Serial.parse(serial), state: state === "device" ? "booted" : state });
-  }
-  return result;
 }
 export function avdNames(output: string): string[] {
   return z

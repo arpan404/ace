@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { nativeId } from "./commands.ts";
 import type { DeviceChromeSources } from "./device-chrome-reader.ts";
-import { androidSdkRoots } from "./sdk.ts";
+import { androidSdkRoots } from "./sdk-roots.ts";
 
 /*
  * Where this machine keeps device looks: Xcode's DeviceKit chrome bundles, the AVD folders and
@@ -74,7 +74,7 @@ export function deviceChromeSources(options: {
           ].filter((root): root is string => Boolean(root)),
         ),
       ],
-      sdkRoots: androidSdkRoots({ home, env }),
+      sdkRoots: androidSdkRoots(env, home),
       readFile: read,
     },
     simulatorType: async (device: Device) =>

@@ -75,12 +75,14 @@ The agent keeps its own login, permissions and session history.
 ### `ace doctor` checks, then offers repairs
 
 Doctor's checks come from feature modules under `apps/daemon/src/doctor/`: install and
-versions, daemon health, recent errors, storage, accounts, computer use and remote
-access, on top of the base setup checks. Each feature gets one context (config, clock,
+versions, Linux host repairs, daemon health, recent errors, storage, accounts, computer use
+and remote access, on top of the base setup checks (which include Linux host checks, ace's
+browser engine and Cursor's sandbox on Linux). Each feature gets one context (config, clock,
 platform, the daemon's run state and a daemon client that resolves undefined when the
 daemon is down), so it works offline and is tested against temp folders and fakes. A
 feature may offer repairs with ids `<feature>.<name>`; chosen repairs go to the feature
-that offered them, and a repair that throws is reported as failed. Report text is
+that offered them, and a repair that throws is reported as failed. Planning may read the
+machine but never changes it, since report text can't be run. Report text is
 redacted for secret-looking environment values only, so versions and paths stay readable.
 
 Doctor runs its health checks (Node, provider CLIs and logins, git, node-pty,
@@ -97,8 +99,13 @@ repairs the report calls for:
   `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
   rowid-preserving migration because a full VACUUM could renumber row IDs referenced by
   stored frames and receipts. Corruption stays a failure needing a backup restore.
+- **Install ace's AppArmor profiles** and **Install the libraries ace's browser needs**
+  (Linux, ADR 0093): through sudo, which asks for the person's password. The plan shows the
+  exact commands with this machine's paths, so `--dry-run` is how to see or copy them; the
+  report the app and support bundles show only points at `--fix`.
 
-Most checks get 5 seconds; a hung CLI probe shouldn't stall the report. The database
+Most checks get 5 seconds; a hung CLI probe shouldn't stall the report. Starting ace's
+browser engine (`--version`, then a headless start, each bounded at 10 seconds) gets 25. The database
 integrity check reads the whole file, so its budget scales with size: 30 seconds plus
 20 seconds per GiB, capped at 15 minutes. A full check measured about 1.7 s per GiB on a
 warm SSD (10 s for a 6 GiB database), so the budget leaves about ten times that for cold

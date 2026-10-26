@@ -27,17 +27,19 @@ struct RemoteScreenView: View {
             ToolbarItem(placement: .topBarTrailing) { menu }
             if model.canOperate, screen.status?.enabled == true {
                 ToolbarItem(placement: .bottomBar) {
-                    Button("Share an app window") { sharing = true }.disabled(screen.busy).accessibilityIdentifier("screen.share")
+                    Button(screen.dialogPicks ? "Share a window or screen" : "Share an app window") { sharing = true }.disabled(screen.busy).accessibilityIdentifier("screen.share")
                 }
             }
         }
-        .task(id: model.connection) { if model.connection == "ready" { await screen.refresh(model) } else { screen.disconnected() } }
+        .task(id: model.connection) {
+            if model.connection == "ready" { await screen.refresh(model); await screen.targets(model) } else { screen.disconnected() }
+        }
         .refreshable { await screen.refresh(model) }
         .navigationDestination(item: $opened) { session in
             RemoteScreenSessionView(model: model, screen: screen, sessionId: session.id)
         }
         .sheet(isPresented: $sharing) {
-            ScreenTargetPicker(model: model, screen: screen, threadId: threadId) { id in
+            ScreenTargetPicker(model: model, screen: screen, threadId: threadId, chooseThere: chooseThere) { id in
                 sharing = false
                 opened = screen.session(id)
             }
@@ -48,6 +50,12 @@ struct RemoteScreenView: View {
             Text("Every app session stops, for every thread.")
         }
         .onDisappear { if opened == nil { screen.disconnected(); model.action(["type": "native.screen.close"]) } }
+    }
+
+    /// The machine's own dialog picks: the picker closes and the list shows the wait.
+    private func chooseThere() {
+        sharing = false
+        Task { if let id = await screen.startChoice(model, threadId: threadId) { opened = screen.session(id) } }
     }
 
     private var subtitle: String {
@@ -138,6 +146,7 @@ private struct ScreenTargetPicker: View {
     let model: ClientModel
     let screen: RemoteScreen
     let threadId: String?
+    let chooseThere: () -> Void
     let selected: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var bundleId = ""
@@ -148,6 +157,15 @@ private struct ScreenTargetPicker: View {
     var body: some View {
         NavigationStack {
             List {
+                if screen.dialogPicks {
+                    Section {
+                        Button(action: chooseThere) {
+                            InsetRow(systemImage: "rectangle.on.rectangle", title: "Share a window or screen…",
+                                     subtitle: "Chosen in the sharing dialog on that computer. Only you can control a shared screen.") { EmptyView() }
+                        }
+                        .buttonStyle(.plain).insetRowBackground().accessibilityIdentifier("screen.chooser")
+                    }
+                } else {
                 Section {
                     TextField("App bundle ID", text: $bundleId).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .onSubmit { share(.init(kind: "app", bundleId: bundleId, windowId: nil, displayId: nil, bundleIds: nil)) }
@@ -161,6 +179,7 @@ private struct ScreenTargetPicker: View {
                         .buttonStyle(.plain).insetRowBackground()
                     }
                 } header: { InsetHeader("Open windows") }
+                }
                 if let problem = screen.problem { Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear) }
             }
             .insetGroupedList()

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
-import { screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
+import { chooserWaitingCopy, screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { AppMark } from "@/components/app-mark.tsx";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
@@ -37,6 +38,9 @@ export function SessionCard(props: {
   const delegateThread = props.threadId ?? state.holder?.threadId ?? previous?.threadId;
   const session = use.session;
   const busy = use.pending;
+  const machine = useHostIdentity()?.displayName;
+  /** Nobody can control it: a whole screen, or a choice still waiting on that machine. */
+  const controllable = !view.viewOnly && !view.awaitingChoice;
   if (props.compact)
     return (
       <article aria-label={view.app} className="border-b">
@@ -64,7 +68,16 @@ export function SessionCard(props: {
     <article aria-label={view.app} className="flex min-w-0 flex-col overflow-hidden border-b">
       {props.live !== false && session && state.lifecycle === "live" && (
         <div className="relative aspect-video border-b">
-          <LiveView session={session} sessionId={state.sessionId} label={`${view.app} live view`} />
+          <LiveView
+            session={session}
+            sessionId={state.sessionId}
+            label={`${view.app} live view`}
+            onInput={
+              controllable && state.controller === "human"
+                ? (input) => use.input(state.sessionId, input)
+                : undefined
+            }
+          />
         </div>
       )}
       <div className="flex min-w-0 flex-col gap-2 p-3">
@@ -83,9 +96,16 @@ export function SessionCard(props: {
           />
         </div>
         <p role="status" className="truncate text-sm text-muted-foreground">
-          {view.status}
+          {view.awaitingChoice ? `${chooserWaitingCopy(machine)}.` : view.status}
+          {view.viewOnly && view.lifecycle === "live" && " · Watch only"}
+          {view.personOnly &&
+            view.lifecycle === "live" &&
+            " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
+        {view.watchOnlyReason && view.lifecycle === "live" && (
+          <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
+        )}
         {view.error && <p className="text-sm text-status-failed">{view.error}</p>}
         {problem && (
           <p role="alert" className="text-sm text-muted-foreground">
@@ -97,7 +117,7 @@ export function SessionCard(props: {
           <SecureInput use={use} state={state} />
         )}
         <div className="flex flex-wrap items-center gap-1">
-          {state.controller === "agent" && view.stoppable && (
+          {controllable && state.controller === "agent" && view.stoppable && (
             <Button
               size="sm"
               variant="secondary"
@@ -108,25 +128,33 @@ export function SessionCard(props: {
               Take over
             </Button>
           )}
-          {state.controller !== "agent" && previous && view.stoppable && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void use.delegate(state.sessionId, previous)}
-            >
-              Hand back
-            </Button>
-          )}
-          {state.controller !== "agent" && delegateThread && view.stoppable && (
-            <DelegateMenu
-              threadId={delegateThread}
-              disabled={busy}
-              onDelegate={(agentId) =>
-                void use.delegate(state.sessionId, { threadId: delegateThread, agentId })
-              }
-            />
-          )}
+          {controllable &&
+            !view.personOnly &&
+            state.controller !== "agent" &&
+            previous &&
+            view.stoppable && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void use.delegate(state.sessionId, previous)}
+              >
+                Hand back
+              </Button>
+            )}
+          {controllable &&
+            !view.personOnly &&
+            state.controller !== "agent" &&
+            delegateThread &&
+            view.stoppable && (
+              <DelegateMenu
+                threadId={delegateThread}
+                disabled={busy}
+                onDelegate={(agentId) =>
+                  void use.delegate(state.sessionId, { threadId: delegateThread, agentId })
+                }
+              />
+            )}
           {view.foreground && (
             <Button
               size="sm"
@@ -145,8 +173,12 @@ export function SessionCard(props: {
               disabled={busy || state.lifecycle === "stopping"}
               onClick={() => void use.stop(state.sessionId)}
             >
-              <StopIcon aria-hidden size={14} />
-              {state.lifecycle === "failed" ? "Stop again" : "Stop"}
+              {!view.awaitingChoice && <StopIcon aria-hidden size={14} />}
+              {view.awaitingChoice
+                ? "Cancel"
+                : state.lifecycle === "failed"
+                  ? "Stop again"
+                  : "Stop"}
             </Button>
           )}
           <SessionMenu use={use} state={state} />

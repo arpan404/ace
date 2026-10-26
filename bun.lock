@@ -12,6 +12,7 @@
         "@types/node": "^26.6.4",
         "dependency-cruiser": "^18.5.0",
         "eslint-plugin-react-hooks": "^7.1.1",
+        "node-gyp": "11.5.0",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
         "tsc-rs": "0.7.0",
@@ -109,6 +110,7 @@
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/terminal": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@ace/usage": "workspace:*",
         "@ace/workspace": "workspace:*",
         "@clack/prompts": "^1.8.1",
@@ -583,6 +585,7 @@
     "packages/diagnostics": {
       "name": "@ace/diagnostics",
       "dependencies": {
+        "@ace/devices": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",

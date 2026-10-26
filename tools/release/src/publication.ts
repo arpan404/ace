@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { verifyManifest, hashFile } from "@ace/service";
@@ -13,7 +13,10 @@ z.string()
   .parse(base);
 const key = await readFile(keyFile, "utf8");
 const manifests = new Map<string, ReturnType<typeof verifyManifest>>();
+// Any non-empty subset of targets publishes (Linux can ship before macOS is signed). A target
+// is present when its manifest exists, and then it must carry a valid signature and archive.
 for (const target of ReleaseTarget.options) {
+  if (!(await exists(join(directory, `${target}.json`)))) continue;
   const bytes = await readFile(join(directory, `${target}.json`));
   const signature = (await readFile(join(directory, `${target}.sig`), "utf8")).trim();
   const m = verifyManifest(bytes, signature, key);
@@ -22,26 +25,31 @@ for (const target of ReleaseTarget.options) {
   await validateReleaseArchive(join(directory, m.archive));
   manifests.set(target, m);
 }
-const version = manifests.get("darwin-arm64")?.version;
-if (!version || [...manifests.values()].some((m) => m.version !== version))
+const version = manifests.values().next().value?.version;
+if (!version) throw new Error("No release target to publish: expected TARGET.json and TARGET.sig");
+if ([...manifests.values()].some((m) => m.version !== version))
   throw new Error("Publication versions differ");
 const source = resolve(import.meta.dirname, "..");
 let installer = (await readFile(join(source, "install.sh"), "utf8"))
   .replace("__ACE_RELEASE_PUBLIC_KEY__", key.trim())
   .replace("__ACE_RELEASE_BASE_URL__", base);
-for (const [target, m] of manifests)
+// A target this release lacks gets an empty pin, which the installer refuses by name.
+for (const target of ReleaseTarget.options)
   installer = installer.replace(
     `__ACE_${target.replace("-", "_").toUpperCase()}_SHA256__`,
-    m.sha256,
+    manifests.get(target)?.sha256 ?? "",
   );
 await writeFile(join(directory, "install.sh"), installer, { mode: 0o755 });
-let formula = (await readFile(join(source, "homebrew/ace.rb.in"), "utf8"))
-  .replaceAll("@VERSION@", version)
-  .replaceAll("@BASE@", base);
-for (const [target, m] of manifests)
-  formula = formula.replace(`@${target.replace("-", "_").toUpperCase()}_SHA256@`, m.sha256);
-await mkdir(join(directory, "homebrew"), { recursive: true });
-await writeFile(join(directory, "homebrew/ace.rb"), formula);
+// The Homebrew formula names every target's archive, so only a full release writes it.
+if (manifests.size === ReleaseTarget.options.length) {
+  let formula = (await readFile(join(source, "homebrew/ace.rb.in"), "utf8"))
+    .replaceAll("@VERSION@", version)
+    .replaceAll("@BASE@", base);
+  for (const [target, m] of manifests)
+    formula = formula.replace(`@${target.replace("-", "_").toUpperCase()}_SHA256@`, m.sha256);
+  await mkdir(join(directory, "homebrew"), { recursive: true });
+  await writeFile(join(directory, "homebrew/ace.rb"), formula);
+}
 const digest = await hashFile(join(directory, "install.sh"));
 await writeFile(join(directory, "install.sh.sha256"), `${digest}  install.sh\n`);
 const npx = [];
@@ -59,4 +67,15 @@ await writeFile(
     2,
   ) + "\n",
 );
-process.stdout.write(`Installer SHA-256: ${digest}\nReview and publish these files together.\n`);
+process.stdout.write(
+  `Targets: ${[...manifests.keys()].join(", ")}\nInstaller SHA-256: ${digest}\nReview and publish these files together.\n`,
+);
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}

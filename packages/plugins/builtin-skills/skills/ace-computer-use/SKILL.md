@@ -1,15 +1,15 @@
 ---
 name: ace-computer-use
-description: Operate a native macOS app, iOS simulator or Android emulator through ace when the person names one or wants to watch it in ace. Use before screen_* or sim_* tools.
+description: Operate a native macOS or Linux desktop app, iOS simulator or Android emulator through ace when the person names one or wants to watch it in ace. Use before screen_* or sim_* tools.
 ---
 
 # Native apps and simulators in ace
 
-ace works in Mac apps in the background through the accessibility API: apps open without coming forward, and your clicks and keys go to the app, not to the person's cursor or keyboard. They can keep working while you do. The person turns the `screen` (Mac apps) and `devices` (simulators) groups on in ace's Settings; `context` says which are on. If `screen_disabled` comes back, tell the person.
+ace works in Mac apps in the background through the accessibility API: apps open without coming forward, and your clicks and keys go to the app, not to the person's cursor or keyboard. They can keep working while you do. On Linux the same tools read apps through AT-SPI accessibility; see "On Linux" below. The person turns the `screen` (desktop apps) and `devices` (simulators) groups on in ace's Settings; `context` says which are on. If `screen_disabled` comes back, tell the person.
 
 Websites belong in ace's browser (`browser_open`, guide ace-browser). Files and data belong to your shell. Never drive app UI with `osascript` or AppleScript.
 
-## A Mac app (screen_*)
+## A desktop app (screen_*)
 
 1. `screen_state {app}` opens the app if needed and returns its window as an outline. `app` is a name or bundle id; `screen_apps {query}` finds the exact one.
 2. `screen_act {app, actions}` runs up to 20 steps in order, then returns what changed. Batch steps that need no look in between.
@@ -62,11 +62,19 @@ Keep the person's focus where it is. `activate` brings the app forward and inter
 
 While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
+### On Linux
+
+- `app` is the desktop-file id (`org.gnome.TextEditor`, a Flatpak app id) or the app's name; `screen_apps` shows both.
+- Clicks by id, `set_value`, `type` into a field, `select_text`, `action` and menus work with the window in the background.
+- Key presses, x,y clicks, drags and pixel scrolls need the window in front. A step that needs it fails and says so: put `{"type":"activate"}` first and retry, and tell the person you brought the app forward.
+- Shortcuts use `ctrl` (`ctrl+s`), not `cmd`.
+- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in.
+
 ### Limits
 
-- Password managers, system authentication prompts, terminals, Script Editor, Automator, Shortcuts, ace itself and any app the person has listed are refused. Ask the person to do those steps, use your shell for commands, and never look for another way into a refused app.
+- Password managers, system authentication prompts (polkit, pinentry), terminals, Script Editor, Automator, Shortcuts, ace itself and any app the person has listed are refused. Ask the person to do those steps, use your shell for commands, and never look for another way into a refused app.
 - Ask the person before anything irreversible they did not ask for in so many words: sending a message or email, posting, buying, deleting, changing system settings. Read back what you will send.
-- On Windows and Linux ace offers the older session tools instead (`screen_open_app`, `screen_ui_tree`, `screen_ui_act`, `screen_input`); their descriptions say how to use them.
+- On Windows, or when this machine has no screen helper for the background tools, ace offers the older session tools instead (`screen_open_app`, `screen_ui_tree`, `screen_ui_act`, `screen_input`); their descriptions say how to use them.
 
 ## Simulators and emulators (sim_*)
 

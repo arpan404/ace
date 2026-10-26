@@ -68,6 +68,7 @@
     "@ace/service": "workspace:*",
     "@ace/settings": "workspace:*",
     "@ace/terminal": "workspace:*",
+    "@ace/ui-core": "workspace:*",
     "@ace/usage": "workspace:*",
     "@ace/workspace": "workspace:*",
     "@clack/prompts": "^1.8.1",

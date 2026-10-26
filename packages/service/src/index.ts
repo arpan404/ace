@@ -48,3 +48,4 @@ export { renderLauncher } from "./launcher.ts";
 export { assertTestHomeIsolation } from "./test-home-guard.ts";
 
 export { enableLinger } from "./linger.ts";
+export { planUpdateLaunch, type UpdateLaunch } from "./update-launch.ts";

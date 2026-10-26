@@ -21,6 +21,9 @@
           "const": "hello",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -65,6 +68,9 @@
         "op": {
           "const": "metrics",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -129,6 +135,9 @@
           "const": "measure_interaction",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -184,6 +193,9 @@
           "const": "open.app",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -230,6 +242,9 @@
         "op": {
           "const": "stream.configure",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -280,6 +295,9 @@
           "const": "stream.keyframe",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -324,6 +342,9 @@
         "op": {
           "const": "stream.image",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -373,6 +394,9 @@
           "const": "capture",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -421,6 +445,9 @@
         "op": {
           "const": "input",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -487,6 +514,9 @@
           "const": "ui.tree",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -549,6 +579,9 @@
         "op": {
           "const": "ui.find",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "query": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
@@ -618,6 +651,9 @@
         "op": {
           "const": "ui.act",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "range": {
           "properties": {
@@ -721,6 +757,9 @@
           "const": "permissions",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -773,6 +812,9 @@
           ],
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -824,6 +866,9 @@
           "const": "button.press",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -869,6 +914,9 @@
         "op": {
           "const": "targets",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -925,6 +973,9 @@
           "const": "windows.list",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -971,6 +1022,9 @@
         "op": {
           "const": "window.select",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -1033,6 +1087,9 @@
           "const": "open.url",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -1094,6 +1151,9 @@
           "minItems": 1,
           "type": "array"
         },
+        "person": {
+          "type": "boolean"
+        },
         "secureInputAllowed": {
           "type": "boolean"
         },
@@ -1139,6 +1199,9 @@
         "op": {
           "const": "stop",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -1187,6 +1250,9 @@
         "op": {
           "const": "action",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"
@@ -1248,6 +1314,9 @@
         "op": {
           "const": "start",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "secureInputAllowed": {
           "type": "boolean"

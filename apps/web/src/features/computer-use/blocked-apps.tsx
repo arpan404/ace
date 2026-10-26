@@ -19,7 +19,8 @@ export function parseAppList(text: string): string[] {
 }
 
 /**
- * Apps agents can't use (`computer.blockedApps`): bundle ids or names, saved on Enter or blur.
+ * Apps agents can't use (`computer.blockedApps`): app ids (a macOS bundle id, a Linux
+ * desktop-file id) or names, saved on Enter or blur.
  * The daemon adds them to its own list (password managers, terminals, ace itself).
  */
 export function BlockedAppsRow() {
@@ -51,7 +52,7 @@ export function BlockedAppsRow() {
       <Input
         id={id}
         value={draft ?? shown}
-        placeholder="Messages, com.apple.mail"
+        placeholder="App names or ids, e.g. Messages"
         disabled={!ready || stored === undefined}
         spellCheck={false}
         onChange={(event) => setDraft(event.target.value)}

@@ -101,8 +101,8 @@ export async function startScrcpyServer(options: {
   if (pushed.code !== 0)
     throw new DeviceError(
       "command_failed",
-      "Could not copy scrcpy-server to the emulator",
-      "Check that the emulator has free space in /data/local/tmp.",
+      "Could not copy scrcpy-server to the device",
+      "Check that the device has free space in /data/local/tmp.",
     );
   check();
   const name = scrcpySocketName(options.profile.scid);
@@ -164,7 +164,7 @@ export async function startScrcpyServer(options: {
         throw new DeviceError(
           "command_failed",
           `scrcpy-server did not start${said.trim() ? `: ${said.trim().split("\n").at(-1)}` : ""}`,
-          "Use an emulator image with Android 5 or later, or stop other screen mirroring tools.",
+          "Use an Android 5 or later device or emulator image, or stop other screen mirroring tools.",
         );
       const socket = await open(port).catch(() => undefined);
       if (socket) {

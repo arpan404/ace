@@ -196,3 +196,29 @@ it("a subscribed session's pictures arrive as stream kind screenFrame, named by 
   expect(messages.length).toBe(before);
   expect(() => connection.ack({ type: "screen.ack", sessionId: state.sessionId })).toThrow();
 });
+
+it("a request it can't read is refused at once rather than left unanswered", async () => {
+  const test = await manager({ FAKE_V2: "1" });
+  cleanups.push(test.close);
+  const sent: ScreenServerMessage[] = [];
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human", {
+    send: (message) => sent.push(message),
+    media: { write: async () => {}, bufferedBytes: () => 0 },
+  });
+  cleanups.push(async () => connection.close());
+  await expect(
+    connection.request({
+      type: "screen.request",
+      requestId: "click",
+      operation: { op: "input", sessionId: "s", input: { kind: "pointer.click", x: -5, y: 1 } },
+    }),
+  ).rejects.toThrow();
+  expect(sent).toContainEqual(
+    expect.objectContaining({
+      type: "screen.result",
+      requestId: "click",
+      ok: false,
+      errorCode: "bounds",
+    }),
+  );
+});

@@ -141,7 +141,7 @@ async function dispatch(request: ScreenHelperRequest) {
       break;
     case "start":
       if (
-        request.target.kind !== "display" &&
+        (request.target.kind === "app" || request.target.kind === "window") &&
         request.target.bundleId === process.env.START_ERROR_BUNDLE
       )
         return reply({ code: "target_gone", message: "Fixture start rejected" });

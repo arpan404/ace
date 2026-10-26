@@ -5,9 +5,9 @@ use crate::{
 };
 use serde_json::{Value, json};
 impl Runtime {
-    pub(crate) async fn click(&self, x: f64, y: f64, button: &str) -> Result<()> {
+    pub(crate) async fn click(&self, x: f64, y: f64, button: &str, person: bool) -> Result<()> {
         if let (Some(backend), Some(w)) = (&self.x, &self.window) {
-            backend.click(w, x, y, button)
+            backend.click(w, x, y, button, person)
         } else {
             let p = self.portal.as_ref().ok_or_else(|| internal("No portal"))?;
             p.motion(x, y).await?;
@@ -52,13 +52,27 @@ impl Runtime {
         }
         sent
     }
+    /// A person's input to a shared Wayland window waits until that window is in front.
+    async fn front_for_person(&self, r: &Request) -> Result<()> {
+        let (Some(p), Some(ui), true, false, true) =
+            (&self.portal, &self.ui, r.person, self.view_only, self.ui_active)
+        else {
+            return Ok(());
+        };
+        let Some(app) = p.picked.as_ref().and_then(|picked| picked.app.as_ref()) else {
+            return Ok(());
+        };
+        p.wake().await?;
+        crate::portal_front::bring_forward(ui, &app.app_id, &app.title).await
+    }
     pub(crate) async fn input(&mut self, r: &Request) -> Result<Value> {
-        self.check_input()?;
+        self.check_input(r.person)?;
+        self.front_for_person(r).await?;
         match r.op.as_str() {
             "pointer.move" => {
                 let (px, py) = coordinates(r)?;
                 if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.motion(w, px, py)?;
+                    x.motion(w, px, py, r.person)?;
                 } else {
                     self.portal
                         .as_ref()
@@ -69,7 +83,7 @@ impl Runtime {
             }
             "pointer.click" => {
                 let (x, y) = coordinates(r)?;
-                self.click(x, y, r.button.as_deref().unwrap_or("left"))
+                self.click(x, y, r.button.as_deref().unwrap_or("left"), r.person)
                     .await?;
             }
             "pointer.drag" => {
@@ -78,14 +92,22 @@ impl Runtime {
                     r.to_x.ok_or_else(|| Fault::new("bounds", "Missing toX"))?,
                     r.to_y.ok_or_else(|| Fault::new("bounds", "Missing toY"))?,
                 );
+                let duration = std::time::Duration::from_millis(r.duration_ms.unwrap_or(300).clamp(1, 10_000));
                 if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.drag(w, px, py, tx, ty)?;
+                    x.drag(w, (px, py), (tx, ty), duration, r.person)?;
                 } else {
                     let p = self.portal.as_ref().ok_or_else(|| internal("No portal"))?;
-                    crate::policy::point(tx, ty, p.size.0, p.size.1)?;
                     p.motion(px, py).await?;
                     p.button("left", true).await?;
-                    let moved = p.motion(tx, ty).await;
+                    let mut moved = Ok(());
+                    for step in 1..=12u32 {
+                        tokio::time::sleep(duration / 12).await;
+                        let t = f64::from(step) / 12.;
+                        moved = p.motion(px + (tx - px) * t, py + (ty - py) * t).await;
+                        if moved.is_err() {
+                            break;
+                        }
+                    }
                     let released = p.button("left", false).await;
                     moved.and(released)?;
                 }
@@ -100,7 +122,6 @@ impl Runtime {
                 .await?
             }
             "text.type" => {
-                self.check_ui()?;
                 let text = r
                     .text
                     .as_deref()
@@ -108,6 +129,21 @@ impl Runtime {
                 if text.len() > 4096 {
                     return Err(Fault::new("bounds", "Text exceeds limit"));
                 }
+                // The person's typing, or typing without the app's accessibility, goes through the
+                // portal's keyboard key by key, wherever the window's focus is.
+                if let (Some(p), true) = (&self.portal, r.person || !self.ui_active) {
+                    for c in text.chars() {
+                        let symbol = unicode_keysym(c);
+                        p.key_symbol(symbol, true).await?;
+                        p.key_symbol(symbol, false).await?;
+                    }
+                    return Ok(json!({}));
+                }
+                if let (Some(x), Some(w), false, true) = (&self.x, &self.window, self.ui_active, r.person) {
+                    x.type_text(w, text)?;
+                    return Ok(json!({}));
+                }
+                self.check_ui()?;
                 self.ui
                     .as_mut()
                     .ok_or_else(|| Fault::new("not_supported", "AT-SPI unavailable"))?
@@ -117,13 +153,14 @@ impl Runtime {
             "scroll" => {
                 let dx = r.dx.unwrap_or(0.);
                 let dy = r.dy.unwrap_or(0.);
+                let at = r.x.zip(r.y);
                 if let (Some(x), Some(w)) = (&self.x, &self.window) {
-                    x.scroll(w, dx, dy)?;
+                    x.scroll(w, at, dx, dy, r.person)?;
                 } else {
                     self.portal
                         .as_ref()
                         .ok_or_else(|| internal("No portal"))?
-                        .scroll(dx, dy)
+                        .scroll(at, dx, dy)
                         .await?;
                 }
             }
@@ -163,6 +200,17 @@ impl Runtime {
         }
         let parsed = Request::parse(&serde_json::to_vec(&data).map_err(internal)?)?;
         self.input(&parsed).await
+    }
+}
+
+/// The X keysym for a character: Latin-1 as itself, the rest as Unicode keysyms; line breaks
+/// and tabs as the keys that type them.
+pub(crate) fn unicode_keysym(c: char) -> u32 {
+    match c {
+        '\n' | '\r' => 0xff0d,
+        '\t' => 0xff09,
+        c if (c as u32) < 0x100 => c as u32,
+        c => 0x0100_0000 | c as u32,
     }
 }
 

@@ -1,5 +1,5 @@
 import { legacySessions } from "./legacy-sessions.ts";
-import { mcpStatusGroups, type StatusReader, aceInstructions } from "./status.ts";
+import { mcpStatusGroups, type StatusReader, aceGuidance } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 import { resultReader, withChanges } from "./changes.ts";
 import { progressHeartbeat } from "./progress-heartbeat.ts";
@@ -261,7 +261,8 @@ async function createHandler(
       {
         ...(requestInfo?.headers.get("X-Ace-Instructions") === "native"
           ? {}
-          : { instructions: aceInstructions }),
+          : // Every group; the native-app tool follows the screen tools this daemon registered.
+            { instructions: aceGuidance(undefined, options.registry.names()) }),
         capabilities: { tools: { listChanged: true }, resources: {} },
       },
     );

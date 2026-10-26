@@ -154,8 +154,7 @@ export class ScreenStreamClient {
       const abort = () => finish(failure("internal", "Screen request aborted"));
       const cancelTimer = this.options.schedule(
         () => finish(failure("timeout", "Screen request timed out")),
-        options.timeoutMs ??
-          (operation.op === "mode" && operation.mode === "foreground" ? 65_000 : 15_000),
+        options.timeoutMs ?? defaultTimeoutMs(operation),
       );
       this.pending.set(requestId, {
         resolve,
@@ -288,4 +287,14 @@ export class ScreenStreamClient {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener(snapshot);
   }
+}
+
+/**
+ * How long a request may take. Bringing an app forward waits for the person to switch; a
+ * sharing-dialog start waits up to two minutes for the person at that machine to choose.
+ */
+function defaultTimeoutMs(operation: ScreenOperation): number {
+  if (operation.op === "mode" && operation.mode === "foreground") return 65_000;
+  if (operation.op === "start" && operation.target.kind === "chooser") return 140_000;
+  return 15_000;
 }

@@ -22,7 +22,7 @@ export default function ComputerUsePanel(props: TabViewProps) {
             <LiveSessions use={use} threadId={threadId} narrow />
           </section>
           <p className="mt-6 text-xs text-subtle-foreground">
-            macOS permissions are in{" "}
+            Permissions are in{" "}
             <Link
               to="/settings/computer-use"
               className="text-link focus-ring rounded-xs hover:underline"

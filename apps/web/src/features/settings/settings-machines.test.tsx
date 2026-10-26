@@ -101,7 +101,7 @@ test("with another machine picked, Computer use leaves screen access to that mac
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   await pickMachine("Build server");
   expect(
-    await screen.findByText("Turned on in ace on Build server, where macOS asks for access."),
+    await screen.findByText("Turned on in ace on Build server, where the system asks for access."),
   ).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull();
   expect(screen.queryByRole("region", { name: "macOS permissions" })).toBeNull();

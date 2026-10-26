@@ -586,9 +586,12 @@ test("enabling devices downloads the device tools, and missing tools offer the d
       runtime: "Android 15",
     });
   });
-  await userEvent.click(
-    await within(panel).findByRole("button", { name: "Download device tools" }),
+  const download = await within(panel).findByRole("button", { name: "Download device tools" });
+  // The list says it once, not as a problem on top and again as a note below.
+  expect(within(panel).getAllByText("The Simulator's device tools aren't downloaded")).toHaveLength(
+    1,
   );
+  await userEvent.click(download);
   await waitFor(() => expect(app.daemon.appDevices.toolDownloads).toBe(2));
   await waitFor(() =>
     expect(within(panel).queryByRole("button", { name: "Download device tools" })).toBeNull(),

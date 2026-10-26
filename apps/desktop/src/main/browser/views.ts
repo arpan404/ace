@@ -35,7 +35,7 @@ import { EmbeddedPageGroup } from "./page-group.ts";
 import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 import { requestKind } from "./request-schemes.ts";
-import { parkingOrigin, parkingWindowOptions } from "./parking.ts";
+import { parkingOrigin, parkingWindow } from "./parking.ts";
 
 /** The app window whose renderer asked to place a view, and that renderer's page zoom. */
 export interface PlacementHost {
@@ -262,15 +262,19 @@ export class EmbeddedViews implements ViewHost {
 
   private park(size: { width: number; height: number }): BaseWindow {
     let window = this.parking;
+    const parking = parkingWindow(this.options.platform, size);
     if (!window || window.isDestroyed()) {
-      window = new AppWindow(parkingWindowOptions(size));
+      window = new AppWindow(parking.options);
       window.setPosition(parkingOrigin.x, parkingOrigin.y);
-      // Visible to the compositor (frames and rAF run) but transparent, never focused and
-      // never in the way of a click, so the person never sees or hits it.
+      // Visible to the compositor (frames and rAF run) but transparent (or a shapeless
+      // pinhole on Linux), never focused and never in the way of a click, so the person
+      // never sees or hits it.
+      if (parking.emptyShape) window.setShape([]);
       window.setIgnoreMouseEvents(true);
       window.showInactive();
       this.parking = window;
     }
+    if (!parking.growsWithViews) return window;
     const [width = 0, height = 0] = window.getContentSize();
     if (size.width > width || size.height > height)
       window.setContentSize(Math.max(width, size.width), Math.max(height, size.height));

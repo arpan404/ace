@@ -10,6 +10,7 @@ test("detachment and repeated detached HEAD updates leave unrelated inventory un
   let headEvent: (() => void) | undefined;
   let saveEvent: (() => void) | undefined;
   let unavailable = false;
+  let workspace: string | undefined;
   const h = await fixture(
     {
       filesystem: {
@@ -26,10 +27,15 @@ test("detachment and repeated detached HEAD updates leave unrelated inventory un
         watch(root, options, listener) {
           return nativeWatch(root, options, (event, filename) => {
             listener(event, filename);
-            const path = filename?.split(sep).join("/");
-            if (options.recursive && (path === ".git/HEAD" || path === ".git/HEAD.lock"))
+            // Absolute, so it matches a recursive root watch and Linux's per-directory ones.
+            const path = filename === null ? undefined : join(root, filename);
+            if (!workspace || !path) return;
+            if (
+              path === join(workspace, ".git", "HEAD") ||
+              path === join(workspace, ".git", "HEAD.lock")
+            )
               headEvent?.();
-            if (options.recursive && path === "a.ts") saveEvent?.();
+            if (path === join(workspace, "a.ts")) saveEvent?.();
           });
         },
         clock: {
@@ -48,6 +54,7 @@ test("detachment and repeated detached HEAD updates leave unrelated inventory un
     },
     true,
   );
+  workspace = h.service.root;
   const reconcile = async () => {
     if (!timers.size)
       await new Promise<void>((resolve) => {
