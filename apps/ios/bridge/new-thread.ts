@@ -13,9 +13,6 @@ import {
   createPayload,
   defaultWorktreeBase,
   messageHasContent,
-  providerNames,
-  selectionInputs,
-  type AttachmentReader,
 } from "@ace/ui-core";
 import { newThreadProjects, selectNewThreadAgent, type NewThreadAgents } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -145,21 +142,6 @@ export class NewThread {
     this.#choice = choice;
     if (this.#agents) this.#emitAgents(this.#agents);
     void this.#access.target(this.#accessTarget(choice));
-  }
-
-  /** What the agent the sheet would start on reads, for checking a file before it uploads. */
-  reader(): AttachmentReader | undefined {
-    const start = this.#agents && selectNewThreadAgent(this.#agents, this.#choice);
-    if (!start?.ok) return undefined;
-    return {
-      provider: providerNames[start.provider],
-      imageInput: undefined,
-      model: start.model.label,
-      modalities: selectionInputs(this.#catalog, {
-        provider: start.provider,
-        model: start.model.id,
-      }),
-    };
   }
 
   async projects(): Promise<void> {
