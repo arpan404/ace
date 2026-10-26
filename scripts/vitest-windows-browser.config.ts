@@ -49,7 +49,7 @@ const escape = (name: string) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const excluded = [...posixOnly, ...(process.arch === "arm64" ? x64Only : [])];
 
 // Every browser workflow's tests on native Windows: ace's own Chrome, Use my Chrome's extension
-// and native host, browser annotation and dev-server preview. Runs after the Windows Chrome is
+// and native host, browser annotation, dev-server preview and the desktop's embedded view. Runs after the Windows Chrome is
 // prepared (`packages/browser/scripts/prepare-windows-test.ts`).
 export default defineConfig({
   test: {
@@ -59,6 +59,8 @@ export default defineConfig({
       "packages/browser-extension/src/**/*.test.ts",
       "packages/browser-annotate/src/**/*.test.ts",
       "packages/preview/src/**/*.test.ts",
+      // The desktop's embedded browser view, with real Chrome pages standing in for Electron's.
+      "apps/desktop/src/main/browser/**/*.test.ts",
     ],
     // A full name ends with the case's own name; "Windows: ..." counterparts stay included.
     testNamePattern: new RegExp(`^(?!.*(?<!Windows: )(?:${excluded.map(escape).join("|")})$)`),
