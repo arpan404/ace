@@ -34,7 +34,7 @@ export async function stageNodeRuntime(options: {
   destination: string;
 }): Promise<void> {
   const { target, cacheDir } = options;
-  if (isWindowsTarget(target)) throw new Error("Stage Windows Node with stageWindowsNodeRuntime");
+  if (isWindowsTarget(target)) return stageWindowsArchiveRuntime(target, options);
   const archive = `node-v${nodeVersion}-${target}.tar.gz`;
   const archivePath = join(cacheDir, archive);
   try {
@@ -167,4 +167,14 @@ export async function stageWindowsNodeRuntime(options: {
     throw new Error("Untrusted staged Windows Node runtime");
   if (!(await trusted(join(destination, "LICENSE"), license.sha256)))
     throw new Error("Untrusted staged Windows Node LICENSE");
+}
+
+/** The standalone Windows archive keeps Node as `bin\\node.exe` and its LICENSE at the top. */
+async function stageWindowsArchiveRuntime(
+  target: WindowsTarget,
+  options: { cacheDir: string; destination: string },
+): Promise<void> {
+  const bin = join(options.destination, "bin");
+  await stageWindowsNodeRuntime({ target, cacheDir: options.cacheDir, destination: bin });
+  await rename(join(bin, "LICENSE"), join(options.destination, "LICENSE"));
 }
