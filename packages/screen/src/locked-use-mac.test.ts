@@ -1,4 +1,4 @@
-import type { LockedUseStatus } from "@ace/protocol";
+import type { LockedUseObservation } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { macLockedUseInstaller, type PrivilegedRunner } from "./locked-use-mac.ts";
 import {
@@ -10,13 +10,17 @@ import {
   type FakeMacLayout,
 } from "./locked-use-fake-mac.ts";
 
-function setup(layout: FakeMacLayout, runner: Partial<PrivilegedRunner> = {}, intent = true) {
+function setup(
+  layout: FakeMacLayout,
+  runner: Partial<PrivilegedRunner> = {},
+  readIntent: () => Promise<boolean> = () => Promise.resolve(true),
+) {
   const mac = fakeMac(layout);
   const ticks: (() => void)[] = [];
   const installer = macLockedUseInstaller({
     host: mac.host,
     expect: { bundleVersion: fakeVersion, team: fakeTeam },
-    readIntent: () => Promise.resolve(intent),
+    readIntent,
     intervalMs: 1000,
     schedule: (_ms, tick) => {
       ticks.push(tick);
@@ -27,14 +31,19 @@ function setup(layout: FakeMacLayout, runner: Partial<PrivilegedRunner> = {}, in
       remove: runner.remove ?? (() => Promise.resolve()),
     },
   });
-  const seen: LockedUseStatus[] = [];
-  const stop = installer.subscribe((status) => seen.push(status));
+  const pushed: LockedUseObservation[] = [];
+  const stop = installer.subscribe((observation) => pushed.push(observation));
+  const seen = {
+    get statuses() {
+      return pushed.map((observation) => observation.status);
+    },
+  };
   const tick = async () => {
     mac.clock.now += 1000;
     for (const run of ticks) run();
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
-  return { installer, seen, stop, tick, ticks };
+  return { installer, seen, pushed, stop, tick, ticks };
 }
 
 describe("locked use installer on macOS", () => {
@@ -46,8 +55,8 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    expect(await installer.install()).toEqual({ state: "on" });
-    expect(seen).toEqual([{ state: "installing" }, { state: "on" }]);
+    expect((await installer.install()).status).toEqual({ state: "on" });
+    expect(seen.statuses).toEqual([{ state: "installing" }, { state: "on" }]);
   });
 
   it("fails the install when the runner succeeds but detection doesn't find it on", async () => {
@@ -58,9 +67,9 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    const status = await installer.install();
+    const { status } = await installer.install();
     expect(status).toEqual({ state: "installFailed", reason: "The relock guardian isn't loaded." });
-    expect(seen.at(-1)).toEqual(status);
+    expect(seen.statuses.at(-1)).toEqual(status);
   });
 
   it("fails the install with the runner's reason when it throws, even if parts landed", async () => {
@@ -71,7 +80,7 @@ describe("locked use installer on macOS", () => {
         return Promise.reject(new Error("privileged install pending owner review"));
       },
     });
-    expect(await installer.install()).toEqual({
+    expect((await installer.install()).status).toEqual({
       state: "installFailed",
       reason: "privileged install pending owner review",
     });
@@ -85,8 +94,8 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    expect(await installer.remove()).toEqual({ state: "off" });
-    expect(seen).toEqual([{ state: "installing" }, { state: "off" }]);
+    expect((await installer.remove()).status).toEqual({ state: "off" });
+    expect(seen.statuses).toEqual([{ state: "installing" }, { state: "off" }]);
   });
 
   it("removal that leaves a daemon behind needs repair", async () => {
@@ -97,7 +106,7 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    expect(await installer.remove()).toMatchObject({ state: "driftRepairNeeded" });
+    expect((await installer.remove()).status).toMatchObject({ state: "driftRepairNeeded" });
   });
 
   it("repair removes drifted parts, then installs and verifies", async () => {
@@ -115,7 +124,7 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    expect(await installer.repair()).toEqual({ state: "on" });
+    expect((await installer.repair()).status).toEqual({ state: "on" });
     expect(calls).toEqual(["remove", "install"]);
   });
 
@@ -132,7 +141,7 @@ describe("locked use installer on macOS", () => {
         return Promise.resolve();
       },
     });
-    expect(await installer.repair()).toMatchObject({ state: "driftRepairNeeded" });
+    expect((await installer.repair()).status).toMatchObject({ state: "driftRepairNeeded" });
     expect(calls).toEqual(["remove"]);
   });
 
@@ -141,11 +150,11 @@ describe("locked use installer on macOS", () => {
     const { seen, tick } = setup(layout);
     await tick();
     await tick();
-    expect(seen).toEqual([{ state: "on" }]);
+    expect(seen.statuses).toEqual([{ state: "on" }]);
     layout.guardian = false;
     await tick();
     await tick();
-    expect(seen).toEqual([
+    expect(seen.statuses).toEqual([
       { state: "on" },
       { state: "driftRepairNeeded", reason: "The relock guardian isn't loaded." },
     ]);
@@ -156,5 +165,82 @@ describe("locked use installer on macOS", () => {
     expect(ticks).toHaveLength(1);
     stop();
     expect(ticks).toHaveLength(0);
+  });
+
+  it("every returned and pushed observation has a strictly higher revision than the last", async () => {
+    const layout = emptyLayout();
+    const { installer, pushed, tick } = setup(layout, {
+      install: () => {
+        Object.assign(layout, installedLayout());
+        return Promise.resolve();
+      },
+    });
+    const all: LockedUseObservation[] = [];
+    all.push(await installer.detectStatus());
+    all.push(await installer.detectStatus());
+    all.push(await installer.install());
+    layout.guardian = false;
+    await tick();
+    all.push(await installer.detectStatus());
+    const revisions = all.map((observation) => observation.revision);
+    expect(revisions).toEqual(revisions.toSorted((a, b) => a - b));
+    expect(new Set(revisions).size).toBe(revisions.length);
+    const pushedRevisions = pushed.map((observation) => observation.revision);
+    expect(pushedRevisions).toEqual([...new Set(pushedRevisions)].toSorted((a, b) => a - b));
+    expect(pushed.map((observation) => observation.status.state)).toEqual([
+      "needsApproval",
+      "installing",
+      "on",
+      "driftRepairNeeded",
+    ]);
+  });
+
+  it("a detection that began before an install can't outrank the install's result", async () => {
+    const layout = emptyLayout();
+    const gate = Promise.withResolvers<void>();
+    let reads = 0;
+    const { installer, pushed } = setup(
+      layout,
+      {
+        install: () => {
+          Object.assign(layout, installedLayout());
+          return Promise.resolve();
+        },
+      },
+      // The first read stalls until after the install; it then sees the old, empty Mac.
+      async () => {
+        if (reads++ === 0) await gate.promise;
+        return true;
+      },
+    );
+    const early = installer.detectStatus();
+    const result = await installer.install();
+    expect(result.status).toEqual({ state: "on" });
+    Object.assign(layout, emptyLayout());
+    gate.resolve();
+    const stale = await early;
+    expect(stale.revision).toBeLessThan(result.revision);
+    expect(pushed.at(-1)).toEqual(result);
+  });
+
+  it("reports installing, not drift, when asked mid-install", async () => {
+    const layout = emptyLayout();
+    const finished = Promise.withResolvers<void>();
+    const { installer } = setup(layout, {
+      install: async () => {
+        // Half-installed until the test lets the install finish.
+        Object.assign(layout, { ...installedLayout(), guardian: false });
+        await finished.promise;
+        Object.assign(layout, installedLayout());
+      },
+    });
+    const installing = installer.install();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const during = await installer.detectStatus();
+    expect(during.status).toEqual({ state: "installing" });
+    finished.resolve();
+    const done = await installing;
+    expect(done.status).toEqual({ state: "on" });
+    expect(done.revision).toBeGreaterThan(during.revision);
   });
 });
