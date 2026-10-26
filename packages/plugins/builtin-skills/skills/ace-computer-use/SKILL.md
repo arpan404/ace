@@ -60,7 +60,7 @@ In a shared window or tab, target fields by id with `set_value`, `type` or `past
 
 Keep the person's focus where it is. `activate` brings the app forward and interrupts their work; use it only when the person explicitly wants foreground control. If background alternatives fail, report the unsupported action.
 
-While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
+While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable. If the person has turned on locked computer use and the component is installed and verified, an approved turn's `screen_state` and `screen_act` may briefly run on a locked Mac behind opaque covers; the person's input ends that at once and the Mac locks again afterwards. Otherwise locked use stays refused with `screen_locked` or `session_unavailable`, and a failed unlock leaves the Mac locked with an error: do not retry it in a loop. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
 ### On Linux
 
