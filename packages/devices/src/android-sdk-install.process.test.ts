@@ -40,7 +40,8 @@ it.runIf(windows)(
   async () => {
     const home = await folder();
     const platform = new DevicePlatform({ platform: "win32", home, env: { PATH: "" } });
-    expect(await platform.list()).toEqual([]);
+    // No SDK for either platform: the inventory fails, and still says where iOS work goes.
+    await expect(platform.list()).rejects.toThrow("platform-tools were not found");
     expect(platform.diagnostics()).toContainEqual(
       expect.objectContaining({
         platform: "ios",

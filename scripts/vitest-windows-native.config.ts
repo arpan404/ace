@@ -93,19 +93,22 @@ export default defineConfig({
       "packages/notify/src/worker.process.test.ts",
       "packages/notify/src/webpush.process.test.ts",
       "packages/secure-channel/src/noise.test.ts",
-      "packages/secure-channel/src/node.test.ts",
+      "packages/secure-channel/src/host-keys.process.test.ts",
       "packages/secure-channel/src/handshake-boundary.test.ts",
       "packages/devices/src/android-sdk-install.process.test.ts",
       "packages/devices/src/emulator-discovery.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
-    // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
-    // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    // Shared files also hold POSIX cases. These check POSIX owner uid and mode bits; Windows
+    // counterparts ("Windows bounded reads refuse junctions...") run instead, and the data
+    // home's owner-only ACL protects the push secrets file on Windows.
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
+      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    // process-test-setup builds the daemon CLI and the shared TLS fixture the remote, Fleet and
+    // automation suites start daemons with.
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/process-test-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });

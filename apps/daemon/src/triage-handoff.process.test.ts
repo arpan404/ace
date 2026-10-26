@@ -23,7 +23,15 @@ it.runIf(process.platform === "win32")(
       `@echo off\r\n"${process.execPath}" "%~dp0record.cjs" %*\r\n`,
     );
     const prompt = `Read ${join(folder, "playbook.md")} and follow it; 100% "quoted" & (grouped).`;
-    const code = await runTriageHandoff("claude", prompt, { ...process.env, PATH: bin }, folder);
+    const code = await runTriageHandoff(
+      "claude",
+      prompt,
+      {
+        ...process.env,
+        PATH: [bin, join(process.env.SystemRoot ?? "C:\\Windows", "System32")].join(";"),
+      },
+      folder,
+    );
     expect(code).toBe(7);
     expect(JSON.parse(await readFile(join(root, "seen.json"), "utf8"))).toEqual({
       cwd: folder,
