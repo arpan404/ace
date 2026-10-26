@@ -1,0 +1,75 @@
+name: Windows Git and forge
+
+# Git, forge and review workflows against the runner's own Git for Windows and gh,
+# on native x64 and ARM64. Fixtures need no MSVC build: install skips postinstall.
+
+on:
+  push:
+    branches: [ace/win-git]
+    paths:
+      - .github/workflows/windows-git.yml
+      - scripts/vitest-windows-git.config.ts
+      - packages/git/**
+      - packages/forge/**
+      - packages/review/**
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Comma-separated test globs (defaults to the Git, forge and review suites)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-git:
+    name: Windows Git (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+      ACE_WINDOWS_GIT_TESTS: ${{ inputs.tests || 'packages/git/src/**/*.test.ts,packages/forge/src/**/*.test.ts,packages/review/src/**/*.test.ts' }}
+    steps:
+      # The checkout keeps LF; the runner's system core.autocrlf stays as installed for tests.
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.arch }}
+      - name: Git and gh on this runner
+        run: |
+          node -p "JSON.stringify({ arch: process.arch, version: process.version })"
+          git --version
+          git config --system --list --show-origin
+          gh --version
+      - name: Run Windows Git suite
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-git.config.ts
