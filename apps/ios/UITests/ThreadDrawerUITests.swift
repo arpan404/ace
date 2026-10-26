@@ -110,10 +110,16 @@ import XCTest
         let app = try launch()
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        app.buttons["thread.sidebar"].tap()
+        let sidebar = app.buttons["thread.sidebar"]
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        sidebar.tap()
+        let first = app.buttons["thread.ios-form"]
+        XCTAssertTrue(first.waitForHittable(timeout: 10), "the drawer is out")
         let done = app.buttons["thread.ios-done"]
+        // Scroll the drawer's list by its own rows, clear of the dimmed thread.
+        let list = first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         for _ in 0..<8 where !done.reachable {
-            app.buttons["thread.ios-question"].firstMatch.swipeUp()
+            list.withOffset(CGVector(dx: 0, dy: 300)).press(forDuration: 0.05, thenDragTo: list, withVelocity: .default, thenHoldForDuration: 0.2)
         }
         XCTAssertTrue(done.reachable)
         done.swipeLeft()

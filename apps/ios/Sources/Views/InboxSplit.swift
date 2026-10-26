@@ -87,11 +87,11 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
 
     private var split: some View {
         // A compact window always shows the detail column: the list is the drawer's, never a
-        // page under the thread to go back to. Should the stack still pop to its empty sidebar
-        // (an escape gesture, a back swipe), the list comes out as the drawer instead.
-        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: Binding(get: { .detail }, set: { column in
-            if column == .sidebar, layout == .page, !drawer.isOpen { openDrawer() }
-        })) {
+        // page under the thread to go back to. The split view reports its sidebar on top each
+        // time a page pushed over the thread pops, so that report opens nothing. Back stays
+        // hidden at the root, which leaves the system's back swipe off there, and VoiceOver's
+        // escape at the root opens the drawer instead.
+        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: .constant(.detail)) {
             Group {
                 if layout == .beside {
                     listed(onGlass: onSidebarGlass)
