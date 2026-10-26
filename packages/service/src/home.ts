@@ -4,6 +4,7 @@ import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { isDesktopShim, renderLauncher } from "./launcher.ts";
 import { CMD_LAUNCHER } from "./launcher.ts";
+import { pointerText } from "./files.ts";
 export { CLI_SHIM_MARKER, isDesktopShim, renderLauncher } from "./launcher.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 
@@ -109,7 +110,7 @@ function installedPointerVersion(root: string): string {
   try {
     const home = PinnedDirectory.atBoundary(root);
     directories.push(home);
-    const target = ReleaseDirectory.parse(home.readText("current", 256));
+    const target = ReleaseDirectory.parse(pointerText(home.readText("current", 256)));
     if (!home.matchesBoundary(root)) throw new Error("Home changed during validation");
     const releases = home.child("releases");
     directories.push(releases);
@@ -127,7 +128,7 @@ function installedPointerVersion(root: string): string {
     return release.version;
   } catch (cause) {
     throw new Error(
-      `Incompatible or legacy ace installation at ${root}. Refusing to execute or adopt its binary/service.`,
+      `Incompatible or legacy ace installation at ${root} (${cause instanceof Error ? cause.message : "invalid"}). Refusing to execute or adopt its binary/service.`,
       { cause },
     );
   } finally {

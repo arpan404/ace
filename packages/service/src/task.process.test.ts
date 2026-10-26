@@ -260,13 +260,14 @@ windows("Windows home layout", () => {
       "-Command",
       `$f = [System.IO.File]::Open('${current}', 'Open', 'Read', 'Read'); 'held'; Start-Sleep -Milliseconds 1500; $f.Close()`,
     ]);
+    const released = new Promise((resolve) => holder.once("exit", resolve));
     await new Promise<void>((resolve, reject) => {
       holder.stdout.once("data", () => resolve());
       holder.once("exit", () => reject(new Error("Holder exited before locking")));
     });
     await atomicPointer(current, "releases/1.1.0-" + target);
     await expect(pointer(current)).resolves.toBe("releases/1.1.0-" + target);
-    await new Promise((resolve) => holder.once("exit", resolve));
+    await released;
   });
 });
 
@@ -336,8 +337,9 @@ windows("Windows standalone update", () => {
       // Pruning is best effort: the held release stays for the next update to remove.
       expect(await readFile(join(root, stale, "helper.exe"), "utf8")).toBe("loaded");
     } finally {
+      const released = new Promise((resolve) => holder.once("exit", resolve));
       holder.stdin.end("\n");
-      await new Promise((resolve) => holder.once("exit", resolve));
+      await released;
     }
   });
 });

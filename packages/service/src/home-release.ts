@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { renderLauncher } from "./launcher.ts";
 import { CMD_LAUNCHER } from "./launcher.ts";
+import { pointerText } from "./files.ts";
 
 /** Whether anything, a dangling pointer included, is at `path`. */
 function present(path: string): boolean {
@@ -60,7 +61,7 @@ function carriedPointerVersion(backup: string, home: string): string | undefined
   try {
     if (present(join(backup, "update.json"))) return undefined;
     const target = ReleaseDirectory.parse(
-      readFileSync(join(backup, "current"), "utf8").slice(0, 256),
+      pointerText(readFileSync(join(backup, "current"), "utf8").slice(0, 256)),
     );
     const release = InstalledRelease.parse(
       JSON.parse(readFileSync(join(backup, target, "release.json"), "utf8").slice(0, 16 * 1024)),

@@ -80,7 +80,7 @@ async function smokeWindows(release: string, version: string): Promise<void> {
   const nodeExe = join(release, "bin", "node.exe");
   const terminal = await checked(runProcess, nodeExe, [
     "-e",
-    `const p=require(${JSON.stringify(join(release, "node_modules/node-pty"))});let output="";const t=p.spawn(process.env.ComSpec||"cmd.exe",["/d","/c","echo ace-pty-smoke"],{name:"xterm",cols:80,rows:24,cwd:${JSON.stringify(release)},env:process.env,useConptyDll:true});t.onData(s=>{output+=s;if(output.length>4096)throw new Error("Unexpected output");});t.onExit(e=>{if(e.exitCode!==0||!output.includes("ace-pty-smoke"))process.exitCode=1;else process.stdout.write("PTY passed\\n");});`,
+    `const p=require(${JSON.stringify(join(release, "node_modules/node-pty"))});let output="";const t=p.spawn(process.env.ComSpec||"cmd.exe",["/d","/c","echo ace-pty-smoke"],{name:"xterm",cols:80,rows:24,cwd:${JSON.stringify(release)},env:process.env,useConptyDll:true});t.onData(s=>{output+=s;if(output.length>4096)throw new Error("Unexpected output");});t.onExit(e=>{const ok=e.exitCode===0&&output.includes("ace-pty-smoke");process.stdout.write(ok?"PTY passed\\n":"PTY failed\\n",()=>process.exit(ok?0:1));});`,
   ]);
   process.stdout.write(terminal.stdout);
   const home = await mkdtemp(join(tmpdir(), "ace-release-smoke-"));

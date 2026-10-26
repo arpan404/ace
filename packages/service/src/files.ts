@@ -139,7 +139,8 @@ async function writePointerFile(path: string, target: string): Promise<void> {
   await rm(temp, { force: true });
   const file = await open(temp, "w", 0o600);
   try {
-    await file.writeFile(target);
+    // A line ending, so the launcher's `findstr /x` matches the line.
+    await file.writeFile(target + "\r\n");
     await file.sync();
   } finally {
     await file.close();
@@ -158,7 +159,7 @@ async function readPointerFile(path: string): Promise<string | undefined> {
   try {
     const info = await file.stat();
     if (!info.isFile() || info.size > 256) throw new Error(`Invalid release pointer ${path}`);
-    return await file.readFile("utf8");
+    return pointerText(await file.readFile("utf8"));
   } finally {
     await file.close();
   }
@@ -189,4 +190,9 @@ async function syncWindowsTree(root: string): Promise<void> {
     }
   }
   await visit(root);
+}
+
+/** The release a Windows pointer file names: its one line, without the line ending. */
+export function pointerText(content: string): string {
+  return content.endsWith("\r\n") ? content.slice(0, -2) : content;
 }
