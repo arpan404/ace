@@ -14,6 +14,7 @@ import {
 import { cloneFromBundle, type BundleCloneOptions } from "./transfer-clone.ts";
 import { ignoredPaths } from "./transfer-ignored.ts";
 import { bundleRefs, createBranch, deleteRef, pinRef, transferOrigin } from "./transfer-refs.ts";
+import { sourceCheckout, type SourceCheckout } from "./transfer-source.ts";
 
 /** A repository directory the caller holds open, entered by descriptor instead of by path. */
 export interface Held {
@@ -52,6 +53,10 @@ export class GitTransfer {
     return this.repository.serial(path, () => operation(path, directoryFd));
   }
 
+  /** Whether `path` is in a work tree (and where its top is), a plain folder, or refused. */
+  sourceCheckout(path: string): Promise<SourceCheckout> {
+    return sourceCheckout(this.repository, path);
+  }
   /** `origin`'s fetch URL and its `normalizeRemoteUrl` key; undefined without an origin. */
   transferOrigin(path: string) {
     return this.within(path, (root) => transferOrigin(this.repository, root));
@@ -60,9 +65,12 @@ export class GitTransfer {
   captureChanges(path: string, options: { ref: string; message?: string | undefined }) {
     return this.within(path, (root) => captureChanges(this.repository, root, options));
   }
-  /** Paths Git ignores; a whole ignored folder once, ending in `/`. See `ignoredPaths`. */
-  ignoredPaths(path: string): Promise<string[]> {
-    return this.within(path, (root) => ignoredPaths(this.repository, root));
+  /**
+   * Paths Git ignores, relative to the work tree's top; a whole ignored folder once, ending in
+   * `/`. `under` (work-tree relative) narrows them to one folder. See `ignoredPaths`.
+   */
+  ignoredPaths(path: string, under?: string): Promise<string[]> {
+    return this.within(path, (root) => ignoredPaths(this.repository, root, under));
   }
   bundleRefs(path: string) {
     return this.within(path, (root) => bundleRefs(this.repository, root));
