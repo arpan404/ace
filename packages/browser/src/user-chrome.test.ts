@@ -107,7 +107,8 @@ async function lastCommand(wire: ReturnType<typeof transport>): Promise<string> 
   if (message?.type !== "user_browser.command") throw new Error("expected a command");
   return message.id;
 }
-const refused = "Not attached to an active page";
+// As the extension relays it: Chrome's DevTools error, serialized.
+const refused = '{"code":-32000,"message":"Not attached to an active page"}';
 
 test("a tab command Chrome refuses while the page changes processes runs once the page arrives", async () => {
   const clock = manualClock();

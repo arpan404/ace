@@ -227,7 +227,7 @@ export class UserChromeLink {
           try {
             return await once(sessionId, method, params);
           } catch (error) {
-            if (!(error instanceof Error) || error.message !== betweenProcesses) throw error;
+            if (!(error instanceof Error) || !error.message.includes(betweenProcesses)) throw error;
           }
           await this.progress(tabId, wait);
         }
