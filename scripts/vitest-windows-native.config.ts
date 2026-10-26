@@ -67,12 +67,20 @@ export default defineConfig({
       // Sandboxed HTML visualizations and handoff documents.
       "packages/html/src/**/*.test.ts",
       "packages/handoff/src/**/*.test.ts",
+      // Project listing, reads, Node search, watching and Git ignore rules. Windows searches
+      // with ace's in-process Node backend, never ripgrep.
+      "packages/workspace/src/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    //
+    // Workspace cases left out, each with a Windows counterpart or no Windows meaning:
+    // ripgrep-only cases (Windows always searches with Node); names holding "\\" or a newline,
+    // which Windows can't create; "/dev/null" as a root; and the forced Linux per-directory
+    // watch strategy, which Windows never uses (it watches the root recursively).
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)(?!.*(?:with backend rg|cancels after ripgrep begins matching and reaps it before rejecting|ripgrep and Node return identical literal, regex, case and glob results|uses the injected real process boundary for ripgrep selection and search|returns typed missing-file and wrong-kind errors|uses batched git ignore rules including nested negations and newline filenames|omits unsupported discovered filenames without corrupting listing or watch paths|never places a watch inside ignored or Git directories)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
