@@ -52,16 +52,6 @@ enum Transcoder {
     }
 }
 
-/// What the transcoder needs of its encoder; tests stand in for the hardware one.
-protocol TranscodeEncoder: AnyObject {
-    var busyNow: Bool { get }
-    func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, at: UInt64, quality: StreamQuality) -> VideoEncodeResult
-    func requestKeyframe()
-    func retune(bitrate: Int)
-    func close()
-}
-extension VideoEncoder: TranscodeEncoder {}
-
 /// A decoded picture waiting to be encoded.
 struct TranscodePicture {
     let image: CVPixelBuffer
@@ -74,7 +64,7 @@ struct TranscodePicture {
 /// so the last change before the Simulator goes still is never lost. A keyframe request or a new
 /// size encodes the last picture again: a still screen sends nothing that would carry them.
 final class TranscodeState {
-    private let encoder: TranscodeEncoder
+    private let encoder: VideoEncoding
     private let now: () -> UInt64
     private var frames: LatestVideoFrames<TranscodePicture>!
     private var last: TranscodePicture?
@@ -86,7 +76,7 @@ final class TranscodeState {
     private var maxWidth = 3840, maxHeight = 3840
     private var decoded: (CVPixelBuffer, UInt64, Double)?
 
-    init(encoder: TranscodeEncoder, now: @escaping () -> UInt64) {
+    init(encoder: VideoEncoding, now: @escaping () -> UInt64) {
         self.encoder = encoder
         self.now = now
         frames = LatestVideoFrames { [unowned self] picture in self.submit(picture) }
