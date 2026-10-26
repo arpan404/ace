@@ -39,6 +39,9 @@ const posixOnly = [
   // annotation: pins <html> by clicking below its scroller; passes at scale 2 only by the
   // long-edge rule ("Windows: an element crop is the element..." runs instead)
   "an element crop is the element with an 8 px margin, its long edge at most 1024 px",
+  // chrome-host: a 1 s budget for every command, setup included ("Windows: fails a command..."
+  // keeps the deadline check without depending on how fast a first navigation is)
+  "fails a command with no reply at its deadline while later commands still run",
   // process-table: POSIX process groups (the Windows tree is a job: chrome-job.process.test.ts)
   "finds a detached process by its command line with its own process group",
   // profile-scope: `/` separator
