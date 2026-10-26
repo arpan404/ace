@@ -108,25 +108,23 @@ async function launch(scale: number): Promise<Launched> {
       .catch((reason: unknown) => String(reason));
     console.log(`[page visibility] ${visibility}`);
     console.log(`[requests pending] ${[...pending].join(" ")}`);
+    // A string, so the test runner leaves the page's own `import()` alone.
     const fakeImport = await page
-      .evaluate(async () => {
-        const html = await (await fetch("/")).text();
-        const entries = [...html.matchAll(/src="(\/assets\/[^"]+\.js)"/g)].map((m) => m[1]);
-        let chunk: string | undefined;
-        for (const entry of entries) {
-          const text = await (await fetch(entry ?? "")).text();
-          chunk = /fake-[\w-]+\.js/.exec(text)?.[0] ?? chunk;
-        }
-        if (!chunk) return `no fake chunk named in ${entries.join(",")}`;
-        const loaded = import(`/assets/${chunk}`).then(
-          () => "loaded",
-          (error: unknown) => `failed: ${String(error)}`,
-        );
-        const late = new Promise<string>((resolve) =>
-          setTimeout(() => resolve("still pending after 10s"), 10_000),
-        );
-        return `${chunk}: ${await Promise.race([loaded, late])}`;
-      })
+      .evaluate(
+        `(async () => {
+          const html = await (await fetch("/")).text();
+          const entries = [...html.matchAll(/src="(\\/assets\\/[^"]+\\.js)"/g)].map((m) => m[1]);
+          let chunk;
+          for (const entry of entries) {
+            const text = await (await fetch(entry)).text();
+            chunk = (/fake-[\\w-]+\\.js/.exec(text) || [])[0] || chunk;
+          }
+          if (!chunk) return "no fake chunk named in " + entries.join(",");
+          const loaded = import("/assets/" + chunk).then(() => "loaded", (error) => "failed: " + String(error));
+          const late = new Promise((resolve) => setTimeout(() => resolve("still pending after 10s"), 10000));
+          return chunk + ": " + (await Promise.race([loaded, late]));
+        })()`,
+      )
       .catch((reason: unknown) => String(reason));
     console.log(`[fake import] ${fakeImport}`);
     const state = await windowsReport(app);
