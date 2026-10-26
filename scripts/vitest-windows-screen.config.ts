@@ -10,6 +10,8 @@ export default defineConfig({
     include: [
       "packages/screen/src/native.process.test.ts",
       "packages/screen/src/semantic.native.process.test.ts",
+      // Windows open-app policy over the fake helper; its cases are the file's "Windows" ones.
+      "packages/screen/src/mcp.process.test.ts",
     ],
     testNamePattern: /Windows/,
     maxWorkers: 1,

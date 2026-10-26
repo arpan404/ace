@@ -32,45 +32,6 @@ export async function manager(env: NodeJS.ProcessEnv = {}, extra: Partial<Screen
     },
   };
 }
-/**
- * Helper options for the protocol-v2 fake helper as `platform`'s host launches it. The helper
- * owns its frame endpoint, which lives in a fresh `directory`.
- */
-export async function v2Helper(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = {}) {
-  const directory = await mkdtemp(join(tmpdir(), "screen-v2-"));
-  const options = {
-    command: process.execPath,
-    args: [fileURLToPath(new URL("./fake-helper-v2.ts", import.meta.url))],
-    nextId: ids(),
-    platform,
-    endpoint: `unix:${join(directory, "pipe")}`,
-    env,
-  };
-  return { options, directory, clean: () => rm(directory, { recursive: true, force: true }) };
-}
-/** An enabled ScreenManager over the protocol-v2 fake helper on `platform`. */
-export async function v2Fixture(platform: NodeJS.Platform, overrides: Partial<ScreenOptions> = {}) {
-  const helper = await v2Helper(platform);
-  const screen = new ScreenManager({
-    ...helper.options,
-    recordingDirectory: helper.directory,
-    publishArtifact: async () => {},
-    ...overrides,
-  });
-  await screen.enable(true);
-  return {
-    manager: screen,
-    directory: helper.directory,
-    start: () => screen.start(target),
-    async close() {
-      try {
-        await screen.close();
-      } finally {
-        await helper.clean();
-      }
-    },
-  };
-}
 export async function ready(screen: ScreenManager) {
   await screen.enable(true);
   return screen.start(target);
@@ -98,3 +59,14 @@ export function deferred<T>() {
 }
 
 function ignore() {}
+/**
+ * Windows only: the protocol-v2 fake must listen on a named pipe (Node cannot bind a file path
+ * there) and be launched by file path. Spread after the fixture's POSIX endpoint and args.
+ */
+export function windowsFakeOverrides(directory: string): { args?: string[]; endpoint?: string } {
+  if (process.platform !== "win32") return {};
+  return {
+    args: [fileURLToPath(new URL("./fake-helper-v2.ts", import.meta.url))],
+    endpoint: `unix:\\\\.\\pipe\\ace-screen-test-${directory.split(/[\\/]/).at(-1)}`,
+  };
+}

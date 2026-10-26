@@ -49,6 +49,12 @@ export default defineConfig({
       "tools/release/src/pty-assets.test.ts",
       "tools/release/src/node-runtime.test.ts",
       "tools/release/src/archive-paths.process.test.ts",
+      // Screen helper lifecycle over the protocol-v2 fake on a named pipe: negotiation,
+      // fragmented frames, crash/restart ownership, pending-read takeover, suspend/resume,
+      // oversized commands and retired packets.
+      "packages/screen/src/windows.process.test.ts",
+      "packages/screen/src/lifecycle-review.process.test.ts",
+      "packages/screen/src/ui-results.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     testTimeout: PROCESS_TEST_TIMEOUT,

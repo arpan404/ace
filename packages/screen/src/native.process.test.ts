@@ -4,14 +4,8 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
-import {
-  ScreenInventory,
-  ScreenPermissions,
-  ScreenTarget,
-  ScreenUIActResult,
-  ScreenUIFindResult,
-  ScreenUITree,
-} from "@ace/protocol";
+import { ScreenInventory, ScreenPermissions } from "@ace/protocol";
+import { ScreenTarget, ScreenUIActResult, ScreenUIFindResult, ScreenUITree } from "@ace/protocol";
 import { Helper, type Frame } from "./index.ts";
 import { nativeWindowsHelper, ownedWindow } from "./testing/owned-window.ts";
 import { deferred, ids } from "./testing/support.ts";
