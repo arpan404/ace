@@ -87,9 +87,14 @@ const windowsRoots = [
   ["Chromium", "Chromium/User Data", "Chromium"],
 ] as const;
 
+/** Windows: `%LOCALAPPDATA%`, where browsers keep user data and ace keeps its host launchers. */
+export function windowsLocalAppData(home: string, env: { LOCALAPPDATA?: string | undefined } = {}) {
+  return env.LOCALAPPDATA || join(home, "AppData", "Local");
+}
+
 /** Windows: each browser's user data root and the HKCU key whose default value names the manifest. */
 export function windowsHostKeys(home: string, env: { LOCALAPPDATA?: string | undefined } = {}) {
-  const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
+  const local = windowsLocalAppData(home, env);
   return windowsRoots.map(([browser, path, vendor]) => ({
     browser,
     root: join(local, path),
@@ -97,17 +102,34 @@ export function windowsHostKeys(home: string, env: { LOCALAPPDATA?: string | und
   }));
 }
 
-/** cmd.exe quoted word; `%` doubles so variable expansion never rewrites a path. */
+/** cmd.exe quoted word. `%` doubles so variable expansion never rewrites a path, and trailing
+ * backslashes double so Node's argument parser doesn't read `\"` as an escaped quote. */
 function batchWord(value: string): string {
   if (/[\r\n\0"]/.test(value)) throw new Error("Invalid native host path");
-  return `"${value.replaceAll("%", "%%")}"`;
+  return `"${value.replaceAll("%", "%%").replace(/\\+$/, (slashes) => slashes + slashes)}"`;
 }
 
-/** The Windows launcher. cmd.exe reads batch lines in the OEM code page, so switch to UTF-8 first. */
+/**
+ * The Windows launcher. cmd.exe reads batch lines in the console code page, so it switches to
+ * UTF-8 before the line with paths, then restores the caller's code page (the console may be
+ * shared) and returns Node's exit code. Nothing but Node writes to stdout, the message channel.
+ */
 export function windowsLauncherScript(options: {
   node: string;
   entry: string;
   dataDir: string;
 }): string {
-  return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
+  return [
+    "@echo off",
+    "setlocal DisableDelayedExpansion",
+    'set "ace_cp="',
+    `for /f "tokens=2 delims=:" %%a in ('chcp 2^>nul') do for /f "tokens=1 delims=. " %%b in ("%%a") do set "ace_cp=%%b"`,
+    'if defined ace_cp for /f "delims=0123456789" %%c in ("%ace_cp%") do set "ace_cp="',
+    "chcp 65001 >nul 2>nul",
+    `${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*`,
+    'set "ace_status=%errorlevel%"',
+    "if defined ace_cp chcp %ace_cp% >nul 2>nul",
+    "exit /b %ace_status%",
+    "",
+  ].join("\r\n");
 }
