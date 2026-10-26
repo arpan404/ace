@@ -162,6 +162,16 @@ impl Drop for Capture {
         }
     }
 }
+/// The performance counter in 100 ns units, the clock of a frame's SystemRelativeTime.
+fn counter_100ns() -> Option<i64> {
+    use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut count, mut frequency) = (0i64, 0i64);
+    unsafe {
+        QueryPerformanceCounter(&mut count).ok()?;
+        QueryPerformanceFrequency(&mut frequency).ok()?;
+    }
+    (frequency > 0).then(|| (i128::from(count) * 10_000_000 / i128::from(frequency)) as i64)
+}
 fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -182,6 +192,7 @@ fn run(
     let start = Instant::now();
     let epoch = now_ms();
     let clock = || epoch + start.elapsed().as_secs_f64() * 1000.0;
+    let mut last_captured = 0.0;
     loop {
         let (lock, wake) = &**signal;
         let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -265,14 +276,23 @@ fn run(
         } else {
             output.0 as f64 / size.Width as f64
         };
+        let captured_100ns = frame.SystemRelativeTime().map(|time| time.Duration).ok();
         let (rgb, width, height) = gpu.read(&texture, size.Width as u32, size.Height as u32)?;
-        let packet = stream.lock().unwrap_or_else(|e| e.into_inner()).frame(
-            rgb,
-            width,
-            height,
-            scale,
-            clock(),
-        )?;
+        let now = clock();
+        // The header's ts is when the picture was taken, not when the readback finished.
+        let captured = match (captured_100ns, counter_100ns()) {
+            (Some(frame_time), Some(counter)) => {
+                crate::stream::captured_at(now, counter, frame_time, last_captured)
+            }
+            _ => now,
+        };
+        let packet = stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .frame_at(rgb, width, height, scale, now, captured)?;
+        if packet.is_some() {
+            last_captured = captured;
+        }
         frame.Close()?;
         if let Some(packet) = packet {
             let generation = stream

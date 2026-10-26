@@ -50,11 +50,15 @@ mod fixture {
     const PASTE_MODE: u32 = WM_APP + 8;
     const HANG: u32 = WM_APP + 9;
     const SECOND: u32 = WM_APP + 10;
+    const BURST: u32 = WM_APP + 11;
+    const RESIZE: u32 = WM_APP + 12;
 
     static PRESSES: AtomicU32 = AtomicU32::new(0);
     static MAIN: AtomicIsize = AtomicIsize::new(0);
     static MODAL_WINDOW: AtomicIsize = AtomicIsize::new(0);
     static SECOND_EDIT: AtomicIsize = AtomicIsize::new(0);
+    /// The background colour (COLORREF, 0x00BBGGRR), for capture tests that change the picture.
+    static BACKGROUND: AtomicU32 = AtomicU32::new(0x00FF_FFFF);
     static NOTES_PROC: AtomicIsize = AtomicIsize::new(0);
     /// How the notes field pastes: 0 as usual, 1 then copies text of its own, 2 slowly.
     static PASTE: AtomicU32 = AtomicU32::new(0);
@@ -369,6 +373,49 @@ mod fixture {
                 std::thread::sleep(std::time::Duration::from_millis(ms));
                 LRESULT(0)
             }
+            WM_ERASEBKGND => {
+                let mut rect = RECT::default();
+                let _ = GetClientRect(hwnd, &mut rect);
+                let brush = CreateSolidBrush(COLORREF(BACKGROUND.load(Ordering::Relaxed)));
+                FillRect(HDC(wparam.0 as *mut _), &rect, brush);
+                let _ = DeleteObject(brush);
+                LRESULT(1)
+            }
+            BURST => {
+                // Several changes within one capture interval, then a still window: the last
+                // colour is what a viewer must end up seeing.
+                let colors: Vec<u32> = argument()
+                    .split(',')
+                    .filter_map(|c| u32::from_str_radix(c.trim(), 16).ok())
+                    .collect();
+                for color in &colors {
+                    BACKGROUND.store(*color, Ordering::Relaxed);
+                    let _ = InvalidateRect(hwnd, None, true);
+                    let _ = UpdateWindow(hwnd);
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                }
+                say(serde_json::json!({"event": "burst", "colors": colors.len()}));
+                LRESULT(0)
+            }
+            RESIZE => {
+                let size: Vec<i32> = argument()
+                    .split_whitespace()
+                    .filter_map(|v| v.parse().ok())
+                    .collect();
+                if let [width, height] = size[..] {
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        0,
+                        0,
+                        width,
+                        height,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+                say(serde_json::json!({"event": "resized"}));
+                LRESULT(0)
+            }
             SECOND => {
                 let second = CreateWindowExW(
                     WINDOW_EX_STYLE(0),
@@ -599,6 +646,8 @@ mod fixture {
                         "paste-mode" => PASTE_MODE,
                         "hang" => HANG,
                         "second" => SECOND,
+                        "burst" => BURST,
+                        "resize" => RESIZE,
                         "quit" => WM_CLOSE,
                         _ => continue,
                     };

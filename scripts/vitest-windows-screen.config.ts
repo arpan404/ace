@@ -10,6 +10,8 @@ export default defineConfig({
     include: [
       "packages/screen/src/native.process.test.ts",
       "packages/screen/src/semantic.native.process.test.ts",
+      // Live-view pacing and resize against the Rust fixture window.
+      "packages/screen/src/capture-pacing.native.process.test.ts",
       // The --computer engine behind the agent tools, against the Rust fixture window.
       "packages/screen/src/computer/uia-engine.native.process.test.ts",
       "packages/screen/src/computer/policy-hosts.test.ts",
