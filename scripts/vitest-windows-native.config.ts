@@ -71,16 +71,25 @@ export default defineConfig({
       // with ace's in-process Node backend, never ripgrep.
       "packages/workspace/src/**/*.test.ts",
     ],
-    exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "packages/mcp-server/src/discovery-fifo.process.test.ts",
+      // These write native paths into Git config text, which Git reads as bad escapes on
+      // Windows; config-paths.process.test.ts runs the same cases with "/" paths.
+      "packages/workspace/src/include-watch.process.test.ts",
+      "packages/workspace/src/branch-includes.process.test.ts",
+    ],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
     //
     // Workspace cases left out, each with a Windows counterpart or no Windows meaning:
     // ripgrep-only cases (Windows always searches with Node); names holding "\\" or a newline,
     // which Windows can't create; "/dev/null" as a root; and the forced Linux per-directory
-    // watch strategy, which Windows never uses (it watches the root recursively).
+    // watch strategy, which Windows never uses (it watches the root recursively); and the
+    // symlink swap race, whose child can't rename a folder ace holds open on Windows
+    // (junction-race.process.test.ts is the Windows case).
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)(?!.*(?:with backend rg|cancels after ripgrep begins matching and reaps it before rejecting|ripgrep and Node return identical literal, regex, case and glob results|uses the injected real process boundary for ripgrep selection and search|returns typed missing-file and wrong-kind errors|uses batched git ignore rules including nested negations and newline filenames|omits unsupported discovered filenames without corrupting listing or watch paths|never places a watch inside ignored or Git directories)$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)(?!.*(?:with backend rg|cancels after ripgrep begins matching and reaps it before rejecting|ripgrep and Node return identical literal, regex, case and glob results|uses the injected real process boundary for ripgrep selection and search|returns typed missing-file and wrong-kind errors|uses batched git ignore rules including nested negations and newline filenames|omits unsupported discovered filenames without corrupting listing or watch paths|never places a watch inside ignored or Git directories|never returns outside bytes while a real child swaps a parent directory for a symlink)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
