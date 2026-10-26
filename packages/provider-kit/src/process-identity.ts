@@ -5,6 +5,9 @@ import { z } from "zod";
 // Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
 // plus the token-user SID string. Windows has no pgid, so group stays the pid.
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const SYNCHRONIZE = 0x00100000;
+const WAIT_OBJECT_0 = 0;
+const WAIT_TIMEOUT = 258;
 const TOKEN_QUERY = 0x0008;
 const TOKEN_USER = 1;
 const ERROR_INVALID_PARAMETER = 87;
@@ -27,6 +30,8 @@ function expectNative(ok: boolean): void {
 /** Raw Win32 surface behind the identity. Tests inject a fake; production uses koffi. */
 export type WindowsProcessIdentityApi = {
   open: (pid: number) => unknown;
+  /** True once the process has exited, even while a handle still keeps its object alive. */
+  exited: (handle: unknown) => boolean;
   times: (handle: unknown, creation: Buffer, exit: Buffer, kernel: Buffer, user: Buffer) => number;
   openToken: (processHandle: unknown, outToken: unknown[]) => number;
   tokenInfo: (token: unknown, info: Buffer | null, length: number, needed: number[]) => number;
@@ -58,6 +63,7 @@ function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
     );
     const lastError = kernel.func("uint __stdcall GetLastError()");
     const closeHandle = kernel.func("int __stdcall CloseHandle(void* handle)");
+    const wait = kernel.func("uint __stdcall WaitForSingleObject(void* handle, uint milliseconds)");
     const localFree = kernel.func("void* __stdcall LocalFree(void* memory)");
     const openToken = advapi.func(
       "int __stdcall OpenProcessToken(void* process, uint access, _Out_ void** token)",
@@ -69,7 +75,12 @@ function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
       "int __stdcall ConvertSidToStringSidW(void* sid, _Out_ void** text)",
     );
     return {
-      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid),
+      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid),
+      exited(handle) {
+        const state = nativeInt.parse(wait(handle, 0));
+        expectNative(state === WAIT_OBJECT_0 || state === WAIT_TIMEOUT);
+        return state === WAIT_OBJECT_0;
+      },
       times,
       openToken: (handle, out) => openToken(handle, TOKEN_QUERY, out),
       tokenInfo: (token, info, length, needed) =>
@@ -110,6 +121,8 @@ export function readWindowsProcessIdentity(
     return undefined;
   }
   try {
+    // Any open handle, the console host's included, keeps an exited process openable.
+    if (api.exited(handle)) return undefined;
     // GetProcessTimes takes four FILETIME out-pointers and allows no NULL.
     const creation = Buffer.alloc(8);
     expectNative(

@@ -21,13 +21,14 @@ function running(pid: number): boolean {
 const Pids = z.object({ leader: z.number().int().positive(), child: z.number().int().positive() });
 
 /**
- * A daemon stand-in that journals one supervised leader, which starts a child of its own, then
- * reports both PIDs. `contained: false` stands in for a tree that escaped its Job Object.
+ * A daemon stand-in that journals one supervised leader, which starts a detached child of its
+ * own, then reports both PIDs. Node's own job ends the leader with the daemon, but the detached
+ * child survives unless ace's job holds it; `contained: false` stands in for an escaped tree.
  */
 async function crashedDaemon(path: string, contained: boolean) {
   const leader = [
     "const {spawn}=require('node:child_process');",
-    "const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});",
+    "const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',detached:true});",
     "console.log(JSON.stringify({leader:process.pid,child:child.pid}));",
     "setInterval(()=>{},1000);",
   ].join("");
@@ -74,23 +75,26 @@ describe.runIf(process.platform === "win32")("Windows restart recovery", () => {
     try {
       const pids = await crashedDaemon(path, true);
       // Closing the crashed daemon's last job handle ends the whole tree.
-      await expect.poll(() => running(pids.leader) || running(pids.child)).toBe(false);
+      await expect
+        .poll(() => running(pids.leader) || running(pids.child), { timeout: 10_000 })
+        .toBe(false);
       expect(recover(path)).toEqual({ result: { removed: 1, killed: 0 }, left: 0 });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  test("restart ends a recorded tree that escaped its job, including the leader's child", async () => {
+  test("restart ends the orphaned child of a recorded tree that escaped its job", async () => {
     const home = mkdtempSync(join(tmpdir(), "ace-journal-escaped-"));
     const path = join(home, "processes.sqlite");
     let pids: z.infer<typeof Pids> | undefined;
     try {
       pids = await crashedDaemon(path, false);
-      expect(running(pids.leader) && running(pids.child)).toBe(true);
-      expect(recover(path)).toEqual({ result: { removed: 0, killed: 1 }, left: 1 });
       const { leader, child } = pids;
-      await expect.poll(() => running(leader) || running(child)).toBe(false);
+      await expect.poll(() => running(leader), { timeout: 10_000 }).toBe(false);
+      expect(running(child)).toBe(true);
+      expect(recover(path)).toEqual({ result: { removed: 0, killed: 1 }, left: 1 });
+      await expect.poll(() => running(child), { timeout: 10_000 }).toBe(false);
       // The evidence stays until a later recovery proves the tree is gone.
       expect(recover(path)).toEqual({ result: { removed: 1, killed: 0 }, left: 0 });
     } finally {

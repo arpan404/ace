@@ -24,6 +24,7 @@ type FakeOptions = {
   tokenInfo?: "fail-second";
   sidConvert?: "fail";
   decode?: "invalid";
+  exited?: boolean;
 };
 
 function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; flags: FakeFlags } {
@@ -42,6 +43,10 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
     open: (pid) => {
       if (!Number.isInteger(pid) || pid <= 0) throw new Error("Unexpected pid");
       return processHandle;
+    },
+    exited: (handle) => {
+      if (handle !== processHandle) throw new Error("Unexpected process handle");
+      return options.exited ?? false;
     },
     times: (handle, creation, exit, kernel, user) => {
       if (handle !== processHandle) throw new Error("Unexpected process handle");
@@ -107,6 +112,12 @@ describe.runIf(process.platform === "win32")("Windows process identity", () => {
     expect(flags.closedProcess).toBe(true);
     expect(flags.closedToken).toBe(true);
     expect(flags.freedSid).toBe(true);
+  });
+
+  test("an exited process that is still referenced reads as gone and releases its handle", () => {
+    const { api, flags } = fakeApi({ exited: true });
+    expect(readWindowsProcessIdentity(4242, api)).toBeUndefined();
+    expect(flags.closedProcess).toBe(true);
   });
 
   test("distinct creation times give distinct starts for one reused PID", () => {
