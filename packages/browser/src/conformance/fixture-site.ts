@@ -150,13 +150,13 @@ function serve(request: IncomingMessage, response: ServerResponse): void {
  * resolves to IPv4 or IPv6. Each address is bound on its own: on macOS a wildcard listener's
  * port can still be bound on 127.0.0.1 by another process, which then takes its connections.
  */
-async function listenOnLoopback(serve: Parameters<typeof createServer>[1]) {
+async function listenOnLoopback(handler: Parameters<typeof createServer>[1]) {
   for (let attempt = 0; ; attempt++) {
-    const v4 = createServer(serve);
+    const v4 = createServer(handler);
     await listen(v4, 0, "127.0.0.1");
     const address = v4.address();
     if (!address || typeof address === "string") throw new Error("Fixture site has no port");
-    const v6 = createServer(serve);
+    const v6 = createServer(handler);
     try {
       await listen(v6, address.port, "::1");
       return { port: address.port, servers: [v4, v6] };
