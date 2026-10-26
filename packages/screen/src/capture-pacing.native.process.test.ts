@@ -113,14 +113,17 @@ describe.runIf(windows)("Windows live-view capture", () => {
     const capture = await stream(window.hwnd);
     await capture.start("burst");
     const first = await capture.firstOf("burst");
-    // Eight repaints 40 ms apart, all inside the one-second interval after the first frame,
-    // then the window stays still.
-    await window.command("burst 0000ff,00ff00,ff0000,ff00ff,00ffff,ffff00,808080,4000c0", "burst");
+    // Twenty repaints 40 ms apart: far more arrivals than the two-buffer frame pool holds
+    // while the loop waits out the one-second pacing interval. Then the window stays still.
+    await window.command(
+      "burst 0000ff,00ff00,ff0000,ff00ff,00ffff,ffff00,808080,4000c0,0000ff,00ff00,ff0000,ff00ff,00ffff,ffff00,808080,4000c0,203040,405060,607080,c00040",
+      "burst",
+    );
     await settle(3_000);
     const after = capture.framesOf("burst").slice(1);
     // The changes were coalesced into the pacing interval rather than streamed one by one.
     expect(after.length).toBeGreaterThan(0);
-    expect(after.length).toBeLessThanOrEqual(2);
+    expect(after.length).toBeLessThanOrEqual(3);
     console.log(
       `burst frames: ${after.map((frame) => Math.round(frame.header.timestamp - first.header.timestamp)).join(", ")} ms after the first`,
     );
