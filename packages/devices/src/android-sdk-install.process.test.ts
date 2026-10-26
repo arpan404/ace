@@ -65,10 +65,12 @@ it.runIf(windows)(
 const fakeAdb = String.raw`
 const { basename } = require("node:path");
 if (basename(process.execPath).toLowerCase() === "adb.exe" && basename(process.argv[1] ?? "") === "devices") {
-  process.stdout.write("List of devices attached
-emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
-R5CT1234567            device usb:1-1 product:panther model:Pixel_7 device:panther transport_id:2
-");
+  process.stdout.write([
+    "List of devices attached",
+    "emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1",
+    "R5CT1234567            device usb:1-1 product:panther model:Pixel_7 device:panther transport_id:2",
+    "",
+  ].join("\r\n"));
   process.exit(0);
 }
 `;

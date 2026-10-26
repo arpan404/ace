@@ -23,8 +23,8 @@ const virtualVendors = new Set([
 
 /**
  * Windows lists Hyper-V, WSL, VPN and VM adapters beside the real one, often first. Pairing links
- * name an IPv4 address of an adapter that isn't virtual by name, has a hardware address (tunnels
- * have none) and isn't link-local. One from a hypervisor's vendor loses to any other, so a renamed
+ * name an IPv4 address of an adapter that isn't virtual by name and isn't link-local. One from a
+ * hypervisor's vendor, or with no hardware address (a tunnel), loses to any other, so a renamed
  * Hyper-V switch (`Ethernet 2`) never beats Wi-Fi, yet inside a virtual machine, where the only
  * card is the hypervisor's, it is still used. Throws when nothing qualifies, rather than advertise
  * an address other devices can't reach; ACE_ADVERTISE_HOST is the way out.
@@ -37,11 +37,13 @@ export function windowsLanAddress(interfaces: ReturnType<typeof networkInterface
       (candidate) =>
         !candidate.internal &&
         candidate.family === "IPv4" &&
-        !candidate.address.startsWith("169.254.") &&
-        candidate.mac !== "00:00:00:00:00:00",
+        !candidate.address.startsWith("169.254."),
     );
+  // A tunnel has no hardware address; like a hypervisor's adapter, it loses to a physical one.
   const physical = usable.find(
-    (candidate) => !virtualVendors.has(candidate.mac.slice(0, 8).toLowerCase()),
+    (candidate) =>
+      candidate.mac !== "00:00:00:00:00:00" &&
+      !virtualVendors.has(candidate.mac.slice(0, 8).toLowerCase()),
   );
   const chosen = physical ?? usable[0];
   if (chosen) return chosen.address;
