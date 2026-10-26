@@ -238,13 +238,20 @@ struct QueueRow: Codable, Sendable, Equatable {
 /// left empty rather than failing the frame.
 struct ThreadModels: Decodable, Sendable, Equatable {
     struct Move: Decodable, Sendable, Equatable { var ask: Int?; var note: String? }
-    struct Ask: Decodable, Sendable, Equatable { let title: String; let message: String; let action: String }
+    /// The shared `switchQuestion`: a switch names the model (`detail`), a continuation may warn
+    /// about files the new thread's model can't read.
+    struct Ask: Decodable, Sendable, Equatable {
+        let title: String; let message: String; let action: String
+        var detail: String?; var warning: String?
+        /// The alert's body: the message, then the model or the warning.
+        var body: String { [message, detail, warning].compactMap { $0 }.joined(separator: "\n\n") }
+    }
     var read = ComposeAgentsRead()
     var current: NewThreadPickerRows.Chosen?
     /// The checked model's name when the catalog doesn't list it.
     var currentLabel = ""
     var moves: [String: Move] = [:]
-    var asks: [Ask] = []
+    var asks: [Ask?] = []
     var state: String { read.state }
 
     init() {}
@@ -253,19 +260,46 @@ struct ThreadModels: Decodable, Sendable, Equatable {
         let box = try decoder.container(keyedBy: Keys.self)
         read = ComposeAgentsRead(
             state: try box.decode(String.self, forKey: .state),
-            agents: (try? box.decodeIfPresent([ComposeAgent].self, forKey: .providers)) ?? [],
-            tabs: (try? box.decodeIfPresent([ComposeTab].self, forKey: .tabs)) ?? [],
+            agents: (try? box.decodeIfPresent(Lenient<ComposeAgent>.self, forKey: .providers))?.items ?? [],
+            tabs: (try? box.decodeIfPresent(Lenient<ComposeTab>.self, forKey: .tabs))?.items ?? [],
             favorites: (try? box.decodeIfPresent([String].self, forKey: .favorites)) ?? [],
             starProblem: try? box.decodeIfPresent(String.self, forKey: .starProblem))
         current = try? box.decodeIfPresent(NewThreadPickerRows.Chosen.self, forKey: .current)
         currentLabel = (try? box.decodeIfPresent(String.self, forKey: .currentLabel)) ?? ""
-        moves = (try? box.decodeIfPresent([String: Move].self, forKey: .rows)) ?? [:]
-        asks = (try? box.decodeIfPresent([Ask].self, forKey: .asks)) ?? []
+        moves = (try? box.decodeIfPresent([String: Lenient<Move>.One].self, forKey: .rows))?.compactMapValues(\.value) ?? [:]
+        // Positions matter (rows name an ask by index): one that doesn't read stays as a gap.
+        asks = (try? box.decodeIfPresent(Lenient<Ask>.Kept.self, forKey: .asks))?.items ?? []
     }
     /// What confirms a move to `row` (a picker row id), if it asks.
     func ask(_ row: String) -> Ask? {
         guard let index = moves[row]?.ask, asks.indices.contains(index) else { return nil }
         return asks[index]
+    }
+}
+
+/// A list decoded element by element: one entry that doesn't read is dropped (`items`), or kept
+/// as a gap where positions matter (`Kept`), so it never empties the rest.
+struct Lenient<Element: Decodable>: Decodable {
+    let items: [Element]
+    init(from decoder: any Decoder) throws {
+        var box = try decoder.unkeyedContainer()
+        var items: [Element] = []
+        while !box.isAtEnd { if let item = try box.decode(One.self).value { items.append(item) } }
+        self.items = items
+    }
+    struct Kept: Decodable {
+        let items: [Element?]
+        init(from decoder: any Decoder) throws {
+            var box = try decoder.unkeyedContainer()
+            var items: [Element?] = []
+            while !box.isAtEnd { items.append(try box.decode(One.self).value) }
+            self.items = items
+        }
+    }
+    /// One value that may not read; decoding it always moves past it.
+    struct One: Decodable {
+        let value: Element?
+        init(from decoder: any Decoder) throws { value = try? Element(from: decoder) }
     }
 }
 

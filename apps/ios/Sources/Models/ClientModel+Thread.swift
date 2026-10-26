@@ -18,9 +18,15 @@ extension ClientModel {
         // Words, files or both; the bridge checks again with the shared rule.
         guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
-        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "requestId": id]
+        // A message that starts a new thread keeps its words and files until the daemon has
+        // started it: a refusal leaves the draft as it was, with the refusal's words.
+        let continues = thread.screen.controls?.continues == true
+        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "continues": continues, "requestId": id]
         if let reply { action["reply"] = reply.payload }
-        return await admissions.wait(id: id) { threadAction(action) }
+        guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
+        let refused = await receipts.wait(id: id) { threadAction(action) }
+        if let refused { error = refused }
+        return refused == nil
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {

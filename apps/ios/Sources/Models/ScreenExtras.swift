@@ -60,6 +60,7 @@ extension ThreadScreenModel {
             if pill != row { pill = row }
             if self.goal != goal { self.goal = goal }
         case .continued(let id): continued = id
+        case .switchAsk(let ask): switchAsk = ask
         case .laneBlock(let agentId, let id, let row):
             if lane?.agentId == agentId { lane?.apply(id, row: row) }
         case .laneBlockPosition(let agentId, let id, let index):

@@ -58,12 +58,23 @@ struct ModelPickerSheet: View {
             Button(asking.ask.action) { move(to: asking.target, confirmed: true) }
             Button("Cancel", role: .cancel) {}
         } message: { asking in
-            Text(asking.ask.message)
+            Text(asking.ask.body)
+        }
+        // The bridge asks when the rows were older than the thread: the question it sends wins.
+        .onChange(of: screen.switchAsk) { _, sent in
+            guard let sent else { return }
+            screen.switchAsk = nil
+            let target = NewThreadPickerRows.Chosen(provider: provider(of: sent), key: sent.key, account: sent.account)
+            asking = Asking(target: target, ask: sent.ask)
         }
     }
     private var hasMore: Bool {
         guard let entry = list.read.tabs.first(where: { $0.id == tab }) else { return false }
         return entry.models.count > entry.lead
+    }
+    private func provider(of sent: SwitchAsk) -> String {
+        let ref = ComposeTab.Ref(key: sent.key, account: sent.account)
+        return NewThreadPickerRows.resolve(list.read.agents, ref)?.0.provider ?? ""
     }
     private func pick(_ row: ModelPickerRow) {
         if let current = list.current, row.id == current.account + "\u{0}" + current.key { picked = current; return }

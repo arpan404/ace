@@ -20,6 +20,8 @@ import Observation
     var modelsState: String { modelList.state }
     /// A thread this one continued in, to open once; cleared when opened.
     var continued: String?
+    /// A move the bridge asks to be confirmed; the model sheet asks it and clears it.
+    var switchAsk: SwitchAsk?
     /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
     var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working, or when this Stop's own request

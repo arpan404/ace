@@ -304,7 +304,8 @@ import QuartzCore
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
-                if !ok { error = message }
+                // A refusal with no words (a move waiting on its question) says nothing here.
+                if !ok, !message.isEmpty { error = message }
             case .threadReset(let id, let epoch):
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
