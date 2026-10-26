@@ -13,6 +13,7 @@ pub mod ids;
 pub mod image;
 pub mod keys;
 pub mod known;
+pub mod launchable;
 pub mod markdown;
 pub mod outline;
 pub mod text_match;

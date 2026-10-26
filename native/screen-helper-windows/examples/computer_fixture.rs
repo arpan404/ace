@@ -5,6 +5,10 @@
 //! effects without trusting the engine's own reading.
 //!
 //! `computer_fixture [--title <title>] [--front]`
+//!
+//! It is a windowed (GUI-subsystem) program like the apps agents start; its JSON lines go to
+//! the stdout its parent passes it.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
 mod fixture {

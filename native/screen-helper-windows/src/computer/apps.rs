@@ -270,6 +270,24 @@ pub fn running(windows: &[TopWindow]) -> Vec<RunningApp> {
 
 /// An executable's own description ("Notepad"), from its version resource.
 pub fn file_description(path: &str) -> Option<String> {
+    version_string(path, "FileDescription").filter(|d| d.chars().count() <= 80)
+}
+
+/// The file name an executable was built as, from its version resource; survives renaming.
+pub fn original_name(path: &str) -> Option<String> {
+    version_string(path, "OriginalFilename").or_else(|| version_string(path, "InternalName"))
+}
+
+/// The PE subsystem of an executable file (GUI, console), from its header.
+pub fn subsystem_of(path: &str) -> Option<u16> {
+    use std::io::Read;
+    let mut head = vec![0u8; 4096];
+    let read = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+    super::launchable::subsystem(&head[..read])
+}
+
+/// One string from an executable's version resource.
+fn version_string(path: &str, field: &str) -> Option<String> {
     let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
     let file = windows::core::PCWSTR(wide.as_ptr());
     unsafe {
@@ -297,10 +315,7 @@ pub fn file_description(path: &str) -> Option<String> {
             return None;
         }
         let pair = std::slice::from_raw_parts(pointer as *const u16, 2);
-        let key = format!(
-            "\\StringFileInfo\\{:04x}{:04x}\\FileDescription",
-            pair[0], pair[1]
-        );
+        let key = format!("\\StringFileInfo\\{:04x}{:04x}\\{field}", pair[0], pair[1]);
         let key: Vec<u16> = key.encode_utf16().chain(Some(0)).collect();
         if !VerQueryValueW(
             data.as_ptr().cast(),
@@ -314,8 +329,8 @@ pub fn file_description(path: &str) -> Option<String> {
             return None;
         }
         let text = std::slice::from_raw_parts(pointer as *const u16, length as usize);
-        let description = wide_to_string(text).trim().to_owned();
-        (!description.is_empty() && description.chars().count() <= 80).then_some(description)
+        let value = wide_to_string(text).trim().to_owned();
+        (!value.is_empty()).then_some(value)
     }
 }
 

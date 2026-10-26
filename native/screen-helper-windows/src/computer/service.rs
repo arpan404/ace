@@ -7,6 +7,7 @@ use super::clipboard::Clipboard;
 use super::desktop;
 use super::error::{CuError, CuResult};
 use super::known::Known;
+use super::launchable;
 use super::observe::{self, Options};
 use super::session::AppSession;
 use super::settle::Activity;
@@ -197,6 +198,7 @@ impl Service {
                     catalog::system_component_message(query),
                 ));
             }
+            launchable(query)?;
             self.known.remember(&id, query);
             return Ok(Resolved {
                 running: running.iter().any(|r| r.id.eq_ignore_ascii_case(&id)),
@@ -207,6 +209,7 @@ impl Service {
         }
         // The id the daemon passes back after resolving: no Start menu read needed.
         if let Some(app) = running.iter().find(|r| r.id.eq_ignore_ascii_case(query)) {
+            not_renamed(&app.id, app.path.as_deref())?;
             return Ok(Resolved {
                 id: app.id.clone(),
                 name: self.name_of(&app.id, app.path.as_deref()),
@@ -227,6 +230,7 @@ impl Service {
                     .or_else(|| search_path(query))
                     .ok_or(error)?;
                 let id = executable_id(&path);
+                launchable(&path)?;
                 self.known.remember(&id, &path);
                 return Ok(Resolved {
                     name: self.name_of(&id, Some(&path)),
@@ -256,6 +260,16 @@ impl Service {
                     .then(|| search_path(&found.id))
                     .flatten()
             });
+        let running_path = running
+            .iter()
+            .find(|r| r.id.eq_ignore_ascii_case(&found.id))
+            .and_then(|r| r.path.clone());
+        not_renamed(&found.id, running_path.as_deref())?;
+        if let Some(path) = launch.as_deref().filter(|l| !l.starts_with("shell:")) {
+            if !found.running {
+                launchable(path)?;
+            }
+        }
         Ok(Resolved {
             id: found.id,
             name: found.name,
@@ -495,6 +509,36 @@ impl Service {
         drop(activity);
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)
+    }
+}
+
+/// Refuses to start an executable by path unless it is a windowed app that runs no commands.
+fn launchable(path: &str) -> CuResult<()> {
+    let file = executable_id(path);
+    match launchable::refusal(
+        &file,
+        apps::original_name(path).as_deref(),
+        apps::subsystem_of(path),
+    ) {
+        Some(reason) => Err(CuError::new("app_not_allowed", reason)),
+        None => Ok(()),
+    }
+}
+
+/// Refuses a renamed copy of a shell or interpreter, found by its original file name.
+fn not_renamed(id: &str, path: Option<&str>) -> CuResult<()> {
+    let Some(path) = path else { return Ok(()) };
+    let original = apps::original_name(path);
+    let renamed = original.as_deref().is_some_and(|o| {
+        let o = o.to_lowercase();
+        o.strip_suffix(".mui").unwrap_or(&o) != id.to_lowercase()
+    });
+    match renamed
+        .then(|| launchable::running_refusal(id, original.as_deref()))
+        .flatten()
+    {
+        Some(reason) => Err(CuError::new("app_not_allowed", reason)),
+        None => Ok(()),
     }
 }
 

@@ -2,6 +2,7 @@
 //! exactly what the app receives when the person picks the item, without opening the menu or
 //! activating the window. Submenus are told they are about to open (WM_INITMENUPOPUP) first,
 //! so apps fill and enable their items as they would on screen.
+use super::cancel::Checkpoint;
 use super::error::{clip, CuError, CuResult};
 use super::keys::{accelerator as parse_accelerator, same_keys, Chord};
 use super::text_match::{choose_menu_item, split_menu_label, MenuChoice};
@@ -51,6 +52,30 @@ pub fn items(menu: HMENU) -> Vec<Item> {
         });
     }
     items
+}
+
+/// Menus that report choices by position (MNS_NOTIFYBYPOS) answer WM_MENUCOMMAND only while
+/// open on screen, so a posted WM_COMMAND would do nothing or the wrong thing.
+fn notifies_by_position(menu: HMENU) -> bool {
+    const MNS_NOTIFYBYPOS: u32 = 0x0800_0000;
+    let mut info = MENUINFO {
+        cbSize: std::mem::size_of::<MENUINFO>() as u32,
+        fMask: MIM_STYLE,
+        ..Default::default()
+    };
+    unsafe { GetMenuInfo(menu, &mut info) }.is_ok() && info.dwStyle.0 & MNS_NOTIFYBYPOS != 0
+}
+
+/// Whether a command id can be posted: menu commands carry a 16-bit id, and 0 means none.
+fn postable(id: u32) -> bool {
+    id != 0 && id <= 0xFFFF
+}
+
+fn unpostable(shown: &[String]) -> CuError {
+    CuError::new(
+        "not_supported",
+        format!("{} can only be chosen with its menu open on screen. Add activate, then click the menu and the item by id or position.", shown.join(" › ")),
+    )
 }
 
 pub fn bar(hwnd: HWND) -> Option<HMENU> {
@@ -156,6 +181,9 @@ pub fn choose(hwnd: HWND, path: &[String]) -> CuResult<(u32, Vec<String>)> {
                         format!("{} is disabled right now.", shown.join(" › ")),
                     ));
                 }
+                if !postable(item.id) || notifies_by_position(menu) {
+                    return Err(unpostable(&shown));
+                }
                 return Ok((item.id, shown));
             }
         }
@@ -167,38 +195,51 @@ pub fn choose(hwnd: HWND, path: &[String]) -> CuResult<(u32, Vec<String>)> {
 }
 
 /// The enabled menu command bound to a key chord, searched through the menu bar.
-pub fn accelerator(hwnd: HWND, chord: &Chord) -> Option<(u32, Vec<String>)> {
+/// The enabled menu command bound to a key chord, searched through the menu bar. Stops when
+/// the request is cancelled; skips commands that can't be posted.
+pub fn accelerator(
+    hwnd: HWND,
+    chord: &Chord,
+    check: &Checkpoint,
+) -> CuResult<Option<(u32, Vec<String>)>> {
     fn search(
         hwnd: HWND,
         menu: HMENU,
         chord: &Chord,
+        check: &Checkpoint,
         path: &mut Vec<String>,
         depth: usize,
-    ) -> Option<(u32, Vec<String>)> {
+    ) -> CuResult<Option<(u32, Vec<String>)>> {
+        let by_position = notifies_by_position(menu);
         for (index, item) in items(menu).into_iter().enumerate() {
+            check.check()?;
             path.push(item.title.clone());
             if let Some(submenu) = item.submenu {
                 if depth < 3 {
                     prepare(hwnd, submenu, index);
-                    if let Some(found) = search(hwnd, submenu, chord, path, depth + 1) {
-                        return Some(found);
+                    if let Some(found) = search(hwnd, submenu, chord, check, path, depth + 1)? {
+                        return Ok(Some(found));
                     }
                 }
             } else if !item.disabled
+                && !by_position
+                && postable(item.id)
                 && item
                     .accelerator
                     .as_deref()
                     .and_then(parse_accelerator)
                     .is_some_and(|bound| same_keys(&bound, chord))
             {
-                return Some((item.id, path.clone()));
+                return Ok(Some((item.id, path.clone())));
             }
             path.pop();
         }
-        None
+        Ok(None)
     }
-    let menu = bar(hwnd)?;
-    search(hwnd, menu, chord, &mut Vec::new(), 0)
+    match bar(hwnd) {
+        Some(menu) => search(hwnd, menu, chord, check, &mut Vec::new(), 0),
+        None => Ok(None),
+    }
 }
 
 pub fn post_command(hwnd: HWND, id: u32) -> CuResult<()> {

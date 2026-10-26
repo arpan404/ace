@@ -349,7 +349,7 @@ impl Actor<'_> {
             }
         }
         if chord.shortcut() {
-            if let Some((command, path)) = menus::accelerator(hwnd, &chord) {
+            if let Some((command, path)) = menus::accelerator(hwnd, &chord, self.check)? {
                 for _ in 0..repeat {
                     menus::post_command(hwnd, command)?;
                 }

@@ -19,6 +19,8 @@ pub struct Picture {
 }
 
 const PW_RENDERFULLCONTENT: u32 = 2;
+/// Larger windows are refused rather than allocated (4 bytes per pixel).
+const MAX_PIXELS: i64 = 40_000_000;
 
 /// The window's visible frame on the screen, without the invisible resize borders.
 pub fn frame(hwnd: HWND) -> Option<Rect> {
@@ -166,7 +168,27 @@ pub fn window(hwnd: HWND, app: &str) -> Result<(Picture, Rect), String> {
     if width <= 0 || height <= 0 || width > 16_384 || height > 16_384 {
         return Err("The window has no size to capture.".into());
     }
-    let canvas = Canvas::new(width, height).ok_or("Windows could not allocate the screenshot.")?;
+    if i64::from(width) * i64::from(height) > MAX_PIXELS {
+        return Err("The window is too large to capture; use the outline, or resize it.".into());
+    }
+    // PrintWindow waits for the app to draw; a stuck app must not stall the helper, so it
+    // runs on its own thread, which owns every GDI object it uses.
+    let raw = hwnd.0 as isize;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(render(HWND(raw as *mut _), visible, whole));
+    });
+    match receiver.recv_timeout(std::time::Duration::from_secs(3)) {
+        Ok(Some(picture)) => Ok((picture, visible)),
+        Ok(None) => Err(format!("{app} draws its window in a way Windows can't capture while it is covered. Use the outline, or add activate first and take the screenshot again.")),
+        Err(_) => Err(format!("{app} did not draw its window within 3 seconds. Use the outline, or try again.")),
+    }
+}
+
+/// Draws the window into a bitmap and crops its visible frame; None when nothing usable came.
+fn render(hwnd: HWND, visible: Rect, whole: Rect) -> Option<Picture> {
+    let (width, height) = (whole.w as i32, whole.h as i32);
+    let canvas = Canvas::new(width, height)?;
     let printed = unsafe {
         PrintWindow(
             hwnd,
@@ -187,7 +209,7 @@ pub fn window(hwnd: HWND, app: &str) -> Result<(Picture, Rect), String> {
             (picture.width, picture.height),
         )
     {
-        return Ok((picture, visible));
+        return Some(picture);
     }
     // Some GPU-drawn windows print black. When the window is on screen and uncovered, the
     // screen itself shows exactly it.
@@ -212,9 +234,9 @@ pub fn window(hwnd: HWND, app: &str) -> Result<(Picture, Rect), String> {
                 picture.stride,
                 (picture.width, picture.height),
             ) {
-                return Ok((picture, visible));
+                return Some(picture);
             }
         }
     }
-    Err(format!("{app} draws its window in a way Windows can't capture while it is covered. Use the outline, or add activate first and take the screenshot again."))
+    None
 }
