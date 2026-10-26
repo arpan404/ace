@@ -13,6 +13,7 @@ import {
 } from "./transfer-checkout.ts";
 import { cloneFromBundle, type BundleCloneOptions } from "./transfer-clone.ts";
 import { ignoredPaths } from "./transfer-ignored.ts";
+import { fetchOrigin, hasCommit } from "./transfer-origin-fetch.ts";
 import { bundleRefs, createBranch, deleteRef, pinRef, transferOrigin } from "./transfer-refs.ts";
 import { sourceCheckout, type SourceCheckout } from "./transfer-source.ts";
 
@@ -113,6 +114,21 @@ export class GitTransfer {
   ): Promise<void> {
     return this.at(path, held, (root, directoryFd) =>
       fetchBundle(this.repository, root, bundle, refspecs, { directoryFd }),
+    );
+  }
+  /** Whether the repository has `commit`; never fetches. */
+  hasCommit(path: string, commit: string, held?: Held): Promise<boolean> {
+    return this.at(path, held, (root, fd) => hasCommit(this.repository, root, commit, fd));
+  }
+  /** Every branch of `origin` into `refs/remotes/origin/*`; local branches untouched. */
+  fetchOrigin(
+    path: string,
+    options: { timeoutMs?: number; signal?: AbortSignal | undefined } = {},
+    policy?: ProjectGitPolicy,
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    return this.within(path, (root) =>
+      fetchOrigin(this.repository, root, { ...options, timeoutMs }, policy),
     );
   }
   applyChanges(path: string, commit: string, held?: Held): Promise<void> {

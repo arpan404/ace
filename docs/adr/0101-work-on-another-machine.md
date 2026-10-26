@@ -147,11 +147,21 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
 
 ### Where it lands
 
-- A project the target already has (same origin): the branch is fetched from the bundle. If the
-  project's own checkout is clean and on that branch, it is fast-forwarded and the changes are
-  applied there. Otherwise the target's checkout is never disturbed: the branch gets its own linked
-  worktree in a folder beside the project (`<project>-<branch>`), or, for a thread continuation,
-  the new thread runs in worktree mode from that branch. A branch name already used there at a
+- A project the target already has: one with the same origin, or, for a folder or a repository
+  without a remote, the copy an earlier transfer of the same source project made (the sender names
+  its project in `begin.sourceWorkspaceId`; the target records where each landed in
+  `transfer_incoming_landed`, keyed by the sender's host id and project and checked against the
+  paired device, and reuses it while it is still registered). The branch is fetched from the
+  bundle; a clone there that fell behind origin fetches origin first, and when the bundle still
+  can't be read the full bundle is fetched into that same project, never a new copy beside it.
+  If the project's own checkout is clean, on that branch and idle (no unsettled local thread and
+  no thread's shell open in it), it is fast-forwarded and the changes are applied there. Otherwise
+  (and when the branch there has commits of its own) the target's checkout is never disturbed:
+  for a thread continuation the new thread runs in worktree mode from a branch of its own; for
+  Open on, only that branch is made, with uncommitted changes as its top commit, and the result
+  says `branchOnly` so a client starts a worktree thread from it. A folder sent again adds only
+  the files its copy lacks and never replaces one; the result counts the kept ones in
+  `keptFiles`. A branch name already used there at a
   different commit, or at the same commit but checked out in a worktree (so the landing couldn't
   open its own worktree on it), gets a `-from-<machine>` suffix (`-2`, `-3`… when that is taken
   too). When one of the branch's folders is itself a branch there (`feature` against an incoming

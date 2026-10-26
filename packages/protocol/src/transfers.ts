@@ -107,7 +107,22 @@ export const Transfer = z.object({
   totalBytes: z.number().int().nonnegative().optional(),
   /** Set when ignored files travel with it. */
   ignoredFiles: TransferIgnoredFiles.optional(),
-  /** Set once completed: what now exists on the other machine. */
+  /**
+   * Set once completed: what now exists on the other machine.
+   *
+   * - `workspaceId` is always the project there: a project it already had (same origin, or the
+   *   copy an earlier transfer of this project made) or a new one.
+   * - Without `branchOnly`, the work is checked out in that project's own folder (`path`), on
+   *   `branch` for Git projects: a local thread there starts on it.
+   * - With `branchOnly`, the project's checkout there was busy (its own changes, another branch,
+   *   or an agent working in it) and was left alone: the work is only on the new local `branch`
+   *   (`<branch>-from-<machine>`), and `path` is the project's folder. Uncommitted changes that
+   *   travelled are that branch's top commit ("Uncommitted changes carried to another
+   *   machine"). A client starts a worktree thread in `workspaceId` from `branch`; never a
+   *   local thread, which would run in the person's checkout without the work.
+   * - With `threadId` (Continue on), the thread there already starts where the work is: in the
+   *   project's checkout, or in a worktree of its own on `branch` when the checkout was busy.
+   */
   result: z
     .object({
       workspaceId: WorkspaceId,
@@ -116,6 +131,14 @@ export const Transfer = z.object({
       threadId: ThreadId.optional(),
       /** Ignored files that were kept back because the project there already had them. */
       ignoredSkipped: z.number().int().nonnegative().optional(),
+      /**
+       * A folder sent again to the copy an earlier transfer made: files that copy already had,
+       * kept as they are there instead of being replaced by the sent ones. Only files it lacked
+       * were added; nothing there is ever overwritten.
+       */
+      keptFiles: z.number().int().nonnegative().optional(),
+      /** The work landed only on `branch`, not in the project's checkout; see above. */
+      branchOnly: z.boolean().optional(),
     })
     .optional(),
   /** Set once failed, in words a person acts on. */

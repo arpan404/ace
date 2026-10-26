@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
@@ -38,12 +38,17 @@ it("reuses the target's project for the same origin, and never disturbs its busy
   const transfer = await m.settled();
   expect(transfer).toMatchObject({ phase: "completed", method: "remote" });
   const landed = transfer.result;
-  expect(landed?.workspaceId).toBe(there.workspaceId);
-  expect(landed?.branch).toBe("feature-from-macbook");
-  // The branch got its own folder beside the project, with the uncommitted file there.
-  expect(landed?.path).not.toBe(there.path);
-  expect(await git(landed?.path ?? "", "log", "-1", "--format=%s")).toBe("mine");
-  expect(await status(landed?.path ?? "")).toBe("?? draft.txt");
+  expect(landed).toMatchObject({
+    workspaceId: there.workspaceId,
+    path: there.path,
+    branch: "feature-from-macbook",
+    branchOnly: true,
+  });
+  // The work is only on the branch: the commit, then the uncommitted file as its top commit.
+  const branch = "feature-from-macbook";
+  expect(await git(there.path, "log", "-1", "--format=%s", `${branch}~1`)).toBe("mine");
+  expect(await git(there.path, "diff", "--name-only", `${branch}~1`, branch)).toBe("draft.txt");
+  expect(await readdir(m.targetRoot)).not.toContain("app-there-feature-from-macbook");
   // Their checkout and their branch are as they were.
   expect(await status(there.path)).toBe(theirs);
   expect(await git(there.path, "branch", "--show-current")).toBe("main");
@@ -129,7 +134,7 @@ it("lands a detached HEAD at its exact commit, on a branch named for it", async 
   expect(await git(landed, "for-each-ref", "refs/ace")).toBe("");
 });
 
-it("lands beside a dirty checkout already at the same commit, on a branch its worktree can use", async () => {
+it("lands on a branch of its own beside a dirty checkout already at the same commit, with no folder beside it", async () => {
   const m = await transferMachines();
   const { path, origin } = await repositoryWithOrigin(m.sourceRoot, "app");
   const there = await cloneThere(m, origin);
@@ -148,10 +153,18 @@ it("lands beside a dirty checkout already at the same commit, on a branch its wo
   expect(transfer).toMatchObject({
     phase: "completed",
     method: "remote",
-    result: { workspaceId: there.workspaceId, branch: "main-from-macbook" },
+    result: {
+      workspaceId: there.workspaceId,
+      path: there.path,
+      branch: "main-from-macbook",
+      branchOnly: true,
+    },
   });
-  const landed = transfer.result?.path ?? "";
-  expect(landed).not.toBe(there.path);
-  expect(await status(landed)).toBe("?? draft.txt");
+  expect(await git(there.path, "diff", "--name-only", "main", "main-from-macbook")).toBe(
+    "draft.txt",
+  );
   expect(await status(there.path)).toBe(theirs);
+  expect((await readdir(m.targetRoot)).filter((name) => !name.startsWith(".ace-git"))).toEqual([
+    "app-there",
+  ]);
 });
