@@ -8,8 +8,9 @@ export type LockedUseOwner = Pick<ClientApi, "state" | "connectionState" | "requ
 /**
  * Follow this Mac's locked computer use state: a `lockedUse.subscribe` while connected, renewed
  * after every reconnect, then `lockedUse.changed` pushes. A failed read retries with backoff
- * while the connection stays ready. `receive` gets the snapshot, then every later state.
- * `subscriptionId` must be unique on the socket.
+ * while the connection stays ready, renewing under the same id (the daemon replaces it).
+ * `receive` gets each state once, in order: a snapshot or push no newer than one already
+ * delivered on this connection is dropped. `subscriptionId` must be unique on the socket.
  */
 export function subscribeLockedUse(
   client: LockedUseOwner,
@@ -23,19 +24,23 @@ export function subscribeLockedUse(
   let generation = 0;
   let attempts = 0;
   let cancel: (() => void) | undefined;
-  // A push that beats the snapshot reply is newer than it.
-  let pushed: LockedUseStatus | undefined;
+  // The highest revision delivered on this connection; revisions restart with the daemon.
+  let delivered = -1;
+  const deliver = (revision: number, status: LockedUseStatus) => {
+    if (revision <= delivered) return;
+    delivered = revision;
+    receive(status);
+  };
   const ask = () => {
     if (stopped || subscribed || client.state !== "ready") return;
     subscribed = true;
     const current = ++generation;
-    pushed = undefined;
     void client
       .request({ type: "lockedUse.subscribe", subscriptionId })
       .then((reply) => {
         if (stopped || generation !== current) return;
         attempts = 0;
-        receive(pushed ?? reply.status);
+        deliver(reply.revision, reply.status);
       })
       .catch(() => {
         if (stopped || generation !== current) return;
@@ -48,12 +53,12 @@ export function subscribeLockedUse(
   const stops = [
     client.onMessage((message) => {
       if (message.type !== "lockedUse.changed" || message.subscriptionId !== subscriptionId) return;
-      pushed = message.status;
-      receive(message.status);
+      if (!stopped) deliver(message.revision, message.status);
     }),
     connection.subscribe(() => {
       if (connection.getSnapshot() !== "ready") {
         subscribed = false;
+        delivered = -1;
         generation++;
         cancel?.();
       } else ask();
