@@ -24,7 +24,7 @@ export const serveSimArtifacts: { serveSim: NpmArtifact; ws: NpmArtifact } = {
     version: pinnedServeSim,
     url: `https://registry.npmjs.org/serve-sim/-/serve-sim-${pinnedServeSim}.tgz`,
     integrity:
-      "sha512-Kfg++zbtrRHYEOGAVk/9ftZamp40Qpz8WgP3idWaHoGaCJ01TrEZeq0UnWIsrGSaGhGgi0ytxMOsrEo3H/bFiA==",
+      "sha512-oWN0RJ11Vqnvr9irScNj847MsjusPzAS9YllcMsRh13Dq0feW+EUK0XEOKIJe7dsq0Wh7tHgXw449+BOzmRwCA==",
   },
   ws: {
     name: "ws",

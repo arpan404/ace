@@ -59,7 +59,7 @@ test("a device that can't stream video shows the daemon's reason and how to fix 
     "This Mac's screen helper can't stream video for the Simulator live view",
   );
   expect(alert.textContent).toContain(
-    "Download device tools in Devices for ace's serve-sim 0.1.48",
+    "Download device tools in Devices for ace's serve-sim 0.1.49-beta.139.1",
   );
   expect(browser.draws(screenImage)).toBe(0);
 });

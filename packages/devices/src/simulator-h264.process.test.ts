@@ -55,7 +55,7 @@ const video = {
 it("a live view gets serve-sim's H.264 untouched, and agents get JPEG back once nobody watches", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-h264-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.48");
+  const sim = await fakeServeSim(home, "0.1.49-beta.139.1");
   const platform = platformFor(home);
   onTestFinished(() => platform.close());
   const frames: Frame[] = [];
@@ -117,7 +117,7 @@ it("a live view gets serve-sim's H.264 untouched, and agents get JPEG back once 
 it("serve-sim video that won't start refuses the live view instead of handing it JPEG", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-novideo-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  await fakeServeSim(home, "0.1.48", { video: false });
+  await fakeServeSim(home, "0.1.49-beta.139.1", { video: false });
   const platform = platformFor(home);
   onTestFinished(() => platform.close());
   const frames: Frame[] = [];
@@ -136,7 +136,7 @@ it("serve-sim video that won't start refuses the live view instead of handing it
   await expect.poll(() => frames.length).toBeGreaterThan(0);
   await expect(capture.configure?.(video)).rejects.toMatchObject({
     code: "command_failed",
-    hint: expect.stringContaining("download device tools again in Devices (serve-sim 0.1.48)"),
+    hint: expect.stringContaining("download device tools again in Devices (serve-sim 0.1.49-beta.139.1)"),
   });
   // The capture itself lives on for agents' stills.
   expect(failures).toEqual([]);
@@ -146,7 +146,7 @@ it("serve-sim video that won't start refuses the live view instead of handing it
 it("a tree ref taps its element through serve-sim's touch socket; edge swipes and rotation follow the screen", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-ax-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.47");
+  const sim = await fakeServeSim(home, "0.1.49-beta.139.1");
   const platform = platformFor(home);
   onTestFinished(() => platform.close());
   const capture = await startCapture({

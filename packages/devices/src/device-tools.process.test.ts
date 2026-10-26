@@ -41,8 +41,8 @@ async function registry() {
   const root = await mkdtemp(join(tmpdir(), "ace-device-tools-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const serveSim = await tarball(root, "serve-sim", {
-    "package.json": JSON.stringify({ name: "serve-sim", version: "0.1.48", type: "module" }),
-    "dist/serve-sim.js": `import { WebSocket } from "ws";\nif (typeof WebSocket === "function" && process.argv.includes("--version")) console.log("0.1.48");\n`,
+    "package.json": JSON.stringify({ name: "serve-sim", version: "0.1.49-beta.139.1", type: "module" }),
+    "dist/serve-sim.js": `import { WebSocket } from "ws";\nif (typeof WebSocket === "function" && process.argv.includes("--version")) console.log("0.1.49-beta.139.1");\n`,
   });
   const ws = await tarball(root, "ws", {
     "package.json": JSON.stringify({ name: "ws", version: "8.22.0", main: "index.js" }),
@@ -61,7 +61,7 @@ async function registry() {
   const artifacts: { serveSim: NpmArtifact; ws: NpmArtifact } = {
     serveSim: {
       name: "serve-sim",
-      version: "0.1.48",
+      version: "0.1.49-beta.139.1",
       url: `${base}/serve-sim.tgz`,
       integrity: integrity(serveSim),
     },
@@ -78,7 +78,7 @@ it("the device tools download puts ace's own serve-sim in its tools folder, run 
   const tools = await downloadDeviceTools(options, { serveSim: true, scrcpy: false });
   expect(tools.serveSim).toEqual({
     command: process.execPath,
-    args: [join(directory, "serve-sim-0.1.48", "dist", "serve-sim.js")],
+    args: [join(directory, "serve-sim-0.1.49-beta.139.1", "dist", "serve-sim.js")],
   });
   // The serve-sim ace runs is its own copy, found with no serve-sim on PATH.
   const status = await serveSimStatus(
@@ -86,7 +86,7 @@ it("the device tools download puts ace's own serve-sim in its tools folder, run 
     runtime,
     await managedServeSim({ directory, node: process.execPath, artifacts }),
   );
-  expect(status).toMatchObject({ version: "0.1.48", supported: true, source: "ace" });
+  expect(status).toMatchObject({ version: "0.1.49-beta.139.1", supported: true, source: "ace" });
 
   // A second download finds the install in place and fetches nothing.
   const before = hits.length;

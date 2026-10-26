@@ -22,7 +22,7 @@ const runtime: DeviceRuntime = {
 async function capture(options: { turned?: string } = {}) {
   const home = await mkdtemp(join(tmpdir(), "sim-touch-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.48", udid, options);
+  const sim = await fakeServeSim(home, "0.1.49-beta.139.1", udid, options);
   const platform = new DevicePlatform({
     platform: "darwin",
     home,
