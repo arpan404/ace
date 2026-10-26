@@ -42,3 +42,21 @@ export {
   LockedUseNotImplementedError,
   type LockedUseInstaller,
 } from "./locked-use.ts";
+export {
+  macLockedUseInstaller,
+  type LockedUseScheduler,
+  type MacLockedUseOptions,
+  type PrivilegedRunner,
+} from "./locked-use-mac.ts";
+export {
+  detectLockedUse,
+  type LockedUseDetection,
+  type LockedUseExpectation,
+} from "./locked-use-detect.ts";
+export {
+  macHost,
+  lockedUseBrokerLabel,
+  lockedUseGuardianLabel,
+  type MacCommandResult,
+  type MacHost,
+} from "./locked-use-host.ts";
