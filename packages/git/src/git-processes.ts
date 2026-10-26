@@ -316,6 +316,16 @@ function scanWindowsGitProcesses(): GitProcessScan {
   };
 }
 
+/** Only "no such process" proves an exit; a refusal to inspect leaves the process in place. */
+function exited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ESRCH";
+  }
+}
+
 /**
  * Each listed Git's working directory and checkout, as lsof and /proc give them elsewhere, and
  * without the long-lived fsmonitor daemon. A process Windows won't describe keeps no `cwd`.
@@ -329,6 +339,8 @@ async function windowsGitFacts(found: GitProcess[]): Promise<GitProcess[]> {
   for (const entry of found) {
     const fact = facts.get(entry.pid);
     if (fact?.commandLine !== undefined && longLived(fact.commandLine)) continue;
+    // Short-lived Git (an editor's status poll) often exits between the listing and this read.
+    if (fact?.cwd === undefined && exited(entry.pid)) continue;
     const cwd = fact?.cwd;
     if (cwd !== undefined) {
       // The same canonical form lease roots and lock paths are compared in.
