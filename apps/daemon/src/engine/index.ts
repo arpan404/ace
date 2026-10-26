@@ -827,6 +827,19 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
+  /**
+   * The run (turn) an agent's tool call belongs to now: its own active run, else the root's.
+   * Undefined when nothing is running, so no turn-scoped work can be approved.
+   */
+  activeRun(threadId: ThreadId, agentId: string): string | undefined {
+    const state = this.repo.state(threadId);
+    if (!state) return undefined;
+    const key = state.indexes.agentKeysById[agentId];
+    const own = key === undefined ? undefined : state.agents[key]?.activeRun;
+    return (
+      own ?? (state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.activeRun)
+    );
+  }
   openHostApproval(
     threadId: ThreadId,
     key: string,

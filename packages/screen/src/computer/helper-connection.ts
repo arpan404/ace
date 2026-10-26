@@ -68,6 +68,12 @@ export class HelperConnection {
     return this.current !== undefined || this.queue.length > 0;
   }
 
+  /** The helper's process id, starting the helper if none is running. */
+  async pid(): Promise<number | undefined> {
+    if (this.closed) return undefined;
+    return (await this.process()).pid;
+  }
+
   request(
     op: string,
     payload: Record<string, unknown>,

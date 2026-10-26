@@ -60,3 +60,25 @@ export {
   type MacCommandResult,
   type MacHost,
 } from "./locked-use-host.ts";
+export {
+  LockedUseConnection,
+  LockedUseConnectionError,
+  LockedUseReplyError,
+  connectLockedUse,
+} from "./locked-use-connection.ts";
+export {
+  LockedUseFrameDecoder,
+  LockedUseFrameError,
+  decodeLockedUseMessage,
+  encodeLockedUseFrame,
+  encodeLockedUseRequest,
+  type LockedUseServiceStatus,
+} from "./locked-use-wire.ts";
+export { LockedUseAttemptError, runProtectedAttempt } from "./locked-use-attempt.ts";
+export {
+  lockedUseGate,
+  lockedUseRoute,
+  type LockedUseGate,
+  type LockedUseGatePorts,
+  type LockedUseTurnScope,
+} from "./computer/locked-use-gate.ts";
