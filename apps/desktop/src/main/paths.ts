@@ -38,7 +38,11 @@ export function appPaths(options: {
   platform: NodeJS.Platform;
 }): AppPaths {
   const resources = options.packaged ? options.resourcesPath : join(options.appDirectory, "..");
-  const trayImage = options.platform === "linux" ? "trayColor.png" : "trayTemplate.png";
+  // Windows: the colour tile too; its taskbar never tints tray icons and is dark by default.
+  const trayImage =
+    options.platform === "linux" || options.platform === "win32"
+      ? "trayColor.png"
+      : "trayTemplate.png";
   const desktop = join(options.appDirectory, "..", "..");
   const helper = helperNames[options.platform];
   const screenHelper =

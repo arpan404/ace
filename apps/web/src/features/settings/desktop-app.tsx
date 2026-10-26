@@ -3,6 +3,7 @@ import { desktopShortcutHint, type DesktopPreferencesPatch } from "@/boot/deskto
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { AppUpdateRow } from "./app-updates.tsx";
+import { HelpRows } from "./help-rows.tsx";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { DesktopShortcut } from "./desktop-shortcut.tsx";
 import { TerminalCommandRow } from "./terminal-command.tsx";
@@ -69,6 +70,7 @@ export function DesktopAppPreferences() {
       {shortcutHint && <p className="select-text text-sm text-muted-foreground">{shortcutHint}</p>}
       <TerminalCommandRow />
       <AppUpdateRow />
+      <HelpRows />
     </SettingSection>
   );
 }
