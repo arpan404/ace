@@ -37,6 +37,7 @@ import { spawnPinned } from "./pinned-process.ts";
 import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
 import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
+import type { GitJob } from "./git-job.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
 import {
@@ -102,6 +103,9 @@ export class GitCli {
   private readonly killed = new Set<string>();
   private closed = false;
   private closing: Promise<void> | undefined;
+  /** Windows: the job module once loaded, `null` when it can't load (see `git-job.ts`). */
+  private jobs: typeof import("./git-job.ts") | null | undefined;
+  private jobsLoading: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
@@ -141,6 +145,7 @@ export class GitCli {
           },
       waitMs: options.leaseWaitMs ?? 60_000,
     };
+    if (this.runtime.platform === "win32") this.containWindowsGit(options);
     this.configuredBinary = options.gitBinary;
     if (
       this.configuredBinary !== undefined &&
@@ -163,6 +168,36 @@ export class GitCli {
         "timeoutMs must be an integer between 1 and 2147483647",
       );
     }
+  }
+
+  /**
+   * Windows: Git calls run in Job Objects (see `git-job.ts`). A stopped call's job stands in for
+   * its POSIX process group as lease evidence, and a stopped daemon's leases ignore Git started
+   * after this service first found that daemon gone.
+   */
+  private containWindowsGit(options: GitOptions): void {
+    this.jobsLoading = import("./git-job.ts").then(
+      (module) => {
+        this.jobs = module;
+      },
+      () => {
+        this.jobs = null;
+      },
+    );
+    const evidence = this.leaseProbe.evidence;
+    if (!evidence) return;
+    if (!options.processRuntime?.groupAlive)
+      evidence.groupAlive = (pid) => (this.jobs ? this.jobs.jobAlive(pid) : true);
+    const seenGone = new Map<string, number>();
+    evidence.stoppedBy ??= (lease) => {
+      let at = seenGone.get(lease.id);
+      if (at === undefined) {
+        if (seenGone.size >= 4096) seenGone.clear();
+        at = this.runtime.fileClock();
+        seenGone.set(lease.id, at);
+      }
+      return at;
+    };
   }
 
   assertMutationAvailable(path: string) {
@@ -582,6 +617,11 @@ export class GitCli {
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.runtime.platform === "win32" && this.jobs === undefined)
+      return (this.jobsLoading ?? Promise.resolve()).then(() => {
+        this.jobs ??= null;
+        return this.executeRaw(cwd, args, options);
+      });
     const binary = this.binary;
     const env = inheritedEnv();
     Object.assign(env, {
@@ -613,6 +653,7 @@ export class GitCli {
       options.beforeSpawn?.();
       if (options.signal?.aborted)
         throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
+      const job = this.runtime.cleanupSupervisor ? undefined : this.jobs?.prepareJob();
       const child =
         options.directoryFd === undefined
           ? this.runtime.spawn(binary, ["--no-pager", ...args], spawnOptions)
@@ -624,6 +665,7 @@ export class GitCli {
               options.directoryFd,
             );
       const pid = child.pid;
+      const contained = job && pid && job.adopt(pid) ? job : undefined;
       if (pid) runningChildren.add(pid);
       child.once("exit", () => {
         if (pid) runningChildren.delete(pid);
@@ -641,8 +683,43 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
+      // Windows: the call's job holds Git and everything it started. Once it is empty the
+      // receipt is confirmed, and its leases retire as a POSIX call's do once its group is gone.
+      const killContained = (call: GitJob, leader: number) => {
+        stopped = true;
+        runningChildren.delete(leader);
+        const drain = drainProcessExit(child, this.runtime.scheduleTimeout);
+        this.drains.add(drain);
+        void drain.then(
+          () => this.drains.delete(drain),
+          () => this.drains.delete(drain),
+        );
+        const leases = ownership.leases;
+        const cleanup = ownership.quarantine(
+          { settled: call.stop(this.runtime.scheduleTimeout) },
+          leader,
+        );
+        if (leases.length) {
+          const ids = leases.map(({ id }) => id);
+          for (const id of ids) this.killed.add(id);
+          void settleOwnLeases(ids, this.leaseProbe).then(
+            () => ids.forEach((id) => this.killed.delete(id)),
+            ignoreError,
+          );
+        }
+        if (failure) failure.cleanup = { settled: cleanup };
+        detach();
+        child.off("close", closed);
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        settled = true;
+        reject(failure);
+      };
       const kill = () => {
         if (stopped) return;
+        if (contained && pid) return killContained(contained, pid);
         stopped = true;
         // From here this process is evidence that a writer may survive, not our running work.
         if (child.pid) runningChildren.delete(child.pid);
@@ -818,6 +895,11 @@ export class GitCli {
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };
       child.once("close", closed);
+      // Git ended by itself: what it left running stays, as it does outside a job.
+      if (contained)
+        child.once("close", () => {
+          if (!stopped) contained.release();
+        });
       child.stdin.on("error", () => {});
       if (options.input instanceof Readable) {
         options.input.on("error", streamFailure);

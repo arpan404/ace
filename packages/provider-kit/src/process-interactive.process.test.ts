@@ -73,6 +73,7 @@ function unjoinableApi(): WindowsJobApi {
   return {
     create: () => job,
     setKillOnClose: () => true,
+    clearLimits: () => true,
     openProcess: () => target,
     assignProcess: () => false,
     close: () => {},
