@@ -60,6 +60,11 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Desktop install, PATH and managed-daemon target on Windows.
+      "apps/desktop/src/packaging/setup.test.ts",
+      "apps/desktop/src/packaging/user-path.test.ts",
+      "apps/desktop/src/main/os/cli-path.test.ts",
+      "apps/desktop/src/main/daemon/target.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
