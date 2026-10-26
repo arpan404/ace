@@ -195,7 +195,9 @@ test.runIf(windows)(
 
     process.kill(crashed.escaped.child);
     await expect.poll(() => running(crashed.escaped.child), { timeout: 10_000 }).toBe(false);
-    expect(await skillTreeHolders(root)).toEqual([]);
+    // A busy host can briefly show a short-lived process under the dead leader's reused PID;
+    // the projection is retained until it is gone too.
+    await expect.poll(() => skillTreeHolders(root), { timeout: 15_000 }).toEqual([]);
     await (
       await builtinSkillRecovery(dataDir)
     )(Promise.resolve(), (error) => errors.push(error));
