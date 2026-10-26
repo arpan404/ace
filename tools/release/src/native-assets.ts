@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ReleaseTarget } from "@ace/protocol";
 import { hashFile } from "@ace/service";
+import { dirname } from "node:path";
+import { isWindowsTarget } from "./node-runtime.ts";
+import { stageWindowsPty } from "./pty-assets.ts";
 
 export const LinuxNativeInput = z.object({
   pty: z.string().min(1),
@@ -16,6 +19,10 @@ export async function stageNativeFiles(
   destination: string,
   input?: unknown,
 ): Promise<void> {
+  // Windows: node-pty's ConPTY files, from the package holding `prebuild` into the one holding
+  // `destination`.
+  if (isWindowsTarget(target))
+    return stageWindowsPty(dirname(dirname(prebuild)), dirname(dirname(destination)), target);
   const platform = ReleaseTarget.parse(target);
   await mkdir(destination, { recursive: true });
   if (platform === "linux-x64" || platform === "linux-arm64") {

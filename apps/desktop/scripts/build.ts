@@ -104,6 +104,26 @@ await stageRipgrep(join(dist, "bin"));
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));
 
+// The Windows installer runs this on the bundled Node for PATH, the `ace` command and
+// uninstall cleanup (src/packaging/setup.ts, build/installer.nsh).
+if (process.platform === "win32") {
+  log("installer helper");
+  await build({
+    entryPoints: [join(desktop, "src/packaging/setup-entry.ts")],
+    outfile: join(dist, "setup/ace-setup.mjs"),
+    bundle: true,
+    minify: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    legalComments: "eof",
+    logLevel: "warning",
+    banner: {
+      js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
+    },
+  });
+}
+
 const releaseTarget = `${process.platform}-${arch}`;
 if (
   releaseTarget === "darwin-arm64" ||

@@ -135,7 +135,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.10",
+      "version": "0.0.11",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -149,6 +149,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/browser-extension": "workspace:*",
         "@ace/daemon": "workspace:*",
         "@ace/release": "workspace:*",
         "@electron/rebuild": "4.2.0",

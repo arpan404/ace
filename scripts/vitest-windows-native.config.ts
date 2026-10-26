@@ -72,6 +72,12 @@ export default defineConfig({
       "tools/release/src/pty-assets.test.ts",
       "tools/release/src/node-runtime.test.ts",
       "tools/release/src/archive-paths.process.test.ts",
+      // Cursor SDK staging: x64 ships its rg.exe helper, ARM64 ships no helper.
+      "tools/release/src/cursor-runtime-assets.process.test.ts",
+      "packages/adapter-cursor/src/ripgrep-path.test.ts",
+      // Standalone daemon: the per-user login task, ace.cmd, pointer files and updates.
+      "packages/service/src/task.process.test.ts",
+      "tools/release/src/task-supervisor.test.ts",
       // Screen helper lifecycle over the protocol-v2 fake on a named pipe: negotiation,
       // fragmented frames, crash/restart ownership, pending-read takeover, suspend/resume,
       // oversized commands and retired packets.
@@ -142,6 +148,14 @@ export default defineConfig({
       "packages/secure-channel/src/handshake-boundary.test.ts",
       "packages/devices/src/android-sdk-install.process.test.ts",
       "packages/devices/src/emulator-discovery.process.test.ts",
+      // Desktop install, PATH and managed-daemon target on Windows.
+      "apps/desktop/src/packaging/setup.test.ts",
+      "apps/desktop/src/packaging/user-path.test.ts",
+      "apps/desktop/src/main/os/cli-path.test.ts",
+      "apps/desktop/src/main/daemon/target.test.ts",
+      "apps/desktop/src/main/os/cli-shim.process.test.ts",
+      "tools/release/src/bundle-addon.process.test.ts",
+      "apps/desktop/src/packaging/authenticode.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. These check POSIX owner uid and mode bits; Windows
