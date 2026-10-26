@@ -10,6 +10,16 @@ import {
   loadedProperties,
 } from "./service-identity.ts";
 import { checked, type Runner } from "./process.ts";
+import { readFile } from "node:fs/promises";
+import { win32 } from "node:path";
+import type { TaskPlan } from "./plan.ts";
+import { readTaskRecord } from "./compatibility.ts";
+import {
+  assertLoadedTask,
+  assertTaskRegistration,
+  incompatibleTask,
+  taskActive,
+} from "./service-identity.ts";
 /** `systemctl --user` found no user manager: containers, WSL without systemd, `su` shells. */
 const noUserManager =
   /Failed to connect to (?:user scope )?bus|\$DBUS_SESSION_BUS_ADDRESS|\$XDG_RUNTIME_DIR|No medium found/;
@@ -116,4 +126,173 @@ export class UserService {
     }
     return { active: await this.active() };
   }
+}
+
+export interface TaskPorts {
+  run: Runner;
+  /** Checks the home and ace's task record before anything is changed. */
+  preflight(): Promise<void>;
+  /** Asks the running daemon to shut down (`POST /v1/stop`); false when it did not accept. */
+  requestStop(): Promise<boolean>;
+  wait(ms: number): Promise<void>;
+}
+
+/**
+ * The Windows login service: a per-user Task Scheduler task (`TaskPlan`), managed with
+ * `schtasks.exe` and validated against ace's record like the launchd and systemd services.
+ */
+export class TaskService {
+  private readonly plan: TaskPlan;
+  private readonly ports: TaskPorts;
+  constructor(plan: TaskPlan, ports: TaskPorts) {
+    this.plan = plan;
+    this.ports = ports;
+  }
+  private async validate(): Promise<void> {
+    assertCompatibleHome(win32.dirname(this.plan.logDir));
+    assertCompatibleHome(win32.dirname(win32.dirname(this.plan.command[0])));
+    await this.ports.preflight();
+    const content = readTaskRecord(this.plan);
+    if (content !== undefined) assertTaskRegistration(this.plan, content);
+  }
+  private async schtasks(args: readonly string[]) {
+    return this.ports.run("schtasks.exe", args);
+  }
+  /** Whether Task Scheduler holds ace's task; a task by that name ace did not register is refused. */
+  private async registered(): Promise<boolean> {
+    const query = await this.schtasks(["/Query", "/TN", this.plan.name, "/XML"]);
+    if (query.code === 0) {
+      assertLoadedTask(this.plan, query.stdout);
+      if (readTaskRecord(this.plan) === undefined) throw incompatibleTask(this.plan);
+      return true;
+    }
+    // schtasks reports a missing task only in localized words, so look for it in the list.
+    const list = await this.schtasks(["/Query", "/FO", "CSV", "/NH"]);
+    if (list.code !== 0) throw new Error(`Cannot query the service task: ${list.stderr}`);
+    const name = `"${this.plan.name.toLowerCase()}"`;
+    if (list.stdout.split(/\r?\n/).some((line) => line.toLowerCase().startsWith(name)))
+      throw new Error(`Cannot query the service task: ${query.stderr}`);
+    return false;
+  }
+  private async running(): Promise<boolean> {
+    if (!(await this.registered())) return false;
+    const status = await checked(this.ports.run, "schtasks.exe", [
+      "/Query",
+      "/TN",
+      this.plan.name,
+      "/V",
+      "/FO",
+      "CSV",
+      "/NH",
+    ]);
+    return taskActive(this.plan, status.stdout);
+  }
+  private async until(running: boolean, ms: number): Promise<boolean> {
+    for (let waited = 0; waited < ms; waited += 250) {
+      if ((await this.running()) === running) return true;
+      await this.ports.wait(250);
+    }
+    return (await this.running()) === running;
+  }
+  async active(): Promise<boolean> {
+    await this.validate();
+    return this.running();
+  }
+  async perform(action: ServiceAction): Promise<{ active: boolean }> {
+    await this.validate();
+    const p = this.plan;
+    if (action === "status") return { active: await this.running() };
+    if (action === "install") {
+      const registered = await this.registered();
+      await mkdir(win32.dirname(p.file), { recursive: true });
+      await mkdir(p.logDir, { recursive: true });
+      const record = readTaskRecord(p);
+      const environment = await readFile(p.environmentFile, "utf8").catch(() => undefined);
+      if (!registered || record !== p.content || environment !== p.environment) {
+        // Re-register only changed plans; an unchanged reinstall leaves the daemon running.
+        await this.perform("stop");
+        await replaceFile(p.environmentFile, p.environment);
+        // The record goes first: a task without one is never adopted.
+        await replaceFile(p.file, p.content);
+        const xml = p.file + ".import";
+        // schtasks reads task XML as UTF-16.
+        await writeFile(
+          xml,
+          Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(p.content, "utf16le")]),
+        );
+        try {
+          await checked(this.ports.run, "schtasks.exe", [
+            "/Create",
+            "/TN",
+            p.name,
+            "/XML",
+            xml,
+            "/F",
+          ]);
+        } finally {
+          await rm(xml, { force: true });
+        }
+      }
+      return this.perform("start");
+    }
+    if (action === "start") {
+      if (!(await this.running())) {
+        await checked(this.ports.run, "schtasks.exe", ["/Run", "/TN", p.name]);
+        await this.until(true, 10_000);
+      }
+    } else {
+      if (await this.running()) await this.stop();
+      if (action === "uninstall") {
+        if (await this.registered())
+          await checked(this.ports.run, "schtasks.exe", ["/Delete", "/TN", p.name, "/F"]);
+        await rm(p.file, { force: true });
+        await rm(p.environmentFile, { force: true });
+      }
+    }
+    return { active: await this.running() };
+  }
+  /**
+   * The daemon shuts down through its own stop request: `schtasks /End` ends only the task's
+   * first process, as `TerminateProcess`, skipping the daemon's shutdown. `/End` is the
+   * fallback for a daemon that does not answer.
+   */
+  private async stop(): Promise<void> {
+    // A daemon that is still starting has not written its endpoint yet: ask again briefly.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (await this.ports.requestStop()) {
+        if (await this.until(false, 60_000)) return;
+        break;
+      }
+      if (!(await this.running())) return;
+      await this.ports.wait(500);
+    }
+    await checked(this.ports.run, "schtasks.exe", ["/End", "/TN", this.plan.name]);
+    await this.endTree();
+    if (!(await this.until(false, 10_000))) throw new Error("The service task did not stop");
+  }
+  /**
+   * `/End` ends only the task's first process (conhost), so the launcher, supervisor and daemon
+   * under it are ended here: every process running this home's launcher or a release of it with
+   * `supervise`, with its whole tree.
+   */
+  private async endTree(): Promise<void> {
+    const home = win32.dirname(win32.dirname(this.plan.command[0]));
+    const script = `Get-CimInstance Win32_Process | Where-Object { $c = [string]$_.CommandLine; $c.Contains('supervise') -and ($c.Contains(${text(this.plan.command[0])}) -or $c.Contains(${text(win32.join(home, "releases") + "\\")})) } | ForEach-Object { $_.ProcessId }`;
+    const found = await this.ports.run("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ]);
+    for (const pid of found.stdout.split(/\s+/).filter((line) => /^\d+$/.test(line)))
+      await this.ports.run("taskkill.exe", ["/T", "/F", "/PID", pid]);
+  }
+}
+
+/** A PowerShell single-quoted string. */
+const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
+
+async function replaceFile(path: string, content: string): Promise<void> {
+  await writeFile(path + ".tmp", content);
+  await rename(path + ".tmp", path);
 }

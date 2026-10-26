@@ -37,6 +37,7 @@ on:
       - tools/release/src/pty-assets.ts
       - tools/release/src/node-runtime*.ts
       - tools/release/src/archive*.ts
+      - tools/release/**
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
       - package.json
@@ -473,3 +474,132 @@ jobs:
           name: installer-logs-${{ matrix.arch }}
           path: ${{ runner.temp }}/smoke-artifacts
           if-no-files-found: ignore
+
+  # The standalone daemon on Windows: the archive build, its smoke check, the per-user login
+  # task and install.ps1 end to end. Lighter than the job above: no screen or browser work.
+  windows-standalone:
+    name: Windows standalone daemon (${{ matrix.os }} ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            msvc_arch: x64
+            node_subdir: win-x64
+          - os: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
+            node_subdir: win-arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+
+      - name: Assert native Node arch
+        run: |
+          $nodeArch = (node -p "process.arch").Trim()
+          if ($nodeArch -ne "${{ matrix.arch }}") { throw "Node arch mismatch: got $nodeArch, want ${{ matrix.arch }}" }
+
+      - name: Restore Bun download cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+
+      - name: Fetch official Node headers + node.lib and verify SHASUMS256
+        id: headers
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Version = "${{ env.NODE_VERSION }}"
+          $Dist = "https://nodejs.org/dist/v$Version"
+          $Temp = $env:RUNNER_TEMP
+          $Shasums = Join-Path $Temp "SHASUMS256.txt"
+          $HeadersTar = Join-Path $Temp "node-v$Version-headers.tar.gz"
+          $NodeLib = Join-Path $Temp "node.lib"
+          $Stage = Join-Path $Temp "node-headers"
+          Invoke-WebRequest -Uri "$Dist/SHASUMS256.txt" -OutFile $Shasums
+          Invoke-WebRequest -Uri "$Dist/node-v$Version-headers.tar.gz" -OutFile $HeadersTar
+          Invoke-WebRequest -Uri "$Dist/${{ matrix.node_subdir }}/node.lib" -OutFile $NodeLib
+          $expectedHeaders = ((Select-String -Path $Shasums -Pattern "node-v$Version-headers.tar.gz").Line -split '\s+')[0]
+          $expectedLib = ((Select-String -Path $Shasums -Pattern "${{ matrix.node_subdir }}/node.lib").Line -split '\s+')[0]
+          if ((Get-FileHash -Path $HeadersTar -Algorithm SHA256).Hash.ToLower() -ne $expectedHeaders) { throw "headers SHA256 mismatch" }
+          if ((Get-FileHash -Path $NodeLib -Algorithm SHA256).Hash.ToLower() -ne $expectedLib) { throw "node.lib SHA256 mismatch" }
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          tar -xzf $HeadersTar -C $Stage
+          $HeadersDir = (Get-ChildItem -Path $Stage -Filter "node_api.h" -Recurse | Select-Object -First 1).DirectoryName
+          "headers-dir=$HeadersDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "node-lib=$NodeLib" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate MSVC developer environment
+        id: msvc
+        run: |
+          $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
+          "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Clean install (builds the Windows descriptor)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          bun install --frozen-lockfile --os=win32 --cpu=${{ matrix.arch }} || exit /b 1
+          if not exist packages\workspace\dist\descriptor.node node packages/workspace/build.ts || exit /b 1
+
+      - name: Login task, launcher and update tests
+        id: tests
+        timeout-minutes: 10
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/service/src/task.process.test.ts
+
+      - name: Throwaway release key
+        if: ${{ !cancelled() }}
+        run: |
+          node -e "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519');f.writeFileSync(process.argv[1],k.privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync(process.argv[2],k.publicKey.export({type:'spki',format:'pem'}))" "$env:RUNNER_TEMP\ace-key.pem" "$env:RUNNER_TEMP\ace-public.pem"
+
+      - name: Build the win32-${{ matrix.arch }} daemon archive
+        id: build
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: node tools/release/src/build.ts 0.0.0-ci win32-${{ matrix.arch }} "$env:RUNNER_TEMP\ace-public.pem"
+
+      - name: Smoke the archive (ConPTY, daemon start, status, stop)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 5
+        run: node tools/release/src/smoke.ts tools/release/dist/win32-${{ matrix.arch }}
+
+      - name: install.ps1 end to end
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target win32-${{ matrix.arch }} -PrivateKey "$env:RUNNER_TEMP\ace-key.pem" -PublicKey "$env:RUNNER_TEMP\ace-public.pem" -Work "$env:RUNNER_TEMP\install-check"

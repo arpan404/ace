@@ -17,6 +17,7 @@ import {
   syncTree,
   syncDirectory,
   withInstallLock,
+  retrySharing,
 } from "./files.ts";
 import { DatabaseInventory, snapshotDatabases, restoreDatabases } from "./migration.ts";
 import type { Fetcher } from "./feed.ts";
@@ -156,6 +157,10 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       stopped = false;
       if (!(await ports.health(manifest.version))) throw new Error("Candidate health check failed");
       await durableRemove(join(root, "update.json"));
+      if (process.platform === "win32") {
+        await pruneBestEffort(root, [old, candidate], snapshot);
+        return "updated";
+      }
       // Bound retained artifacts to current and previous after successful health.
       const { readdir } = await import("node:fs/promises");
       for (const name of await readdir(join(root, "releases")))
@@ -175,4 +180,22 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await rm(join(root, ".migration-check"), { recursive: true, force: true });
     }
   });
+}
+
+/**
+ * Windows pruning after a committed update: a loaded `.exe` or `.node` cannot be deleted, and
+ * a scanner may hold a file, so whatever stays behind is retried by the next update instead of
+ * failing (and rolling back) this one.
+ */
+async function pruneBestEffort(
+  root: string,
+  keep: readonly string[],
+  snapshot: string,
+): Promise<void> {
+  const { readdir } = await import("node:fs/promises");
+  const stale = (await readdir(join(root, "releases")))
+    .filter((name) => !keep.includes(`releases/${name}`))
+    .map((name) => join(root, "releases", name));
+  for (const path of [...stale, snapshot])
+    await retrySharing(() => rm(path, { recursive: true, force: true })).catch(() => {});
 }
