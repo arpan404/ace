@@ -62,7 +62,8 @@ final class SocketTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appendingPathComponent("s").path
         let got = expectation(description: "frame")
-        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s")) { fd in
+        // The test process plays the daemon that spawned the service.
+        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedPeerProcessID: { getpid() }) { fd in
             LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in got.fulfill() }, onClose: {})
         }
         try server.start()
@@ -97,7 +98,7 @@ final class SocketTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appendingPathComponent("s").path
         let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedUserID: getuid(),
-            peerUserID: { _ in getuid() &+ 1 }) { fd in
+            peerUserID: { _ in getuid() &+ 1 }, expectedPeerProcessID: { getpid() }) { fd in
             XCTFail("A peer of another user must never get a connection")
             return LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
         }
@@ -116,5 +117,107 @@ final class SocketTests: XCTestCase {
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
         var byte: UInt8 = 0
         XCTAssertEqual(read(fd, &byte, 1), 0, "The service closed the connection")
+    }
+
+    func temporaryPath() throws -> (String, () -> Void) {
+        let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent("lu-\(getpid())-\(UInt16.random(in: 0...UInt16.max))")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return (directory.appendingPathComponent("s").path, { try? FileManager.default.removeItem(at: directory) })
+    }
+
+    func dial(_ path: String) -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in for (i, b) in path.utf8.enumerated() { raw[i] = b } }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        XCTAssertEqual(connected, 0)
+        var wait = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        return fd
+    }
+
+    func testTheKernelReportsThePeersProcess() {
+        let (one, two) = pair()
+        defer { close(one); close(two) }
+        XCTAssertEqual(lockedUsePeerProcessID(one), getpid())
+        XCTAssertNil(lockedUsePeerProcessID(-1))
+    }
+
+    func testASameUserPeerThatIsNotTheSpawningDaemonIsClosedBeforeAnythingIsServed() throws {
+        let (path, cleanup) = try temporaryPath()
+        defer { cleanup() }
+        // The service's parent is some other process; the test process is a same-user squatter.
+        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedPeerProcessID: { getpid() &+ 1 }) { fd in
+            XCTFail("Only the daemon that spawned the service may get a connection")
+            return LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
+        }
+        try server.start()
+        defer { server.stop() }
+        let fd = dial(path)
+        defer { close(fd) }
+        var byte: UInt8 = 0
+        XCTAssertEqual(read(fd, &byte, 1), 0, "The service closed the connection")
+    }
+
+    func testAnOrphanedServiceServesNobody() throws {
+        let (path, cleanup) = try temporaryPath()
+        defer { cleanup() }
+        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedPeerProcessID: { nil }) { fd in
+            XCTFail("With its daemon gone the service serves no one")
+            return LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
+        }
+        try server.start()
+        defer { server.stop() }
+        let fd = dial(path)
+        defer { close(fd) }
+        var byte: UInt8 = 0
+        XCTAssertEqual(read(fd, &byte, 1), 0)
+    }
+
+    func testTheServiceNeverTakesOverAPathSomeoneIsListeningOn() throws {
+        let (path, cleanup) = try temporaryPath()
+        defer { cleanup() }
+        let squatter = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "q"), expectedPeerProcessID: { getpid() }) { fd in
+            LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
+        }
+        try squatter.start()
+        defer { squatter.stop() }
+        var before = stat()
+        XCTAssertEqual(lstat(path, &before), 0)
+        let service = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s")) { fd in
+            LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in }, onClose: {})
+        }
+        XCTAssertThrowsError(try service.start()) { XCTAssertEqual($0 as? LockedUseSocketError, .inUse) }
+        var after = stat()
+        XCTAssertEqual(lstat(path, &after), 0)
+        XCTAssertEqual(after.st_ino, before.st_ino, "The live listener's socket was left in place")
+    }
+
+    func testAStaleSocketLeftByADeadServiceIsReplaced() throws {
+        let (path, cleanup) = try temporaryPath()
+        defer { cleanup() }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in for (i, b) in path.utf8.enumerated() { raw[i] = b } }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        XCTAssertEqual(bound, 0)
+        close(fd)
+        let got = expectation(description: "frame")
+        let server = LockedUseSocketServer(path: path, queue: DispatchQueue(label: "s"), expectedPeerProcessID: { getpid() }) { fd in
+            LockedUseFramedConnection(fd: fd, queue: DispatchQueue(label: "c"), onFrame: { _ in got.fulfill() }, onClose: {})
+        }
+        try server.start()
+        defer { server.stop() }
+        let client = dial(path)
+        defer { close(client) }
+        let frame = try lockedUseEncodeFrame(Data("{}".utf8))
+        _ = frame.withUnsafeBytes { write(client, $0.baseAddress, frame.count) }
+        wait(for: [got], timeout: 5)
     }
 }

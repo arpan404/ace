@@ -9,14 +9,14 @@ public protocol LockedUseServedConnection: AnyObject {
 extension LockedUseFramedConnection: LockedUseServedConnection {}
 
 /// One daemon connection that serves nothing until the peer proves it holds the daemon's
-/// token. The first frame must be a valid hello (see `lockedUseCheckHello`) and must arrive
-/// within `handshakeTimeout`; otherwise the connection closes and no request is delivered.
-/// Outbound messages are dropped until the hello is accepted.
+/// token. The first two frames must complete `LockedUseHandshake` within `handshakeTimeout`;
+/// otherwise the connection closes and no request is delivered. Outbound messages are
+/// dropped until the handshake is accepted.
 public final class LockedUseDaemonLink: LockedUseServedConnection, @unchecked Sendable {
     public typealias After = (_ delay: DispatchTimeInterval, _ queue: DispatchQueue, _ body: @escaping () -> Void) -> Void
 
     private let queue: DispatchQueue
-    private let token: LockedUseDaemonToken
+    private var handshake: LockedUseHandshake
     private let handshakeTimeout: DispatchTimeInterval
     private let after: After
     private let onAuthenticated: (LockedUseDaemonLink) -> Void
@@ -27,16 +27,18 @@ public final class LockedUseDaemonLink: LockedUseServedConnection, @unchecked Se
     private var authenticated = false
     private var rejected = false
 
-    /// `onRequest` gets each request frame after a successful hello, on `queue`.
+    /// `nonce` supplies this connection's 32 fresh random bytes; nil refuses the hello.
+    /// `onRequest` gets each request frame after a successful handshake, on `queue`.
     /// `onClose(wasAuthenticated)` runs once, on `queue`. The owner keeps the link alive
     /// until then.
     public init(fd: Int32, queue: DispatchQueue, token: LockedUseDaemonToken,
+                nonce: () -> [UInt8]? = lockedUseRandomNonce,
                 handshakeTimeout: DispatchTimeInterval = .seconds(2),
                 after: @escaping After = { delay, queue, body in queue.asyncAfter(deadline: .now() + delay, execute: body) },
                 onAuthenticated: @escaping (LockedUseDaemonLink) -> Void = { _ in },
                 onRequest: @escaping (Data) -> Void, onClose: @escaping (_ wasAuthenticated: Bool) -> Void) {
         self.queue = queue
-        self.token = token
+        handshake = LockedUseHandshake(token: token, serviceNonce: nonce() ?? [])
         self.handshakeTimeout = handshakeTimeout
         self.after = after
         self.onAuthenticated = onAuthenticated
@@ -68,7 +70,9 @@ public final class LockedUseDaemonLink: LockedUseServedConnection, @unchecked Se
     private func receive(_ frame: Data) {
         guard !rejected else { return }
         guard !authenticated else { return onRequest(frame) }
-        switch lockedUseCheckHello(frame, token: token) {
+        switch handshake.receive(frame) {
+        case .send(let message):
+            if let data = try? message.encoded() { connection.send(data) }
         case .accepted(let reply):
             authenticated = true
             if let data = try? reply.encoded() { connection.send(data) }

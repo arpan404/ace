@@ -139,20 +139,41 @@ A Unix socket (mode 0600, one connection at a time). Each frame is a 4-byte big-
 length followed by 1–65,536 bytes of UTF-8 JSON. A bad length closes the connection. Unknown
 fields are ignored; unknown types or versions get an `unsupported` reply. `v` may be omitted.
 
-**Who may connect.** The kernel's peer credentials (`LOCAL_PEERCRED`) must name the service's
-own user, and the peer must then prove it is the daemon that spawned the service:
+**Who may connect.** The kernel's peer credentials must name the service's own user
+(`LOCAL_PEERCRED`) **and** the peer process must be the one that spawned the service
+(`LOCAL_PEERPID` equals `getppid()`; once the daemon is gone and launchd adopts the service it
+serves nobody). The peer must then prove it holds the daemon's token without sending it:
 
 1. At spawn the daemon makes 32 random bytes and writes them to the service's **stdin** as 64
    lowercase hex characters and `\n`. Nothing goes in argv or the environment. The service
    exits with status 2 if no valid line arrives within 5 seconds.
 2. The daemon keeps stdin open. EOF on stdin means the daemon is gone: the service stops any
    attempt, requests relock and exits (as it does on SIGTERM, SIGINT and SIGHUP).
-3. The first frame on every connection must be the hello, within 2 seconds:
-   `{"v":1,"id":"h1","type":"hello","token":"<64 hex>"}`. Accepted:
-   `{"id":"h1","ok":true,"type":"reply","v":1}`. Wrong token:
-   `{"error":{"code":"unauthorized","message":"…"},"id":"h1","ok":false,"type":"reply","v":1}`.
-   Anything else first: `{"code":"unauthorized","message":"…","type":"error","v":1}`. Every
-   rejection closes the connection. No request is served and no state is sent before the hello.
+3. The handshake must finish within 2 seconds. The token never crosses the socket, so a
+   process that answered at the path first learns nothing usable, and the daemon checks the
+   service's proof before giving its own:
+
+   ```json
+   {"v":1,"id":"h1","type":"hello","nonce":"<64 hex: 32 fresh daemon bytes>"}
+   {"id":"h1","nonce":"<64 hex: 32 fresh service bytes>","ok":true,"proof":"<64 hex>","type":"reply","v":1}
+   {"v":1,"id":"h2","type":"prove","proof":"<64 hex>"}
+   {"id":"h2","ok":true,"type":"reply","v":1}
+   ```
+
+   Proofs are HMAC-SHA256 keyed with the 32 token bytes, over raw bytes:
+   service proof = `"ace-locked-use service proof" || 0x00 || daemonNonce || serviceNonce`,
+   daemon proof = `"ace-locked-use daemon proof" || 0x00 || serviceNonce || daemonNonce`.
+   The daemon must close the connection, without sending `prove`, unless the service's proof
+   matches. A test vector (token `0123456789abcdef` ×4, daemon nonce `11` ×32, service nonce
+   `22` ×32) is in `Tests/LockedUseTransportTests/HandshakeTests.swift`.
+4. Every rejection is an `unauthorized` reply (`unsupported` for a hello `v` other than 1), or
+   `{"code":"unauthorized","message":"…","type":"error","v":1}` when no id is readable, and
+   closes the connection. A hello that carries a `token` field is refused. No request is
+   served and no state is sent before the daemon's proof is accepted.
+
+**The socket path.** The service creates the socket itself (umask 0177, then `chmod 0600`).
+It removes a leftover socket only when nothing answers on it, so it never displaces a live
+listener; `bind` then creates the path exclusively and fails if anyone recreated it.
 
 Only a closed authenticated connection stops an attempt (`connectionLost`).
 
@@ -192,6 +213,55 @@ confirmed the lock; `reason` is a `LockedUseStopReason`. Reply error codes: `not
 `unknown_attempt`, `unsupported`, `malformed`, `unauthorized` (hello only), `failed`. A malformed frame without a readable
 id produces an `error` event with code `malformed`. Event codes also include
 `relock_request_failed`.
+
+## Coordinator trust
+
+Locked use must not be drivable by another process running as the person, which could start
+its own copy of the signed `ace-screen-helper --locked-use`, give it its own token and send
+`begin` with `optIn: true`. The root broker decides which coordinator the plug-in consults:
+
+- **One coordinator, never replaced.** The first coordinator to qualify holds the broker
+  until its XPC link drops. A second registration is refused while it is linked; nothing
+  replaces it silently.
+- **No takeover mid-attempt.** After the broker grants a permit, every new registration is
+  refused for 90 seconds (more than the sixty-second work bound plus the guardian's relock
+  retries), even if the holder's link dropped. Killing the coordinator mid-attempt leaves the
+  plug-in with no one to ask, and the guardian relocks.
+- **Spawned by ace.** Besides the pinned screen-helper signature, the registering process's
+  parent must satisfy ace's team requirement (`anchor apple generic and certificate
+  leaf[subject.OU] = "<TEAM>"`): the daemon's bundled Node runtime or the `ace` executable.
+  The parent and both start times are read before and after the signature check, so a parent
+  that exits (launchd adopts the child) or a recycled pid is refused, as is an orphan.
+- **Opt-in is the install.** The broker trusts no opt-in flag from a client. The admin-approved
+  install is the opt-in it relies on; the daemon's `optIn` stays an extra off switch inside
+  a trusted service.
+
+Every other invariant stays: `begin` still needs verified installation facts, a real unlock
+observation, covers and the independent guardian; the person's input ends work; failure stays
+locked.
+
+### Residual risk (accepted)
+
+- **The daemon runs on a general-purpose runtime.** The team-signed bundled Node will run any
+  script it is given. A same-user process can run `…/runtime/bin/node evil.js`, have that
+  spawn the signed service, and pass the ancestry check, as long as no ace coordinator holds
+  the broker and no attempt is in its window (for example before ace first starts locked
+  use, or after killing ace's service while the Mac is idle). The check stops a process that
+  runs the helper directly, from a shell, Python or any non-ace binary. Closing this fully
+  needs the parent to be ace code that cannot run foreign scripts (a sealed daemon
+  executable, or the Electron app with its `runAsNode` and Node-options fuses off spawning
+  the service directly) and the broker to pin that identifier.
+- **The person's off switch is enforced only in user space.** Turning locked use off in ace
+  without removing it leaves the root components in place. A root-held stand-down (any
+  same-user caller may turn it off; only the admin-authorized installer turns it back on)
+  would make "off" binding on an impostor; it needs installer and daemon changes and is not
+  built yet. Removing locked use takes the broker away entirely.
+- **pid-based signature lookup.** The broker identifies the parent by pid
+  (`SecCodeCopyGuestWithAttributes`). The before/after checks make a swap during the check
+  fail, but a public API for the XPC peer's audit token would make this exact.
+- **Peer pid is recorded at connect.** `LOCAL_PEERPID` names the process that called
+  `connect`. A daemon that passed its connected descriptor to another process would pass its
+  authority too; the daemon never does.
 
 ## Authorization boundary
 

@@ -41,7 +41,7 @@ let package = Package(
         .testTarget(name: "LockedUseRuntimeTests", dependencies: ["LockedUseRuntime"]),
         .testTarget(name: "LockedUseSessionTests", dependencies: ["LockedUseSession", "LockedUseSystem", "LockedUseRuntime"]),
         .testTarget(name: "LockedUseGuardianTests", dependencies: ["LockedUseGuardianKit", "LockedUseSystem"]),
-        .testTarget(name: "LockedUseBrokerTests", dependencies: ["LockedUseBrokerKit", "LockedUseIPC"]),
+        .testTarget(name: "LockedUseBrokerTests", dependencies: ["LockedUseBrokerKit", "LockedUseIPC", "LockedUseSystem"]),
         .testTarget(name: "LockedUseTransportTests", dependencies: ["LockedUseTransport"]),
         .testTarget(name: "LockedUseServiceTests", dependencies: ["LockedUseService", "LockedUseSession", "LockedUseSystem",
             "LockedUseGuardianKit", "LockedUseBrokerKit", "LockedUseTransport", "LockedUseRuntime", "LockedUseIPC"]),
