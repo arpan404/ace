@@ -5,6 +5,8 @@ import { copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { create } from "tar";
 import {
@@ -35,6 +37,11 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const home = process.env.ACE_HOME;
 const log = (line) => appendFileSync(join(home, "fixture.log"), line + "\\n");
+if (process.argv[2] === "service") {
+  const { serviceCommand } = await import(process.env.ACE_TEST_SERVICE_MODULE);
+  process.stdout.write(JSON.stringify(await serviceCommand(home, process.argv.slice(3))));
+  process.exit(0);
+}
 if (process.argv[2] !== "supervise") {
   process.stdout.write(JSON.stringify({ args: process.argv.slice(2), home }));
   process.exit(0);
@@ -274,6 +281,27 @@ windows("Windows home layout", () => {
       await writeFile(join(root, "current"), bad);
       await expect(invoke()).rejects.toMatchObject({ code: 1 });
     }
+  });
+
+  test("uninstall run through ace.cmd removes the release it runs from once it has exited", async () => {
+    const root = await home();
+    const launcher = join(root, "bin", CMD_LAUNCHER);
+    const { stdout } = await run(
+      "cmd.exe",
+      ["/d", "/s", "/c", `""${launcher}" service uninstall"`],
+      {
+        windowsVerbatimArguments: true,
+        env: {
+          ...process.env,
+          ACE_TEST_SERVICE_MODULE: pathToFileURL(join(import.meta.dirname, "index.ts")).href,
+        },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({ active: false });
+    await expect(pointer(join(root, "current"))).resolves.toBeUndefined();
+    await until(async () =>
+      existsSync(join(root, "releases")) || existsSync(launcher) ? undefined : true,
+    );
   });
 
   test("swapping current waits for a reader that holds the pointer without sharing it", async () => {
