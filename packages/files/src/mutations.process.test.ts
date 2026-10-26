@@ -6,6 +6,9 @@ import { afterEach, expect, it } from "vitest";
 import type { FileOperation } from "@ace/protocol";
 import { encodeFileFrame } from "./index.ts";
 import { fixture, type Client } from "./test-support.ts";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { decodeFileFrame } from "./index.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -310,3 +313,160 @@ it("preserves executable permissions when replacing a file through edits or uplo
   expect((await stat(file)).mode & 0o777).toBe(0o755);
   expect(await readFile(file, "utf8")).toBe("new");
 });
+
+const windows = process.platform === "win32";
+async function windowsUpload(client: Client, path: string, expected: string | null, text: string) {
+  const bytes = Buffer.from(text);
+  const upload = Upload.parse(
+    await client.request({ op: "upload.begin", path, expected, size: bytes.length }),
+  );
+  client.socket.send(encodeFileFrame(upload.channel, 0, bytes));
+  await client.next();
+  return client.request({
+    op: "upload.commit",
+    uploadId: upload.uploadId,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+}
+async function windowsDownload(client: Client, path: string): Promise<string> {
+  const ready = z
+    .object({ type: z.literal("files.ready"), channel: z.number() })
+    .parse(await client.request({ op: "download", path, offset: 0 }));
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  const frame = decodeFileFrame(z.instanceof(Buffer).parse(await client.next()));
+  expect(await client.next()).toMatchObject({ type: "files.end" });
+  return frame.bytes.toString("utf8");
+}
+
+it.runIf(windows)(
+  "Windows: keeps a read-only file read-only when replacing it through edits or uploads",
+  async () => {
+    const f = await setup();
+    const client = await f.connect();
+    const file = join(f.root, "locked.txt");
+    await writeFile(file, "old");
+    await chmod(file, 0o444);
+    expect(
+      await client.request({
+        op: "write",
+        path: "locked.txt",
+        expected: await version(client, "locked.txt"),
+        text: "edited",
+      }),
+    ).toMatchObject({ type: "files.result" });
+    expect(await readFile(file, "utf8")).toBe("edited");
+    expect((await stat(file)).mode & 0o200).toBe(0);
+    expect(
+      await windowsUpload(client, "locked.txt", await version(client, "locked.txt"), "uploaded"),
+    ).toMatchObject({ type: "files.result" });
+    expect(await readFile(file, "utf8")).toBe("uploaded");
+    expect((await stat(file)).mode & 0o200).toBe(0);
+    // A writable file stays writable.
+    await writeFile(join(f.root, "open.txt"), "old");
+    expect(
+      await client.request({
+        op: "write",
+        path: "open.txt",
+        expected: await version(client, "open.txt"),
+        text: "new",
+      }),
+    ).toMatchObject({ type: "files.result" });
+    expect((await stat(join(f.root, "open.txt"))).mode & 0o200).toBe(0o200);
+    await chmod(file, 0o666);
+  },
+);
+
+it.runIf(windows)(
+  "Windows: an edit waits out another program briefly holding the file without delete sharing",
+  async () => {
+    const f = await setup();
+    const client = await f.connect();
+    const file = join(f.root, "held.txt");
+    await writeFile(file, "old");
+    const expected = await version(client, "held.txt");
+    const holder = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$f=[IO.File]::Open($env:ACE_HELD,'Open','Read','Read'); [Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 300; $f.Close()",
+      ],
+      { env: { ...process.env, ACE_HELD: file }, stdio: ["ignore", "pipe", "inherit"] },
+    );
+    const exited = once(holder, "exit");
+    await once(holder.stdout, "data");
+    expect(
+      await client.request({ op: "write", path: "held.txt", expected, text: "edited" }),
+    ).toMatchObject({ type: "files.result" });
+    await exited;
+    expect(await readFile(file, "utf8")).toBe("edited");
+  },
+);
+
+it.runIf(windows)(
+  "Windows: refuses names that differ only in case from an existing file, and reserved names",
+  async () => {
+    const f = await setup();
+    const client = await f.connect();
+    await writeFile(join(f.root, "Foo.txt"), "mine");
+    expect(
+      await client.request({ op: "create", path: "foo.txt", expected: null, text: "other" }),
+    ).toMatchObject({ type: "files.error", code: "CONFLICT" });
+    expect(
+      await client.request({ op: "upload.begin", path: "FOO.TXT", expected: null, size: 1 }),
+    ).toMatchObject({ type: "files.error", code: "CONFLICT" });
+    expect(
+      await client.request({
+        op: "rename",
+        path: "Foo.txt",
+        expected: await version(client, "Foo.txt"),
+        destination: "fOO.txt",
+        destinationExpected: null,
+      }),
+    ).toMatchObject({ type: "files.error" });
+    expect(await readdir(f.root)).toEqual(["Foo.txt"]);
+    expect(await readFile(join(f.root, "Foo.txt"), "utf8")).toBe("mine");
+    for (const path of ["CON", "nul.txt", "com1", "trailing.", "trailing ", "a:b", "x?y"])
+      expect(await client.request({ op: "create", path, expected: null, text: "x" })).toMatchObject(
+        { type: "files.error", code: "INVALID_PATH" },
+      );
+    expect(await readdir(f.root)).toEqual(["Foo.txt"]);
+  },
+);
+
+it.runIf(windows)(
+  "Windows: uploads, downloads, edits, trashes and restores Unicode names past MAX_PATH",
+  async () => {
+    const f = await setup();
+    const client = await f.connect();
+    const folder = Array.from(
+      { length: 5 },
+      (_, index) => `${"深".repeat(20)}-${"d".repeat(40)}-${index}`,
+    ).join("/");
+    await mkdir(join(f.root, ...folder.split("/")), { recursive: true });
+    const path = `${folder}/界 ünïcode.txt`;
+    expect(join(f.root, ...path.split("/")).length).toBeGreaterThan(300);
+    expect(await windowsUpload(client, path, null, "first")).toMatchObject({
+      type: "files.result",
+    });
+    expect(await windowsDownload(client, path)).toBe("first");
+    expect(
+      await client.request({
+        op: "write",
+        path,
+        expected: await version(client, path),
+        text: "second",
+      }),
+    ).toMatchObject({ type: "files.result" });
+    expect(await readFile(join(f.root, ...path.split("/")), "utf8")).toBe("second");
+    const deleted = Result.parse(
+      await client.request({ op: "delete", path, expected: await version(client, path) }),
+    );
+    expect(await version(client, path)).toBeNull();
+    expect(
+      await client.request({ op: "restore", path, expected: null, trashId: deleted.value.trashId }),
+    ).toMatchObject({ type: "files.result" });
+    expect(await windowsDownload(client, path)).toBe("second");
+  },
+);
