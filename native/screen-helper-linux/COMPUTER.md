@@ -68,7 +68,7 @@ mutter-x11-frames, plasmashell, kwin*), portals (xdg-desktop-portal*), Xwayland,
 input-method daemons (at-spi*, ibus*), GNOME settings daemons (gsd-*), the calendar server and
 alarm notifier, polkit agents, and on Hyprland bars, notifications, wallpaper,
 idle and lock tools and launchers (waybar, mako, swaync, hyprpaper, hypridle, hyprlock, walker,
-wofi, rofi, fuzzel, swaybg, …). `apps` leaves them out and `resolve`/`state`/`act` refuse them with
+wofi, rofi, fuzzel, swaybg, and Omarchy 4's Quickshell shell, …). `apps` leaves them out and `resolve`/`state`/`act` refuse them with
 `app_not_allowed`. Matched on desktop id or executable name, case-insensitive.
 
 ## Outline
@@ -172,11 +172,16 @@ RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input _out of_ the deskto
 The person always wins over the agent, as on macOS (`guard.rs`, the facts in `presence.rs`):
 
 - **Stop.** While an agent acts in an app, a desktop notification says "ace is using <app>"
-  with a **Stop** button (`notice.rs`). Pressing it ends the running batch at its next step or
+  with a **Stop** button (`notice.rs`); clicking the notice itself does the same, since Omarchy
+  4's notifications and mako run only a notification's default action on a click and show no
+  other buttons. Pressing it ends the running batch at its next step or
   wait, or the next batch when pressed between calls, with `stopped_by_person`: the agent is
   told to stop and ask the person how to continue. The press is then used up and the
   notification withdrawn; it comes back with the next batch, and leaves when the keep-awake
-  lease ends. Only signals from the notification server that showed it count. This stands in
+  lease ends. Only signals from the notification server that showed it count. GNOME Shell
+  keeps the notice in its list after the banner hides (`resident`), so Stop stays in reach;
+  elsewhere a hidden notice would move into the person's history with a Stop that no longer
+  works, so it is `transient` there and the next batch shows it again. This stands in
   for two macOS affordances Wayland doesn't allow: Esc (GNOME's keyboard monitor,
   `org.freedesktop.a11y.KeyboardMonitor`, serves only the bus name
   `org.gnome.Orca.KeyboardMonitor`, and AT-SPI keystroke listeners go through it) and the marker
@@ -190,8 +195,10 @@ The person always wins over the agent, as on macOS (`guard.rs`, the facts in `pr
   `org.freedesktop.ScreenSaver.GetSessionIdleTime`; where none answers, nothing is refused.
 - **Locked or away.** Every look carries `sessionState` (`active`, `locked`, `unavailable`) and
   `screenLocked`. Locked comes from logind's `LockedHint` for the user's graphical session, the
-  desktop's screensaver (`org.gnome.ScreenSaver` / `org.freedesktop.ScreenSaver` `GetActive`) or
-  a running session-lock client (hyprlock, swaylock). While locked, accessibility steps still
+  desktop's screensaver (`org.gnome.ScreenSaver` / `org.freedesktop.ScreenSaver` `GetActive`),
+  a running session-lock client (hyprlock, swaylock), or Hyprland itself: its monitors list an
+  active session lock (`LOCK` in `solitaryBlockedBy`) whichever client draws it, which is how
+  Omarchy 4's lock screen, part of its Quickshell shell, is seen. While locked, accessibility steps still
   work and no screenshot is taken. When logind says the session isn't the active one (another
   user's is in front), actions fail with `session_unavailable`.
 - **Kept awake** (`awake.rs`). During a look or batch the session doesn't go idle
@@ -225,6 +232,9 @@ Mousepad, which a person closes the shell's overview over first:
     silent restore after a helper restart, and a revoked grant asking again.
 - `tests/computer/run-kde.sh`: the same on KDE Plasma 6 (KCalc, KWrite, Kate), with KDE's
   chooser answered through its accessibility tree.
+- `tests/computer/run-hyprland.sh`: on Hyprland, the notice in mako, Stop by its button and by a
+  click on the notice, and a lock screen seen through Hyprland from a lock program it doesn't
+  know by name (a renamed swaylock, as Omarchy 4's shell runs no lock program).
 - `tests/computer/run-person.sh`: the notice in GNOME Shell and a click on its Stop (with
   Mutter's remote-desktop pointer at the place the shell's accessibility tree gives), the
   session state and a lock (a stand-in hyprlock), and the inhibitors (stand-ins for GNOME's

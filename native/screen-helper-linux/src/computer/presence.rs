@@ -2,6 +2,7 @@
 //! locked, and how long ago the person last gave input. Every call is bounded; a desktop that
 //! answers nothing yields unknown facts, which never refuse an action.
 use crate::computer::guard::{SessionFacts, SessionStatus, session_status};
+use crate::computer::hyprland;
 use crate::computer::wl_idle::IdleWatch;
 use std::time::Duration;
 use zbus::Connection;
@@ -52,6 +53,7 @@ impl Presence {
             logind_locked,
             screensaver_active: self.screensaver_active().await,
             locker_running: locker_running(),
+            compositor_locked: tokio::task::spawn_blocking(hyprland::session_locked).await.ok().flatten(),
         };
         session_status(&facts)
     }

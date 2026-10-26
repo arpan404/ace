@@ -2,7 +2,7 @@
 # Live check of the person's side of `--computer` on Hyprland (hyprland.py), in a throwaway
 # Hyprland session on a virtual display (apps/daemon/scripts/linux-e2e/hyprland-session.sh, which
 # lists what it needs: hyprland, xdg-desktop-portal-hyprland, waybar, mako, hypridle, vkms and
-# sudo to load it). Needs also: gnome-calculator.
+# sudo to load it). Needs also: gnome-calculator, swaylock.
 # Usage: tests/computer/run-hyprland.sh   (from native/screen-helper-linux)
 set -euo pipefail
 cd "$(dirname "$0")/../.."

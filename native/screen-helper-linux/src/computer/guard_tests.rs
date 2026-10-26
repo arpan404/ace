@@ -30,6 +30,10 @@ fn a_switched_user_session_is_unavailable_and_a_lock_screen_from_any_source_is_l
             locker_running: true,
             ..SessionFacts::default()
         },
+        SessionFacts {
+            compositor_locked: Some(true),
+            ..SessionFacts::default()
+        },
     ] {
         assert_eq!(session_status(&locked), SessionStatus::Locked);
     }

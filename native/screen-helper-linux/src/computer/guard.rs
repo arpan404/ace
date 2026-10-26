@@ -36,13 +36,20 @@ pub struct SessionFacts {
     /// A session-lock client (hyprlock, swaylock) runs as this user: on Hyprland the lock
     /// screen is a client of the compositor, not a D-Bus service.
     pub locker_running: bool,
+    /// The compositor itself holds a session lock (Hyprland's monitors say so), whichever
+    /// client draws it: Omarchy 4 locks from its own shell, with no lock program to find.
+    pub compositor_locked: Option<bool>,
 }
 
 pub fn session_status(facts: &SessionFacts) -> SessionStatus {
     if facts.logind_active == Some(false) {
         return SessionStatus::Unavailable;
     }
-    if facts.logind_locked == Some(true) || facts.screensaver_active == Some(true) || facts.locker_running {
+    if facts.logind_locked == Some(true)
+        || facts.screensaver_active == Some(true)
+        || facts.locker_running
+        || facts.compositor_locked == Some(true)
+    {
         return SessionStatus::Locked;
     }
     SessionStatus::Active
