@@ -304,3 +304,61 @@ test("custom skill directories keep nested resources beside each native skill de
     ),
   ).toBe("Second reference");
 });
+
+const onWindows = process.platform === "win32";
+test
+  .runIf(onWindows)
+  .each<Provider>(["claude", "codex", "opencode", "cursor", "acp", "antigravity"])(
+  "on Windows %s receives the plugin MCP server at its projected file with native separators",
+  async (provider) => {
+    const f = await setup();
+    const root = join(f.root, provider);
+    const projection = projectPlugins(provider, await f.manager.installed(), { root });
+    await materializeProjection(projection, { root });
+    const server = join(root, "generated/plugins/sample/payload/scripts/server.js");
+    const config =
+      provider === "claude"
+        ? await readFile(join(root, "generated/mcp.json"), "utf8")
+        : provider === "cursor"
+          ? await readFile(join(root, "generated/plugins/sample/mcp.json"), "utf8")
+          : provider === "codex"
+            ? projection.args.find((arg) => arg.startsWith('mcp_servers."ace-sample__tools"='))
+            : provider === "opencode"
+              ? projection.env.OPENCODE_CONFIG_CONTENT
+              : JSON.stringify(projection.sessionConfig.mcpServers);
+    expect(config).toContain(JSON.stringify(server));
+    expect(await readFile(server, "utf8")).toBe(sampleFiles["scripts/server.js"]);
+  },
+);
+test.runIf(onWindows)(
+  "on Windows Claude commands name plugin files with native separators while hooks keep Claude's root",
+  async () => {
+    const f = await fixture({
+      ...sampleFiles,
+      "commands/check.md": "Run node ${PLUGIN_ROOT}/scripts/start.js $ARGUMENTS",
+    });
+    cleanups.push(f.close);
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "claude");
+    const projection = projectPlugins("claude", await f.manager.installed(), { root });
+    await materializeProjection(projection, { root });
+    const base = join(root, "generated/plugins/sample");
+    const script = join(base, "payload/scripts/start.js");
+    expect(await readFile(join(base, "commands/check.md"), "utf8")).toBe(
+      `Run node ${script} $ARGUMENTS`,
+    );
+    expect(await readFile(script, "utf8")).toBe(sampleFiles["scripts/start.js"]);
+    expect(await json(join(base, "hooks/hooks.json"))).toEqual({
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup",
+            hooks: [
+              { type: "command", command: "node ${CLAUDE_PLUGIN_ROOT}/payload/scripts/start.js" },
+            ],
+          },
+        ],
+      },
+    });
+  },
+);
