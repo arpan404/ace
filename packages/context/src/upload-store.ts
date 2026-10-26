@@ -514,6 +514,8 @@ export class UploadStore {
     }
     await chmod(this.path(row.sha256), 0o400);
     const directory = await open(join(this.options.root, "blobs"), "r");
+    // Windows can't flush a directory handle (EPERM); NTFS journals the new directory entry itself.
+    if (process.platform === "win32") Object.assign(directory, { sync: async () => {} });
     try {
       await directory.sync();
     } finally {
