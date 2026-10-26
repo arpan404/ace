@@ -45,10 +45,25 @@ describe.runIf(process.platform === "win32")("Windows hook suppression", () => {
       await run(repo, "config", "user.email", "test@example.com");
       await writeFile(join(repo, "tracked.txt"), "first\n");
       await run(repo, "add", "--all");
-      // Control: the drive-root folder is where plain `core.hooksPath=/dev/null` looks.
-      await run(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "Initial");
-      expect(await exists(marker)).toBe(true);
-      await rm(marker);
+      const empty = join(base, "no-hooks");
+      await mkdir(empty);
+      await run(repo, "-c", `core.hooksPath=${empty}`, "commit", "-m", "Initial");
+      // Control: plain `core.hooksPath=/dev/null` reaches the planted hook. Git either runs it
+      // or fails trying, depending on how its shell maps the path.
+      const reached = await run(
+        repo,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Control",
+      ).then(
+        () => exists(marker),
+        (error: unknown) => error instanceof Error && error.message.includes("dev/null/pre-commit"),
+      );
+      expect(reached).toBe(true);
+      await rm(marker, { force: true });
       const initial = await run(repo, "rev-parse", "HEAD");
 
       const service = new GitService({ credentialHelperLookup: async () => [] });
