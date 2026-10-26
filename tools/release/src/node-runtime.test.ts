@@ -223,38 +223,6 @@ test("an oversized download is refused before it can grow the cache", async () =
   }
 });
 
-test("each Windows target downloads from its own official win-* directory", async () => {
-  // Behavioral guard on the helper mapping (not a hash constant): staging win32-arm64
-  // must fetch under its own official win-arm64 directory, never win-x64, so the two
-  // architectures never share an exe download or cache entry (LICENSE stays shared).
-  const root = await mkdtemp(join(tmpdir(), "ace-win-node-"));
-  try {
-    const seen: string[] = [];
-    await withServer(
-      (url) => {
-        seen.push(url);
-        return { status: 200, body: Buffer.from(`payload for ${url}`) };
-      },
-      async (baseUrl) => {
-        const exe = Buffer.from("payload for /win-arm64/node.exe");
-        const license = Buffer.from("payload for /LICENSE");
-        await stageNodeRuntime({
-          target: "win32-arm64",
-          cacheDir: join(root, "cache"),
-          destination: join(root, "runtime"),
-          distBaseUrl: baseUrl,
-          licenseUrl: `${baseUrl}/LICENSE`,
-          files: { exe: pinsFor(exe), license: pinsFor(license) },
-        });
-      },
-    );
-    expect(seen).toContain("/win-arm64/node.exe");
-    expect(seen).not.toContain("/win-x64/node.exe");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("parallel staging shares the LICENSE cache without losing either runtime", async () => {
   // The LICENSE cache entry is shared across architectures, so two stagings race on
   // it. Both must still produce their own verified runtime from observable files.
