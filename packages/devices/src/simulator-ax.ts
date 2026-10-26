@@ -7,6 +7,7 @@ import {
   type ScreenUIActOptions,
 } from "@ace/protocol";
 import { DeviceError } from "./sdk.ts";
+import { simulatorRotation, type FrameRotation } from "./simulator-rotation.ts";
 
 /**
  * One element of serve-sim's `/ax` answer: a nested accessibility tree with frames in iOS
@@ -60,13 +61,79 @@ const scrollable = new Set(["ScrollView", "Table", "CollectionView", "List", "We
 const toggles = new Set(["Switch", "Toggle", "CheckBox"]);
 
 /**
- * Map serve-sim's accessibility tree to ADR 0011 nodes. Bounds are converted from points to
- * framebuffer pixels (the coordinates of live-view frames and device input) with `scale`, the
- * framebuffer width over the root's width in points.
+ * Turns a rectangle in the screen's upright layout into the portrait framebuffer, which stays
+ * put when the device turns. Coordinates are 0..1 of each; `turn` is the clockwise turn that
+ * shows the framebuffer upright, so this undoes it (as viewers do for a pointer).
+ */
+function unturn(
+  rect: { x: number; y: number; w: number; h: number },
+  turn: FrameRotation,
+): { x: number; y: number; w: number; h: number } {
+  const point = (u: number, v: number): [number, number] =>
+    turn === 90 ? [v, 1 - u] : turn === 180 ? [1 - u, 1 - v] : turn === 270 ? [1 - v, u] : [u, v];
+  const [ax, ay] = point(rect.x, rect.y);
+  const [bx, by] = point(rect.x + rect.w, rect.y + rect.h);
+  return {
+    x: Math.min(ax, bx),
+    y: Math.min(ay, by),
+    w: Math.abs(bx - ax),
+    h: Math.abs(by - ay),
+  };
+}
+
+/** How a tree's points sit on the framebuffer: the layout's size in points and its turn. */
+export interface SimulatorLayout {
+  width: number;
+  height: number;
+  turn: FrameRotation;
+}
+
+/**
+ * The app's layout under serve-sim's tree. iOS lays elements out in the app's own orientation,
+ * which is not always the device's: a portrait-only app stays portrait on a turned iPhone,
+ * while an iPhone Duo's inner screen is landscape. The root reports the window's portrait frame
+ * either way, so on a device turned a quarter the elements' reach decides: past the portrait
+ * width, the layout is turned with it. A device held upright is taken at its word, so a portrait
+ * app's off-screen pages or carousels never read as a turned layout.
+ */
+export function simulatorLayout(
+  raw: unknown,
+  screen: { width: number; height: number; orientation?: string },
+): SimulatorLayout {
+  const roots = Roots.safeParse(raw);
+  const first = roots.success ? Element.safeParse(roots.data[0]) : undefined;
+  const root = first?.success ? first.data.frame : undefined;
+  if (!roots.success || !root || !root.width || !root.height)
+    return { width: screen.width, height: screen.height, turn: 0 };
+  const short = Math.min(root.width, root.height);
+  const long = Math.max(root.width, root.height);
+  const portrait = screen.width <= screen.height;
+  // The furthest any element reaches across the framebuffer's short side, from a bounded walk.
+  let reach = 0;
+  const pending = [...roots.data];
+  for (let seen = 0; pending.length && seen < 512; seen++) {
+    const element = Element.safeParse(pending.pop());
+    if (!element.success) continue;
+    const { frame } = element.data;
+    reach = Math.max(reach, portrait ? frame.x + frame.width : frame.y + frame.height);
+    pending.push(...element.data.children);
+  }
+  const device = simulatorRotation(screen.orientation ?? "portrait");
+  const turned = device % 180 !== 0 && reach > short * 1.05;
+  const turn: FrameRotation = turned ? device : 0;
+  return turned === portrait
+    ? { width: long, height: short, turn }
+    : { width: short, height: long, turn };
+}
+
+/**
+ * Map serve-sim's accessibility tree to ADR 0011 nodes. Bounds are converted from the layout's
+ * points to framebuffer pixels (the coordinates of live-view frames and device input), turned
+ * back onto the framebuffer when the layout is turned.
  */
 export function simulatorTree(
   raw: unknown,
-  screen: { width: number; height: number },
+  screen: { width: number; height: number; orientation?: string },
   options: unknown,
 ): ScreenUITreeResult {
   const limits = ScreenUITreeOptions.parse(options);
@@ -77,9 +144,8 @@ export function simulatorTree(
       "Simulator accessibility tree is malformed",
       "Read the UI tree again; restart the live view if it keeps failing.",
     );
-  const first = Element.safeParse(roots.data[0]);
-  const points = first.success ? first.data.frame.width : 0;
-  const scale = points > 0 && screen.width > 0 ? screen.width / points : 1;
+  const layout = simulatorLayout(raw, screen);
+  const { turn } = layout;
   const nodes: ScreenUINode[] = [];
   let count = 0;
   let truncated = false;
@@ -96,7 +162,7 @@ export function simulatorTree(
       truncated = true;
       continue;
     }
-    const node = mapped(element.data, item.path, scale, screen);
+    const node = mapped(element.data, item.path, layout, turn, screen);
     item.parent.push(node);
     const children = element.data.children;
     for (let index = children.length - 1; index >= 0; index--)
@@ -113,16 +179,26 @@ export function simulatorTree(
 function mapped(
   element: Element,
   path: string,
-  scale: number,
+  layout: { width: number; height: number },
+  turn: FrameRotation,
   screen: { width: number; height: number },
 ): ScreenUINode {
   const kind = element.type || element.role_description || "element";
   const name = element.AXLabel || element.AXUniqueId;
+  const shown = unturn(
+    {
+      x: element.frame.x / layout.width,
+      y: element.frame.y / layout.height,
+      w: element.frame.width / layout.width,
+      h: element.frame.height / layout.height,
+    },
+    turn,
+  );
   const bounds = {
-    x: Math.round(element.frame.x * scale),
-    y: Math.round(element.frame.y * scale),
-    w: Math.round(element.frame.width * scale),
-    h: Math.round(element.frame.height * scale),
+    x: Math.round(shown.x * screen.width),
+    y: Math.round(shown.y * screen.height),
+    w: Math.round(shown.w * screen.width),
+    h: Math.round(shown.h * screen.height),
   };
   const states: ScreenUINode["states"] = [];
   if (toggles.has(kind) && element.AXValue === "1") states.push("checked");
@@ -179,10 +255,14 @@ export function simulatorTarget(tree: ScreenUITreeResult, ref: string): ScreenUI
 const clamp = (value: number, start: number, size: number) =>
   Math.max(start, Math.min(start + size - 1, value));
 
-/** The device input that performs a semantic action on a node, or why it can't be done. */
+/**
+ * The device input that performs a semantic action on a node, or why it can't be done. A scroll
+ * is asked for in the upright layout; on a turned device it runs across the framebuffer.
+ */
 export function simulatorActionInput(
   node: ScreenUINode,
   action: ScreenUIActOptions,
+  turn: FrameRotation = 0,
 ):
   | { kind: "tap"; x: number; y: number }
   | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
@@ -208,11 +288,19 @@ export function simulatorActionInput(
     })
     .parse(action.value ?? {});
   if (!scroll.dx && !scroll.dy) return { kind: "none", method: "no_scroll" };
+  const [dx, dy] =
+    turn === 90
+      ? [scroll.dy, -scroll.dx]
+      : turn === 180
+        ? [-scroll.dx, -scroll.dy]
+        : turn === 270
+          ? [-scroll.dy, scroll.dx]
+          : [scroll.dx, scroll.dy];
   return {
     kind: "swipe",
     ...centre,
-    toX: clamp(centre.x - scroll.dx, node.bounds.x, node.bounds.w),
-    toY: clamp(centre.y - scroll.dy, node.bounds.y, node.bounds.h),
+    toX: clamp(centre.x - dx, node.bounds.x, node.bounds.w),
+    toY: clamp(centre.y - dy, node.bounds.y, node.bounds.h),
     durationMs: 300,
   };
 }
