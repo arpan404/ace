@@ -3,6 +3,7 @@
 //! `cancel`. Semantics come from AT-SPI; screenshots from the ScreenCast portal.
 pub mod cancel;
 pub mod catalog;
+pub mod chromium;
 pub mod conditions;
 pub mod desktop;
 pub mod error;

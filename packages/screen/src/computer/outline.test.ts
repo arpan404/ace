@@ -199,6 +199,11 @@ describe("header and footer", () => {
     expect(stateFooter(locked, false)).not.toContain("Activating");
   });
 
+  it("tell the agent why an app shows only its window and how to fix it", () => {
+    const note = "Chrome was started without accessibility. Ask the person to quit Chrome.";
+    expect(stateHeader(state([window], { accessibilityNote: note }), "linux")).toContain(note);
+  });
+
   it("on Linux say the screen is locked and that accessibility still works", () => {
     const header = stateHeader(state([window], { screenLocked: true }), "linux");
     expect(header).toContain(

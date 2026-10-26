@@ -27,6 +27,10 @@ pub fn int(step: &Step, key: &str) -> Option<i64> {
         .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
 }
 
+pub fn point_of(step: &Step) -> Option<(f64, f64)> {
+    Some((step.get("x")?.as_f64()?, step.get("y")?.as_f64()?))
+}
+
 pub fn text<'s>(step: &'s Step, key: &str) -> Option<&'s str> {
     step.get(key).and_then(Value::as_str)
 }
@@ -70,7 +74,13 @@ impl Actor<'_> {
 
     /// A fresh walk of the chosen window, for conditions and waits.
     pub async fn refresh(&mut self) -> Vec<Node> {
-        self.session.walk(self.bus, None, Duration::from_secs(2)).await;
+        // Keep element frames while x,y steps can be placed on the last screenshot.
+        let frames = self.session.shot_offset.map(|_| crate::computer::walk::FrameMap {
+            coord: element::COORD_WINDOW,
+            dx: 0.0,
+            dy: 0.0,
+        });
+        self.session.walk(self.bus, frames, Duration::from_secs(2)).await;
         self.session.nodes.clone()
     }
 
@@ -103,6 +113,36 @@ impl Actor<'_> {
         )
     }
 
+    /// The clickable element under screenshot pixel x,y, from the last screenshot's marks.
+    pub async fn element_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::hit).await
+    }
+
+    /// The innermost element of any kind under screenshot pixel x,y.
+    pub async fn node_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::innermost).await
+    }
+
+    async fn find_at(&mut self, x: f64, y: f64, what: &str, find: fn(&[Node], f64, f64) -> Option<u64>) -> CuResult<u64> {
+        let Some((dx, dy)) = self.session.shot_offset else {
+            return Err(CuError::new(
+                "no_screenshot",
+                format!(
+                    "{what} at x,y needs a screenshot of {} first (screen_state with screenshot), whose pixels it is in. Or use an element id.",
+                    self.session.name
+                ),
+            ));
+        };
+        let scale = if self.session.scale > 0.0 { self.session.scale } else { 1.0 };
+        let nodes = self.refresh().await;
+        find(&nodes, x / scale + dx, y / scale + dy).ok_or_else(|| {
+            CuError::new(
+                "not_clickable",
+                format!("Nothing in {} to {what} is at ({x}, {y}). Look again with a screenshot, or use an element id.", self.session.name),
+            )
+        })
+    }
+
     /// Performs an action by index; a refusal or silence becomes a model-facing error.
     pub async fn perform(&self, element: &Element, index: usize, name: &str, label: &str) -> CuResult<()> {
         match element::do_action(self.bus, &element.obj, index).await {
@@ -124,11 +164,16 @@ impl Actor<'_> {
 
     async fn click(&mut self, step: &Step) -> CuResult<String> {
         if step.get("id").is_none() {
-            return Err(if step.get("x").is_some() {
-                self.raw_refused("click at a point")
-            } else {
-                CuError::new("bad_action", "click needs an element id.")
-            });
+            let Some((x, y)) = point_of(step) else {
+                return Err(CuError::new("bad_action", "click needs an element id, or x and y from a screenshot."));
+            };
+            let id = self.element_at(x, y, "click").await?;
+            let mut by_id = step.clone();
+            by_id.remove("x");
+            by_id.remove("y");
+            by_id.insert("id".into(), Value::from(id));
+            let done = Box::pin(self.click(&by_id)).await?;
+            return Ok(format!("{done} (the element at the point)"));
         }
         let (id, element) = self.target(step).await?;
         let label = self.label(id);
@@ -513,7 +558,7 @@ impl Actor<'_> {
         Ok(format!("chose {}", trail.join(" > ")))
     }
 
-    async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
+    pub async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
         let Ok(children) = self.bus.children(container).await else {
             return Vec::new();
         };

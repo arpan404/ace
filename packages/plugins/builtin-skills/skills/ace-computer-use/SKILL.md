@@ -65,10 +65,12 @@ While the Mac is locked, only controls still exposed through accessibility can w
 ### On Linux
 
 - `app` is the desktop-file id (`org.gnome.TextEditor`, a Flatpak app id) or the app's name; `screen_apps` shows both.
-- Clicks by id, `set_value`, `type` into a field, `select_text`, `action` and menus work with the window in the background.
-- Key presses, x,y clicks, drags and pixel scrolls need the window in front. A step that needs it fails and says so: put `{"type":"activate"}` first and retry, and tell the person you brought the app forward.
+- Everything goes through accessibility with the window in the background: clicks by id or at screenshot x,y (the element there), `set_value`, `type` into a field, `select_text`, `action`, menus, scrolling, shortcuts the app's menus list (`ctrl+s` presses File › Save), copy/cut/paste in text and Tab between controls.
+- Hover, drags and keys an app offers no accessible equivalent for can't be sent (Wayland lets no program send input to another app). The refusal names the steps that work; use those, or ask the person.
 - Shortcuts use `ctrl` (`ctrl+s`), not `cmd`.
-- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in.
+- While you act, a notification tells the person "ace is using <app>" with a Stop button. `stopped_by_person` means they pressed it: stop and ask how to continue. `person_active` means they are using that control right now: pick another element or wait.
+- `app_inaccessible`, or a note that an app shows only its window, means it was started before accessibility was on (Firefox) or without it (Chrome, VS Code and other Chromium apps): ask the person to quit it; `screen_state` then reopens it so you can see it.
+- "No graphical session" means nobody is logged in to a desktop ace can reach: ask the person to log in. An X11 session is refused: ask them to log in to a Wayland session.
 
 ### Limits
 

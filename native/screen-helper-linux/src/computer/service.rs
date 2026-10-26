@@ -45,7 +45,8 @@ pub struct Service {
     activity: Activity,
     cast_tried: bool,
     sessions: HashMap<u32, AppSession>,
-    resolved: HashMap<String, u32>,
+    /// What each query named last, while its process lives.
+    resolved: HashMap<String, RunningApp>,
     /// Wayland screenshots, through the ScreenCast portal.
     cast: Option<ScreenCast>,
     /// Where restore tokens are kept (`--data-dir`); without it they last for this process.
@@ -185,9 +186,10 @@ impl Service {
     /// The session for the named app, launching it when allowed. True when it was launched.
     async fn session(&mut self, bus: &Bus, query: &str, launch: bool, check: &Checkpoint) -> CuResult<(u32, bool)> {
         let alive = |pid: u32| std::path::Path::new(&format!("/proc/{pid}")).exists();
-        if let Some(pid) = self.resolved.get(query).copied() {
-            if self.sessions.contains_key(&pid) && alive(pid) {
-                return Ok((pid, false));
+        if let Some(app) = self.resolved.get(query).cloned() {
+            if let Some(session) = self.sessions.get_mut(&app.pid).filter(|_| alive(app.pid)) {
+                follow_module(session, &app);
+                return Ok((app.pid, false));
             }
         }
         let (installed, running) = self.catalog(bus).await;
@@ -199,6 +201,9 @@ impl Service {
                 let entry = installed.iter().find(|a| a.id == found.id).ok_or_else(|| {
                     CuError::new("app_not_found", format!("{query} is not running and not installed."))
                 })?;
+                if let Some(pid) = apps::inaccessible_process(entry, &installed) {
+                    return Err(apps::inaccessible_error(entry, pid));
+                }
                 if !launch {
                     return Err(CuError::new(
                         "app_not_running",
@@ -213,11 +218,13 @@ impl Service {
         self.sessions.retain(|pid, session| {
             alive(*pid) && (*pid == app.pid || session.last_used.elapsed() < Duration::from_secs(600))
         });
-        self.resolved.retain(|_, pid| alive(*pid));
-        self.resolved.insert(query.to_owned(), app.pid);
-        self.sessions
+        self.resolved.retain(|_, known| alive(known.pid));
+        self.resolved.insert(query.to_owned(), app.clone());
+        let session = self
+            .sessions
             .entry(app.pid)
             .or_insert_with(|| AppSession::new(app.pid, app.obj.clone(), app.id.clone(), app.name.clone()));
+        follow_module(session, &app);
         Ok((app.pid, launched))
     }
 
@@ -279,6 +286,18 @@ impl Service {
         }
         check.check()?;
         let windows = session.choose_window(&bus, body.get("window")).await?;
+        if launched && crate::computer::chromium::is_chromium_process(std::path::Path::new("/proc"), session.pid) {
+            // Chromium shows its window long before its pages and controls join the tree.
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(12) {
+                session.walk(&bus, None, Duration::from_secs(1)).await;
+                if session.nodes.len() > 8 {
+                    break;
+                }
+                check.check()?;
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
         let options = Options {
             screenshot: flag(body, "screenshot", false),
             outline: flag(body, "outline", true),
@@ -286,6 +305,7 @@ impl Service {
         };
         let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options.for_status(status)).await;
         observe::mark_status(&mut result, status, &options);
+        observe::mark_accessibility(&mut result, session.pid, &session.name);
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -410,10 +430,21 @@ impl Service {
             let status = person.status().await;
             let mut state = observe::observation(&bus, session, &windows, cast.as_mut(), &options.for_status(status)).await;
             observe::mark_status(&mut state, status, &options);
+            observe::mark_accessibility(&mut state, session.pid, &session.name);
             result["state"] = state;
         }
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)
+    }
+}
+
+/// A suite's modules share one process: the session follows the module asked for.
+fn follow_module(session: &mut AppSession, app: &RunningApp) {
+    if session.title_hint != app.title_hint {
+        session.title_hint = app.title_hint.clone();
+        session.id = app.id.clone();
+        session.name = app.name.clone();
+        session.window = None;
     }
 }
 

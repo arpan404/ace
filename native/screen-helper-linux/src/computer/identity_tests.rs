@@ -94,3 +94,36 @@ fn without_declared_identity_accessible_and_exe_names_are_matched() {
     let (id, entry) = identify(&unknown, None, &apps);
     assert_eq!((id.as_str(), entry), ("xclock", None));
 }
+
+fn office() -> Vec<DesktopApp> {
+    vec![
+        app("libreoffice-startcenter", "libreoffice %U"),
+        app("libreoffice-writer", "libreoffice --writer %U"),
+        app("libreoffice-calc", "libreoffice --calc %U"),
+    ]
+    .into_iter()
+    .map(|mut entry| {
+        entry.name = match entry.id.as_str() {
+            "libreoffice-startcenter" => "LibreOffice".into(),
+            "libreoffice-writer" => "LibreOffice Writer".into(),
+            _ => "LibreOffice Calc".into(),
+        };
+        entry
+    })
+    .collect()
+}
+
+#[test]
+fn a_suite_process_is_its_launcher_and_each_window_belongs_to_its_module() {
+    let installed = office();
+    let soffice = ProcessFacts {
+        exe_name: Some("soffice.bin".into()),
+        ..ProcessFacts::default()
+    };
+    assert_eq!(identify(&soffice, Some("soffice"), &installed).0, "libreoffice-startcenter");
+    let family = family(&soffice, &installed);
+    assert_eq!(family.len(), 3);
+    assert_eq!(module_of("Untitled 1 — LibreOffice Writer", &family).unwrap().id, "libreoffice-writer");
+    assert_eq!(module_of("Budget.ods — LibreOffice Calc", &family).unwrap().id, "libreoffice-calc");
+    assert_eq!(module_of("Welcome to LibreOffice!", &family), None);
+}

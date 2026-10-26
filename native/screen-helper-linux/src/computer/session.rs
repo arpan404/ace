@@ -32,6 +32,12 @@ pub struct AppSession {
     /// while its window is active, so background key steps fall back to this.
     pub text_focus: Option<Obj>,
     pub not_responding: bool,
+    /// For a suite module sharing its process: its name, which ends its windows' titles.
+    pub title_hint: Option<String>,
+    /// How the last marked screenshot's pixels map to element frames: (dx, dy) to add after
+    /// dividing by `scale`. None until a window screenshot with marks, when x,y steps can't be
+    /// placed.
+    pub shot_offset: Option<(f64, f64)>,
     /// Screenshot pixels per window pixel in the last screenshot; maps x,y steps.
     pub scale: f64,
     pub last_used: Instant,
@@ -53,6 +59,8 @@ impl AppSession {
             menu_bar: None,
             text_focus: None,
             not_responding: false,
+            title_hint: None,
+            shot_offset: None,
             scale: 1.0,
             last_used: Instant::now(),
         }
@@ -143,8 +151,17 @@ impl AppSession {
             self.window = Some(found.clone());
             return Ok(all);
         }
-        let current = self.window.as_ref().and_then(|w| all.iter().find(|e| e.obj == w.obj));
+        let hint = self.title_hint.as_deref();
+        let of_module = |w: &&WindowEntry| hint.is_none_or(|hint| w.title.trim_end().ends_with(hint));
+        let current = self
+            .window
+            .as_ref()
+            .and_then(|w| all.iter().find(|e| e.obj == w.obj))
+            .filter(of_module);
         self.window = current
+            .or_else(|| all.iter().filter(of_module).find(|w| w.active))
+            .or_else(|| all.iter().filter(of_module).find(|w| w.showing && !w.minimized))
+            .or_else(|| all.iter().find(of_module))
             .or_else(|| all.iter().find(|w| w.active))
             .or_else(|| all.iter().find(|w| w.showing && !w.minimized))
             .or_else(|| all.first())

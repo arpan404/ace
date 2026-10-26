@@ -1,7 +1,7 @@
-//! Raw input: pointer clicks at a point, hover, drags, wheel scrolls and keys with no text
-//! equivalent. Wayland gives other programs no way to send input to an app's window, so these
-//! are refused with the element-id steps that do work. Scrolling an element by id moves its
-//! scroll bar through AT-SPI instead, which works in the background.
+//! Raw input: hover, drags, wheel scrolls and keys with no text equivalent. Wayland gives other
+//! programs no way to send input to an app's window, so these are refused with the element-id
+//! steps that do work. Scrolling an element by id, or at a screenshot point, moves the scroll
+//! bar of the scroll area around it through AT-SPI instead, which works in the background.
 use crate::computer::act::{Actor, Step, text};
 use crate::computer::bus::Obj;
 use crate::computer::element::{self, COORD_WINDOW};
@@ -30,8 +30,12 @@ impl Actor<'_> {
         if pages.is_some() && pixels.is_some() {
             return Err(CuError::new("bad_action", "scroll takes pages or pixels, not both."));
         }
-        if step.get("x").is_none() {
-            let area = match step.get("id").and_then(Value::as_u64) {
+        {
+            let at_point = match crate::computer::act::point_of(step) {
+                Some((x, y)) => Some(self.node_at(x, y, "scroll").await?),
+                None => None,
+            };
+            let area = match step.get("id").and_then(Value::as_u64).or(at_point) {
                 Some(id) => Some((id, self.session.element(self.bus, id).await?.obj)),
                 None => self.first_scroll_area(),
             };

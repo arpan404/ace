@@ -15,6 +15,9 @@ pub struct RunningApp {
     pub id: String,
     pub name: String,
     pub active: bool,
+    /// A suite module sharing its process (LibreOffice Writer in `soffice.bin`): the module's
+    /// name, which ends the titles of its windows.
+    pub title_hint: Option<String>,
 }
 
 pub fn installed() -> Vec<DesktopApp> {
@@ -37,22 +40,22 @@ pub async fn running(bus: &Bus, installed: &[DesktopApp]) -> Vec<RunningApp> {
         let name = bus.string_prop(&app, "Accessible", "Name").await.unwrap_or_default();
         let windows = bus.children(&app).await.ok()?;
         let mut active = false;
-        let mut any = false;
+        let mut titles = Vec::new();
         for window in windows.iter().take(32) {
             if let Ok(window) = element::read(bus, window).await {
                 if matches!(window.role.as_str(), "frame" | "dialog" | "alert" | "file chooser")
                     || (window.role == "window" && !window.name.trim().is_empty())
                 {
-                    any = true;
                     active |= window.states.active;
+                    titles.push((window.name.clone(), window.states.active));
                 }
             }
         }
-        any.then_some((app, pid, name, active))
+        (!titles.is_empty()).then_some((app, pid, name, active, titles))
     }))
     .await;
     let mut running = Vec::new();
-    for (obj, pid, name, active) in reads.into_iter().flatten() {
+    for (obj, pid, name, active, titles) in reads.into_iter().flatten() {
         if pid == own || running.iter().any(|r: &RunningApp| r.obj.0 == obj.0) {
             continue;
         }
@@ -62,6 +65,32 @@ pub async fn running(bus: &Bus, installed: &[DesktopApp]) -> Vec<RunningApp> {
         // The desktop's own shell, portals, bars and agents are not apps to operate.
         let system = crate::computer::catalog::is_system_component;
         if system(&id) || facts.exe_name.as_deref().is_some_and(system) {
+            continue;
+        }
+        // A suite lists each module that has a window, all in the one process.
+        let family = identity::family(&facts, installed);
+        let mut modules: Vec<(&DesktopApp, bool)> = Vec::new();
+        if family.len() > 1 {
+            for (title, window_active) in &titles {
+                if let Some(module) = identity::module_of(title, &family) {
+                    match modules.iter_mut().find(|(m, _)| m.id == module.id) {
+                        Some((_, seen)) => *seen |= *window_active,
+                        None => modules.push((module, *window_active)),
+                    }
+                }
+            }
+        }
+        if !modules.is_empty() {
+            for (module, module_active) in modules {
+                running.push(RunningApp {
+                    obj: obj.clone(),
+                    pid,
+                    id: module.id.clone(),
+                    name: module.name.clone(),
+                    active: module_active,
+                    title_hint: Some(module.name.clone()),
+                });
+            }
             continue;
         }
         let shown = entry
@@ -74,6 +103,7 @@ pub async fn running(bus: &Bus, installed: &[DesktopApp]) -> Vec<RunningApp> {
             id,
             name: shown,
             active,
+            title_hint: None,
         });
     }
     running
@@ -91,10 +121,12 @@ pub fn launch(app: &DesktopApp) -> CuResult<()> {
             });
         }
     };
+    // Chromium-based apps need a switch on their command line; gio can't add one.
+    let chromium = crate::computer::chromium::is_chromium_app(app);
     let mut gio = Command::new("gio");
     gio.arg("launch").arg(&app.path);
     detach(&mut gio);
-    if let Ok(mut child) = gio.spawn() {
+    if !chromium && let Ok(mut child) = gio.spawn() {
         // gio exits once the app is started; reap it in the background.
         std::thread::spawn(move || {
             let _ = child.wait();
@@ -110,6 +142,11 @@ pub fn launch(app: &DesktopApp) -> CuResult<()> {
     })?;
     let mut command = Command::new(program);
     command.args(args);
+    if chromium {
+        command.arg(crate::computer::chromium::FLAG);
+    }
+    // As gio does, so the app is known by its desktop file.
+    command.env("GIO_LAUNCHED_DESKTOP_FILE", &app.path);
     detach(&mut command);
     let mut child = command
         .spawn()
@@ -118,4 +155,39 @@ pub fn launch(app: &DesktopApp) -> CuResult<()> {
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// A process of `entry` that is running but not on the accessibility bus: started before
+/// accessibility was on for the session (Firefox reads it only at start). Opening the app again
+/// would only reach that process.
+pub fn inaccessible_process(entry: &DesktopApp, installed: &[DesktopApp]) -> Option<u32> {
+    let uid = unsafe { libc::getuid() };
+    let own = std::process::id();
+    let entries = std::fs::read_dir("/proc").ok()?;
+    entries.flatten().find_map(|entry_dir| {
+        let pid: u32 = entry_dir.file_name().to_string_lossy().parse().ok()?;
+        if pid == own {
+            return None;
+        }
+        let meta = std::fs::metadata(entry_dir.path()).ok()?;
+        if std::os::unix::fs::MetadataExt::uid(&meta) != uid {
+            return None;
+        }
+        let facts = identity::read_process(Path::new("/proc"), pid);
+        facts.exe_name.as_ref()?;
+        (identity::identify(&facts, None, installed).0 == entry.id).then_some(pid)
+    })
+}
+
+/// Why an app that runs can't be seen, for the agent.
+pub fn inaccessible_error(entry: &DesktopApp, pid: u32) -> CuError {
+    let name = &entry.name;
+    let message = if crate::computer::chromium::is_chromium_process(Path::new("/proc"), pid) {
+        crate::computer::chromium::inaccessible_note(name)
+    } else {
+        format!(
+            "{name} is running but was started before accessibility was on for this session, so ace can't see its windows. Ask the person to quit {name} (all its windows); screen_state then reopens it and can see it."
+        )
+    };
+    CuError::new("app_inaccessible", message)
 }

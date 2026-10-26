@@ -131,16 +131,52 @@ pub fn identify<'a>(
         return (app.id.clone(), Some(app));
     }
     if let Some(exe) = &facts.exe_name {
-        let found = installed
-            .iter()
-            .filter(|app| app.exec_name().as_deref() == Some(exe.as_str()))
-            .min_by_key(|app| (!app.listed, app.id.len()));
+        // The plain launcher (fewest arguments) names a process several entries start, as
+        // `libreoffice %U` does for every LibreOffice module.
+        let found = family(facts, installed)
+            .into_iter()
+            .min_by_key(|app| (!app.listed, exec_len(app), app.id.len()));
         if let Some(app) = found {
             return (app.id.clone(), Some(app));
         }
         return (exe.clone(), None);
     }
     (accessible_name.unwrap_or_default().to_owned(), None)
+}
+
+/// Launcher scripts whose process carries another executable name.
+const LAUNCHED_AS: [(&str, &[&str]); 2] = [("soffice.bin", &["libreoffice", "soffice"]), ("oosplash", &["libreoffice", "soffice"])];
+
+/// The installed entries that start this process's executable: one for most apps, several for a
+/// suite whose modules share one process (LibreOffice Writer, Calc, …).
+pub fn family<'a>(facts: &ProcessFacts, installed: &'a [DesktopApp]) -> Vec<&'a DesktopApp> {
+    let Some(exe) = facts.exe_name.as_deref() else { return Vec::new() };
+    let launchers = LAUNCHED_AS
+        .iter()
+        .find(|(process, _)| *process == exe)
+        .map(|(_, launchers)| *launchers)
+        .unwrap_or(&[]);
+    installed
+        .iter()
+        .filter(|app| {
+            app.exec_name()
+                .is_some_and(|name| name == exe || launchers.contains(&name.as_str()))
+        })
+        .collect()
+}
+
+fn exec_len(app: &DesktopApp) -> usize {
+    app.exec.as_deref().map(|exec| crate::computer::desktop::exec_argv(exec).len()).unwrap_or(usize::MAX)
+}
+
+/// The suite module a window belongs to: the entry whose name ends its title, as LibreOffice
+/// titles windows "Untitled 1 — LibreOffice Writer".
+pub fn module_of<'a>(title: &str, family: &[&'a DesktopApp]) -> Option<&'a DesktopApp> {
+    family
+        .iter()
+        .filter(|app| !app.name.is_empty() && title.trim_end().ends_with(app.name.as_str()))
+        .max_by_key(|app| app.name.len())
+        .copied()
 }
 
 #[cfg(test)]

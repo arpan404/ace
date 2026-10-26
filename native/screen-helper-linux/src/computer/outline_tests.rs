@@ -52,9 +52,16 @@ fn toggles_say_on_or_off_and_insensitive_controls_say_disabled() {
     assert_eq!(flags("toggle button", &enabled()), vec!["off"]);
     let off = States {
         sensitive: false,
+        enabled: false,
         ..enabled()
     };
     assert_eq!(flags("push button", &off), vec!["disabled"]);
+    // LibreOffice sets ENABLED but not SENSITIVE on its cells.
+    let cell = States {
+        sensitive: false,
+        ..enabled()
+    };
+    assert!(flags("table cell", &cell).is_empty());
     // GTK4 sets SENSITIVE but never ENABLED on usable controls.
     let gtk4 = States {
         enabled: false,
@@ -148,4 +155,43 @@ fn conditions_search_role_name_and_value_case_insensitively() {
     let json = node.json();
     assert_eq!(json["value"], "Hello World");
     assert!(json.get("flags").is_none());
+}
+
+#[test]
+fn a_point_names_the_clickable_element_under_or_just_beside_it_and_never_the_window() {
+    let node = |id: u64, role: &str, actionable: bool, frame: (f64, f64, f64, f64)| Node {
+        id,
+        depth: 0,
+        role: role.into(),
+        flags: Vec::new(),
+        name: None,
+        value: None,
+        detail: None,
+        placeholder: None,
+        actions: Vec::new(),
+        frame: Some(Rect {
+            x: frame.0,
+            y: frame.1,
+            w: frame.2,
+            h: frame.3,
+        }),
+        actionable,
+    };
+    let nodes = vec![
+        node(1, "window", false, (0.0, 0.0, 800.0, 600.0)),
+        node(2, "button", true, (100.0, 100.0, 80.0, 30.0)),
+        // The button's own label, smaller but not clickable.
+        node(3, "text", false, (110.0, 105.0, 40.0, 20.0)),
+        node(4, "text area", true, (0.0, 200.0, 800.0, 400.0)),
+    ];
+    assert_eq!(hit(&nodes, 120.0, 110.0), Some(2));
+    assert_eq!(hit(&nodes, 400.0, 300.0), Some(4));
+    // Just beside the button, in the gap around it.
+    assert_eq!(hit(&nodes, 185.0, 115.0), Some(2));
+    // Nothing clickable near: no element, never the window.
+    assert_eq!(hit(&nodes, 10.0, 10.0), None);
+    assert_eq!(hit(&nodes, 900.0, 10.0), None);
+    // A scroll there starts from the innermost element of any kind.
+    assert_eq!(innermost(&nodes, 120.0, 110.0), Some(3));
+    assert_eq!(innermost(&nodes, 10.0, 10.0), Some(1));
 }

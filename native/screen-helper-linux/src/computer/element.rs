@@ -92,6 +92,14 @@ pub async fn read(bus: &Bus, obj: &Obj) -> BusResult<Element> {
     })
 }
 
+/// Each action's name and key binding (GTK: "mnemonic;path;accelerator", Qt: "Ctrl+S").
+pub async fn action_bindings(bus: &Bus, obj: &Obj) -> BusResult<Vec<(String, String)>> {
+    let actions = bus
+        .atspi::<_, Vec<(String, String, String)>>(obj, "Action", "GetActions", &())
+        .await?;
+    Ok(actions.into_iter().map(|(name, _, binding)| (name, binding)).collect())
+}
+
 pub async fn action_names(bus: &Bus, obj: &Obj) -> BusResult<Vec<String>> {
     match bus
         .atspi::<_, Vec<(String, String, String)>>(obj, "Action", "GetActions", &())

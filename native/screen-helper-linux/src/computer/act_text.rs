@@ -2,7 +2,7 @@
 //! on background windows. Keys go to the focused text through AT-SPI where an equivalent
 //! exists (Return, Backspace, Delete, select all, arrows); Wayland lets ace send no others.
 use crate::computer::act::{Actor, Step, grab, int, set_selection, text};
-use crate::computer::bus::BusError;
+use crate::computer::bus::{BusError, Obj};
 use crate::computer::element::{self, Element};
 use crate::computer::error::{CuError, CuResult, clip};
 use crate::computer::keys::{self, Chord};
@@ -17,7 +17,14 @@ impl Actor<'_> {
     /// element, else the text element the agent last worked in.
     async fn text_target(&mut self, step: &Step) -> CuResult<Option<(Element, String)>> {
         if step.get("id").is_some() {
-            let (id, element) = self.target(step).await?;
+            let (id, mut element) = self.target(step).await?;
+            // A document holds its text in children (LibreOffice's paragraphs): the one with
+            // the caret, else the first.
+            if !element.interfaces.editable {
+                if let Some(inner) = self.editable_within(&element.obj).await {
+                    element = inner;
+                }
+            }
             grab(self.bus, &element.obj).await;
             if element.interfaces.text {
                 self.session.text_focus = Some(element.obj.clone());
@@ -40,6 +47,52 @@ impl Actor<'_> {
             return Ok(Some((element, label)));
         }
         Ok(None)
+    }
+
+    /// An element that takes typed text inside `container`: the focused one, else the first.
+    async fn editable_within(&self, container: &Obj) -> Option<Element> {
+        let mut queue = std::collections::VecDeque::from([(container.clone(), 0usize)]);
+        let mut first = None;
+        let mut seen = 0;
+        while let Some((obj, depth)) = queue.pop_front() {
+            seen += 1;
+            if seen > 200 {
+                break;
+            }
+            if depth > 0 {
+                if let Ok(element) = element::read(self.bus, &obj).await {
+                    if element.interfaces.editable && !element.defunct {
+                        if element.states.focused {
+                            return Some(element);
+                        }
+                        first.get_or_insert(element);
+                        continue;
+                    }
+                }
+            }
+            if depth < 4 {
+                for child in self.bus.children(&obj).await.unwrap_or_default().into_iter().take(60) {
+                    queue.push_back((child, depth + 1));
+                }
+            }
+        }
+        first
+    }
+
+    /// Why text can't go into an element that looks editable: Chromium (Chrome, Electron
+    /// apps) doesn't offer AT-SPI's EditableText on Linux.
+    fn not_typable(&self, element: &Element, label: &str) -> Option<CuError> {
+        let chromium = crate::computer::chromium::is_chromium_process(std::path::Path::new("/proc"), self.session.pid);
+        (element.states.editable && !element.interfaces.editable).then(|| {
+            CuError::new(
+                "not_supported",
+                if chromium {
+                    format!("{label} takes no typed text through accessibility: {} is built on Chromium, which doesn't offer that on Linux. Use set_value if offered, ace's browser tools for web pages, or ask the person to type it.", self.session.name)
+                } else {
+                    format!("{label} takes no typed text through accessibility. Use set_value if offered, or ask the person to type it.")
+                },
+            )
+        })
     }
 
     async fn insert(&self, element: &Element, text: &str) -> CuResult<Inserted> {
@@ -115,6 +168,9 @@ impl Actor<'_> {
         let shown = clip(&typed, 40).unwrap_or_default();
         if let Some((element, label)) = self.text_target(step).await? {
             Self::secure(&element, "type")?;
+            if let Some(refused) = self.not_typable(&element, &label) {
+                return Err(refused);
+            }
             if element.interfaces.editable {
                 return Ok(match self.insert(&element, &typed).await? {
                     Inserted::Changed => format!("typed \"{shown}\" into {label}"),
@@ -141,6 +197,9 @@ impl Actor<'_> {
         let count = pasted.chars().count();
         if let Some((element, label)) = self.text_target(step).await? {
             Self::secure(&element, "paste into")?;
+            if let Some(refused) = self.not_typable(&element, &label) {
+                return Err(refused);
+            }
             if element.interfaces.editable {
                 return Ok(match self.insert(&element, &pasted).await? {
                     Inserted::Changed => format!("pasted {count} characters into {label}{note}"),
@@ -171,6 +230,18 @@ impl Actor<'_> {
                     "pressed {} ({done} in {label} through accessibility)",
                     chord.key
                 ));
+            }
+        }
+        let modified = chord.modifiers.iter().any(|m| *m != keys::SHIFT);
+        let function_key = (0xffbe..=0xffd5).contains(&chord.keysym);
+        if (modified || function_key) && repeat == 1 {
+            if let Some(done) = self.shortcut_item(&chord).await? {
+                return Ok(format!("pressed {} ({done})", chord.key));
+            }
+        }
+        if chord.keysym == 0xff09 && (chord.plain() || chord.shift_only()) {
+            if let Some(done) = self.move_focus(chord.shift_only()).await? {
+                return Ok(format!("pressed {} ({done} through accessibility)", chord.key));
             }
         }
         Err(self.raw_refused(&format!("The key {}", chord.key)))
@@ -235,8 +306,117 @@ impl Actor<'_> {
                 self.changed();
                 "moved the caret".to_owned()
             }
+            (0xff09, true, _) if editable && element.states.multi_line => {
+                self.insert(element, &"\t".repeat(repeat)).await?;
+                "inserted a tab".to_owned()
+            }
+            // Copy, cut and paste through the text's own clipboard calls.
+            (0x63 | 0x43 | 0x78 | 0x58, _, true) => {
+                let Some((start, end)) = selection.filter(|(start, end)| end > start) else {
+                    return Err(CuError::new(
+                        "nothing_selected",
+                        "Nothing is selected in the text, so there is nothing to copy or cut. Select it first (select_text, or ctrl+a).",
+                    ));
+                };
+                let cut = matches!(chord.keysym, 0x78 | 0x58);
+                if cut && !editable {
+                    return Ok(None);
+                }
+                let method = if cut { "CutText" } else { "CopyText" };
+                bus.atspi::<_, ()>(obj, "EditableText", method, &(start, end))
+                    .await
+                    .map_err(|_| CuError::new("action_failed", "The app would not use its clipboard."))?;
+                if cut {
+                    self.changed();
+                }
+                format!("{} {} characters", if cut { "cut" } else { "copied" }, end - start)
+            }
+            (0x76 | 0x56, _, true) if editable => {
+                if let Some((start, end)) = selection.filter(|(start, end)| end > start) {
+                    delete(start, end).await;
+                }
+                let at = selection.map(|(start, _)| start).unwrap_or(caret);
+                let pasted = bus
+                    .atspi::<_, bool>(obj, "EditableText", "PasteText", &(at,))
+                    .await
+                    .unwrap_or(false);
+                if !pasted {
+                    return Ok(None);
+                }
+                self.changed();
+                "pasted the clipboard".to_owned()
+            }
             _ => return Ok(None),
         };
         Ok(Some(done))
+    }
+
+    /// A shortcut the app's menus list (Ctrl+S on File › Save): presses that item, which works
+    /// in the background. GTK 3, Qt and LibreOffice give their items' accelerators.
+    async fn shortcut_item(&mut self, chord: &Chord) -> CuResult<Option<String>> {
+        if self.session.menu_bar.is_none() {
+            self.refresh().await;
+        }
+        let Some(bar) = self.session.menu_bar.clone() else { return Ok(None) };
+        let mut queue: std::collections::VecDeque<(Obj, Vec<String>)> = std::collections::VecDeque::from([(bar, Vec::new())]);
+        let mut visited = 0;
+        while let Some((container, trail)) = queue.pop_front() {
+            for (obj, title) in self.menu_items(&container).await {
+                visited += 1;
+                if visited > 600 || trail.len() > 3 {
+                    return Ok(None);
+                }
+                self.check.check()?;
+                let mut path = trail.clone();
+                path.push(title.trim().to_owned());
+                let bindings = element::action_bindings(self.bus, &obj).await.unwrap_or_default();
+                let found = bindings
+                    .iter()
+                    .position(|(_, binding)| keys::binding_chord(binding).is_some_and(|bound| keys::same_shortcut(&bound, chord)));
+                if let Some(index) = found {
+                    let element = element::read(self.bus, &obj).await.map_err(|_| self.busy("menu item"))?;
+                    let label = path.join(" > ");
+                    if !element.states.sensitive {
+                        return Err(CuError::new(
+                            "menu_disabled",
+                            format!("{} is {label}, which is disabled right now.", chord.key),
+                        ));
+                    }
+                    self.perform(&element, index, "menu item", &label).await?;
+                    return Ok(Some(format!("chose {label}, its menu item")));
+                }
+                queue.push_back((obj, path));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Tab and Shift+Tab with no text to take them: the next or previous control in the outline.
+    async fn move_focus(&mut self, backwards: bool) -> CuResult<Option<String>> {
+        const FOCUSABLE: [&str; 13] = [
+            "button", "toggle button", "check box", "radio button", "text field", "text area",
+            "combo box", "link", "slider", "spin button", "tab", "menu button", "password text",
+        ];
+        let nodes = self.refresh().await;
+        let controls: Vec<&crate::computer::outline::Node> =
+            nodes.iter().filter(|n| n.actionable && FOCUSABLE.contains(&n.role.as_str())).collect();
+        if controls.is_empty() {
+            return Ok(None);
+        }
+        let focused = self.session.focused.as_ref().and_then(|f| f.id);
+        let at = focused.and_then(|id| controls.iter().position(|n| n.id == id));
+        let next = match (at, backwards) {
+            (Some(at), false) => (at + 1) % controls.len(),
+            (Some(at), true) => (at + controls.len() - 1) % controls.len(),
+            (None, false) => 0,
+            (None, true) => controls.len() - 1,
+        };
+        let id = controls[next].id;
+        let element = self.session.element(self.bus, id).await?;
+        if !crate::computer::act::grab(self.bus, &element.obj).await {
+            return Ok(None);
+        }
+        self.changed();
+        Ok(Some(format!("moved the focus to {}", self.label(id))))
     }
 }

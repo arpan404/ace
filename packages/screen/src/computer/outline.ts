@@ -138,6 +138,7 @@ export function stateHeader(state: ComputerState, platform: ComputerPlatform = "
   const lines = [
     `${app.name} (${app.bundleId})${app.active ? ", frontmost" : ", in the background"}${state.launched ? ", just opened" : ""}`,
   ];
+  if (state.accessibilityNote) lines.push(state.accessibilityNote);
   if (state.screenLocked) lines.push(sessionWords[platform].locked);
   if (state.sessionState === "unavailable") lines.push(sessionWords[platform].unavailable);
   if (!window && !state.screenLocked && state.sessionState !== "unavailable") {

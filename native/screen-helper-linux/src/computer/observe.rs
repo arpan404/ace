@@ -32,6 +32,15 @@ impl Options {
     }
 }
 
+/// A Chromium-based app running without accessibility shows only its window: say why, and how
+/// to fix it.
+pub fn mark_accessibility(result: &mut Value, pid: u32, name: &str) {
+    let proc_root = std::path::Path::new("/proc");
+    if crate::computer::chromium::is_chromium_process(proc_root, pid) && !crate::computer::chromium::has_flag(proc_root, pid) {
+        result["accessibilityNote"] = json!(crate::computer::chromium::inaccessible_note(name));
+    }
+}
+
 /// The session state every observation carries, and why a screenshot it asked for is missing.
 pub fn mark_status(result: &mut Value, status: SessionStatus, asked: &Options) {
     result["sessionState"] = json!(status.as_str());
@@ -160,8 +169,10 @@ async fn portal_screenshot(
     } else {
         None
     };
+    session.shot_offset = None;
     let placed: Option<Vec<Node>> = content.map(|content| {
         let (dx, dy) = content_offset(logical, content);
+        session.shot_offset = Some((dx, dy));
         session
             .nodes
             .iter()
