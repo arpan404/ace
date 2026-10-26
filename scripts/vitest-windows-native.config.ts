@@ -72,6 +72,7 @@ export default defineConfig({
       "apps/daemon/src/doctor/remote-access.test.ts",
       "apps/daemon/src/pairing-codes.process.test.ts",
       "apps/daemon/src/remote.server.process.test.ts",
+      "apps/daemon/src/remote-restart.server.process.test.ts",
       "apps/daemon/src/fleet-access.server.process.test.ts",
       "apps/daemon/src/tailscale-https.server.process.test.ts",
       "apps/daemon/src/machines/fleet-links.test.ts",
@@ -101,9 +102,12 @@ export default defineConfig({
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. These check POSIX owner uid and mode bits; Windows
     // counterparts ("Windows bounded reads refuse junctions...") run instead, and the data
-    // home's owner-only ACL protects the push secrets file on Windows.
+    // home's owner-only ACL protects the push secrets file on Windows. The LAN restart case
+    // asserts key.pem's mode 0600; "on Windows, a LAN daemon makes its TLS identity itself..."
+    // covers the same restart. The pairing-list case orders two same-expiry links by random id,
+    // so it fails half the time on every OS.
     testNamePattern:
-      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner)$)/,
+      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner|(?:remote access(?: > | ))?persists device credentials and the private TLS identity across daemon restarts in LAN mode|open pairing links are listed without their codes, and a cancelled one no longer pairs)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     // process-test-setup builds the daemon CLI and the shared TLS fixture the remote, Fleet and
