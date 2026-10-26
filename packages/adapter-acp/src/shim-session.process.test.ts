@@ -10,7 +10,7 @@ import { createAcpAdapter, openAcpSession } from "./index.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import { extensionQuirks } from "./testing/extension-quirks.ts";
-import { cmdShim, ended, stubbornTree } from "./testing/cmd-shim.ts";
+import { ended, stubbornTree, writeCmdShim } from "@ace/adapter-testkit";
 import { interactionKey } from "./interactions.ts";
 import { nativeAgentKey } from "./keys.ts";
 import { object } from "./data.ts";
@@ -37,7 +37,7 @@ async function setup(
   const quirks = options.quirks ?? extensionQuirks;
   const home = await mkdtemp(join(tmpdir(), "ace-acp-shim-"));
   dirs.push(home);
-  const shim = await cmdShim(
+  const shim = await writeCmdShim(
     home,
     "acp-agent",
     options.script ?? fake,

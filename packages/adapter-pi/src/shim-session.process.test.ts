@@ -7,7 +7,7 @@ import type { Frame, SessionContext } from "@ace/engine-api";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { piNative } from "@ace/provider-kit/access-modes";
 import { sessionHarness } from "./testing/harness.ts";
-import { cmdShim, ended, stubbornTree } from "./testing/cmd-shim.ts";
+import { ended, stubbornTree, writeCmdShim } from "@ace/adapter-testkit";
 import { obj, str } from "./native.ts";
 
 // npm installs Pi on Windows as `pi.cmd`, so every case launches the fake through cmd.exe.
@@ -34,7 +34,7 @@ async function shimmed(
   } = {},
 ) {
   const dir = await temporary("ace-pi-shim-");
-  const shim = await cmdShim(dir, "pi", fakePi, await options.preload?.(dir));
+  const shim = await writeCmdShim(dir, "pi", fakePi, await options.preload?.(dir));
   const frames: Frame[] = [];
   const h = await sessionHarness(
     {

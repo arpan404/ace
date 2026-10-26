@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { array, object } from "./data.ts";
 import { cli, setup } from "./testing/v2-session.ts";
-import { cmdShim, ended, stubbornTree } from "./testing/cmd-shim.ts";
+import { ended, stubbornTree, writeCmdShim } from "@ace/adapter-testkit";
 import type { ServerOptions } from "./server.ts";
 
 // npm installs OpenCode on Windows as `opencode.cmd`, so every case launches the fake through
@@ -18,7 +18,7 @@ afterEach(async () => {
 async function shimmed(env: NodeJS.ProcessEnv = {}, preload?: (dir: string) => Promise<string>) {
   const dir = await mkdtemp(join(tmpdir(), "ace-opencode-shim-"));
   dirs.push(dir);
-  const shim = await cmdShim(dir, "opencode", cli, await preload?.(dir));
+  const shim = await writeCmdShim(dir, "opencode", cli, await preload?.(dir));
   const spawned: ReturnType<typeof spawnSupervised>[] = [];
   const options: ServerOptions = {
     discovery: { env },
