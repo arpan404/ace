@@ -17,7 +17,7 @@ import { GitService } from "@ace/git";
 import { PinnedDirectory } from "@ace/workspace";
 import { HostId, WorkspaceId, type TransferMethod } from "@ace/protocol";
 import { Store } from "../store.ts";
-import { identityAt } from "./files.ts";
+import { folderIdentity } from "./files.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import { headRef, landTransfer, type LandingDeps, type TargetProjects } from "./landing.ts";
@@ -162,7 +162,7 @@ it("after a restart, rollback removes the folder a transfer made but not one tha
   // The transfer made `app`; afterwards it moved away and someone else's folder took the name.
   const replaced = join(projects, "app");
   await mkdir(replaced);
-  const madeId = identityAt(replaced);
+  const madeId = folderIdentity(await stat(replaced));
   await rename(replaced, join(projects, "app-moved"));
   await mkdir(replaced);
   await writeFile(join(replaced, "theirs.txt"), "their work\n");
@@ -170,7 +170,7 @@ it("after a restart, rollback removes the folder a transfer made but not one tha
   const own = join(projects, "web");
   await mkdir(own);
   await writeFile(join(own, "partial.txt"), "half landed\n");
-  const ownId = identityAt(own);
+  const ownId = folderIdentity(await stat(own));
 
   const { left } = await restarted(root, (rows) => {
     interrupted(rows, "transfer-replaced", replaced, madeId);

@@ -10,12 +10,11 @@ import { windowsRuntimePaths } from "@ace/release/node-runtime";
  */
 export async function verifyNatives(arch: Arch): Promise<void> {
   const ptyRoot = join(dist, "daemon/node_modules/node-pty");
-  // Windows runs no local daemon yet (no descriptor.node), only the Node runtime foundation.
-  const windowsRuntime = windowsRuntimePaths(join(dist, "runtime"));
+  // Windows runs no local daemon yet (no descriptor.node), so it ships no runtime either.
   const required = [
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
     ...(process.platform === "win32"
-      ? [windowsRuntime.exePath]
+      ? [windowsRuntimePaths(join(dist, "runtime")).exePath]
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
@@ -24,28 +23,23 @@ export async function verifyNatives(arch: Arch): Promise<void> {
         ]),
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
-  // Windows ConPTY closure for the `useConptyDll:true` backend: `conpty.node` plus
-  // the `conpty/conpty.dll` its loader resolves beside it, and the conout worker
-  // files. Fallback `pty.node`/`winpty` files are not staged. Architecture is
-  // validated below by the existing `mismatchedBinaries` owner (no PE duplication).
   if (process.platform === "win32") {
-    const target = `win32-${arch}`;
-    const pairs: Array<[string, string]> = [
-      join(ptyRoot, "build/Release"),
-      join(ptyRoot, "build/Debug"),
-      join(ptyRoot, "prebuilds", target),
-    ].map((base) => [join(base, "conpty.node"), join(base, "conpty", "conpty.dll")]);
-    if (!pairs.some(([module, dll]) => existsSync(module) && existsSync(dll)))
+    // The ConPTY backend needs conpty.node with conpty/conpty.dll beside it, and its workers.
+    const pairs = ["build/Release", "build/Debug", `prebuilds/win32-${arch}`].map((base) => [
+      join(ptyRoot, base, "conpty.node"),
+      join(ptyRoot, base, "conpty", "conpty.dll"),
+    ]);
+    if (!pairs.some((pair) => pair.every((path) => existsSync(path))))
       problems.push(`missing node-pty ConPTY module or dll for ${arch}`);
     for (const worker of ["lib/worker/conoutSocketWorker.js", "lib/shared/conout.js"])
       if (!existsSync(join(ptyRoot, worker))) problems.push(`missing ${join(ptyRoot, worker)}`);
-  } else {
-    const pty = [
-      join(ptyRoot, "build/Release/pty.node"),
-      join(ptyRoot, "prebuilds", `${process.platform}-${arch}`, "pty.node"),
-    ];
-    if (!pty.some((path) => existsSync(path))) problems.push(`missing node-pty for ${arch}`);
   }
+  const pty = [
+    join(ptyRoot, "build/Release/pty.node"),
+    join(ptyRoot, "prebuilds", `${process.platform}-${arch}`, "pty.node"),
+  ];
+  if (process.platform !== "win32" && !pty.some((path) => existsSync(path)))
+    problems.push(`missing node-pty for ${arch}`);
   const koffi = join(dist, "daemon/node_modules/@koromix", `koffi-${process.platform}-${arch}`);
   if (existsSync(join(dist, "daemon/node_modules/koffi")) && !existsSync(koffi))
     problems.push(`missing ${koffi}`);

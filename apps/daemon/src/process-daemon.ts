@@ -3,7 +3,7 @@ import type { DaemonOptions } from "./services/options.ts";
 import { DaemonStop } from "./stop-reason.ts";
 
 type Daemon = Awaited<ReturnType<typeof import("./index.ts").startDaemon>>;
-type Signal = "SIGINT" | "SIGTERM" | "SIGBREAK";
+type Signal = "SIGINT" | "SIGTERM";
 const SHUTDOWN_LIMIT_MS = 7_500;
 /** Install the process lifetime before startup can advertise an endpoint. */
 export async function runDaemonProcess(
@@ -31,7 +31,6 @@ export async function runDaemonProcess(
   const remove = () => {
     signals.removeListener("SIGINT", interrupt);
     signals.removeListener("SIGTERM", terminate);
-    signals.removeListener("SIGBREAK", consoleBreak);
   };
   const stop = (signal: Signal) => {
     cancelExit ??= shutdown.after(() => {
@@ -59,10 +58,8 @@ export async function runDaemonProcess(
   };
   const interrupt = () => stop("SIGINT");
   const terminate = () => stop("SIGTERM");
-  const consoleBreak = () => stop("SIGBREAK");
   signals.once("SIGINT", interrupt);
   signals.once("SIGTERM", terminate);
-  signals.once("SIGBREAK", consoleBreak);
   try {
     daemon = await start({
       ...options,

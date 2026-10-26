@@ -87,9 +87,9 @@ export function inspectSkillRoot(sessions: PinnedDirectory, name: string): Skill
     if (!protections.length && !owned(root)) protections.push("owner_unavailable");
     if (!protections.length) {
       const info = root.fileMetadata(skillLeaseFilename);
-      lease = [info.identity, info.size, info.mtimeMs, info.ctimeMs];
+      lease = [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs];
     }
-    const identity = [self.identity, tree.entries, tree.modifiedAt, lease];
+    const identity = [self.dev, self.ino, tree.entries, tree.modifiedAt, lease];
     return {
       bytes: tree.bytes,
       modifiedAt: Math.floor(Math.max(self.mtime, tree.modifiedAt)),

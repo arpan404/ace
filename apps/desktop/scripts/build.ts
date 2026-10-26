@@ -29,7 +29,7 @@ import { verifyNatives } from "./verify-natives.ts";
  *   `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
- * - `runtime/`: the pinned Node runtime, including the Windows staging foundation.
+ * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
  * finishes, every staged native binary is checked against the target architecture.
@@ -135,20 +135,40 @@ await verifyNatives(arch);
 log(`done: ${dist}`);
 
 /**
- * node-pty is external to the bundle. Staging is owned by `@ace/release/pty-assets`
- * (POSIX plus bounded Windows ConPTY); a binary rebuilt by
- * `desktop:rebuild-native` (build/Release) wins over the npm prebuild, and is the
- * only option on Linux, which has no prebuilds.
+ * node-pty is external to the bundle. It is a Node-API addon, so one binary serves Node and
+ * Electron's Node alike; a binary rebuilt by `desktop:rebuild-native` (build/Release) wins
+ * over the npm prebuild, and is the only option on Linux, which has no prebuilds.
  */
 async function stageNodePty(root: string): Promise<void> {
-  const { stagePtyFiles } = await import("@ace/release/pty-assets");
   const require = createRequire(join(repo, "packages/terminal/package.json"));
   const source = dirname(require.resolve("node-pty/package.json"));
-  await stagePtyFiles(
-    source,
-    join(root, "node_modules/node-pty"),
-    `${process.platform}-${process.arch}`,
-  );
+  const target = join(root, "node_modules/node-pty");
+  if (process.platform === "win32") {
+    // Windows ships the ConPTY closure; staging is owned by @ace/release/pty-assets.
+    const { stagePtyFiles } = await import("@ace/release/pty-assets");
+    await stagePtyFiles(source, target, `${process.platform}-${process.arch}`);
+    return;
+  }
+  await mkdir(target, { recursive: true });
+  for (const name of ["lib", "package.json", "LICENSE"])
+    await cp(join(source, name), join(target, name), { recursive: true });
+  const rebuilt = join(source, "build/Release");
+  const prebuild = join(source, "prebuilds", `${process.platform}-${process.arch}`);
+  const from = existsSync(join(rebuilt, "pty.node")) ? rebuilt : prebuild;
+  const to =
+    from === rebuilt
+      ? join(target, "build/Release")
+      : join(target, "prebuilds", `${process.platform}-${process.arch}`);
+  if (!existsSync(join(from, "pty.node")))
+    throw new Error(
+      "No node-pty binary for this platform; run `bun run desktop:rebuild-native` first",
+    );
+  await mkdir(to, { recursive: true });
+  await copyFile(join(from, "pty.node"), join(to, "pty.node"));
+  if (existsSync(join(from, "spawn-helper"))) {
+    await copyFile(join(from, "spawn-helper"), join(to, "spawn-helper"));
+    await chmod(join(to, "spawn-helper"), 0o755);
+  }
 }
 
 async function stageRipgrep(bin: string): Promise<void> {

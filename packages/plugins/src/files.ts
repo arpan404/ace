@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { lstat, mkdir, opendir, realpath, writeFile, open } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { constants } from "node:fs";
 import { limits, normalizePath } from "./manifest.ts";
 import type { PackageFile } from "./types.ts";
@@ -9,7 +9,7 @@ import type { PackageFile } from "./types.ts";
 export async function assertNoSymlinks(path: string): Promise<void> {
   const absolute = resolve(path);
   let current = parse(absolute).root;
-  for (const part of absolute.slice(current.length).split(sep)) {
+  for (const part of absolute.slice(current.length).split("/")) {
     current = join(current, part);
     try {
       if ((await lstat(current)).isSymbolicLink()) throw new Error(`Symlink forbidden: ${current}`);

@@ -1,4 +1,3 @@
-import { withoutHooks } from "./disabled-hooks.ts";
 import { access } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -40,6 +39,9 @@ export type StackReplayOptions = {
   /** Runs once every precondition passed, immediately before the first branch changes. */
   beforeDispatch?: () => void;
 };
+
+// Replaying the person's reviewed commits runs no repository hooks; their commits already did.
+const noHooks = ["-c", "core.hooksPath=/dev/null"];
 
 /**
  * Bring collaborator commits into locally rebased layers. Each layer's new GitHub head must
@@ -106,16 +108,12 @@ export async function continueStackReplay(
       const status = await repository.status(root);
       if (status.conflicted.length)
         throw new GitError("conflicts", "Resolve and stage every conflicted file first");
-      const resumed = await repository.cli.call(
-        root,
-        [...withoutHooks(), "cherry-pick", "--continue"],
-        {
-          write: true,
-          allowFailure: true,
-          env: { GIT_EDITOR: "true" },
-          ...(options.signal ? { signal: options.signal } : {}),
-        },
-      );
+      const resumed = await repository.cli.call(root, [...noHooks, "cherry-pick", "--continue"], {
+        write: true,
+        allowFailure: true,
+        env: { GIT_EDITOR: "true" },
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
       if (resumed.exitCode !== 0) {
         if (await picking(repository, root))
           return { state: "conflict", branch: await currentBranch(repository, root), remaining };
@@ -142,7 +140,7 @@ export async function restoreStackBranches(
   await repository.serial(root, async () => {
     const signal = options.signal ? { signal: options.signal } : {};
     if (await picking(repository, root))
-      await repository.cli.call(root, [...withoutHooks(), "cherry-pick", "--abort"], {
+      await repository.cli.call(root, [...noHooks, "cherry-pick", "--abort"], {
         write: true,
         ...signal,
       });
@@ -150,17 +148,14 @@ export async function restoreStackBranches(
     if (status.conflicted.length || status.staged.length || status.unstaged.length)
       throw new GitError("dirty_worktree", "Commit or discard local changes before aborting");
     // Detach first so moving the checked-out branch never leaves its files out of step.
-    await repository.cli.call(root, [...withoutHooks(), "switch", "--detach"], {
-      write: true,
-      ...signal,
-    });
+    await repository.cli.call(root, [...noHooks, "switch", "--detach"], { write: true, ...signal });
     for (const layer of recorded)
       await repository.cli.call(
         root,
         ["update-ref", "--end-of-options", `refs/heads/${layer.branch}`, layer.head],
         { write: true, ...signal },
       );
-    await repository.cli.call(root, [...withoutHooks(), "switch", "--no-guess", "--", current], {
+    await repository.cli.call(root, [...noHooks, "switch", "--no-guess", "--", current], {
       write: true,
       ...signal,
     });
@@ -177,17 +172,13 @@ async function replay(
   const order = layers.toReversed();
   for (const [index, layer] of order.entries()) {
     const options = { write: true, ...(signal ? { signal } : {}) };
-    await repository.cli.call(
-      root,
-      [...withoutHooks(), "switch", "--no-guess", "--", layer.branch],
-      {
-        ...options,
-      },
-    );
+    await repository.cli.call(root, [...noHooks, "switch", "--no-guess", "--", layer.branch], {
+      ...options,
+    });
     const picked = await repository.cli.call(
       root,
       [
-        ...withoutHooks(),
+        ...noHooks,
         "cherry-pick",
         "--allow-empty",
         "--keep-redundant-commits",

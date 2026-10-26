@@ -62,14 +62,6 @@ function exists(path: string): boolean {
 }
 
 function readFacts(root: string): HomeFacts {
-  try {
-    // A home that is a link is set aside as the link (ADR 0081); never follow it to adopt,
-    // reuse, or read a marker from what it points at.
-    if (lstatSync(root).isSymbolicLink()) return { kind: "unversioned" };
-  } catch (error) {
-    if (code(error) !== "ENOENT") throw error;
-    return { kind: "missing" };
-  }
   let names: string[];
   try {
     if (!statSync(root).isDirectory())

@@ -201,7 +201,6 @@ export function Feed(props: FeedProps) {
     heldRowsRef: heldRows,
     total,
     detached,
-    hasOlder: pager.hasOlder,
     topRoom,
     dock,
     list: feed,
