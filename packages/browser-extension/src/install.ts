@@ -265,7 +265,13 @@ async function uninstallWindowsHost(options: Omit<InstallOptions, "node">): Prom
     ),
   );
   await rm(manifestPath, { force: true });
-  await rm(dirname(windowsLauncherPath(options)), { recursive: true, force: true });
+  // A host that is still starting may hold its launcher a moment longer.
+  await rm(dirname(windowsLauncherPath(options)), {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
   // The last data directory's uninstall leaves no empty host folder; another's launcher keeps it.
   await rmdir(windowsHostsDir(options)).catch(() => {});
 }

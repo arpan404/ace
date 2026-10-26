@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,9 +44,12 @@ test.runIf(process.platform === "win32" && executablePath)(
         "--input-type=module",
         "-e",
         `const { BrowserService } = await import(${JSON.stringify(index)});
+         const { createServer } = await import("node:http");
+         const server = createServer((_request, response) => response.end("<title>page</title>"));
+         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
          const service = new BrowserService({ dataDir: process.argv[1], executablePath: process.argv[2] });
          await service.open({ threadId: "thread", workspaceId: "workspace" });
-         await service.execute("thread", { action: "navigate", url: "about:blank" });
+         await service.execute("thread", { action: "navigate", url: "http://127.0.0.1:" + server.address().port + "/" });
          console.log("ready");
          setInterval(() => {}, 1000);`,
         home,
@@ -54,8 +58,12 @@ test.runIf(process.platform === "win32" && executablePath)(
       { stdio: ["ignore", "pipe", "inherit"], windowsHide: true },
     );
     try {
-      const [line] = (await once(daemon.stdout, "data")) as [Buffer];
-      expect(line.toString()).toContain("ready");
+      // A daemon that fails to start exits instead of printing: fail rather than wait forever.
+      const started = await Promise.race([
+        once(daemon.stdout, "data").then(([line]) => String(line)),
+        once(daemon, "exit").then(([code]) => `exited ${String(code)}`),
+      ]);
+      expect(started).toContain("ready");
       const running = await profileProcesses(home);
       // The browser, its GPU process and at least one renderer.
       expect(running.length).toBeGreaterThanOrEqual(3);
@@ -81,9 +89,16 @@ test.runIf(process.platform === "win32" && executablePath)(
     const { BrowserService } = await import("./index.ts");
     const home = await mkdtemp(join(tmpdir(), "ace-browser-close-"));
     const service = new BrowserService({ dataDir: home, executablePath: executablePath ?? "" });
+    const server = createServer((_request, response) => response.end("<title>page</title>"));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing server address");
     try {
       await service.open({ threadId: "thread", workspaceId: "workspace" });
-      await service.execute("thread", { action: "navigate", url: "about:blank" });
+      await service.execute("thread", {
+        action: "navigate",
+        url: `http://127.0.0.1:${address.port}/`,
+      });
       expect((await profileProcesses(home)).length).toBeGreaterThanOrEqual(3);
       await service.close();
       await vi.waitFor(async () => expect(await profileProcesses(home)).toEqual([]), {
@@ -91,6 +106,8 @@ test.runIf(process.platform === "win32" && executablePath)(
         interval: 500,
       });
     } finally {
+      server.closeAllConnections();
+      server.close();
       await service.close().catch(() => {});
       await rm(home, { recursive: true, force: true }).catch(() => {});
     }
