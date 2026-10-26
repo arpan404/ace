@@ -41,7 +41,11 @@ async function registry() {
   const root = await mkdtemp(join(tmpdir(), "ace-device-tools-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const serveSim = await tarball(root, "serve-sim", {
-    "package.json": JSON.stringify({ name: "serve-sim", version: "0.1.49-beta.139.1", type: "module" }),
+    "package.json": JSON.stringify({
+      name: "serve-sim",
+      version: "0.1.49-beta.139.1",
+      type: "module",
+    }),
     "dist/serve-sim.js": `import { WebSocket } from "ws";\nif (typeof WebSocket === "function" && process.argv.includes("--version")) console.log("0.1.49-beta.139.1");\n`,
   });
   const ws = await tarball(root, "ws", {

@@ -16,7 +16,10 @@ async function pathWithServeSim(version?: string): Promise<string> {
 }
 
 it("a Mac lists serve-sim after Xcode with its version, ready only at a version ace runs", async () => {
-  const supported = await daemonToolchains({ PATH: await pathWithServeSim("0.1.49-beta.139.1") }, "darwin");
+  const supported = await daemonToolchains(
+    { PATH: await pathWithServeSim("0.1.49-beta.139.1") },
+    "darwin",
+  );
   expect(supported.map((tool) => tool.id)).toEqual(["git", "xcode", "serve-sim", "android"]);
   expect(supported[2]).toMatchObject({
     available: true,
@@ -39,6 +42,9 @@ it("a Mac lists serve-sim after Xcode with its version, ready only at a version 
 });
 
 it("other platforms have no serve-sim entry", async () => {
-  const tools = await daemonToolchains({ PATH: await pathWithServeSim("0.1.49-beta.139.1") }, "linux");
+  const tools = await daemonToolchains(
+    { PATH: await pathWithServeSim("0.1.49-beta.139.1") },
+    "linux",
+  );
   expect(tools.map((tool) => tool.id)).toEqual(["git", "android"]);
 });

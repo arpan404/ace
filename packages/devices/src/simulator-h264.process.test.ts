@@ -8,8 +8,11 @@ import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
 import { fakeServeSim as serveSim } from "./testing/fake-serve-sim.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
-const fakeServeSim = (home: string, version: string, options?: { video?: boolean }) =>
-  serveSim(home, version, udid, options);
+const fakeServeSim = (
+  home: string,
+  version: string,
+  options?: { video?: boolean; notice?: string },
+) => serveSim(home, version, udid, options);
 function platformFor(home: string) {
   return new DevicePlatform({
     platform: "darwin",
@@ -136,7 +139,9 @@ it("serve-sim video that won't start refuses the live view instead of handing it
   await expect.poll(() => frames.length).toBeGreaterThan(0);
   await expect(capture.configure?.(video)).rejects.toMatchObject({
     code: "command_failed",
-    hint: expect.stringContaining("download device tools again in Devices (serve-sim 0.1.49-beta.139.1)"),
+    hint: expect.stringContaining(
+      "download device tools again in Devices (serve-sim 0.1.49-beta.139.1)",
+    ),
   });
   // The capture itself lives on for agents' stills.
   expect(failures).toEqual([]);
@@ -216,4 +221,28 @@ it("a serve-sim version ace hasn't pinned is not driven", async () => {
   ).rejects.toMatchObject({ code: "tool_missing", message: expect.stringContaining("9.9.9") });
   expect(sim.opened()).toBe(0);
   expect(sim.mjpegOpen()).toBe(0);
+});
+
+it("a notice serve-sim prints before announcing its helper doesn't stop the stream", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-notice-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  await fakeServeSim(home, "0.1.49-beta.139.1", {
+    notice: "\u001b[90mPort 3100 busy, killing listener pid(s): 4242\u001b[0m",
+  });
+  const platform = platformFor(home);
+  onTestFinished(() => platform.close());
+  const frames: Frame[] = [];
+  const capture = await startCapture({
+    device,
+    streamId: "native",
+    fps: 30,
+    platform,
+    runtime,
+    env: { PATH: home },
+    publish: (frame) => frames.push(frame),
+    failure: () => {},
+  });
+  onTestFinished(() => capture.stop());
+  expect(await capture.configure?.(video)).toEqual({ codec: "h264" });
+  expect(frames.some((frame) => frame.header.codec === "h264")).toBe(true);
 });

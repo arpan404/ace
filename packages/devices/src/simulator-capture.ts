@@ -153,9 +153,20 @@ export async function simulatorCapture(options: {
       if (output.length + chunk.length > 8192)
         throw new Error("Simulator endpoint metadata exceeds limit");
       output = Buffer.concat([output, chunk]);
-      const end = output.indexOf(10);
-      if (end < 0) return;
-      const value = Endpoint.parse(JSON.parse(output.subarray(0, end).toString("utf8")));
+      // serve-sim may print a notice first (a busy port it cleared); the endpoint is the first
+      // line that is JSON.
+      let line: unknown;
+      for (let end = output.indexOf(10); end >= 0 && line === undefined; end = output.indexOf(10)) {
+        const text = output.subarray(0, end).toString("utf8");
+        output = output.subarray(end + 1);
+        try {
+          line = JSON.parse(text);
+        } catch {
+          // Not the endpoint: keep reading.
+        }
+      }
+      if (line === undefined) return;
+      const value = Endpoint.parse(line);
       if (value.device.toLowerCase() !== nativeId(options.device).toLowerCase())
         throw new Error("Simulator helper identity mismatch");
       localUrl(value.streamUrl, value.port, "http:");

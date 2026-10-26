@@ -16,9 +16,10 @@ const Listed = z.object({
  * from any other serve-sim belong to the person and are always kept.
  */
 export function replacesHelper(commandLine: string, version: string): boolean {
-  const managed = /\/serve-sim-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\/dist\/serve-sim\.js(?:\s|$)/.exec(
-    commandLine,
-  )?.[1];
+  const managed =
+    /\/serve-sim-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\/dist\/serve-sim\.js(?:\s|$)/.exec(
+      commandLine,
+    )?.[1];
   return managed !== undefined && managed !== version;
 }
 
@@ -79,8 +80,7 @@ export async function replaceOutdatedHelper(options: {
     });
   try {
     const listed = Listed.safeParse(JSON.parse(await serveSim(["-l", options.udid], 5000, true)));
-    if (!listed.success || listed.data.device.toLowerCase() !== options.udid.toLowerCase())
-      return;
+    if (!listed.success || listed.data.device.toLowerCase() !== options.udid.toLowerCase()) return;
     const commandLine = await output(runtime, env, {
       command: "/bin/ps",
       args: ["-o", "command=", "-p", String(listed.data.pid)],

@@ -126,11 +126,12 @@ If it cannot start or read the screen, `uiautomator dump` is used.
 `ACE_ANDROID_UI_HELPER=off` disables it. Both run only when the daemon gives the
 platform a tools directory.
 
-iOS uses a pinned `serve-sim` (0.1.47 or 0.1.48). ace downloads its own copy (0.1.48
-and the `ws` package it imports, checked against their npm sha512) into
+iOS uses a pinned `serve-sim` (0.1.49-beta.139.1). ace downloads its own copy
+(with the `ws` package it imports, checked against their npm sha512) into
 `<dataDir>/tools` when devices are enabled, or on the first live view, in a separate
 process (`tools-entry.ts`), and runs it with the daemon's Node. `ACE_SERVE_SIM` picks
-another executable; otherwise ace's copy wins over one on PATH. ace spawns
+another executable; otherwise ace's copy wins over one on PATH. A helper that an older ace
+copy left running is stopped before a stream starts (`serve-sim-helpers.ts`). ace spawns
 and supervises it per device: live views get its H.264 (serve-sim encodes at 60 fps,
 6 Mbit/s; it has no options for either) re-framed as Annex B with no decode or
 re-encode, and a stream that won't start refuses the view with a reinstall hint. Agents'
