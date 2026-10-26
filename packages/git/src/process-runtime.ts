@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { join } from "node:path";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
@@ -49,7 +50,9 @@ export function killTree(
     // Windows has no POSIX process groups. Request descendant termination;
     // taskkill cannot prove containment of escaped writers.
     return new Promise<void>((resolve) => {
-      const killer = runtime.spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      // By absolute path: a bare name is searched in the working directory first.
+      const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+      const killer = runtime.spawn(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
         shell: false,
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],

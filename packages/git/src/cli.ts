@@ -35,6 +35,7 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
+import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
@@ -367,6 +368,11 @@ export class GitCli {
   }
 
   /** The executable each Git call starts. */
+  /** The platform Git runs on, for Windows-only repository settings. */
+  get platform(): NodeJS.Platform {
+    return this.runtime.platform;
+  }
+
   get binary(): string {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
   }
@@ -587,6 +593,8 @@ export class GitCli {
     if (this.runtime.platform === "win32") {
       args = windowsHooklessArgs(args);
       windowsHooklessEnv(env);
+      // Deep checkout paths past MAX_PATH; Git for Windows refuses them by default.
+      windowsLongPathsEnv(env);
     }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.
