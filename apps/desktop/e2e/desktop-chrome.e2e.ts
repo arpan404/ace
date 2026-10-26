@@ -38,7 +38,13 @@ interface Launched {
 
 async function launch(scale: number): Promise<Launched> {
   const userData = await mkdtemp(join(tmpdir(), "ace-e2e-chrome-"));
-  const args = [join(out, mainEntry), `--force-device-scale-factor=${scale}`];
+  const args = [
+    join(out, mainEntry),
+    `--force-device-scale-factor=${scale}`,
+    // A CI desktop can look occluded to Chromium, which then stops drawing frames.
+    "--disable-features=CalculateNativeWinOcclusion",
+    "--disable-backgrounding-occluded-windows",
+  ];
   const app = await electron.launch({
     executablePath: await electronBinary(),
     args,
@@ -85,6 +91,10 @@ async function launch(scale: number): Promise<Launched> {
       })
       .catch((reason: unknown) => String(reason));
     console.log(`[page bundle] ${bundle}`);
+    const visibility = await page
+      .evaluate(() => `${document.visibilityState} focus=${document.hasFocus()}`)
+      .catch((reason: unknown) => String(reason));
+    console.log(`[page visibility] ${visibility}`);
     const state = await windowsReport(app);
     console.log(`[app state] ${state}`);
     console.log(`[page html] ${(await page.content()).slice(0, 3000)}`);
