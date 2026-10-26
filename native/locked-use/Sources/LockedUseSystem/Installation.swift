@@ -22,14 +22,39 @@ public struct LockedUseInstallationFacts: Equatable, Sendable {
     public var verified: Bool { pluginSigned && ruleReachesMechanism && lockOnDisplaySleep && brokerLinked && guardianLinked }
 }
 
-/// True if `right` (or a rule it names, up to `depth` levels) evaluates `mechanism`.
-/// Pure: `lookup` supplies authorization-database definitions read elsewhere.
+/// True if satisfying `mechanism` alone can satisfy `right`, read the way authd evaluates
+/// rights. Pure: `lookup` supplies authorization-database definitions read elsewhere.
+///
+/// - `class evaluate-mechanisms`: reaches when its `mechanisms` list contains `mechanism`.
+/// - `class rule`: follows the names in `rule` (up to `depth` levels and 16 names). A
+///   `mechanisms` key on a rule-class right is ignored, as authd ignores it. A named branch
+///   counts only if it alone satisfies the rule: `k-of-n` is 1, or it is the only name. An
+///   absent `k-of-n` means every name must succeed, so with several names it does not count.
+/// - Any other or missing class never reaches.
+///
+/// The installed shape is `system.login.screensaver` = `class rule`, `k-of-n` 1, with
+/// `dev.ace.locked-use.permit` in its `rule` list, and that right = `class
+/// evaluate-mechanisms` with `AceLockedUseAuthorization:permit`.
 public func lockedUseRuleReaches(_ mechanism: String, from right: String, depth: Int = 3,
                                  lookup: (String) -> [String: Any]?) -> Bool {
-    guard depth > 0, let definition = lookup(right) else { return false }
-    if let mechanisms = definition["mechanisms"] as? [String], mechanisms.contains(mechanism) { return true }
-    let rules = (definition["rule"] as? [String]) ?? (definition["rule"] as? String).map { [$0] } ?? []
-    return rules.prefix(16).contains { lockedUseRuleReaches(mechanism, from: $0, depth: depth - 1, lookup: lookup) }
+    guard depth > 0, let definition = lookup(right), let kind = definition["class"] as? String else { return false }
+    switch kind {
+    case "evaluate-mechanisms":
+        return (definition["mechanisms"] as? [String])?.contains(mechanism) ?? false
+    case "rule":
+        let rules = (definition["rule"] as? [String]) ?? (definition["rule"] as? String).map { [$0] } ?? []
+        let required = lockedUseAuthorizationInteger(definition["k-of-n"]) ?? 0
+        guard required == 1 || (rules.count == 1 && required == 0) else { return false }
+        return rules.prefix(16).contains { lockedUseRuleReaches(mechanism, from: $0, depth: depth - 1, lookup: lookup) }
+    default:
+        return false
+    }
+}
+
+/// Integers only: a boolean bridged to NSNumber is not a count.
+private func lockedUseAuthorizationInteger(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+    return Int(exactly: number.doubleValue)
 }
 
 /// Parses `sysadminctl -screenLock status`. Only an immediate delay counts: any delay
