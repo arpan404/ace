@@ -31,6 +31,11 @@ export interface ChromeBackendOptions {
    * directory, and how long it runs after its last capture. Absent: no such encoder.
    */
   encoder?: { profileDir: string; idleMs: number };
+  /**
+   * Windows: settles launch settings that depend on the machine (the device scale, `gpu-scale.ts`)
+   * before the first tab is sized. Runs once per backend; later opens wait for the same answer.
+   */
+  settleLaunch?(signal: AbortSignal, executable: () => Promise<string>): Promise<void>;
 }
 const Png = z.object({ data: z.string().max(64 * 1024 * 1024) });
 
@@ -114,6 +119,10 @@ export class ChromeBackend implements BrowserBackend {
   }
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
     request.signal.throwIfAborted();
+    if (this.options.platform === "win32")
+      await this.options.settleLaunch?.(request.signal, () =>
+        this.options.executable(request.signal),
+      );
     const host = this.host(request.profileDir);
     const isolated = request.options.profile !== "persistent";
     const tabs = new ChromeTabs(

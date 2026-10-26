@@ -4,6 +4,7 @@ import { acquireChromium } from "./acquisition.ts";
 import { installedWindowsChromium } from "./discovery.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
 import { chromeJobs } from "./chrome-job.ts";
+import { probeChromeGpu, windowsDeviceScale } from "./gpu-scale.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { ChromeBackend } from "./headless.ts";
@@ -79,6 +80,8 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     return error;
   };
   let owned: ChromeBackend | undefined;
+  /** Windows: the device scale, settled once before the first tab. */
+  let scaled: Promise<void> | undefined;
   const backend =
     options.headlessBackend ??
     (owned = new ChromeBackend({
@@ -117,6 +120,19 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         profileDir: join(options.dataDir, "browser", "encoder"),
         idleMs: options.videoEncoderIdleMs ?? 30_000,
       },
+      // Windows without a usable GPU draws ace's Chrome at device scale 1 (`gpu-scale.ts`),
+      // unless the embedder chose a scale.
+      ...(process.platform === "win32" &&
+        options.chrome?.deviceScaleFactor === undefined && {
+          settleLaunch: (_signal, executable) =>
+            (scaled ??= executable()
+              .then((path) => probeChromeGpu(path))
+              .then((info) => {
+                launch.deviceScaleFactor = windowsDeviceScale(info, launch.deviceScaleFactor);
+              })
+              // The browser's own start reports a missing or broken executable.
+              .catch(() => {})),
+        }),
     }));
   return {
     backend,
