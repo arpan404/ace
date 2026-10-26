@@ -99,15 +99,14 @@ export function ProjectFilter() {
       <Tip label={device?.name ?? label} disabled={!device}>
         <MenuTrigger
           aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
+          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent"
         >
-          <span className="max-w-35 truncate text-foreground">{label}</span>
+          <span className="max-w-35 truncate font-medium text-foreground">{label}</span>
           {device && (
             <span
               aria-hidden
-              className="inline-flex shrink-0 items-center gap-1.5 text-xs font-normal text-muted-foreground"
+              className="ml-1 inline-flex shrink-0 items-center gap-1.5 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
             >
-              <span className="text-subtle-foreground">·</span>
               <MachineMark icon={device.icon} primary={device.primary} />
               <span data-selected-device-name className="hidden @min-[18rem]/thread-filters:inline">
                 {deviceName}
@@ -117,7 +116,7 @@ export function ProjectFilter() {
           <CaretDownIcon
             aria-hidden
             size={12}
-            className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground"
+            className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
           />
         </MenuTrigger>
       </Tip>
