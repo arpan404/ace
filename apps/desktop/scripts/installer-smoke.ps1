@@ -9,7 +9,8 @@ param(
   [Parameter(Mandatory)] [string] $SecondVersion
 )
 $ErrorActionPreference = "Stop"
-$homeDir = Join-Path $env:USERPROFILE ".ace"
+# ACE_HOME, as the app and installer resolve it, lets a shared test machine use a scratch home.
+$homeDir = if ($env:ACE_HOME) { $env:ACE_HOME } else { Join-Path $env:USERPROFILE ".ace" }
 $binDir = Join-Path $homeDir "bin"
 $shim = Join-Path $binDir "ace.cmd"
 $uninstallRoot = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -95,6 +96,8 @@ $installDir = if ($entry.InstallLocation) { $entry.InstallLocation } else {
 }
 $installDir = $installDir.TrimEnd("\")
 Write-Host "installed $($entry.DisplayVersion) at $installDir"
+$entry | Format-List DisplayName, DisplayVersion, InstallLocation, UninstallString | Out-String | Write-Host
+Get-ChildItem $installDir -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.Name)" }
 if (-not $installDir.StartsWith($env:LOCALAPPDATA, [StringComparison]::OrdinalIgnoreCase)) { Fail "not a per-user install: $installDir" }
 foreach ($file in @(
     "ace.exe", "resources\runtime\node.exe", "resources\daemon\ace.mjs", "resources\daemon\descriptor.node",
@@ -108,8 +111,10 @@ Done
 
 Step "The ace command runs from a fresh PATH"
 $ace = FreshPathAce
-& $ace --help | Select-Object -First 3
-if ($LASTEXITCODE -ne 0) { Fail "ace --help exited with $LASTEXITCODE" }
+$help = & $ace --help 2>&1
+$code = $LASTEXITCODE
+$help | Select-Object -First 3 | ForEach-Object { Write-Host $_ }
+if ($code -ne 0) { Fail "ace --help exited with $code" }
 Done
 
 Step "The app starts its own daemon"
