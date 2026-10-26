@@ -110,7 +110,7 @@ export function inboxOrganizer(
         saved: () => {
           saved = true;
         },
-        receipt: (ok) => {
+        receipt: ({ ok }) => {
           if (!ok) return drop(action);
           action.accepted = true;
           action.cancel = clock.set(settleMs, () => drop(action));
