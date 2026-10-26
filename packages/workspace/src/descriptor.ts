@@ -299,12 +299,14 @@ const WindowsHotBinding = z.object({
   openAt: NativeCall,
   openMetadataAt: NativeCall,
   statFd: NativeCall,
+  namesWithFacts: NativeCall,
 });
 let windowsHotLoaded:
   | {
       openAt(parent: number, name: string): number;
       openMetadataAt(parent: number, name: string): number;
       statFd(fd: number): z.infer<typeof WindowsFacts>;
+      namesWithFacts(fd: number, limit: number): unknown;
     }
   | undefined;
 function windowsHot(): NonNullable<typeof windowsHotLoaded> {
@@ -315,9 +317,46 @@ function windowsHot(): NonNullable<typeof windowsHotLoaded> {
       openAt: (parent, name) => windowsHandle(raw.openAt(parent, name)),
       openMetadataAt: (parent, name) => windowsHandle(raw.openMetadataAt(parent, name)),
       statFd: (fd) => windowsFacts(raw.statFd(fd)),
+      namesWithFacts: (fd, limit) => raw.namesWithFacts(fd, limit),
     };
   }
   return windowsHotLoaded;
+}
+const WindowsListing = z
+  .object({
+    names: z.array(z.string()).max(DIRECTORY_CAP),
+    attributes: z.array(z.number().int().nonnegative()),
+    sizes: z.array(z.number().nonnegative()),
+    writeTimes: z.array(z.bigint()),
+  })
+  .refine(
+    (listing) =>
+      listing.attributes.length === listing.names.length &&
+      listing.sizes.length === listing.names.length &&
+      listing.writeTimes.length === listing.names.length,
+    "Every listed name carries its facts",
+  );
+/**
+ * Win32: a directory's entries with the type, size and write time its enumeration already
+ * read, without opening each entry. NTFS may lag the size and time of a file another process
+ * holds open for writing, so only callers that need just the type (search passes) use this.
+ */
+export function windowsListing(fd: number, limit = DIRECTORY_CAP) {
+  const listing = WindowsListing.parse(windowsCall(() => windowsHot().namesWithFacts(fd, limit)));
+  const { dev } = fstatSync(fd);
+  return listing.names
+    .map((name, index) => ({
+      name,
+      info: {
+        dev,
+        // A pass compares no identities; the per-entry file id is left unread.
+        ino: 0,
+        mode: windowsMode(listing.attributes[index] ?? 0x400),
+        size: listing.sizes[index] ?? 0,
+        mtime: windowsTime(listing.writeTimes[index] ?? 0n),
+      },
+    }))
+    .toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 function windowsHandle(value: unknown): number {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
@@ -397,18 +436,20 @@ export function sameWindowsFile(a: object, b: object): boolean {
   return left === undefined || right === undefined || left === right;
 }
 /** Type from the handle's attributes: a junction or symlink reads as a link, never its target. */
+function windowsMode(attributes: number): number {
+  const readonly = attributes & 0x1;
+  return attributes & 0x400
+    ? 0o120777
+    : attributes & 0x10
+      ? readonly
+        ? 0o40555
+        : 0o40777
+      : readonly
+        ? 0o100444
+        : 0o100666;
+}
 function windowsIdentity(facts: z.infer<typeof WindowsFacts>) {
-  const readonly = facts.attributes & 0x1;
-  const mode =
-    facts.attributes & 0x400
-      ? 0o120777
-      : facts.attributes & 0x10
-        ? readonly
-          ? 0o40555
-          : 0o40777
-        : readonly
-          ? 0o100444
-          : 0o100666;
+  const mode = windowsMode(facts.attributes);
   return {
     mode,
     [windowsFileId]: Buffer.from(facts.id).toString("hex"),

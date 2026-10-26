@@ -18,7 +18,7 @@ import {
   windowsTransferTemporary,
 } from "./path-policy.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { windowsBytesLocal } from "./descriptor.ts";
+import { windowsBytesLocal, windowsListing } from "./descriptor.ts";
 import { LocalFileDescriptor, PassDirectories } from "./pass-directories.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
@@ -403,6 +403,16 @@ export class SafeRoot {
       if (!same(await handle.stat(), expected))
         throw new WorkspaceError("PATH_CHANGED", "Directory was replaced");
       const fd = handle.fd;
+      // Windows search passes need only each entry's type, which the enumeration already read.
+      if (process.platform === "win32" && this.windowsPasses?.getStore()) {
+        const listed = windowsListing(fd).map(({ name, info }) => ({
+          name,
+          info,
+          type: windowsEntryType(info.mode),
+        }));
+        await this.verify(input, resolved, expected);
+        return listed;
+      }
       const entries = descriptorNames(fd).flatMap((name) => {
         try {
           const info = statAt(fd, name);
@@ -453,4 +463,15 @@ export function transient(error: unknown): boolean {
     error instanceof WorkspaceError &&
     ["NOT_FOUND", "PATH_ESCAPE", "PATH_CHANGED", "NOT_DIRECTORY"].includes(error.code)
   );
+}
+/** Win32 search passes: the entry type for a listed mode, as entries() derives it. */
+function windowsEntryType(mode: number) {
+  const kind = mode & 0o170000;
+  return kind === 0o100000
+    ? ("file" as const)
+    : kind === 0o040000
+      ? ("directory" as const)
+      : kind === 0o120000
+        ? ("symlink" as const)
+        : ("other" as const);
 }
