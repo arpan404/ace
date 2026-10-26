@@ -17,6 +17,7 @@ export function computerLockedUseGate(
     // Read on every call, so turning it off applies to the next one.
     enabled: async () => (await services.settings?.get("computer.lockedUse"))?.value === true,
     intervalActive: () => runtime.intervalActive(),
+    runUnprotected: (send) => runtime.runUnprotected(send),
     status: () => runtime.refresh(),
     turn: (threadId, agentId) => {
       const thread = ThreadId.safeParse(threadId);

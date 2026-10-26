@@ -60,6 +60,7 @@ async function gated(facts: Facts) {
     enabled: async () => facts.setting,
     status: async () => (await connect()).request({ type: "status" }),
     intervalActive: () => running > 0,
+    runUnprotected: (send) => send(),
     turn: () => facts.turn,
     agentProcessIDs: async (app) => {
       const pid = await client?.helperProcessId(app);

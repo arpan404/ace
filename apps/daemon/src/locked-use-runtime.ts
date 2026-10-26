@@ -15,6 +15,7 @@ import type { Socket } from "node:net";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
+  LockedUseAttemptError,
   LockedUseConnection,
   connectLockedUse,
   runProtectedAttempt,
@@ -22,6 +23,7 @@ import {
   type LockedUseTurnScope,
   type Scheduler,
 } from "@ace/screen";
+import { UnprotectedSends } from "./locked-use-in-flight.ts";
 
 export interface LockedUseRuntimeOptions {
   /** The installed helper executable; resolved before every start. */
@@ -42,9 +44,17 @@ export interface LockedUseRuntimeOptions {
   connectTimeoutMs?: number;
   readyTimeoutMs?: number;
   relockTimeoutMs?: number;
+  /**
+   * How long a protected attempt waits for computer requests already sent outside any
+   * interval to settle before it is refused. Defaults past the helper's longest deadline.
+   */
+  drainTimeoutMs?: number;
 }
 
 const retryMs = 50;
+/** The helper's longest request deadline (an act, 85s) plus its cancel grace. */
+const defaultDrainTimeoutMs = 90_000;
+const notRun = "Nothing ran in the app; the Mac stays locked.";
 
 /**
  * Service phases in which the Mac may be unlocked by locked use rather than by the person:
@@ -73,6 +83,14 @@ export class LockedUseRuntime {
   readonly #runs = new Set<AbortController>();
   /** The newest attempt whose completion arrived: the service confirmed the Mac relocked. */
   #relocked: string | undefined;
+  /** Computer requests in flight outside any protected interval. */
+  readonly #unprotected = new UnprotectedSends();
+  /**
+   * The service connection ended while an interval may have held the Mac unlocked. Only a
+   * fresh status showing the session locked again clears it.
+   */
+  #heldOnDrop = false;
+  #recovering: Promise<void> | undefined;
 
   constructor(options: LockedUseRuntimeOptions) {
     this.#options = options;
@@ -90,15 +108,26 @@ export class LockedUseRuntime {
 
   /**
    * Whether a protected interval is underway or may still hold the Mac unlocked: a protected
-   * run is queued or in flight, or the service's newest phase is between covering and a
-   * confirmed relock (or faulted). While true, only that run may act on the Mac.
+   * run is queued or in flight, the service's newest phase is between covering and a
+   * confirmed relock (or faulted), or the connection ended during one and no fresh status has
+   * shown the Mac locked since. While true, only that run may act on the Mac.
    */
   intervalActive(): boolean {
     if (this.#runs.size > 0) return true;
-    const status = this.#status;
-    if (!status || !intervalPhases.has(status.phase)) return false;
-    // The `relocking` state can trail its attempt's completion, which already confirmed it.
-    return !(status.phase === "relocking" && status.attemptID === this.#relocked);
+    if (this.#heldOnDrop) {
+      // Fails closed until a fresh status shows the Mac locked again; asking is how it clears.
+      this.#recover();
+      return true;
+    }
+    return this.#holdsInterval(this.#status);
+  }
+
+  /**
+   * Sends one computer request outside any protected interval. It counts as in flight from
+   * this call until it settles, and no protected attempt begins while any is in flight.
+   */
+  runUnprotected<T>(send: () => Promise<T>): Promise<T> {
+    return this.#unprotected.track(send);
   }
 
   /** Stops every queued or running protected attempt; each relocks and reports cancelled. */
@@ -110,8 +139,34 @@ export class LockedUseRuntime {
   async refresh(): Promise<LockedUseServiceStatus | undefined> {
     const connection = await this.#connect();
     const status = await connection.request({ type: "status" });
-    if (status && this.#connection === connection) this.#status = status;
+    if (status && this.#connection === connection) this.#observe(status);
     return status;
+  }
+
+  /** A fresh status from the live connection. */
+  #observe(status: LockedUseServiceStatus): void {
+    this.#status = status;
+    if (status.session === "locked") this.#heldOnDrop = false;
+  }
+
+  /** The service's phase is between covering and a confirmed relock, or faulted. */
+  #holdsInterval(status: LockedUseServiceStatus | undefined): boolean {
+    if (!status || !intervalPhases.has(status.phase)) return false;
+    // The `relocking` state can trail its attempt's completion, which already confirmed it.
+    return !(status.phase === "relocking" && status.attemptID === this.#relocked);
+  }
+
+  /** Asks for a fresh status, one request at a time, so a held interval can clear. */
+  #recover(): void {
+    if (this.#recovering || this.#closed) return;
+    this.#recovering = this.refresh().then(
+      () => {
+        this.#recovering = undefined;
+      },
+      () => {
+        this.#recovering = undefined;
+      },
+    );
   }
 
   /**
@@ -131,6 +186,19 @@ export class LockedUseRuntime {
     const stopped = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal;
     const run = this.#tail
       .then(async () => {
+        // A request sent before this run was queued may still be acting on the desktop: the
+        // Mac is never unlocked under it.
+        const drained = await this.#unprotected.drained(
+          this.#options.drainTimeoutMs ?? defaultDrainTimeoutMs,
+          this.#options.scheduler,
+          stopped,
+        );
+        if (stopped.aborted) throw new LockedUseAttemptError("cancelled", `Cancelled. ${notRun}`);
+        if (!drained)
+          throw new LockedUseAttemptError(
+            "locked_use_busy",
+            `Another computer step is still running on this Mac. ${notRun}`,
+          );
         const connection = await this.#connect();
         return runProtectedAttempt(connection, {
           ...scope,
@@ -193,11 +261,14 @@ export class LockedUseRuntime {
     });
     connection.onEvent((event) => {
       if (this.#connection !== connection) return;
-      if (event.type === "state") this.#status = event.status;
+      if (event.type === "state") this.#observe(event.status);
       else if (event.type === "completion" && event.attemptID) this.#relocked = event.attemptID;
     });
     connection.onClose(() => {
       if (this.#connection !== connection) return;
+      // A service that died mid-interval may leave the Mac unlocked until its guardian
+      // relocks it: losing the connection never ends the interval.
+      if (this.#runs.size > 0 || this.#holdsInterval(this.#status)) this.#heldOnDrop = true;
       this.#connection = undefined;
       this.#status = undefined;
     });

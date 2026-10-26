@@ -11,7 +11,8 @@
  *
  * Run directly (`node fake-locked-use-service.ts --locked-use --socket <path>`) it reads the
  * token as one line of 64 hex characters on stdin (exiting 2 without one in 5s), serves the
- * default behaviour, and exits when stdin closes.
+ * default behaviour (on an unlocked Mac with `--fake-session unlocked`), and exits when stdin
+ * closes.
  */
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -288,5 +289,8 @@ if (process.argv.includes("--locked-use") && socketFlag !== -1) {
   if (!token) process.exit(2);
   // The daemon closing stdin means it is gone: relock (nothing to do here) and exit.
   process.stdin.on("end", () => process.exit(0));
-  await fakeLockedUseService(path, { token });
+  const service = await fakeLockedUseService(path, { token });
+  // `--fake-session unlocked` starts it on an unlocked Mac (a guardian that hasn't relocked).
+  if (process.argv[process.argv.indexOf("--fake-session") + 1] === "unlocked")
+    service.status = fakeStatus({ session: "unlocked" });
 }

@@ -4,7 +4,8 @@
  * the Mac is locked does the request go through `runProtected`. While an interval is underway
  * (or may still hold the Mac unlocked) every other request is refused: the desktop it would
  * reach was unlocked by locked use for one attempt, not by the person. Otherwise, including
- * any failure while deciding, the request is sent exactly as it would be without the gate.
+ * any failure while deciding, the request is sent exactly as it would be without the gate,
+ * counted as in flight until it settles so no interval begins under it.
  */
 import type { LockedUseServiceStatus } from "../locked-use-wire.ts";
 import { ComputerError } from "./errors.ts";
@@ -41,6 +42,11 @@ export interface LockedUseGatePorts {
   intervalActive(): boolean;
   /** A fresh status from the service, starting it if needed. Read only while enabled. */
   status(): Promise<LockedUseServiceStatus | undefined>;
+  /**
+   * Sends one request outside any protected interval. It must count as in flight from this
+   * call (synchronously) until it settles: no protected interval may begin meanwhile.
+   */
+  runUnprotected<T>(send: () => Promise<T>): Promise<T>;
   /** The run (turn) the calling agent is in now, if any. */
   turn(threadId: string, agentId: string): string | undefined;
   /** The computer helper processes that will carry out requests for `app`. */
@@ -109,13 +115,13 @@ export function lockedUseGate(ports: LockedUseGatePorts): LockedUseGate {
       route = undefined;
     }
     // Checked after deciding, with nothing awaited before the send below, so an interval
-    // can't start between this check and the request reaching the helper's queue.
+    // can't start between this check and the request counting as in flight.
     if (intervalActive(ports))
       throw new ComputerError(
         "locked_use_interval_active",
         "The Mac is briefly unlocked for another task. Nothing was done; try again in a moment.",
       );
-    if (!route) return send(call.signal);
+    if (!route) return ports.runUnprotected(() => send(call.signal));
     return ports.runProtected(
       route.scope,
       route.agentProcessIDs,
