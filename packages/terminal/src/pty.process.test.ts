@@ -1,9 +1,26 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TerminalManager } from "./index.ts";
 import { collect, until } from "./test-support.ts";
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+/** PIDs a fixture published, once the file exists. */
+async function published(path: string): Promise<number[]> {
+  let text = "";
+  await expect.poll(async () => (text = await readFile(path, "utf8").catch(() => ""))).not.toBe("");
+  return text.split(",").map(Number);
+}
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -81,10 +98,61 @@ describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
     });
   });
 
-  test("close stops a running child of the shell", async () => {
-    const { manager, terminal } = await openConpty();
-    terminal.write("ping -n 30 127.0.0.1\r");
+  test("close stops a running child of the shell before reporting the tree drained", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ace-terminal-child-"));
+    const pids = join(home, "pids");
+    const manager = new TerminalManager({ graceMs: 0 });
+    const terminal = manager.openTerminal({
+      cwd: home,
+      cols: 80,
+      rows: 24,
+      name: "conpty-child",
+      env: { ACE_PIDS: pids },
+    });
+    cleanups.push(async () => {
+      await manager.closeAll();
+      await rm(home, { recursive: true, force: true });
+    });
+    const pwsh = /pwsh|powershell/i.test(terminal.snapshot().shell);
+    terminal.write(
+      `${pwsh ? "& " : ""}${JSON.stringify(process.execPath)} -e "require('node:fs').writeFileSync(process.env.ACE_PIDS, String(process.pid)); setInterval(() => {}, 1000)"\r`,
+    );
+    const [child = 0] = await published(pids);
+    expect(running(child)).toBe(true);
+    await manager.closeAll();
+    // Checked at once: ownership may only end after the child is gone.
+    expect(terminal.ownsProcesses).toBe(false);
+    expect(running(child)).toBe(false);
+  });
+
+  test("a child the shell starts at once is contained and ends with the terminal", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ace-terminal-startup-"));
+    const pids = join(home, "pids");
+    const manager = new TerminalManager({ graceMs: 0 });
+    // A custom shell that starts a child before anything else, like an AutoRun or profile hook.
+    const shell = [
+      "const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      "require('node:fs').writeFileSync(process.env.ACE_PIDS, process.pid + ',' + c.pid);",
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    const terminal = manager.openTerminal({
+      cwd: home,
+      shell: process.execPath,
+      args: ["-e", shell],
+      cols: 80,
+      rows: 24,
+      name: "conpty-startup",
+      env: { ACE_PIDS: pids },
+    });
+    cleanups.push(async () => {
+      await manager.closeAll();
+      await rm(home, { recursive: true, force: true });
+    });
+    const members = await published(pids);
+    expect(members.filter(running)).toEqual(members);
+    expect(terminal.ownsProcesses).toBe(true);
     await manager.closeAll();
     expect(terminal.ownsProcesses).toBe(false);
+    expect(members.filter(running)).toEqual([]);
   });
 });

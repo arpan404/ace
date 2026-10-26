@@ -237,6 +237,18 @@ function escapeArgument(value: string): string {
   return caretEscape(caretEscape(msvcrtQuote(value)));
 }
 
+/**
+ * One program inside a `cmd.exe /c` line the caller already owns: the path in plain quotes, a
+ * batch target's arguments escaped twice for its `%*` reparse, any other program's once.
+ */
+export function windowsCmdLine(command: string, args: readonly string[]): string {
+  const base = command.split(/[\\/]/).pop() ?? command;
+  const escape = /\.(?:cmd|bat)$/i.test(base)
+    ? escapeArgument
+    : (value: string) => caretEscape(msvcrtQuote(value));
+  return [escapeCommand(command), ...args.map(escape)].join(" ");
+}
+
 /** Wrap a batch entrypoint as `cmd.exe /d /s /c "..."`; other commands pass through. */
 export function toWindowsCommand(command: string, args: readonly string[]): WindowsCommand {
   const base = command.split(/[\\/]/).pop() ?? command;

@@ -5,9 +5,12 @@ import { performance } from "node:perf_hooks";
 import { constants as osConstants, tmpdir, userInfo } from "node:os";
 import { spawn } from "node-pty";
 import { win32 } from "node:path";
+import { createServer, type Socket } from "node:net";
+import { randomUUID } from "node:crypto";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { createRetainedJob, type RetainedJob } from "@ace/provider-kit/process-containment";
 import { findWindowsExecutableSync } from "@ace/provider-kit/discovery";
+import { windowsCmdLine } from "@ace/provider-kit/process-owner";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
@@ -343,32 +346,107 @@ function windowsTerminalEnv(
 export interface ConptyNative extends NativePty {
   kill(): void;
 }
-export interface ConptyPorts {
-  spawn?: (file: string, args: string[], options: Parameters<typeof spawn>[2]) => ConptyNative;
-  /** Strict kernel containment. Every failure throws; there is no fallback. */
-  createJob?: () => RetainedJob;
+
+/** The pipe a gated Windows shell waits on until it is inside its job. */
+export interface StartupGate {
+  readonly path: string;
+  /** Lets the waiting launcher start the shell; only called once it is contained. */
+  open(): void;
+  close(): void;
 }
 
 /**
- * Windows: the shell runs directly under ConPTY (`useConptyDll`) inside a kill-on-close Job
- * Object, which replaces the POSIX session lease; `activeCount()` is the only liveness source and
- * ownership outlives shell exit until close empties the job. The dll kill path terminates the
- * exact shell handle, so no PID is ever signalled.
+ * A one-shot named pipe. The launcher reads one line from it; `open` sends that line, and
+ * closing without opening sends nothing, so the launcher exits without starting the shell.
+ */
+export function pipeStartupGate(id: string = randomUUID()): StartupGate {
+  const path = `\\\\.\\pipe\\ace-terminal-gate-${id}`;
+  let opened = false;
+  let closed = false;
+  let waiting: Socket | undefined;
+  const server = createServer((socket) => {
+    socket.on("error", () => {});
+    server.close();
+    if (closed) socket.destroy();
+    else if (opened) socket.end("go\r\n");
+    else waiting = socket;
+  });
+  server.maxConnections = 1;
+  server.unref();
+  // A failed pipe leaves the launcher's read empty, so the shell never starts uncontained.
+  server.on("error", () => {});
+  server.listen(path);
+  return {
+    path,
+    open() {
+      if (opened || closed) return;
+      opened = true;
+      waiting?.end("go\r\n");
+    },
+    close() {
+      closed = true;
+      server.close();
+      if (!opened) waiting?.destroy();
+    },
+  };
+}
+
+/** The gate's launcher: cmd.exe from a drive-absolute SystemRoot, else ComSpec. */
+function gateLauncher(env: NodeJS.ProcessEnv): string {
+  const systemRoot = windowsEnvValue(env, "systemroot");
+  if (systemRoot && /^[A-Za-z]:[\\/]/.test(systemRoot))
+    return win32.join(systemRoot, "System32", "cmd.exe");
+  const comSpec = windowsEnvValue(env, "comspec");
+  if (comSpec !== undefined) return comSpec;
+  throw new Error("No cmd.exe found for the Windows terminal");
+}
+
+/**
+ * The launcher's command line: without AutoRun or delayed expansion it reads one line from the
+ * gate and only then runs the shell, so every process the shell starts is born inside the job.
+ * An empty read fails `set /p` and the `&&` chain never starts the shell.
+ */
+function gatedCommandLine(gate: string, shell: string, args: readonly string[]): string {
+  const run = windowsCmdLine(shell, args);
+  return `/d /v:off /s /c "set /p ACE_TERMINAL_GATE=<"${gate}" && set "ACE_TERMINAL_GATE=" && ${run}"`;
+}
+
+export interface ConptyPorts {
+  spawn?: (
+    file: string,
+    args: string[] | string,
+    options: Parameters<typeof spawn>[2],
+  ) => ConptyNative;
+  /** Strict kernel containment. Every failure throws; there is no fallback. */
+  createJob?: () => RetainedJob;
+  openGate?: () => StartupGate;
+  /** The cmd.exe that runs the gate; defaults to the host's. */
+  launcher?: string;
+}
+
+/**
+ * Windows: the shell runs under ConPTY (`useConptyDll`) inside a kill-on-close Job Object, which
+ * replaces the POSIX session lease; `activeCount()` is the only liveness source and ownership
+ * outlives shell exit until close empties the job. The dll kill path terminates the exact
+ * console handle, so no PID is ever signalled.
  *
- * node-pty starts the shell with a non-suspended CreateProcessW inside `spawn()`, and the shell
- * joins the job synchronously after it. Only a child started inside that microsecond window
- * could escape, and no supported shell gets that far so fast: pwsh and powershell load .NET
- * first, and cmd.exe reads AutoRun first. Supervised processes accept the same race (ADR 0091).
+ * node-pty cannot create a process suspended or inside a job, so the first process is a gate:
+ * cmd.exe waits on a pipe that opens only after it joined the job, then starts the shell. A
+ * shell, AutoRun or profile that starts a child at once therefore starts it contained.
  */
 export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFactory {
   const spawnNative = ports.spawn ?? spawn;
   const createJob = ports.createJob ?? (() => createRetainedJob());
+  const openGate = ports.openGate ?? (() => pipeStartupGate());
   return (options, shell, context) => {
     const env = windowsTerminalEnv(options.env);
     assertTestEnvironmentIsolation(env);
+    const launcher = ports.launcher ?? gateLauncher(process.env);
     const job = createJob();
+    let gate: StartupGate | undefined;
     // An uncontained shell never runs on: stop its exact handle, then release the job.
     const abandon = (error: unknown, pty?: ConptyNative): never => {
+      gate?.close();
       try {
         pty?.kill();
       } catch {
@@ -386,7 +464,8 @@ export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFact
     };
     let pty: ConptyNative;
     try {
-      pty = spawnNative(shell, options.args ?? [], {
+      gate = openGate();
+      pty = spawnNative(launcher, gatedCommandLine(gate.path, shell, options.args ?? []), {
         cwd: options.cwd,
         cols: options.cols,
         rows: options.rows,
@@ -405,6 +484,9 @@ export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFact
     } catch (error) {
       return abandon(error, pty);
     }
+    const started = gate;
+    started.open();
+    let drained = false;
     let ownershipComplete = false;
     const { scheduler } = context;
 
@@ -421,14 +503,19 @@ export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFact
 
     async function escalate(): Promise<void> {
       if (ownershipComplete) return;
-      try {
-        job.terminate();
-      } catch (error) {
-        // A job that already emptied cannot be terminated; that is still a stopped tree.
-        if (job.activeCount() !== 0) throw error;
+      if (!drained) {
+        try {
+          job.terminate();
+        } catch (error) {
+          // A job that already emptied cannot be terminated; that is still a stopped tree.
+          if (job.activeCount() !== 0) throw error;
+        }
+        await pollZero();
+        // An empty job cannot gain members, so a release retry never touches the job again.
+        drained = true;
+        started.close();
       }
-      await pollZero();
-      // A disposal failure retains ownership for retry; only a clean dispose completes it.
+      // A failed close or unload retains ownership for retry; only a clean dispose completes it.
       job.dispose();
       ownershipComplete = true;
       try {

@@ -9,7 +9,7 @@ const TOKEN_QUERY = 0x0008;
 const TOKEN_USER = 1;
 const ERROR_INVALID_PARAMETER = 87;
 const ERROR_INSUFFICIENT_BUFFER = 122;
-const windowsSid = z
+export const WindowsSid = z
   .string()
   .regex(/^S-\d+(-\d+)+$/)
   .max(256);
@@ -138,7 +138,7 @@ export function readWindowsProcessIdentity(
       const text = stringOut[0];
       expectNative(!isNullHandle(text));
       try {
-        return { start, owner: windowsSid.parse(api.decodeSid(text)) };
+        return { start, owner: WindowsSid.parse(api.decodeSid(text)) };
       } finally {
         api.free(text);
       }
@@ -150,17 +150,15 @@ export function readWindowsProcessIdentity(
   }
 }
 
+/** POSIX owners stay numeric uids; only Windows owners are token-user SID strings. */
+const processOwner = process.platform === "win32" ? WindowsSid : z.number().int().nonnegative();
 export const ProcessIdentity = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1).max(128),
-  uid: z.number().int().nonnegative(),
+  uid: processOwner,
   group: z.number().int().positive(),
 });
-/** Windows owners are token-user SID strings, never POSIX uids. */
-export const WindowsProcessIdentity = ProcessIdentity.extend({ uid: windowsSid });
-export type ProcessIdentity =
-  | z.infer<typeof ProcessIdentity>
-  | z.infer<typeof WindowsProcessIdentity>;
+export type ProcessIdentity = z.infer<typeof ProcessIdentity>;
 const missingProcess = z.object({ code: z.literal("ESRCH") });
 
 /** ESRCH proves absence. Permission errors and surviving group members must retain resources. */
@@ -247,8 +245,7 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
       try {
         const found = readWindowsProcessIdentity(pid, api);
         return (
-          found &&
-          WindowsProcessIdentity.parse({ pid, start: found.start, uid: found.owner, group: pid })
+          found && ProcessIdentity.parse({ pid, start: found.start, uid: found.owner, group: pid })
         );
       } finally {
         api.unload();

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { RetainedJob } from "@ace/provider-kit/process-containment";
+import {
+  createRetainedJob,
+  type RetainedJob,
+  type WindowsJobApi,
+} from "@ace/provider-kit/process-containment";
 import { TerminalManager, createConptyBackendFactory } from "./index.ts";
 import type { ConptyNative } from "./index.ts";
 
@@ -7,10 +11,27 @@ import type { ConptyNative } from "./index.ts";
 const owner = "7c48b6c8-ef6f-4ef6-9441-ff1a406fc885";
 function noop() {}
 
-function conpty({ unkillable = false, assignFails = false, disposeFails = false } = {}) {
+function conpty({
+  unkillable = false,
+  assignFails = false,
+  disposeFails = false,
+  createJob,
+}: {
+  unkillable?: boolean;
+  assignFails?: boolean;
+  disposeFails?: boolean;
+  createJob?: () => RetainedJob;
+} = {}) {
   let onExit: (input: unknown) => void = noop;
   let onData: (input: unknown) => void = noop;
-  const state = { live: false, contained: false, shellKilled: false, spawnEnv: {} as object };
+  const state = {
+    live: false,
+    contained: false,
+    shellKilled: false,
+    spawnEnv: {} as object,
+    launch: { file: "", args: "" as string | string[] },
+    gate: { opened: false, closed: false, openedBeforeJoin: false },
+  };
   let failAssign = assignFails;
   let failDispose = disposeFails;
   let canKill = !unkillable;
@@ -36,6 +57,7 @@ function conpty({ unkillable = false, assignFails = false, disposeFails = false 
   const job: RetainedJob = {
     assign: () => {
       if (failAssign) throw new Error("Windows job assignment failed");
+      state.gate.openedBeforeJoin ||= state.gate.opened;
       state.contained = true;
     },
     activeCount: () => (state.live && state.contained ? 1 : 0),
@@ -55,13 +77,20 @@ function conpty({ unkillable = false, assignFails = false, disposeFails = false 
     graceMs: 0,
     dependencies: {
       backendFactory: createConptyBackendFactory({
-        spawn: (_file, _args, options) => {
+        spawn: (file, args, options) => {
+          state.launch = { file, args };
           state.live = true;
           state.shellKilled = false;
           state.spawnEnv = options?.env ?? {};
           return native;
         },
-        createJob: () => job,
+        createJob: createJob ?? (() => job),
+        openGate: () => ({
+          path: "\\\\.\\pipe\\gate",
+          open: () => void (state.gate.opened = true),
+          close: () => void (state.gate.closed = true),
+        }),
+        launcher: "C:\\Windows\\System32\\cmd.exe",
       }),
       createSessionId: () => owner,
       resolveShell: () => "C:\\Windows\\System32\\cmd.exe",
@@ -103,7 +132,52 @@ async function readUntil(terminal: ReturnType<ReturnType<typeof conpty>["open"]>
   attachment.detach();
 }
 
-describe("a ConPTY terminal", () => {
+describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
+  test("the shell starts behind a gate that opens only once it is inside the job", async () => {
+    const context = conpty();
+    context.open();
+    expect(context.state.launch.file).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(context.state.launch.args).toBe(
+      '/d /v:off /s /c "set /p ACE_TERMINAL_GATE=<"\\\\.\\pipe\\gate" && set "ACE_TERMINAL_GATE=" && "C:\\Windows\\System32\\cmd.exe""',
+    );
+    expect(context.state.gate).toEqual({ opened: true, closed: false, openedBeforeJoin: false });
+    await context.manager.closeAll();
+    expect(context.state.gate.closed).toBe(true);
+  });
+
+  test("a failed library unload retries only the release once the job is empty", async () => {
+    let unloadFails = true;
+    let live = true;
+    // Termination kills the tree, which surfaces as the shell's exit.
+    let exit: (input: unknown) => void = noop;
+    const api: WindowsJobApi = {
+      create: () => "job",
+      setKillOnClose: () => true,
+      openProcess: () => "process",
+      assignProcess: () => true,
+      close: noop,
+      activeCount: () => (live ? 1 : 0),
+      terminate: () => {
+        live = false;
+        exit({ exitCode: 1 });
+      },
+      unload: () => {
+        if (!unloadFails) return;
+        unloadFails = false;
+        throw new Error("Windows library unload failed");
+      },
+    };
+    const context = conpty({ createJob: () => createRetainedJob(() => api) });
+    exit = context.exit;
+    const terminal = context.open();
+    await expect(context.manager.closeAll()).rejects.toMatchObject({
+      errors: [expect.objectContaining({ message: expect.stringContaining("unload failed") })],
+    });
+    expect(terminal.ownsProcesses).toBe(true);
+    await context.manager.closeAll();
+    expect(terminal.ownsProcesses).toBe(false);
+  });
+
   test("the shell runs directly with its full environment, preload included", async () => {
     const context = conpty();
     const terminal = context.open({ NODE_OPTIONS: "--require probe" });
@@ -177,6 +251,7 @@ describe("a ConPTY terminal", () => {
     const context = conpty({ assignFails: true });
     expect(() => context.open()).toThrow("assignment failed");
     expect(context.state.shellKilled).toBe(true);
+    expect(context.state.gate).toMatchObject({ opened: false, closed: true });
     context.heal();
     const terminal = context.open();
     await context.manager.closeAll();

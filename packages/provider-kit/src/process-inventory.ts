@@ -1,11 +1,7 @@
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
 import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
-import {
-  WindowsProcessIdentity,
-  windowsTreeRuntime,
-  type WindowsTreeRuntime,
-} from "./process-identity.ts";
+import { WindowsSid, windowsTreeRuntime, type WindowsTreeRuntime } from "./process-identity.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
   remove(pid: number): void;
@@ -22,7 +18,7 @@ const Entry = z.object({
   createdAt: z.number(),
 });
 /** Windows owners are SID strings. */
-const WindowsEntry = Entry.extend({ uid: WindowsProcessIdentity.shape.uid });
+const WindowsEntry = Entry.extend({ uid: WindowsSid });
 export type ProcessEntry = z.infer<typeof Entry> | z.infer<typeof WindowsEntry>;
 export interface InventoryRuntime {
   identity(pid: number): ProcessIdentity | undefined;
@@ -192,7 +188,7 @@ export class ProcessInventory implements ProcessJournal {
       const members = tree.members({
         pid: entry.pid,
         start: entry.start,
-        uid: WindowsProcessIdentity.shape.uid.parse(entry.uid),
+        uid: WindowsSid.parse(entry.uid),
       });
       if (members.length === 0) {
         this.remove(entry.pid);
