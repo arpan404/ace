@@ -153,9 +153,12 @@ test.runIf(windows)(
       { providerID: "opencode-go", id: "muse-spark-1.3-contributor", variant: "high" },
       expect.objectContaining({ variant: "low" }),
     ]);
-    expect(requests.filter((r) => r.path === "/api/session" && r.method === "POST")).toHaveLength(
-      1,
-    );
+    // Resume reuses /one's native session; only /two creates another.
+    expect(
+      requests
+        .filter((r) => r.path === "/api/session" && r.method === "POST")
+        .map((r) => object(object(r.body).location).directory),
+    ).toEqual(["/one", "/two"]);
   },
 );
 

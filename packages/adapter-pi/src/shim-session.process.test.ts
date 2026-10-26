@@ -148,13 +148,18 @@ test.runIf(windows)(
         id: "confirm",
         confirmed: false,
       });
-      await h.session.send(text("queued"), "steer");
-      await h.session.interrupt({ cascade: true });
-      const aborted = await h.wait(received("extension_ui_request", "abort-proof"));
-      expect(obj(aborted.data).message).toBe("queue cleared");
-      expect(h.h.state.status.state).toBe("done");
     } finally {
       await h.dispose();
+    }
+    const fresh = await shimmed();
+    try {
+      await fresh.session.send(text("queued"), "steer");
+      await fresh.session.interrupt({ cascade: true });
+      const aborted = await fresh.wait(received("extension_ui_request", "abort-proof"));
+      expect(obj(aborted.data).message).toBe("queue cleared");
+      expect(fresh.h.state.status.state).toBe("done");
+    } finally {
+      await fresh.dispose();
     }
   },
 );
