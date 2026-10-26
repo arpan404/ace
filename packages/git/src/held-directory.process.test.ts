@@ -116,7 +116,7 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
         );
         return service.projectInfo(target, fd);
       });
-      expect(info.root.toLowerCase()).toBe(target.toLowerCase());
+      expect(info.root).toBe(target);
       expect(info.branch).toBe("trunk");
     } finally {
       await service.close();
