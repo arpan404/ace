@@ -102,7 +102,7 @@ test("upgrading counts skill mentions already in the history once", async () => 
   // The previous schema had no usage table.
   const db = new DatabaseSync(path);
   db.exec(
-    "DROP TABLE skill_usage; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=17 WHERE id=1",
+    "DROP TABLE skill_usage; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=17 WHERE id=1",
   );
   db.close();
   const upgraded = new Store(path);

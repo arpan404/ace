@@ -292,6 +292,8 @@ export class TargetThreads {
    */
   message(device: Device, call: Extract<MachineCall, { op: "message" }>) {
     const key = messageKey(device, call);
+    // A copy that authenticated before its device was revoked or ran out is never admitted.
+    if (!this.rejections.active(device)) throw new TargetRefusal("unauthorized");
     // Checked before anything is admitted: a refused request never runs, whenever a copy lands.
     const rejected = this.rejections.find(key);
     if (rejected) throw rejected;

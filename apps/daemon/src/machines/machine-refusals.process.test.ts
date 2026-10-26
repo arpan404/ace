@@ -145,3 +145,52 @@ it("a child on a machine that turned agents off stays working here, and agents_s
     "done",
   );
 }, 60_000);
+
+it("a refused message's record goes once its device is revoked there, and no copy from that device runs afterwards", async () => {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("first-pass"))).data).threadId;
+  await pair.finishTask(child, "Do the first-pass part", "First pass done.");
+  expect((await waitFor(pair, child)).threads[0]).toMatchObject({ state: "done" });
+
+  // Agents from the caller may only read there: the retry is refused and the refusal saved,
+  // while the first copy is still held on its way.
+  await pair.access("read");
+  gated.gate.failCaller = true;
+  gated.gate.onlyFirst = true;
+  gated.close();
+  await expect(
+    pair.source.call({
+      op: "thread.message",
+      threadId: child,
+      requestId: "second",
+      text: "Do a second pass",
+    }),
+  ).rejects.toMatchObject({ code: "machine_forbidden" });
+  const { store } = pair.target.daemon;
+  const saved = () =>
+    Number(store.statement("SELECT COUNT(*) AS n FROM machine_message_rejections").get()?.n);
+  expect(saved()).toBe(1);
+
+  await pair.access("operate");
+
+  // The held copy lands and authenticates; while it waits in the access check, the person there
+  // revokes the device. Its refusals go with it, and the copy is still never admitted.
+  const { settings } = pair.target.daemon;
+  const read = settings.get.bind(settings);
+  let revoked = false;
+  vi.spyOn(settings, "get").mockImplementation(async (...args: Parameters<typeof read>) => {
+    if (!revoked && args[0] === "remote.agentAccess") {
+      revoked = true;
+      store.devices.revoke(pair.credential.device.id, pair.target.h.clock.now());
+    }
+    return read(...args);
+  });
+  gated.open();
+  await gated.arrived();
+  await pair.target.daemon.engine?.flush();
+  expect(revoked).toBe(true);
+  expect(saved()).toBe(0);
+  expect(pair.target.h.inputs.get(child) ?? []).not.toContain("Do a second pass");
+}, 90_000);

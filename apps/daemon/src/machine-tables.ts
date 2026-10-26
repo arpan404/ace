@@ -73,7 +73,9 @@ export const machineChildGenerations = `${machineChildren}
  *   pages to the machine's unsettled children.
  * - `machine_message_rejections` is the target's answer for a message it refused before it ever
  *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
- *   copy of that request is admitted, so a refused request can never run later.
+ *   copy of that request is admitted, so a refused request can never run later. Each is kept only
+ *   while its device can still be admitted: revoking the device deletes them (the trigger), as a
+ *   revoked device never authenticates again, so no copy of its requests can arrive.
  */
 export const machineChildReach = `
   ALTER TABLE machine_children ADD COLUMN device_id TEXT;
@@ -89,5 +91,10 @@ export const machineChildReach = `
   INSERT OR IGNORE INTO machine_child_cursors (machine)
     SELECT DISTINCT machine FROM machine_children WHERE settled = 0;
   CREATE TABLE IF NOT EXISTS machine_message_rejections (
-    request_key TEXT PRIMARY KEY, code TEXT NOT NULL, message TEXT NOT NULL,
-    created_at INTEGER NOT NULL);`;
+    request_key TEXT PRIMARY KEY, device_id TEXT NOT NULL, code TEXT NOT NULL,
+    message TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS machine_message_rejections_device
+    ON machine_message_rejections(device_id);
+  CREATE TRIGGER IF NOT EXISTS machine_message_rejections_revoked
+    AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
+    BEGIN DELETE FROM machine_message_rejections WHERE device_id = NEW.id; END;`;
