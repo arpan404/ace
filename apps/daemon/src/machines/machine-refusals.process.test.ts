@@ -142,6 +142,54 @@ it("removing the pairing here leaves the parent unresolved and asking the person
   expect(pair.target.daemon.store.getThread(child)?.status.state).toBe("working");
 }, 60_000);
 
+it("a message reply that arrives after the person stopped tracking a lost child never brings it back", async () => {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("first-pass"))).data).threadId;
+  await pair.finishTask(child, "Do the first-pass part", "First pass done.");
+  expect((await waitFor(pair, child)).threads[0]).toMatchObject({ state: "done" });
+  const parent = pair.source.caller.threadId;
+
+  // A follow-up is on its way, its reply held back.
+  gated.close();
+  const sent = pair.source
+    .call({ op: "thread.message", threadId: child, requestId: "second", text: "Do a second pass" })
+    .catch(() => undefined);
+  await eventually(() => expect(gated.held()).toBe(1));
+
+  // The person removes the machine here, then stops tracking the lost child.
+  const asked = pair.requestIn(
+    pair.source,
+    parent,
+    (interaction) =>
+      interaction.request.kind === "approval" && interaction.request.title.startsWith("Lost:"),
+  );
+  const profiles = new Profiles(join(pair.source.h.home, "daemon"));
+  profiles.remove("studio");
+  profiles.close();
+  expect(pair.answer(await asked, "stop-tracking").ok).toBe(true);
+  const stopped = (await waitFor(pair, child)).threads[0];
+  expect(stopped).toMatchObject({ state: "cancelled" });
+
+  // Only now does the message land there, and its reply is applied before the call returns.
+  let reopened = false;
+  const stop = pair.source.daemon.store.subscribe((events) => {
+    for (const event of events)
+      if (event.payload.type === "interaction.opened" && event.threadId === parent) reopened = true;
+  });
+  gated.open();
+  await gated.arrived();
+  await sent;
+  expect((await shownHere(pair, child))?.state).toBe("cancelled");
+  expect((await waitFor(pair, child)).threads[0]).toMatchObject({
+    state: "cancelled",
+    result: stopped?.result,
+  });
+  stop();
+  expect(reopened).toBe(false);
+}, 60_000);
+
 it("a lost child stays lost and asking the person across a restart here", async () => {
   const pair = await pairedMachines({ access: "operate" });
   const { child, parent } = await unpairedChild(pair);

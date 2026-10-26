@@ -226,12 +226,19 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET generation=generation+1 WHERE id=?").run(id);
     });
   }
-  /** Its machine answered for the message: taken, or refused so it never runs. */
-  resolveMessage(id: ThreadId, requestId: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("DELETE FROM machine_child_messages WHERE child_id=? AND request_id=?")
-        .run(id, requestId),
+  /**
+   * Its machine answered for the message: taken, or refused so it never runs. False when the
+   * record was already gone (answered before, or dropped when the person stopped tracking the
+   * child), so the answer changes nothing.
+   */
+  resolveMessage(id: ThreadId, requestId: string): boolean {
+    return this.store.atomic(
+      (db) =>
+        Number(
+          db
+            .prepare("DELETE FROM machine_child_messages WHERE child_id=? AND request_id=?")
+            .run(id, requestId).changes,
+        ) > 0,
     );
   }
   /** True while a message to the child is unanswered. */

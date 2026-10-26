@@ -187,7 +187,9 @@ Two things resolve it:
   Only then does it settle, cancelled, with the result "Stopped tracking: Studio is no longer
   paired with this machine, so this child can't report back. Its work there may still be
   running; check on Studio." Its unanswered messages are dropped and it leaves the re-check
-  window; the parent gets that result.
+  window; the parent gets that result. Nothing that arrives late reopens it: a message's reply
+  applies only if its record still exists, in the same transaction, status and re-check replies
+  never apply to a lost or stopped child, and a new message to it is refused.
 
 This keeps the first priority: nothing reads done while part of the tree might still be
 working, unless the person, told plainly that it may still be running, chooses to stop

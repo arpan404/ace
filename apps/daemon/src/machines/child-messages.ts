@@ -100,11 +100,13 @@ export class ChildMessages {
    * advances the child's generation in the same transaction that drops the record, so a status reply read before it can never settle
    * the child once nothing guards it. Should saving fail (a busy store), the record stays and the
    * next poll sends the message again, which its machine answers without running it twice.
+   * An answer whose record is already gone applies nothing: a late reply after the person stopped
+   * tracking the child (which drops its records) never reopens it.
    */
   private answered(id: ThreadId, requestId: string, answer: Answer, rejected?: string): void {
     try {
       this.deps.store.atomic(() => {
-        this.deps.ledger.resolveMessage(id, requestId);
+        if (!this.deps.ledger.resolveMessage(id, requestId)) return;
         if (answer !== "refused") this.deps.reopen(id);
         const row = rejected === undefined ? undefined : this.deps.ledger.row(id);
         if (row && rejected !== undefined) this.deps.rejected(row, requestId, rejected);

@@ -66,6 +66,9 @@ export interface ChildrenDeps {
   log(message: string, fields: Record<string, unknown>): void;
 }
 
+/** The person stopped tracking this lost child: it stays settled for good (ADR 0099). */
+const abandoned = (row: ChildRow) => row.settled === 1 && row.lost_at !== null;
+
 /**
  * Delegated children that run on other machines. The ledger is durable so a restart keeps
  * watching them; a machine that can't be reached keeps its children working, never done.
@@ -125,10 +128,19 @@ export class MachineChildren implements RemoteChildren {
   byRequest(key: string): ThreadId | undefined {
     return this.ledger.byRequest(key);
   }
-  child(id: string): { machine: string; parentThreadId: ThreadId; settled: boolean } | undefined {
+  child(
+    id: string,
+  ):
+    | { machine: string; parentThreadId: ThreadId; settled: boolean; abandoned: boolean }
+    | undefined {
     const row = this.ledger.row(id);
     return row
-      ? { machine: row.machine, parentThreadId: row.parent_thread, settled: row.settled === 1 }
+      ? {
+          machine: row.machine,
+          parentThreadId: row.parent_thread,
+          settled: row.settled === 1,
+          abandoned: abandoned(row),
+        }
       : undefined;
   }
   add(child: {
@@ -232,6 +244,8 @@ export class MachineChildren implements RemoteChildren {
   }
   /** A settled child is working again: saved first, so the parent reads it open even after a crash. */
   private reopenSettled(row: ChildRow): void {
+    // The person stopped tracking it: nothing reopens it, whatever arrives late.
+    if (abandoned(row)) return;
     const { id } = row;
     // The result it settled with stays owed to the parent, whatever the child does next.
     if (row.delivered === 0) this.results.queueResult(row, savedView(row));
@@ -409,6 +423,7 @@ export class MachineChildren implements RemoteChildren {
     if (
       !row ||
       row.settled !== 1 ||
+      row.lost_at !== null ||
       row.generation !== polled.generation ||
       this.ledger.hasMessages(row.id)
     )
@@ -423,6 +438,8 @@ export class MachineChildren implements RemoteChildren {
   private update(polled: ChildRow, view: MachineThreadView) {
     const row = this.ledger.row(polled.id);
     if (!row || row.generation !== polled.generation || this.ledger.hasMessages(row.id)) return;
+    // A reply read before its pairing went is never applied to a lost or abandoned child.
+    if (row.lost_at !== null) return;
     this.unreachable.delete(row.id);
     if (view.notice) this.results.notice(row, view.notice);
     const settled = settledStates.has(view.state) && view.requests.length === 0;
