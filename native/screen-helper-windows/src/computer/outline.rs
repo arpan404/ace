@@ -453,19 +453,31 @@ pub fn texts(facts: &Facts) -> (Option<String>, Option<String>, Option<String>) 
     (name, value, detail)
 }
 
-/// Rows of virtualized lists are recycled; their content tells a reused row apart.
-pub fn fingerprint(facts: &Facts) -> Option<String> {
-    matches!(
+/// What an id stands for: the control's kind, the list row it sits in, and for controls that
+/// act (buttons, items, check boxes) their name. Rows of virtualized lists are recycled for
+/// other content, so a control whose row or name changed is another control: it gets a new id,
+/// and acting on the old id is refused. Fields and text keep their id while their words change.
+pub fn identity(facts: &Facts, row: Option<&str>) -> String {
+    let named =
+        is_actionable(facts) && !is_text_input(facts) && facts.control_type != control::WINDOW;
+    format!(
+        "{}|{}|{}",
         facts.control_type,
+        row.unwrap_or(""),
+        if named {
+            facts.name.as_deref().unwrap_or("")
+        } else {
+            ""
+        }
+    )
+}
+
+/// List, tree and grid rows: their name identifies the content of everything inside them.
+pub fn is_row(control_type: i32) -> bool {
+    matches!(
+        control_type,
         control::LIST_ITEM | control::DATA_ITEM | control::TREE_ITEM
     )
-    .then(|| {
-        format!(
-            "{}|{}",
-            facts.control_type,
-            facts.name.as_deref().unwrap_or("")
-        )
-    })
 }
 
 /// The actionable element under a window point: the innermost one whose frame holds it.

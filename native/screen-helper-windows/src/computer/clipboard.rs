@@ -1,7 +1,12 @@
-//! Borrowing the clipboard for a rich paste: what is on it is saved, the pasted content goes
-//! on (kept out of clipboard history), and the saved content is put back afterwards. A named
-//! mutex keeps two helpers from interleaving their borrows.
+//! Borrowing the clipboard for a paste: what is on it is saved, the pasted content goes on
+//! (kept out of clipboard history), and the saved content is put back afterwards, unless
+//! someone copied something in the meantime (the clipboard's sequence number moved). A named
+//! mutex keeps two helpers from interleaving their borrows, and the saved content waits on
+//! disk until it is back, so a helper that dies mid-paste restores it on the next start.
+use super::borrow_file::{self, Formats};
 use super::error::{CuError, CuResult};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 use windows::core::w;
 use windows::Win32::{
@@ -17,8 +22,18 @@ const CF_UNICODETEXT: u32 = 13;
 pub struct Clipboard {
     owner: HWND,
     lock: HANDLE,
-    saved: Option<Vec<(u32, Vec<u8>)>>,
+    /// What was on the clipboard, and its sequence number right after the borrow.
+    saved: Option<(u32, Formats)>,
     locked: bool,
+}
+
+/// Where a borrow waits on disk (`--data-dir`); none when the helper has no data dir.
+static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn file() -> Option<PathBuf> {
+    DIR.get()
+        .and_then(Option::as_ref)
+        .map(|dir| dir.join("clipboard-borrow.bin"))
 }
 
 /// Formats whose data is plain global memory and can be copied and put back.
@@ -48,6 +63,26 @@ fn global(bytes: &[u8]) -> CuResult<HGLOBAL> {
 }
 
 impl Clipboard {
+    /// Remembers the data dir and puts back a borrow a previous helper left behind.
+    pub fn recover(dir: Option<PathBuf>) {
+        DIR.get_or_init(|| dir);
+        let Some(path) = file() else { return };
+        let Some((sequence, formats)) = std::fs::read(&path)
+            .ok()
+            .and_then(|d| borrow_file::decode(&d))
+        else {
+            let _ = std::fs::remove_file(&path);
+            return;
+        };
+        if let Ok(mut clipboard) = Self::new() {
+            if clipboard.acquire().is_ok() {
+                clipboard.saved = Some((sequence, formats));
+                clipboard.restore();
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
     pub fn new() -> CuResult<Self> {
         unsafe {
             let owner = CreateWindowExW(
@@ -73,6 +108,31 @@ impl Clipboard {
                 saved: None,
                 locked: false,
             })
+        }
+    }
+
+    /// Takes the cross-helper lock, waiting up to five seconds for another helper's paste.
+    fn acquire(&mut self) -> CuResult<()> {
+        if self.locked {
+            return Ok(());
+        }
+        let waited = unsafe { WaitForSingleObject(self.lock, 5_000) };
+        if waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED {
+            return Err(CuError::new(
+                "app_busy",
+                "Another paste is still using the clipboard. Try again in a moment.",
+            ));
+        }
+        self.locked = true;
+        Ok(())
+    }
+
+    fn release(&mut self) {
+        if self.locked {
+            unsafe {
+                let _ = ReleaseMutex(self.lock);
+            }
+            self.locked = false;
         }
     }
 
@@ -140,14 +200,15 @@ impl Clipboard {
             })
     }
 
-    /// Puts text (and HTML when given) on the clipboard, saving what was there.
+    /// Puts text (and HTML when given) on the clipboard, saving what was there. On any failure
+    /// the saved content goes straight back.
     pub fn borrow(&mut self, text: &str, html: Option<&str>) -> CuResult<()> {
         self.restore();
-        if !self.locked {
-            unsafe { WaitForSingleObject(self.lock, 5_000) };
-            self.locked = true;
+        self.acquire()?;
+        if let Err(error) = self.open() {
+            self.release();
+            return Err(error);
         }
-        self.open()?;
         let saved = self.save();
         let result = (|| unsafe {
             EmptyClipboard().map_err(|e| {
@@ -182,14 +243,23 @@ impl Clipboard {
         unsafe {
             let _ = CloseClipboard();
         }
-        self.saved = Some(saved);
+        let sequence = unsafe { GetClipboardSequenceNumber() };
+        if let Some(path) = file() {
+            let _ = std::fs::write(&path, borrow_file::encode(sequence, &saved));
+        }
+        self.saved = Some((sequence, saved));
+        if result.is_err() {
+            self.restore();
+        }
         result
     }
 
-    /// Puts back what was on the clipboard before the last borrow.
+    /// Puts back what was on the clipboard before the last borrow, unless something else was
+    /// copied since (the person, or the app the text was pasted into).
     pub fn restore(&mut self) {
-        if let Some(saved) = self.saved.take() {
-            if self.open().is_ok() {
+        if let Some((sequence, saved)) = self.saved.take() {
+            let untouched = unsafe { GetClipboardSequenceNumber() } == sequence;
+            if untouched && self.open().is_ok() {
                 unsafe {
                     let _ = EmptyClipboard();
                 }
@@ -200,13 +270,11 @@ impl Clipboard {
                     let _ = CloseClipboard();
                 }
             }
-        }
-        if self.locked {
-            unsafe {
-                let _ = ReleaseMutex(self.lock);
+            if let Some(path) = file() {
+                let _ = std::fs::remove_file(path);
             }
-            self.locked = false;
         }
+        self.release();
     }
 }
 

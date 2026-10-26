@@ -3,6 +3,7 @@
 //! `act`, `cancel`), so the daemon's `ComputerClient` drives it unchanged. Semantics come from
 //! UI Automation, which works on windows in the background; synthesized input is the fallback
 //! and only ever reaches a window that is already in front.
+pub mod borrow_file;
 pub mod cancel;
 pub mod catalog;
 pub mod conditions;
@@ -38,6 +39,8 @@ mod desktop;
 mod input;
 #[cfg(windows)]
 mod menus;
+#[cfg(windows)]
+mod messages;
 #[cfg(windows)]
 mod observe;
 #[cfg(windows)]

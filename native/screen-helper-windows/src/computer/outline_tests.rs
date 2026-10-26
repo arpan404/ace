@@ -171,9 +171,30 @@ fn a_point_hits_the_innermost_actionable_element() {
 }
 
 #[test]
-fn recycled_rows_are_fingerprinted_by_content() {
-    let mut row = facts(control::LIST_ITEM);
-    row.name = Some("Alice".into());
-    assert_eq!(fingerprint(&row).as_deref(), Some("50007|Alice"));
-    assert_eq!(fingerprint(&facts(control::BUTTON)), None);
+fn a_recycled_row_changes_the_identity_of_the_controls_inside_it() {
+    let mut delete = facts(control::BUTTON);
+    delete.name = Some("Delete".into());
+    assert_ne!(
+        identity(&delete, Some("Alice")),
+        identity(&delete, Some("Bob"))
+    );
+    assert_eq!(
+        identity(&delete, Some("Alice")),
+        identity(&delete, Some("Alice"))
+    );
+    let mut renamed = delete.clone();
+    renamed.name = Some("Archive".into());
+    assert_ne!(identity(&delete, None), identity(&renamed, None));
+    // A field keeps its id while its label or text changes; so does plain text.
+    let mut field = facts(control::EDIT);
+    field.name = Some("Name:".into());
+    let mut relabelled = field.clone();
+    relabelled.name = Some("Full name:".into());
+    assert_eq!(identity(&field, None), identity(&relabelled, None));
+    let mut text = facts(control::TEXT);
+    text.name = Some("Pressed 0".into());
+    let mut later = text.clone();
+    later.name = Some("Pressed 1".into());
+    assert_eq!(identity(&text, None), identity(&later, None));
+    assert!(is_row(control::LIST_ITEM) && !is_row(control::BUTTON));
 }

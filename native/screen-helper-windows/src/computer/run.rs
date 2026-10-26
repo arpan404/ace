@@ -97,6 +97,8 @@ pub fn run() -> i32 {
             Err(error) => error_line(&id, error.code, &error.message),
         });
     }
+    // Told to stop (stdin closed): release anything held and put the clipboard back.
+    super::input::release_all();
     service.shutdown();
     0
 }

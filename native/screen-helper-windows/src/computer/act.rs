@@ -6,7 +6,7 @@ use super::apps;
 use super::cancel::Checkpoint;
 use super::clipboard::Clipboard;
 use super::conditions::{self, Condition};
-use super::desktop::{self, PersonWatch};
+use super::desktop;
 use super::error::{clip, CuError, CuResult};
 use super::geometry::Shot;
 use super::input::{self, Button};
@@ -31,10 +31,9 @@ pub struct Actor<'a> {
     pub session: &'a mut AppSession,
     pub activity: &'a mut Activity,
     pub check: &'a Checkpoint,
-    pub person: &'a PersonWatch,
+    /// The person's Escape count when the batch began; any press since stops it.
+    pub escapes: u32,
     pub clipboard: &'a mut Option<Clipboard>,
-    /// The app's processes, for telling its own popups from other apps' windows.
-    pub pids: Vec<u32>,
 }
 
 pub fn int(step: &Step, key: &str) -> Option<i64> {
@@ -88,17 +87,31 @@ impl Actor<'_> {
         let kind = text(step, "type")
             .ok_or_else(|| CuError::new("bad_action", "Each action needs a type."))?
             .to_owned();
-        if self.person.escaped() {
-            return Err(CuError::new(
-                "stopped_by_person",
-                "The person pressed Esc to stop the agent. Ask them before acting in this app again.",
-            ));
-        }
+        self.stopped()?;
         if let Ok(hwnd) = self.session.hwnd() {
             if timing::person_active(apps::is_foreground(hwnd), desktop::since_person_input()) {
                 return Err(CuError::new(
                     "person_active",
                     format!("The person is using {} right now. Wait a moment and try again, or work in another app.", self.session.name),
+                ));
+            }
+        }
+        // A modal dialog disables its owner; commands sent past it would act behind it.
+        if !matches!(kind.as_str(), "wait" | "wait_for" | "activate" | "window") {
+            if let Some(title) = self.session.hwnd().ok().and_then(apps::blocking_dialog) {
+                let name = if title.is_empty() {
+                    "a dialog".to_owned()
+                } else {
+                    format!("the dialog \"{title}\"")
+                };
+                let look = if title.is_empty() {
+                    "screen_state with the dialog's window number".to_owned()
+                } else {
+                    format!("screen_state with window: \"{title}\"")
+                };
+                return Err(CuError::new(
+                    "dialog_open",
+                    format!("{}'s window is blocked by {name}. Look at it first ({look}) and answer it; nothing else in the window responds until then.", self.session.name),
                 ));
             }
         }
@@ -125,7 +138,7 @@ impl Actor<'_> {
             "window" => self.window_op(step),
             "wait" => {
                 let ms = int(step, "ms").unwrap_or(500).clamp(0, 10_000) as u64;
-                self.activity.pause(Duration::from_millis(ms), self.check)?;
+                self.pause(Duration::from_millis(ms))?;
                 Ok(format!("waited {ms} ms"))
             }
             "wait_for" => self.wait_for(step),
@@ -134,6 +147,31 @@ impl Actor<'_> {
                 "bad_action",
                 format!("Unknown action type \"{other}\"."),
             )),
+        }
+    }
+
+    /// Refuses to go on once the person pressed Escape during the batch.
+    pub fn stopped(&self) -> CuResult<()> {
+        if desktop::escapes() != self.escapes {
+            return Err(CuError::new(
+                "stopped_by_person",
+                "The person pressed Esc to stop the agent. Ask them before acting in this app again.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Waits, stopping early for a cancel or the person's Escape.
+    pub fn pause(&mut self, total: Duration) -> CuResult<()> {
+        let end = Instant::now() + total;
+        loop {
+            self.stopped()?;
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(());
+            }
+            self.activity
+                .pause(left.min(Duration::from_millis(50)), self.check)?;
         }
     }
 
@@ -151,7 +189,7 @@ impl Actor<'_> {
 
     pub fn target(&self, step: &Step) -> CuResult<(u64, IUIAutomationElement)> {
         let id = Self::id(step)?;
-        Ok((id, self.session.element(id)?))
+        Ok((id, self.session.element(self.uia, id)?))
     }
 
     pub fn label(&self, id: u64) -> String {
@@ -195,7 +233,13 @@ impl Actor<'_> {
                 GA_ROOT,
             )
         };
-        if self.pids.contains(&apps::pid_of(hit)) {
+        // The window itself or a popup it owns; not another window of the same process
+        // (Explorer also draws the taskbar).
+        if self
+            .session
+            .hwnd()
+            .is_ok_and(|window| apps::within(window, hit))
+        {
             return Ok(());
         }
         Err(CuError::new(
@@ -375,7 +419,7 @@ impl Actor<'_> {
                 if let Some(id) =
                     outline::hit(&self.session.nodes, window.0, window.1).map(|n| n.id)
                 {
-                    if let Ok(element) = self.session.element(id) {
+                    if let Ok(element) = self.session.element(self.uia, id) {
                         if !self.in_front() {
                             let done = self.press(id, &element)?;
                             return Ok(format!("{done} (at {x},{y})"));
@@ -461,7 +505,10 @@ impl Actor<'_> {
                     CuError::new("bad_action", "A drag end is [x, y] or {\"id\": n}.")
                 })?;
                 let label = self.label(id);
-                Ok((self.center(&self.session.element(id)?, &label)?, label))
+                Ok((
+                    self.center(&self.session.element(self.uia, id)?, &label)?,
+                    label,
+                ))
             }
             _ => Err(CuError::new(
                 "bad_action",
@@ -720,7 +767,7 @@ impl Actor<'_> {
                 })?
                 .clone();
             shown.push(found.1.clone());
-            let element = self.session.element(found.0)?;
+            let element = self.session.element(self.uia, found.0)?;
             let last = depth + 1 == path.len();
             let fresh = self.uia.refresh(&element)?;
             let facts = uia::facts(&fresh);
@@ -759,18 +806,28 @@ fn win32_button(element: &IUIAutomationElement, label: &str) -> Option<CuResult<
         let kind = GetWindowLongW(hwnd, GWL_STYLE) as u32 & 0x0F;
         let parent = GetParent(hwnd).ok()?;
         let id = GetDlgCtrlID(hwnd);
-        let checked = || SendMessageW(hwnd, BM_GETCHECK, WPARAM(0), LPARAM(0)).0;
+        let busy = || {
+            CuError::new(
+                "app_busy",
+                format!("The app did not answer in time, so {label} was not clicked. Look again before retrying."),
+            )
+        };
         let what = match kind {
             // Push and default push buttons.
             0 | 1 => format!("pressed {label}"),
             // Automatic check box and three-state box: the control flips its own state.
             3 | 6 => {
-                let next = match (kind, checked()) {
+                let Some(state) = super::messages::send(hwnd, BM_GETCHECK, 0, 0) else {
+                    return Some(Err(busy()));
+                };
+                let next = match (kind, state) {
                     (6, 1) => 2,
                     (_, 0) => 1,
                     _ => 0,
                 };
-                SendMessageW(hwnd, BM_SETCHECK, WPARAM(next as usize), LPARAM(0));
+                if super::messages::send(hwnd, BM_SETCHECK, next as usize, 0).is_none() {
+                    return Some(Err(busy()));
+                }
                 format!(
                     "toggled {label} (now {})",
                     if next == 1 {

@@ -4,7 +4,7 @@ use super::apps::{self, Identities, RunningApp, TopWindow};
 use super::cancel::Checkpoint;
 use super::catalog::{self, executable_id, Candidate};
 use super::clipboard::Clipboard;
-use super::desktop::{self, PersonWatch};
+use super::desktop;
 use super::error::{CuError, CuResult};
 use super::known::Known;
 use super::observe::{self, Options};
@@ -66,6 +66,8 @@ fn looks_like_path(query: &str) -> bool {
 
 impl Service {
     pub fn new(data_dir: Option<PathBuf>) -> Self {
+        // A helper that died mid-paste left the person's clipboard borrowed: put it back.
+        Clipboard::recover(data_dir.clone());
         Self {
             uia: None,
             sessions: HashMap::new(),
@@ -334,6 +336,7 @@ impl Service {
     fn state(&mut self, body: &Map<String, Value>, check: &Checkpoint) -> CuResult<Value> {
         let started = Instant::now();
         self.uia()?;
+        desktop::watch_person();
         let app = body.get("app").and_then(Value::as_str).unwrap_or_default();
         let previous = apps::front_window();
         let (key, launched) = self.open(app, true, check)?;
@@ -349,7 +352,10 @@ impl Service {
             let mut activity = Activity::watch(&session.pids(&windows));
             activity.begin();
             activity.settle(&timing::AFTER_LAUNCH, check)?;
-            apps::give_back(previous, &session.pids(&windows));
+            // Not when the person did something meanwhile: their next window is theirs.
+            if !desktop::person_input_within(started.elapsed()) {
+                apps::give_back(previous, &session.pids(&windows));
+            }
         }
         check.check()?;
         session.choose(&windows, body.get("window"))?;
@@ -371,6 +377,8 @@ impl Service {
     fn act(&mut self, body: &Map<String, Value>, check: &Checkpoint) -> CuResult<Value> {
         let started = Instant::now();
         self.uia()?;
+        desktop::watch_person();
+        let escapes = desktop::escapes();
         let app = body.get("app").and_then(Value::as_str).unwrap_or_default();
         let (key, _) = self.open(app, false, check)?;
         let (windows, _) = desktop_apps();
@@ -403,7 +411,6 @@ impl Service {
             .map(|a| a.iter().filter_map(|s| s.as_object().cloned()).collect())
             .unwrap_or_default();
         let mut activity = Activity::watch(&pids);
-        let person = PersonWatch::start();
         // The person's window while the app is in the background, to give back when a step
         // pulls the app forward without activate.
         let previous = (!session
@@ -412,6 +419,14 @@ impl Service {
             .any(|w| apps::is_foreground(w.hwnd)))
         .then(apps::front_window);
         let mut activated = false;
+        // Once the person acts during the batch, the foreground is theirs to decide.
+        let mut hands_off = false;
+        let give_back = |activated: bool, hands_off: &mut bool| {
+            *hands_off |= desktop::person_input_within(started.elapsed());
+            if let (Some(previous), false, false) = (previous, activated, *hands_off) {
+                apps::give_back(previous, &pids);
+            }
+        };
         let mut done: Vec<String> = Vec::new();
         let mut failure = None;
         {
@@ -420,9 +435,8 @@ impl Service {
                 session: &mut *session,
                 activity: &mut activity,
                 check,
-                person: &person,
+                escapes,
                 clipboard,
-                pids: pids.clone(),
             };
             for (index, step) in steps.iter().enumerate() {
                 actor.activity.begin();
@@ -431,9 +445,8 @@ impl Service {
                     Err(error) => Err(error),
                 };
                 activated |= step.get("type").and_then(Value::as_str) == Some("activate");
-                if let (Some(previous), false) = (previous, activated) {
-                    apps::give_back(previous, &pids);
-                }
+                hands_off |= matches!(&outcome, Err(error) if error.code == "person_active");
+                give_back(activated, &mut hands_off);
                 match outcome {
                     Ok(line) => done.push(line),
                     Err(error) => {
@@ -453,17 +466,15 @@ impl Service {
                 }
             }
         }
-        drop(person);
         let mut result = json!({"done": done});
         if let Some(failure) = failure {
             result["error"] = failure;
         }
-        if flag(body, "observe", true) && check.check().is_ok() {
-            let _ = activity.settle(&timing::BEFORE_LOOK, check);
-            // Apps that move forward a moment after a press are caught here.
-            if let (Some(previous), false) = (previous, activated) {
-                apps::give_back(previous, &pids);
-            }
+        let observe = flag(body, "observe", true) && check.check().is_ok();
+        // Apps that move forward a moment after a press are caught after settling.
+        let _ = activity.settle(&timing::BEFORE_LOOK, check);
+        give_back(activated, &mut hands_off);
+        if observe {
             let (now, _) = desktop_apps();
             // Follow a window or dialog the steps opened.
             if let Some(opened) = session

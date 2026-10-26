@@ -464,7 +464,7 @@ impl Actor<'_> {
         } else if let (Some(x), Some(y)) = (number(step, "x"), number(step, "y")) {
             let (point, window) = self.screen_point(x, y)?;
             let hit = super::outline::hit(&self.session.nodes, window.0, window.1).map(|n| n.id);
-            let element = match hit.and_then(|id| self.session.element(id).ok()) {
+            let element = match hit.and_then(|id| self.session.element(self.uia, id).ok()) {
                 Some(element) => element,
                 None => self.root()?,
             };
@@ -488,7 +488,7 @@ impl Actor<'_> {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|n| n.id);
-            let element = match largest.and_then(|id| self.session.element(id).ok()) {
+            let element = match largest.and_then(|id| self.session.element(self.uia, id).ok()) {
                 Some(element) => element,
                 None => self.root()?,
             };
@@ -634,13 +634,17 @@ fn win32_combo(
     const CBN_SELCHANGE: usize = 1;
     let text: Vec<u16> = wanted.encode_utf16().chain(Some(0)).collect();
     unsafe {
-        let index = SendMessageW(
-            hwnd,
-            CB_FINDSTRINGEXACT,
-            WPARAM(usize::MAX),
-            LPARAM(text.as_ptr() as isize),
-        )
-        .0;
+        let busy = || {
+            Some(Err(CuError::new(
+                "app_busy",
+                format!("The app did not answer in time, so nothing was chosen in {label}. Look again before retrying."),
+            )))
+        };
+        let Some(index) =
+            super::messages::send(hwnd, CB_FINDSTRINGEXACT, usize::MAX, text.as_ptr() as isize)
+        else {
+            return busy();
+        };
         if index < 0 {
             return Some(Err(CuError::new(
                 "not_settable",
@@ -650,7 +654,9 @@ fn win32_combo(
                 ),
             )));
         }
-        SendMessageW(hwnd, CB_SETCURSEL, WPARAM(index as usize), LPARAM(0));
+        if super::messages::send(hwnd, CB_SETCURSEL, index as usize, 0).is_none() {
+            return busy();
+        }
         let parent = GetParent(hwnd).ok()?;
         let id = GetDlgCtrlID(hwnd) as u32 as usize & 0xFFFF;
         Some(

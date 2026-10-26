@@ -35,19 +35,7 @@ enum Sink {
 }
 
 fn send(hwnd: HWND, message: u32, wparam: usize, lparam: isize) -> bool {
-    let mut result = 0usize;
-    unsafe {
-        SendMessageTimeoutW(
-            hwnd,
-            message,
-            WPARAM(wparam),
-            LPARAM(lparam),
-            SMTO_ABORTIFHUNG | SMTO_BLOCK,
-            2_000,
-            Some(&mut result),
-        )
-        .0 != 0
-    }
+    super::messages::send(hwnd, message, wparam, lparam).is_some()
 }
 
 fn replace_selection(hwnd: HWND, text: &str) -> bool {
@@ -109,15 +97,36 @@ fn post_chars(hwnd: HWND, text: &str) -> CuResult<()> {
 }
 
 impl Actor<'_> {
+    /// The window holding the app's keyboard focus, when it is part of the window being looked
+    /// at. Focus in another of the app's windows is refused, so text never lands there.
+    fn window_focus(&self) -> CuResult<Option<HWND>> {
+        let window = self.session.hwnd()?;
+        match thread_focus(window) {
+            Some(focus) if !super::apps::within(window, focus) => {
+                let other = super::apps::title_of(unsafe { GetAncestor(focus, GA_ROOT) });
+                Err(CuError::new(
+                    "focus_elsewhere",
+                    format!(
+                        "{}'s keyboard focus is in another of its windows (\"{other}\"), not the one you are looking at. Pass the id of a field in this window, or look at that window first.",
+                        self.session.name
+                    ),
+                ))
+            }
+            focus => Ok(focus),
+        }
+    }
+
     /// The element typing goes to: the step's id, else the element the agent focused.
     fn text_target(&self, step: &Step) -> CuResult<Option<(u64, IUIAutomationElement)>> {
         if step.get("id").is_some() {
             return self.target(step).map(Some);
         }
-        Ok(self
-            .session
-            .agent_focus
-            .and_then(|id| self.session.element(id).ok().map(|element| (id, element))))
+        Ok(self.session.agent_focus.and_then(|id| {
+            self.session
+                .element(self.uia, id)
+                .ok()
+                .map(|element| (id, element))
+        }))
     }
 
     /// How text reaches the target without the window in front, if it can.
@@ -133,16 +142,13 @@ impl Actor<'_> {
                 let facts = uia::facts(&fresh);
                 Ok((facts.value_writable == Some(true)).then(|| Sink::Value(element.clone())))
             }
-            None => {
-                let hwnd = self.session.hwnd()?;
-                Ok(thread_focus(hwnd).map(|focus| {
-                    if uia::is_edit_class(&class_of(focus)) {
-                        Sink::Edit(focus)
-                    } else {
-                        Sink::Posted(focus)
-                    }
-                }))
-            }
+            None => Ok(self.window_focus()?.map(|focus| {
+                if uia::is_edit_class(&class_of(focus)) {
+                    Sink::Edit(focus)
+                } else {
+                    Sink::Posted(focus)
+                }
+            })),
         }
     }
 
@@ -218,9 +224,15 @@ impl Actor<'_> {
             }
             self.borrow_clipboard(&source, html.as_deref())?;
             let pasted = input::chord(&parse_chord("ctrl+v")?, std::time::Duration::ZERO);
-            self.activity.begin();
-            let _ = self.activity.settle(&timing::BEFORE_LOOK, self.check);
-            self.clipboard.as_mut().map(Clipboard::restore);
+            if pasted.is_ok() {
+                self.activity.begin();
+                let _ = self.activity.settle(&timing::BEFORE_LOOK, self.check);
+            }
+            // The app reads the clipboard while it handles the keys; put it back only after.
+            let window = self.session.hwnd()?;
+            if pasted.is_err() || super::messages::drained(window, 5_000) {
+                self.clipboard.as_mut().map(Clipboard::restore);
+            }
             pasted?;
             return Ok(format!("pasted {count} characters{into}{rich}"));
         }
@@ -238,11 +250,14 @@ impl Actor<'_> {
             }
             (Some(Sink::Edit(hwnd) | Sink::Posted(hwnd)), html) => {
                 self.borrow_clipboard(&source, html.as_deref())?;
-                let delivered = send(hwnd, WM_PASTE, 0, 0);
-                self.clipboard.as_mut().map(Clipboard::restore);
+                // A slow app may still read the clipboard after the send times out: wait for it
+                // before putting the clipboard back, and keep the borrow if it never finishes
+                // (it is restored before the next paste or when the helper stops).
+                let delivered = send(hwnd, WM_PASTE, 0, 0) || super::messages::drained(hwnd, 10_000);
                 if !delivered {
-                    return Err(CuError::new("app_busy", format!("{} did not take the paste in time.", self.session.name)));
+                    return Err(CuError::new("app_busy", format!("{} did not take the paste in time. It may still paste later; look before retrying.", self.session.name)));
                 }
+                self.clipboard.as_mut().map(Clipboard::restore);
                 Ok(format!("pasted {count} characters{into}{rich} (sent to the window in the background; look to check)"))
             }
             (Some(Sink::Value(element)), Some(_)) => {
@@ -294,7 +309,7 @@ impl Actor<'_> {
                 .refresh(element)
                 .ok()
                 .and_then(|fresh| uia::native_window(&fresh)),
-            None => thread_focus(hwnd),
+            None => self.window_focus()?,
         };
         // Edit commands an edit control performs itself.
         if let (Some(letter), Some(edit)) = (

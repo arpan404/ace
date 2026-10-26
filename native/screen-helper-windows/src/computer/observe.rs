@@ -117,7 +117,8 @@ pub fn observation(
                 "text field" | "text area" | "document" | "combo box"
             );
             if text_input {
-                if let Some(selected) = session.ids.get(id).and_then(selected_text) {
+                if let Some(selected) = session.ids.get(id).and_then(|k| selected_text(&k.element))
+                {
                     entry["selectedText"] = json!(selected);
                 }
             }

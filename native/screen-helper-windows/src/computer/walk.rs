@@ -9,6 +9,17 @@ use windows::Win32::{Foundation::HWND, UI::Accessibility::IUIAutomationElement};
 
 pub const MAX_LINES: usize = 1200;
 const MAX_VISITED: usize = 6000;
+/// Deeper trees are cut: no real window nests this far, and recursion stays bounded.
+const MAX_DEPTH: usize = 64;
+
+/// What an id refers to: the live element, what it was (see `outline::identity`) and the
+/// top-level window it was read in. Acting on an id checks all three again.
+#[derive(Clone)]
+pub struct Known {
+    pub element: IUIAutomationElement,
+    pub identity: String,
+    pub window: isize,
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Focus {
@@ -30,7 +41,9 @@ pub struct Walked {
 
 struct Walker<'a> {
     uia: &'a Uia,
-    ids: &'a mut Ids<String, IUIAutomationElement>,
+    ids: &'a mut Ids<String, Known>,
+    window: isize,
+    levels: usize,
     origin: (f64, f64),
     deadline: Instant,
     cached: bool,
@@ -42,7 +55,7 @@ impl Walker<'_> {
         if self.cached {
             uia::cached_children(element)
         } else {
-            uia::live_children(self.uia, element)
+            uia::live_children(self.uia, element, self.deadline)
         }
     }
 
@@ -51,10 +64,12 @@ impl Walker<'_> {
         element: &IUIAutomationElement,
         depth: usize,
         parent: Option<&str>,
+        row: Option<&str>,
         in_menu_bar: bool,
     ) {
         if self.out.nodes.len() >= MAX_LINES
             || self.out.visited >= MAX_VISITED
+            || self.levels >= MAX_DEPTH
             || Instant::now() >= self.deadline
         {
             self.out.truncated = true;
@@ -80,16 +95,22 @@ impl Walker<'_> {
         match outline::keep(facts.control_type, actionable, labelled, children.len()) {
             Keep::Drop => {}
             Keep::Fold => {
+                self.levels += 1;
                 for child in &children {
-                    self.visit(child, depth, parent, in_menu_bar);
+                    self.visit(child, depth, parent, row, in_menu_bar);
                 }
+                self.levels -= 1;
             }
             Keep::Line => {
                 let key = uia::runtime_id(element)
                     .unwrap_or_else(|| format!("walk.{}.{}", depth, self.out.visited));
-                let id = self
-                    .ids
-                    .id(&key, element.clone(), outline::fingerprint(&facts));
+                let identity = outline::identity(&facts, row);
+                let known = Known {
+                    element: element.clone(),
+                    identity: identity.clone(),
+                    window: self.window,
+                };
+                let id = self.ids.id(&key, known, Some(identity));
                 let role = outline::role_name(&facts).to_owned();
                 if facts.focused {
                     self.out.focus = Some(Focus {
@@ -119,9 +140,22 @@ impl Walker<'_> {
                     actionable,
                 });
                 let menu_bar = facts.control_type == control::MENU_BAR;
+                let inner = if outline::is_row(facts.control_type) {
+                    Some(facts.name.clone().unwrap_or_default())
+                } else {
+                    row.map(str::to_owned)
+                };
+                self.levels += 1;
                 for child in &children {
-                    self.visit(child, depth + 1, name.as_deref(), menu_bar);
+                    self.visit(
+                        child,
+                        depth + 1,
+                        name.as_deref(),
+                        inner.as_deref(),
+                        menu_bar,
+                    );
                 }
+                self.levels -= 1;
             }
         }
     }
@@ -131,7 +165,7 @@ impl Walker<'_> {
 /// frames are measured from it. `large` asks for the step-by-step walk straight away.
 pub fn walk(
     uia: &Uia,
-    ids: &mut Ids<String, IUIAutomationElement>,
+    ids: &mut Ids<String, Known>,
     hwnd: HWND,
     origin: (f64, f64),
     budget: Duration,
@@ -166,6 +200,8 @@ pub fn walk(
     let mut walker = Walker {
         uia,
         ids,
+        window: hwnd.0 as isize,
+        levels: 0,
         origin,
         deadline,
         cached,
@@ -174,7 +210,7 @@ pub fn walk(
             ..Walked::default()
         },
     };
-    walker.visit(&root, 0, None, false);
+    walker.visit(&root, 0, None, None, false);
     let mut out = walker.out;
     if !cached && Instant::now() >= deadline {
         out.timed_out = out.timed_out || out.nodes.is_empty();

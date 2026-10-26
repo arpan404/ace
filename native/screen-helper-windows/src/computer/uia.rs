@@ -289,12 +289,16 @@ pub fn cached_children(element: &IUIAutomationElement) -> Vec<IUIAutomationEleme
         .collect()
 }
 
-/// The element's children, read one round trip at a time.
-pub fn live_children(uia: &Uia, element: &IUIAutomationElement) -> Vec<IUIAutomationElement> {
+/// The element's children, read one round trip at a time, until the deadline.
+pub fn live_children(
+    uia: &Uia,
+    element: &IUIAutomationElement,
+    deadline: std::time::Instant,
+) -> Vec<IUIAutomationElement> {
     let mut children = Vec::new();
     let mut next = unsafe { uia.walker.GetFirstChildElementBuildCache(element, &uia.one) }.ok();
     while let Some(child) = next {
-        if children.len() >= 4096 {
+        if children.len() >= 4096 || std::time::Instant::now() >= deadline {
             break;
         }
         next = unsafe { uia.walker.GetNextSiblingElementBuildCache(&child, &uia.one) }.ok();
@@ -310,4 +314,20 @@ pub fn pattern<T: Interface>(
     what: &str,
 ) -> CuResult<T> {
     unsafe { element.GetCurrentPatternAs::<T>(id) }.map_err(|e| stale_or(e, what))
+}
+
+/// The name of the list row an element sits in, read from its parents, as the walk records it.
+pub fn row_of(uia: &Uia, element: &IUIAutomationElement) -> Option<String> {
+    let mut current = uia.parent(element)?;
+    for _ in 0..8 {
+        let facts = facts(&current);
+        if facts.control_type == control::WINDOW {
+            return None;
+        }
+        if super::outline::is_row(facts.control_type) {
+            return Some(facts.name.unwrap_or_default());
+        }
+        current = uia.parent(&current)?;
+    }
+    None
 }

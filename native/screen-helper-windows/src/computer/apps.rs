@@ -325,9 +325,19 @@ pub fn fallback_name(id: &str, path: Option<&str>) -> String {
         .unwrap_or_else(|| executable_name(id))
 }
 
-/// Brings a window to the front and gives it the keyboard. Windows lets only the foreground
-/// thread do this, so the helper briefly joins that thread's input.
+/// Brings a window to the front and gives it the keyboard (`activate`). Windows lets only the
+/// foreground thread do this, so the helper briefly joins that thread's input.
 pub fn bring_forward(hwnd: HWND) {
+    raise(hwnd, true);
+}
+
+/// Hands the foreground back to the person's window, leaving its keyboard focus where they
+/// had it.
+pub fn return_foreground(hwnd: HWND) {
+    raise(hwnd, false);
+}
+
+fn raise(hwnd: HWND, focus: bool) {
     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
     unsafe {
@@ -344,7 +354,9 @@ pub fn bring_forward(hwnd: HWND) {
             theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
         let _ = BringWindowToTop(hwnd);
         let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(hwnd);
+        if focus {
+            let _ = SetFocus(hwnd);
+        }
         if joined {
             let _ = AttachThreadInput(ours, theirs, false);
         }
@@ -370,6 +382,39 @@ pub fn give_back(previous: HWND, app: &[u32]) -> bool {
     if !(app.contains(&owner) || app.contains(&host) || app.contains(&content)) {
         return false;
     }
-    bring_forward(previous);
+    return_foreground(previous);
     true
+}
+
+/// Whether `child` is part of `window`: inside it, or in a popup or dialog it owns.
+pub fn within(window: HWND, child: HWND) -> bool {
+    let mut root = unsafe { GetAncestor(child, GA_ROOT) };
+    for _ in 0..8 {
+        if root.is_invalid() {
+            return false;
+        }
+        if root == window {
+            return true;
+        }
+        root = unsafe { GetWindow(root, GW_OWNER) }.unwrap_or_default();
+    }
+    false
+}
+
+/// The title of the dialog that blocks `window` (it is disabled while a modal dialog it owns
+/// is open), or None when nothing blocks it.
+pub fn blocking_dialog(window: HWND) -> Option<String> {
+    unsafe {
+        let root = GetAncestor(window, GA_ROOT);
+        if windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(root).as_bool() {
+            return None;
+        }
+        let popup = GetLastActivePopup(root);
+        let title = if popup.is_invalid() || popup == root {
+            String::new()
+        } else {
+            title_of(popup)
+        };
+        Some(title)
+    }
 }

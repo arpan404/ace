@@ -84,7 +84,8 @@ pub fn elevated_above_us(pid: u32) -> bool {
                 let _ = CloseHandle(process);
                 level
             }
-            Err(_) => return false,
+            // Not even its basic facts are readable: treat it as out of reach.
+            Err(_) => return true,
         }
     };
     theirs.is_none_or(|level| level > ours)
@@ -101,17 +102,29 @@ static EPOCH: OnceLock<Instant> = OnceLock::new();
 /// Milliseconds after EPOCH (plus one, so zero means never) of the person's last input.
 static LAST_PERSON_INPUT: AtomicU64 = AtomicU64::new(0);
 static ESCAPES: AtomicU32 = AtomicU32::new(0);
-static WATCH_THREAD: AtomicU32 = AtomicU32::new(0);
+static WATCHING: OnceLock<()> = OnceLock::new();
+/// Tests only: count input other programs synthesize as the person's, so a test can stand in
+/// for the person. Never set by the daemon; it only makes the engine more cautious.
+static COUNT_INJECTED: OnceLock<bool> = OnceLock::new();
+
+/// Tags the helper's own synthesized input (`dwExtraInfo`), so the watch never takes it for
+/// the person's.
+pub const OWN_INPUT: usize = 0x00ac_e0c0;
 
 fn stamp() {
     let epoch = *EPOCH.get_or_init(Instant::now);
     LAST_PERSON_INPUT.store(epoch.elapsed().as_millis() as u64 + 1, Ordering::Relaxed);
 }
 
+/// Whether an event comes from the person: real input, or (in tests) anyone else's injection.
+fn persons(injected: bool, extra: usize) -> bool {
+    !injected || (extra != OWN_INPUT && *COUNT_INJECTED.get().unwrap_or(&false))
+}
+
 unsafe extern "system" fn keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        if info.flags.0 & LLKHF_INJECTED.0 == 0 {
+        if persons(info.flags.0 & LLKHF_INJECTED.0 != 0, info.dwExtraInfo) {
             stamp();
             if info.vkCode == u32::from(VK_ESCAPE.0)
                 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN)
@@ -126,30 +139,23 @@ unsafe extern "system" fn keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) ->
 unsafe extern "system" fn mouse(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
-        if info.flags & LLMHF_INJECTED == 0 {
+        if persons(info.flags & LLMHF_INJECTED != 0, info.dwExtraInfo) {
             stamp();
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-/// Watches the person's real keyboard and mouse (injected input is told apart by the system)
-/// for as long as it lives: one batch. Low-level hooks see input to every app, so the watch
-/// runs only while the agent acts.
-pub struct PersonWatch {
-    thread: Option<std::thread::JoinHandle<()>>,
-    escapes: u32,
-}
-
-impl PersonWatch {
-    pub fn start() -> Self {
-        let escapes = ESCAPES.load(Ordering::Relaxed);
+/// Starts watching the person's keyboard and mouse for the rest of the helper's life, so input
+/// just before a batch counts too. Low-level hooks see input to every app; the hook thread
+/// only records times. It never stops early, so nothing waits on it.
+pub fn watch_person() {
+    WATCHING.get_or_init(|| {
+        COUNT_INJECTED.get_or_init(|| {
+            std::env::var("ACE_COMPUTER_COUNT_INJECTED_INPUT").is_ok_and(|v| v == "1")
+        });
         let (ready, started) = std::sync::mpsc::channel();
-        let thread = std::thread::spawn(move || unsafe {
-            // Make sure the thread has a message queue before anyone posts WM_QUIT to it.
-            let mut message = MSG::default();
-            let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
-            WATCH_THREAD.store(GetCurrentThreadId(), Ordering::Relaxed);
+        std::thread::spawn(move || unsafe {
             let instance = GetModuleHandleW(None)
                 .map(|m| HINSTANCE(m.0))
                 .unwrap_or_default();
@@ -158,6 +164,7 @@ impl PersonWatch {
                 SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), instance, 0).ok(),
             ];
             let _ = ready.send(());
+            let mut message = MSG::default();
             while GetMessageW(&mut message, None, 0, 0).as_bool() {
                 let _ = TranslateMessage(&message);
                 DispatchMessageW(&message);
@@ -167,30 +174,12 @@ impl PersonWatch {
             }
         });
         let _ = started.recv_timeout(Duration::from_secs(2));
-        Self {
-            thread: Some(thread),
-            escapes,
-        }
-    }
-
-    /// The person pressed Escape since the watch started.
-    pub fn escaped(&self) -> bool {
-        ESCAPES.load(Ordering::Relaxed) != self.escapes
-    }
+    });
 }
 
-impl Drop for PersonWatch {
-    fn drop(&mut self) {
-        let thread = WATCH_THREAD.swap(0, Ordering::Relaxed);
-        if thread != 0 {
-            unsafe {
-                let _ = PostThreadMessageW(thread, WM_QUIT, WPARAM(0), LPARAM(0));
-            }
-        }
-        if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
-        }
-    }
+/// How many times the person has pressed Escape; a batch stops when this moves.
+pub fn escapes() -> u32 {
+    ESCAPES.load(Ordering::Relaxed)
 }
 
 /// How long ago the person last used the keyboard or mouse, as the hooks saw it. Only real
@@ -204,4 +193,9 @@ pub fn since_person_input() -> Option<Duration> {
             .elapsed()
             .saturating_sub(Duration::from_millis(hooked - 1))
     })
+}
+
+/// Whether the person used the keyboard or mouse in the last `window`.
+pub fn person_input_within(window: Duration) -> bool {
+    since_person_input().is_some_and(|age| age < window)
 }

@@ -16,6 +16,7 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
                 wVk: VIRTUAL_KEY(vk),
                 wScan: scan,
                 dwFlags: flags,
+                dwExtraInfo: super::desktop::OWN_INPUT,
                 ..Default::default()
             },
         },
@@ -51,6 +52,7 @@ fn mouse_event(flags: MOUSE_EVENT_FLAGS, dx: i32, dy: i32, data: i32) -> INPUT {
                 dy,
                 mouseData: data as u32,
                 dwFlags: flags,
+                dwExtraInfo: super::desktop::OWN_INPUT,
                 ..Default::default()
             },
         },
@@ -67,17 +69,93 @@ fn released(input: &INPUT) -> bool {
     }
 }
 
+/// Keys and buttons the helper has pressed and not yet released, as bits (see `held_bit`).
+static HELD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The bit tracking a pressed modifier or mouse button, and whether this input presses it.
+fn held_bit(input: &INPUT) -> Option<(u32, bool)> {
+    unsafe {
+        if input.r#type == INPUT_KEYBOARD {
+            let ki = input.Anonymous.ki;
+            let bit = match ki.wVk.0 {
+                VK_SHIFT => 1,
+                VK_CONTROL => 2,
+                VK_MENU => 4,
+                super::keys::VK_LWIN => 8,
+                _ => return None,
+            };
+            return Some((bit, !ki.dwFlags.contains(KEYEVENTF_KEYUP)));
+        }
+        let flags = input.Anonymous.mi.dwFlags;
+        [
+            (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, 16),
+            (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, 32),
+            (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, 64),
+        ]
+        .into_iter()
+        .find_map(|(down, up, bit)| {
+            if flags.contains(down) {
+                Some((bit, true))
+            } else if flags.contains(up) {
+                Some((bit, false))
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// Releases whatever the helper still holds; run when it is told to stop, so an interrupted
+/// drag or chord never leaves a key or button down for the person.
+pub fn release_all() {
+    use std::sync::atomic::Ordering;
+    let held = HELD.swap(0, Ordering::Relaxed);
+    let mut ups = Vec::new();
+    for (bit, vk) in [
+        (1, VK_SHIFT),
+        (2, VK_CONTROL),
+        (4, VK_MENU),
+        (8, super::keys::VK_LWIN),
+    ] {
+        if held & bit != 0 {
+            ups.push(virtual_key(vk, true));
+        }
+    }
+    for (bit, up) in [
+        (16, MOUSEEVENTF_LEFTUP),
+        (32, MOUSEEVENTF_RIGHTUP),
+        (64, MOUSEEVENTF_MIDDLEUP),
+    ] {
+        if held & bit != 0 {
+            ups.push(mouse_event(up, 0, 0, 0));
+        }
+    }
+    if !ups.is_empty() {
+        unsafe { SendInput(&ups, std::mem::size_of::<INPUT>() as i32) };
+    }
+}
+
 /// Sends input. A partly blocked batch (UIPI, a desktop switch) releases what it pressed.
 pub fn send(inputs: &[INPUT]) -> CuResult<()> {
     if inputs.is_empty() {
         return Ok(());
     }
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    for input in &inputs[..sent.min(inputs.len())] {
+        if let Some((bit, down)) = held_bit(input) {
+            if down {
+                HELD.fetch_or(bit, std::sync::atomic::Ordering::Relaxed);
+            } else {
+                HELD.fetch_and(!bit, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
     if sent == inputs.len() {
         return Ok(());
     }
     let releases: Vec<INPUT> = inputs.iter().filter(|i| released(i)).copied().collect();
     unsafe { SendInput(&releases, std::mem::size_of::<INPUT>() as i32) };
+    release_all();
     Err(CuError::new(
         "action_failed",
         "Windows blocked the input partway (the desktop may have changed, or the app runs as administrator). Look again before retrying.",

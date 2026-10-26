@@ -5,9 +5,9 @@ use super::apps::TopWindow;
 use super::error::{CuError, CuResult};
 use super::geometry::Shot;
 use super::ids::Ids;
-use super::outline::Node;
+use super::outline::{self, Node};
 use super::uia::Uia;
-use super::walk::{self, Focus};
+use super::walk::{self, Focus, Known};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 use windows::Win32::{
@@ -19,7 +19,7 @@ pub struct AppSession {
     pub id: String,
     pub name: String,
     pub window: Option<HWND>,
-    pub ids: Ids<String, IUIAutomationElement>,
+    pub ids: Ids<String, Known>,
     pub nodes: Vec<Node>,
     pub truncated: bool,
     pub not_responding: bool,
@@ -70,6 +70,8 @@ impl AppSession {
     fn set_window(&mut self, window: Option<HWND>) {
         if self.window != window {
             self.window = window;
+            // Ids belong to the window they were read in; old ones stop resolving.
+            self.ids.clear();
             self.nodes.clear();
             self.shot = None;
             self.agent_focus = None;
@@ -166,20 +168,40 @@ impl AppSession {
             .unwrap_or_else(|| format!("element {id}"))
     }
 
-    pub fn element(&self, id: u64) -> CuResult<IUIAutomationElement> {
-        let element = self.ids.get(id).cloned().ok_or_else(|| {
+    /// The element behind an id, checked again before acting: it must be in the window it was
+    /// read in, and still be the same control (same kind, row and name). Otherwise the id is
+    /// stale and nothing acts on whatever took its place.
+    pub fn element(&self, uia: &Uia, id: u64) -> CuResult<IUIAutomationElement> {
+        let stale = |what: String| {
             CuError::new(
                 "stale_element",
-                format!("Element {id} is not in {}'s window any more (or is from another look). Look again (screen_state) and use the new ids.", self.name),
+                format!("Element {id} {what}. Look again (screen_state) and use the new ids."),
             )
+        };
+        let known = self.ids.get(id).cloned().ok_or_else(|| {
+            stale(format!(
+                "is not in {}'s window any more (or is from another look)",
+                self.name
+            ))
         })?;
-        if unsafe { element.CurrentProcessId() }.is_err() {
-            return Err(CuError::new(
-                "stale_element",
-                format!("Element {id} is gone from {}'s window. Look again (screen_state) and use the new ids.", self.name),
-            ));
+        if Some(known.window) != self.window.map(|w| w.0 as isize) {
+            return Err(stale("is from another window".into()));
         }
-        Ok(element)
+        let fresh = uia
+            .refresh(&known.element)
+            .map_err(|_| stale(format!("is gone from {}'s window", self.name)))?;
+        let facts = super::uia::facts(&fresh);
+        let row = super::uia::row_of(uia, &known.element);
+        if outline::identity(&facts, row.as_deref()) != known.identity {
+            let now = facts
+                .name
+                .as_deref()
+                .and_then(|n| super::error::clip(n, 60))
+                .map(|n| format!(" (it now shows \"{n}\")"))
+                .unwrap_or_default();
+            return Err(stale(format!("changed since your last look{now}")));
+        }
+        Ok(known.element)
     }
 
     /// Reads the chosen window's outline again.
