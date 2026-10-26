@@ -1,4 +1,6 @@
-import { expect, test } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import type { Frame } from "@ace/engine-api";
 import { sessionHarness } from "./session.test-helper.ts";
@@ -179,10 +181,9 @@ test.runIf(windowsHost)(
     try {
       await h.session.close("shutdown");
       expect((await h.exited).deliberate).toBe(true);
-      // A clean exit through stdin would be code 0; the forced tree stop never is.
-      const note = exitNote(h.frames);
-      expect(note).toMatchObject({ deliberate: true, reason: "stopped" });
-      expect(note?.["code"]).not.toBe(0);
+      // The fake ignores stdin closing, so only the tree stop can end it.
+      const pid = Number(await readFile(join(h.cwd, "fake-codex.pid"), "utf8"));
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 10_000 });
       expect(h.exits).toHaveLength(1);
       await expect(h.session.send(text("after"), "steer")).rejects.toThrow("closed");
     } finally {

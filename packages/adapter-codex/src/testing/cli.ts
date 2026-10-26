@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -8,8 +9,11 @@ import { aceMcpApprovals } from "./mcp-approvals.ts";
 import { historyStore, longHistory } from "./history-store.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
 // Windows delivers no SIGTERM; there, ignoring termination means outliving stdin closing.
-if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "win32")
+if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "win32") {
   setInterval(() => {}, 60_000);
+  // The test checks that this survivor is really gone, not just detached from.
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex.pid"), String(process.pid));
+}
 const args: string[] = [];
 const overrides = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index++) {
