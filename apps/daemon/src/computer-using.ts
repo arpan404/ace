@@ -18,7 +18,7 @@ interface Use {
 }
 
 /**
- * The threads whose agent is using Mac apps now (computer use), from the calls in flight: an
+ * The threads whose agent is using desktop apps now (computer use), from the calls in flight: an
  * app joins when a look or action starts and leaves a short while after the last one ends.
  * Listeners hear the whole set, and only when it changes.
  */

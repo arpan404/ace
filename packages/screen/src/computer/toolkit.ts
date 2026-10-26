@@ -66,6 +66,8 @@ export function computerToolkit(
   const computerSchemas = computerSchemasFor(options.platform ?? "macos");
   const computerToolMetadata = computerToolMetadataFor(options.platform ?? "macos");
   const personBlocked = async () => (await options.blockedApps?.()) ?? [];
+  // Windows identities (cmd.exe, explorer.exe) are refused only on Windows.
+  const host = options.platform === "windows" ? ("win32" as const) : undefined;
 
   const describe = (
     state: ComputerState,
@@ -109,7 +111,7 @@ export function computerToolkit(
       found = fresh;
       memory.resolved(key, { bundleId: fresh.bundleId, name: fresh.name });
     }
-    const blocked = blockedReason(found, await personBlocked());
+    const blocked = blockedReason(found, await personBlocked(), host);
     if (blocked) throw new ComputerError("app_blocked", blocked);
     return { ...found, key };
   };
@@ -140,7 +142,7 @@ export function computerToolkit(
         await client.request("apps", query ? { query } : {}, { signal }),
       );
       const person = await personBlocked();
-      const usable = apps.filter((app) => !blockedReason(app, person));
+      const usable = apps.filter((app) => !blockedReason(app, person, host));
       const running = usable.filter((app) => app.running);
       const installed = usable.filter((app) => !app.running);
       const row = (app: (typeof apps)[number]) =>
