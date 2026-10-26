@@ -68,6 +68,9 @@ export async function search(
       if (fallback) {
         for (const file of owned) {
           for await (const packet of linePackets(file.content.input())) {
+            // Windows: a worker round trip costs more than reading a small file; skip it when a
+            // literal query provably can't occur in these lines.
+            if (process.platform === "win32" && literalAbsent(options, packet.text)) continue;
             const matches = await fallback.match(
               {
                 ...packet,
@@ -151,4 +154,17 @@ export async function search(
     await Promise.all(batch.map((file) => file.content.close()));
     await fallback?.dispose();
   }
+}
+
+/**
+ * Win32 search: true only when a literal query can't match in `text`. Case-insensitive checks
+ * are exact only for ASCII, since Unicode case folding matches "k" to the Kelvin sign.
+ */
+function literalAbsent(options: SearchOptions, text: string): boolean {
+  if (options.regex) return false;
+  if (options.caseSensitive ?? true) return !text.includes(options.query);
+  // oxlint-disable-next-line no-control-regex -- the ASCII range starts at NUL
+  const ascii = /^[\x00-\x7f]*$/;
+  if (!ascii.test(options.query) || !ascii.test(text)) return false;
+  return !text.toLowerCase().includes(options.query.toLowerCase());
 }

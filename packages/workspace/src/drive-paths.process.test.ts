@@ -175,6 +175,15 @@ describe.runIf(process.platform === "win32")("Windows project paths", () => {
       "sub/b.ts:2:1",
     ]);
     expect(await paths({ query: "needle", glob: "*.txt", limit: 100 })).toEqual(["c.txt:1:1"]);
+    // Literal queries skip files that can't match; Unicode case folding must still find these.
+    await file("fold.md", "\u212Aelvin and \u017Fign\r\nKELVIN\r\n");
+    expect(
+      await paths({ query: "kelvin", caseSensitive: false, glob: "*.md", limit: 100 }),
+    ).toEqual(["fold.md:1:1", "fold.md:2:1"]);
+    expect(await paths({ query: "sign", caseSensitive: false, glob: "*.md", limit: 100 })).toEqual([
+      "fold.md:1:14",
+    ]);
+    expect(await paths({ query: "KELVIN", glob: "*.md", limit: 100 })).toEqual(["fold.md:2:1"]);
   });
 
   test("finds matches across 20,000 files within a generous bound", async () => {
