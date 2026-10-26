@@ -88,12 +88,6 @@ const entries = [
     keywords: ["usage", "quota", "rate limit", "resume", "snooze", "migrate", "switch account"],
   },
   {
-    id: "agents.maxRunningChildren",
-    page: "/settings/agents",
-    title: "Agents a thread runs at once",
-    keywords: ["delegate", "children", "subagents", "parallel", "concurrency", "queue", "limit"],
-  },
-  {
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: "New threads use a worktree",

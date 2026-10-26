@@ -8,7 +8,6 @@ import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { mermaidChunk } from "./mermaid-chunk.ts";
-import { lazyIconChunk } from "./icon-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
@@ -66,7 +65,6 @@ export default defineConfig(({ mode }) => ({
           groups: [
             initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
             mermaidChunk(),
-            lazyIconChunk(),
           ],
         },
       },

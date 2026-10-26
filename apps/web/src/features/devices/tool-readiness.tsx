@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 
-/** One tool as the readiness line names it: "Xcode 26.0", "serve-sim 0.1.49-beta.139.1", "Android SDK". */
+/** One tool as the readiness line names it: "Xcode 26.0", "serve-sim 0.1.48", "Android SDK". */
 function toolWords(tool: Toolchain): string | undefined {
   switch (tool.id) {
     case "xcode":

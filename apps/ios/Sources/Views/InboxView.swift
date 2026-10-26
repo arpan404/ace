@@ -37,9 +37,6 @@ struct InboxView: View {
     @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
     @State private var undo: InboxUndo?
-    /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
-    /// unsettling makes it the newest activity, so it returns far from where the person acted.
-    @State private var reveal: InboxKey?
     @State private var settles = 0
     /// The thread on screen when the app last ran: a relaunch opens it again, as the web reopens
     /// its URL, whether the system ended the app in the background or it was killed.
@@ -153,7 +150,7 @@ struct InboxView: View {
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { if !inbox.sessions.isEmpty { composing = true } }),
                    machine: $machineFilter, project: $projectFilter,
-                   shelves: $shelves, reveal: $reveal, actions: actions,
+                   shelves: $shelves, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
                                               machines: { settingsStart = [.machines]; showingSettings = true })) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
@@ -173,9 +170,7 @@ struct InboxView: View {
                 settles += 1
                 command(key, .settled) { await $0.settle(row.id) }
             },
-            unsettle: { row, key in
-                Task { if await inbox.client(key.machineId)?.unsettle(row.id) == true { reveal = key } }
-            },
+            unsettle: { row, key in Task { _ = await inbox.client(key.machineId)?.unsettle(row.id) } },
             snooze: { snoozing = $0 },
             snoozeUntil: { row, key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
             wake: { row, key in Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
@@ -197,8 +192,7 @@ struct InboxView: View {
                     self.undo = nil
                     Task {
                         guard let client = inbox.client(undo.key.machineId) else { return }
-                        let undone = undo.kind == .settled ? await client.unsettle(undo.key.id) : await client.unarchive(undo.key.id)
-                        if undone { reveal = undo.key }
+                        _ = undo.kind == .settled ? await client.unsettle(undo.key.id) : await client.unarchive(undo.key.id)
                     }
                 }
                 .fontWeight(.semibold)

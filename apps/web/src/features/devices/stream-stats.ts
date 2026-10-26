@@ -35,14 +35,9 @@ export interface StreamStats {
 
 const windowMs = 1000;
 const historyMs = 5000;
-/**
- * A drawn rate at or under this, of pictures this small, is a still screen's re-sends: about
- * five a second, one or two more when the clock or a cursor ticks. Measured with serve-sim
- * 0.1.49 on iOS 27, a still screen's pictures weigh 0.3 to 4.4 KB (an iPhone 18 Pro Max's App
- * Library); a moving screen's at this rate weigh far more.
- */
-const stillFps = 7;
-const stillBytes = 8192;
+/** A drawn rate at or under this, of pictures this small, is a still screen's re-sends. */
+const stillFps = 6;
+const stillBytes = 2048;
 
 const trim = <T>(entries: T[], at: (entry: T) => number, cutoff: number) => {
   while (entries.length && at(entries[0] as T) < cutoff) entries.shift();
