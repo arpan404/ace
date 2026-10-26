@@ -31,6 +31,7 @@ export class LaunchQueue {
         parent_id TEXT NOT NULL, text TEXT NOT NULL, seq INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS ${order} ON ${table}(parent_id,seq);
+      CREATE INDEX IF NOT EXISTS ${table}_seq ON ${table}(seq);
     `),
     );
   }
@@ -43,8 +44,9 @@ export class LaunchQueue {
   }
   add(launch: QueuedLaunch): void {
     this.store.atomic((db) => {
+      // The seq index answers MAX from its last entry, without scanning the queue.
       const next = Number(
-        db.prepare(`SELECT COALESCE(MAX(seq),0)+1 AS n FROM ${this.table}`).get()?.n,
+        this.store.statement(`SELECT COALESCE(MAX(seq),0)+1 AS n FROM ${this.table}`).get()?.n,
       );
       db.prepare(`INSERT OR IGNORE INTO ${this.table} VALUES (?,?,?,?)`).run(
         launch.childId,
