@@ -38,7 +38,9 @@ const show = user.func("int __stdcall ShowWindow(void* window, int command)");
 const handler = kernel.func("int __stdcall SetConsoleCtrlHandler(void* routine, int add)");
 const generate = kernel.func("int __stdcall GenerateConsoleCtrlEvent(uint event, uint group)");
 const lastError = kernel.func("uint __stdcall GetLastError()");
+const step = (text) => process.stderr.write(text + "\n");
 if (!alloc()) report({ error: "AllocConsole failed " + lastError() });
+step("console allocated");
 show(consoleWindow(), 0);
 // A detached start disables Ctrl+C for the new group; children inherit normal handling again.
 handler(null, 0);
@@ -49,6 +51,7 @@ let output = "", errors = "", sent = false, sawReady = false;
 const send = () => {
   if (sent) return;
   sent = true;
+  step("sending " + plan.event);
   if (!generate(plan.event === "break" ? 1 : 0, 0)) report({ error: "GenerateConsoleCtrlEvent failed " + lastError() });
 };
 daemon.stdout.on("data", (chunk) => {
@@ -61,6 +64,7 @@ daemon.stderr.on("data", (chunk) => { errors += chunk; });
 if (plan.when === "starting") {
   const poll = setInterval(() => { if (existsSync(plan.lock)) { clearInterval(poll); send(); } }, 5);
 }
+step("daemon spawned " + daemon.pid);
 daemon.on("exit", (code, signal) => report({ code, signal, sawReady, sent, pid: daemon.pid, errors: errors.slice(-2000) }));
 setTimeout(() => { daemon.kill(); report({ error: "daemon did not exit", errors: errors.slice(-2000) }); }, 90000);
 `;
@@ -101,10 +105,10 @@ export async function daemonInConsole(
     },
   });
   closeSync(errors);
-  let helperExited = false;
+  let helperExited: string | undefined;
   const exited = new Promise<void>((resolve) =>
-    child.once("exit", () => {
-      helperExited = true;
+    child.once("exit", (code, signal) => {
+      helperExited = `code ${code} signal ${signal}`;
       resolve();
     }),
   );
@@ -114,10 +118,12 @@ export async function daemonInConsole(
   });
   const outcome = () => readFile(out, "utf8").catch(() => "");
   await expect
-    .poll(async () => (await outcome()) !== "" || helperExited, { timeout: 120_000 })
+    .poll(async () => (await outcome()) !== "" || helperExited !== undefined, { timeout: 120_000 })
     .toBe(true);
   const text = await outcome();
   if (!text)
-    throw new Error(`Console helper exited without an outcome:\n${await readFile(log, "utf8")}`);
+    throw new Error(
+      `Console helper exited (${helperExited}) without an outcome:\n${await readFile(log, "utf8")}`,
+    );
   return Outcome.parse(JSON.parse(text));
 }
