@@ -1,8 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// Cold Vite compilation and the responsive screenshot pass can exceed the default deadline.
+test.setTimeout(60_000);
+
 async function openDeviceMenu(page: Page) {
   await page.getByRole("button", { name: /^Project filter:/ }).click();
   await page.getByRole("menuitem", { name: /^Device filter:/ }).click();
+  await expect(page.getByRole("menuitemradio", { name: "All devices", exact: true })).toBeVisible();
+  const projects = await page.getByRole("menu").nth(0).boundingBox();
+  const devices = await page.getByRole("menu").nth(1).boundingBox();
+  if (!projects || !devices) throw new Error("Missing filter menus");
+  expect(devices.x).toBeGreaterThanOrEqual(projects.x + projects.width - 1);
 }
 
 test("an empty chat has no top strip, while project controls still show", async ({

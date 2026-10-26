@@ -38,7 +38,7 @@ export function DeviceFilter() {
             allLabel
           )}
         </MenuSubTrigger>
-        <MenuContent className="max-h-[60vh] overflow-y-auto">
+        <MenuContent side="right" align="start" className="max-h-[60vh] overflow-y-auto">
           <MenuRadioGroup
             value={device ?? all}
             onValueChange={(value) =>
