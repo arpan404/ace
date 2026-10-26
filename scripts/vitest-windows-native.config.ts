@@ -51,6 +51,7 @@ export default defineConfig({
       "packages/terminal/src/pty.test.ts",
       "packages/provider-kit/src/process-containment.test.ts",
       "packages/provider-kit/src/process-identity.test.ts",
+      "packages/provider-kit/src/process-tree-state.test.ts",
       "packages/provider-kit/src/process-owner.test.ts",
       "packages/provider-kit/src/process-owner.process.test.ts",
       "packages/provider-kit/src/process-inventory.restart.process.test.ts",

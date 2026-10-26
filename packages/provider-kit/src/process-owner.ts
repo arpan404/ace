@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { win32 } from "node:path";
+import koffi from "koffi";
 import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
@@ -20,8 +21,13 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
   if (process.platform === "win32") {
-    // No process groups exist; reap the tree like every other Windows stop.
-    killWindowsTree(pid, true);
+    // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
+    // still reach every other owner, so a failure here is reported, not thrown.
+    try {
+      killWindowsTree(pid, true);
+    } catch (error) {
+      process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
+    }
     return;
   }
   try {
@@ -143,21 +149,40 @@ export type WindowsKillTree = (pid: number, force: boolean) => void;
 
 /** taskkill /T stops the tree the way a Job Object would; /F forces it. Never uses a shell. */
 export function killWindowsTree(pid: number, force: boolean): void {
-  try {
-    const killer = spawn(
-      // From System32, never PATH: a daemon started with a bare PATH still stops its trees.
-      win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
-      force ? ["/pid", String(pid), "/T", "/F"] : ["/pid", String(pid), "/T"],
-      {
-        stdio: "ignore",
-        windowsHide: true,
-      },
-    );
-    killer.once("error", () => {});
-    killer.unref();
-  } catch {
-    /* Exit polling still reaps a survivor; the next stop escalates. */
+  // A missing System32 or a failed spawn throws: the caller's stop then fails instead of
+  // waiting on a kill that never ran.
+  const killer = spawn(
+    windowsSystemExecutable("taskkill.exe"),
+    force ? ["/pid", String(pid), "/T", "/F"] : ["/pid", String(pid), "/T"],
+    {
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+  killer.once("error", (error) => {
+    process.emitWarning(`taskkill could not run for process ${pid}: ${error.message}`);
+  });
+  killer.unref();
+}
+
+let systemDirectory: string | undefined;
+/** A program in Windows' own System32, located by the kernel rather than the environment. */
+export function windowsSystemExecutable(name: string): string {
+  if (systemDirectory === undefined) {
+    const kernel = koffi.load("kernel32.dll");
+    try {
+      const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
+      const buffer = Buffer.alloc(1024 * 2);
+      const length = Number(read(buffer, 1024));
+      if (length <= 0 || length >= 1024) throw new Error("Windows system directory unavailable");
+      const directory = buffer.toString("utf16le", 0, length * 2);
+      if (!win32.isAbsolute(directory)) throw new Error("Windows system directory is not absolute");
+      systemDirectory = directory;
+    } finally {
+      kernel.unload();
+    }
   }
+  return win32.join(systemDirectory, name);
 }
 
 /** How long a forced Windows tree stop may take before the stop fails instead of completing. */

@@ -1,88 +1,25 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import {
-  ProcessIdentity,
-  WindowsSid,
-  processIdentity,
-  windowsTreeRuntime,
-} from "@ace/provider-kit/process-identity";
-import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { processIdentity, windowsTreeRuntime } from "@ace/provider-kit/process-identity";
+import { ProcessInventory, windowsTreeRecorded } from "@ace/provider-kit/process-inventory";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { invoke } from "./cli-test-support.ts";
 import { builtinSkillRecovery } from "./builtin-skill-roots.ts";
+import { daemonLogRecords } from "./daemon-log-test-support.ts";
+import { startDaemonCli, temporaryHome, type Cleanups } from "./daemon-launch-test-support.ts";
 import {
-  daemonPackage,
-  running,
-  startDaemonCli,
-  temporaryHome,
-  type Cleanups,
-} from "./daemon-launch-test-support.ts";
+  alive,
+  crashedDaemon,
+  endLater,
+  runningThread,
+  threadMentions,
+  type Member,
+} from "./daemon-crash-test-support.ts";
 
 const windows = process.platform === "win32";
-const Tree = z.object({ leader: z.number().int().positive(), child: z.number().int().positive() });
-const Crashed = z.object({ contained: Tree, escaped: Tree, root: z.string().optional() });
-
-// A provider leader that starts a detached child of its own, then reports both PIDs.
-const leaderSource = [
-  "const {spawn}=require('node:child_process');",
-  "const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',detached:true});",
-  "console.log(JSON.stringify({leader:process.pid,child:child.pid}));",
-  "setInterval(()=>{},1000);",
-].join("");
-
-/**
- * A daemon stand-in that journals two provider trees in `dataDir`, one in ace's Job Object and
- * one that escaped it, then is ended by TerminateProcess. With `skills`, the escaped provider
- * also holds a built-in skill projection lease.
- */
-async function crashedDaemon(dataDir: string, skills: boolean) {
-  const source = `
-    import { observeProcessGroups, spawnSupervised } from "@ace/provider-kit/process";
-    import { ProcessInventory } from "@ace/provider-kit/process-inventory";
-    import { prepareBuiltinSkills } from "@ace/plugins";
-    import { createBuiltinSkillRoot } from "./src/builtin-skill-roots.ts";
-    import { builtinSkillProcessLease } from "./src/builtin-skill-processes.ts";
-    const dataDir = ${JSON.stringify(dataDir)};
-    observeProcessGroups(new ProcessInventory(dataDir + "/processes.sqlite"));
-    const root = ${skills} ? await createBuiltinSkillRoot(dataDir) : undefined;
-    if (root) await prepareBuiltinSkills("codex", root);
-    const launch = (name, escaped) => new Promise((resolve) => {
-      const child = spawnSupervised({
-        command: process.execPath, args: ["-e", ${JSON.stringify(leaderSource)}], env: process.env, name,
-        ...(escaped ? { windowsJobFactory: () => undefined } : {}),
-        ...(escaped && root ? { lease: builtinSkillProcessLease(root) } : {}),
-      });
-      child.stdout.once("line", (line) => resolve(JSON.parse(line)));
-    });
-    const contained = await launch("contained-provider", false);
-    const escaped = await launch("escaped-provider", true);
-    console.log(JSON.stringify({ contained, escaped, root }));
-    setInterval(() => {}, 1000);
-  `;
-  const daemon = spawn(process.execPath, ["--input-type=module", "-e", source], {
-    cwd: daemonPackage,
-    stdio: ["ignore", "pipe", "inherit"],
-    windowsHide: true,
-  });
-  const text = await new Promise<string>((resolve, reject) => {
-    let output = "";
-    daemon.once("error", reject);
-    daemon.once("exit", (code) => reject(new Error(`Fixture daemon exited ${code}`)));
-    daemon.stdout.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-      if (output.includes("\n")) resolve(output);
-    });
-  });
-  const crashed = Crashed.parse(JSON.parse(text));
-  const exited = new Promise<void>((resolve) => daemon.once("exit", () => resolve()));
-  // TerminateProcess: no exit handler, finalizer or journal cleanup runs.
-  daemon.kill();
-  await exited;
-  return crashed;
-}
 
 /** A journal row for a live process another program now owns under a reused PID. */
 function journalReusedPid(dataDir: string, pid: number): void {
@@ -106,85 +43,134 @@ function journalReusedPid(dataDir: string, pid: number): void {
   }
 }
 
-/** Live processes that still count as a recorded skill provider's tree, by image name. */
-async function skillTreeHolders(root: string): Promise<string[]> {
-  const lease = z
-    .object({ processes: z.array(ProcessIdentity) })
-    .parse(JSON.parse(await readFile(join(root, "skill-processes.json"), "utf8")));
-  const tasklist = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tasklist.exe");
-  return lease.processes.flatMap((leader) =>
-    windowsTreeRuntime
-      .members({ pid: leader.pid, start: leader.start, uid: WindowsSid.parse(leader.uid) })
-      .map(
-        (member) =>
-          `${member.pid}: ${execFileSync(tasklist, ["/FI", `PID eq ${member.pid}`, "/FO", "CSV", "/NH"], { encoding: "utf8" }).trim()}`,
-      ),
-  );
+/** A real first run formats the home, so later starts treat it as their own. */
+async function formattedHome(prefix: string, cleanups: Cleanups): Promise<string> {
+  const home = await temporaryHome(prefix, cleanups);
+  const first = startDaemonCli(home, cleanups);
+  await first.ready;
+  await stop(home);
+  await first.exited;
+  return home;
 }
 
-function killLater(cleanups: Cleanups, pids: number[]): void {
-  cleanups.push(() => {
-    for (const pid of pids) if (running(pid)) process.kill(pid);
-  });
+async function stop(home: string): Promise<void> {
+  const result = await invoke(home, ["stop", "--json", "--timeout", "60s"]);
+  expect(result.code, result.stderr).toBe(0);
 }
+
+const unverified = "Previous run's processes could not all be verified as stopped";
 
 test.runIf(windows)(
-  "Windows: daemon startup ends the escaped provider tree a crashed run left behind and never touches a reused PID",
+  "Windows: daemon startup ends a recorded grandchild whose parent already exited, and leaves a reused PID alone",
   async ({ onTestFinished }) => {
     const cleanups: Cleanups = [];
     onTestFinished(async () => {
       for (const close of cleanups.toReversed()) await close();
     });
-    const home = await temporaryHome("ace-win-recovery-", cleanups);
-    // A real first run formats the home, so the next start treats it as its own.
-    const first = startDaemonCli(home, cleanups);
-    await first.ready;
-    expect((await invoke(home, ["stop", "--json", "--timeout", "60s"])).code).toBe(0);
-    await first.exited;
-
+    const home = await formattedHome("ace-win-recovery-", cleanups);
     const bystander = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
       stdio: "ignore",
       windowsHide: true,
     });
-    const bystanderPid = z.number().int().positive().parse(bystander.pid);
     cleanups.push(() => void bystander.kill());
-    const crashed = await crashedDaemon(home, false);
-    killLater(cleanups, [crashed.escaped.leader, crashed.escaped.child]);
+    const bystanderPid = z.number().int().positive().parse(bystander.pid);
+    const original: Member = {
+      pid: bystanderPid,
+      start: z.string().parse(processIdentity(bystanderPid)?.start),
+    };
+    let members: readonly Member[] = [];
+    endLater(cleanups, () => members);
+    const crashed = await crashedDaemon(home, { grandchild: true, recorder: true, skills: false });
+    members = crashed.all();
     journalReusedPid(home, bystanderPid);
-    // The contained tree ended with the crashed daemon's job; the escaped child did not.
+    // The contained tree ended with the crashed daemon's job; the grandchild escaped it.
     await expect
-      .poll(() => running(crashed.contained.leader) || running(crashed.contained.child), {
-        timeout: 10_000,
-      })
+      .poll(() => crashed.contained.some((member) => alive(member)), { timeout: 10_000 })
       .toBe(false);
-    expect(running(crashed.escaped.child)).toBe(true);
+    expect(alive(crashed.child)).toBe(true);
 
     const next = startDaemonCli(home, cleanups);
     await next.ready;
-    // Startup recovery ran before the daemon published readiness.
-    expect(running(crashed.escaped.child)).toBe(false);
-    expect(running(bystanderPid)).toBe(true);
-    expect((await invoke(home, ["stop", "--json", "--timeout", "60s"])).code).toBe(0);
+    // Startup recovery ended it before the daemon published readiness.
+    expect(alive(crashed.child)).toBe(false);
+    expect(alive(original)).toBe(true);
+    expect((await daemonLogRecords(home)).map((record) => record.message)).not.toContain(
+      unverified,
+    );
+    await stop(home);
     expect(await next.exited).toBe(0);
+    expect(windowsTreeRecorded(join(home, "processes.sqlite"), crashed.leader)).toBe(false);
   },
   180_000,
 );
 
 test.runIf(windows)(
-  "Windows: a skill projection stays while an escaped descendant of its provider runs after a crash, and is reclaimed once it exits",
+  "Windows: an orphan that cannot be proven the crashed run's is left running and on record, and its thread is told the run may still be running",
+  async ({ onTestFinished }) => {
+    const cleanups: Cleanups = [];
+    onTestFinished(async () => {
+      for (const close of cleanups.toReversed()) await close();
+    });
+    const home = await formattedHome("ace-win-unproven-", cleanups);
+    const thread = await runningThread(home, await temporaryHome("ace-win-work-", cleanups));
+    let members: readonly Member[] = [];
+    endLater(cleanups, () => members);
+    // Nothing recorded the child: it names the dead leader's PID, which a stranger could reuse.
+    const crashed = await crashedDaemon(home, {
+      grandchild: false,
+      recorder: false,
+      skills: false,
+    });
+    members = crashed.all();
+    await expect.poll(() => alive(crashed.leader), { timeout: 10_000 }).toBe(false);
+
+    const next = startDaemonCli(home, cleanups);
+    await next.ready;
+    expect(alive(crashed.child)).toBe(true);
+    expect((await daemonLogRecords(home)).map((record) => record.message)).toContain(unverified);
+    await expect
+      .poll(() => threadMentions(home, thread, "could not be verified as stopped"), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    expect(threadMentions(home, thread, "previous provider work stopped")).toBe(false);
+    await stop(home);
+    await next.exited;
+    expect(windowsTreeRecorded(join(home, "processes.sqlite"), crashed.leader)).toBe(true);
+
+    // Once it exits, the next start proves the tree gone and drops the record by itself.
+    for (const member of members) windowsTreeRuntime.terminate(member);
+    await expect.poll(() => alive(crashed.child), { timeout: 10_000 }).toBe(false);
+    const healed = startDaemonCli(home, cleanups);
+    await healed.ready;
+    await stop(home);
+    await healed.exited;
+    expect(windowsTreeRecorded(join(home, "processes.sqlite"), crashed.leader)).toBe(false);
+  },
+  240_000,
+);
+
+test.runIf(windows)(
+  "Windows: a skill projection stays while a recorded grandchild of its provider runs after a crash, and is reclaimed once recovery proves it gone",
   async ({ onTestFinished }) => {
     const cleanups: Cleanups = [];
     onTestFinished(async () => {
       for (const close of cleanups.toReversed()) await close();
     });
     const dataDir = await temporaryHome("ace-win-skill-crash-", cleanups);
-    const crashed = await crashedDaemon(dataDir, true);
-    killLater(cleanups, [crashed.escaped.leader, crashed.escaped.child]);
+    let members: readonly Member[] = [];
+    endLater(cleanups, () => members);
+    const crashed = await crashedDaemon(dataDir, {
+      grandchild: true,
+      recorder: true,
+      skills: true,
+    });
+    members = crashed.all();
     const root = z.string().parse(crashed.root);
     const skill = join(root, "generated/plugins/ace-builtins/skills/visualize/SKILL.md");
-    // The leader ends with the crashed daemon; only its detached child still runs.
-    await expect.poll(() => running(crashed.escaped.leader), { timeout: 10_000 }).toBe(false);
-    expect(running(crashed.escaped.child)).toBe(true);
+    // The leader ended with the crashed daemon and the middle exited; the grandchild runs.
+    await expect.poll(() => alive(crashed.leader), { timeout: 10_000 }).toBe(false);
+    expect(alive(crashed.child)).toBe(true);
 
     const errors: unknown[] = [];
     await (
@@ -193,11 +179,15 @@ test.runIf(windows)(
     expect(errors).toEqual([]);
     expect(await readFile(skill, "utf8")).toContain("html_render");
 
-    process.kill(crashed.escaped.child);
-    await expect.poll(() => running(crashed.escaped.child), { timeout: 10_000 }).toBe(false);
-    // A busy host can briefly show a short-lived process under the dead leader's reused PID;
-    // the projection is retained until it is gone too.
-    await expect.poll(() => skillTreeHolders(root), { timeout: 15_000 }).toEqual([]);
+    // Daemon startup order: process recovery ends the grandchild, then skills are reclaimed.
+    const inventory = new ProcessInventory(join(dataDir, "processes.sqlite"));
+    try {
+      expect(inventory.recoverWindows()).toMatchObject({ killed: 1, unresolved: 0 });
+      await expect.poll(() => alive(crashed.child), { timeout: 10_000 }).toBe(false);
+      expect(inventory.recoverWindows()).toEqual({ removed: 1, killed: 0, unresolved: 0 });
+    } finally {
+      inventory.close();
+    }
     await (
       await builtinSkillRecovery(dataDir)
     )(Promise.resolve(), (error) => errors.push(error));

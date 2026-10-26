@@ -272,56 +272,106 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
   }
 }
 
-// Windows trees: no process group exists, so a recorded tree is its leader plus every live
-// descendant. Windows never reparents, so an orphan still names its dead parent; a child
-// created before its parent, or after a reused leader PID, is someone else's process.
+// Windows trees: no process group exists. A process belongs to a recorded tree only by proof:
+// its own recorded PID, creation time and SID still match, or its parent is a live proven member
+// and it was created after that parent. Windows never reparents, so a live process naming a dead
+// member's PID may be that member's orphan or the child of a later process that reused the PID;
+// such a process is never ended and never lets the tree count as gone.
 
+export type WindowsProcessRecord = { pid: number; start: string; uid: string };
 export type WindowsTreeMember = { pid: number; start: string };
+/** One Toolhelp pass; `taken` is the system FILETIME read just before it. */
+export type WindowsProcessSnapshot = {
+  taken: string;
+  processes: readonly { pid: number; parent: number }[];
+};
+/** A PID's creation time and owner, undefined once it is proven gone, "unknown" if unreadable. */
+export type WindowsIdentify = (
+  pid: number,
+) => { start: string; uid: string } | undefined | "unknown";
+export type WindowsTreeState = {
+  /** Proven members alive now, recorded or newly found. Only these may be ended. */
+  live: WindowsProcessRecord[];
+  /** Newly proven members, to record while their ancestry can still be checked. */
+  discovered: WindowsProcessRecord[];
+  /** Recorded members that are gone, or whose PID now names another process. */
+  gone: WindowsProcessRecord[];
+  /** Live PIDs that may belong to the tree but cannot be proven to. */
+  ambiguous: number[];
+};
 
-function startsBefore(a: string, b: string): boolean {
-  return BigInt(a) < BigInt(b);
-}
+const after = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
 
-/**
- * Live members of a recorded tree from one process snapshot. `identify` reads a PID's creation
- * time and owner, or undefined when the PID is gone or unreadable.
- */
-export function windowsTreeMembers(
-  leader: { pid: number; start: string; uid: string },
-  snapshot: readonly { pid: number; parent: number }[],
-  identify: (pid: number) => { start: string; uid: string } | undefined,
-): WindowsTreeMember[] {
+export function windowsTreeState(
+  recorded: readonly WindowsProcessRecord[],
+  snapshot: WindowsProcessSnapshot,
+  identify: WindowsIdentify,
+): WindowsTreeState {
   const children = new Map<number, number[]>();
-  for (const entry of snapshot)
+  for (const entry of snapshot.processes)
     if (entry.pid !== entry.parent)
       children.set(entry.parent, [...(children.get(entry.parent) ?? []), entry.pid]);
-  const members: WindowsTreeMember[] = [];
-  const seen = new Set<number>([leader.pid]);
-  const current = identify(leader.pid);
-  // A reused leader PID adopts every later child; only earlier ones are the recorded tree's.
-  const reusedAt = current && current.start !== leader.start ? current.start : undefined;
-  if (current?.start === leader.start && current.uid === leader.uid)
-    members.push({ pid: leader.pid, start: leader.start });
-  const visit = (parent: number, parentStart: string, before?: string): void => {
-    for (const pid of children.get(parent) ?? []) {
-      if (seen.has(pid)) continue;
-      const found = identify(pid);
-      if (!found || found.uid !== leader.uid || startsBefore(found.start, parentStart)) continue;
-      if (before !== undefined && !startsBefore(found.start, before)) continue;
-      seen.add(pid);
-      members.push({ pid, start: found.start });
-      visit(pid, found.start);
-    }
+  const read = new Map<number, ReturnType<WindowsIdentify>>();
+  const look = (pid: number) => {
+    if (!read.has(pid)) read.set(pid, identify(pid));
+    return read.get(pid);
   };
-  visit(leader.pid, leader.start, reusedAt);
-  return members;
+  const state: WindowsTreeState = { live: [], discovered: [], gone: [], ambiguous: [] };
+  const seen = new Set(recorded.map((member) => member.pid));
+  for (const member of recorded) {
+    const current = look(member.pid);
+    if (current === "unknown") state.ambiguous.push(member.pid);
+    else if (current?.start === member.start && current.uid === member.uid) state.live.push(member);
+    else state.gone.push(member);
+  }
+  // A child listed under a live proven parent and created after it, before the snapshot, was
+  // made by that parent: no other process held the PID in that interval.
+  for (let index = 0; index < state.live.length; index++) {
+    const parent = state.live[index];
+    if (!parent) continue;
+    for (const pid of children.get(parent.pid) ?? []) {
+      if (seen.has(pid)) continue;
+      const found = look(pid);
+      if (found === undefined) continue;
+      seen.add(pid);
+      if (found === "unknown") {
+        state.ambiguous.push(pid);
+        continue;
+      }
+      if (found.uid !== parent.uid || after(parent.start, found.start)) continue;
+      if (after(found.start, snapshot.taken)) continue;
+      const member = { pid, start: found.start, uid: found.uid };
+      state.live.push(member);
+      state.discovered.push(member);
+    }
+  }
+  for (const member of state.gone) {
+    const holder = look(member.pid);
+    for (const pid of children.get(member.pid) ?? []) {
+      if (seen.has(pid)) continue;
+      const found = look(pid);
+      if (found === undefined) continue;
+      if (found !== "unknown") {
+        // Started before the member: an earlier holder's child.
+        if (found.uid !== member.uid || !after(found.start, member.start)) continue;
+        // A live holder of the reused PID made every child started after it.
+        if (holder && holder !== "unknown" && !after(holder.start, found.start)) continue;
+      }
+      seen.add(pid);
+      state.ambiguous.push(pid);
+    }
+  }
+  return state;
 }
 
 /** Native surface for recorded Windows trees. Tests inject a fake; production uses koffi. */
 export interface WindowsTreeRuntime {
-  members(leader: { pid: number; start: string; uid: string }): WindowsTreeMember[];
-  /** Ends one member only while it still carries its recorded creation time. */
-  terminate(member: WindowsTreeMember): void;
+  state(recorded: readonly WindowsProcessRecord[]): WindowsTreeState;
+  /**
+   * Ends one member only while it still carries its recorded creation time. Returns whether it
+   * was ended or already gone; an unreadable or protected process throws.
+   */
+  terminate(member: WindowsTreeMember): "ended" | "gone";
 }
 
 // PROCESSENTRY32W: th32ProcessID at 8; th32ParentProcessID follows a pointer-sized heap ID.
@@ -337,6 +387,7 @@ function loadWindowsTreeApi() {
   try {
     return {
       kernel,
+      now: kernel.func("void __stdcall GetSystemTimeAsFileTime(void* time)"),
       snapshot: kernel.func("intptr_t __stdcall CreateToolhelp32Snapshot(uint flags, uint pid)"),
       first: kernel.func("int __stdcall Process32FirstW(intptr_t snapshot, void* entry)"),
       next: kernel.func("int __stdcall Process32NextW(intptr_t snapshot, void* entry)"),
@@ -345,6 +396,7 @@ function loadWindowsTreeApi() {
       times: kernel.func(
         "int __stdcall GetProcessTimes(void* process, void* creation, void* exit, void* kernel, void* user)",
       ),
+      wait: kernel.func("uint __stdcall WaitForSingleObject(void* handle, uint milliseconds)"),
       terminate: kernel.func("int __stdcall TerminateProcess(void* process, uint code)"),
       close: kernel.func("int __stdcall CloseHandle(void* handle)"),
       lastError: kernel.func("uint __stdcall GetLastError()"),
@@ -357,7 +409,10 @@ function loadWindowsTreeApi() {
 
 function snapshotWindowsProcesses(
   api: ReturnType<typeof loadWindowsTreeApi>,
-): { pid: number; parent: number }[] {
+): WindowsProcessSnapshot {
+  const clock = Buffer.alloc(8);
+  api.now(clock);
+  const taken = clock.readBigUInt64LE(0).toString();
   const handle = nativeInt.parse(Number(api.snapshot(TH32CS_SNAPPROCESS, 0)));
   expectNative(handle !== -1 && handle !== 0);
   try {
@@ -370,7 +425,7 @@ function snapshotWindowsProcesses(
       ok = nativeInt.parse(api.next(handle, entry));
     }
     expectNative(nativeInt.parse(api.lastError()) === ERROR_NO_MORE_FILES);
-    return found;
+    return { taken, processes: found };
   } finally {
     api.closeSnapshot(handle);
   }
@@ -378,17 +433,17 @@ function snapshotWindowsProcesses(
 
 /** The real Windows tree runtime: one Toolhelp snapshot, then per-PID identity reads. */
 export const windowsTreeRuntime: WindowsTreeRuntime = {
-  members(leader) {
+  state(recorded) {
     const tree = loadWindowsTreeApi();
     const identityApi = loadWindowsProcessIdentityApi();
     try {
-      return windowsTreeMembers(leader, snapshotWindowsProcesses(tree), (pid) => {
+      return windowsTreeState(recorded, snapshotWindowsProcesses(tree), (pid) => {
         try {
           const found = readWindowsProcessIdentity(pid, identityApi);
           return found && { start: found.start, uid: found.owner };
         } catch {
-          // Another account's or a protected process cannot belong to this tree.
-          return undefined;
+          // Unreadable is not absent: a protected process stays unproven either way.
+          return "unknown";
         }
       });
     } finally {
@@ -402,9 +457,17 @@ export const windowsTreeRuntime: WindowsTreeRuntime = {
   terminate(member) {
     const api = loadWindowsTreeApi();
     try {
-      const handle = api.open(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, member.pid);
-      if (isNullHandle(handle)) return;
+      const handle = api.open(
+        PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+        0,
+        member.pid,
+      );
+      if (isNullHandle(handle)) {
+        expectNative(nativeInt.parse(api.lastError()) === ERROR_INVALID_PARAMETER);
+        return "gone";
+      }
       try {
+        if (nativeInt.parse(api.wait(handle, 0)) === WAIT_OBJECT_0) return "gone";
         const creation = Buffer.alloc(8);
         const times = api.times(
           handle,
@@ -414,8 +477,10 @@ export const windowsTreeRuntime: WindowsTreeRuntime = {
           Buffer.alloc(8),
         );
         expectNative(nativeInt.parse(times) !== 0);
-        if (creation.readBigUInt64LE(0).toString() !== member.start) return;
-        api.terminate(handle, 1);
+        // The PID now names another process: the member itself is gone.
+        if (creation.readBigUInt64LE(0).toString() !== member.start) return "gone";
+        expectNative(nativeInt.parse(api.terminate(handle, 1)) !== 0);
+        return "ended";
       } finally {
         api.close(handle);
       }
