@@ -25,20 +25,30 @@ it.runIf(windows)(
 );
 
 it.runIf(windows)(
-  "on Windows, a corrupt or linked relay key fails instead of silently rotating the identity",
+  "on Windows, a corrupt relay key fails instead of silently rotating the identity",
   async () => {
     const dir = await directory();
     await loadOrCreateHostKeys(dir);
-    const path = join(dir, "noise-static.key");
-    await writeFile(path, new Uint8Array(31));
+    await writeFile(join(dir, "noise-static.key"), new Uint8Array(31));
     await expect(loadOrCreateHostKeys(dir)).rejects.toThrow("Invalid stored static key");
+  },
+);
+
+it.runIf(windows)(
+  "on Windows, a relay key that is a symbolic link is refused, not followed",
+  async ({ skip }) => {
+    const dir = await directory();
     const other = await directory();
     await writeFile(join(other, "real.key"), new Uint8Array(32));
-    await rm(path);
-    await symlink(join(other, "real.key"), path, "file").then(
-      () => expect(loadOrCreateHostKeys(dir)).rejects.toThrow("regular file"),
-      // Creating file symlinks needs Developer Mode or an administrator; junctions are dirs.
-      () => undefined,
-    );
+    const linked = await symlink(join(other, "real.key"), join(dir, "noise-static.key"), "file")
+      .then(() => true)
+      .catch((error: unknown) => {
+        // Only the missing privilege means "not available here"; anything else is a failure.
+        if (error instanceof Error && "code" in error && error.code === "EPERM") return false;
+        throw error;
+      });
+    if (!linked)
+      skip("Creating file symbolic links needs Developer Mode or an administrator (EPERM)");
+    await expect(loadOrCreateHostKeys(dir)).rejects.toThrow("regular file");
   },
 );

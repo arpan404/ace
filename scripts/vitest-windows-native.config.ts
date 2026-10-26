@@ -85,6 +85,8 @@ export default defineConfig({
       "packages/automations/src/durability.test.ts",
       "packages/automations/src/cancellation.test.ts",
       "packages/automations/src/startup.test.ts",
+      "packages/automations/src/queue.test.ts",
+      "packages/automations/src/audit-reliability.test.ts",
       "packages/offshift/src/journal.process.test.ts",
       "packages/offshift/src/steps.test.ts",
       "packages/offshift/src/next.test.ts",
