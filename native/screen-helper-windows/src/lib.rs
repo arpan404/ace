@@ -1,6 +1,7 @@
 #![deny(warnings)]
 pub mod capture_wait;
 pub mod codec;
+pub mod computer;
 pub mod coordinates;
 pub mod errors;
 pub mod input;
