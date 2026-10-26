@@ -28,9 +28,10 @@ export async function gitAbove(path: string): Promise<boolean> {
 }
 
 /**
- * Tells a work tree from a plain folder without treating every Git failure as "not a repository":
- * only Git saying so, or Git missing with no `.git` anywhere above, makes a plain folder. Any
- * other failure throws, so a broken repository is never mistaken for a folder to copy whole.
+ * Tells a work tree from a plain folder without treating every Git failure as "not a repository".
+ * A plain folder is one with no `.git` anywhere above that Git calls not a repository, or that
+ * can't be asked because Git is missing. Any other failure throws, so a broken repository is
+ * never mistaken for a folder to copy whole.
  */
 export async function sourceCheckout(
   repository: Repository,
@@ -52,7 +53,10 @@ export async function sourceCheckout(
       ? { kind: "checkout", root: await repository.root(cwd) }
       : { kind: "folder" };
   if (/dubious ownership/i.test(inside.stderr)) return { kind: "untrusted" };
-  if (/not a git repository/i.test(inside.stderr)) return { kind: "folder" };
+  // A `.git` here or above that Git can't use (a broken worktree link, a damaged HEAD) is a
+  // broken repository, not a plain folder.
+  if (/not a git repository/i.test(inside.stderr) && !(await gitAbove(cwd)))
+    return { kind: "folder" };
   throw new GitError("git_failed", "Git couldn't read the repository", {
     stderr: inside.stderr.slice(-2048),
   });
