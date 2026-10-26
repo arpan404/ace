@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,11 +77,14 @@ export async function daemonInConsole(
   plan: { event: "c" | "break"; when: "ready" | "starting" },
   cleanups: Cleanups,
 ): Promise<z.infer<typeof Outcome>> {
-  const out = join(await temporaryHome("ace-console-", cleanups), "outcome.json");
+  const directory = await temporaryHome("ace-console-", cleanups);
+  const out = join(directory, "outcome.json");
+  const log = join(directory, "helper.log");
+  const errors = openSync(log, "w");
   const child = spawn(process.execPath, ["--input-type=module", "-e", helper], {
     cwd: providerKit,
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", errors, errors],
     env: {
       ...process.env,
       ACE_CONSOLE_PLAN: JSON.stringify({
@@ -93,11 +97,24 @@ export async function daemonInConsole(
       }),
     },
   });
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  closeSync(errors);
+  let helperExited = false;
+  const exited = new Promise<void>((resolve) =>
+    child.once("exit", () => {
+      helperExited = true;
+      resolve();
+    }),
+  );
   cleanups.push(async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill();
     await exited;
   });
-  await expect.poll(() => readFile(out, "utf8").catch(() => ""), { timeout: 120_000 }).not.toBe("");
-  return Outcome.parse(JSON.parse(await readFile(out, "utf8")));
+  const outcome = () => readFile(out, "utf8").catch(() => "");
+  await expect
+    .poll(async () => (await outcome()) !== "" || helperExited, { timeout: 120_000 })
+    .toBe(true);
+  const text = await outcome();
+  if (!text)
+    throw new Error(`Console helper exited without an outcome:\n${await readFile(log, "utf8")}`);
+  return Outcome.parse(JSON.parse(text));
 }
