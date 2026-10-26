@@ -50,8 +50,11 @@ it("a viewer is judged against the rate serve-sim actually sends, never less tha
   ).toBe(false);
 });
 
-/** The screen helper's `--transcode` mode, played by a script: half-size H.264 per frame in. */
-const fakeTranscoder = (log: string) => `
+/**
+ * The screen helper's `--transcode` mode, played by a script: half-size H.264 per frame in,
+ * `delayMs` later, carrying the time the frame went in with.
+ */
+const fakeTranscoder = (log: string, delayMs = 0) => `
 const fs = require("fs");
 let pending = Buffer.alloc(0);
 let first = true;
@@ -74,19 +77,24 @@ process.stdin.on("data", (chunk) => {
     }));
     const size = Buffer.alloc(4);
     size.writeUInt32BE(out.length);
-    process.stdout.write(Buffer.concat([size, out, payload]));
+    const packet = Buffer.concat([size, out, payload]);
+    setTimeout(() => process.stdout.write(packet), ${delayMs});
     first = false;
   }
 });
 `;
 
 /** A capture of a stand-in serve-sim whose transcoder is `fakeTranscoder`, on clock `now`. */
-async function transcodingCapture(now: () => number) {
+async function transcodingCapture(now: () => number, delayMs = 0) {
   const home = await mkdtemp(join(tmpdir(), "sim-transcode-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   await mkdir(join(home, "transcoder"));
   const log = join(home, "transcoder.log");
-  const transcoder = await nodeBinary(join(home, "transcoder"), "transcode", fakeTranscoder(log));
+  const transcoder = await nodeBinary(
+    join(home, "transcoder"),
+    "transcode",
+    fakeTranscoder(log, delayMs),
+  );
   const sim = await fakeServeSim(home, "0.1.49-beta.139.1", udid);
   const platform = new DevicePlatform({
     platform: "darwin",
@@ -267,4 +275,21 @@ it("a viewer watching serve-sim pass through moves to the transcoder once the sc
   await expect
     .poll(() => frames.some((frame) => frame.header.width === 600 && frame.header.keyframe))
     .toBe(true);
+});
+
+it("a re-encoded picture keeps the time serve-sim's picture arrived, not the time the transcoder finished", async () => {
+  let clock = 1000;
+  const { capture, frames, sim, log } = await transcodingCapture(() => clock, 300);
+  const video = { codec: "h264" as const, maxWidth: 1440, maxHeight: 2880, fps: 60 };
+  await capture.configure?.({ ...video, bitrate: 2_000_000 });
+  await capture.keyframe?.();
+  await expect.poll(() => frames.some((frame) => frame.header.width === 600)).toBe(true);
+  const sent = async () => (await readFile(log, "utf8")).split("\n").filter(Boolean).length;
+  const before = await sent();
+  clock = 5000;
+  sim.delta(7, 2);
+  await expect.poll(sent).toBeGreaterThan(before);
+  // The transcoder takes its time: the clock has moved on when the picture comes out.
+  clock = 9000;
+  await expect.poll(() => frames.at(-1)?.header.timestamp).toBe(5000);
 });

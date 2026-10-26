@@ -480,7 +480,8 @@ export async function simulatorCapture(options: {
                   version: 1,
                   sessionId: options.streamId,
                   sequence: sequence++,
-                  timestamp: runtime.now(),
+                  // When serve-sim's picture arrived: the transcoder carries it through.
+                  timestamp: frame.header.timestamp,
                   width: frame.header.width,
                   height: frame.header.height,
                   scale,
