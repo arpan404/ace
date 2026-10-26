@@ -3,6 +3,8 @@ import { once } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 
+/** As long as ace waits on any command to the person's browser. */
+const pipeDeadlineMs = 30_000;
 const Reply = z.object({
   id: z.number(),
   result: z.unknown().optional(),
@@ -31,6 +33,12 @@ export async function launchTestChrome(
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // A person's Chrome shows its windows; headless has none, so Chrome would treat every
+      // renderer (the extension's service worker too) as backgrounded, and macOS starves those
+      // for many seconds on a busy machine.
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
       ...extraArgs,
       "about:blank",
     ],
@@ -43,6 +51,12 @@ export async function launchTestChrome(
   const writer = child.stdio[3] as Writable;
   const reader = child.stdio[4] as Readable;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  child.on("exit", () => {
+    for (const [id, waiter] of pending) {
+      pending.delete(id);
+      waiter.reject(new Error("The test browser exited"));
+    }
+  });
   let sequence = 0;
   let buffered = Buffer.alloc(0);
   reader.on("data", (chunk: Buffer) => {
@@ -61,7 +75,15 @@ export async function launchTestChrome(
   const send = (method: string, params: object = {}, sessionId?: string): Promise<unknown> => {
     const id = ++sequence;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      // A browser that never answers fails here, naming the call, not as a silent test timeout.
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`The test browser did not answer ${method} in time`));
+      }, pipeDeadlineMs);
+      pending.set(id, {
+        resolve: (value) => (clearTimeout(timer), resolve(value)),
+        reject: (error) => (clearTimeout(timer), reject(error)),
+      });
       writer.write(
         `${JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })}\0`,
       );

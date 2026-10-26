@@ -23,13 +23,28 @@ const post = (message: UserBrowserExtensionMessage) => {
 };
 const controller = new Controller(chrome, post);
 
+/**
+ * A new profile's id is used at once and saved meanwhile: the first write to a new profile's
+ * storage can wait seconds on the disk. Should it never land, the browser closed with it and the
+ * next start registers a new id; ace keeps nothing under the old one.
+ */
 async function profileId(): Promise<string> {
   const stored = (await chrome.storage.local.get("profileId")).profileId;
   if (typeof stored === "string" && stored) return stored;
   const created = crypto.randomUUID();
-  await chrome.storage.local.set({ profileId: created });
+  void chrome.storage.local.set({ profileId: created }).catch(() => {});
   return created;
 }
+/**
+ * Read once, starting as the worker starts, so it overlaps starting the host and reaching ace
+ * instead of following them; the worker keeps the one id for its lifetime.
+ */
+let profile: Promise<string> | undefined;
+const ownProfile = (): Promise<string> =>
+  (profile ??= profileId().catch((error: unknown) => {
+    profile = undefined;
+    throw error;
+  }));
 
 async function register(): Promise<void> {
   const { family, version } = browserFamily(navigator.userAgentData?.brands ?? []);
@@ -40,7 +55,7 @@ async function register(): Promise<void> {
     browser: {
       family,
       version,
-      profileId: await profileId(),
+      profileId: await ownProfile(),
       extensionVersion: chrome.runtime.getManifest().version,
     },
   });
@@ -110,4 +125,5 @@ chrome.runtime.onMessage.addListener((raw, _sender, respond) => {
 });
 
 void chrome.action.setBadgeBackgroundColor({ color: "#2563eb" });
+void ownProfile().catch(() => {});
 connect();
