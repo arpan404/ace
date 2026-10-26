@@ -106,14 +106,21 @@ settle, and the caller must notice so the parent never reads done while it runs.
   long before.
 
 **Every unsettled child is read in turn.** Each poll reads unsettled children with at most 16
-status calls of 16 children each, and at most 64 children from any one machine. Children share
-the saved turn number the re-check uses: on each machine those read longest ago go first, and
-machines whose children were read longest ago go first, so a machine left out of one poll goes
-first in the next. However many children wait, and however many stay working or unreachable,
-every one is read within a bounded number of polls, so a later child's result always reaches its
-parent. Listing children (`agents_status`) and a cascading Stop read by parent through an index
-on the parent thread: the parent and every thread delegated below it here. A Stop reaches every
-unsettled remote child of the stopped tree, and the listing counts every child, with no cap.
+status calls of 16 children each, and at most 64 children from any one machine. Each machine
+with unsettled children has a row in `machine_child_cursors`: the poll turn it was last served
+in, and the id of the last child read there. A poll serves the machines served longest ago,
+however many children the others have or keep gaining, so a machine left out of one poll goes
+first in the next and every machine is served within a bounded number of polls. On each machine
+the poll reads up to its share in id order from where it stopped, wrapping to the first child
+after the last, so every child there comes round within a bounded number of serves. The work per
+poll is bounded by the call budget, never by how many children are active: up to 16 machine
+rows, a few pages from a partial index of unsettled children, and one write per machine served.
+A machine whose page comes back empty leaves the rotation; a new or reopened child brings it
+back. So however many children wait, and however many stay working or unreachable, a later
+child's result always reaches its parent. Listing children (`agents_status`) and a cascading Stop
+read by parent through an index on the parent thread: the parent and every thread delegated
+below it here. A Stop reaches every unsettled remote child of the stopped tree, and the listing
+counts every child, with no cap.
 
 **A message the target refuses before it reaches the thread.** The access check (agents turned
 off, or only allowed to read), the ownership check, and a deleted thread refuse a message before
@@ -129,6 +136,23 @@ permanent (`deletedAt` is never cleared), and the deleted-thread check also save
 message to a deleted thread is refused for good, and the thread's status reads cancelled with
 "Its thread was deleted on that machine." as its result.
 
+A refusal is kept while its device can still be admitted, and no longer. Revocation and expiry
+of a device are permanent: a revoked or expired device never authenticates again. Revoking a
+device deletes its refusals in the same write (a trigger on `devices`), and the target deletes
+the refusals of devices whose access ran out when it starts. Admission checks that the device is
+still active in the same synchronous step as the refusal lookup, so a copy that authenticated
+before the revocation and was still waiting in the access check is refused too. Without that
+check the deleted refusal would let it run; with it, no copy from that device can ever be
+admitted again, so its refusals are not needed. A time limit alone would be unsafe for the same
+reason. Refusals of a device still paired stay as long as the pairing does; they are small, and
+one exists only for a message the target actually refused.
+
+These guarantees, and those of the command receipts, hold within the target's retained history.
+Resetting the target's database, or restoring an older copy, erases refusals and receipts, so a
+delayed copy that lands afterwards is judged afresh (a deleted thread that no longer exists still
+refuses it, as `not_found`, but a restored thread could take it). ace does not fence database
+incarnations; this is a known limit.
+
 The caller treats a final refusal with one of those codes (`machine_opted_out`,
 `machine_forbidden`, `not_found`) as proof that nothing ran or ever will: the message is
 answered without reopening the child. A retry rejected this way also tells the parent ("Your
@@ -138,23 +162,40 @@ run, because no copy of a rejected request can ever be admitted. The cost is tha
 repeating the same request id after the person allows agents again gets the same refusal; a new
 message gets a new request id.
 
-**A pairing removed here ends the child.** Each child records the paired device it was delegated
-through (`device_id`). Once that pairing is gone here (removed, or the machine linked again as a
-new device, which the target never gave the child to), nothing on this machine can read, message
-or stop the child again. The poll settles it failed with the result "Lost: <machine> is no longer
-paired with this machine, so this child can't report back or be stopped from here. Any work it
-started there may still be running; check on that machine." Its unanswered messages are dropped
-(none can be sent), it leaves the re-check window, and the parent gets that result. Children
-from before the device was recorded fall back to the machine's name. Pairings that can't be read
-are never taken as gone.
+**A child whose pairing is gone is lost, never settled on its own.** Each child records the
+paired device it was delegated through (`device_id`). Once that pairing is gone here (removed,
+or the machine linked again as a new device), nothing on this machine can read, message or stop
+the child, yet its work there may still be running. It stays unsettled, marked lost in the
+ledger (`lost_at`), and its parent stays unresolved and asks the person, through the same means
+a remote child's own requests use: an approval in the parent thread (the composer strip),
+"Lost: Studio is no longer paired; its work there may still be running." The child's row reads
+Needs you (its launch row's status is `needs_you`, which the shared row logic shows on web and
+iOS), `agents_status` counts it as needing the person, and `wait` returns `needs_you`. The
+approval names the child in its raw payload (`ace.machine.lost`), so the web row offers the same
+answer as a text button under that sentence. If the approval closes while the child is still
+lost (its parent's session ended, a restart), the next poll opens it again.
 
-This settles a child that may still be running there, which the first priority otherwise
-forbids. It is the correct reading here: the person removed the only link to that work on
-purpose, no answer can ever come back over it, and the parent would otherwise wait forever on
-something no one here can end. The result says plainly that the work may still be running and
-where. A target that no longer accepts the pairing (`unauthorized`, the device revoked there) is
-not treated this way: the caller can't tell that from here with certainty, so the child stays
-working and says so until the person removes the pairing here.
+Two things resolve it:
+
+- _The pairing comes back as the same device_ (the saved machine restored, or its address
+  updated with the same device credentials). The approval closes, the child is tracked again,
+  and the poll reads it: its result, or its work still running, reaches the parent as usual.
+  Linking the machine again as a new device does not resume it: the target gives each thread
+  only to the device that delegated it, so the new device can't read it, and it stays lost
+  until the person stops tracking it.
+- _The person stops tracking it_ ("Stop tracking; its work on Studio may still be running").
+  Only then does it settle, cancelled, with the result "Stopped tracking: Studio is no longer
+  paired with this machine, so this child can't report back. Its work there may still be
+  running; check on Studio." Its unanswered messages are dropped and it leaves the re-check
+  window; the parent gets that result.
+
+This keeps the first priority: nothing reads done while part of the tree might still be
+working, unless the person, told plainly that it may still be running, chooses to stop
+tracking it. Children from before the device was recorded fall back to the machine's name.
+Pairings that can't be read are never taken as gone, or as back. A target that no longer
+accepts the pairing (`unauthorized`, the device revoked there) is not lost: the caller can't
+tell that from here with certainty, so the child stays working and says so, and removing the
+pairing here makes it lost.
 
 **Waiting stays visible.** A child whose machine can't be read, or won't take its message yet,
 stays working and says why in its step, which `agents_status` and `wait` show: "Studio: agents
@@ -170,6 +211,7 @@ return on the next poll after a restart. A machine with agents turned off is a s
 - Children sent to a busy machine wait instead of failing, and the parent sees them waiting.
 - A machine that turns agents off or deletes a child's thread no longer leaves the parent
   waiting on a message forever; one turned off leaves the child visibly waiting.
-- Removing a paired machine ends its children here with a lost result.
+- Removing a paired machine leaves its children lost and asking the person, until the pairing
+  returns or the person stops tracking them.
 - Queued local children still keep their own table and journal edges; the remote queue shares the
   queue code and slot rule, not the table, because a remote child has no local parent edge.
