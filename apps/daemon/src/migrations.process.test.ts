@@ -84,7 +84,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     // Schema 14 had no per-item agent column, no device expiry and no thread_cold.
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
+      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -95,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(20);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(21);
     } finally {
       after.close();
     }
@@ -134,7 +134,7 @@ test("an interrupted upgrade backup is redone instead of being kept as the backu
     store.close();
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
+      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     // A copy cut short by a crash or a full disk.

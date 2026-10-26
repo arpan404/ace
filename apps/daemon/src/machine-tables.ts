@@ -59,3 +59,50 @@ export const machineChildGenerations = `${machineChildren}
     next_retry_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (child_id, request_id));
   CREATE INDEX IF NOT EXISTS machine_child_messages_due
     ON machine_child_messages(next_retry_at, created_at);`;
+
+/**
+ * Keeps every remote child within reach (ADR 0099).
+ * - `device_id` names the paired device a child was delegated through, so the caller knows when
+ *   that pairing is gone (removed, or the machine linked again as a new device). Children from
+ *   before have none and fall back to the machine's name.
+ * - Indexes for a parent's children (listing, cascading Stop) and for settled results not yet
+ *   delivered, so neither reads the whole history or stops at a fixed count.
+ * - `lost_at`, `lost_key` and `lost_ask` mark a child whose pairing is gone: it stays unsettled,
+ *   and its parent asks the person (the open approval's key and id) until the pairing returns or
+ *   the person stops tracking it.
+ * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
+ *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
+ *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
+ *   pages to the machine's unsettled children.
+ * - `machine_message_rejections` is the target's answer for a message it refused before it ever
+ *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
+ *   copy of that request is admitted, so a refused request can never run later. Each is kept only
+ *   while its device can still be admitted: revoking the device deletes them (the trigger), as a
+ *   revoked device never authenticates again, so no copy of its requests can arrive.
+ */
+export const machineChildReach = `
+  ALTER TABLE machine_children ADD COLUMN device_id TEXT;
+  ALTER TABLE machine_children ADD COLUMN lost_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN lost_key TEXT;
+  ALTER TABLE machine_children ADD COLUMN lost_ask TEXT;
+  CREATE INDEX IF NOT EXISTS machine_children_lost ON machine_children(lost_ask)
+    WHERE lost_ask IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS machine_children_parent ON machine_children(parent_thread, settled);
+  CREATE INDEX IF NOT EXISTS machine_children_undelivered ON machine_children(settled_at)
+    WHERE settled = 1 AND delivered = 0;
+  CREATE TABLE IF NOT EXISTS machine_child_cursors (
+    machine TEXT PRIMARY KEY, served INTEGER NOT NULL DEFAULT 0, after TEXT);
+  CREATE INDEX IF NOT EXISTS machine_child_cursors_served
+    ON machine_child_cursors(served, machine);
+  CREATE INDEX IF NOT EXISTS machine_children_unsettled ON machine_children(machine, id)
+    WHERE settled = 0;
+  INSERT OR IGNORE INTO machine_child_cursors (machine)
+    SELECT DISTINCT machine FROM machine_children WHERE settled = 0;
+  CREATE TABLE IF NOT EXISTS machine_message_rejections (
+    request_key TEXT PRIMARY KEY, device_id TEXT NOT NULL, code TEXT NOT NULL,
+    message TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS machine_message_rejections_device
+    ON machine_message_rejections(device_id);
+  CREATE TRIGGER IF NOT EXISTS machine_message_rejections_revoked
+    AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
+    BEGIN DELETE FROM machine_message_rejections WHERE device_id = NEW.id; END;`;

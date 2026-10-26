@@ -40,6 +40,19 @@ export class ChildResults {
       text: `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${notice.text}`,
     });
   }
+  /**
+   * A message sent again was rejected there before it reached the child, and never runs: the
+   * parent, told only that its call was lost, hears what became of it.
+   */
+  rejected(row: ChildRow, requestId: string, reason: string): void {
+    this.outbox.queue({
+      key: `rejected:${row.id}:${requestId}`,
+      child: row.id,
+      parent: row.parent_thread,
+      kind: "notice",
+      text: `[ace: ${row.role} on ${this.deps.label(row.machine)}]\nYour message was not taken there and will not run: ${reason}`,
+    });
+  }
   /** A wait read the child's result inside a tool call: it is not delivered again. */
   read(id: ThreadId): void {
     this.deps.ledger.markDelivered(id);

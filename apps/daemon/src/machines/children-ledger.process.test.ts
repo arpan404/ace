@@ -57,6 +57,8 @@ function ledger() {
     },
     waiting: () => false,
     isDescendant: () => false,
+    descendants: () => [],
+    device: () => "device-studio",
     log: () => {},
   });
   children.add({

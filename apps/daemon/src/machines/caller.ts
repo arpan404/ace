@@ -20,9 +20,25 @@ import { AgentControlError } from "../agent-control/failure.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import type { MachineDirectory } from "./directory.ts";
 import type { MachineChildren } from "./children.ts";
-import type { Answer } from "./child-messages.ts";
+import type { Answer, ResendAnswer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
+
+/**
+ * A refusal the target recorded before the message ever reached its thread (its access or
+ * ownership check, a deleted thread). The target checks that record before admitting any copy,
+ * so none ever runs: the message is answered without reopening the child (ADR 0099).
+ */
+function rejectedBeforeArrival(error: unknown): error is MachineFailure {
+  return (
+    error instanceof MachineFailure &&
+    error.kind === "refused" &&
+    error.final &&
+    (error.refusal === "machine_opted_out" ||
+      error.refusal === "machine_forbidden" ||
+      error.refusal === "not_found")
+  );
+}
 
 export interface CallerDeps {
   store: Store;
@@ -75,6 +91,8 @@ export class MachineCaller {
     const existing = this.deps.children.byRequest(requestKey);
     if (existing) return existing;
     const origin = await this.origin(caller.threadId);
+    // The pairing the child is delegated through: once it is gone, the child can't be reached.
+    const device = this.deps.directory.device(machine);
     const call = {
       op: "delegate" as const,
       requestId: request.requestId,
@@ -109,6 +127,7 @@ export class MachineCaller {
       model: request.model,
       title: answer.title,
       queued: answer.queued === true,
+      device,
     });
     return answer.threadId;
   }
@@ -135,6 +154,13 @@ export class MachineCaller {
   async message(id: ThreadId, message: MachineMessage): Promise<AgentControlResult> {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
+    if (child.abandoned)
+      throw new AgentControlError(
+        "invalid_arguments",
+        "Child no longer tracked",
+        undefined,
+        "The person stopped tracking this child: its machine is no longer paired. Delegate a new task instead.",
+      );
     const origin = await this.origin(child.parentThreadId);
     // Saved before it leaves: until the machine answers for it, no status reply settles the
     // child, and after a restart or a lost reply it is sent again under the same request id.
@@ -157,7 +183,7 @@ export class MachineCaller {
     parentThreadId: ThreadId,
     id: ThreadId,
     message: MachineMessage,
-  ): Promise<"taken" | "decided"> {
+  ): Promise<ResendAnswer> {
     try {
       MachineMessageResult.parse(
         await this.deps.directory.call(
@@ -169,6 +195,7 @@ export class MachineCaller {
       );
       return "taken";
     } catch (error) {
+      if (rejectedBeforeArrival(error)) return { rejected: error.message };
       if (error instanceof MachineFailure && error.kind === "refused" && error.final)
         return "decided";
       throw error;
@@ -203,14 +230,17 @@ export class MachineCaller {
         // Only a machine that never took the call or refused it outright proves nothing ran. A
         // lost reply may follow a message the child is already working on: it stays watched,
         // and if nothing changed there, the next poll settles it again under the same result.
-        // A refusal the target recorded for the request id answers for it whatever came before:
-        // every copy of it gets the same answer.
-        if (error instanceof MachineFailure && error.final) outcome.answer = "decided";
+        // A rejection recorded before it reached the child answers for it: no copy ever runs.
+        // Any other refusal the target recorded for the request id answers for it whatever came
+        // before: every copy of it gets the same answer.
+        const rejected = rejectedBeforeArrival(error);
+        if (rejected) outcome.answer = "refused";
+        else if (error instanceof MachineFailure && error.final) outcome.answer = "decided";
         else if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
         // A first attempt never reached, or refused, answered for the message: it never runs.
         else outcome.answer = "refused";
         // The parent hears the call was lost, not that the machine never had it.
-        throw this.deps.directory.controlError(machine, lost ?? error);
+        throw this.deps.directory.controlError(machine, rejected ? error : (lost ?? error));
       }
   }
   async status(
