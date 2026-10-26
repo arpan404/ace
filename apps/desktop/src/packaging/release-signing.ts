@@ -91,8 +91,11 @@ export function windowsSigning(env: NodeJS.ProcessEnv): WindowsSigning {
 
 /** electron-builder's `win` signing settings for `signing`; empty for an unsigned build. */
 export function windowsSigningConfig(signing: WindowsSigning): Record<string, unknown> {
+  // ace's own native addons (descriptor.node, node-pty's ConPTY files) are signed too.
+  const signExts = [".node", ".dll"];
   if (signing.kind === "certificate")
     return {
+      signExts,
       signtoolOptions: {
         publisherName: [signing.publisherName],
         signingHashAlgorithms: ["sha256"],
@@ -101,7 +104,7 @@ export function windowsSigningConfig(signing: WindowsSigning): Record<string, un
     };
   if (signing.kind === "azure") {
     const { kind: _kind, ...options } = signing;
-    return { azureSignOptions: options };
+    return { signExts, azureSignOptions: options };
   }
   return {};
 }
