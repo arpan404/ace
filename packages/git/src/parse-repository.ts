@@ -73,9 +73,12 @@ export function parseWorktrees(buffer: Buffer): Worktree[] {
   }
   if (tree) throw malformed("unterminated worktree record");
   if (!trees.length) throw malformed("missing worktree records");
-  // Git for Windows prints `C:/...`; callers compare against native `C:\...` paths.
-  if (process.platform === "win32")
-    for (const entry of trees) entry.path = win32.normalize(entry.path);
+  return trees;
+}
+
+/** Windows: Git for Windows prints `C:/...`; callers compare against native `C:\...` paths. */
+export function nativeWorktreePaths(trees: Worktree[]): Worktree[] {
+  for (const entry of trees) entry.path = win32.normalize(entry.path);
   return trees;
 }
 export function parseRemotes(buffer: Buffer): RepositoryInfo["remotes"] {
