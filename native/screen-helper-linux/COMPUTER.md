@@ -235,6 +235,10 @@ Mousepad, which a person closes the shell's overview over first:
 - `tests/computer/run-hyprland.sh`: on Hyprland, the notice in mako, Stop by its button and by a
   click on the notice, and a lock screen seen through Hyprland from a lock program it doesn't
   know by name (a renamed swaylock, as Omarchy 4's shell runs no lock program).
+- `tests/computer/omarchy.py`: on a real Omarchy 4 desktop, run from a terminal in the person's
+  session with a helper build: the person's facts, the shell kept out of `apps`, Nautilus and
+  Chromium outlines with timings, and Stop by a click on the notice (`omarchy-shell
+  notifications invokeLast`). The lock screen is left out: only the person's password unlocks it.
 - `tests/computer/run-person.sh`: the notice in GNOME Shell and a click on its Stop (with
   Mutter's remote-desktop pointer at the place the shell's accessibility tree gives), the
   session state and a lock (a stand-in hyprlock), and the inhibitors (stand-ins for GNOME's
