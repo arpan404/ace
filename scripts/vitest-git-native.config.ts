@@ -3,9 +3,9 @@ import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { FailureDetailsReporter } from "./test-failure-reporter.ts";
 
 /**
- * Git, forge and review workflows on native Windows with the runner's own Git for Windows
- * and its system configuration (core.autocrlf=true). Same isolated test homes as the
- * bounded native suite.
+ * Git, forge and review workflows on native Windows with the runner's own Git for Windows.
+ * windows-git.yml runs it with the system `core.autocrlf` set to `true` (Git for Windows'
+ * default) and to `false`. Same isolated test homes as the bounded native suite.
  *
  * Run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-git-native.config.ts
  */
