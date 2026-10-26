@@ -23886,7 +23886,7 @@ Example:
 | windowSelection | no | boolean |  |
 | permissionEvents | no | boolean |  |
 | maxSessions | no | integer | {"minimum":1,"maximum":8} |
-| platform | yes | ["macos","windows","linux-x11","linux-wayland"] |  |
+| platform | yes | ["macos","windows","linux-wayland"] |  |
 | capture | yes | object | {"properties":{"windows":{"type":"boolean"},"displays":{"type":"boolean"},"changeDriven":{"type":"boolean"}},"required":["windows","displays","changeDriven"]} |
 | input | yes | object | {"properties":{"pointer":{"type":"boolean"},"keyboard":{"type":"boolean"},"scroll":{"type":"boolean"},"text":{"type":"boolean"}},"required":["pointer","keyboard","scroll","text"]} |
 | uiTree | yes | boolean |  |
@@ -23918,7 +23918,7 @@ Example:
     "input": "prompt",
     "screen": "denied"
   },
-  "platform": "linux-x11",
+  "platform": "windows",
   "semanticActions": [],
   "uiTree": true,
   "version": 2

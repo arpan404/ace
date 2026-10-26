@@ -6,7 +6,6 @@ import {
   Helper,
   ScreenManager,
   computerUseHandler,
-  linuxBackend,
   installedLinuxHelper,
   localScreenManager,
   type Frame,
@@ -18,11 +17,12 @@ const command = {
   args: [new URL("./testing/fake-helper-linux.ts", import.meta.url).pathname],
   protocolVersion: 2 as const,
 };
-it("Linux prefers the portal over XWayland and refuses a missing selected display", () => {
-  expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" })).toBe("wayland");
-  expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "x11")).toBe("x11");
-  expect(() => linuxBackend({ DISPLAY: ":0" }, "wayland")).toThrow("No display");
-  expect(() => linuxBackend({})).toThrow("No graphical session");
+it("Linux live view starts in a Wayland session and names an X11 session as unsupported", () => {
+  const launch = linuxLaunch({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "/ace/screen");
+  expect(launch.expectedPlatform).toBe("linux-wayland");
+  expect(launch.args).toEqual(["--restore-token", "/ace/screen/portal/restore-token"]);
+  expect(() => linuxLaunch({ DISPLAY: ":0" }, "/ace/screen")).toThrow("X11 session");
+  expect(() => linuxLaunch({}, "/ace/screen")).toThrow("No graphical session");
   expect(installedLinuxHelper("/ace", "arm64")).toBe(
     "/ace/helpers/screen-linux/arm64/ace-screen-helper-linux",
   );
@@ -53,7 +53,7 @@ it("a session that appears after start is used by the next helper start", async 
     protocolVersion: 2,
     launch: async () => {
       const launch = linuxLaunch(env, directory);
-      // The fake helper takes no backend flags; keep only what the launch decided.
+      // The fake helper takes no restore-token flag; keep only what the launch decided.
       return { ...launch, args: command.args };
     },
     nextId: ids(),
@@ -63,8 +63,8 @@ it("a session that appears after start is used by the next helper start", async 
   try {
     await manager.enable(true);
     await expect(manager.capabilities()).rejects.toThrow("No graphical session");
-    env = { DISPLAY: ":0" };
-    expect((await manager.capabilities())?.platform).toBe("linux-x11");
+    env = { WAYLAND_DISPLAY: "wayland-0" };
+    expect((await manager.capabilities())?.platform).toBe("linux-wayland");
   } finally {
     await manager.close();
     await rm(directory, { recursive: true, force: true });
@@ -74,7 +74,7 @@ it("v2 negotiates its display backend and delivers frames with scale and aliases
   const frame = deferred<Frame>();
   const helper = await Helper.open({
     ...command,
-    expectedPlatform: "linux-x11",
+    expectedPlatform: "linux-wayland",
     nextId: ids(),
     onFrame: (f) => frame.resolve(f),
     onFailure: () => {},
@@ -104,7 +104,7 @@ it("v2 negotiates its display backend and delivers frames with scale and aliases
   await expect(
     Helper.open({
       ...command,
-      expectedPlatform: "linux-wayland",
+      expectedPlatform: "windows",
       nextId: ids(),
       onFrame: () => {},
       onFailure: () => {},

@@ -12,7 +12,7 @@ let sessionId = "test";
 let seq = 0;
 const capabilities = ScreenCapabilities.parse({
   version: 2,
-  platform: process.env.FAKE_PLATFORM ?? "linux-x11",
+  platform: process.env.FAKE_PLATFORM ?? "linux-wayland",
   capture: { windows: true, displays: false, changeDriven: true },
   input: { pointer: true, keyboard: true, scroll: true, text: true },
   uiTree: process.env.NO_UI !== "1",

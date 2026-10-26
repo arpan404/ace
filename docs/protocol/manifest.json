@@ -2981,8 +2981,8 @@
       "sha256": "435ad6b1b235ba83fff65811da4ed2455ce5e6427ea99d3489817fe9ec541340"
     },
     "schema/ScreenCapabilities.json": {
-      "bytes": 2766,
-      "sha256": "ec1968c7f0c2732f650d99c688629fc8339a822ce9c71e3fe433d64c017a3da3"
+      "bytes": 2745,
+      "sha256": "cc3817c301f957fde8c0b6f9fdd5fe4e7d3950e7d6f4fe4af5bcb2b4d382a021"
     },
     "schema/ScreenChooserPick.json": {
       "bytes": 471,
@@ -4185,10 +4185,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 882291,
-      "sha256": "d93ebef3fe79f57cfd452549cb902edd4019538ff6a7eaecb4829d537240274b"
+      "bytes": 882277,
+      "sha256": "66e759916dcf405b59e85bd2fd87e7c93ce2495517479bc4bc61caee43cf557f"
     }
   },
-  "input": "9dd7d84eba2808aff8b97b4e4988cdfb5573e8d3efea4ee59e3fe699a93af31e",
+  "input": "71c14eda1641483e2129dc3d2254eb1cd84ca436a78553c34c29eb2f669ebf4b",
   "version": 1
 }

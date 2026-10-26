@@ -81,7 +81,7 @@ export const ScreenCapabilities = z
     windowSelection: z.boolean().optional(),
     permissionEvents: z.boolean().optional(),
     maxSessions: z.number().int().min(1).max(8).optional(),
-    platform: z.enum(["macos", "windows", "linux-x11", "linux-wayland"]),
+    platform: z.enum(["macos", "windows", "linux-wayland"]),
     capture: z.object({ windows: z.boolean(), displays: z.boolean(), changeDriven: z.boolean() }),
     input: z.object({
       pointer: z.boolean(),
@@ -114,7 +114,7 @@ export const ScreenCapabilities = z
     }),
     /**
      * Set when the person can watch but never control what this desktop shares, saying why
-     * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's and Sway's).
+     * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's).
      */
     watchOnly: z.string().min(1).max(500).optional(),
   })
