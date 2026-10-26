@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { WorkspaceId, type ThreadListEntry } from "@ace/protocol";
 import { issueQuery } from "@ace/ui-core";
@@ -39,6 +40,12 @@ test("open pull requests come grouped by what each needs next, each row with its
     quiet: "Checks running",
   });
   expect(numbers(pulls).merge).toEqual([233, 224]);
+  expect(numbers(pulls).wait).toEqual([231, 245]);
+  expect(rows.find((row) => row.number === 245)).toMatchObject({
+    step: null,
+    quiet: "Waiting on review",
+    labels: [{ name: "web", color: "1d76db" }],
+  });
 });
 
 test("sorted by activity, pull requests group as yours, asking for your review, and the rest, with GitHub's totals", async () => {
@@ -70,7 +77,9 @@ test("issues group as assigned to you, opened by you, and the rest, and the Filt
   expect(numbers(issues)).toEqual({ assigned: [246, 240], created: [235], others: [238] });
   expect(issues.counts).toEqual({ open: 4, closed: 1 });
   expect(issues.authors).toContain("mira");
+  expect(issues.authors).toContain("sam");
   expect(issues.labels).toContain("bug");
+  expect(issues.labels).toContain("web");
 });
 
 test("a list read again within half a minute is answered from memory until the person refreshes", async () => {

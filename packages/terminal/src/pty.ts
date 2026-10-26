@@ -6,6 +6,8 @@ import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
+import { resolveShell as selectShell } from "./shell.ts";
+import type { ShellSelectionPorts } from "./shell.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
@@ -54,18 +56,10 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-export function resolveShell(shell?: string): string {
-  if (shell !== undefined) return shell;
-  if (process.env.SHELL) return process.env.SHELL;
-  for (const candidate of ["/bin/zsh", "/bin/bash"]) {
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* Try the next installed shell. */
-    }
-  }
-  throw new Error("No login shell found");
+export type { ShellSelectionPorts, ShellSelectionEnv } from "./shell.ts";
+
+export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
+  return selectShell(shell, ports);
 }
 
 /** Each manager gets its own I/O context; overlapping shutdowns share a ps read. */

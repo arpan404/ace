@@ -1,6 +1,16 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { PinnedDirectory } from "@ace/workspace";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 
 /**
@@ -9,12 +19,33 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
  * legacy install created with 0755), so the mode is enforced here, before any store opens.
  */
 export function secureDataDir(dataDir: string): void {
+  if (process.platform === "win32") {
+    // Also used for subdirectories such as MCP enrollments. Install privacy
+    // at creation, and observe existing directories without changing their ACL.
+    mkdirSync(dirname(dataDir), { recursive: true, mode: 0o700 });
+    const parent = PinnedDirectory.atBoundary(dirname(dataDir));
+    try {
+      try {
+        parent.mkdirPrivate(basename(dataDir)).closeSync();
+      } catch (error) {
+        if (!isExists(error)) throw error;
+      }
+    } finally {
+      parent.closeSync();
+    }
+    const directory = PinnedDirectory.atBoundary(dataDir);
+    try {
+      directory.checkPrivate();
+    } finally {
+      directory.closeSync();
+    }
+    return;
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const stat = lstatSync(dataDir);
   if (stat.isSymbolicLink())
     throw new Error(`Refusing data directory ${dataDir}: it is a symbolic link`);
   if (!stat.isDirectory()) throw new Error(`Refusing data directory ${dataDir}: not a directory`);
-  // Windows has no POSIX owner or mode bits; its profile ACLs protect the directory.
   const uid = process.getuid?.();
   if (uid === undefined) return;
   if (stat.uid !== uid)
@@ -51,6 +82,14 @@ export function acquireLock(dataDir: string): () => void {
   };
 }
 export function loadToken(dataDir: string): { token: string; tokenPath: string } {
+  if (process.platform === "win32") {
+    const tokenPath = join(dataDir, "daemon-token");
+    const token = loadWindowsPrivateText(dataDir, "daemon-token", 64, () =>
+      randomBytes(32).toString("hex"),
+    );
+    if (!/^[0-9a-f]{64}$/.test(token)) throw new Error("Invalid daemon token file");
+    return { token, tokenPath };
+  }
   const tokenPath = join(dataDir, "daemon-token");
   try {
     writeFileSync(tokenPath, randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 });
@@ -63,6 +102,9 @@ export function loadToken(dataDir: string): { token: string; tokenPath: string }
   return { token, tokenPath };
 }
 export function loadHostId(dataDir: string): string {
+  if (process.platform === "win32") {
+    return loadWindowsPrivateText(dataDir, "host-id", 128, () => randomUUID());
+  }
   const path = join(dataDir, "host-id");
   try {
     writeFileSync(path, randomUUID(), { flag: "wx", mode: 0o600 });
@@ -70,6 +112,31 @@ export function loadHostId(dataDir: string): string {
     if (!isExists(error)) throw error;
   }
   return readFileSync(path, "utf8");
+}
+function loadWindowsPrivateText(
+  dataDir: string,
+  name: string,
+  limit: number,
+  createText: () => string,
+): string {
+  const directory = PinnedDirectory.atBoundary(dataDir);
+  try {
+    try {
+      const text = createText();
+      const fd = directory.createExclusive(name);
+      try {
+        writeFileSync(fd, text);
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+    } catch (error) {
+      if (!isExists(error)) throw error;
+    }
+    return directory.readPrivateText(name, limit);
+  } finally {
+    directory.closeSync();
+  }
 }
 function isExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";

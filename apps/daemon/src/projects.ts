@@ -1,3 +1,4 @@
+import type { FileIdentity } from "@ace/workspace/pinned-directory";
 import { randomUUID } from "node:crypto";
 import { RepositoryPublications } from "./repository-publications.ts";
 import type { SourceControl } from "./source-control.ts";
@@ -352,7 +353,7 @@ export class Projects {
       signal: AbortSignal;
       timeoutMs: number;
       /** The clone's folder was just made: its identity, before anything is written in it. */
-      made?: (directory: { dev: number; ino: number }) => void;
+      made?: (directory: { identity: FileIdentity }) => void;
     },
   ): Promise<CommandResult> {
     const existing = this.clones.get(input.id);

@@ -1,3 +1,4 @@
+import { withoutHooks } from "./disabled-hooks.ts";
 import { z } from "zod";
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import type { Repository } from "./repository.ts";
@@ -45,8 +46,7 @@ export async function integrateRevision(
       const merged = await repository.cli.call(
         root,
         [
-          "-c",
-          "core.hooksPath=/dev/null",
+          ...withoutHooks(),
           "-c",
           "commit.gpgSign=false",
           "merge",

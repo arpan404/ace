@@ -434,6 +434,7 @@
         "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",
         "sharp": "0.34.5",
         "yauzl": "3.2.0",
@@ -777,6 +778,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/workspace": "workspace:*",
         "yaml": "^2.8.1",
         "zod": "^4.6.5",
       },
@@ -935,6 +937,9 @@
       "dependencies": {
         "node-api-headers": "^1.9.0",
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@vscode/ripgrep": "1.18.0",
       },
     },
     "tools/daemon-bench": {

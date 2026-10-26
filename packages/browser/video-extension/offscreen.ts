@@ -103,12 +103,14 @@ function configsFor(spec: EncodeSpec): VideoEncoderConfig[] {
     ...(spec.codec.startsWith("avc1.") ? { avc: { format: "avc" } } : {}),
     ...(spec.codec.startsWith("hvc1.") ? { hevc: { format: "hevc" } } : {}),
   };
+  // Quantizer mode keeps the frame budget under ace's own control.
+  const controlled: VideoEncoderConfig[] = quantized(spec.codec)
+    ? [{ ...base, bitrateMode: "quantizer", hardwareAcceleration: "prefer-hardware" }]
+    : [];
+  if (spec.codec.startsWith("vp09."))
+    controlled.push({ ...base, bitrateMode: "quantizer", hardwareAcceleration: "prefer-software" });
   return [
-    // Every frame at a quantizer ace picks (`QuantizerControl`): a hardware encoder given a bit
-    // rate skips frames to hold it.
-    ...(quantized(spec.codec)
-      ? [{ ...base, bitrateMode: "quantizer", hardwareAcceleration: "prefer-hardware" } as const]
-      : []),
+    ...controlled,
     { ...base, hardwareAcceleration: "prefer-hardware" },
     { ...base, hardwareAcceleration: "prefer-software" },
   ];
@@ -116,7 +118,7 @@ function configsFor(spec: EncodeSpec): VideoEncoderConfig[] {
 
 /** Codecs whose frames take a quantizer each (`VideoEncoderEncodeOptions`). */
 function quantized(codec: string): boolean {
-  return codec.startsWith("avc1.") || codec.startsWith("hvc1.");
+  return codec.startsWith("avc1.") || codec.startsWith("hvc1.") || codec.startsWith("vp09.");
 }
 
 /** A frame's encode options: its keyframe flag, and its quantizer in `quantizer` mode. */
@@ -127,9 +129,16 @@ function frameOptions(entry: Encoder, key: boolean): VideoEncoderEncodeOptions {
 }
 
 function withQuantizer(entry: Encoder, key: boolean, quantizer: number): VideoEncoderEncodeOptions {
-  return entry.spec.codec.startsWith("hvc1.")
-    ? ({ keyFrame: key, hevc: { quantizer } } as VideoEncoderEncodeOptions)
-    : { keyFrame: key, avc: { quantizer } };
+  // VP9 exposes a 0..255 index; its controller uses that domain directly.
+  const options: VideoEncoderEncodeOptions & {
+    vp9?: { quantizer: number };
+    hevc?: { quantizer: number };
+  } = entry.spec.codec.startsWith("vp09.")
+    ? { keyFrame: key, vp9: { quantizer } }
+    : entry.spec.codec.startsWith("hvc1.")
+      ? { keyFrame: key, hevc: { quantizer } }
+      : { keyFrame: key, avc: { quantizer } };
+  return options;
 }
 
 /**
@@ -197,7 +206,9 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
     entry.active = config;
     entry.quantizer =
       config.bitrateMode === "quantizer"
-        ? new QuantizerControl(entry.spec.bitrate, entry.spec.fps)
+        ? entry.spec.codec.startsWith("vp09.")
+          ? QuantizerControl.vp9(entry.spec.bitrate, entry.spec.fps)
+          : new QuantizerControl(entry.spec.bitrate, entry.spec.fps)
         : undefined;
     entry.encoder = encoder;
     entry.watchdog = new EncoderWatchdog();

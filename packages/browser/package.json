@@ -27,6 +27,7 @@
     "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",
     "sharp": "0.34.5",
     "yauzl": "3.2.0",

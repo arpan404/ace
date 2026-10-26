@@ -193,6 +193,30 @@ test("a home that is a link is set aside as the link, and what it points at stay
   expect((await lstat(join(home, ".ace"))).isDirectory()).toBe(true);
 });
 
+test("a home link to an empty directory is set aside as the link and never written through", async () => {
+  const home = await userHome();
+  const outside = join(home, "outside");
+  await mkdir(outside, { recursive: true });
+  const link = join(home, ".ace");
+  await symlink(outside, link, "junction");
+
+  const prepared = prepareDaemonHome(resolveDaemonHome(home), ports());
+
+  expect(prepared).toMatchObject({
+    state: "fresh",
+    backup: join(home, ".ace-v0"),
+    previousFormat: "ace-v0",
+  });
+  // The link itself is backed up; what it points at stays put and stays empty.
+  expect((await lstat(join(home, ".ace-v0"))).isSymbolicLink()).toBe(true);
+  expect(await readlink(join(home, ".ace-v0"))).toBe(outside);
+  expect(await readdir(outside)).toEqual([]);
+  // The fresh home is an ordinary directory with this build's marker.
+  expect((await lstat(link)).isSymbolicLink()).toBe(false);
+  expect(await readdir(link)).toEqual([HOME_FORMAT_FILE]);
+  expect(await marker(link)).toEqual({ format: "ace-v1", createdAt: at.toISOString() });
+});
+
 test("a crashed old daemon's leftover lock does not block the fresh start", async () => {
   const home = await userHome();
   const legacy = await legacyHome(home);
