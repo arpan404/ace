@@ -8,7 +8,8 @@ import {
   type Simulators,
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ComputerUsingThreads } from "../computer-using.ts";
@@ -79,6 +80,18 @@ export async function startScreen({ config, options, resources, services, store 
   if (!computer) return;
   resources.own(() => computer.close());
   services.computer = computer;
+  if (process.platform === "darwin") {
+    // Started only when a gated call needs it: with locked use off it never runs.
+    const lockedUse = new LockedUseRuntime({
+      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+      socketPath: lockedUseSocketPath(config.dataDir),
+      nextId: randomUUID,
+      attemptId: () => randomBytes(32).toString("base64url"),
+      scheduler: { after: nodeScheduler.after },
+    });
+    resources.own(() => lockedUse.close());
+    services.lockedUseRuntime = lockedUse;
+  }
   services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
 }
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
