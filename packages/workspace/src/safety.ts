@@ -17,6 +17,8 @@ import {
   windowsInternal,
   windowsTransferTemporary,
 } from "./path-policy.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { PassDirectories } from "./pass-directories.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
 export function validRelativePath(input: string): boolean {
@@ -160,6 +162,12 @@ export class SafeRoot {
   async file(
     input: string,
   ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
+    const passDirectories =
+      process.platform === "win32" ? this.windowsPasses?.getStore() : undefined;
+    if (passDirectories) {
+      const pinned = await this.windowsPassFile(passDirectories, input);
+      if (pinned) return pinned;
+    }
     if (process.platform === "win32") {
       const canonical = await this.windowsCanonicalFile(input);
       if (canonical) return canonical;
@@ -180,6 +188,55 @@ export class SafeRoot {
     } catch (error) {
       await handle?.close();
       throw failure(error);
+    }
+  }
+  /** Win32: the directory handles of the search pass running in this async context. */
+  private windowsPasses: AsyncLocalStorage<PassDirectories> | undefined;
+  /** Win32: whether this async context already runs inside a pass. */
+  windowsInPass(): boolean {
+    return this.windowsPasses?.getStore() !== undefined;
+  }
+  /**
+   * Win32: runs one search pass holding directory handles, so files it reads open relative to
+   * their parent. Reads outside the pass, and any pass that can't pin the root, take the
+   * general path.
+   */
+  async windowsPass<T>(run: () => Promise<T>): Promise<T> {
+    if (process.platform !== "win32" || this.windowsInPass()) return run();
+    let root: Descriptor | undefined;
+    try {
+      root = openRoot(this.root);
+      if (!same(await root.stat(), this.identity)) throw new Error("Workspace root was replaced");
+    } catch {
+      await root?.close().catch(() => {});
+      // The general path reports the root's real state.
+      return run();
+    }
+    const directories = new PassDirectories(root);
+    this.windowsPasses ??= new AsyncLocalStorage();
+    try {
+      return await this.windowsPasses.run(directories, run);
+    } finally {
+      await directories.close();
+    }
+  }
+  /** Win32: one open relative to a pass-held parent; links and odd names take the general path. */
+  private async windowsPassFile(directories: PassDirectories, input: string) {
+    const path = this.path(input);
+    // "~" may be an 8.3 alias (".ACE-UP~1"); those keep the general path's resolved checks.
+    if (!path || path.includes("~") || transferTemporary(path)) return undefined;
+    let handle: Descriptor | undefined;
+    try {
+      handle = directories.file(path);
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        await handle.close();
+        return undefined;
+      }
+      return { handle, info, resolved: join(this.root, ...path.split("/")) };
+    } catch {
+      await handle?.close().catch(() => {});
+      return undefined;
     }
   }
   /**

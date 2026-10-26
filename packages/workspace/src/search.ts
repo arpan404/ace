@@ -42,6 +42,9 @@ export async function search(
   binary: string | null,
   options: SearchOptions,
 ): Promise<SearchResult> {
+  // Windows: one pass holds directory handles, so each file read is one native open.
+  if (process.platform === "win32" && !safe.windowsInPass())
+    return safe.windowsPass(() => search(safe, ignore, binary, options));
   aborted(options.signal);
   const expression = querySource(options);
   const limit = integer(options.limit, "limit", 1, 10_000);
