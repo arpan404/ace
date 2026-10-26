@@ -33,6 +33,39 @@ import XCTest
         XCTAssertTrue(thumb.waitForNonExistence(timeout: 10), "Remove takes the photo off the message")
     }
 
+    /// Needs a short video seeded too (`xcrun simctl addmedia <udid> <clip.mp4>`).
+    func testAPickedVideoShowsItsLengthAndPlaysFullScreen() {
+        let app = launchIntoThread()
+        app.buttons["composer.attach"].tap()
+        let library = app.buttons["Photo Library"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10))
+        library.tap()
+        let clip = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Video'")).firstMatch
+        XCTAssertTrue(clip.waitForExistence(timeout: 20), "the photo picker offers the seeded video")
+        clip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let add = app.buttons["Add"]
+        if add.waitForExistence(timeout: 3) { add.tap() }
+        let thumb = app.buttons["composer.media"].firstMatch
+        XCTAssertTrue(thumb.waitForExistence(timeout: 30), "the picked video shows as a thumbnail in the composer")
+        let named = NSPredicate(format: "label CONTAINS 'video, 0:0'")
+        expectation(for: named, evaluatedWith: thumb)
+        waitForExpectations(timeout: 15)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier == 'composer.attachment'")).firstMatch.exists,
+                       "the video isn't refused")
+        sleep(1)
+        screenshot("composer-video-thumbnail")
+        thumb.tap()
+        let player = app.descendants(matching: .any)["media.video"]
+        XCTAssertTrue(player.waitForExistence(timeout: 20), "the video plays full screen")
+        let screen = app.windows.firstMatch.frame
+        XCTAssertTrue(screen.insetBy(dx: -1, dy: -1).contains(player.frame), "the player sits within the screen")
+        sleep(2)
+        screenshot("composer-video-playing")
+        app.buttons["media.close"].tap()
+        XCTAssertTrue(player.waitForNonExistence(timeout: 10), "Done closes the player")
+        XCTAssertTrue(thumb.exists, "the video stays on the message")
+    }
+
     func testASentImageOpensFittedZoomsAndDragsDownToClose() {
         let app = launchIntoThread()
         // The row names its parts after the message; the image is the button named for its file.
