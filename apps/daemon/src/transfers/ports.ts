@@ -17,6 +17,8 @@ export type TransferGit = Pick<
   | "cloneFromBundle"
   | "verifyBundle"
   | "fetchBundle"
+  | "fetchOrigin"
+  | "hasCommit"
   | "applyChanges"
   | "landingBranch"
   | "createBranch"
