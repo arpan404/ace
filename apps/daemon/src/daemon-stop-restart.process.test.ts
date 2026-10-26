@@ -121,7 +121,11 @@ for (const [name, event] of [
       });
       const home = await temporaryHome(`ace-win-console-${event}-`, cleanups);
       const outcome = await daemonInConsole(home, { event, when: "ready" }, cleanups);
-      expect(outcome, outcome.errors).toMatchObject({ code: 0, sawReady: true, sent: true });
+      expect(outcome, JSON.stringify(outcome)).toMatchObject({
+        code: 0,
+        sawReady: true,
+        sent: true,
+      });
       expect(await walBytes(join(home, "events.sqlite"))).toBe(0);
 
       const next = startDaemonCli(home, cleanups);
@@ -146,7 +150,11 @@ test.runIf(windows)(
     });
     const home = await temporaryHome("ace-win-console-starting-", cleanups);
     const outcome = await daemonInConsole(home, { event: "break", when: "starting" }, cleanups);
-    expect(outcome, outcome.errors).toMatchObject({ code: 0, sawReady: false, sent: true });
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      code: 0,
+      sawReady: false,
+      sent: true,
+    });
 
     const next = startDaemonCli(home, cleanups);
     await next.ready;

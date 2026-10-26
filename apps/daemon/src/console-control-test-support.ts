@@ -30,29 +30,36 @@ const report = (value) => { writeFileSync(plan.out, JSON.stringify(value)); proc
 // Bind stderr to the test's log before the new console replaces the standard handles.
 process.stderr.write("");
 process.on("uncaughtException", (error) => report({ error: String(error?.stack ?? error) }));
+const step = (text) => process.stderr.write(text + "\\n");
 const kernel = koffi.load("kernel32.dll");
 const user = koffi.load("user32.dll");
 const alloc = kernel.func("int __stdcall AllocConsole()");
+const free = kernel.func("int __stdcall FreeConsole()");
 const consoleWindow = kernel.func("void* __stdcall GetConsoleWindow()");
 const show = user.func("int __stdcall ShowWindow(void* window, int command)");
 const handler = kernel.func("int __stdcall SetConsoleCtrlHandler(void* routine, int add)");
-const generate = kernel.func("int __stdcall GenerateConsoleCtrlEvent(uint event, uint group)");
 const lastError = kernel.func("uint __stdcall GetLastError()");
-const step = (text) => process.stderr.write(text + "\\n");
 if (!alloc()) report({ error: "AllocConsole failed " + lastError() });
-step("console allocated");
 show(consoleWindow(), 0);
-// A detached start disables Ctrl+C for the new group; children inherit normal handling again.
+// A detached start disables Ctrl+C for the new group; the daemon inherits normal handling.
 handler(null, 0);
-process.on("SIGINT", () => {});
-process.on("SIGBREAK", () => {});
 const daemon = spawn(process.execPath, [plan.cli, "start"], { cwd: plan.cwd, env: plan.env, stdio: ["ignore", "pipe", "pipe"] });
-let output = "", errors = "", sent = false, sawReady = false;
+// The console stays with the daemon; this helper leaves it so the event never reaches it.
+free();
+step("daemon spawned " + daemon.pid);
+let output = "", errors = "", sent = false, sawReady = false, sender;
 const send = () => {
   if (sent) return;
   sent = true;
   step("sending " + plan.event);
-  if (!generate(plan.event === "break" ? 1 : 0, 0)) report({ error: "GenerateConsoleCtrlEvent failed " + lastError() });
+  // The sender joins the daemon's console, raises the event there, and may end with it.
+  const raise = spawn(process.execPath, ["-e", plan.sender], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, ACE_TARGET: String(daemon.pid), ACE_EVENT: plan.event === "break" ? "1" : "0" },
+  });
+  raise.on("exit", (code) => { sender = code; step("sender exited " + code); });
 };
 daemon.stdout.on("data", (chunk) => {
   output += chunk;
@@ -64,16 +71,24 @@ daemon.stderr.on("data", (chunk) => { errors += chunk; });
 if (plan.when === "starting") {
   const poll = setInterval(() => { if (existsSync(plan.lock)) { clearInterval(poll); send(); } }, 5);
 }
-step("daemon spawned " + daemon.pid);
-daemon.on("exit", (code, signal) => report({ code, signal, sawReady, sent, pid: daemon.pid, errors: errors.slice(-2000) }));
-setTimeout(() => { daemon.kill(); report({ error: "daemon did not exit", errors: errors.slice(-2000) }); }, 90000);
+daemon.on("exit", (code, signal) => setTimeout(() => report({ code, signal, sawReady, sent, sender, pid: daemon.pid, errors: errors.slice(-2000) }), 500));
+setTimeout(() => { daemon.kill(); report({ error: "daemon did not exit", sender, errors: errors.slice(-2000) }); }, 90000);
 `;
+// Attaches to the target's console, ignores Ctrl+C itself, raises the event for the console.
+const sender =
+  'const koffi=require("koffi");const k=koffi.load("kernel32.dll");' +
+  'const attach=k.func("int __stdcall AttachConsole(uint pid)");' +
+  'const ignore=k.func("int __stdcall SetConsoleCtrlHandler(void* routine,int add)");' +
+  'const raise=k.func("int __stdcall GenerateConsoleCtrlEvent(uint event,uint group)");' +
+  "if(!attach(Number(process.env.ACE_TARGET)))process.exit(2);ignore(null,1);" +
+  "process.exit(raise(Number(process.env.ACE_EVENT),0)?0:3);";
 
 const Outcome = z.object({
   code: z.number().nullable().optional(),
   signal: z.string().nullable().optional(),
   sawReady: z.boolean().optional(),
   sent: z.boolean().optional(),
+  sender: z.number().nullable().optional(),
   pid: z.number().optional(),
   errors: z.string().optional(),
   error: z.string().optional(),
@@ -101,6 +116,7 @@ export async function daemonInConsole(
         cwd: daemonPackage,
         env: daemonEnv(home),
         lock: join(home, "daemon-lock"),
+        sender,
       }),
     },
   });
