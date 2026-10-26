@@ -5,7 +5,6 @@ import { createInterface } from "node:readline";
 import { ScreenHelperRequestV2, ScreenUINode } from "@ace/protocol";
 const endpoint = process.argv.at(-1);
 if (!endpoint?.startsWith("unix:")) throw new Error("Fake requires unix endpoint");
-const targetBundle = process.env.TARGET_BUNDLE ?? "dev.ace.test";
 const padding = z.coerce
   .number()
   .int()
@@ -109,12 +108,7 @@ lines.on("line", (line) => {
       break;
     case "targets":
       data = {
-        windows: [
-          { windowId: 1, bundleId: targetBundle, title: `${process.pid}:${active}` },
-          ...(process.env.MULTIPLE_WINDOWS === "1"
-            ? [{ windowId: 2, bundleId: targetBundle, title: "Second window" }]
-            : []),
-        ],
+        windows: [{ windowId: 1, bundleId: "dev.ace.test", title: `${process.pid}:${active}` }],
         displays: [],
       };
       break;

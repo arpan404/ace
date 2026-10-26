@@ -212,11 +212,6 @@ fn run(
         drop(state);
         target.validate(allowlist)?;
         let mut newest: Option<Direct3D11CaptureFrame> = None;
-        // TryGetNextFrame returns null when the pool is empty:
-        // https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframepool.trygetnextframe
-        // The windows-rs 0.58 projection surfaces S_OK/null as Err with code S_OK (0)
-        // via Type::from_abi -> Error::empty(); E_POINTER is also tolerated below.
-        // This empty-pool recognition applies only to this dequeue loop.
         for _ in 0..2 {
             match pool.TryGetNextFrame() {
                 Ok(frame) => {
@@ -224,7 +219,7 @@ fn run(
                         let _ = old.Close();
                     }
                 }
-                Err(error) if error.code().0 == 0 || error.code().0 as u32 == 0x80004003 => break,
+                Err(error) if error.code().0 as u32 == 0x80004003 => break,
                 Err(error) => return Err(error.into()),
             }
         }
@@ -236,17 +231,8 @@ fn run(
             frame.Close()?;
             continue;
         }
-        let surface = frame
-            .Surface()
-            .map_err(|e| Error::from(e).context("frame-surface"))?;
-        let access: IDirect3DDxgiInterfaceAccess = surface
-            .cast()
-            .map_err(|e| Error::from(e).context("surface-cast-access"))?;
-        let texture: ID3D11Texture2D = unsafe {
-            access
-                .GetInterface()
-                .map_err(|e| Error::from(e).context("surface-getinterface-texture2d"))?
-        };
+        let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
+        let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
         if size != pool_size {
             frame.Close()?;
             pool.Recreate(

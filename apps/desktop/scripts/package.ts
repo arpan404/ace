@@ -76,7 +76,7 @@ const config: Configuration = {
     { from: join(dist, "bin"), to: "bin" },
     // The tray's template images (appPaths().trayIcon); the app icons come from build/.
     { from: join(desktop, "resources"), to: "icons", filter: ["trayTemplate*.png"] },
-    // The pinned Node runtime; Windows local-daemon activation is still pending.
+    // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
       ? existsSync(helper)

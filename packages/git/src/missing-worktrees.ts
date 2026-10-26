@@ -1,4 +1,3 @@
-import { withoutHooks } from "./disabled-hooks.ts";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Repository } from "./repository.ts";
@@ -59,9 +58,11 @@ export async function findMissing(
  * deletes only that entry's administrative files; it never prunes other worktrees.
  */
 export async function forgetMissing(repository: Repository, root: string, tree: Worktree) {
-  await repository.cli.call(root, [...withoutHooks(), "worktree", "remove", "--", tree.path], {
-    write: true,
-  });
+  await repository.cli.call(
+    root,
+    ["-c", "core.hooksPath=/dev/null", "worktree", "remove", "--", tree.path],
+    { write: true },
+  );
 }
 
 /** Missing registrations that would block a new worktree at `path` or on `branch`. */

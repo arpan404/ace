@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/bundle.ts",
-    "./node-runtime": "./src/node-runtime.ts",
-    "./pty-assets": "./src/pty-assets.ts"
+    "./node-runtime": "./src/node-runtime.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

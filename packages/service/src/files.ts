@@ -2,29 +2,22 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ReleaseDirectory } from "@ace/protocol";
 import { mkdir, open, lstat, readlink, rename, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { readReleasePointerSync, writeReleasePointer } from "./release-pointer.ts";
-export async function atomicPointer(
-  path: string,
-  target: string,
-  platform: NodeJS.Platform = process.platform,
-): Promise<void> {
-  if (platform === "win32") {
-    writeReleasePointer(path, target);
-    return;
-  }
+export async function atomicPointer(path: string, target: string): Promise<void> {
   const temp = path + ".next";
   await rm(temp, { force: true });
   await symlink(target, temp);
   await rename(temp, path);
-  await syncDirectory(dirname(path));
+  const dir = await open(dirname(path), "r");
+  try {
+    await dir.sync();
+  } finally {
+    await dir.close();
+  }
 }
-export async function pointer(
-  path: string,
-  platform: NodeJS.Platform = process.platform,
-): Promise<string | undefined> {
+export async function pointer(path: string): Promise<string | undefined> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return platform === "win32" ? readReleasePointerSync(path, platform) : await readlink(path);
+      return await readlink(path);
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error)) throw error;
       if (error.code === "ENOENT") return undefined;
@@ -60,12 +53,14 @@ export async function durableJson(path: string, value: unknown): Promise<void> {
     await file.close();
   }
   await rename(path + ".next", path);
-  await syncDirectory(dirname(path));
+  const dir = await open(dirname(path), "r");
+  try {
+    await dir.sync();
+  } finally {
+    await dir.close();
+  }
 }
 export async function syncDirectory(path: string): Promise<void> {
-  // Node cannot fsync Windows directories. File data is still flushed before
-  // publication; Windows power-loss durability is explicitly not promised.
-  if (process.platform === "win32") return;
   const dir = await open(path, "r");
   try {
     await dir.sync();

@@ -176,9 +176,9 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
   } catch (error) {
     await kill().catch(() => {});
     await exited;
-    const detail = stderr.trim();
+    const detail = stderr.trim().split("\n").slice(-3).join(" ").slice(0, 1024);
     throw new Error(
-      `Chrome failed to start: ${error instanceof Error ? error.message : String(error)}${detail ? ` (${detail})` : ""}; executable=${JSON.stringify(options.executable)}, profile=${JSON.stringify(options.profileDir)}, platform=${options.platform}`,
+      `Chrome failed to start: ${error instanceof Error ? error.message : String(error)}${detail ? ` (${detail})` : ""}`,
       { cause: error },
     );
   }
