@@ -18,24 +18,29 @@ export async function pageViewport(cdp: BrowserCdp) {
   ).result.value;
 }
 
+/** How long a page may take to lay out at a new size before the size counts as refused. */
+const layoutWaitMs = 3_000;
+
 /**
- * Two frames, so a layout at a new size has applied; a short timer stands in where frames
- * don't run (an unseen tab).
+ * Whether the page lays out at `width`×`height` (a pixel either way is rounding), waiting for a
+ * size just set to reach it. The size arrives asynchronously and an unseen tab runs no frames or
+ * resize events, so the page checks its own size until it fits or the wait runs out.
  */
-export async function settled(cdp: BrowserCdp): Promise<void> {
-  await cdp.send("Runtime.evaluate", {
-    expression: `(() => {
-      const frame = () => new Promise((next) => {
-        let fired = false;
-        const go = () => { if (!fired) { fired = true; next(); } };
-        requestAnimationFrame(go);
-        setTimeout(go, 100);
-      });
-      return frame().then(frame).then(() => true);
-    })()`,
+async function laysOutAt(cdp: BrowserCdp, width: number, height: number): Promise<boolean> {
+  const reply = await cdp.send("Runtime.evaluate", {
+    expression: `new Promise((done) => {
+      const fits = () => Math.abs(innerWidth - ${width}) <= 1 && Math.abs(innerHeight - ${height}) <= 1;
+      if (fits()) return done(true);
+      const poll = setInterval(() => { if (fits()) { clearInterval(poll); clearTimeout(stop); done(true); } }, 25);
+      const stop = setTimeout(() => { clearInterval(poll); done(fits()); }, ${layoutWaitMs});
+    })`,
     awaitPromise: true,
     returnByValue: true,
   });
+  return (
+    z.object({ result: z.object({ value: z.boolean() }) }).safeParse(reply).data?.result.value ===
+    true
+  );
 }
 
 /**
@@ -47,12 +52,11 @@ export async function expectViewport(
   size: { width: number; height: number },
   zoom: number,
 ): Promise<void> {
-  await settled(cdp);
-  const seen = await pageViewport(cdp);
   const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const width = size.width / factor;
   const height = size.height / factor;
-  if (Math.abs(seen.width - width) <= 1 && Math.abs(seen.height - height) <= 1) return;
+  if (await laysOutAt(cdp, width, height)) return;
+  const seen = await pageViewport(cdp);
   throw new PublicToolError(
     "viewport_mismatch",
     undefined,

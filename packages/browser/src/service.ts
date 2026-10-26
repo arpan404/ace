@@ -444,6 +444,8 @@ export class BrowserService {
         humanInput: (tabId) => session?.humanActivity(tabId),
         leaveUnasked: (tabId) => session?.leaveUnasked(tabId) ?? false,
         navigation: (tabId) => session?.navigation(tabId),
+        // ace's Chrome restarting holds the thread paused until its tabs are back.
+        restarting: (reason) => session?.suspend(reason),
         restarted: (tabId) => session?.restarted(tabId),
         print: (tabId) => session?.print(tabId),
         log: (entry) => session?.log(entry),

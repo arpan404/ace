@@ -16,6 +16,14 @@ it.skipIf(!executablePath || process.platform === "win32")(
     const before = f.service.state("thread").tabs?.map((tab) => [tab.tabId, tab.url]);
     const { browser: stopped } = await chromeProcesses(f.home);
     if (!stopped) throw new Error("Browser process missing");
+    // The thread reads paused while its browser is replaced, then ready again with its tabs.
+    let paused = false;
+    const back = Promise.withResolvers<void>();
+    const stopWatching = f.service.observeStates((state) => {
+      if (state.threadId !== "thread") return;
+      if (state.status === "paused") paused = true;
+      else if (paused) back.resolve();
+    });
     // The browser froze, as it can across a sleep: nothing asks it anything until the wake.
     process.kill(-stopped, "SIGSTOP");
     try {
@@ -28,15 +36,13 @@ it.skipIf(!executablePath || process.platform === "win32")(
         },
         { timeout: 30_000, interval: 250 },
       );
-      await vi.waitFor(
-        async () =>
-          expect(
-            await f.execute({ action: "evaluate", tabId: side, expression: "location.pathname" }),
-          ).toBe("/side"),
-        { timeout: 30_000, interval: 250 },
-      );
+      await back.promise;
+      expect(
+        await f.execute({ action: "evaluate", tabId: side, expression: "location.pathname" }),
+      ).toBe("/side");
       expect(f.service.state("thread").tabs?.map((tab) => [tab.tabId, tab.url])).toEqual(before);
     } finally {
+      stopWatching();
       try {
         process.kill(-stopped, "SIGCONT");
       } catch {

@@ -192,7 +192,8 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           requestId: "open",
           options: { threadId: thread.id, workspaceId: thread.workspaceId },
         });
-        expect(response).toMatchObject({ ok: true });
+        // A refused open names its error, so a failure says why the browser did not start.
+        expect(response, JSON.stringify(response)).toMatchObject({ ok: true });
         const pids = await ownedBrowserPids(home);
         expect(pids.length).toBeGreaterThan(0);
         daemon.kill(signal);

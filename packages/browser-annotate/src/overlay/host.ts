@@ -60,7 +60,10 @@ export function createHost(sheet: CSSStyleSheet, tag = "ace-annotation-layer"): 
   const popover = typeof host.showPopover === "function";
   if (popover) host.setAttribute("popover", "manual");
   const raise = () => {
-    if (!host.isConnected) document.documentElement.append(host);
+    // A document that has just committed has no <html> until its parser makes one.
+    const root = document.documentElement;
+    if (!root) return;
+    if (!host.isConnected) root.append(host);
     if (!popover) return;
     try {
       if (host.matches(":popover-open")) host.hidePopover();
@@ -69,12 +72,22 @@ export function createHost(sheet: CSSStyleSheet, tag = "ace-annotation-layer"): 
       /* Detached or not yet rendered: the next mutation retries. */
     }
   };
-  raise();
-  // Frameworks that own <html> can drop unknown children; put the host back.
+  // Frameworks that own <html> can drop unknown children; put the host back. The document's
+  // own children are watched too: a fresh document has yet to parse its <html>, and a page can
+  // replace it.
+  let watched: Element | null = null;
   const keeper = new MutationObserver(() => {
+    if (document.documentElement !== watched) watch();
     if (!host.isConnected) raise();
   });
-  keeper.observe(document.documentElement, { childList: true });
+  const watch = () => {
+    watched = document.documentElement;
+    keeper.disconnect();
+    keeper.observe(document, { childList: true });
+    if (watched) keeper.observe(watched, { childList: true });
+  };
+  watch();
+  raise();
   return {
     host,
     layer,

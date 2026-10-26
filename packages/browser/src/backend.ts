@@ -157,6 +157,11 @@ export interface BackendOpen {
   navigation(tabId?: string): void;
   /** The page called `window.print()` and no print dialog showed for it (ADR 0086). */
   print?(tabId?: string): void;
+  /**
+   * The whole browser died or stopped answering and a replacement is starting: the pages are
+   * down until `restarted`, or `lost` if it cannot come back.
+   */
+  restarting?(reason: string): void;
   /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
   restarted?(tabId?: string): void;
   log(entry: BackendLog): void;

@@ -14,23 +14,39 @@ import { startPreview } from "./preview-server.ts";
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
 
-/**
- * One build per process: every run here serves the same source, and a production build takes
- * long enough that rebuilding it for each test would eat most of that test's time. It is built
- * off the event loop and removed when the process exits.
- */
-let build: Promise<string> | undefined;
-function perfBuild(): Promise<string> {
-  build ??= (async () => {
-    const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
-    process.once("exit", () => rmSync(out, { recursive: true, force: true }));
+/** Builds the app in `--mode perf` into a fresh temporary directory and returns it. */
+export async function buildPerfApp(): Promise<string> {
+  const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
+  try {
     await promisify(execFile)(
       "bunx",
       ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"],
       { cwd: web, maxBuffer: 64 * 1024 * 1024 },
     );
+  } catch (error) {
+    rmSync(out, { recursive: true, force: true });
+    throw error;
+  }
+  return out;
+}
+
+/** Where a test run's global setup put the build it made once for every suite. */
+export const prebuiltPerfApp = "ACE_WEB_PERF_BUILD";
+
+/**
+ * One build per run: every run here serves the same source, and a production build takes long
+ * enough that rebuilding it for each test would eat most of that test's time. Test runs build it
+ * once in their global setup; a script on its own builds it off the event loop and removes it
+ * when the process exits.
+ */
+let build: Promise<string> | undefined;
+function perfBuild(): Promise<string> {
+  const prebuilt = process.env[prebuiltPerfApp];
+  if (prebuilt) return Promise.resolve(prebuilt);
+  build ??= buildPerfApp().then((out) => {
+    process.once("exit", () => rmSync(out, { recursive: true, force: true }));
     return out;
-  })();
+  });
   return build;
 }
 
