@@ -1,11 +1,11 @@
 import XCTest
 
 /// The browser's device toolbar on the phone, on the spike fixture's checkout page: the page opens
-/// as an iPhone, the menu shows the device toolbar, and a laptop picked there fits the phone's width.
+/// as this phone, the menu shows the device toolbar, and a laptop picked there fits the phone's width.
 final class BrowserDeviceUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    @MainActor func testThePageOpensAsAnIPhoneAndTheDeviceToolbarPicksALaptop() {
+    @MainActor func testThePageOpensAsThisPhoneAndTheDeviceToolbarPicksALaptop() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
@@ -22,7 +22,7 @@ final class BrowserDeviceUITests: XCTestCase {
         app.buttons["browser.menu"].tap()
         let item = app.buttons.matching(NSPredicate(format: "identifier == 'browser.menu.device' OR label BEGINSWITH 'Device'")).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 10))
-        XCTAssertTrue(item.label.contains("iPhone"), "the page opened as an iPhone, not \(item.label)")
+        XCTAssertTrue(item.label.contains("This phone"), "the page opened as this phone, not \(item.label)")
         item.tap()
         let size = app.staticTexts["browser.device.size"]
         XCTAssertTrue(size.waitForExistence(timeout: 10))
@@ -32,12 +32,12 @@ final class BrowserDeviceUITests: XCTestCase {
         let laptop = app.buttons["Laptop"]
         XCTAssertTrue(laptop.waitForExistence(timeout: 10))
         laptop.tap()
-        XCTAssertTrue(app.staticTexts["1280 × 800"].waitForExistence(timeout: 15))
+        XCTAssertTrue(size.wait(for: \.label, toEqual: "1280 by 800", timeout: 15))
         sleep(3)
         screenshot("browser-device-3-laptop")
 
         app.buttons["browser.device.rotate"].tap()
-        XCTAssertTrue(app.staticTexts["800 × 1280"].waitForExistence(timeout: 15))
+        XCTAssertTrue(size.wait(for: \.label, toEqual: "800 by 1280", timeout: 15))
         app.buttons["browser.device.hide"].tap()
         XCTAssertTrue(size.waitForNonExistence(timeout: 10))
     }
