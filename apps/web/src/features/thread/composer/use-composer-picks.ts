@@ -1,6 +1,13 @@
 import { useClient } from "@ace/client-react";
-import { ThreadId, type CatalogMention, type Mention } from "@ace/protocol";
-import { editComposerTokens, type ComposerToken } from "@ace/ui-core";
+import type { CatalogMention, Mention } from "@ace/protocol";
+import {
+  editComposerTokens,
+  pickSuggestion,
+  referenceLimits,
+  suggestionToken,
+  tooManyReferences,
+  type ComposerToken,
+} from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, type RefObject } from "react";
 import {
@@ -20,9 +27,8 @@ import { useMachineSearch } from "@/lib/machine-routes.ts";
 /** A change to the message from the composer itself, with the chips it leaves. */
 export type ComposerEdit = { text: string; caret: number; tokens?: readonly ComposerToken[] };
 
-const tooManyReferences = "This message has enough references. Remove one before adding another.";
 /** At most this many browser tabs mentioned in one message: each carries a snapshot and image. */
-const tabMentionLimit = 4;
+const tabMentionLimit = referenceLimits.tabs;
 
 /**
  * What picking a suggestion does: a file, thread or catalog entry becomes a chip, an action
@@ -60,46 +66,8 @@ export function useComposerPicks(args: {
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
-    const next = accept(text, at, label);
-    const catalog: CatalogMention | undefined = item.entry
-      ? {
-          type: "mention",
-          entryId: item.entry.id,
-          name: item.entry.name,
-          title: label,
-          kind: item.entry.kind,
-          ...(item.entry.icon ? { icon: item.entry.icon } : {}),
-          arguments: "",
-          ...(values ? { values } : {}),
-        }
-      : undefined;
-    const token: ComposerToken = {
-      start: at.start,
-      end: at.start + label.length,
-      label,
-      ...(catalog ? { catalog } : {}),
-      ...(item.path ? { file: { path: item.path } } : {}),
-      ...(item.threadId
-        ? {
-            thread: {
-              type: "thread_ref",
-              threadId: ThreadId.parse(item.threadId),
-              budgetBytes: 4096,
-            },
-          }
-        : {}),
-      ...(item.tab
-        ? {
-            browserTab: {
-              type: "browser_tab",
-              tabId: item.tab.tabId,
-              url: item.tab.url,
-              title: item.tab.title,
-            },
-          }
-        : {}),
-    };
+    const token = suggestionToken(item, at.start, values);
+    const next = accept(text, at, token.label);
     if (item.path) args.rememberMention(item.path);
     edit({
       ...next,
@@ -150,37 +118,29 @@ export function useComposerPicks(args: {
     args.setAdding(false);
     const trigger = args.trigger;
     if (!trigger) return;
-    if (
-      tokens.length >= 64 ||
-      (item.threadId && tokens.filter((token) => token.thread).length >= 8) ||
-      (item.tab && tokens.filter((token) => token.browserTab).length >= tabMentionLimit)
-    ) {
-      args.setNotice(tooManyReferences);
-      return;
-    }
-    const invocation = item.entry?.invocation;
-    if (invocation?.type === "unavailable") {
-      args.setNotice("This item isn't available for this provider. Choose another item.");
-      return;
-    }
-    if (invocation?.type === "action") {
-      if (invocation.action === "attachments") {
+    const outcome = pickSuggestion(item, tokens);
+    switch (outcome.kind) {
+      case "refused":
+        args.setNotice(outcome.notice);
+        return;
+      case "attachments":
         args.showAttachments();
         edit(accept(text, trigger, ""));
         return;
-      }
-      runAction(invocation.action, trigger);
-      return;
-    }
-    if (invocation?.type === "prompt" && Object.keys(invocation.parameters ?? {}).length) {
-      args.askArguments(item, trigger);
-      args.setDismissed(trigger.start);
-      return;
+      case "action":
+        runAction(outcome.action, trigger);
+        return;
+      case "arguments":
+        args.askArguments(item, trigger);
+        args.setDismissed(trigger.start);
+        return;
+      case "reference":
+        break;
     }
     addToken(item, trigger);
   };
   const insertMention = useEffectEvent((file: Mention) => {
-    if (tokens.length >= 64) {
+    if (tokens.length >= referenceLimits.all) {
       args.setNotice(tooManyReferences);
       return;
     }
@@ -199,7 +159,7 @@ export function useComposerPicks(args: {
   // "Ask agent about this page" from the Browser: the tab, mentioned where the caret is.
   const insertTab = useEffectEvent((tab: ComposerTab) => {
     if (
-      tokens.length >= 64 ||
+      tokens.length >= referenceLimits.all ||
       tokens.filter((token) => token.browserTab).length >= tabMentionLimit
     ) {
       args.setNotice(tooManyReferences);

@@ -157,10 +157,31 @@ export * from "./stop-fence.ts";
 export {
   composerInput,
   editComposerTokens,
+  referenceContext,
   tokensFromInput,
   withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
+export {
+  actionKind,
+  attachmentsEntry,
+  catalogGroups,
+  commandArguments,
+  commandSuggestions,
+  mentionSuggestions,
+  pickSuggestion,
+  referenceLimits,
+  suggestionToken,
+  tooManyReferences,
+  triggerAt,
+  type CommandScope,
+  type ComposerSuggestion,
+  type ComposerTrigger,
+  type MentionScope,
+  type MentionTab,
+  type MentionThread,
+  type SuggestionPick,
+} from "./composer-suggestions.ts";
 
 export { threadIsRunning } from "./live-status.ts";
 export {

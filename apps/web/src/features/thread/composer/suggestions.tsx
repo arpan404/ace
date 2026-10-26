@@ -1,4 +1,4 @@
-import { catalogDisplayName, displayAddress } from "@ace/ui-core";
+import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
 import { useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
@@ -28,16 +28,6 @@ export type Suggestions = (
   /** The current catalog, for resolving a `/name` typed without picking from the menu. */
   entries?: readonly CatalogEntry[] | undefined;
 };
-const groups = {
-  builtin: "Add",
-  plugin: "Plugins",
-  skill: "Skills",
-  command: "Commands",
-  agent: "Agents",
-  workflow: "Workflows",
-  "mcp-tool": "Tools",
-};
-const groupOrder = ["Add", "Plugins", "Skills", "Commands", "Agents", "Workflows", "Tools"];
 const threadReference = (thread: ThreadListEntry) => ({
   id: thread.id,
   title: thread.title,
@@ -95,46 +85,21 @@ export function useSuggestions(
   if (!trigger) return { state: "closed", entries: known };
   const { kind, query } = trigger;
   if (!scoped || !ready) return { state: "loading", kind, query };
-  const q = query.toLowerCase();
   let items: Suggestion[];
   if (kind === "mention") {
-    const lately = !query ? recent() : [];
-    items = [...new Set([...lately, ...(mentions.data ?? [])])].map((path) => ({
+    items = mentionSuggestions({
+      query,
+      recent: query ? [] : recent(),
+      paths: mentions.data ?? [],
+      tabs,
+      threads,
+      threadId: thread.id,
+      workspaceId: thread.workspaceId,
+    }).map((item) => ({
+      ...item,
       kind,
-      group: "Files",
-      insert: `@${path}`,
-      label: path.slice(path.lastIndexOf("/") + 1),
-      detail: path.includes("/") ? path : undefined,
-      path,
+      insert: item.path ? `@${item.path}` : `@${item.label}`,
     }));
-    items.push(
-      ...tabs
-        .filter((tab) => tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q))
-        .slice(0, 8)
-        .map((tab) => ({
-          kind,
-          group: "Browser tabs",
-          insert: `@${tab.title || displayAddress(tab.url)}`,
-          label: tab.title || displayAddress(tab.url),
-          detail: displayAddress(tab.url),
-          tab,
-        })),
-      ...threads
-        .filter(
-          (t) =>
-            t.id !== thread.id &&
-            t.workspaceId === thread.workspaceId &&
-            t.title.toLowerCase().includes(q),
-        )
-        .slice(0, 8)
-        .map((t) => ({
-          kind,
-          group: "Threads",
-          insert: `@${t.title}`,
-          label: t.title,
-          threadId: t.id,
-        })),
-    );
     if (!items.length && mentions.isPending) return { state: "loading", kind, query };
     if (!items.length && mentions.isError)
       return { state: "failed", kind, query, retry: () => void mentions.refetch() };
@@ -143,57 +108,12 @@ export function useSuggestions(
     if (catalog.failed)
       return { state: "failed", kind, query, retry: () => setRevision((value) => value + 1) };
     if (catalog.stale && !catalog.entries.length) return { state: "loading", kind, query };
-    const entries = thread.draft
-      ? catalog.entries
-      : [
-          ...catalog.entries,
-          {
-            id: "ace:attachments",
-            kind: "builtin",
-            name: "Attachments",
-            description: "Manage files stored for this thread",
-            source: { provider: "ace", scope: "ace" },
-            invocation: { type: "action", action: "attachments" },
-          } satisfies CatalogEntry,
-        ];
-    const described = entries.map((entry) =>
-      entry.kind === "command" && !entry.description.trim()
-        ? Object.assign({}, entry, { description: "Run saved prompt" })
-        : entry,
-    );
-    const available = described.filter(
-      (entry) =>
-        entry.description.trim() &&
-        entry.invocation.type !== "unavailable" &&
-        !(
-          entry.invocation.type === "action" &&
-          entry.invocation.action === "plan" &&
-          provider !== "claude"
-        ) &&
-        (adding ? entry.kind === "builtin" : entry.kind !== "builtin" || !!query.trim()),
-    );
-    const named = available.filter(
-      (entry) =>
-        entry.name.toLowerCase().includes(q) || catalogDisplayName(entry).toLowerCase().includes(q),
-    );
-    items = (
-      named.length
-        ? named
-        : available.filter((entry) => entry.description.toLowerCase().includes(q))
-    )
-      .map((entry) => ({
-        kind,
-        group: adding
-          ? groups[entry.kind]
-          : entry.kind === "builtin"
-            ? "Commands"
-            : groups[entry.kind],
-        insert: entry.name,
-        label: entry.kind === "builtin" ? entry.name : catalogDisplayName(entry),
-        detail: entry.description,
-        entry,
-      }))
-      .toSorted((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+    items = commandSuggestions(catalog.entries, {
+      query,
+      provider,
+      draft: !!thread.draft,
+      adding,
+    }).map((item) => ({ ...item, kind, insert: item.entry?.name ?? item.label }));
     if (!items.length && catalog.stale) return { state: "loading", kind, query };
   }
   return items.length
