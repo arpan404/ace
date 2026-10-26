@@ -116,6 +116,8 @@ async function install(service: AgentRegistry, runtime: "binary" | "npm" | "uv")
   });
   if (!reply.result.ok || !("installation" in reply.result))
     throw new Error(`No ${runtime} installation: ${JSON.stringify(reply.result)}`);
+  // The inventory write is confirmed durable, not merely published.
+  expect(reply.result).not.toHaveProperty("durability");
   return { plan: preview.result.plan, installation: reply.result.installation };
 }
 
