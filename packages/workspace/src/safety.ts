@@ -190,8 +190,8 @@ export class SafeRoot {
       throw failure(error);
     }
   }
-  /** Win32: the directory handles of the search pass running in this async context. */
-  private windowsPasses: AsyncLocalStorage<PassDirectories> | undefined;
+  /** Win32: this async context's pass handles; null marks a pass that could not pin the root. */
+  private windowsPasses: AsyncLocalStorage<PassDirectories | null> | undefined;
   /** Win32: whether this async context already runs inside a pass. */
   windowsInPass(): boolean {
     return this.windowsPasses?.getStore() !== undefined;
@@ -203,17 +203,17 @@ export class SafeRoot {
    */
   async windowsPass<T>(run: () => Promise<T>): Promise<T> {
     if (process.platform !== "win32" || this.windowsInPass()) return run();
+    this.windowsPasses ??= new AsyncLocalStorage();
     let root: Descriptor | undefined;
     try {
       root = openRoot(this.root);
       if (!same(await root.stat(), this.identity)) throw new Error("Workspace root was replaced");
     } catch {
       await root?.close().catch(() => {});
-      // The general path reports the root's real state.
-      return run();
+      // The general path reports the root's real state; null keeps the pass from restarting.
+      return this.windowsPasses.run(null, run);
     }
     const directories = new PassDirectories(root);
-    this.windowsPasses ??= new AsyncLocalStorage();
     try {
       return await this.windowsPasses.run(directories, run);
     } finally {
