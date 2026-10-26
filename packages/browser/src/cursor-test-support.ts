@@ -87,8 +87,12 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
   const server = createServer((request, response) => {
     const body = pages[request.url ?? "/"];
     if (!body) return void response.writeHead(404).end();
-    response.setHeader("Content-Type", "text/html");
-    response.end(body);
+    response.writeHead(200, { "Content-Type": "text/html" });
+    if (request.url !== "/next") return void response.end(body);
+    // The next page commits before its markup arrives, as a slow server's does: the cursor
+    // layer has to come back on a document that has no <html> yet.
+    response.flushHeaders();
+    setTimeout(() => response.end(body), 300);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
