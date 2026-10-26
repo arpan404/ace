@@ -263,7 +263,6 @@ jobs:
       - name: Prepare real Windows browser for streaming checks
         if: ${{ false }}
         id: browser-prepare
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
