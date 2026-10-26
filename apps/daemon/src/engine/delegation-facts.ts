@@ -3,6 +3,7 @@ import type {
   AgentId,
   DelegationOutcome,
   DelegationRecord,
+  HostId,
   ProviderKind,
   Thread,
   ThreadId,
@@ -32,6 +33,7 @@ export class DelegationFacts {
       parentAgentId: AgentId;
       machine: string;
       name: string;
+      hostId?: HostId | undefined;
       provider: ProviderKind;
       model?: string | undefined;
       role: string;
@@ -68,7 +70,11 @@ export class DelegationFacts {
             generation: 0,
             complete: settled,
             outcome: child.outcome,
-            machine: { machine: child.machine, name: child.name },
+            machine: {
+              machine: child.machine,
+              name: child.name,
+              ...(child.hostId ? { hostId: child.hostId } : {}),
+            },
           },
         },
         ...(hold === "start"

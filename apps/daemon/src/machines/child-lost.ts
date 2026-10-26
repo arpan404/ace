@@ -2,6 +2,7 @@ import {
   InteractionId,
   type Command,
   type CommandResult,
+  type HostId,
   type InteractionRequest,
   type MachineThreadView,
 } from "@ace/protocol";
@@ -21,6 +22,7 @@ export interface LostChildrenDeps {
   engine(): Engine | undefined;
   now(): number;
   label(machine: string): string;
+  host?(machine: string): HostId | undefined;
   results: ChildResults;
   mirror: RequestMirror;
   emit(ids: readonly string[]): void;
@@ -157,6 +159,7 @@ export class LostChildren {
         parentAgentId: row.parent_agent,
         machine: row.machine,
         name,
+        hostId: this.deps.host?.(row.machine),
         provider: row.provider,
         model: row.model ?? undefined,
         role: row.role,
