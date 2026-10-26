@@ -218,6 +218,10 @@ enum BridgePatch: Decodable, Sendable {
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
+    /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
+    case projectLook(String, ProjectLookPatch?)
+    /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
+    case machineIdentity(String)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
     case changesSummary(String, Int, ChangesSummary)
@@ -244,7 +248,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -303,6 +307,10 @@ enum BridgePatch: Decodable, Sendable {
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
+        case "project.look":
+            // A look that doesn't read draws the initials rather than failing the frame.
+            self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
+        case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))

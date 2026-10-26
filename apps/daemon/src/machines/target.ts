@@ -74,18 +74,36 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     };
     return description;
   }
-  async function run(device: Device, request: MachineCallRequest, signal: AbortSignal) {
-    const { call, origin } = request;
+  /** This machine's access and the device's scope allow the call. */
+  async function admit(device: Device, call: MachineCall): Promise<"read" | "operate"> {
     const access = await grant(device);
     if (needs(call, deps.browser) === "operate" && access !== "operate")
       throw new TargetRefusal(
         "machine_forbidden",
         "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Fleet.",
       );
+    return access;
+  }
+  async function run(device: Device, request: MachineCallRequest, signal: AbortSignal) {
+    const { call, origin } = request;
     const owned = (threadId: string) => {
       if (!deps.threads.owns(device, threadId))
         throw new TargetRefusal("not_found", "No such thread from that machine.");
     };
+    if (call.op === "message") {
+      // A message refused here is refused for good: saved under its request before any copy
+      // can be admitted, so the calling machine can stop waiting on it (ADR 0099).
+      try {
+        await admit(device, call);
+        owned(call.threadId);
+      } catch (error) {
+        if (error instanceof TargetRefusal)
+          throw deps.threads.rejections.reject(device, call, error);
+        throw error;
+      }
+      return deps.threads.message(device, call);
+    }
+    const access = await admit(device, call);
     switch (call.op) {
       case "describe":
         return describe(device, access);
@@ -97,9 +115,6 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "cancel":
         owned(call.threadId);
         return deps.threads.cancel(device, call.threadId);
-      case "message":
-        owned(call.threadId);
-        return deps.threads.message(device, call);
       case "respond":
         owned(call.threadId);
         return deps.threads.respond(device, call);

@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 
 /**
  * Writes ace's Phosphor icons (DESIGN.md "Icons": Phosphor only, regular weight, bold only at
@@ -12,7 +13,8 @@ import { fileURLToPath } from "node:url";
  * Path data comes from the installed `@phosphor-icons/react` package (MIT, the same icons the
  * web app draws). Every icon is written in `regular` (`ph-<name>`) and `bold`
  * (`ph-<name>-bold`). Add an icon by adding its Phosphor name to `extra`, or a row to
- * `fromSymbols` when it replaces an SF Symbol. The outputs are committed.
+ * `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark
+ * (`@ace/ui-core`) is included, so the bridge can name them. The outputs are committed.
  */
 
 /**
@@ -285,7 +287,14 @@ function svgOf(fragment: Element): string {
 const root = join(import.meta.dirname, "..");
 const folder = join(root, "Shared", "Icons.xcassets");
 const defs = join(dirname(fileURLToPath(import.meta.resolve("@phosphor-icons/react"))), "defs");
-const names = [...new Set([...Object.values(fromSymbols), ...extra])].toSorted();
+const names = [
+  ...new Set([
+    ...Object.values(fromSymbols),
+    ...extra,
+    ...Object.values(projectGlyphIcons),
+    ...Object.values(machineIconGlyphs),
+  ]),
+].toSorted();
 
 await rm(folder, { recursive: true, force: true });
 await mkdir(folder, { recursive: true });

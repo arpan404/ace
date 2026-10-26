@@ -57,7 +57,9 @@ private struct ArchiveRows: View {
         let ids = archive.list.ids.filter { client.inbox[$0] != nil }
         ForEach(ids, id: \.self) { id in
             if let row = client.inbox[id] {
-                Button { open(id) } label: { InboxThreadRow(row: row, snoozed: false) }
+                Button { open(id) } label: {
+                    InboxThreadRow(row: row, snoozed: false, project: row.workspaceId.flatMap { client.projectLooks[$0] })
+                }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("archive.\(id)")
                     .accessibilityHint("Opens read-only")

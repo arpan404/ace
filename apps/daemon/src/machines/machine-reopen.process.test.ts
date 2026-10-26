@@ -8,8 +8,8 @@ import {
   type AgentControlOperation,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
-import { pairedMachines } from "./machine-test-support.ts";
-import { MachineFailure, machineRequest, type MachineTransport } from "./transport.ts";
+import { gatedTransport, pairedMachines } from "./machine-test-support.ts";
+import { machineRequest, type MachineTransport } from "./transport.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 const Delegated = z.object({ threadId: ThreadId });
@@ -143,51 +143,6 @@ it("a remote child stopped while waiting and then given work by the person on it
 }, 90_000);
 
 /**
- * The source's calls to the target, where message requests can be held before they reach it, as
- * a request waiting in the target's access check is from the caller's side. `failCaller` makes
- * the caller hear a dropped connection while its request is still on its way.
- */
-function gatedTransport() {
-  const gate = { closed: false, failCaller: false, onlyFirst: false, release: () => {} };
-  let opened = Promise.resolve();
-  let arrived: Promise<void> = Promise.resolve();
-  let held = 0;
-  let statusCalls = 0;
-  const transport: MachineTransport = async (profile, body, options) => {
-    if (body.call.op === "status") statusCalls++;
-    if (body.call.op !== "message" || !gate.closed || (gate.onlyFirst && held > 0))
-      return machineRequest(profile, body, options);
-    held++;
-    const arrives = opened.then(() => machineRequest(profile, body, options));
-    arrived = arrives.then(
-      () => undefined,
-      () => undefined,
-    );
-    if (!gate.failCaller) return arrives;
-    arrives.catch(() => undefined);
-    throw new MachineFailure("disconnected");
-  };
-  return {
-    transport,
-    gate,
-    held: () => held,
-    /** Settles once the held copies have reached the target and it answered. */
-    arrived: () => arrived,
-    statusCalls: () => statusCalls,
-    close() {
-      gate.closed = true;
-      opened = new Promise((resolve) => {
-        gate.release = () => resolve();
-      });
-    },
-    open() {
-      gate.closed = false;
-      gate.release();
-    },
-  };
-}
-
-/**
  * A child that finished, then a follow-up held on its way. While the target still reports the
  * old result, at least two whole polls pass and the child never reads done; then the request
  * lands and the child reports its real new result, the message having run once.
@@ -263,36 +218,22 @@ async function droppedFollowUp(before: (pair: Pair) => Promise<void>) {
   return { pair, gated, child };
 }
 
-it("a retry refused only at the target's access check never lets the child read done before the delayed original runs", async () => {
-  // Agents from the caller may only read there for now: its retries are refused at the access
-  // check, which says nothing about the copy still on its way.
+it("a retry refused at the target's access check is refused for good: the child settles back and the delayed original never runs", async () => {
+  // Agents from the caller may only read there for now: the retry is refused at the access
+  // check, which the target saves for the request before any copy is admitted.
   const { pair, gated, child } = await droppedFollowUp((paired) => paired.access("read"));
-  const after = gated.statusCalls();
-  await vi.waitFor(() => expect(gated.statusCalls()).toBeGreaterThan(after + 1), {
+  await vi.waitFor(async () => expect(await stateHere(pair, child)).toBe("done"), {
     timeout: 15_000,
   });
-  expect(await stateHere(pair, child)).toBe("working");
-  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
-    "done",
-  );
+  expect(await waitFor(pair, child)).toMatchObject({ state: "done", result: "First pass done." });
 
-  // Agents may act there again, and the delayed original lands and runs.
+  // Agents may act there again, and the delayed original lands: it gets the saved refusal.
   await pair.access("operate");
   gated.open();
   await gated.arrived();
-  retriesDue(pair);
-  await pair.finishTask(child, "Do a second pass", "Second pass done.");
-  await vi.waitFor(
-    async () =>
-      expect(await waitFor(pair, child)).toMatchObject({
-        state: "done",
-        result: "Second pass done.",
-      }),
-    { timeout: 15_000 },
-  );
-  expect(
-    (pair.target.h.inputs.get(child) ?? []).filter((text) => text === "Do a second pass"),
-  ).toHaveLength(1);
+  await pair.target.daemon.engine?.flush();
+  expect(pair.target.h.inputs.get(child) ?? []).not.toContain("Do a second pass");
+  expect(await stateHere(pair, child)).toBe("done");
 }, 120_000);
 
 it("a message the target refused for that request never runs, not even a copy that was still on its way", async () => {

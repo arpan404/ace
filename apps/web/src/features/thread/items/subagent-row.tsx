@@ -17,6 +17,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { AgentRowContents, agentRowStyles, type AgentRowParts } from "./agent-row.tsx";
+import { LostChildAction } from "./lost-child-action.tsx";
 
 export { subagentTones } from "./agent-row.tsx";
 
@@ -55,7 +56,8 @@ function useMeta(entry: SubagentEntry): string | undefined {
 /**
  * One subagent (or thread ace delegated) as a row: its provider's mark, its name and model, its
  * status word and how long it ran, and what it does now or found. The whole row opens it; one
- * that needs the person also offers Review, which opens it where its request waits.
+ * that needs the person also offers Review, which opens it where its request waits, and a child
+ * on another machine whose pairing is gone offers Stop tracking.
  */
 export function SubagentRow(props: {
   threadId: string;
@@ -119,6 +121,9 @@ export function SubagentRow(props: {
         >
           <AgentRowContents {...parts} />
         </button>
+      )}
+      {entry.machine && entry.childThreadId && entry.state === "human" && (
+        <LostChildAction threadId={props.threadId} childThreadId={entry.childThreadId} />
       )}
       {kind === "human" && target && (
         <SubagentLink

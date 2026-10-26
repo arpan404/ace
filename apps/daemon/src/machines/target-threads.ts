@@ -33,6 +33,7 @@ import { messageArrival } from "../agent-control/message-arrival.ts";
 import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import { TargetLaunches } from "./target-launches.ts";
+import { MessageRejections, messageKey } from "./target-rejections.ts";
 import { queuedStatus, queuedStep, unlaunchedResult } from "../agent-control/child-status.ts";
 import { accountModelName } from "../agent-control/models.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
@@ -62,6 +63,8 @@ export class TargetThreads {
   private unsubscribe: () => void;
   /** First runs of delegated threads, which wait for a free slot instead of being refused. */
   readonly launches: TargetLaunches;
+  /** Messages refused before they reached their thread, which no copy of can ever run. */
+  readonly rejections: MessageRejections;
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
     deps.store.atomic((db) =>
@@ -74,6 +77,7 @@ export class TargetThreads {
       for (const event of events) this.observe(event);
     });
     this.launches = new TargetLaunches(deps);
+    this.rejections = new MessageRejections(deps.store, deps.now);
   }
   close() {
     this.unsubscribe();
@@ -287,12 +291,22 @@ export class TargetThreads {
    * sends it once. The answer says how it arrives; one that never will is refused with why.
    */
   message(device: Device, call: Extract<MachineCall, { op: "message" }>) {
+    const key = messageKey(device, call);
+    // A copy that authenticated before its device was revoked or ran out is never admitted.
+    if (!this.rejections.active(device)) throw new TargetRefusal("unauthorized");
+    // Checked before anything is admitted: a refused request never runs, whenever a copy lands.
+    const rejected = this.rejections.find(key);
+    if (rejected) throw rejected;
+    // Deletion is permanent, so no copy of a message to a deleted thread can ever run.
+    const thread = this.deps.store.getThread(call.threadId);
+    if (!thread || thread.deletedAt !== undefined)
+      throw this.rejections.reject(
+        device,
+        call,
+        new TargetRefusal("not_found", "Its thread was deleted on this machine."),
+      );
     const engine = this.deps.engine();
     if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
-    const key = createHash("sha256")
-      .update(JSON.stringify([device.id, call.threadId, call.requestId]))
-      .digest("hex")
-      .slice(0, 32);
     try {
       return this.deliver(device, call, engine, key);
     } catch (error) {
@@ -394,10 +408,12 @@ export class TargetThreads {
       return {
         threadId,
         state: "cancelled",
-        title: "",
+        title: thread ? clip(thread.title, 120) : "",
         elapsedSeconds: 0,
         status: { state: "done" },
         requests: [],
+        result: "Its thread was deleted on that machine.",
+        truncated: false,
       };
     const waiting = this.waitingView(thread);
     if (waiting) return waiting;

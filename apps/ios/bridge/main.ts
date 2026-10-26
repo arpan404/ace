@@ -15,6 +15,8 @@ import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { followMachineIdentity } from "./machine-identity.ts";
+import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
@@ -172,7 +174,10 @@ async function start(json: string): Promise<void> {
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
   );
+  // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
+  followProjectLooks(client, pump);
   followMachine(client, pump, trust);
+  followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {

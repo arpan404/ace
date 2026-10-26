@@ -17,6 +17,12 @@ export function retryDelay(attempts: number): number {
  * no copy is anywhere and nothing will run.
  */
 export type Answer = "taken" | "decided" | "refused";
+/**
+ * How a machine answered a message sent again: as Answer, or `rejected` when it refused the
+ * request before it ever reached the child and recorded that, so no copy of it can ever run
+ * there (ADR 0099). The reason is for the parent.
+ */
+export type ResendAnswer = "taken" | "decided" | { rejected: string };
 
 export interface ChildMessagesDeps {
   store: Store;
@@ -24,21 +30,25 @@ export interface ChildMessagesDeps {
   now(): number;
   /**
    * Sends a message again under its own request id, which the machine runs at most once.
-   * "taken" or "decided" answers for it; anything else (a machine that can't be reached, a
-   * refusal of this attempt alone) throws, and the message is sent again later.
+   * Any ResendAnswer answers for it; anything else (a machine that can't be reached, a refusal
+   * of this attempt alone) throws, and the message is sent again later.
    */
   resend(
     machine: string,
     parentThreadId: ThreadId,
     child: ThreadId,
     message: MachineMessage,
-  ): Promise<"taken" | "decided">;
+  ): Promise<ResendAnswer>;
   /** A settled child given new work: open again, in the transaction that records the work. */
   reopenSettled(row: ChildRow): void;
   /** Its machine took the work: replies read before now no longer apply. */
   reopen(id: ThreadId): void;
   /** Something to poll for may have changed. */
   changed(): void;
+  /** Why a message to the child is still unanswered after an attempt; undefined once answered. */
+  held(child: ChildRow, error: unknown): void;
+  /** The machine rejected a message before it reached the child: the parent hears why. */
+  rejected(child: ChildRow, requestId: string, reason: string): void;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
@@ -80,6 +90,8 @@ export class ChildMessages {
       released = true;
       this.inFlight.delete(key);
       if (answer) this.answered(id, message.requestId, answer);
+      const row = ledger.row(id);
+      if (answer && row && !ledger.hasMessages(id)) this.deps.held(row, undefined);
       this.deps.changed();
     };
   }
@@ -88,12 +100,16 @@ export class ChildMessages {
    * advances the child's generation in the same transaction that drops the record, so a status reply read before it can never settle
    * the child once nothing guards it. Should saving fail (a busy store), the record stays and the
    * next poll sends the message again, which its machine answers without running it twice.
+   * An answer whose record is already gone applies nothing: a late reply after the person stopped
+   * tracking the child (which drops its records) never reopens it.
    */
-  private answered(id: ThreadId, requestId: string, answer: Answer): void {
+  private answered(id: ThreadId, requestId: string, answer: Answer, rejected?: string): void {
     try {
       this.deps.store.atomic(() => {
-        this.deps.ledger.resolveMessage(id, requestId);
+        if (!this.deps.ledger.resolveMessage(id, requestId)) return;
         if (answer !== "refused") this.deps.reopen(id);
+        const row = rejected === undefined ? undefined : this.deps.ledger.row(id);
+        if (row && rejected !== undefined) this.deps.rejected(row, requestId, rejected);
       });
     } catch (error) {
       this.deps.log("Machine message answer not saved yet", { id, error: String(error) });
@@ -137,9 +153,14 @@ export class ChildMessages {
             child.id,
             message,
           );
-          this.answered(child.id, message.requestId, answer);
+          // A rejection proves nothing ran or ever will, so the child is not reopened for it.
+          if (typeof answer === "string") this.answered(child.id, message.requestId, answer);
+          else this.answered(child.id, message.requestId, "refused", answer.rejected);
+          if (!this.deps.ledger.hasMessages(child.id)) this.deps.held(child, undefined);
         } catch (error) {
           this.deps.log("Machine message still unanswered", { id: child.id, error: String(error) });
+          // Still waiting, never settled: the parent's agents_status and wait show why.
+          this.deps.held(child, error);
         } finally {
           this.inFlight.delete(key);
           this.deps.changed();
