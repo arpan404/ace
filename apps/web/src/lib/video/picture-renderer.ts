@@ -44,6 +44,8 @@ export interface PictureRendererPorts<P extends LivePicture> {
 
 /** Decoder errors in a row without a picture before the codec counts as unsupported here. */
 const failureLimit = 3;
+/** Pictures in the decoder whose details are kept for its output: about a second at 60 fps. */
+const submittedLimit = 64;
 
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
@@ -59,6 +61,27 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   let video: VideoStream | undefined;
   /** The newest H.264 picture handed to the decoder: acks name its stream. */
   let latest: P | undefined;
+  /**
+   * Pictures handed to the current decoder, by sequence, so a picture it hands back late is
+   * shown with its own time, size and rotation rather than the newest picture's.
+   */
+  const submitted = new Map<number, P>();
+  const submit = (picture: P) => {
+    submitted.set(picture.sequence, picture);
+    if (submitted.size <= submittedLimit) return;
+    const oldest = submitted.keys().next();
+    if (!oldest.done) submitted.delete(oldest.value);
+  };
+  /** The picture `sequence` came from; older ones are done with. */
+  const take = (sequence: number): P | undefined => {
+    const found = submitted.get(sequence);
+    for (const key of submitted.keys()) {
+      if (key > sequence) break;
+      submitted.delete(key);
+    }
+    return found;
+  };
+  const forget = () => submitted.clear();
   /** Deltas can't be decoded until a keyframe comes; `asked`: one was asked for. */
   let needKey = true;
   let asked = 0;
@@ -107,7 +130,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       });
     video = new VideoStream(decoder, {
       present: ({ picture }) => {
-        const shown = latest && { ...latest, sequence: picture.sequence };
+        const shown = take(picture.sequence);
         if (closed || !shown) return picture.close();
         failures = 0;
         const nextFrame = ports.nextFrame;
@@ -127,7 +150,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         ack(shown, false);
       },
       ack: (sequence, keyframe) => {
-        const target = latest && { ...latest, sequence };
+        const target = submitted.get(sequence) ?? (latest && { ...latest, sequence });
         if (!target) return;
         if (!keyframe) return void ack(target, false);
         // A decode error: the decoder starts again from a keyframe, or gives up on video.
@@ -148,6 +171,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   const reset = () => {
     dropQueued();
     video?.reset();
+    forget();
     previous = -1;
     needKey = true;
     asked = 0;
@@ -177,6 +201,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         // Ask once, and again only if a second's worth of deltas passed without the keyframe.
         if (!asked || asked++ >= 30) {
           decoder.reset();
+          forget();
           recover(picture);
         } else ack(picture, false);
         return;
@@ -184,6 +209,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       needKey = false;
       asked = 0;
       latest = picture;
+      submit(picture);
       decoder.receive({ ...picture, codedWidth: picture.width, codedHeight: picture.height });
     },
     /** Forget the decoder's place (a hidden page, a reconnect): the next keyframe starts over. */

@@ -163,3 +163,67 @@ test("paced to the display, a burst draws only its newest picture at the refresh
   expect(shown).toEqual([5, 6]);
   renderer.close();
 });
+
+interface TurnedPicture extends LivePicture {
+  rotation: number;
+  scale: number;
+}
+
+/** A renderer whose decoder holds every chunk until the test releases its picture. */
+function delayedSetup() {
+  const shown: Pick<TurnedPicture, "sequence" | "timestamp" | "rotation" | "scale">[] = [];
+  const acks: { sequence: number; timestamp: number; keyframe: boolean }[] = [];
+  const decoders: { output: (sequence: number) => void }[] = [];
+  const renderer = pictureRenderer<TurnedPicture>({
+    decoder: (handlers) => {
+      decoders.push({
+        output: (sequence) => handlers.output({ sequence, draw: () => {}, close: () => {} }),
+      });
+      return { configure: () => {}, decode: () => {}, close: () => {} };
+    },
+    show: (_image, target) =>
+      shown.push({
+        sequence: target.sequence,
+        timestamp: target.timestamp,
+        rotation: target.rotation,
+        scale: target.scale,
+      }),
+    ack: (target, keyframe) =>
+      acks.push({ sequence: target.sequence, timestamp: target.timestamp, keyframe }),
+    fallback: () => {},
+    pressure: () => {},
+  });
+  const turned = (
+    sequence: number,
+    rotation: number,
+    options: { key?: boolean; streamId?: string; timestamp?: number; scale?: number } = {},
+  ): TurnedPicture => ({
+    ...picture(sequence, { key: options.key ?? false, streamId: options.streamId ?? "capture-1" }),
+    timestamp: options.timestamp ?? sequence * 1000,
+    rotation,
+    scale: options.scale ?? 1,
+  });
+  return { renderer, shown, acks, decoders, turned };
+}
+
+test("a picture the decoder hands back late is shown with its own time, rotation and scale", async () => {
+  const view = delayedSetup();
+  await view.renderer.render(view.turned(1, 0, { key: true, scale: 3 }));
+  await view.renderer.render(view.turned(2, 90, { scale: 2 }));
+  view.decoders[0]?.output(1);
+  expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 0, scale: 3 }]);
+  expect(view.acks).toEqual([{ sequence: 1, timestamp: 1000, keyframe: false }]);
+  view.decoders[0]?.output(2);
+  expect(view.shown.at(-1)).toEqual({ sequence: 2, timestamp: 2000, rotation: 90, scale: 2 });
+});
+
+test("a late picture from before a new capture is never shown with the new capture's details", async () => {
+  const view = delayedSetup();
+  await view.renderer.render(view.turned(1, 0, { key: true }));
+  await view.renderer.render(view.turned(1, 270, { key: true, streamId: "capture-2" }));
+  // The first capture's decoder answers after the switch: dropped, not drawn as capture 2's.
+  view.decoders[0]?.output(1);
+  expect(view.shown).toEqual([]);
+  view.decoders.at(-1)?.output(1);
+  expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 270, scale: 1 }]);
+});
