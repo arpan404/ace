@@ -1,7 +1,7 @@
 import { bundleDaemon } from "../../../tools/release/src/bundle.ts";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { stageNodeRuntime } from "../../../tools/release/src/node-runtime.ts";
+import { stageNodeRuntime, nodeVersion } from "../../../tools/release/src/node-runtime.ts";
 import { ReleaseTarget } from "@ace/protocol";
 const repo = resolve(import.meta.dirname, "../../..");
 const root = resolve(
@@ -21,6 +21,7 @@ if (process.argv.includes("--runtime")) {
   await mkdir(cacheDir, { recursive: true });
   await stageNodeRuntime({
     target: ReleaseTarget.parse(`${process.platform}-${process.arch}`),
+    version: nodeVersion,
     cacheDir,
     destination: root,
   });

@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
+import { nodeVersion, stageWindowsNodeRuntime } from "./node-runtime.ts";
 
 const names = {
   exe: `node-v${nodeVersion}-win32-x64.exe`,
@@ -62,7 +62,7 @@ test.each(["win32-x64", "win32-arm64"] as const)(
           const cacheDir = join(root, "cache");
           const destination = join(root, "runtime");
           await mkdir(cacheDir, { recursive: true });
-          await stageNodeRuntime({
+          await stageWindowsNodeRuntime({
             target,
             cacheDir,
             destination,
@@ -95,7 +95,7 @@ test("a trusted cache is reused without downloading", async () => {
         return undefined;
       },
       async (baseUrl) => {
-        await stageNodeRuntime({
+        await stageWindowsNodeRuntime({
           target: "win32-x64",
           cacheDir,
           destination: join(root, "first"),
@@ -110,7 +110,7 @@ test("a trusted cache is reused without downloading", async () => {
       () => ({ status: 500, body: Buffer.from("must not be fetched") }),
       async (baseUrl) => {
         const destination = join(root, "second");
-        await stageNodeRuntime({
+        await stageWindowsNodeRuntime({
           target: "win32-x64",
           cacheDir,
           destination,
@@ -145,7 +145,7 @@ test("a corrupt cache is replaced by a verified download", async () => {
       },
       async (baseUrl) => {
         const destination = join(root, "runtime");
-        await stageNodeRuntime({
+        await stageWindowsNodeRuntime({
           target: "win32-x64",
           cacheDir,
           destination,
@@ -177,7 +177,7 @@ test("a checksum mismatch cannot enter the runtime", async () => {
       },
       async (baseUrl) => {
         await expect(
-          stageNodeRuntime({
+          stageWindowsNodeRuntime({
             target: "win32-x64",
             cacheDir: join(root, "cache"),
             destination: join(root, "runtime"),
@@ -207,7 +207,7 @@ test("an oversized download is refused before it can grow the cache", async () =
       },
       async (baseUrl) => {
         await expect(
-          stageNodeRuntime({
+          stageWindowsNodeRuntime({
             target: "win32-x64",
             cacheDir: join(root, "cache"),
             destination: join(root, "runtime"),
@@ -241,7 +241,7 @@ test("parallel staging shares the LICENSE cache without losing either runtime", 
       },
       async (baseUrl) => {
         await Promise.all([
-          stageNodeRuntime({
+          stageWindowsNodeRuntime({
             target: "win32-x64",
             cacheDir,
             destination: join(root, "runtime-x64"),
@@ -249,7 +249,7 @@ test("parallel staging shares the LICENSE cache without losing either runtime", 
             licenseUrl: `${baseUrl}/LICENSE`,
             files: { exe: pinsFor(exeX64), license: pinsFor(license) },
           }),
-          stageNodeRuntime({
+          stageWindowsNodeRuntime({
             target: "win32-arm64",
             cacheDir,
             destination: join(root, "runtime-arm64"),
@@ -287,7 +287,7 @@ test("a failed download leaves no cache entry and the next staging retries", asy
       },
       async (baseUrl) => {
         await expect(
-          stageNodeRuntime({
+          stageWindowsNodeRuntime({
             target: "win32-x64",
             cacheDir,
             destination: join(root, "failed"),
@@ -309,7 +309,7 @@ test("a failed download leaves no cache entry and the next staging retries", asy
       },
       async (baseUrl) => {
         const destination = join(root, "runtime");
-        await stageNodeRuntime({
+        await stageWindowsNodeRuntime({
           target: "win32-x64",
           cacheDir,
           destination,
