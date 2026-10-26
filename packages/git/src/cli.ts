@@ -35,6 +35,7 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
+import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
@@ -593,7 +594,7 @@ export class GitCli {
       args = windowsHooklessArgs(args);
       windowsHooklessEnv(env);
       // Deep checkout paths past MAX_PATH; Git for Windows refuses them by default.
-      args = ["-c", "core.longpaths=true", ...args];
+      windowsLongPathsEnv(env);
     }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.

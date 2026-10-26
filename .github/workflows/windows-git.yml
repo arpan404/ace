@@ -62,6 +62,9 @@ jobs:
           bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.arch }}
+      # Shared fixtures expect Git's checkout bytes; the CRLF workflow test sets autocrlf itself.
+      - name: Keep fixture checkouts byte-exact
+        run: git config --system core.autocrlf false
       - name: Git and gh on this runner
         run: |
           node -p "JSON.stringify({ arch: process.arch, version: process.version })"
