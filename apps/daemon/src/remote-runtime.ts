@@ -91,6 +91,11 @@ export function remoteRuntime(
     try {
       remote = await remoteListener({ ...config, listen }, options.network);
     } catch {
+      if (process.platform === "win32" && listen === "lan")
+        throw new SettingsError(
+          "io",
+          "Couldn't find this computer's LAN address. Connect it to a network, or set ACE_ADVERTISE_HOST to its LAN address, then try again.",
+        );
       throw new SettingsError(
         "io",
         listen === "tailscale"
