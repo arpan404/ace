@@ -20,6 +20,7 @@ import { DeviceChromeReader } from "./device-chrome-reader.ts";
 import { SimulatorPostures } from "./simulator-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
+import { iosNeedsMac } from "./sdk.ts";
 import {
   adbShell,
   androidInput,
@@ -104,6 +105,7 @@ export class DevicePlatform {
       ...this.missingSDKs,
       ...this.android.diagnostics().map((issue) => tagged(issue, "android")),
       ...(this.inputHint ? [tagged(this.inputHint, "ios")] : []),
+      ...(this.options.platform === "win32" ? [tagged(iosNeedsMac(), "ios")] : []),
     ].slice(0, 2);
   }
   constructor(options: PlatformOptions) {
