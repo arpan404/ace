@@ -13,6 +13,8 @@ import { permissionDenied } from "./screen-failure.ts";
 import type { CaptureUI } from "./simulator-ui.ts";
 import type { DeviceClipboard } from "./clipboard.ts";
 import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
+import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
+import { nativeId } from "./commands.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -66,6 +68,16 @@ export async function startCapture(options: {
     const { command, version, supported } = status;
     if (command && supported) {
       const device = await options.platform.simulatorDevice(options.device);
+      checkAbort();
+      if (version)
+        await replaceOutdatedHelper({
+          command,
+          args: status.args,
+          version,
+          udid: nativeId(device),
+          env: options.env,
+          runtime: options.runtime,
+        });
       checkAbort();
       const transcoder = options.platform.frameEncoder;
       return simulatorCapture({

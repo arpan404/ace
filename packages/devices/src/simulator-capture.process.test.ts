@@ -31,7 +31,7 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
   const command = join(home, "serve-sim");
   await writeFile(
     command,
-    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('0.1.48');process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}/ws'}));if(process.argv.includes('type')){require('node:fs').writeFileSync(${JSON.stringify(join(home, "typing"))},'ready');setInterval(()=>{},1000);}process.stdin.resume();`,
+    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('0.1.49-beta.139.1');process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}/ws'}));if(process.argv.includes('type')){require('node:fs').writeFileSync(${JSON.stringify(join(home, "typing"))},'ready');setInterval(()=>{},1000);}process.stdin.resume();`,
   );
   await chmod(command, 0o700);
   for (const name of ["xcode-select", "xcrun", "open"]) {

@@ -194,7 +194,7 @@ When a pinned `serve-sim` is installed on the device's Mac, capture uses its CLI
 (`--no-preview --quiet <UDID>`), its H.264 or MJPEG framebuffer stream, its
 persistent WebSocket HID channel and its accessibility route. `ACE_SERVE_SIM` can
 select an explicit executable. Amended 2026-10-20: ace downloads its own pinned copy
-(serve-sim 0.1.48 and `ws`, verified by their npm sha512) into `<dataDir>/tools` when
+(serve-sim 0.1.49-beta.139.1 and `ws`, verified by their npm sha512) into `<dataDir>/tools` when
 devices are enabled, from Devices' "Download device tools", or on the first live view,
 always in a separate process, and runs it with the daemon's Node; the scrcpy server
 downloads the same way. ace's copy is preferred over one on PATH. The legacy screen-helper path remains
@@ -208,7 +208,7 @@ Revised 2026-10-19 (#1102):
   ace's own code keeps to public APIs. serve-sim drives private CoreSimulator,
   SimulatorKit and AccessibilityPlatformTranslation interfaces that move between Xcode
   releases, and its HTTP routes are not a published API, so ace runs only versions it
-  has checked (`serve-sim-version.ts`: 0.1.47 and 0.1.48; 0.1.48 is the install hint).
+  has checked (`serve-sim-version.ts`: 0.1.49-beta.139.1 only, also the install hint).
   Capture asks `serve-sim --version` before each start. Any other version falls back to
   the screen helper, or fails with `tool_missing` naming the pinned version when there
   is no helper or `ACE_SERVE_SIM` names it explicitly. Moving the pin means re-running
@@ -262,6 +262,17 @@ stdin command and reports its supported-keyboard/permission failures honestly.
 
 The supervised CLI owns any helper it starts. A pre-existing serve-sim server is
 borrowed: ace closes its own stream and HID socket without killing that server.
+
+Amended 2026-10-25: serve-sim reuses whatever helper already streams a simulator,
+whichever version started it, and a helper outlives ace's stream. With serve-sim 0.1.48
+on Xcode 27, an iPhone Duo helper went black after some hours and kept being reused. ace
+now pins 0.1.49-beta.139.1 alone (no newer stable release existed). Before each iOS
+capture it asks `serve-sim -l <UDID>` for the running helper and reads that process's
+command line; a helper running a copy ace downloaded (`…/serve-sim-<version>/dist/serve-sim.js`)
+of another version is stopped with `serve-sim -k <UDID>`, so the next stream starts a
+fresh one. Helpers from any other serve-sim are still borrowed. In `--no-preview` mode
+0.1.49 ties the helper's life to the CLI ace supervises. serve-sim may print a notice
+line before the endpoint JSON; capture takes the first line that parses as JSON.
 Android uses bounded JPEG output from the owned screenrecord/ffmpeg pipeline.
 H.264 negotiation falls back to JPEG until subscribers can recover dropped frames
 without restarting native capture. Rotation is read for each capture cycle; unchanged

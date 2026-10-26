@@ -16,7 +16,7 @@ const ios = "ios:00000000-0000-4000-8000-00000000F00D";
 it("on the serve-sim path sim_ui returns refs from its accessibility tree and sim_act taps the element", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-serve-sim-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.48", ios.slice(4));
+  const sim = await fakeServeSim(home, "0.1.49-beta.139.1", ios.slice(4));
   // The fake platform's screens are empty: every tree and tap must come from serve-sim.
   const platform = new FakeSimPlatform(home);
   let id = 0;
