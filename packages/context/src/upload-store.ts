@@ -513,6 +513,8 @@ export class UploadStore {
       else await rename(candidate, this.path(row.sha256));
     }
     await chmod(this.path(row.sha256), 0o400);
+    // On Windows 0o400 sets the read-only attribute, which would block retention's later delete.
+    if (process.platform === "win32") await chmod(this.path(row.sha256), 0o600);
     const directory = await open(join(this.options.root, "blobs"), "r");
     // Windows can't flush a directory handle (EPERM); NTFS journals the new directory entry itself.
     if (process.platform === "win32") Object.assign(directory, { sync: async () => {} });
