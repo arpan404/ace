@@ -7,7 +7,13 @@ import {
   type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { draggedSize, drawnScale, responsive, stageInset, type ResizeHandle } from "./devices.ts";
+import {
+  draggedSize,
+  drawnScale,
+  responsive,
+  stageInset,
+  type ResizeHandle,
+} from "@ace/ui-core/browser-devices";
 import type { PageTools } from "./use-page-tools.ts";
 
 const handles: { handle: ResizeHandle; label: string; className: string; grip: string }[] = [

@@ -285,7 +285,7 @@ export class ThreadSession {
         this.#lane = undefined;
         break;
       case "attach":
-        this.#tray.attach(action.file, this.#tune.reader());
+        this.#tray.attach(action.file);
         break;
       case "detach":
         this.#tray.detach(action.localId);

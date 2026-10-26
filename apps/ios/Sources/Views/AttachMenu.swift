@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// The + menu, "Add files and context": photos (library or camera) and files for the message (the
 /// thread's next one or New thread's first), then the catalog's other builtins the phone can run
 /// (`more`: files to mention, plan mode, the model, ...). It copies and hashes the picked bytes on
-/// the phone and hands them on; every check (size, what the agent can read) is the bridge's.
+/// the phone and hands them on; every check (size, how many) is the bridge's.
 struct AttachMenu<Title: View>: View {
     let stage: (StagedAttachment) -> Void
     /// Why the last pick couldn't be read; nil when it could.
@@ -41,7 +41,7 @@ struct AttachMenu<Title: View>: View {
             if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo") { usingCamera = true } }
             Button("Choose File") { choosingFiles = true }
         }
-        .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .images)
+        .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, picked in
             guard !picked.isEmpty else { return }
             photos = []
@@ -55,11 +55,15 @@ struct AttachMenu<Title: View>: View {
             CameraPicker { image in Task { await stageCamera(image) } }.ignoresSafeArea()
         }
     }
+    /// Anything Photos holds: a picture (HEIC re-encoded so the agent sees it) or a video.
     private func stagePhoto(_ item: PhotosPickerItem) async {
-        let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
-        guard let data = try? await item.loadTransferable(type: Data.self) else { problem = "Couldn't read that photo."; return }
-        let name = "Photo.\(type.preferredFilenameExtension ?? "jpg")"
-        await staged { [staging] in try staging.stage(data: data, name: name, mimeType: type.preferredMIMEType ?? "image/jpeg") }
+        do {
+            let file = try await PhotoLibraryPick.stage(item, into: staging)
+            problem = nil
+            stage(file)
+        } catch {
+            problem = item.supportedContentTypes.contains { $0.conforms(to: .movie) } ? "Couldn't read that video." : "Couldn't read that photo."
+        }
     }
     private func stageCamera(_ image: UIImage) async {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
@@ -94,7 +98,7 @@ struct AttachmentChip: View {
     let remove: () -> Void
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : .file, size: 14, relativeTo: .footnote)
+            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: 14, relativeTo: .footnote)
                 .foregroundStyle(file.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.decoration)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(file.name).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
