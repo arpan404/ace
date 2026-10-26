@@ -50,20 +50,61 @@ import XCTest
         }
         screenshot("tool-bursts-followed")
     }
+    /// While the agent works, the connection drops and comes back, and the app goes to the
+    /// background and returns (a locked phone, another app): the transcript stays on screen
+    /// throughout, never the loading placeholder or an empty feed, and still ends at the newest lines.
+    func testTheTranscriptStaysOnScreenThroughReconnectsWhileTheAgentWorks() throws {
+        let app = open("ios-burst")
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 30))
+        for _ in 0..<4 { _ = try sendBurst() }
+        sleep(2)
+        var blank: [String] = []
+        func watch(_ seconds: TimeInterval, _ phase: String) {
+            let until = Date().addingTimeInterval(seconds)
+            while Date() < until {
+                if (transcript.value as? String) == "Loading" { blank.append("\(phase): loading") }
+                RunLoop.current.run(until: Date().addingTimeInterval(1))
+            }
+        }
+        _ = try sendBurst()
+        try setOnline(false)
+        watch(3, "offline")
+        try setOnline(true)
+        _ = try sendBurst()
+        watch(6, "reconnected")
+        XCUIDevice.shared.press(.home)
+        sleep(4)
+        let burst = try sendBurst()
+        app.activate()
+        watch(6, "foreground")
+        XCTAssertEqual(blank, [], "the transcript never went back to loading")
+        let note = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Burst \(burst):")).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "the burst sent while away arrived")
+        XCTAssertTrue(note.isHittable, "and it is on screen at the end of the feed")
+        screenshot("reconnected-while-working")
+    }
+    private func setOnline(_ online: Bool) throws {
+        try post("/control", #"{"online":\#(online)}"#)
+    }
     /// Asks the fixture for a burst of 30 tool calls on ios-burst; its number.
     private func sendBurst() throws -> Int {
+        try XCTUnwrap(try post("/review/burst", #"{"size":30}"#)["burst"] as? Int)
+    }
+    /// POSTs `body` to the fixture's `path`; its JSON reply.
+    @discardableResult private func post(_ path: String, _ body: String) throws -> [String: Any] {
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
-        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/burst")))
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)\(path)")))
         request.httpMethod = "POST"
-        request.httpBody = Data(#"{"size":30}"#.utf8)
-        var number: Int?
-        let done = expectation(description: "burst sent")
+        request.httpBody = Data(body.utf8)
+        var reply: [String: Any] = [:]
+        let done = expectation(description: "fixture answered \(path)")
         URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data, let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { number = reply["burst"] as? Int }
+            if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { reply = json }
             done.fulfill()
         }.resume()
         wait(for: [done], timeout: 10)
-        return try XCTUnwrap(number)
+        return reply
     }
     /// The live end is drawn and on screen within a moment, and stays there.
     private func assertAtTheEnd(_ app: XCUIApplication, _ when: String) {

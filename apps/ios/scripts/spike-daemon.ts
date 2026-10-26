@@ -28,6 +28,7 @@ import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
+import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -207,6 +208,14 @@ const burstEvery = Number(process.env.ACE_IOS_SPIKE_BURST_MS ?? 0);
 const burstTimer =
   Number.isSafeInteger(burstEvery) && burstEvery > 0
     ? setInterval(() => toolBurst(daemon, ++bursts, 30, burstPace), burstEvery)
+    : undefined;
+seedRichWork(daemon, details);
+let rounds = 0;
+// `ACE_IOS_SPIKE_RICH_MS=5000` adds a round of tall, mixed work to ios-rich that often.
+const richEvery = Number(process.env.ACE_IOS_SPIKE_RICH_MS ?? 0);
+const richTimer =
+  Number.isSafeInteger(richEvery) && richEvery > 0
+    ? setInterval(() => richRound(daemon, ++rounds, burstPace), richEvery)
     : undefined;
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
@@ -411,6 +420,7 @@ process.on("SIGINT", () => {
   clearInterval(timer);
   clearInterval(busyTimer);
   clearInterval(burstTimer);
+  clearInterval(richTimer);
   server.stop(true);
   stopPeer?.();
 });
