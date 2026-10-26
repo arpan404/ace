@@ -9,16 +9,10 @@ export interface FolderAttempt {
   canAllow?: boolean | undefined;
 }
 
-/** A repository to clone onto one machine, with the Clone step filled in. */
-export interface CloneStart {
-  url: string;
-  machine: string;
-}
-
 /** What the project dialogs are asked to do. */
 export type ProjectRequest =
   /** Add project, on one of its tabs. */
-  | { kind: "add"; tab: AddTab; attempt?: FolderAttempt; clone?: CloneStart }
+  | { kind: "add"; tab: AddTab; attempt?: FolderAttempt }
   /**
    * Add a folder known by path (dropped on the window, picked natively): it opens New thread
    * in it, or Add project with the reason when the daemon can't take it.

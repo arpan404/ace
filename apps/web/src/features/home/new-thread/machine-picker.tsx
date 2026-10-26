@@ -1,4 +1,5 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
+import { useRef } from "react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   Menu,
@@ -10,37 +11,40 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
-import { useProjectOrigin } from "@/lib/project-origin.ts";
-import { chatChoice } from "@/lib/chat-choice.ts";
+import type { Machine } from "@/lib/machines.ts";
 import { useManyDevices } from "../row-parts.tsx";
-import { useNewThreadMachines, type Leaving, type NewThreadMachines } from "./machine-choice.ts";
+import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
+import { projectOn } from "./machine-move.ts";
 
 /**
  * The machine a new thread runs on, as a line under the page's question ("on Build server"),
  * shown only while more than one machine is connected. While more than one is online the name
  * is a picker: Enter, Space or a click opens the list; arrows move and Enter picks. A machine
  * that isn't connected shows why and can't be picked. Picking one moves the whole page to it:
- * its projects, models, branches and access.
+ * its projects, models, branches and access. The project and message go along: that machine's
+ * own copy of the repository when it has one, else the project, copied there on send.
  */
 export function MachineLine(props: {
   returnFocus(): HTMLElement | null;
   /** The project (`chatChoice` for a chat) and draft that go along to another machine. */
   project: string;
+  /** The machine the project is on, when it isn't on this one yet. */
+  from?: string | undefined;
   draft: { host: string; key: string };
 }) {
   const host = useMachineIdentity();
   const many = useManyDevices();
   const choice = useNewThreadMachines();
   const online = choice?.machines.filter((machine) => machine.status === "online").length ?? 0;
-  const picks = choice !== undefined && (online > 1 || !choice.current.primary);
-  const repo = useProjectOrigin(picks && props.project !== chatChoice ? props.project : undefined);
-  if (picks)
+  if (choice !== undefined && (online > 1 || !choice.current.primary))
     return (
       <p className={line}>
         on{" "}
         <MachineMenu
           choice={choice}
-          leaving={{ project: props.project, repo, draft: props.draft }}
+          project={props.project}
+          from={props.from}
+          draft={props.draft}
           returnFocus={props.returnFocus}
         />
       </p>
@@ -53,10 +57,24 @@ const line = "-mt-4 mb-6 px-1 text-center text-sm text-muted-foreground";
 
 function MachineMenu(props: {
   choice: NewThreadMachines;
-  leaving: Leaving;
+  project: string;
+  from: string | undefined;
+  draft: { host: string; key: string };
   returnFocus(): HTMLElement | null;
 }) {
   const { machines, current, choose } = props.choice;
+  const moving = useRef(false);
+  // The project goes along: the other machine's own copy of it, or this one, to copy on send.
+  const move = async (next: Machine) => {
+    if (moving.current) return;
+    moving.current = true;
+    const home = props.from ? machines.find((each) => each.id === props.from) : current;
+    try {
+      choose(next, { ...(await projectOn(next, props.project, home)), draft: props.draft });
+    } finally {
+      moving.current = false;
+    }
+  };
   return (
     <Menu>
       <Tip label="Change machine" side="top">
@@ -78,8 +96,7 @@ function MachineMenu(props: {
           value={current.id}
           onValueChange={(id: unknown) => {
             const next = machines.find((machine) => machine.id === id);
-            if (next && next.id !== current.id && next.status === "online")
-              choose(next, props.leaving);
+            if (next && next.id !== current.id && next.status === "online") void move(next);
           }}
         >
           {machines.map((machine) => (

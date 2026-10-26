@@ -17,20 +17,19 @@ export function threadOn(machine: string | undefined, threadId: string) {
 }
 
 /**
- * Link or `navigate` options for New thread on a machine, in one of its projects. `repo` is the
- * project's `origin` URL when it comes from another machine, whose project ids aren't this
- * one's: the page opens this machine's copy of the repository, or offers to clone it.
+ * Link or `navigate` options for New thread on a machine, in one of its projects. `from` names
+ * the machine the project is on when it isn't on this one yet: sending copies it here first.
  */
 export function newThreadOn(
   machine: string | undefined,
   project?: string | undefined,
-  repo?: string | undefined,
+  from?: string | undefined,
 ) {
   return {
     to: "/new",
     search: {
       ...(project ? { project } : {}),
-      ...(repo ? { repo } : {}),
+      ...(from ? { from } : {}),
       ...(machine ? { machine } : {}),
     },
   } as const;

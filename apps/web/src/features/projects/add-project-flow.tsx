@@ -20,8 +20,6 @@ import { useProjectDialogs } from "./projects-context.ts";
 export function AddProjectFlow(props: {
   page: AddPage;
   attempt: PaletteStart["attempt"];
-  /** Start on the Clone step's machine and URL (Clone here, from a project another has). */
-  clone?: PaletteStart["clone"];
   onPage(page: AddPage): void;
   onBack: (() => void) | undefined;
   close(): void;
@@ -29,19 +27,12 @@ export function AddProjectFlow(props: {
   const machines = useMachines();
   const { clone } = useProjectDialogs();
   const land = useLandInProject();
-  const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean } | undefined>(
-    () => {
-      const asked = props.clone && machines.find((each) => each.id === props.clone?.machine);
-      return asked && { id: asked.id, name: asked.name, primary: asked.primary };
-    },
-  );
+  const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean }>();
   // Only machines that can take a project now make it a choice, as in New thread.
   const reachable = machines.filter((each) => each.status === "online");
   const online = reachable.length;
-  const [picking, setPicking] = useState(online > 1 && chosen === undefined);
-  const [cloneUrl, setCloneUrl] = useState<{ machine: string; url: string } | undefined>(
-    props.clone,
-  );
+  const [picking, setPicking] = useState(online > 1);
+  const [cloneUrl, setCloneUrl] = useState<{ machine: string; url: string }>();
   // This window's daemon is found by being primary: its id becomes its host id once known.
   const found =
     chosen && machines.find((each) => each.id === chosen.id || (chosen.primary && each.primary));

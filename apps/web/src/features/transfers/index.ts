@@ -1,5 +1,6 @@
 /** Work on another machine (ADR 0101): the machine chooser, and a thread's transfer line. */
 export { TransferHost } from "./transfer-host.tsx";
+export { TransferLine } from "./transfer-line.tsx";
 export {
   ThreadTransferStrip,
   useThreadTransferState,

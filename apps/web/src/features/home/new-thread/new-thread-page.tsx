@@ -26,7 +26,6 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
-import { useOriginMatch } from "@/lib/project-origin.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import {
@@ -56,7 +55,7 @@ import { useCreateThread } from "./use-create-thread.ts";
 import { noWorktreeReason, useDefaultWorkMode } from "./work-mode.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
-import { useScopedMachine } from "@/lib/machines.ts";
+import { primaryMachineId, useScopedMachine } from "@/lib/machines.ts";
 import { rememberMachine, rememberedProject } from "./machine-choice.ts";
 import { MachineLine } from "./machine-picker.tsx";
 import {
@@ -78,6 +77,8 @@ import { ReturnedStartNotice } from "./returned-start-notice.tsx";
 import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
 import { takeCarriedDraft } from "./carried-draft.ts";
+import { useProjectCopy, useSourceProjectName } from "./use-project-copy.ts";
+import { TransferLine } from "@/features/transfers/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
@@ -136,10 +137,10 @@ export function NewThreadPage(props: {
   recoverStart: boolean;
   project?: string | undefined;
   /**
-   * The project's `origin` URL when it comes from another machine (`newThreadOn`): its id is
-   * that machine's, so this one opens its own copy of the repository, or offers to clone it.
+   * The machine `project` is on when this one doesn't have it yet (`newThreadOn`): the page
+   * writes in it all the same, and sending copies it here first.
    */
-  repo?: string | undefined;
+  from?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -153,10 +154,16 @@ export function NewThreadPage(props: {
   // On another machine every link from here stays on it (ADR 0102).
   const machine = useMachineSearch();
   const scoped = useScopedMachine()?.id;
-  const elsewhere =
-    loaded && !!props.project && props.project !== chatChoice && !projects.includes(props.project);
-  const copy = useOriginMatch(elsewhere ? props.repo : undefined);
-  const requested = copy.state === "matched" ? copy.project : props.project;
+  const requested = props.project;
+  // A project from another machine, to copy here on send; not one removed from this machine.
+  const copyFrom =
+    props.from &&
+    props.from !== (scoped ?? primaryMachineId) &&
+    props.from !== host &&
+    requested &&
+    requested !== chatChoice
+      ? props.from
+      : undefined;
   // "No project" is offered after every project, and is the choice when there are none.
   const choice =
     requested ??
@@ -167,13 +174,13 @@ export function NewThreadPage(props: {
       filter,
     );
   const chat = useChatProject(choice === chatChoice, storage);
-  if (!loaded || !host || copy.state === "matching") return <NewThreadSkeleton />;
-  if (requested && requested !== chatChoice && !projects.includes(requested))
+  if (!loaded || !host) return <NewThreadSkeleton />;
+  const copying = !!copyFrom && !!choice && !projects.includes(choice);
+  if (requested && requested !== chatChoice && !projects.includes(requested) && !copying)
     return (
       <UnavailablePreparation
         host={host}
         project={requested}
-        repo={props.repo}
         skill={props.skill}
         pullRequest={props.pullRequest}
         issue={props.issue}
@@ -200,6 +207,7 @@ export function NewThreadPage(props: {
       {...props}
       host={host}
       project={project}
+      copyFrom={copying ? copyFrom : undefined}
       chat={choice === chatChoice}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
@@ -231,6 +239,8 @@ function PreparationPage(props: {
   project: string;
   /** `project` is the hidden project of a chat with no project (ADR 0099). */
   chat: boolean;
+  /** The machine `project` is on, when this one doesn't have it: sending copies it here. */
+  copyFrom?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -244,7 +254,11 @@ function PreparationPage(props: {
   const { storage } = useLayout();
   const scopedMachine = useScopedMachine()?.id;
   const readinessId = useId();
-  const { ids: projects, name, loaded } = useRegisteredProjects();
+  const { ids: projects, name: nameHere, loaded } = useRegisteredProjects();
+  // A project on its way from another machine goes by its name there.
+  const sourceName = useSourceProjectName(props.copyFrom, props.project);
+  const name = (id: string) => (id === props.project && sourceName) || nameHere(id);
+  const copy = useProjectCopy(props.copyFrom, props.project, props.host);
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
@@ -319,7 +333,8 @@ function PreparationPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const defaultMode = useDefaultWorkMode();
-  const branches = useBaseRefs(props.chat ? undefined : project);
+  // A project still to be copied here has no branches here to read: it starts from its default.
+  const branches = useBaseRefs(props.chat || props.copyFrom ? undefined : project);
   // A folder that isn't a Git repository, or one with no commit yet, can only run locally. A
   // chat's folder never is one.
   const noWorktree = props.pullRequest
@@ -459,7 +474,7 @@ function PreparationPage(props: {
   }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
-  const scope = useDraftScope(project, {
+  const scope = useDraftScope(props.copyFrom ? undefined : project, {
     epoch: preparation(storage, props.host, draftKey)?.scopeEpoch,
     read: () => {
       const id = preparation(storage, props.host, draftKey)?.draftId;
@@ -629,7 +644,10 @@ function PreparationPage(props: {
     hasFiles,
     scopeReady: scope.draftId !== undefined,
     branchesPending:
-      !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading",
+      !props.copyFrom &&
+      !props.pullRequest &&
+      resolved.mode === "worktree" &&
+      branches.state === "loading",
     sourceProblem: issueSource.problem || prSource.problem,
   });
   const sendProblem = readiness.problem;
@@ -637,15 +655,19 @@ function PreparationPage(props: {
     if (!project || !launchModel || !resolved.mode || readiness.problem || readiness.pending)
       return false;
     if (draft.attachments.length && !scope.draftId) return false;
+    if (copy.copy.state === "copying") return false;
+    // A project from another machine is copied here first; the message waits for it.
+    const target = props.copyFrom ? await copy.run() : project;
+    if (!target) return false;
     submitting.current = true;
     recoveryMayLeave.current = true;
     forgetReturned();
     // ⌘N opens the project of the thread started last; the next one may start on this model
     // before the catalog loads.
-    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : project });
+    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : target });
     rememberMachine(storage, scopedMachine, {
       host: props.host,
-      id: props.chat ? chatChoice : project,
+      id: props.chat ? chatChoice : target,
     });
     if (resolved.model)
       saveLaunch(storage, {
@@ -667,14 +689,14 @@ function PreparationPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     const sent = await create(
       {
-        project,
+        project: target,
         draftKey,
         pullRequest: prSource.selection,
         issue: issueSource.ref,
         scope: launchModel.scope,
         model: launchModel.model,
         mode: resolved.mode,
-        base,
+        base: props.copyFrom ? undefined : base,
         effort: launchModel.effort,
         serviceTier: launchModel.serviceTier,
         // Before the provider's modes are read, only a mode picked here is sent; otherwise the
@@ -764,6 +786,7 @@ function PreparationPage(props: {
       </Screen>
     );
   const notice =
+    copy.copy.state !== "idle" ||
     !!sendProblem ||
     saveFailed ||
     preparationSaveFailed(storage, draftKey) ||
@@ -882,6 +905,17 @@ function PreparationPage(props: {
                     data-notices=""
                     className="flex flex-col gap-2 px-3 pt-2.5 pb-1 empty:hidden"
                   >
+                    {copy.copy.state === "copying" && (
+                      <TransferLine
+                        words={copy.copy.words}
+                        actions={
+                          copy.copy.cancel ? [{ label: "Cancel", run: copy.copy.cancel }] : []
+                        }
+                      />
+                    )}
+                    {copy.copy.state === "failed" && (
+                      <TransferLine words={copy.copy.words} actions={[]} alert />
+                    )}
                     {sendProblem && (
                       <p id={readinessId} role="status" className="text-xs text-muted-foreground">
                         {sendProblem}
@@ -961,6 +995,9 @@ function PreparationPage(props: {
                             mode={resolved.mode}
                             onMode={chooseMode}
                             noWorktree={noWorktree}
+                            copyFrom={
+                              props.copyFrom ? (copy.source ?? "another machine") : undefined
+                            }
                             branches={branches}
                             base={base}
                             onBase={(next) => {

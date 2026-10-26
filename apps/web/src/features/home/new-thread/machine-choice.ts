@@ -70,10 +70,10 @@ export interface NewThreadMachines {
 
 /** What New thread takes along to another machine. */
 export interface Leaving {
-  /** The project, by this machine's id; `chatChoice` for a chat with no project. */
+  /** The project: that machine's own copy, `chatChoice` for a chat, or the one to copy there. */
   project: string;
-  /** Its `origin` fetch URL, so the other machine can find its own copy of the repository. */
-  repo?: string | undefined;
+  /** The machine `project` is on, when that machine doesn't have it: sending copies it. */
+  from?: string | undefined;
   /** The draft whose message goes along. */
   draft: { host: string; key: string };
 }

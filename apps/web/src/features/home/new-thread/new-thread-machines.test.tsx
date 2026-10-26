@@ -32,7 +32,8 @@ async function chooseMachine(from: string, to: string) {
 
 async function sendWhenReady(text: string) {
   const prompt = await screen.findByRole("combobox", { name: "Message" });
-  await userEvent.type(prompt, text);
+  if (text) await userEvent.type(prompt, text);
+  else await userEvent.click(prompt);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -203,8 +204,9 @@ test("moving to another machine opens its copy of the repository and takes the m
   expect(screen.queryByRole("list", { name: "Draft threads" })).toBeNull();
 });
 
-test("a repository the other machine lacks offers to clone it there, and the message waits", async () => {
+test("a project the other machine lacks is copied there when the message is sent", async () => {
   const { made, build } = machines();
+  made.daemon.linkTo(build);
   addProject(made.daemon, "/Users/dev/code/notes");
   const here = addProject(
     made.daemon,
@@ -215,33 +217,28 @@ test("a repository the other machine lacks offers to clone it there, and the mes
   await made.open("/new");
   await writeIn("sandbox", "Try the new parser");
 
+  // The project stays chosen on the build server, and the strip says it travels on send.
   await chooseMachine("This Mac", "Build server");
-  expect(
-    await screen.findByRole("heading", { level: 1, name: "Project unavailable" }),
-  ).toBeTruthy();
-  expect(await screen.findByText(/^sandbox isn't on Build server\. Clone it here/)).toBeTruthy();
-  expect(screen.getByLabelText("Saved message").textContent).toBe("Try the new parser");
-
-  await userEvent.click(screen.getByRole("button", { name: "Clone sandbox here" }));
-  const address = await screen.findByRole("textbox", { name: "Repository address" });
-  expect((address as HTMLInputElement).value).toBe("https://github.com/acme/sandbox.git");
-  // Enter takes the address, then clones into the suggested folder.
-  await userEvent.keyboard("{Enter}");
-  await screen.findByText("~/services/sandbox");
-  await userEvent.keyboard("{Enter}");
-
-  // The clone lands in New thread there, in the new copy, with the message.
   expect(await screen.findByRole("button", { name: "Project: sandbox" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
       "Try the new parser",
     ),
   );
+
+  await sendWhenReady("");
+  // The thread opens once the copy has landed there, and runs on the build server.
+  expect(await screen.findByRole("heading", { level: 1, name: "Try the new parser" })).toBeTruthy();
+  await waitFor(() => expect(titles(build)).toContain("Try the new parser"));
+  expect(build.projects.list().workspaces.some((each) => each.name === "sandbox")).toBe(true);
+  expect(titles(made.daemon)).not.toContain("Try the new parser");
 });
 
-test("starting in another project instead of cloning takes the message along", async () => {
+test("a copy that can't reach the other machine says why and gives the message back", async () => {
   const { made, build } = machines();
+  // No fleet link from this Mac to the build server.
   addProject(made.daemon, "/Users/dev/code/notes");
   const here = addProject(
     made.daemon,
@@ -251,16 +248,19 @@ test("starting in another project instead of cloning takes the message along", a
   expect(onlyHere(build, here)).toBe(true);
   await made.open("/new");
   await writeIn("sandbox", "Try the new parser");
-
   await chooseMachine("This Mac", "Build server");
-  await userEvent.click(await screen.findByRole("button", { name: "Choose another project" }));
-  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await screen.findByText("Copied from This Mac when sent");
+
+  await sendWhenReady("");
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "This Mac isn't linked to Build server. Link them in Settings › Fleet.",
+  );
   await waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
       "Try the new parser",
     ),
   );
+  expect(titles(build)).not.toContain("Try the new parser");
 });
 
 test("a same-named project holding another repository isn't taken for the one moved", async () => {
@@ -272,9 +272,8 @@ test("a same-named project holding another repository isn't taken for the one mo
   await made.open("/new");
   await writeIn("web", "Bump the router");
 
+  // This Mac's web goes along to be copied; the build server's unrelated web isn't used.
   await chooseMachine("This Mac", "Build server");
-  expect(
-    await screen.findByRole("heading", { level: 1, name: "Project unavailable" }),
-  ).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Project: web" })).toBeNull();
+  expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Project: web" })).toBeTruthy();
 });

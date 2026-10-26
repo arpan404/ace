@@ -44,7 +44,6 @@ export default function PaletteDialog(props: {
             <AddProjectSteps.Component
               page={page}
               attempt={page === props.start.page ? props.start.attempt : undefined}
-              clone={page === props.start.page ? props.start.clone : undefined}
               onPage={push}
               onBack={back}
               close={props.close}

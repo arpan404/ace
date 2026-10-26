@@ -40,7 +40,7 @@ export function NewThreadOnMachine(
           rememberMachine(storage, next.primary ? undefined : next.id);
           if (leaving) carryDraft(storage, leaving.draft, next.id);
           // Named even for this window's own, so the choice outlasts a remembered default.
-          void navigate(newThreadOn(next.id, leaving?.project, leaving?.repo));
+          void navigate(newThreadOn(next.id, leaving?.project, leaving?.from));
         },
       },
     [machines, current, storage, navigate],

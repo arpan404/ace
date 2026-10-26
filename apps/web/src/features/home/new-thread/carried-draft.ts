@@ -8,8 +8,8 @@ import { preparation } from "./preparations.ts";
 /*
  * A message carried to another machine when New thread moves there. The message stays in its
  * old preparation until the other machine's composer has its own copy, so nothing is lost if
- * that machine can't take it yet (its project isn't there). Files live in the old machine's
- * draft scope and can't travel: a draft with files keeps them, and its text, where it was.
+ * the move doesn't finish. Files live in the old machine's draft scope and can't travel: a
+ * draft with files keeps them, and its text, where it was.
  */
 
 const storageKey = "ace.home.newThreadCarry";
@@ -36,12 +36,6 @@ export function carryDraft(
 ): void {
   if (readDraft(storage, from.key)?.text.trim()) writeJson(storage, storageKey, { to, from });
   else clear(storage);
-}
-
-/** The text on its way to machine `host`, for a page that can't take it yet. */
-export function carriedText(storage: KeyValueStorage | undefined, host: string) {
-  const carry = read(storage);
-  return carry && goesTo(carry, host) ? readDraft(storage, carry.from.key)?.text : undefined;
 }
 
 /**
