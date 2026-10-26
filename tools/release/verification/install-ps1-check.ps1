@@ -91,6 +91,10 @@ try {
   for ($i = 0; $i -lt 60 -and ((Test-Path (Join-Path $home_ 'releases')) -or (Test-Path $ace)); $i++) { Start-Sleep -Milliseconds 500 }
   if (Test-Path (Join-Path $home_ 'releases')) { throw 'Uninstall left the releases behind' }
   if (Test-Path (Join-Path $home_ 'bin\ace.cmd')) { throw 'Uninstall left the launcher behind' }
+  # Uninstall takes <home>\bin back off PATH and leaves the rest of the value as it was.
+  $after = $environment.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  if ($after -ne $raw.Replace(";$($entries[0])", '')) { throw "Uninstall changed PATH beyond its own entry: $after" }
+  if ($environment.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) { throw 'Uninstall lost REG_EXPAND_SZ' }
   Write-Host 'install.ps1 check passed'
 } catch {
   $failed = $_

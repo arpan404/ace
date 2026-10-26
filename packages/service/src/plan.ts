@@ -141,9 +141,11 @@ export function planTask(input: TaskConfig): TaskPlan {
   for (const [key, value] of Object.entries(c.environment))
     if (value !== undefined) variables[key] = value;
   // A console node.exe started by Task Scheduler opens a window; headless conhost hosts it
-  // without one, and the launcher's console processes inherit that hidden console.
+  // without one, and the launcher's console processes inherit that hidden console. cmd.exe runs
+  // the launcher itself with /s, so `( ) & @ ^` in the home's path stay inside its quotes.
   const program = win32.join(c.systemRoot, "System32", "conhost.exe");
-  const args = `--headless "${c.executable}" supervise`;
+  const cmd = win32.join(c.systemRoot, "System32", "cmd.exe");
+  const args = `--headless "${cmd}" /d /s /c ""${c.executable}" supervise"`;
   const content = `<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>ace local daemon</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(c.user)}</UserId></LogonTrigger></Triggers>

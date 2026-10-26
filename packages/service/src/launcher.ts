@@ -14,14 +14,16 @@ const releaseLine = "releases/[0123456789abcdefghijklmnopqrstuvwxyz.-]*";
 /**
  * Windows' `bin\ace.cmd`. `current` is a pointer file there (ADR 0095), so the script checks
  * that every line of it is a plain `releases/...` name before reading it: no other characters
- * ever reach the command line.
+ * ever reach the command line. The home is the folder above the script's own (`<home>\bin`), not
+ * a literal: cmd.exe reads batch files in the OEM code page, so a profile path such as
+ * `C:\Users\José` written into the file would be read back wrong. The file is the same for
+ * every home.
  */
-function renderCmdLauncher(root: string): string {
-  if (/["%\r\n\0]/.test(root)) throw new Error("Invalid launcher home");
+function renderCmdLauncher(_root: string): string {
   return [
     "@echo off",
     "setlocal DisableDelayedExpansion",
-    `set "ACE_HOME=${root}"`,
+    `for %%I in ("%~dp0..") do set "ACE_HOME=%%~fI"`,
     `findstr /r /x /c:"${releaseLine}" "%ACE_HOME%\\current" >nul 2>nul || exit /b 1`,
     `findstr /r /x /v /c:"${releaseLine}" "%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,
     `findstr /l /c:".." "%ACE_HOME%\\current" >nul 2>nul && exit /b 1`,

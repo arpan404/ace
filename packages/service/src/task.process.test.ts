@@ -23,6 +23,7 @@ import {
   type TaskPlan,
 } from "./index.ts";
 import { assertCompatibleTask } from "./compatibility.ts";
+import { CLI_SHIM_MARKER } from "./home.ts";
 
 // Windows only: Task Scheduler, the ace.cmd launcher and Windows file sharing.
 const windows = describe.runIf(process.platform === "win32");
@@ -35,6 +36,7 @@ const token = "a".repeat(64);
 const daemon = `import { createServer } from "node:http";
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 const home = process.env.ACE_HOME;
 const log = (line) => appendFileSync(join(home, "fixture.log"), line + "\\n");
 if (process.argv[2] === "service") {
@@ -42,10 +44,14 @@ if (process.argv[2] === "service") {
   process.stdout.write(JSON.stringify(await serviceCommand(home, process.argv.slice(3))));
   process.exit(0);
 }
-if (process.argv[2] !== "supervise") {
+if (process.argv[2] === "update") {
+  // Stands in for the updater a supervisor starts: it runs until the test ends it.
+  writeFileSync(join(home, "updater.pid"), String(process.pid));
+  setInterval(() => {}, 1000);
+} else if (process.argv[2] !== "supervise") {
   process.stdout.write(JSON.stringify({ args: process.argv.slice(2), home }));
   process.exit(0);
-}
+} else {
 const server = createServer((request, response) => {
   if (existsSync(join(home, "ignore-stop"))) {
     response.statusCode = 503;
@@ -62,8 +68,12 @@ server.listen(0, "127.0.0.1", () => {
   writeFileSync(join(home, "daemon-token"), "${token}");
   writeFileSync(join(home, "daemon-endpoint"), "http://127.0.0.1:" + server.address().port);
   writeFileSync(join(home, "daemon.pid"), String(process.pid));
+  writeFileSync(join(home, "daemon-lock"), JSON.stringify({ pid: process.pid, id: "fixture" }));
   log("started");
+  if (existsSync(join(home, "spawn-updater")))
+    spawn(process.execPath, [process.argv[1], "update", "apply"], { detached: true, stdio: "ignore" }).unref();
 });
+}
 `;
 
 let scratch = "";
@@ -95,8 +105,9 @@ afterAll(async () => {
 });
 
 /** An installed home as install.ps1 leaves it: release, pointer file and ace.cmd. */
-async function home(): Promise<string> {
-  const root = await mkdtemp(join(scratch, "home-"));
+async function home(parent = scratch): Promise<string> {
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(join(parent, "home-"));
   roots.push(root);
   await mkdir(join(root, release, "bin"), { recursive: true });
   await link(node, join(root, release, "bin", "node.exe"));
@@ -393,6 +404,159 @@ windows("Windows standalone update", () => {
       const released = new Promise((resolve) => holder.once("exit", resolve));
       holder.stdin.end("\n");
       await released;
+    }
+  });
+});
+
+/** A daemon that is not the task's: started from a node.exe outside the home's releases. */
+const foreignDaemon = `import { createServer } from "node:http";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+const home = process.env.ACE_HOME;
+const server = createServer((request, response) => {
+  if (request.method === "POST" && request.url === "/v1/stop") response.end("{}", () => process.exit(0));
+  else response.end();
+});
+server.listen(0, "127.0.0.1", () => {
+  writeFileSync(join(home, "daemon-token"), "${token}");
+  writeFileSync(join(home, "daemon-endpoint"), "http://127.0.0.1:" + server.address().port);
+  writeFileSync(join(home, "daemon-lock"), JSON.stringify({ pid: process.pid, id: "foreign" }));
+  process.stdout.write("listening\\n");
+});
+`;
+
+windows("Windows login task stop", () => {
+  test("a stop that has to end the task leaves the updater its supervisor started running", async () => {
+    const root = await home();
+    const task = taskPlan(root);
+    const manager = service(root, task);
+    await writeFile(join(root, "spawn-updater"), "");
+    await manager.perform("install");
+    const daemonPid = Number(await until(() => readFile(join(root, "daemon.pid"), "utf8")));
+    const updater = Number(await until(() => readFile(join(root, "updater.pid"), "utf8")));
+    try {
+      await writeFile(join(root, "ignore-stop"), "");
+      await expect(manager.perform("stop")).resolves.toEqual({ active: false });
+      expect(alive(daemonPid)).toBe(false);
+      expect(alive(updater)).toBe(true);
+    } finally {
+      if (alive(updater)) process.kill(updater);
+    }
+    await expect(manager.perform("uninstall")).resolves.toEqual({ active: false });
+  });
+
+  test("ace service stop never asks a daemon from another program to stop", async () => {
+    const root = await home();
+    const task = taskPlan(root);
+    const manager = service(root, task);
+    await manager.perform("install");
+    await until(() => readFile(join(root, "daemon.pid"), "utf8"));
+    // The desktop app's daemon takes the home: its endpoint, token and lock replace the task's.
+    const script = join(scratch, `foreign-${randomUUID().slice(0, 8)}.mjs`);
+    await writeFile(script, foreignDaemon);
+    const foreign = spawn(node, [script], { env: { ...process.env, ACE_HOME: root } });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        foreign.stdout.once("data", () => resolve());
+        foreign.once("exit", () => reject(new Error("The other daemon exited before listening")));
+      });
+      await expect(manager.perform("stop")).resolves.toEqual({ active: false });
+      expect(foreign.exitCode).toBeNull();
+      expect(alive(z.number().parse(foreign.pid))).toBe(true);
+    } finally {
+      const exited = new Promise((resolve) => foreign.once("exit", resolve));
+      foreign.kill();
+      await exited;
+    }
+    await expect(manager.perform("uninstall")).resolves.toEqual({ active: false });
+  });
+
+  test("the task runs a home whose path holds ( ) & @ and ^", async () => {
+    const root = await home(join(scratch, "John (Work) & Co @x^y"));
+    const task = taskPlan(root);
+    const manager = service(root, task);
+    await expect(manager.perform("install")).resolves.toEqual({ active: true });
+    await until(() => readFile(join(root, "daemon.pid"), "utf8"));
+    await expect(manager.perform("stop")).resolves.toEqual({ active: false });
+    expect(await readFile(join(root, "fixture.log"), "utf8")).toContain("stop-request");
+    await expect(manager.perform("uninstall")).resolves.toEqual({ active: false });
+  });
+});
+
+windows("Windows launcher homes", () => {
+  test("ace.cmd finds a home whose path is not plain ASCII or holds cmd.exe's special characters", async () => {
+    for (const parent of ["José", "Zoë 日本", "John (Work) & Co", "100% ^done"]) {
+      const root = await home(join(scratch, parent));
+      const launcher = join(root, "bin", CMD_LAUNCHER);
+      const { stdout } = await run("cmd.exe", ["/d", "/s", "/c", `""${launcher}" status"`], {
+        windowsVerbatimArguments: true,
+      });
+      expect(JSON.parse(stdout)).toEqual({ args: ["status"], home: root });
+    }
+  });
+});
+
+const UserPathValue = z.object({ value: z.string().nullable(), kind: z.string() });
+/** HKCU\Environment\Path as written, variables unexpanded; values travel through env vars. */
+async function userPath(next?: { value: string | null; kind: string }) {
+  const write =
+    next === undefined
+      ? ""
+      : next.value === null
+        ? "$key.DeleteValue('Path', $false); "
+        : "$key.SetValue('Path', $env:ACE_TEST_PATH, $env:ACE_TEST_KIND); ";
+  const script = `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment'); ${write}$v = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames'); $k = if ($null -ne $v) { $key.GetValueKind('Path').ToString() } else { 'None' }; ConvertTo-Json -Compress @{ value = $v; kind = $k }`;
+  const { stdout } = await run("powershell.exe", ["-NoProfile", "-Command", script], {
+    env: { ...process.env, ACE_TEST_PATH: next?.value ?? "", ACE_TEST_KIND: next?.kind ?? "" },
+  });
+  return UserPathValue.parse(JSON.parse(stdout));
+}
+
+/** `ace service uninstall` run from the home's installed release. */
+const uninstall = (root: string) =>
+  run(process.execPath, [join(root, release, "ace.mjs"), "service", "uninstall"], {
+    env: {
+      ...process.env,
+      ACE_HOME: root,
+      ACE_TEST_SERVICE_MODULE: pathToFileURL(join(import.meta.dirname, "index.ts")).href,
+    },
+  });
+
+windows("Windows standalone uninstall and PATH", () => {
+  test("uninstall takes the home's bin off the user PATH and keeps every other entry as written", async () => {
+    const before = await userPath();
+    const root = await home();
+    const keep = `%SystemRoot%\\ace-keep-${randomUUID().slice(0, 8)}`;
+    // Empty entries, spacing and the trailing separator are the person's: they stay.
+    const written = `${before.value ?? ""};;${keep};${join(root, "BIN")}\\; C:\\ace tail ;`;
+    try {
+      await userPath({ value: written, kind: "ExpandString" });
+      await uninstall(root);
+      await expect(userPath()).resolves.toEqual({
+        value: `${before.value ?? ""};;${keep}; C:\\ace tail ;`,
+        kind: "ExpandString",
+      });
+    } finally {
+      await userPath(before.value === null ? { value: null, kind: "" } : before);
+    }
+  });
+
+  test("uninstall keeps the desktop app's ace command and its PATH entry", async () => {
+    const before = await userPath();
+    const root = await home();
+    const shim = `@echo off\r\nrem ${CLI_SHIM_MARKER}\r\nexit /b 0\r\n`;
+    // The app's command replaced the launcher; the release it ran is still there.
+    await writeFile(join(root, "bin", CMD_LAUNCHER), shim);
+    await rm(join(root, "current"));
+    const written = `${before.value ?? ""};${join(root, "bin")}`;
+    try {
+      await userPath({ value: written, kind: "ExpandString" });
+      expect(JSON.parse((await uninstall(root)).stdout)).toEqual({ active: false });
+      await until(async () => (existsSync(join(root, "releases")) ? undefined : true));
+      expect((await userPath()).value).toBe(written);
+      expect(await readFile(join(root, "bin", CMD_LAUNCHER), "utf8")).toBe(shim);
+    } finally {
+      await userPath(before.value === null ? { value: null, kind: "" } : before);
     }
   });
 });

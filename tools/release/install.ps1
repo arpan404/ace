@@ -1,4 +1,10 @@
 # Installs the ace daemon for the current Windows user: no administrator rights.
+#
+# Usage: download install.ps1 and install.ps1.sha256 from the same GitHub release, check the
+# hash, then run the script with Windows PowerShell:
+#   (Get-FileHash .\install.ps1 -Algorithm SHA256).Hash.ToLower()  # must match install.ps1.sha256
+#   powershell -ExecutionPolicy Bypass -File install.ps1
+# Set ACE_HOME first to install somewhere other than %USERPROFILE%\.ace.
 # Same checks as install.sh: the archive must match the hash pinned in this file, then the
 # bundled Node verifies the Ed25519 signature of the release manifest before anything runs.
 $ErrorActionPreference = 'Stop'
@@ -89,13 +95,9 @@ try {
     $next = if ($raw.TrimEnd(';')) { $raw.TrimEnd(';') + ';' + $bin } else { $bin }
     # Writing through the registry keeps the value's type (REG_EXPAND_SZ stays expandable).
     $environment.SetValue('Path', $next, $kind)
-    Add-Type -Namespace AceInstall -Name Native -MemberDefinition @'
-[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
-'@
-    $result = [System.UIntPtr]::Zero
-    # WM_SETTINGCHANGE to every top-level window, so new terminals see the new PATH.
-    [AceInstall.Native]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
+    # Clearing an unset variable through .NET broadcasts WM_SETTINGCHANGE, so new terminals
+    # started from Explorer see the new PATH.
+    [Environment]::SetEnvironmentVariable('ACE_PATH_CHANGED', $null, 'User')
   }
 } finally {
   $environment.Close()

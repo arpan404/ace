@@ -33,6 +33,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
+import { recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
@@ -324,10 +325,36 @@ async function superviseTask(): Promise<void> {
       throw new Error("The service environment names another ACE_HOME");
     Object.assign(process.env, environment);
   }
-  for (;;) {
-    process.exitCode = undefined;
-    await supervise();
-    if (process.exitCode === 0) return;
-    await new Promise((wake) => setTimeout(wake, 15_000));
+  await untilCleanExit({
+    // supervise() records its own failures in logs/daemon.err.log.
+    async once() {
+      process.exitCode = undefined;
+      await supervise();
+      return typeof process.exitCode === "number" ? process.exitCode : undefined;
+    },
+    wait: (ms) => new Promise((wake) => setTimeout(wake, ms)),
+  });
+}
+
+/**
+ * Runs the supervisor until it ends with exit code 0. A daemon that exited with an error is
+ * restarted after 15 seconds; a supervisor that failed (a missing release, an unreadable home)
+ * is retried with the update recovery's backoff, as an ended task would never be restarted.
+ */
+export async function untilCleanExit(ports: {
+  once(): Promise<number | undefined>;
+  wait(ms: number): Promise<void>;
+}): Promise<void> {
+  for (let failures = 0; ;) {
+    let delay: number;
+    try {
+      if ((await ports.once()) === 0) return;
+      failures = 0;
+      delay = 15_000;
+    } catch {
+      delay = recoveryDelay(failures);
+      failures = Math.min(failures + 1, 6);
+    }
+    await ports.wait(delay);
   }
 }
