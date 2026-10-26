@@ -12,21 +12,30 @@ The real runner is inert unless the signed artifacts are staged in the environme
 (`ACE_LOCKED_USE_PLUGIN`, `ACE_LOCKED_USE_BROKER`, `ACE_LOCKED_USE_GUARDIAN`); on a dev Mac they
 are absent, so install stays unavailable and the feature reports **Needs approval**.
 
+All temp files live in a fresh root-owned `mktemp -d` directory with `umask 077`, never fixed
+`/tmp` paths a same-user process could pre-create or symlink. Each copied component is
+signature-checked against ace's pinned team before it is trusted or run.
+
 ## What install does (one admin authorization, `set -e`, additive, idempotent)
 
-1. **Place the signed plug-in.** Remove only our previous copy, then
-   `cp -R` the signed `AceLockedUseAuthorization.bundle` to
-   `/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle`, `chown root:wheel`,
-   `chmod 755`.
-2. **Add ace as one more alternative of `system.login.screensaver`.**
-   `security authorizationdb read system.login.screensaver` → a small `python3 plistlib` edit
-   that appends `AceLockedUseAuthorization:permit` to the right's `mechanisms` **only if not
-   already present** → `security authorizationdb write`. Apple's mechanisms and any other
-   provider's are never removed or reordered.
-3. **Load two root daemons.** Write `/Library/LaunchDaemons/dev.ace.locked-use.authorization.plist`
-   (the authorization broker) and `/Library/LaunchDaemons/dev.ace.locked-use.guardian.plist`
-   (the independent relock guardian), `chown root:wheel`, `chmod 644`, then
-   `launchctl bootout` (ignored if absent) and `launchctl bootstrap system <plist>`.
+1. **Stage and verify every component to a root-owned path.** `cp -R` the signed plug-in to
+   `/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle`, and the broker and
+   guardian executables to `/Library/Application Support/dev.ace.locked-use/` (never a
+   user-writable app directory). `chown -R root:wheel`, `chmod -R 755`, then
+   `codesign --verify --strict -R '=anchor apple generic and certificate leaf[subject.OU] =
+   "<TEAM>" and identifier "<id>"'` on each copy. A failed check aborts the script.
+2. **Add ace as one NAMED alternative of `system.login.screensaver`.** First
+   `security authorizationdb write dev.ace.locked-use.permit` a dedicated
+   `evaluate-mechanisms` right whose only mechanism is `AceLockedUseAuthorization:permit`. Then
+   read `system.login.screensaver`; a `python3 plistlib` edit **refuses unless that right is
+   `class rule` with `k-of-n` 1** (an OR), and appends the name `dev.ace.locked-use.permit` to
+   its `rule` list only if absent; write it back. The screensaver right's own `mechanisms` key is
+   never written, and Apple's alternatives are never removed or reordered. Because the rule is an
+   OR, adding an alternative can never block ordinary password unlock.
+3. **Load two root daemons from the verified copies.** Write
+   `/Library/LaunchDaemons/dev.ace.locked-use.authorization.plist` (broker) and
+   `…guardian.plist`, `chown root:wheel`, `chmod 644`, then `launchctl bootout` (ignored if
+   absent) and `launchctl bootstrap system <plist>`.
 
 If any step fails, `set -e` stops the script, so a half-finished install cannot report success;
 the daemon re-detects and will not report **On** unless every component is proven valid.
@@ -34,9 +43,10 @@ the daemon re-detects and will not report **On** unless every component is prove
 ## What removal does (reverse, tolerant of partial state)
 
 1. `launchctl bootout system/<label>` and delete both LaunchDaemon plists.
-2. Read the right and write it back with **only** our mechanism filtered out, leaving every
-   other mechanism in place. A missing right is left alone (`|| exit 0`).
-3. `rm -rf` our plug-in bundle.
+2. Read the screensaver right and write it back with **only** our name removed from its `rule`
+   list, leaving every other alternative in place. A missing right is left alone (`|| exit 0`).
+3. `security authorizationdb remove dev.ace.locked-use.permit`.
+4. `rm -rf` the plug-in bundle and both root-owned executables.
 
 Afterwards the detector must find no residue; if anything of ours remains, the feature reports
 **Needs repair** rather than claiming it is off.

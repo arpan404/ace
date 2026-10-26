@@ -4,6 +4,8 @@ import {
   appleScriptString,
   buildInstallScript,
   buildRemoveScript,
+  daemonPlist,
+  permitRightPlist,
   privilegedRunner,
   privilegedRunnerFromEnv,
   shellQuote,
@@ -13,6 +15,7 @@ const artifacts = {
   pluginBundle: "/opt/ace/AceLockedUseAuthorization.bundle",
   brokerExecutable: "/opt/ace/ace-locked-use-authority",
   guardianExecutable: "/opt/ace/ace-locked-use-guardian",
+  team: "ABCDE12345",
 };
 
 function recordingAdmin(): { runs: { purpose: string; script: string }[] } & AdminAuthorization {
@@ -27,65 +30,89 @@ function recordingAdmin(): { runs: { purpose: string; script: string }[] } & Adm
 }
 
 describe("locked use privileged install", () => {
-  test("install adds our mechanism additively, never replacing Apple's", () => {
+  test("adds ace as a NAMED alternative of the rule, never a mechanisms append", () => {
     const script = buildInstallScript(artifacts);
-    // It reads the existing right and appends our mechanism only if absent; it never clears
-    // the mechanisms list, so Apple's and any other provider's mechanisms survive.
-    expect(script).toContain("authorizationdb read 'system.login.screensaver'");
-    expect(script).toContain("if mechanism not in mechanisms: mechanisms.append(mechanism)");
+    // A dedicated evaluate-mechanisms right carries our mechanism; its NAME goes in the
+    // screensaver right's `rule` list. The screensaver right's `mechanisms` key is never written.
+    expect(permitRightPlist()).toContain("<string>evaluate-mechanisms</string>");
+    expect(permitRightPlist()).toContain("AceLockedUseAuthorization:permit");
+    expect(script).toContain("authorizationdb write 'dev.ace.locked-use.permit'");
+    expect(script).toContain("if name not in rule: rule.append(name)");
     expect(script).toContain("authorizationdb write 'system.login.screensaver'");
-    expect(script).not.toContain("mechanisms'] = []");
+    // It must not touch the screensaver right's mechanisms, and must not run our mechanism there.
+    expect(script).not.toMatch(/screensaver[\s\S]*mechanisms'\]\.append/);
   });
 
-  test("install places the signed bundle at the detector's path and loads both daemons", () => {
+  test("refuses to edit unless the screensaver right is an OR rule (no AND lockout)", () => {
+    const script = buildInstallScript(artifacts);
+    expect(script).toContain("right.get('class') != 'rule' or right.get('k-of-n', 1) != 1");
+    expect(script).toContain("sys.exit(3)");
+  });
+
+  test("stages each component to a root-owned path and verifies its signature before use", () => {
     const script = buildInstallScript(artifacts);
     expect(script).toContain(
-      "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle",
+      "/Library/Application Support/dev.ace.locked-use/ace-locked-use-authority",
     );
     expect(script).toContain(
-      "launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.authorization.plist'",
+      "/Library/Application Support/dev.ace.locked-use/ace-locked-use-guardian",
     );
-    expect(script).toContain(
-      "launchctl bootstrap system '/Library/LaunchDaemons/dev.ace.locked-use.guardian.plist'",
+    expect(script).toContain("chown -R root:wheel");
+    // codesign -R pins Apple + our team + each identifier; the daemons run the root-owned copies.
+    expect(script).toContain("codesign --verify --strict -R");
+    expect(script).toContain('certificate leaf[subject.OU] = "ABCDE12345"');
+    expect(script).toContain('identifier "dev.ace.locked-use.authority"');
+    const plist = daemonPlist(
+      "dev.ace.locked-use.authorization",
+      "/Library/Application Support/dev.ace.locked-use/ace-locked-use-authority",
     );
-    // set -e so a half-finished install cannot look successful.
-    expect(script.startsWith("set -e")).toBe(true);
+    expect(plist).toContain(
+      "/Library/Application Support/dev.ace.locked-use/ace-locked-use-authority",
+    );
   });
 
-  test("the plist edit reads from a file argument, not stdin (no heredoc/stdin collision)", () => {
-    // Regression: `python3 - arg < file <<'PY'` makes the heredoc win stdin, so the file is
-    // never read and plistlib.loads gets empty bytes. The edit must take the plist as argv.
+  test("uses a fresh root-owned temp dir, not fixed /tmp paths a same-user process can plant", () => {
     for (const script of [buildInstallScript(artifacts), buildRemoveScript()]) {
-      expect(script).toContain("with open(sys.argv[2], 'rb') as handle:");
-      expect(script).toContain("with open(sys.argv[3], 'wb') as handle:");
-      expect(script).not.toContain("sys.stdin.buffer.read()");
-      expect(script).not.toMatch(/< \/tmp\/ace-screensaver-right\.plist[^\n]*<<'PY'/);
+      expect(script).toContain("umask 077");
+      expect(script).toContain('work="$(mktemp -d /tmp/ace-locked-use.XXXXXX)"');
+      // Root never redirects into a fixed, predictable /tmp filename.
+      expect(script).not.toMatch(/> \/tmp\/ace-screensaver-right/);
     }
   });
 
-  test("remove reverses only our additions and tolerates partial state", () => {
+  test("the rule edit reads the plist from a file argument, not stdin", () => {
+    for (const script of [buildInstallScript(artifacts), buildRemoveScript()]) {
+      expect(script).toContain("with open(sys.argv[2], 'rb') as handle:");
+      expect(script).not.toContain("sys.stdin.buffer.read()");
+    }
+  });
+
+  test("remove reverses cleanly: daemons out, our rule name gone, permit right deleted, copies removed", () => {
     const script = buildRemoveScript();
     expect(script).toContain("launchctl bootout system/dev.ace.locked-use.authorization");
     expect(script).toContain("launchctl bootout system/dev.ace.locked-use.guardian");
-    expect(script).toContain("m for m in right.get('mechanisms', []) if m != mechanism");
+    expect(script).toContain("right['rule'] = [r for r in rule if r != name]");
+    expect(script).toContain("authorizationdb remove 'dev.ace.locked-use.permit'");
     expect(script).toContain(
-      "rm -rf '/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle'",
+      "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle",
     );
-    // Missing pieces must not fail removal.
     expect(script).toContain("|| exit 0");
   });
 
   test("a path with a quote cannot break out of its shell argument", () => {
     expect(shellQuote("/opt/a'b")).toBe(`'/opt/a'\\''b'`);
     const script = buildInstallScript({ ...artifacts, pluginBundle: "/opt/a'; rm -rf /" });
-    // The injected text stays inside one quoted argument; no bare `rm -rf /` command appears.
     expect(script).not.toMatch(/\n\s*rm -rf \/\s*$/m);
   });
 
-  test("runner refuses a non-absolute artifact path (fails closed)", async () => {
+  test("runner refuses a non-absolute artifact path or a malformed team (fails closed)", async () => {
     const admin = recordingAdmin();
-    const runner = privilegedRunner({ ...artifacts, brokerExecutable: "relative/path" }, admin);
-    await expect(runner.install()).rejects.toThrow();
+    await expect(
+      privilegedRunner({ ...artifacts, brokerExecutable: "relative" }, admin).install(),
+    ).rejects.toThrow();
+    await expect(
+      privilegedRunner({ ...artifacts, team: "bad" }, admin).install(),
+    ).rejects.toThrow();
     expect(admin.runs).toHaveLength(0);
   });
 
@@ -100,13 +127,14 @@ describe("locked use privileged install", () => {
     ]);
   });
 
-  test("no runner unless every artifact path is staged in the environment", () => {
+  test("no runner unless every artifact path and the team are staged", () => {
     expect(privilegedRunnerFromEnv({})).toBeUndefined();
     expect(
       privilegedRunnerFromEnv({
         ACE_LOCKED_USE_PLUGIN: artifacts.pluginBundle,
         ACE_LOCKED_USE_BROKER: artifacts.brokerExecutable,
-        // guardian missing
+        ACE_LOCKED_USE_GUARDIAN: artifacts.guardianExecutable,
+        // team missing
       }),
     ).toBeUndefined();
     expect(
@@ -114,6 +142,7 @@ describe("locked use privileged install", () => {
         ACE_LOCKED_USE_PLUGIN: artifacts.pluginBundle,
         ACE_LOCKED_USE_BROKER: artifacts.brokerExecutable,
         ACE_LOCKED_USE_GUARDIAN: artifacts.guardianExecutable,
+        ACE_LOCKED_USE_TEAM: artifacts.team,
       }),
     ).toBeDefined();
   });

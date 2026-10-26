@@ -2,23 +2,34 @@ import { execFile } from "node:child_process";
 import type { PrivilegedRunner } from "@ace/screen";
 
 /**
- * The one privileged step of locked computer use: it places a signed authorization plug-in,
- * adds ace as ONE extra alternative of the `system.login.screensaver` right (Apple's own
- * mechanisms are never removed), and loads two root launch daemons — the authorization broker
- * and the independent relock guardian. Removal reverses exactly those additions.
+ * The one privileged step of locked computer use. It copies the signed components to
+ * root-owned locations, verifies their signature against ace's pinned team, adds ace as ONE
+ * extra alternative of the `system.login.screensaver` right by naming a dedicated
+ * evaluate-mechanisms right in that right's `rule` list (Apple's own alternatives are never
+ * touched, and the right's `mechanisms` key is never written), and loads two root launch
+ * daemons — the authorization broker and the independent relock guardian. Removal reverses
+ * exactly those additions.
  *
  * It changes this Mac's authorization policy, so it needs one administrator authorization and
  * the person's consent. The command text is assembled by the pure functions below so it can be
  * reviewed and unit-tested without running; the real executor presents a single admin prompt.
- * Nothing here ever stores or asks for the login password — macOS collects it.
+ * Nothing here stores or asks for the login password — macOS collects it.
  *
- * It activates only when the signed native artifacts are staged (see `privilegedRunnerFromEnv`);
- * when they are absent the daemon keeps the pending stub and the feature reports needs-approval.
+ * Why a separate right, not a `mechanisms` append: `system.login.screensaver` is a `rule`-class
+ * right whose `rule` is an OR (`k-of-n` 1). A `mechanisms` key on a rule-class right is ignored,
+ * and ANDing a mechanism onto a mechanisms-class right would deny ordinary password unlock. A
+ * named alternative sub-right is the supported, additive, non-blocking shape; install refuses
+ * unless the right is `class rule` with `k-of-n` 1, so it can never break manual unlock.
  */
 
-/** Where the components live once installed. Mirrors the read-only detector's constants. */
 const bundleDestination = "/Library/Security/SecurityAgentPlugins/AceLockedUseAuthorization.bundle";
-const right = "system.login.screensaver";
+/** Root-owned home for the two daemon executables; never a user-writable app directory. */
+const installRoot = "/Library/Application Support/dev.ace.locked-use";
+const brokerDestination = `${installRoot}/ace-locked-use-authority`;
+const guardianDestination = `${installRoot}/ace-locked-use-guardian`;
+const screensaverRight = "system.login.screensaver";
+/** The dedicated evaluate-mechanisms right that runs our plug-in; named in the rule above. */
+const permitRight = "dev.ace.locked-use.permit";
 const mechanism = "AceLockedUseAuthorization:permit";
 const brokerLabel = "dev.ace.locked-use.authorization";
 const guardianLabel = "dev.ace.locked-use.guardian";
@@ -32,6 +43,8 @@ export interface LockedUseArtifacts {
   brokerExecutable: string;
   /** The `ace-locked-use-guardian` executable. */
   guardianExecutable: string;
+  /** ace's pinned Developer ID team; the copies are signature-checked against it before use. */
+  team: string;
 }
 
 /** Runs one script with administrator rights through a single OS authorization. */
@@ -68,31 +81,62 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/** The codesign requirement a staged copy must satisfy before root runs or trusts it. */
+function signingRequirement(team: string, identifier: string): string {
+  return `anchor apple generic and certificate leaf[subject.OU] = ${JSON.stringify(team)} and identifier ${JSON.stringify(identifier)}`;
+}
+
+/** Copy to a root-owned path, then verify its signature; a failed check aborts the script. */
+function stageSignedStep(source: string, destination: string, requirement: string): string {
+  const to = shellQuote(destination);
+  return [
+    `rm -rf ${to}`,
+    `cp -R ${shellQuote(source)} ${to}`,
+    `chown -R root:wheel ${to}`,
+    `chmod -R 755 ${to}`,
+    `codesign --verify --strict -R ${shellQuote(`=${requirement}`)} ${to}`,
+  ].join("\n");
+}
+
 /**
- * The install script. Every step is idempotent and additive: a Python helper reads the current
- * `system.login.screensaver` right and inserts our mechanism only if it is not already an
- * alternative, leaving Apple's mechanisms and any other provider's untouched. The script fails
- * on the first error (`set -e`) so a half-finished install cannot report success; the daemon
- * re-detects afterwards and will not report `on` unless every component is proven valid.
+ * The install script. `set -e` aborts on the first failure, so a half-finished install cannot
+ * report success; the daemon re-detects afterwards and will not report `on` unless every
+ * component is proven valid. Temp files live in a fresh root-owned 0700 directory (never fixed
+ * `/tmp` paths a same-user process could pre-create or symlink). Each copied component is
+ * signature-checked before the rule is written or any daemon is bootstrapped.
  */
 export function buildInstallScript(artifacts: LockedUseArtifacts): string {
-  const plugin = shellQuote(artifacts.pluginBundle);
-  const broker = shellQuote(artifacts.brokerExecutable);
-  const guardian = shellQuote(artifacts.guardianExecutable);
+  const { team } = artifacts;
   return [
     "set -e",
+    "umask 077",
     'export PATH="/usr/bin:/bin:/usr/sbin:/sbin"',
-    // 1. Place the signed plug-in, replacing only our own previous copy.
-    `rm -rf ${shellQuote(bundleDestination)}`,
-    `mkdir -p ${shellQuote(daemonDirectory)} /Library/Security/SecurityAgentPlugins`,
-    `cp -R ${plugin} ${shellQuote(bundleDestination)}`,
-    `chown -R root:wheel ${shellQuote(bundleDestination)}`,
-    `chmod -R 755 ${shellQuote(bundleDestination)}`,
-    // 2. Add our mechanism as one more alternative of the screen-saver unlock right, additively.
-    addMechanismStep(),
-    // 3. Install and (re)load both root daemons.
-    installDaemonStep(brokerLabel, broker),
-    installDaemonStep(guardianLabel, guardian),
+    'work="$(mktemp -d /tmp/ace-locked-use.XXXXXX)"',
+    "trap 'rm -rf \"$work\"' EXIT",
+    `mkdir -p ${shellQuote(installRoot)} ${shellQuote(daemonDirectory)} /Library/Security/SecurityAgentPlugins`,
+    `chown root:wheel ${shellQuote(installRoot)}`,
+    `chmod 755 ${shellQuote(installRoot)}`,
+    // 1. Stage every component to a root-owned path and verify its signature before trusting it.
+    stageSignedStep(
+      artifacts.pluginBundle,
+      bundleDestination,
+      signingRequirement(team, "dev.ace.locked-use.authorization-plugin"),
+    ),
+    stageSignedStep(
+      artifacts.brokerExecutable,
+      brokerDestination,
+      signingRequirement(team, "dev.ace.locked-use.authority"),
+    ),
+    stageSignedStep(
+      artifacts.guardianExecutable,
+      guardianDestination,
+      signingRequirement(team, "dev.ace.locked-use.guardian"),
+    ),
+    // 2. Add ace as one named alternative of the screen-saver unlock right, additively.
+    addRuleAlternativeStep(),
+    // 3. Load both root daemons from their verified, root-owned copies.
+    installDaemonStep(brokerLabel, brokerDestination),
+    installDaemonStep(guardianLabel, guardianDestination),
   ].join("\n");
 }
 
@@ -100,65 +144,84 @@ export function buildInstallScript(artifacts: LockedUseArtifacts): string {
 export function buildRemoveScript(): string {
   return [
     'export PATH="/usr/bin:/bin:/usr/sbin:/sbin"',
+    "umask 077",
+    'work="$(mktemp -d /tmp/ace-locked-use.XXXXXX)"',
+    "trap 'rm -rf \"$work\"' EXIT",
     removeDaemonStep(brokerLabel),
     removeDaemonStep(guardianLabel),
-    removeMechanismStep(),
-    `rm -rf ${shellQuote(bundleDestination)}`,
+    removeRuleAlternativeStep(),
+    `security authorizationdb remove ${shellQuote(permitRight)} 2>/dev/null || true`,
+    `rm -rf ${shellQuote(bundleDestination)} ${shellQuote(brokerDestination)} ${shellQuote(guardianDestination)}`,
     "exit 0",
   ].join("\n");
 }
 
 /**
- * Reads the right with `security authorizationdb read`, adds our mechanism once via a small,
- * self-contained Python edit, and writes it back with `security authorizationdb write`. Apple's
- * mechanisms stay; a `k-of-n` or alternatives layout is preserved by only appending.
+ * Defines the evaluate-mechanisms `permit` right (idempotent) and inserts its NAME into the
+ * screen-saver right's `rule` list. The edit reads the right from a file argv (not stdin, so it
+ * cannot collide with the `python3 -` program heredoc), refuses unless the right is `class rule`
+ * with `k-of-n` 1, and appends our name only if absent — Apple's alternatives are untouched.
  */
-const readPlist = "/tmp/ace-screensaver-right.plist";
-const nextPlist = "/tmp/ace-screensaver-right.next.plist";
-
-/**
- * The Python edit reads the plist from argv[2] and writes argv[3]; the heredoc is `python3 -`'s
- * program on stdin. The plist is never passed on stdin, so the program read and the data read do
- * not collide. argv[1] is the mechanism, passed as a shell-quoted argument.
- */
-function editMechanismStep(body: string, guard: string): string {
+function addRuleAlternativeStep(): string {
   return [
-    `security authorizationdb read ${shellQuote(right)} > ${readPlist}${guard}`,
-    `/usr/bin/python3 - ${shellQuote(mechanism)} ${readPlist} ${nextPlist} <<'PY'`,
+    // Define the sub-right that actually evaluates our mechanism.
+    `cat > "$work/permit.plist" <<'PLIST'`,
+    permitRightPlist(),
+    "PLIST",
+    `security authorizationdb write ${shellQuote(permitRight)} < "$work/permit.plist"`,
+    // Add its name to the screen-saver right's OR-rule, guarded on class and k-of-n.
+    `security authorizationdb read ${shellQuote(screensaverRight)} > "$work/right.plist"`,
+    `/usr/bin/python3 - ${shellQuote(permitRight)} "$work/right.plist" "$work/right.next.plist" <<'PY'`,
     "import sys, plistlib",
-    "mechanism = sys.argv[1]",
+    "name = sys.argv[1]",
     "with open(sys.argv[2], 'rb') as handle: right = plistlib.loads(handle.read())",
-    body,
+    "if right.get('class') != 'rule' or right.get('k-of-n', 1) != 1:",
+    "    sys.stderr.write('screensaver right is not an OR rule; refusing to edit'); sys.exit(3)",
+    "rule = right.get('rule')",
+    "rule = list(rule) if isinstance(rule, list) else ([rule] if isinstance(rule, str) else [])",
+    "if name not in rule: rule.append(name)",
+    "right['rule'] = rule",
     "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
     "PY",
-    `security authorizationdb write ${shellQuote(right)} < ${nextPlist}`,
-    `rm -f ${readPlist} ${nextPlist}`,
+    `security authorizationdb write ${shellQuote(screensaverRight)} < "$work/right.next.plist"`,
   ].join("\n");
 }
 
-function addMechanismStep(): string {
-  return editMechanismStep(
-    [
-      "mechanisms = right.setdefault('mechanisms', [])",
-      "if mechanism not in mechanisms: mechanisms.append(mechanism)",
-    ].join("\n"),
-    "",
-  );
+/** Removes our name from the screen-saver rule, leaving every other alternative in place. */
+function removeRuleAlternativeStep(): string {
+  return [
+    `security authorizationdb read ${shellQuote(screensaverRight)} > "$work/right.plist" 2>/dev/null || exit 0`,
+    `/usr/bin/python3 - ${shellQuote(permitRight)} "$work/right.plist" "$work/right.next.plist" <<'PY'`,
+    "import sys, plistlib",
+    "name = sys.argv[1]",
+    "with open(sys.argv[2], 'rb') as handle: right = plistlib.loads(handle.read())",
+    "rule = right.get('rule')",
+    "rule = list(rule) if isinstance(rule, list) else ([rule] if isinstance(rule, str) else [])",
+    "right['rule'] = [r for r in rule if r != name]",
+    "with open(sys.argv[3], 'wb') as handle: handle.write(plistlib.dumps(right))",
+    "PY",
+    `security authorizationdb write ${shellQuote(screensaverRight)} < "$work/right.next.plist"`,
+  ].join("\n");
 }
 
-/** Removes only our mechanism from the right, leaving every other mechanism in place. */
-function removeMechanismStep(): string {
-  return editMechanismStep(
-    "right['mechanisms'] = [m for m in right.get('mechanisms', []) if m != mechanism]",
-    " 2>/dev/null || exit 0",
-  );
+/** The evaluate-mechanisms right that runs our one plug-in mechanism, nothing else. */
+export function permitRightPlist(): string {
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>',
+    "<key>class</key><string>evaluate-mechanisms</string>",
+    `<key>mechanisms</key><array><string>${xmlEscape(mechanism)}</string></array>`,
+    "<key>shared</key><false/>",
+    "</dict></plist>",
+  ].join("\n");
 }
 
 function installDaemonStep(label: string, executable: string): string {
   const plist = shellQuote(daemonPlistPath(label));
   return [
     `cat > ${plist} <<'PLIST'`,
-    daemonPlist(label, stripQuotes(executable)),
+    daemonPlist(label, executable),
     "PLIST",
     `chown root:wheel ${plist}`,
     `chmod 644 ${plist}`,
@@ -172,31 +235,22 @@ function removeDaemonStep(label: string): string {
   return [`launchctl bootout system/${label} 2>/dev/null || true`, `rm -f ${plist}`].join("\n");
 }
 
-/** The plist embeds the raw executable path; it is validated before the script is built. */
-function stripQuotes(quoted: string): string {
-  return quoted.slice(1, -1).replaceAll(`'\\''`, "'");
+/** Rejects any artifact path that isn't an absolute, control-character-free POSIX path. */
+function validArtifact(path: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return path.startsWith("/") && path.length <= 4096 && !/[\u0000-\u001f]/.test(path);
 }
 
-/** A runner that refuses both actions when the staged artifact paths are unusable. */
-const refuseInvalidArtifacts: PrivilegedRunner = {
+/** A runner that refuses both actions when the staged artifacts are unusable. */
+const refuseInvalid: PrivilegedRunner = {
   install: () => Promise.reject(new Error("Locked use components are staged at an invalid path.")),
   remove: () => Promise.reject(new Error("Locked use components are staged at an invalid path.")),
 };
 
-/** Rejects any artifact path that isn't an absolute, control-character-free POSIX path. */
-function validArtifact(path: string): boolean {
-  return (
-    path.startsWith("/") &&
-    path.length <= 4096 &&
-    // eslint-disable-next-line no-control-regex
-    !/[\u0000-\u001f]/.test(path)
-  );
-}
-
 /**
  * The real privileged runner. `install`/`remove` each assemble one script and run it through a
  * single administrator authorization, then return; the caller (the installer) re-detects and
- * never trusts this result. It fails closed: a missing/odd artifact path or a non-zero script
+ * never trusts this result. It fails closed: an invalid artifact path/team or a non-zero script
  * exit rejects, leaving detection to report the true state.
  */
 export function privilegedRunner(
@@ -204,7 +258,7 @@ export function privilegedRunner(
   admin: AdminAuthorization,
 ): PrivilegedRunner {
   const paths = [artifacts.pluginBundle, artifacts.brokerExecutable, artifacts.guardianExecutable];
-  if (!paths.every(validArtifact)) return refuseInvalidArtifacts;
+  if (!paths.every(validArtifact) || !/^[A-Z0-9]{10}$/.test(artifacts.team)) return refuseInvalid;
   return {
     install: () => admin.run("install locked computer use", buildInstallScript(artifacts)),
     remove: () => admin.run("remove locked computer use", buildRemoveScript()),
@@ -240,14 +294,19 @@ export function appleScriptString(value: string): string {
 }
 
 /**
- * Builds the real runner from the artifact paths the desktop app stages in the environment, or
- * returns undefined when they are absent — in which case the daemon keeps the pending stub and
- * installing stays unavailable until the components ship and the person approves.
+ * Builds the real runner from the artifact paths and team the desktop app stages in the
+ * environment, or returns undefined when any is absent — in which case the daemon keeps the
+ * pending stub and installing stays unavailable until the components ship and the person
+ * approves.
  */
 export function privilegedRunnerFromEnv(env: NodeJS.ProcessEnv): PrivilegedRunner | undefined {
   const pluginBundle = env.ACE_LOCKED_USE_PLUGIN?.trim();
   const brokerExecutable = env.ACE_LOCKED_USE_BROKER?.trim();
   const guardianExecutable = env.ACE_LOCKED_USE_GUARDIAN?.trim();
-  if (!pluginBundle || !brokerExecutable || !guardianExecutable) return undefined;
-  return privilegedRunner({ pluginBundle, brokerExecutable, guardianExecutable }, osascriptAdmin());
+  const team = env.ACE_LOCKED_USE_TEAM?.trim();
+  if (!pluginBundle || !brokerExecutable || !guardianExecutable || !team) return undefined;
+  return privilegedRunner(
+    { pluginBundle, brokerExecutable, guardianExecutable, team },
+    osascriptAdmin(),
+  );
 }
