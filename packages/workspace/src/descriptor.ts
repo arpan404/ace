@@ -95,7 +95,9 @@ export function openAt(parent: number, name: string, flags: number): Descriptor 
 }
 export function openMetadataAt(parent: number, name: string): Descriptor {
   if (process.platform === "win32")
-    return new Descriptor(windowsCall(() => windows().openMetadataAt(parent, windowsName(name))));
+    return new Descriptor(
+      windowsCall(() => windowsHot().openMetadataAt(parent, windowsName(name))),
+    );
   try {
     return new Descriptor(binding().openMetadataAt(parent, name));
   } catch (error) {
@@ -185,7 +187,7 @@ export function statAt(parent: number, name: string) {
   if (process.platform === "win32") {
     const child = openMetadataAt(parent, name);
     try {
-      const facts = windowsCall(() => windows().statFd(child.fd));
+      const facts = windowsCall(() => windowsHot().statFd(child.fd));
       const { dev, ino } = fstatSync(child.fd);
       return {
         dev,
@@ -285,6 +287,62 @@ function windows(): z.infer<typeof WindowsBinding> {
   windowsLoaded ??= WindowsBinding.parse(require("../dist/descriptor.node"));
   return windowsLoaded;
 }
+/**
+ * The per-file calls of listing and search without zod's per-call function wrappers, which
+ * cost more than the native call itself. The binding's shape is still parsed once by
+ * windows(); results here are checked by hand.
+ */
+const NativeCall = z.custom<(...args: (number | string)[]) => unknown>(
+  (value) => typeof value === "function",
+);
+const WindowsHotBinding = z.object({
+  openAt: NativeCall,
+  openMetadataAt: NativeCall,
+  statFd: NativeCall,
+});
+let windowsHotLoaded:
+  | {
+      openAt(parent: number, name: string): number;
+      openMetadataAt(parent: number, name: string): number;
+      statFd(fd: number): z.infer<typeof WindowsFacts>;
+    }
+  | undefined;
+function windowsHot(): NonNullable<typeof windowsHotLoaded> {
+  if (!windowsHotLoaded) {
+    windows();
+    const raw = WindowsHotBinding.parse(require("../dist/descriptor.node"));
+    windowsHotLoaded = {
+      openAt: (parent, name) => windowsHandle(raw.openAt(parent, name)),
+      openMetadataAt: (parent, name) => windowsHandle(raw.openMetadataAt(parent, name)),
+      statFd: (fd) => windowsFacts(raw.statFd(fd)),
+    };
+  }
+  return windowsHotLoaded;
+}
+function windowsHandle(value: unknown): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  throw failed("The Windows descriptor add-on returned a malformed handle", "EIO");
+}
+function windowsFacts(value: unknown): z.infer<typeof WindowsFacts> {
+  if (typeof value === "object" && value !== null) {
+    const id: unknown = Reflect.get(value, "id");
+    const attributes: unknown = Reflect.get(value, "attributes");
+    const size: unknown = Reflect.get(value, "size");
+    const writeTime: unknown = Reflect.get(value, "writeTime");
+    if (
+      id instanceof Uint8Array &&
+      id.length === 24 &&
+      typeof attributes === "number" &&
+      Number.isInteger(attributes) &&
+      attributes >= 0 &&
+      typeof size === "number" &&
+      size >= 0 &&
+      typeof writeTime === "bigint"
+    )
+      return { id: new Uint8Array(id), attributes, size, writeTime };
+  }
+  throw failed("The Windows descriptor add-on returned malformed file facts", "EIO");
+}
 function failed(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
 }
@@ -323,7 +381,7 @@ function windowsOpenAt(parent: number, name: string, flags: number): number {
   }
   if (flags & (constants.O_WRONLY | constants.O_RDWR))
     throw failed("Windows opens existing files read-only", "ENOTSUP");
-  return windowsCall(() => windows().openAt(parent, name));
+  return windowsCall(() => windowsHot().openAt(parent, name));
 }
 /**
  * Windows identity has one source: dev and ino are always Node's own fstat values, so stats
@@ -374,5 +432,5 @@ function windowsTime(ticks: bigint): number {
 }
 /** Node's fstat with the type and exact file id read from the same Windows handle. */
 export function statWindowsFd(fd: number): Stats {
-  return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windows().statFd(fd))));
+  return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windowsHot().statFd(fd))));
 }
