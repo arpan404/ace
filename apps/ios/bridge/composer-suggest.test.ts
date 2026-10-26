@@ -239,3 +239,14 @@ test("/goal sets the goal even while a question waits on the person", async () =
   });
   expect(commands("interaction.resolve")).toHaveLength(0);
 });
+
+test("a query whose held references can't be read still answers", async () => {
+  const client = await ready(daemon());
+  const lists = suggest(client);
+  const draft = { type: "draft", workspaceId: "ace", provider: "claude" };
+  expect(
+    lists.handle({ kind: "query", scope: draft, list: "mention", query: "", seq: 7, held: {} }),
+  ).toBe(true);
+  const shown = await settled(7);
+  expect(shown.rows.some((row) => row.group === "Files")).toBe(true);
+});

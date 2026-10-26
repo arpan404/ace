@@ -129,7 +129,7 @@ struct NewThreadComposer: View {
                                 withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
                             },
                             identifier: "newThread.message", focusOnAppear: true,
-                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks?.held ?? [:]) }, place: place)
+                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)
                 .overlay(alignment: .topLeading) {
                     if draft.text.isEmpty {
                         Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
