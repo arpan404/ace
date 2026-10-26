@@ -5,7 +5,7 @@ import Testing
 @Suite @MainActor struct ConversationSearchTests {
     @Test func aLateSearchCannotReplaceTheNewerQueryOrAppendItsPages() async throws {
         let session = SearchSession()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
         session.reply = { data in model.receive(data) }
         await model.connect(target: ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "phone", pin: nil, credential: { "{}" }), directory: FileManager.default.temporaryDirectory)
         model.connection = "ready"
@@ -31,7 +31,7 @@ import Testing
     }
     @Test func aRefusedCursorOffersARefreshWithoutErasingResults() async throws {
         let session = SearchSession()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
         session.reply = { data in model.receive(data) }
         await model.connect(target: ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "phone", pin: nil, credential: { "{}" }), directory: FileManager.default.temporaryDirectory)
         model.connection = "ready"

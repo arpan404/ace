@@ -4,6 +4,7 @@ import {
   ForgeIssueRef,
   KnownSpeed,
   WorkspaceId,
+  type CatalogEntry,
   type CatalogModel,
 } from "@ace/protocol";
 import {
@@ -13,24 +14,19 @@ import {
   defaultWorktreeBase,
   messageHasContent,
   providerNames,
-  readModelCatalog,
   selectionInputs,
   type AttachmentReader,
-  type ModelCatalog,
 } from "@ace/ui-core";
-import {
-  newThreadAgents,
-  newThreadProjects,
-  selectNewThreadAgent,
-  type NewThreadAgents,
-} from "@ace/ui-core/mobile";
+import { newThreadProjects, selectNewThreadAgent, type NewThreadAgents } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
+import { joinContext, messageContent, References } from "./composer-references.ts";
 import { readProjects } from "./project-list.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
 import { ModelFavorites } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
+import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
 
 /*
@@ -89,6 +85,8 @@ export const CreateAction = z.object({
   text: z.string().max(100_000),
   /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
   issue: ForgeIssueRef.optional(),
+  /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
+  references: References.optional(),
 });
 type Create = z.infer<typeof CreateAction>;
 type Choice = z.infer<typeof ChoiceAction>;
@@ -114,6 +112,9 @@ export class NewThread {
   /** Each command id once: a repeated send waits on the first. */
   #flights = new Map<string, Promise<boolean>>();
   #memory: NewThreadMemory | undefined;
+  /** The draft's catalog as the composer last read it, for a typed `/name`. */
+  #commands: (workspaceId: string, provider: string) => readonly CatalogEntry[] | undefined = () =>
+    undefined;
   constructor(
     owner: NewThreadOwner,
     sink: PatchSink,
@@ -211,27 +212,12 @@ export class NewThread {
       last ?? { type: "compose.agents", state: "loading", providers: [] },
     );
     try {
-      const catalogRead = readModelCatalog(this.#owner, {}).catch((): ModelCatalog => ({
-        models: [],
-        instances: [],
-      }));
-      const [readiness, accounts, catalog, stars] = await Promise.all([
-        this.#owner.request({ type: "providers.request", operation: "readiness" }, quiet),
-        this.#owner
-          .request({ type: "accounts.list" }, quiet)
-          .then((reply) => reply.accounts)
-          .catch(() => []),
-        catalogRead,
-        catalogRead.then((read) => this.#favorites.read(catalogModelIds(read.models))),
-      ]);
+      const { agents, catalog, stars } = await readAgents(
+        this.#owner,
+        this.#favorites,
+        this.#now(),
+      );
       this.#stars = { keys: stars, problem: null };
-      if (!readiness.result.ok) throw new Error(readiness.result.error);
-      const agents = newThreadAgents({
-        statuses: readiness.result.providers,
-        accounts,
-        catalog,
-        now: this.#now(),
-      });
       this.#agents = agents;
       this.#catalog = catalog.models;
       this.#emitAgents(agents);
@@ -308,6 +294,13 @@ export class NewThread {
    * Start the thread. Admission (saved on this phone, or why not) answers on `admission:<id>`;
    * the daemon's receipt, naming the new thread, on `compose.start`.
    */
+  /** Where a typed `/name` finds its catalog entry (`composer-suggest.ts`). */
+  readCatalogFrom(
+    catalog: (workspaceId: string, provider: string) => readonly CatalogEntry[] | undefined,
+  ): void {
+    this.#commands = catalog;
+  }
+
   /** Resolves true once the thread is saved on this phone to start. */
   create(action: Create): Promise<boolean> {
     const running = this.#flights.get(action.commandId);
@@ -354,6 +347,11 @@ export class NewThread {
       admission(false, access.problem);
       return false;
     }
+    const content = messageContent(
+      action.text,
+      action.references ?? [],
+      this.#commands(action.workspaceId, start.provider),
+    );
     const payload = createPayload({
       project: action.workspaceId,
       scope: start.model.scope,
@@ -364,7 +362,8 @@ export class NewThread {
       serviceTier: start.serviceTier,
       permission: access.permission,
       text: action.text,
-      context: files.context,
+      input: content.input,
+      context: joinContext(files.context, content.references),
       ...(action.issue ? { issue: action.issue } : {}),
     });
     const draftId = files.context?.draftId;

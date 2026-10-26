@@ -21,6 +21,10 @@ export const sent: string[] = [];
 export const refuseOnce = { text: "Refuse this once" };
 /** How long the daemon takes to receive a `settings.get` (a slow link), in milliseconds. */
 export const slowSettings = { ms: 0 };
+/** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
+export const forks = { refuse: false, hold: false, release: () => {} };
+/** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
+export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
 let client: ClientCore | undefined;
 let lease: Lease<ThreadSource> | undefined;
@@ -34,6 +38,8 @@ export async function reset(): Promise<void> {
   await client?.close();
   native.frames.length = 0;
   slowSettings.ms = 0;
+  Object.assign(forks, { refuse: false, hold: false, release: () => {} });
+  Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
   native.calls.clear();
   sent.length = 0;
 }
@@ -41,9 +47,31 @@ export async function reset(): Promise<void> {
 function refusal(text: string): string | undefined {
   const message = JSON.parse(text) as {
     type?: string;
+    requestId?: string;
+    options?: { instance?: string };
     command?: { id?: string; payload?: { type?: string; input?: { text?: string }[] } };
   };
+  if (
+    message.type === "models.list" &&
+    accountModels.fails > 0 &&
+    message.options?.instance === accountModels.instance
+  ) {
+    accountModels.fails -= 1;
+    return JSON.stringify({
+      type: "error",
+      requestId: message.requestId,
+      code: "unavailable",
+      message: "unavailable",
+    });
+  }
   const command = message.type === "command" ? message.command : undefined;
+  if (command?.payload?.type === "thread.fork" && forks.refuse)
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "fork_point_not_found",
+    });
   if (command?.payload?.type !== "thread.send" || command.id?.endsWith(":retry")) return undefined;
   if (command.payload.input?.[0]?.text !== refuseOnce.text) return undefined;
   return JSON.stringify({
@@ -99,6 +127,14 @@ export function connect(
           if (refused) queueMicrotask(() => deliver?.(refused));
           else if (slowSettings.ms && text.includes('"type":"settings.get"'))
             setTimeout(() => inner.send(text), slowSettings.ms);
+          else if (forks.hold && text.includes('"type":"thread.fork"'))
+            forks.release = () => inner.send(text);
+          else if (
+            accountModels.slowMs &&
+            text.includes('"type":"models.list"') &&
+            text.includes(`"instance":"${accountModels.instance}"`)
+          )
+            setTimeout(() => inner.send(text), accountModels.slowMs);
           else inner.send(text);
         },
         close: () => inner.close(),

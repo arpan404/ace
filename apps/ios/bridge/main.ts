@@ -22,6 +22,7 @@ import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
@@ -68,6 +69,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
   /** New thread and Add project (`compose-actions.ts`). */
   z.object({ type: z.literal("compose"), action: z.unknown() }),
+  /** The composer's `@`, `/` and + lists (`composer-suggest.ts`). */
+  z.object({ type: z.literal("suggest"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -89,6 +92,7 @@ let epoch = 0;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
+let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 let organizer: InboxOrganizer | undefined;
 let terminal: NativeTerminal | undefined;
@@ -223,6 +227,24 @@ async function start(json: string): Promise<void> {
         .identity.displayName),
   );
   const search = compose.search;
+  suggest = new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview,
+    schedule: scheduler.set,
+    now: () => host.now(),
+    thread: () => {
+      const thread = openThreadId ? lease?.store.thread : undefined;
+      return thread && openThreadId
+        ? { threadId: openThreadId, workspaceId: thread.workspaceId, provider: thread.provider }
+        : undefined;
+    },
+    threads: () => sidebarThreads(owner),
+    draft: search,
+  });
+  compose.newThread.readCatalogFrom((workspaceId, provider) =>
+    suggest?.draftEntries(workspaceId, provider),
+  );
   const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
     search.complete(workspaceId, query, limit),
   );
@@ -311,7 +333,15 @@ function action(json: string): void {
           pump.bind(ledger, ++epoch);
           stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
         }
-        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
+        session = new ThreadSession(
+          client,
+          lease.store,
+          value.threadId,
+          epoch,
+          pump,
+          nativeChunks,
+          (threadId) => suggest?.entries(threadId),
+        );
         browser?.close();
         browser?.probe(value.threadId, epoch);
         transfers?.follow({ threadId: value.threadId, epoch, store: lease.store });
@@ -357,6 +387,9 @@ function action(json: string): void {
         break;
       case "compose":
         if (!compose?.compose(value.action)) error();
+        break;
+      case "suggest":
+        if (!suggest?.handle(value.action)) error();
         break;
       case "browser":
         if (!browser?.action(value.action)) error();

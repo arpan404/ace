@@ -318,7 +318,7 @@ import Testing
         defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
         model = MachinesModel(access: access, storage: storage, defaults: defaults, now: { 5_000 },
-                              makeClient: { ClientModel(now: { 0 }, makeRuntime: sessions.make) })
+                              makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
     func cleanUp() {
         defaults.removePersistentDomain(forName: suite)

@@ -5,7 +5,7 @@ import Testing
 @Suite @MainActor struct ConnectionLifecycleTests {
     @Test func replacingAConnectionWaitsForShutdownAndIgnoresItsLateUpdates() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         first.emit("ready")
@@ -42,7 +42,7 @@ import Testing
 
     @Test func disconnectCancelsAReplacementWaitingForThePreviousRuntime() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         let replacement = Task { await model.connect(target: try target("second"), directory: directory) }
@@ -61,7 +61,7 @@ import Testing
 
     @Test func theLatestConnectionWinsWhenSeveralWaitForShutdown() async throws {
         let sessions = Sessions()
-        let model = ClientModel(now: { 0 }, makeRuntime: sessions.make)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         let second = Task { await model.connect(target: try target("second"), directory: directory) }

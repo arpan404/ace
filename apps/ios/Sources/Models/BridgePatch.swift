@@ -236,6 +236,8 @@ enum BridgePatch: Decodable, Sendable {
     case archiveList(ArchiveList)
     /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
     case compose(ComposePatch)
+    /// The composer's `@`, `/` and + lists (`Models/ComposerSuggestions.swift`).
+    case composer(ComposerSuggestPatch)
     case files(FilesPatch)
     /// Continue on… and Open on… (`bridge/transfers.ts`).
     case transfers(TransfersPatch)
@@ -318,6 +320,7 @@ enum BridgePatch: Decodable, Sendable {
         case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
+        case let kind where kind.hasPrefix("composer."): self = .composer(try ComposerSuggestPatch(from: decoder))
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))

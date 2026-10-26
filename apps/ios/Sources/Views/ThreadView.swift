@@ -48,6 +48,10 @@ struct ThreadView: View {
     @State private var composerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
+    /// The composer's `@`, `/` and + lists.
+    @State private var suggester = ComposerSuggester()
+    /// "Attach files" picked from `/`: the + menu's three sources are offered.
+    @State private var askAttach = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -150,6 +154,17 @@ struct ThreadView: View {
                     }
                 }
             }
+            // The next message continued this thread in a new one: open it once its row is here
+            // (ten seconds at most; after that it's in the list to tap).
+            .task(id: screen.continued) {
+                guard let opened = screen.continued else { return }
+                for _ in 0..<100 where model.inbox[opened] == nil {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if Task.isCancelled { return }
+                }
+                screen.continued = nil
+                if model.inbox[opened] != nil { openThread(opened) }
+            }
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
@@ -198,18 +213,20 @@ struct ThreadView: View {
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
                 } else if model.canOperate {
                     ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
-                                 send: { text, alternate in
+                                 send: { text, alternate, references in
                                      let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
-                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
+                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
                                      if saved { acceptedSend += 1 }
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                  files: screen.attachments.count,
-                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
+                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                                 suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
+                                 run: runComposerAction) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
-                    } leading: {
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                    } leading: { pick in
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
@@ -225,6 +242,11 @@ struct ThreadView: View {
                         .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
+                    .task(id: thread.id) {
+                        suggester.attach(model)
+                        suggester.scope = .thread(thread.id)
+                        suggester.readAhead()
+                    }
                 } else {
                     ViewOnlyNote.thread
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
@@ -264,6 +286,16 @@ struct ThreadView: View {
                             openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
         default:
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
+        }
+    }
+    /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
+    private func runComposerAction(_ action: String) {
+        switch action {
+        case "attach": askAttach = true
+        case "plan": Task { _ = await model.setAccess("read-only") }
+        case "model": showModels = true
+        case "review": showChanges = true
+        default: break
         }
     }
     /// The composer always reads the same; how a message goes while the agent works is the send

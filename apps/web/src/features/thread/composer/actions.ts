@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { runCommand } from "@/lib/daemon-command.ts";
-import { latestForkPoint } from "../transitions/fork-point.ts";
+import { latestForkPoint } from "@ace/ui-core";
 import type { ThreadRef } from "../sources/index.ts";
 export async function composerAction(
   action: string,

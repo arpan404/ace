@@ -27,6 +27,7 @@ import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
+import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -198,6 +199,15 @@ seedWorkLogs(daemon);
 seedLongSteps(daemon);
 seedMessages(daemon, details);
 seedReading(daemon, details);
+seedToolBurst(daemon, details);
+let bursts = 0;
+const burstPace = (run: () => void, ms: number) => void setTimeout(run, ms);
+// `ACE_IOS_SPIKE_BURST_MS=2000` sends ios-burst a burst of 30 tool calls that often.
+const burstEvery = Number(process.env.ACE_IOS_SPIKE_BURST_MS ?? 0);
+const burstTimer =
+  Number.isSafeInteger(burstEvery) && burstEvery > 0
+    ? setInterval(() => toolBurst(daemon, ++bursts, 30, burstPace), burstEvery)
+    : undefined;
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
@@ -261,6 +271,13 @@ const server = Bun.serve<undefined>({
         .parse(await request.json());
       manyActions(daemon, input.id);
       return Response.json({ ok: true });
+    }
+    if (path === "/review/burst" && request.method === "POST") {
+      const input = z
+        .object({ size: z.number().int().min(1).max(200).default(30) })
+        .parse(await request.json());
+      toolBurst(daemon, ++bursts, input.size, burstPace);
+      return Response.json({ ok: true, burst: bursts });
     }
     if (path === "/review/approval" && request.method === "POST") {
       approvalRetryScenario(
@@ -393,6 +410,7 @@ const timer = setInterval(() => {
 process.on("SIGINT", () => {
   clearInterval(timer);
   clearInterval(busyTimer);
+  clearInterval(burstTimer);
   server.stop(true);
   stopPeer?.();
 });
