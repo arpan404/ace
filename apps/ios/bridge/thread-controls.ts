@@ -58,7 +58,7 @@ function deliveryOf(
 export function controlsRow(
   reader: ThreadReader,
   setting: FollowUpBehavior | undefined,
-  next?: { provider: ProviderKind; model: string; note: string },
+  next?: { provider: ProviderKind; model: string; note: string; continues: boolean },
 ) {
   const thread = reader.thread;
   const status = thread?.status;
@@ -81,6 +81,8 @@ export function controlsRow(
     switching: thread?.switch?.state ?? "",
     /** Why the control names something the agent doesn't run on yet: "Applies at the agent's next turn". */
     note: next?.note ?? "",
+    /** The next message starts a new thread on that model, carrying this one's context. */
+    continues: next?.continues ?? false,
   };
 }
 

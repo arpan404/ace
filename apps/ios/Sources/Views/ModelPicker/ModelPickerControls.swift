@@ -19,7 +19,8 @@ struct ModelChoiceRow: View {
                         // One line per model keeps the list even; accessibility sizes wrap instead.
                         Text(row.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                             .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        if let detail = row.detail, !detail.isEmpty {
+                        if let detail = [row.detail, row.note].compactMap({ $0 }).filter({ !$0.isEmpty }).joined(separator: " · ") as String?,
+                           !detail.isEmpty {
                             Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                         }

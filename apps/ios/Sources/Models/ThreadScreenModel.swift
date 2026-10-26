@@ -18,7 +18,8 @@ import Observation
     var hasOlder = false
     var modelList = ThreadModels()
     var modelsState: String { modelList.state }
-    var models: [ModelOption] { modelList.models }
+    /// A thread this one continued in, to open once; cleared when opened.
+    var continued: String?
     /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
     var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working, or when this Stop's own request

@@ -20,7 +20,13 @@ type Sheet = {
   rows: Record<string, { ask: number | null; note: string | null }>;
   asks: { title: string; message: string; action: string }[];
 };
-type Controls = { provider: string; model: string; note: string; switching: string };
+type Controls = {
+  provider: string;
+  model: string;
+  note: string;
+  switching: string;
+  continues: boolean;
+};
 
 const gpt = "codex\u0000gpt-6";
 const opus = "claude\u0000claude-opus-5-5";
@@ -166,7 +172,10 @@ test("with fork on switch, another provider continues in a new thread with the n
     requestId: "pick",
   });
   await until(() => controls()?.provider === "claude", "the composer naming Claude");
-  expect(controls()?.note).toBe("Continues in a new thread with your next message");
+  expect(controls()).toMatchObject({
+    note: "Continues in a new thread with your next message",
+    continues: true,
+  });
   expect(commands("thread.switch")).toHaveLength(0);
   thread.handle({ type: "send", text: "Carry on there.", opposite: false, requestId: "go" });
   const continued = await until(() => latest("thread.continued"), "the new thread");

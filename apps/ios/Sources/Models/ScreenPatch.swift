@@ -144,15 +144,18 @@ enum ScreenPatch: Sendable {
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
     case pill(PillRow?, GoalRow?)
+    /// The next message started a new thread carrying this one's context: open it.
+    case continued(String)
 
-    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal }
+    static let types: Set<String> = ["thread.continued", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
         case "thread.steps": self = .steps(try StepsHeader(from: decoder))
         case "thread.stepsPage":
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
+        case "thread.continued": self = .continued(try box.decode(String.self, forKey: .opened))
         case "thread.stepsReleased": self = .stepsReleased(ordinal: try box.decode(Int.self, forKey: .ordinal))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))

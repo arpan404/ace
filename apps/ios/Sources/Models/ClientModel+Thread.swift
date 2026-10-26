@@ -53,12 +53,16 @@ extension ClientModel {
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
     func requestModels() { threadAction(["type": "models"]) }
-    /// Star or unstar one of the thread's provider's models, where the web keeps stars.
-    func favoriteModel(_ id: String) { threadAction(["type": "favorite", "model": id]) }
-    func switchModel(_ model: ModelOption) async -> Bool {
+    /// Star or unstar a model by its picker key, where the web keeps stars.
+    func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
+    /// Move the thread to a model on one account; `confirmed` once the person answered the row's
+    /// question. The bridge decides what that does: switch, or continue with the next message.
+    func switchModel(key: String, account: String, confirmed: Bool) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) { threadAction(["type": "switchModel", "model": model.id, "requestId": id]) }
+        return await admissions.wait(id: id) {
+            threadAction(["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id])
+        }
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {

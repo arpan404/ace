@@ -52,6 +52,7 @@ export interface NextModel {
   provider: ProviderKind;
   model: string;
   note: string;
+  continues: boolean;
 }
 
 export class ThreadModelSheet {
@@ -123,11 +124,19 @@ export class ThreadModelSheet {
         provider: held.provider,
         model: this.#preview(held.model, 128),
         note: this.#continued ? continuationNote : switchNextTurnNote,
+        continues: this.#continued !== undefined,
       };
     const thread = this.#store.thread;
     if (thread?.switch?.state !== "queued") return undefined;
     const selection = runsOn(thread);
-    return selection && { provider: selection.provider, model: "", note: switchNextTurnNote };
+    return (
+      selection && {
+        provider: selection.provider,
+        model: "",
+        note: switchNextTurnNote,
+        continues: false,
+      }
+    );
   }
 
   /** The thread changed: a switch sent from here gives way once the daemon reports any move. */
