@@ -71,9 +71,11 @@ function append(word: HookWord, shell: string, literal: string) {
   word.literal += literal;
 }
 
-/** A word that may name a file: it holds a separator or starts at a home directory. */
-export const namesPath = (word: HookWord) =>
-  /[\\/]/.test(word.shell) || /[\\/]/.test(word.literal) || word.shell.startsWith("~");
+/**
+ * A spelling that names a file, as Git's sh and POSIX checks read words: it holds a separator or
+ * starts at a home directory. A bare name (`check.sh`, `C:check.sh`) is looked up on PATH.
+ */
+export const namesPath = (spelling: string) => /[\\/]/.test(spelling) || spelling.startsWith("~");
 
 /** What Git for Windows' sh needs to read a rooted or `~` path. */
 export interface ShellLayout {

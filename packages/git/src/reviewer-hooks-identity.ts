@@ -42,9 +42,11 @@ export async function hooksInsideWindowsCheckout(query: Query, cwd: string): Pro
     commands.exitCode === 0 ? commands.stdout.toString("utf8").split("\0").filter(Boolean) : []
   )
     .flatMap((entry) => hookCommandWords(entry.slice(entry.indexOf("\n") + 1)))
-    .filter(namesPath);
+    .filter((word) => namesPath(word.shell) || namesPath(word.literal));
   if (words.some((word) => word.expands)) return true;
-  const spellings = [...new Set(words.flatMap((word) => [word.shell, word.literal]))];
+  const spellings = [
+    ...new Set(words.flatMap((word) => [word.shell, word.literal]).filter(namesPath)),
+  ];
   const layout = await shellLayout(query, spellings);
   // Git looks for its hooks directory as Windows reads the path (`core.hooksPath` as written).
   const candidates = [win32.resolve(cwd, text(hooks))];
