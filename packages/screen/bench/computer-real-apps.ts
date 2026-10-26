@@ -70,12 +70,15 @@ try {
   console.log(`foreground at start: ${foreground()}`);
   await tool("screen_apps", {});
   await tool("screen_apps", { query: "calc" });
+  await tool("screen_apps", { query: "explor" });
 
   // Notepad: launched in the background, typed into by id, read back.
   await tool("screen_state", { app: "Notepad" });
-  const notepad = await raw("Notepad");
-  const editor = find(notepad, (n) => n.role === "text area" || n.role === "document");
-  if (editor)
+  // A new tab, so text Notepad restored from an earlier session doesn't mix in.
+  const tab = find(await raw("Notepad"), (n) => n.role === "button" && n.name === "Add New Tab");
+  if (tab) await tool("screen_act", { app: "Notepad", actions: [{ type: "click", id: tab }] });
+  const editor = find(await raw("Notepad"), (n) => n.role === "text area" || n.role === "document");
+  if (editor) {
     await tool("screen_act", {
       app: "Notepad",
       actions: [
@@ -83,6 +86,9 @@ try {
       ],
       screenshot: true,
     });
+    const typed = (await raw("Notepad")).nodes.find((n) => n.id === editor);
+    console.log(`Notepad text now: ${JSON.stringify(typed?.value)}`);
+  }
   console.log(`foreground after Notepad: ${foreground()}`);
 
   // Calculator: buttons pressed by id in the background.
