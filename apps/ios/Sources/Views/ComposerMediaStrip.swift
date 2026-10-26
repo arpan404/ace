@@ -13,7 +13,9 @@ struct ComposerMediaStrip: View {
     @State private var viewing: StagedMedia?
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AceTheme.Spacing.xs) {
+            // Spaced and padded so each thumbnail's Remove target, which reaches past its corner,
+            // stays inside the row and clear of the next file.
+            HStack(spacing: ComposerMediaThumb.reach + AceTheme.Spacing.xxs) {
                 ForEach(files) { file in
                     if file.kind == "image", file.state != "failed", let url = staging.file(file.id) {
                         ComposerMediaThumb(file: file, url: url) { viewing = StagedMedia(name: file.name, url: url) } remove: { remove(file.id) }
@@ -23,6 +25,7 @@ struct ComposerMediaStrip: View {
                 }
             }
             .padding(.horizontal, inset)
+            .padding(.top, ComposerMediaThumb.reach).padding(.trailing, ComposerMediaThumb.reach)
         }
         .fullScreenCover(item: $viewing) { media in
             MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
@@ -36,16 +39,24 @@ private struct StagedMedia: Identifiable {
     var id: URL { url }
 }
 
-/// A staged picture, square and rounded, decoded off the main thread at the size it is drawn.
+/// A staged picture, square and rounded, decoded off the main thread at the size it is drawn
+/// (one at a time). A picture the phone can't decode (SVG, PSD, a broken file) shows as a chip.
 private struct ComposerMediaThumb: View {
     let file: AttachmentFile
     let url: URL
     let open: () -> Void
     let remove: () -> Void
     static let side: CGFloat = 56
+    /// How far Remove's 44pt target reaches past the thumbnail's corner, its small X centred
+    /// where it is drawn.
+    static let reach: CGFloat = AceTheme.Dimensions.touchTarget / 2 - 11
     @Environment(\.displayScale) private var scale
     @State private var image: UIImage?
+    @State private var unreadable = false
     var body: some View {
+        if unreadable { AttachmentChip(file: file, remove: remove) } else { thumb }
+    }
+    private var thumb: some View {
         Button(action: open) {
             ZStack(alignment: .bottom) {
                 AceTheme.Colours.fill
@@ -75,16 +86,17 @@ private struct ComposerMediaThumb: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: 18, height: 18)
                     .background(AceTheme.Colours.background.opacity(0.8), in: Circle())
-                    .padding(AceTheme.Spacing.xxs)
+                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .offset(x: Self.reach, y: -Self.reach)
             .accessibilityLabel("Remove \(file.name)")
             .accessibilityIdentifier("composer.media.remove")
         }
         .task(id: url) {
-            let pixels = Self.side * scale
-            image = await Task.detached(priority: .userInitiated) { downsampledImage(at: url, pixels: pixels) }.value
+            image = await PreviewDecoder.shared.preview(at: url, pixels: Self.side * scale)
+            unreadable = image == nil
         }
     }
 }
