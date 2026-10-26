@@ -60,6 +60,9 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Providers: discovery and registry
+      "packages/provider-kit/src/discovery/install-locations.process.test.ts",
+      "packages/agent-registry/src/native-entrypoints.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
