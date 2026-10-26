@@ -60,6 +60,12 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Providers: accounts, usage, history
+      "packages/accounts/src/profile-accounts.process.test.ts",
+      "packages/accounts/src/usage-sources/profile-read.test.ts",
+      "packages/accounts/src/usage-sources/read.test.ts",
+      "packages/provider-kit/src/discovery/pi-profile.process.test.ts",
+      "packages/history-import/src/profile-history.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
