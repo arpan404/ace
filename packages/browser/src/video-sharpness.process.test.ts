@@ -119,11 +119,8 @@ async function shownVersusPage(f: Fixture, chunks: readonly BrowserVideoChunk[])
     const a = luma(last), b = luma(page);
     let error = 0;
     for (let i = 0; i < a.length; i++) error += (a[i] - b[i]) ** 2;
-    console.log("DIAG");
-    window.__diag = JSON.stringify({ codec: config.codec, chunkW: config.codedWidth, chunkH: config.codedHeight, coded: [last.codedWidth, last.codedHeight], display: [last.displayWidth, last.displayHeight], visible: last.visibleRect && [last.visibleRect.x, last.visibleRect.y, last.visibleRect.width, last.visibleRect.height], page: [w, h], format: last.format });
     return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
   })()`);
-  console.log("DIAG", await f.evaluate("window.__diag"), result);
   return z
     .object({ width: z.number(), height: z.number(), psnr: z.number() })
     .parse(JSON.parse(String(result)));
