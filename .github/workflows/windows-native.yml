@@ -21,6 +21,10 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - packages/git/src/cli.ts
+      - packages/git/src/disabled-hooks*
+      - packages/files/src/upload*
+      - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*
       - packages/preview/**
       - native/screen-helper-windows/**
@@ -77,8 +81,16 @@ jobs:
       BUN_VERSION: 1.4.0
 
     steps:
+      # LF checkouts for this job only; every other checkout keeps its own setting.
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Workspace tests check that 8.3 aliases (GIT~1) of reserved names are refused.
+      - name: Generate 8.3 names on the temp volume
+        run: fsutil 8dot3name set $env:RUNNER_TEMP.Substring(0, 2) 0
 
       - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.node_arch }})
         uses: actions/setup-node@v7

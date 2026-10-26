@@ -94,7 +94,7 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_CHROMIUM_PATH !== undefined
       ? { ACE_CHROMIUM_PATH: ambient.ACE_CHROMIUM_PATH }
       : {}),
-    ...(ambient.ACE_WINDOWS_SCREEN_HELPER !== undefined
+    ...(process.platform === "win32" && ambient.ACE_WINDOWS_SCREEN_HELPER !== undefined
       ? { ACE_WINDOWS_SCREEN_HELPER: ambient.ACE_WINDOWS_SCREEN_HELPER }
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),

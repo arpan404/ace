@@ -39,6 +39,8 @@ export default defineConfig({
       "packages/workspace/src/pinned-directory.process.test.ts",
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
+      "packages/git/src/disabled-hooks.process.test.ts",
+      "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
       "packages/terminal/src/pty.test.ts",
@@ -51,6 +53,10 @@ export default defineConfig({
       "tools/release/src/archive-paths.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
+    // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
+    // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    testNamePattern:
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
