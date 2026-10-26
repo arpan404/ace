@@ -31,6 +31,7 @@ export interface WorkspaceClock {
 }
 export interface WorkspaceRuntime {
   environment: NodeJS.ProcessEnv;
+  /** Selects the native watch strategy (Linux watches each visible directory) and path rules. */
   platform: NodeJS.Platform;
   filesystem: WorkspaceFileSystem;
   spawn: (binary: string, args: string[], options: SpawnOptions) => ChildProcess;

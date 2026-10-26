@@ -71,6 +71,8 @@ export function isolatedTestEnvironment(
     // This one lets the computer engine operate Calculator, and only Calculator.
     ...(ambient.ACE_COMPUTER_LIVE === "1" ? { ACE_COMPUTER_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
+    ...linuxDesktopSession(ambient),
+    ...androidDevice(ambient),
     // `bun run eval:mcp` names where the MCP eval harness writes its report.
     ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
     ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
@@ -85,7 +87,9 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL !== undefined
       ? { ACE_DEVICE_LIVE_ANDROID_SERIAL: ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL }
       : {}),
-    // Browser binaries are installed once per machine; tests drive them read-only.
+    // Browser binaries are installed once per machine; tests drive them read-only. CI installs
+    // ace's pinned Chrome and names it in ACE_CHROMIUM_PATH; without it Linux has no browser
+    // and every real-Chromium suite would skip.
     ...(ambient.ACE_CHROMIUM_PATH !== undefined
       ? { ACE_CHROMIUM_PATH: ambient.ACE_CHROMIUM_PATH }
       : {}),
@@ -94,6 +98,61 @@ export function isolatedTestEnvironment(
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
+}
+
+/**
+ * The Linux desktop end-to-end suite (`ACE_LINUX_DESKTOP_E2E`) drives a throwaway desktop the
+ * runner script started, never the person's own. Its helper must reach that session: the
+ * runtime directory holding the Wayland socket and PipeWire, the system data directories with
+ * the apps' desktop files, and the session type. Writable XDG homes stay isolated.
+ */
+function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const session = ambient.ACE_LINUX_DESKTOP_E2E;
+  if (!session) return {};
+  const kept: NodeJS.ProcessEnv = { ACE_LINUX_DESKTOP_E2E: session };
+  for (const key of [
+    "ACE_SCREEN_HELPER",
+    // Where the suite keeps what a viewer received, for a person to look at.
+    "ACE_E2E_ARTIFACTS",
+    // What reached the live-view suites' fixture window.
+    "ACE_E2E_FIXTURE_LOG",
+    "XDG_RUNTIME_DIR",
+    "XDG_DATA_DIRS",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+    // Hyprland's and Sway's control sockets, and the file the scripted chooser answers from.
+    "HYPRLAND_INSTANCE_SIGNATURE",
+    "SWAYSOCK",
+    "ACE_E2E_PICKER_CHOICE",
+  ] as const) {
+    const value = ambient[key];
+    if (value !== undefined) kept[key] = value;
+  }
+  return kept;
+}
+
+/**
+ * The Android end-to-end suite (`ACE_ANDROID_E2E_SDK`) drives a device its runner booted, through
+ * that SDK's adb, or an AVD it asks ace to boot (`ACE_ANDROID_E2E_BOOT_AVD`) from the AVD folder
+ * the runner names (`ANDROID_AVD_HOME`, outside the real home: the home guard still applies).
+ * Only those are kept; the homes stay isolated.
+ */
+function androidDevice(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sdk = ambient.ACE_ANDROID_E2E_SDK;
+  if (!sdk) return {};
+  const kept: NodeJS.ProcessEnv = { ACE_ANDROID_E2E_SDK: sdk };
+  for (const key of [
+    "ACE_E2E_ARTIFACTS",
+    "ACE_ANDROID_E2E_SERIAL",
+    "ACE_ANDROID_E2E_BOOT_AVD",
+    "ACE_ANDROID_EMULATOR_GPU",
+  ]) {
+    const value = ambient[key];
+    if (value) kept[key] = value;
+  }
+  if (kept.ACE_ANDROID_E2E_BOOT_AVD && ambient.ANDROID_AVD_HOME)
+    kept.ANDROID_AVD_HOME = ambient.ANDROID_AVD_HOME;
+  return kept;
 }
 
 /** Where Playwright installs its browsers for the real user (its documented default). */

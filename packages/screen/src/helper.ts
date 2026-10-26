@@ -26,6 +26,11 @@ export type HelperOptions = {
   protocolVersion?: 1 | 2;
   expectedPlatform?: ScreenCapabilities["platform"];
   prepare?: () => Promise<string>;
+  /**
+   * Launch settings only known when a helper starts (Linux's graphical session), resolved on
+   * every start and applied over these options. A rejection fails that start only.
+   */
+  launch?: () => Promise<Pick<HelperOptions, "args" | "env" | "expectedPlatform">>;
   endpoint?: (() => Promise<FrameEndpoint>) | string;
   transport?: "endpoint" | "legacy";
   args?: readonly string[];
@@ -356,7 +361,13 @@ export class Helper {
     if ((windows || linux) && command.op === "input") {
       const { kind, ...input } = command.input;
       return this.send(
-        ScreenHelperRequestV2.parse({ op: kind, ...input, version: 2, id: "input" }),
+        ScreenHelperRequestV2.parse({
+          op: kind,
+          ...input,
+          ...(command.person ? { person: true } : {}),
+          version: 2,
+          id: "input",
+        }),
       );
     }
     const request = (

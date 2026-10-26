@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { mismatchedBinaries, type Arch } from "../src/packaging/native-arch.ts";
+import { mismatchedBinaries, type Arch } from "@ace/release/native-arch";
 import { dist } from "./common.ts";
 import { windowsRuntimePaths } from "@ace/release/node-runtime";
 

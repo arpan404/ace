@@ -6,6 +6,25 @@ import { byteLimit } from "./byte-limit.ts";
 import type { OutputFlow } from "./flow-control.ts";
 import { lineSegments } from "./line-segments.ts";
 
+/*
+ * Node's readline also ends a line at U+2028 and U+2029, which JSON leaves unescaped inside
+ * strings (KDE's Qt text and model output carry them). Lines are framed here on CR and LF
+ * only, so before readline sees a line those two characters are swapped for a reversible
+ * escape (U+FDD0, a noncharacter, then a digit) and restored in each emitted line.
+ */
+const shield = "\uFDD0";
+function protect(text: string): string {
+  return text.replace(/[\uFDD0\u2028\u2029]/g, (c) =>
+    c === shield ? `${shield}0` : c === "\u2028" ? `${shield}1` : `${shield}2`,
+  );
+}
+function restore(text: string): string {
+  if (!text.includes(shield)) return text;
+  return text.replace(/\uFDD0([012])/g, (_, digit: string) =>
+    digit === "0" ? shield : digit === "1" ? "\u2028" : "\u2029",
+  );
+}
+
 /** Deliver an unpaused chunk synchronously, checking intake between physical lines.
  * RPC continuations must observe every notification in their reply chunk before resuming.
  */
@@ -45,7 +64,7 @@ export function lineReader(
         if (!next || next.done) {
           segments = undefined;
           if (ending) {
-            source.end(parts.join(""));
+            source.end(protect(parts.join("")));
             parts = [];
           } else gate.resume();
           return;
@@ -67,7 +86,7 @@ export function lineReader(
         const line = parts.join("") + "\n";
         parts = [];
         // write emits the line synchronously. A consumer pause stops the next iteration.
-        source.write(line);
+        source.write(protect(line));
       }
     } catch (error) {
       failure(error);
@@ -93,6 +112,12 @@ export function lineReader(
   source.on("resume", drain);
   source.once("close", () => gate.destroy());
   const lines = createInterface({ input: source, crlfDelay: Infinity });
+  // Every "line" listener (and async iteration) gets the line as the process wrote it.
+  const emit = lines.emit.bind(lines);
+  lines.emit = (event: string | symbol, ...args: unknown[]): boolean =>
+    event === "line" && typeof args[0] === "string"
+      ? emit(event, restore(args[0]))
+      : emit(event, ...args);
   lines.once("close", () => source.destroy());
   input.pipe(gate);
   return lines;

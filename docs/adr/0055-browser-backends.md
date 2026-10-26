@@ -122,8 +122,9 @@ removed and can be retried. The pin is Chrome for Testing 153.0.8010.12,
 matching Playwright 1.61.1, with the publisher's MD5 transfer checksum and immutable
 Google Storage object generation. HTTPS authenticates the publisher; MD5 alone
 is not a signature. The installed executable also has a SHA-256 cache digest.
-Supported artifacts are Linux x64, macOS x64/arm64 and Windows x64. Linux/Windows
-arm64 fail explicitly rather than silently selecting a personal installation. Downloads are single-flight per service and abort
+Supported artifacts are Linux x64/arm64, macOS x64/arm64 and Windows x64 (Linux arm64
+added by ADR 0093). Windows arm64 fails explicitly rather than silently selecting a personal
+installation; `ACE_CHROMIUM_PATH` is the explicit override on every platform. Downloads are single-flight per service and abort
 on shutdown. Existing browser discovery remains a diagnostic/test API; the
 production service never searches PATH, applications or personal Playwright
 caches. Explicit executable injection remains available at the trusted service

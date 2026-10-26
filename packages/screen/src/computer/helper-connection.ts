@@ -131,6 +131,8 @@ export class HelperConnection {
     try {
       child = await this.process();
     } catch (error) {
+      // A refusal already written for the model (no graphical session) reaches it as it is.
+      if (error instanceof ComputerError) return this.finish(job, () => job.reject(error));
       const message = error instanceof Error ? error.message : String(error);
       return this.finish(job, () =>
         job.reject(

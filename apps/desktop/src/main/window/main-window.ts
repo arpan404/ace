@@ -11,6 +11,8 @@ import { installMainWindowDownloads } from "./downloads.ts";
 import { navigationDecision } from "./navigation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
 import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
+import { linuxShowGraceMs, showWhenReady } from "./show-when-ready.ts";
+import { timers } from "../os/timers.ts";
 
 export interface MainWindowOptions {
   url: string;
@@ -118,7 +120,10 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     retries--;
     setTimeout(() => void window.loadURL(url).catch(() => {}), 500);
   });
-  window.once("ready-to-show", () => window.show());
+  showWhenReady(window, () => window.show(), {
+    timers,
+    graceMs: process.platform === "linux" ? linuxShowGraceMs : undefined,
+  });
 
   const emit = () => options.onState(windowState(window));
   for (const name of [

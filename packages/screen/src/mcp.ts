@@ -14,7 +14,7 @@ function resultMetadata(state: ScreenState) {
     "ace/screen": {
       sessionId: state.sessionId,
       mode: state.mode,
-      ...(state.target.kind !== "display"
+      ...(state.target.kind === "app" || state.target.kind === "window"
         ? {
             target: {
               bundleId: state.target.bundleId,

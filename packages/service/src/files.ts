@@ -2,6 +2,7 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ReleaseDirectory } from "@ace/protocol";
 import { mkdir, open, lstat, readlink, rename, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { releaseArchiveLimits } from "./artifact.ts";
 import { readReleasePointerSync, writeReleasePointer } from "./release-pointer.ts";
 export async function atomicPointer(
   path: string,
@@ -79,14 +80,20 @@ export async function durableRemove(path: string): Promise<void> {
 }
 export async function syncTree(root: string): Promise<void> {
   const { readdir } = await import("node:fs/promises");
-  let entries = 0;
+  // The same budget the archive enforces (releaseArchiveLimits): regular files, not the
+  // directories that hold them, which are bounded separately.
+  let files = 0,
+    directories = 0;
   async function visit(path: string) {
     for (const name of await readdir(path)) {
-      if (++entries > 2048) throw new Error("Release file limit exceeded");
       const file = join(path, name),
         info = await lstat(file);
-      if (info.isDirectory()) await visit(file);
-      else if (info.isFile()) {
+      if (info.isDirectory()) {
+        if (++directories > releaseArchiveLimits.entries)
+          throw new Error("Release directory limit exceeded");
+        await visit(file);
+      } else if (info.isFile()) {
+        if (++files > releaseArchiveLimits.entries) throw new Error("Release file limit exceeded");
         const handle = await open(file, "r");
         try {
           await handle.sync();

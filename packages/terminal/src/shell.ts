@@ -1,4 +1,5 @@
 import { accessSync, constants } from "node:fs";
+import { userInfo } from "node:os";
 import { win32 } from "node:path";
 import { findExecutableSync } from "@ace/provider-kit/discovery";
 
@@ -15,10 +16,26 @@ export interface ShellSelectionPorts {
   readonly platform?: NodeJS.Platform | undefined;
   readonly env?: ShellSelectionEnv | undefined;
   readonly exists?: ((path: string) => boolean) | undefined;
+  /**
+   * The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. Defaults
+   * to the real account only when `env` is the real environment too.
+   */
+  readonly accountShell?: (() => string | null) | undefined;
   readonly findExecutable?:
     | ((command: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => string | undefined)
     | undefined;
 }
+
+function systemAccountShell(): string | null {
+  try {
+    return userInfo().shell;
+  } catch {
+    return null;
+  }
+}
+
+// Accounts that may not log in name these instead of a shell.
+const refusing = /\/(?:nologin|false)$/;
 
 function defaultExists(path: string): boolean {
   try {
@@ -34,7 +51,9 @@ function defaultExists(path: string): boolean {
  * without an existence check; a configured shell that cannot launch fails at
  * spawn rather than silently selecting another shell.
  *
- * POSIX keeps the existing behavior: `$SHELL`, then `/bin/zsh`, `/bin/bash`.
+ * POSIX: `$SHELL` (the session's choice), then the account's login shell (a daemon started
+ * by systemd or launchd may have no `$SHELL`) unless it refuses logins, then the first of
+ * `/bin/zsh`, `/bin/bash` and `/bin/sh` that is installed.
  * Windows never reads POSIX `$SHELL`: `pwsh` (via shared PATH/PATHEXT
  * lookup), then `powershell`, then `%ComSpec%`, then
  * `%SystemRoot%\System32\cmd.exe` when that file exists. Windows keys match
@@ -56,7 +75,10 @@ export function resolveShell(shell?: string, ports?: ShellSelectionPorts): strin
   if (platform === "win32") return resolveWindowsShell(env, exists, find);
   const posixShell = env.SHELL;
   if (posixShell !== undefined && posixShell !== "") return posixShell;
-  for (const candidate of ["/bin/zsh", "/bin/bash"]) {
+  const accountShell = ports?.accountShell ?? (ports?.env ? () => null : systemAccountShell);
+  const account = accountShell();
+  if (account && !refusing.test(account) && exists(account)) return account;
+  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
     if (exists(candidate)) return candidate;
   }
   throw new Error("No login shell found");

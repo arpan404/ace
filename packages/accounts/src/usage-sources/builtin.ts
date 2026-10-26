@@ -139,7 +139,7 @@ const declarations: Record<string, Declared> = {
       ),
       // Elsewhere cursor-agent keeps its login in `$XDG_CONFIG_HOME/cursor/auth.json`.
       cursorUsage(
-        { from: "file", files: ["~/.config/cursor/auth.json"], path: ["accessToken"] },
+        { from: "file", files: ["$XDG_CONFIG_HOME/cursor/auth.json"], path: ["accessToken"] },
         "linux",
       ),
     ],

@@ -14,6 +14,7 @@ export * from "./screen-v2.ts";
 export * from "./screen-helper.ts";
 
 export {
+  ScreenChooserPick,
   ScreenStreamSettings,
   ScreenId,
   ScreenBundle,
@@ -77,6 +78,11 @@ export const ScreenInventory = z.object({
       }),
     )
     .max(2048),
+  /**
+   * Set where the machine's own sharing dialog picks what is shared (Linux on Wayland): the
+   * lists are empty and a `chooser` target starts sharing; says which kinds the dialog offers.
+   */
+  chooser: z.object({ windows: z.boolean(), displays: z.boolean() }).optional(),
 });
 export const ScreenAppWindows = z.object({
   windows: z

@@ -9,6 +9,7 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { ChromeBackend } from "./headless.ts";
 import { spawnProcess } from "./io.ts";
 import { guardChromium } from "./process-guardian.ts";
+import { linuxLaunchDiagnosis, smallSharedMemory } from "./launch-diagnosis.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 
 const schedule: Schedule = (work, milliseconds) => {
@@ -17,14 +18,25 @@ const schedule: Schedule = (work, milliseconds) => {
   timer.unref();
   return () => clearTimeout(timer);
 };
-/** Defaults for ace's own Chrome. Retina-class output is the default device scale (ADR 0083). */
-export function chromeDefaults(platform: NodeJS.Platform): {
+/**
+ * Defaults for ace's own Chrome. Retina-class output is the default device scale (ADR 0083).
+ * Without its sandbox only when the person opted in (`ACE_CHROMIUM_NO_SANDBOX`), never as a
+ * fallback.
+ */
+export function chromeDefaults(
+  platform: NodeJS.Platform,
+  sandbox = true,
+): {
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
 } {
   return {
     launch: {
-      args: [],
+      args: [
+        ...(sandbox ? [] : ["--no-sandbox"]),
+        ...(platform === "linux" && smallSharedMemory() ? ["--disable-dev-shm-usage"] : []),
+      ],
+      ...(platform === "linux" ? { diagnose: linuxLaunchDiagnosis() } : {}),
       deviceScaleFactor: 2,
       idleMs: 10 * 60_000,
       startTimeoutMs: 30_000,
@@ -54,7 +66,16 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       }
     }
   };
-  const defaults = chromeDefaults(process.platform);
+  const defaults = chromeDefaults(process.platform, options.sandbox !== false);
+  const launch: ChromeLaunch = { ...defaults.launch, ...options.chrome };
+  launch.args = [...defaults.launch.args, ...(options.chrome?.args ?? [])];
+  const diagnose = launch.diagnose;
+  // A browser that will not start is the person's to fix: the daemon log keeps the cause.
+  launch.diagnose = async (failure) => {
+    const error = diagnose ? await diagnose(failure).catch(() => failure.error) : failure.error;
+    options.onError?.(error);
+    return error;
+  };
   let owned: ChromeBackend | undefined;
   const backend =
     options.headlessBackend ??
@@ -75,15 +96,16 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
                 installed: () => detectChromium({ dataDir: options.dataDir }),
                 acquire,
               })
-        ).catch((error) => {
+        ).catch((error: unknown) => {
           acquiring = undefined;
+          options.onError?.(error);
           throw error;
         });
         return acquiring;
       },
       stagingDir: (profileDir) => join(dirname(profileDir), `${basename(profileDir)}-downloads`),
       platform: process.platform,
-      launch: { ...defaults.launch, ...options.chrome },
+      launch,
       cleanup: { ...defaults.cleanup, ...options.cleanup },
       encoder: {
         profileDir: join(options.dataDir, "browser", "encoder"),

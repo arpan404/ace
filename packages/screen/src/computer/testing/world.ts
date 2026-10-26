@@ -60,9 +60,9 @@ export async function computerWorld(options: WorldOptions = {}) {
   const client = new ComputerClient({
     helper: async () => "fake-helper",
     nextId: () => `r${++next}`,
-    spawnHelper: (_command, args) => {
+    spawnHelper: (_command, args, env) => {
       const child = spawn(process.execPath, [fake, ...args], {
-        env: { ...process.env, FAKE_LOG: logPath, ...options.env },
+        env: { ...process.env, ...env, FAKE_LOG: logPath, ...options.env },
         stdio: ["pipe", "pipe", "pipe"],
       });
       children.push(child);

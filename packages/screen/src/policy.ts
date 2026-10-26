@@ -8,8 +8,11 @@ export class ScreenPolicy {
     this.epoch++;
   }
 }
+/** The apps a target names. A sharing-dialog target names none until the person picks. */
 export function bundles(target: ScreenTarget): string[] {
-  return target.kind === "display" ? target.bundleIds : [target.bundleId];
+  if (target.kind === "display") return target.bundleIds;
+  if (target.kind === "chooser") return target.picked?.bundleId ? [target.picked.bundleId] : [];
+  return [target.bundleId];
 }
 export type Control = { state: ScreenState; epoch: number; owner: string | undefined };
 /** A capture still starting reserves its app until startup cleanup finishes. */
@@ -31,7 +34,11 @@ export function takeControl(
   };
 }
 export function authorizeInput(control: Control, actor: "human" | "agent", owner: string): void {
-  if (control.state.target.kind === "display") throw new Error("Display capture is view-only");
+  const target = control.state.target;
+  if (target.kind === "display") throw new Error("Display capture is view-only");
+  // A screen picked in the machine's sharing dialog was granted to the person, not to agents.
+  if (target.kind === "chooser" && target.picked?.source !== "window" && actor !== "human")
+    throw new Error("A shared screen takes only the person's input");
   if (control.state.controller !== actor || control.owner !== owner)
     throw new Error("Controller ownership required");
 }

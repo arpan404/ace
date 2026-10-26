@@ -59,10 +59,13 @@ function target(
   input: unknown,
 ): Pick<ToolResult, "target" | "mode"> {
   const args = argumentsSchema.safeParse(input);
+  const current = state?.target;
   const bundleId =
-    state?.target.kind !== "display"
-      ? (state?.target.bundleId ?? (args.success ? args.data.bundleId : undefined))
-      : undefined;
+    current?.kind === "display"
+      ? undefined
+      : current?.kind === "chooser"
+        ? current.picked?.bundleId
+        : (current?.bundleId ?? (args.success ? args.data.bundleId : undefined));
   return {
     ...(state ? { mode: state.mode } : {}),
     ...(bundleId

@@ -30,8 +30,11 @@ const Binding = z.object({ name: z.string(), payload: z.string() });
 
 const origin = `chrome-extension://${videoExtensionId}/`;
 
+/** The CDP surface the encoder uses: commands, and the sessions of attached targets. */
+type Connection = Pick<CdpConnection, "send" | "session">;
+
 export class ChromeVideo implements VideoHost {
-  private connection: CdpConnection;
+  private connection: Connection;
   private targets: { keep(targetId: string): void };
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
@@ -40,7 +43,7 @@ export class ChromeVideo implements VideoHost {
   private captures = new Map<string, CaptureEvents>();
   private ids = 0;
   constructor(options: {
-    connection: CdpConnection;
+    connection: Connection;
     /** The browser's target router, told to leave the extension's targets attached. */
     targets: { keep(targetId: string): void };
     /** Where the unpacked extension is written. */
@@ -245,10 +248,15 @@ export class ChromeVideo implements VideoHost {
 }
 
 /** Calls `name(...args)` in a target and returns its (awaited) value; throws what it threw. */
-async function evaluate(target: BrowserCdp, name: string, args: unknown[]): Promise<unknown> {
+function evaluate(target: BrowserCdp, name: string, args: unknown[]): Promise<unknown> {
+  return run(target, `${name}(...${JSON.stringify(args)})`);
+}
+
+/** An expression's (awaited) value in a target; throws what it threw. */
+async function run(target: BrowserCdp, expression: string): Promise<unknown> {
   const reply = Evaluated.parse(
     await target.send("Runtime.evaluate", {
-      expression: `${name}(...${JSON.stringify(args)})`,
+      expression,
       awaitPromise: true,
       returnByValue: true,
     }),

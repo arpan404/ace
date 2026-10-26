@@ -62,6 +62,25 @@ export function resolveShell(shell?: string, ports?: ShellSelectionPorts): strin
   return selectShell(shell, ports);
 }
 
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `sleep` for the terminal launcher, by absolute path: the terminal's environment may carry
+ * any PATH (or none), and NixOS has no `/bin/sleep`, only its system profile's.
+ */
+export function resolveSleep(executable: (path: string) => boolean = isExecutable) {
+  for (const candidate of ["/bin/sleep", "/usr/bin/sleep", "/run/current-system/sw/bin/sleep"])
+    if (executable(candidate)) return candidate;
+  return "sleep";
+}
+
 /** Each manager gets its own I/O context; overlapping shutdowns share a ps read. */
 export function createPosixBackendFactory(
   ports?: PosixPorts,
@@ -105,7 +124,7 @@ export function createPosixBackendFactory(
       .join(" ");
     // The helper retains the ORIGINAL group ID, which cannot be reused while a
     // member remains. It ignores catchable signals and cleans the session on FIFO EOF.
-    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
+    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; '${resolveSleep()}' 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
     const loginArgs = options.args ?? ["-l", "-i"];
     let pty: NativePty;
     try {

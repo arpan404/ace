@@ -24,6 +24,7 @@ import {
 } from "@ace/service";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { assertModelTestIsolation } from "./models.ts";
+import { keepWasmWrappersGeneric } from "./wasm-wrappers.ts";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
@@ -77,6 +78,8 @@ export type { HistoryAdapterPort } from "./history-continuation.ts";
 
 export async function startDaemon(options: DaemonOptions = {}) {
   options.signal?.throwIfAborted();
+  // Before the daemon starts any worker thread: a Node 24 V8 abort (see wasm-wrappers.ts).
+  keepWasmWrappersGeneric();
   const home = homedir();
   assertTestHomeIsolation(home);
   const clock = options.engine?.clock;

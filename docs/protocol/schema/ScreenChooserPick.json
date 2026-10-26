@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenChooserPick.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bundleId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+    },
+    "source": {
+      "enum": [
+        "window",
+        "display"
+      ],
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 1024,
+      "type": "string"
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "type": "object"
+}

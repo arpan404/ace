@@ -40,4 +40,30 @@ describe("editor launches", () => {
     );
     expect(received).toEqual({ editor: "vscode", path: "/tmp/a#b?.ts", line: 12 });
   });
+  it("hands the daemon's editor launcher to the desktop bridge", async () => {
+    let received: unknown;
+    await launchEditor(
+      {
+        editorId: "zed",
+        editorName: "Zed",
+        path: "/home/me/repo",
+        command: "/var/lib/flatpak/exports/bin/dev.zed.Zed",
+      },
+      {
+        ace: {
+          shell: {
+            openInEditor: (request: unknown) => {
+              received = request;
+              return true;
+            },
+          },
+        },
+      },
+    );
+    expect(received).toEqual({
+      editor: "zed",
+      path: "/home/me/repo",
+      command: "/var/lib/flatpak/exports/bin/dev.zed.Zed",
+    });
+  });
 });

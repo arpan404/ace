@@ -19,7 +19,12 @@ import {
   windowKey,
 } from "./outline.ts";
 import { blockedReason } from "./policy.ts";
-import { computerSchemas, computerToolMetadata, type ComputerToolName } from "./schemas.ts";
+import {
+  computerSchemasFor,
+  computerToolMetadataFor,
+  type ComputerPlatform,
+  type ComputerToolName,
+} from "./schemas.ts";
 import { ComputerActResult, ComputerApps, ComputerState } from "./wire.ts";
 import { z } from "zod";
 
@@ -33,7 +38,9 @@ interface Result {
 }
 
 export interface ComputerToolkitOptions {
-  /** The person's own list of apps agents can't use: bundle ids or names. */
+  /** The platform the helper drives, for the tools' wording. Default macOS. */
+  platform?: ComputerPlatform;
+  /** The person's own list of apps agents can't use: app ids or names. */
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
   using?: (threadId: string, app: string) => () => void;
@@ -56,6 +63,8 @@ export function computerToolkit(
   options: ComputerToolkitOptions = {},
 ): Toolkit {
   const memory = new ComputerMemory();
+  const computerSchemas = computerSchemasFor(options.platform ?? "macos");
+  const computerToolMetadata = computerToolMetadataFor(options.platform ?? "macos");
   const personBlocked = async () => (await options.blockedApps?.()) ?? [];
 
   const describe = (
@@ -237,7 +246,7 @@ export function computerToolkit(
           title: metadata.title,
           description: metadata.description,
           riskClass: metadata.riskClass,
-          // These tools act on this Mac's apps, never on outside systems.
+          // These tools act on this computer's apps, never on outside systems.
           openWorld: false,
           input: computerSchemas[name],
           capability: "screen",

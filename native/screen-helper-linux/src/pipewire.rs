@@ -7,7 +7,7 @@ use std::{
     os::fd::{IntoRawFd, OwnedFd},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -21,7 +21,31 @@ unsafe extern "C" {
     ) -> *mut c_void;
     fn ace_pw_step(c: *mut c_void, timeout: i32) -> i32;
     fn ace_pw_destroy(c: *mut c_void);
+    fn ace_pw_crop(c: *mut c_void, x: *mut i32, y: *mut i32, w: *mut u32, h: *mut u32) -> i32;
 }
+
+/// A rectangle of a buffer in its pixels: left, top, width, height.
+pub type Region = (u32, u32, u32, u32);
+
+/// The part of a `w`×`h` buffer a picture shows: the producer's crop region, clamped to the
+/// buffer; the whole buffer without one or when the region is empty. GNOME sends a shared
+/// window in a monitor-sized buffer, marking the window's own buffer at (0, 0) as the crop
+/// (mutter `meta_screen_cast_window_stream_src_get_videocrop`); pointer input on the stream is
+/// relative to that same window buffer, so a cropped picture's points are the stream's.
+pub fn visible_region(w: u32, h: u32, crop: Option<(i32, i32, u32, u32)>) -> Region {
+    let Some((x, y, cw, ch)) = crop else {
+        return (0, 0, w, h);
+    };
+    let left = (x.max(0) as u32).min(w);
+    let top = (y.max(0) as u32).min(h);
+    let width = cw.min(w - left);
+    let height = ch.min(h - top);
+    if width == 0 || height == 0 {
+        return (0, 0, w, h);
+    }
+    (left, top, width, height)
+}
+
 struct Frames {
     publisher: Publisher,
     fps: u32,
@@ -30,6 +54,10 @@ struct Frames {
     previous: crate::frame_identity::FrameIdentity,
     rgb: Vec<u8>,
     failed: bool,
+    /// The open stream, to read each buffer's crop region from.
+    capture: *mut c_void,
+    /// The newest picture's size in stream points (width << 32 | height), for input bounds.
+    shown: Arc<AtomicU64>,
 }
 unsafe extern "C" fn on_frame(
     user: *mut c_void,
@@ -52,13 +80,20 @@ unsafe extern "C" fn on_frame(
         {
             return Ok(());
         }
-        let ratio = (3840f64 / f64::from(w)).min(2160f64 / f64::from(h)).min(1.);
-        let ow = (f64::from(w) * ratio).floor().max(1.) as u32;
-        let oh = (f64::from(h) * ratio).floor().max(1.) as u32;
+        let (mut cx, mut cy, mut cw, mut ch) = (0, 0, 0, 0);
+        // SAFETY: the stream is open; the crop belongs to the buffer being delivered.
+        let cropped =
+            !frames.capture.is_null()
+                && unsafe { ace_pw_crop(frames.capture, &mut cx, &mut cy, &mut cw, &mut ch) } == 1;
+        let (left, top, rw, rh) = visible_region(w, h, cropped.then_some((cx, cy, cw, ch)));
+        let ratio = (3840f64 / f64::from(rw)).min(2160f64 / f64::from(rh)).min(1.);
+        let ow = (f64::from(rw) * ratio).floor().max(1.) as u32;
+        let oh = (f64::from(rh) * ratio).floor().max(1.) as u32;
         frames.rgb.resize(ow as usize * oh as usize * 3, 0);
         for y in 0..oh {
             for x in 0..ow {
-                let from = (y * h / oh) as usize * stride as usize + (x * w / ow) as usize * 4;
+                let from = (top + y * rh / oh) as usize * stride as usize
+                    + (left + x * rw / ow) as usize * 4;
                 let to = (y * ow + x) as usize * 3;
                 // SPA_VIDEO_FORMAT_RGBx=7, BGRx=8, RGBA=11, BGRA=12.
                 let rgb = match format {
@@ -78,12 +113,18 @@ unsafe extern "C" fn on_frame(
                 jpeg_encoder::ColorType::Rgb,
             )
             .map_err(internal)?;
-        frames.publisher.frame(
-            jpeg,
-            ow,
-            oh,
-            f64::from(ow) / f64::from(frames.logical_width),
-        )?;
+        // Picture pixels per logical point of what it shows.
+        // A logical width of 0 is unknown (the portal gave none): one point per pixel.
+        let logical_width = if frames.logical_width == 0 { w } else { frames.logical_width };
+        let logical_shown = f64::from(rw) * f64::from(logical_width) / f64::from(w);
+        let logical_high = f64::from(rh) * f64::from(logical_width) / f64::from(w);
+        frames.shown.store(
+            ((logical_shown.round() as u64) << 32) | (logical_high.round() as u64 & 0xffff_ffff),
+            Ordering::Release,
+        );
+        frames
+            .publisher
+            .frame(jpeg, ow, oh, f64::from(ow) / logical_shown)?;
         frames.next = Instant::now() + Duration::from_nanos(1_000_000_000 / u64::from(frames.fps));
         Ok(())
     }));
@@ -99,6 +140,7 @@ pub fn capture(
     stop_fd: i32,
     stop: Arc<AtomicBool>,
     publisher: Publisher,
+    shown: Arc<AtomicU64>,
 ) -> Result<()> {
     let mut frames = Frames {
         publisher,
@@ -108,6 +150,8 @@ pub fn capture(
         previous: crate::frame_identity::FrameIdentity::default(),
         rgb: Vec::new(),
         failed: false,
+        capture: std::ptr::null_mut(),
+        shown,
     };
     let c = unsafe {
         ace_pw_open(
@@ -123,6 +167,8 @@ pub fn capture(
             "Cannot initialize PipeWire; install libpipewire-0.3 and check portal stream",
         ));
     }
+    // Frames arrive only from `ace_pw_step` below, on this thread, after this is set.
+    frames.capture = c;
     let result = (|| {
         while !stop.load(Ordering::Acquire) {
             if unsafe { ace_pw_step(c, -1) } < 0 || frames.failed {
@@ -135,4 +181,28 @@ pub fn capture(
         ace_pw_destroy(c);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible_region;
+
+    #[test]
+    fn a_window_inside_a_monitor_sized_buffer_is_shown_alone() {
+        // GNOME 50: Calculator's 410×666 buffer (window and shadow) in a 1280×800 one.
+        assert_eq!(visible_region(1280, 800, Some((0, 0, 410, 666))), (0, 0, 410, 666));
+        assert_eq!(visible_region(1280, 800, Some((25, 25, 360, 616))), (25, 25, 360, 616));
+    }
+
+    #[test]
+    fn a_buffer_without_a_usable_crop_is_shown_whole() {
+        assert_eq!(visible_region(1280, 800, None), (0, 0, 1280, 800));
+        assert_eq!(visible_region(1280, 800, Some((10, 10, 0, 40))), (0, 0, 1280, 800));
+        assert_eq!(visible_region(1280, 800, Some((1280, 0, 50, 50))), (0, 0, 1280, 800));
+    }
+
+    #[test]
+    fn a_crop_reaching_past_the_buffer_is_clamped_to_it() {
+        assert_eq!(visible_region(800, 600, Some((-5, 500, 900, 300))), (0, 500, 800, 100));
+    }
 }

@@ -28,6 +28,7 @@ export function useOpenInEditor(threadId: string) {
         editorName: result.editor.editor.name,
         path: `${root}/${path}`,
         line,
+        command: result.editor.editor.command,
       });
       choose(result.editor.editor.id);
     } catch {

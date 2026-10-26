@@ -27,13 +27,15 @@ export function integrityBudgetMs(databaseBytes: number): number {
   return Math.min(MAX_INTEGRITY_BUDGET_MS, 30_000 + Math.ceil((bytes / GIB) * 20_000));
 }
 export const MAX_INTEGRITY_BUDGET_MS = 15 * 60_000;
+const CHROMIUM_BUDGET_MS = 25_000;
 export interface DoctorProbes {
   node(signal: AbortSignal): Promise<string>;
   provider(provider: Provider, signal: AbortSignal): Promise<DiscoveryResult>;
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
   git(signal: AbortSignal): Promise<string | undefined>;
   pty(signal: AbortSignal): Promise<boolean>;
-  chromium(signal: AbortSignal): Promise<string | undefined>;
+  /** ace's browser engine: whether the Chromium ace runs starts on this machine. */
+  chromium(signal: AbortSignal): Promise<Verdict>;
   disk(signal: AbortSignal): Promise<{ writable: boolean; freeBytes: number }>;
   integrity(signal: AbortSignal): Promise<"ok" | "corrupt" | "missing" | "unavailable">;
   /** Size of the main database plus its WAL, read when the probes are created. */
@@ -178,15 +180,10 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     },
     {
       id: "chromium",
-      fix: "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-      run: async (signal) => {
-        const browser = await probes.chromium(signal);
-        return verdict(
-          browser ? "ok" : "warn",
-          browser ? "Chromium executable found" : "Chromium executable not found",
-          "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-        );
-      },
+      fix: "Check ace's browser: the daemon log has why it did not start, or set ACE_CHROMIUM_PATH to a working Chromium.",
+      // A real Chrome start (version, then a headless launch, 10 s each at most).
+      timeoutMs: CHROMIUM_BUDGET_MS,
+      run: (signal) => probes.chromium(signal),
     },
     {
       id: "disk",

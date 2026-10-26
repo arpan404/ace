@@ -2,6 +2,21 @@
   "$id": "https://ace.local/protocol/v1/ScreenInventory.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "chooser": {
+      "properties": {
+        "displays": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "windows",
+        "displays"
+      ],
+      "type": "object"
+    },
     "displays": {
       "items": {
         "properties": {

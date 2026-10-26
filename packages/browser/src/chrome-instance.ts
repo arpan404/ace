@@ -4,6 +4,7 @@ import { Readable, Writable } from "node:stream";
 import type { BrowserCdp } from "./backend.ts";
 import { CdpConnection, type CdpIntercept, type Schedule } from "./cdp-connection.ts";
 import { chromeArgs } from "./chrome-flags.ts";
+import { chromeLogText } from "./launch-failure.ts";
 import { ChromeTargets } from "./chrome-targets.ts";
 import type { ProcessSpawner } from "./io.ts";
 import { pipeTransport } from "./pipe-transport.ts";
@@ -26,6 +27,17 @@ export interface ChromeLaunch {
   /** Owns the profile's processes if the daemon dies; resolves once watching. */
   guard(profileDir: string): Promise<{ close(): Promise<void> }>;
   intercept?: CdpIntercept;
+  /**
+   * Explains a failed start from Chrome's stderr and the machine (missing libraries, a blocked
+   * sandbox); returns the error to throw. Absent: the bare failure.
+   */
+  diagnose?(failure: ChromeStartFailure): Promise<Error>;
+}
+export interface ChromeStartFailure {
+  executable: string;
+  /** The start and end of Chrome's stderr. */
+  stderr: string;
+  error: Error;
 }
 export interface ChromeInstanceOptions {
   executable: string;
@@ -88,10 +100,20 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
   const pid = child.pid;
   const input = child.stdio[3];
   const output = child.stdio[4];
-  let stderr = "";
-  child.stdio[2]?.on("data", (chunk: Buffer) => {
-    stderr = (stderr + chunk.toString("utf8")).slice(-4096);
-  });
+  // Chrome's fatal line comes first and a stack trace after it: keep both ends.
+  let stderrHead = "";
+  let stderrTail = "";
+  const stderrClosed = Promise.withResolvers<void>();
+  const stderrStream = child.stdio[2];
+  if (stderrStream) {
+    stderrStream.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      if (stderrHead.length < 4096) stderrHead = (stderrHead + text).slice(0, 4096);
+      else stderrTail = (stderrTail + text).slice(-4096);
+    });
+    stderrStream.once("close", () => stderrClosed.resolve());
+  } else stderrClosed.resolve();
+  const stderr = () => (stderrTail ? `${stderrHead}\n...\n${stderrTail}` : stderrHead);
   const exit = Promise.withResolvers<string>();
   child.once("exit", (code, signal) =>
     exit.resolve(
@@ -176,11 +198,24 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
   } catch (error) {
     await kill().catch(() => {});
     await exited;
-    const detail = stderr.trim();
-    throw new Error(
+    // Chrome's last words can arrive after its exit; wait for them briefly.
+    let cancelWait: (() => void) | undefined;
+    await Promise.race([
+      stderrClosed.promise,
+      new Promise<void>((resolve) => (cancelWait = cleanup.schedule(resolve, 1_000))),
+    ]);
+    cancelWait?.();
+    const written = stderr();
+    const detail = stderrSummary(written);
+    const failure = new Error(
       `Chrome failed to start: ${error instanceof Error ? error.message : String(error)}${detail ? ` (${detail})` : ""}; executable=${JSON.stringify(options.executable)}, profile=${JSON.stringify(options.profileDir)}, platform=${options.platform}`,
       { cause: error },
     );
+    throw launch.diagnose
+      ? await launch
+          .diagnose({ executable: options.executable, stderr: written, error: failure })
+          .catch(() => failure)
+      : failure;
   }
   return {
     pid,
@@ -191,4 +226,14 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
     exited,
     stop,
   };
+}
+
+/**
+ * The line that says why Chrome stopped, else its last lines. Chrome's `[pid:tid:time:LEVEL:file]`
+ * prefix becomes `LEVEL file:`, which the daemon log's redaction reads as prose, not a record.
+ */
+function stderrSummary(output: string): string {
+  const lines = output.trim().split("\n");
+  const cause = lines.find((line) => /FATAL|error while loading|Running as root/.test(line));
+  return chromeLogText(cause ?? lines.slice(-3).join(" ")).slice(0, 1024);
 }

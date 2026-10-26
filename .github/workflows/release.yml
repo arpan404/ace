@@ -1,0 +1,241 @@
+name: Release
+
+# Builds unsigned Linux release artifacts on each target's native runner and uploads them to
+# this run. The desktop packages come from the same `release.ts build` a person runs (one
+# path: main's naming, update feed and staging); the standalone daemon archive is built here
+# unsigned, because signing stays offline (ADR 0041). Nothing is signed or published: the
+# owner signs and publishes with `release.ts` and tools/release (docs/releasing.md).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version; empty uses apps/desktop/package.json (it must match)
+        required: false
+        default: ""
+      macos:
+        description: Also build the macOS daemon archives (unsigned)
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # A tag v1.2.3 releases 1.2.3; a manual run uses its input, else the app's version.
+  RELEASE_VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+
+jobs:
+  linux:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    # Natives are built against Debian 11's glibc 2.31 so the artifacts run on Ubuntu 20.04+,
+    # Debian 11+, Fedora and Arch (ADR 0093).
+    container: debian:11
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            arch: x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Prepare the Debian 11 toolchain (Node 24.13.0, Bun, Rust, C/C++, git)
+        run: sh tools/release/linux/setup-debian11.sh
+
+      # The first checkout ran before the container had git, so it is a plain download.
+      # release.ts builds from a commit (it records it and refuses uncommitted changes).
+      - name: Checkout with git
+        uses: actions/checkout@v7
+
+      - name: Resolve the version
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version="${RELEASE_VERSION#v}"
+          [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Release public key
+        # The production key is reviewed and added as the ACE_RELEASE_PUBLIC_KEY variable.
+        # Without it, a throwaway key is generated: those artifacts are for testing only.
+        shell: bash
+        env:
+          PUBLIC_KEY: ${{ vars.ACE_RELEASE_PUBLIC_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-key"
+          if [ -n "$PUBLIC_KEY" ]; then
+            printf '%s\n' "$PUBLIC_KEY" > "$RUNNER_TEMP/release-key/public.pem"
+          else
+            node -e 'const { generateKeyPairSync } = require("node:crypto"); process.stdout.write(generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }))' > "$RUNNER_TEMP/release-key/public.pem"
+            echo "::warning::No ACE_RELEASE_PUBLIC_KEY variable: built with a throwaway key; these artifacts cannot be published."
+          fi
+          echo "ACE_RELEASE_PUBLIC_KEY_FILE=$RUNNER_TEMP/release-key/public.pem" >> "$GITHUB_ENV"
+
+      - name: Build node-pty for ${{ matrix.target }}
+        run: node tools/release/src/native.ts ${{ matrix.target }}
+
+      - name: Build the daemon archive
+        run: >-
+          node tools/release/src/build.ts "$VERSION" ${{ matrix.target }}
+          "$ACE_RELEASE_PUBLIC_KEY_FILE" tools/release/dist/native/${{ matrix.target }}.json
+
+      - name: Check the glibc floor
+        run: node tools/release/src/glibc-check.ts tools/release/dist/${{ matrix.target }}
+
+      - name: Smoke test the daemon archive
+        run: node tools/release/src/smoke.ts tools/release/dist/${{ matrix.target }}
+
+      - name: Build and stage the desktop release (AppImage, deb, tar.gz, latest-linux*.yml)
+        run: node apps/desktop/scripts/release.ts build "$VERSION"
+
+      - name: Upload the daemon archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-daemon-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
+            tools/release/dist/${{ matrix.target }}.json
+            tools/release/dist/native/${{ matrix.target }}/provenance.json
+
+      - name: Upload the desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-desktop-${{ matrix.target }}
+          if-no-files-found: error
+          # Exactly what release.ts staged: packages, feed, release.json and SHA256SUMS.
+          path: dist/releases/v${{ env.VERSION }}/
+
+  linux-verify:
+    # The artifacts built on glibc 2.31 run on a current distribution (Ubuntu 24.04, 2.39).
+    name: Verify ${{ matrix.target }} on Ubuntu 24.04
+    needs: linux
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ace-*-${{ matrix.target }}
+          path: artifacts
+
+      - name: Smoke test the daemon archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/daemon"
+          tar -xzf artifacts/ace-daemon-${{ matrix.target }}/ace-*.tar.gz -C "$RUNNER_TEMP/daemon"
+          test -x "$RUNNER_TEMP/daemon/helpers/ace-screen-helper-linux"
+          node tools/release/src/smoke.ts "$RUNNER_TEMP/daemon"
+
+      - name: Install the deb and check its command and AppArmor profiles
+        run: |
+          deb=$(ls artifacts/ace-desktop-${{ matrix.target }}/*.deb)
+          dpkg-deb -I "$deb"
+          sudo apt-get install -y "./$deb"
+          test -x /usr/bin/ace-desktop
+          test ! -e /usr/bin/ace
+          sudo test -f /etc/apparmor.d/ace-desktop
+          sudo test -f /etc/apparmor.d/ace-chromium
+          loaded=$(sudo aa-status)
+          for profile in ace-desktop ace-chromium; do
+            printf '%s\n' "$loaded" | grep -qE "^\s+$profile\$" || { echo "AppArmor profile $profile is not loaded" >&2; exit 1; }
+          done
+          sudo apt-get remove -y ace-desktop
+          sudo test ! -e /etc/apparmor.d/ace-chromium
+
+      - name: Check the AppImage contents
+        run: |
+          cd "$RUNNER_TEMP"
+          image=$(ls "$GITHUB_WORKSPACE"/artifacts/ace-desktop-${{ matrix.target }}/*.AppImage)
+          chmod +x "$image"
+          "$image" --appimage-extract >/dev/null
+          test -x squashfs-root/ace-desktop
+          test -x squashfs-root/resources/helpers/ace-screen-helper-linux
+          test -f squashfs-root/resources/daemon/ace.mjs
+          test -x squashfs-root/resources/runtime/bin/node
+
+  macos:
+    # Optional until macOS signing joins this workflow; enable it from a manual run.
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and smoke test the daemon archive
+        run: |
+          version="${RELEASE_VERSION#v}"
+          [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
+          node -e 'const { generateKeyPairSync } = require("node:crypto"); process.stdout.write(generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }))' > "$RUNNER_TEMP/public.pem"
+          node tools/release/src/build.ts "$version" ${{ matrix.target }} "$RUNNER_TEMP/public.pem"
+          node tools/release/src/smoke.ts tools/release/dist/${{ matrix.target }}
+
+      - name: Upload the daemon archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-daemon-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
+            tools/release/dist/${{ matrix.target }}.json

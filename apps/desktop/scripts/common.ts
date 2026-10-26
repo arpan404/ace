@@ -136,9 +136,13 @@ export function electronVersion(): string {
   return manifest.version;
 }
 
-/** The Electron binary from the `electron` package, downloaded on first use. */
+/**
+ * The Electron binary from the `electron` package, downloaded on first use.
+ * `ACE_E2E_ELECTRON_BINARY` replaces it with a launcher that adds switches to every launch
+ * (the Linux e2e runner's Wayland session forces `--ozone-platform=wayland` this way).
+ */
 export async function electronBinary(): Promise<string> {
-  return electronBinaryFrom(join(desktop, "package.json"));
+  return process.env.ACE_E2E_ELECTRON_BINARY || electronBinaryFrom(join(desktop, "package.json"));
 }
 
 /** The installed Electron build a local package reuses, downloaded on first use. */

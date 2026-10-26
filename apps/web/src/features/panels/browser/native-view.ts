@@ -1,4 +1,4 @@
-import { useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import {
   desktopBrowserViews,
   type NativeViewPlacement,
@@ -103,7 +103,8 @@ export interface FrozenPage {
  */
 export function useNativeView(
   threadId: string,
-  area: RefObject<HTMLElement | null>,
+  /** The element the page goes over: state, not a ref, so the view follows it as it mounts. */
+  element: HTMLElement | null,
   active: boolean,
   options: {
     device: NativeViewPlacement["device"];
@@ -130,7 +131,6 @@ export function useNativeView(
   useLayoutEffect(() => sync(), [deviceKey]);
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
-    const element = area.current;
     if (!views || !element || !active) return;
     const deviceNow = () => {
       const device = latest.current.device;
@@ -299,6 +299,6 @@ export function useNativeView(
       stopVisibility();
       stopOverlays();
     };
-  }, [threadId, area, active, tabId]);
+  }, [threadId, element, active, tabId]);
   return { shown: active && shown, frozen: active ? frozen : undefined };
 }

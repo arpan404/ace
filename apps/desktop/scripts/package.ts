@@ -1,17 +1,29 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
-import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
+import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
+// The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor --fix` installs.
+import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
+import {
+  appVersion,
+  desktop,
+  dist,
+  electronVersion,
+  installedElectronDist,
+  packagedAppVersion,
+  targetArch,
+} from "./common.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * `bun run desktop:build`: an unsigned app for this machine (macOS: `.app` and dmg).
  * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
- * Windows NSIS, Linux AppImage and deb) with the update feed (`app-update.yml` inside the
+ * Windows NSIS, Linux AppImage, deb and tar.gz) with the update feed (`app-update.yml` inside the
  * app, `latest*.yml` beside the packages; ADR 0091). On macOS it is signed with the Developer
  * ID in the keychain (CSC_NAME picks one) and notarized with whichever notarytool
  * credentials are set (see `notaryCredentials`). The identity must already be in a keychain
@@ -49,6 +61,19 @@ if (!process.argv.includes("--skip-build"))
 
 // Also after --skip-build: dist/ may hold another architecture's build.
 await verifyNatives(arch);
+// Linux release packages run on Ubuntu 20.04+ and Debian 11+: what ace builds itself (the
+// daemon's natives, its Node runtime, ripgrep, the screen helper) must not need a newer
+// glibc. Electron's own floor is Chromium's. Local packages may use the host's toolchain.
+if (full && process.platform === "linux")
+  for (const known of await assertLinuxRuntimeFloor(
+    ["daemon", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
+  ))
+    console.warn(`[package] above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
+const linuxResources = join(dist, "linux");
+if (process.platform === "linux") {
+  await mkdir(linuxResources, { recursive: true });
+  await writeFile(join(linuxResources, "apparmor-chromium"), chromiumAppArmorProfile());
+}
 
 const notarize =
   signed && process.platform === "darwin" && notary.kind !== "none" && notary.kind !== "incomplete";
@@ -74,8 +99,12 @@ const config: Configuration = {
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
   extraResources: [
     { from: join(dist, "bin"), to: "bin" },
-    // The tray's template images (appPaths().trayIcon); the app icons come from build/.
-    { from: join(desktop, "resources"), to: "icons", filter: ["trayTemplate*.png"] },
+    // The tray images: macOS template and the Linux colour icon; app icons come from build/.
+    {
+      from: join(desktop, "resources"),
+      to: "icons",
+      filter: ["trayTemplate*.png", "trayColor*.png"],
+    },
     // The pinned Node runtime; Windows local-daemon activation is still pending.
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
@@ -83,6 +112,10 @@ const config: Configuration = {
         ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
         : []
       : [{ from: join(dist, "helpers"), to: "helpers" }]),
+    // The AppArmor profile for ace's headless Chromium (the deb installs it; see after-install).
+    ...(process.platform === "linux"
+      ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
+      : []),
   ],
   // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
   // rather than through extraResources, which always drops node_modules, and the daemon needs
@@ -161,14 +194,51 @@ const config: Configuration = {
   },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
+    // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
+    executableName: "ace-desktop",
+    syncDesktopName: true,
     target: [
       { target: "AppImage", arch: [arch] },
       { target: "deb", arch: [arch] },
+      // The tar.gz is written after the build, with its launcher (linux-tarball.ts).
     ],
+    // Debian requires a maintainer with an email address; the project has no mailbox.
+    maintainer: "ace <arpan404@users.noreply.github.com>",
+    vendor: "ace",
+    synopsis: "Desktop app for ace, the local multi-agent coding environment",
     category: "Development",
-    icon: join(desktop, "build/icon.png"),
+    // One PNG per hicolor size (`scripts/icons.ts`): the theme has no 1024 px directory.
+    icon: join(desktop, "build/linux-icons"),
     artifactName: "ace-${version}-${arch}.${ext}",
-    mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
+    // `ace://` comes from `protocols`: electron-builder adds its handler type to the entry.
+    mimeTypes: ["inode/directory"],
+  },
+  // The static type2 AppImage runtime (FUSE 3). The legacy default links an unversioned
+  // libz.so on arm64, which a stock Ubuntu (no zlib1g-dev) does not have.
+  toolsets: { appimage: "1.0.3" },
+  deb: {
+    packageName: "ace-desktop",
+    // Its own list: electron-builder appends the `ace://` handler type to the list it is
+    // given, so the deb sharing `linux.mimeTypes` with the AppImage would list it twice.
+    mimeTypes: ["inode/directory"],
+    // electron-builder's defaults plus ALSA, which Electron links but the defaults omit: a
+    // minimal Ubuntu install failed with "libasound.so.2: cannot open shared object file".
+    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is the older releases.
+    depends: [
+      "libgtk-3-0",
+      "libnotify4",
+      "libnss3",
+      "libxss1",
+      "libxtst6",
+      "xdg-utils",
+      "libatspi2.0-0",
+      "libuuid1",
+      "libsecret-1-0",
+      "libasound2t64 | libasound2",
+    ],
+    // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
+    afterInstall: join(desktop, "build/linux/after-install.tpl"),
+    afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
   // The update feed: GitHub releases tagged v<version>. Only a full package carries it, so
   // a local build never offers updates. Nothing uploads from here (`publish: "never"`);
@@ -187,4 +257,16 @@ const targets =
       ? Platform.WINDOWS
       : Platform.LINUX;
 const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
+if (process.platform === "linux")
+  outputs.push(
+    await writeLinuxTarball({
+      unpacked: join(dist, "release", arch === "x64" ? "linux-unpacked" : `linux-${arch}-unpacked`),
+      launcher: join(desktop, "build/linux/launcher.sh"),
+      icon: join(desktop, "build/linux-icons/512x512.png"),
+      output: join(dist, "release"),
+      version: packagedAppVersion(process.env, appVersion()),
+      arch,
+      mtime: Number(process.env.SOURCE_DATE_EPOCH ?? 0) || 0,
+    }),
+  );
 for (const output of outputs) console.log(`[package] ${output}`);

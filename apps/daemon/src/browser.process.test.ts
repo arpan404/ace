@@ -63,10 +63,8 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
-      await daemon.browser.execute(thread.id, { action: "resize", width: 320, height: 200 });
-      const frames = clients.map((client) =>
-        client.nextStream((message) => message.kind === "browser.video"),
-      );
+      // Viewers watch as the apps do (ADR 0088): binary video in a codec this machine's Chrome
+      // encodes (H.264 where it can, else VP8), sized for the pane they show.
       await Promise.all(
         clients.map((client, index) =>
           client.request({
@@ -74,20 +72,27 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
             requestId: `subscribe-${index}`,
             threadId: thread.id,
             binaryFrames: true,
-            viewport: { width: 320, height: 200, devicePixelRatio: 1 },
-            video: { codecs: ["vp8"] },
+            viewport: { width: 640, height: 400, devicePixelRatio: 2 },
+            video: { codecs: ["avc1.42E033", "vp8"] },
           }),
         ),
       );
-      for (const reply of await Promise.all(frames)) {
-        if (reply.kind !== "browser.video") throw new Error("Expected video");
-        expect(reply.chunk).toMatchObject({
-          key: true,
-          codec: "vp8",
-          codedWidth: 320,
-          codedHeight: 200,
-        });
-        expect(reply.chunk.bytes.length).toBeGreaterThan(0);
+      for (const found of await Promise.all(
+        clients.map((client) =>
+          client.nextStream(
+            (message) =>
+              message.kind === "browser.video" &&
+              message.threadId === thread.id &&
+              message.chunk.key &&
+              message.chunk.bytes.length > 0,
+          ),
+        ),
+      )) {
+        if (found.kind !== "browser.video") throw new Error("Expected a keyframe");
+        const key = found.chunk;
+        expect(["avc1.42E033", "vp8"]).toContain(key.codec);
+        // Sized as the picture is (one scale on both axes), not as an encoder pads it.
+        expect(key.codedHeight / key.height).toBeCloseTo(key.codedWidth / key.width, 2);
       }
       // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(
