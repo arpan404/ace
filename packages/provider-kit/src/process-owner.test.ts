@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { toWindowsCommand } from "./windows-command.ts";
+import { toWindowsCommand } from "./process-owner.ts";
 
 test("non-batch commands pass through without verbatim spawning", () => {
   expect(toWindowsCommand("C:\\tools\\agent.exe", ["--stdio"])).toEqual({

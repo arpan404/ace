@@ -4,13 +4,13 @@ import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { createRetainedWindowsJob } from "./windows-job.ts";
+import { createRetainedJob } from "./process-containment.ts";
 import { processIdentity } from "./process-identity.ts";
 
 test.runIf(process.platform === "win32")(
   "a Windows job retains and terminates a descendant after its original process exits",
   async ({ onTestFinished }) => {
-    const job = createRetainedWindowsJob();
+    const job = createRetainedJob();
     onTestFinished(() => {
       try {
         job.terminate();
@@ -63,7 +63,7 @@ test.runIf(process.platform === "win32")(
 test.runIf(process.platform === "win32")(
   "a hard-killed job owner cannot leave its detached child running",
   async ({ onTestFinished }) => {
-    const moduleUrl = new URL("./windows-job.ts", import.meta.url).href;
+    const moduleUrl = new URL("./process-containment.ts", import.meta.url).href;
     const owner = spawn(
       process.execPath,
       [
@@ -71,8 +71,8 @@ test.runIf(process.platform === "win32")(
         "-e",
         `
       import { spawn } from 'node:child_process';
-      const { createRetainedWindowsJob } = await import(${JSON.stringify(moduleUrl)});
-      const job = createRetainedWindowsJob();
+      const { createRetainedJob } = await import(${JSON.stringify(moduleUrl)});
+      const job = createRetainedJob();
       const child = spawn(process.execPath, ['-e',
         'process.stdin.once("data", () => { console.log("ready"); setTimeout(() => process.exit(0), 15000); });'],
         { detached: true, stdio: ['pipe', 'pipe', 'ignore'] });

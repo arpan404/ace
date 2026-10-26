@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { processIdentity } from "./process-identity.ts";
 
-test.skipIf(process.platform !== "win32")(
+test.runIf(process.platform === "win32")(
   "Windows kernel identity keeps the creation time and the real token owner",
   async () => {
     const { stdout } = await promisify(execFile)("whoami.exe", ["/user", "/fo", "csv", "/nh"], {

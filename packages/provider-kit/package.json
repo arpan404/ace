@@ -39,7 +39,7 @@
     "./cursor-selection": "./src/cursor-selection.ts",
     "./process-identity": "./src/process-identity.ts",
     "./process-inventory": "./src/process-inventory.ts",
-    "./windows-job": "./src/windows-job.ts"
+    "./process-containment": "./src/process-containment.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

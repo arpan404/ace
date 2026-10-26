@@ -10,9 +10,13 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { toWindowsCommand } from "./windows-command.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { toWindowsCommand } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 export {
   stopOwnedGroups,

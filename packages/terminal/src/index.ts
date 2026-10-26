@@ -1,8 +1,8 @@
 export { TerminalManager } from "./manager.ts";
 export type { TerminalManagerOptions, TerminalDependencies } from "./manager.ts";
 export { createPosixBackendFactory } from "./pty.ts";
-export { createWindowsBackendFactory } from "./pty-win32.ts";
-export type { WindowsGate, WindowsGateInit, WindowsNativePty, WindowsPorts } from "./pty-win32.ts";
+export { createConptyBackendFactory } from "./pty.ts";
+export type { ConptyNative, ConptyPorts } from "./pty.ts";
 export type { PtyBackend, BackendFactory, NativePty, PosixPorts } from "./pty.ts";
 export type { ShutdownScheduler, ProcessControl } from "./ownership.ts";
 export type { GroupLease } from "./group-lease.ts";

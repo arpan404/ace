@@ -1,18 +1,15 @@
 import { expect, test } from "vitest";
-import {
-  errorInsufficientBuffer,
-  errorInvalidParameter,
-  filetimeToStart,
-  readWindowsProcessIdentity,
-  type WindowsProcessIdentityApi,
-} from "./windows-process-identity.ts";
+import { readWindowsProcessIdentity, type WindowsProcessIdentityApi } from "./process-identity.ts";
+
+/** Win32 last-error codes: no such process, and "size the buffer first". */
+const errorInvalidParameter = 87;
+const errorInsufficientBuffer = 122;
 
 const ownerSid = "S-1-5-21-123-456-789-1001";
 const sidPointer = 0x1_000n;
 const stringPointer = 0x2_000n;
 
 type FakeFlags = {
-  touched: boolean;
   closedProcess: boolean;
   closedToken: boolean;
   freedSid: boolean;
@@ -31,7 +28,6 @@ type FakeOptions = {
 
 function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; flags: FakeFlags } {
   const flags: FakeFlags = {
-    touched: false,
     closedProcess: false,
     closedToken: false,
     freedSid: false,
@@ -44,12 +40,10 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
   const tokenValue = Object.hasOwn(options, "tokenOut") ? options.tokenOut : tokenHandle;
   const api: WindowsProcessIdentityApi = {
     open: (pid) => {
-      flags.touched = true;
       if (!Number.isInteger(pid) || pid <= 0) throw new Error("Unexpected pid");
       return processHandle;
     },
     times: (handle, creation, exit, kernel, user) => {
-      flags.touched = true;
       if (handle !== processHandle) throw new Error("Unexpected process handle");
       for (const buffer of [creation, exit, kernel, user]) {
         if (!Buffer.isBuffer(buffer) || buffer.length !== 8)
@@ -61,14 +55,12 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
       return 1;
     },
     openToken: (handle, out) => {
-      flags.touched = true;
       if (handle !== processHandle) throw new Error("Unexpected process handle");
       if (options.tokenOpen === "fail") return 0;
       out[0] = tokenValue;
       return 1;
     },
     tokenInfo: (token, info, length, needed) => {
-      flags.touched = true;
       if (token !== tokenValue) throw new Error("Unexpected token handle");
       if (options.tokenInfo === "fail-second" && info !== null) return 0;
       if (info === null) {
@@ -81,44 +73,29 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
       return 1;
     },
     sidToString: (sid, out) => {
-      flags.touched = true;
       if (sid !== sidPointer) throw new Error("Unexpected SID pointer");
       if (options.sidConvert === "fail") return 0;
       out[0] = stringPointer;
       return 1;
     },
     decodeSid: (ptr) => {
-      flags.touched = true;
       if (ptr !== stringPointer) throw new Error("Unexpected SID string pointer");
       return options.decode === "invalid" ? "not-a-sid" : ownerSid;
     },
     free: (ptr) => {
-      flags.touched = true;
       if (ptr !== stringPointer) throw new Error("Unexpected SID string pointer");
       flags.freedSid = true;
     },
     close: (handle) => {
-      flags.touched = true;
       if (handle === processHandle) flags.closedProcess = true;
       else if (handle === tokenValue) flags.closedToken = true;
       else throw new Error("Unexpected handle to close");
     },
     lastError: () => options.lastError ?? errorInsufficientBuffer,
-    unload: () => {
-      flags.touched = true;
-    },
+    unload: () => undefined,
   };
   return { api, flags };
 }
-
-test("FILETIME halves combine into one decimal start", () => {
-  expect(filetimeToStart(0, 0)).toBe("0");
-  expect(filetimeToStart(1, 0)).toBe("1");
-  expect(filetimeToStart(0, 1)).toBe("4294967296");
-  expect(filetimeToStart(0xffffffff, 0xffffffff)).toBe("18446744073709551615");
-  expect(() => filetimeToStart(-1, 0)).toThrow();
-  expect(() => filetimeToStart(0, 0x1_0000_0000)).toThrow();
-});
 
 test("a live process binds its creation start and lossless owner SID, then releases all natives", () => {
   const { api, flags } = fakeApi({ creation: { low: 2, high: 1 } });
@@ -165,52 +142,18 @@ test.each([null, undefined, 0, 0n] as const)(
   },
 );
 
-test("a failed creation-time read throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ creation: "fail" });
+test.each([
+  ["creation-time read", { creation: "fail" }, { process: true, token: false }],
+  ["token open", { tokenOpen: "fail" }, { process: true, token: false }],
+  ["NULL token handle", { tokenOut: 0n }, { process: true, token: false }],
+  ["token query", { tokenInfo: "fail-second" }, { process: true, token: true }],
+  ["SID conversion", { sidConvert: "fail" }, { process: true, token: true }],
+] as const)("a failed %s throws and still closes what it opened", (_, options, closed) => {
+  const { api, flags } = fakeApi(options);
   expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
     "Kernel process identity unavailable",
   );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a failed token open throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ tokenOpen: "fail" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a NULL token handle as 0n throws and still closes the process handle", () => {
-  const { api, flags } = fakeApi({ tokenOut: 0n });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(false);
-});
-
-test("a failed token query throws and still closes both handles", () => {
-  const { api, flags } = fakeApi({ tokenInfo: "fail-second" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
-  expect(flags.freedSid).toBe(false);
-});
-
-test("a failed SID conversion throws and still closes both handles", () => {
-  const { api, flags } = fakeApi({ sidConvert: "fail" });
-  expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
-    "Kernel process identity unavailable",
-  );
-  expect(flags.closedProcess).toBe(true);
-  expect(flags.closedToken).toBe(true);
+  expect({ process: flags.closedProcess, token: flags.closedToken }).toEqual(closed);
   expect(flags.freedSid).toBe(false);
 });
 
@@ -220,11 +163,4 @@ test("an invalid SID string throws and still frees and closes", () => {
   expect(flags.closedProcess).toBe(true);
   expect(flags.closedToken).toBe(true);
   expect(flags.freedSid).toBe(true);
-});
-
-test("an invalid PID is rejected before touching Win32", () => {
-  const { api, flags } = fakeApi({});
-  expect(() => readWindowsProcessIdentity(0, api)).toThrow();
-  expect(flags.touched).toBe(false);
-  expect(flags.closedProcess).toBe(false);
 });

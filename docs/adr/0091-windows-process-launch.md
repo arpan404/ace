@@ -55,11 +55,11 @@ boundary.
   the same `cmd.exe` wrapper, and stops the tree with `taskkill /T`,
   escalating to `/T /F`. Platform and killer stay injectable, so every
   branch is covered without a Windows host
-  (`process-interactive-windows.process.test.ts`). No ConPTY gap remains:
+  (`process-interactive.process.test.ts`). No ConPTY gap remains:
   interactive ownership never allocated a PTY on POSIX either; it inherits
   the terminal.
 - **Job Object containment without native code.** A per-process
-  kill-on-close job is created through `koffi` (`windows-job.ts`), which is
+  kill-on-close job is created through `koffi` (`process-containment.ts`), which is
   already a dependency and already calls `kernel32.dll` elsewhere. No
   compiler, driver or shipped binary is involved. The job handle is held for
   the ownership lifetime and closed on release, so a hard-killed daemon

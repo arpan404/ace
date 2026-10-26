@@ -2,9 +2,13 @@ import { spawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { terminateDirectoryProcesses } from "./directory-processes.ts";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
-import { toWindowsCommand } from "./windows-command.ts";
+import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
+import { toWindowsCommand } from "./process-owner.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 

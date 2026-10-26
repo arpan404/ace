@@ -25,7 +25,7 @@ export function parsePtyRuntimeTarget(value: string): PtyRuntimeTarget {
 
 /**
  * Bounded Windows ConPTY closure for the `useConptyDll:true` backend
- * (`packages/terminal/src/pty-win32.ts`). Derived from node-pty 1.1.0
+ * (`packages/terminal/src/pty.ts`). Derived from node-pty 1.1.0
  * `lib/windowsPtyAgent.js`, `lib/windowsConoutConnection.js` and
  * `src/win/conpty.cc` (`LoadConptyDll`):
  * - `conpty.node` loaded via `utils.loadNativeModule('conpty')`
@@ -35,9 +35,7 @@ export function parsePtyRuntimeTarget(value: string): PtyRuntimeTarget {
  * `pty.node`, `winpty.dll`/`winpty-agent.exe` and `conpty_console_list.node`
  * serve only fallback paths (`useConpty:false`, `useConptyDll:false`) the
  * backend never takes, and `OpenConsole.exe`/`.pdb` files are a demo console
- * and debug symbols. None are staged. The gate needs no asset: it is embedded
- * as a module string and materialized per terminal, so no `windows-gate.js`
- * is staged. Architecture validation stays with the existing owner
+ * and debug symbols. None are staged. Architecture validation stays with the existing owner
  * (`apps/desktop/src/packaging/native-arch.ts`); this module does no PE parsing.
  */
 const windowsConptyModule = "conpty.node";

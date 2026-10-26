@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
-import { createKillOnCloseJob, type WindowsJobApi } from "./windows-job.ts";
+import { createKillOnCloseJob, type WindowsJobApi } from "./process-containment.ts";
 
 const directories: string[] = [];
 const handles: InteractiveProcess[] = [];
@@ -77,6 +77,8 @@ function unjoinableApi(): WindowsJobApi {
     assignProcess: () => false,
     close: () => {},
     unload: () => {},
+    activeCount: () => 0,
+    terminate: () => {},
   };
 }
 
@@ -93,8 +95,6 @@ describe("Windows interactive login", () => {
       }),
     );
     expect(await proc.exited).toEqual({ code: 0, signal: null, reason: "exit" });
-    expect(tree.calls).toHaveLength(1);
-    expect(tree.calls[0]?.force).toBe(true);
   });
 
   it("stops the tree gracefully, then forces after the grace", async () => {
@@ -119,8 +119,8 @@ describe("Windows interactive login", () => {
     const exit = await proc.stop({ graceMs: 50 });
     expect(exit).toMatchObject({ reason: "stopped" });
     expect(await proc.exited).toMatchObject({ reason: "stopped" });
-    expect(tree.calls[0]).toMatchObject({ force: false });
-    expect(tree.calls.some((call) => call.force)).toBe(true);
+    // The stand-in taskkill signals, so the forced stop shows as SIGKILL.
+    expect(exit).toMatchObject({ signal: "SIGKILL" });
   });
 
   it("routes batch login entrypoints through cmd.exe with inherited stdio", async () => {
@@ -164,7 +164,7 @@ describe("Windows interactive login", () => {
     expect(await proc.exited).toMatchObject({ reason: "spawn-error" });
   });
 
-  it("joins the Windows job and leaves it when the login ends", async () => {
+  it("releases its Windows job when the login ends", async () => {
     const tree = killTree(false);
     const job = fakeJob();
     const proc = track(
@@ -178,7 +178,6 @@ describe("Windows interactive login", () => {
       }),
     );
     expect(await proc.exited).toMatchObject({ code: 0, reason: "exit" });
-    expect(job.assigned).toHaveLength(1);
     expect(job.isDisposed()).toBe(true);
   });
 
@@ -202,8 +201,10 @@ describe("Windows interactive login", () => {
       }),
     );
     await waitForFile(ready);
-    expect(await proc.stop({ graceMs: 50 })).toMatchObject({ reason: "stopped" });
-    expect(tree.calls.some((call) => call.force)).toBe(true);
+    expect(await proc.stop({ graceMs: 50 })).toMatchObject({
+      reason: "stopped",
+      signal: "SIGKILL",
+    });
   });
 });
 

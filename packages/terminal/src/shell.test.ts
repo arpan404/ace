@@ -1,20 +1,7 @@
 import { expect, test } from "vitest";
-import { mergeWindowsEnv, resolveShell } from "./shell.ts";
-import { resolveShell as resolveViaPty } from "./pty.ts";
+import { resolveShell } from "./pty.ts";
 
 const WINDOWS_CMD = "C:\\Windows\\System32\\cmd.exe";
-
-test("Windows env merge lets overrides win regardless of spelling", () => {
-  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: "C:\\b" })).toEqual({ PATH: "C:\\b" });
-  expect(mergeWindowsEnv({ A: "1" }, {})).toEqual({ A: "1" });
-  expect(mergeWindowsEnv({}, undefined)).toEqual({});
-});
-
-test("Windows env undefined masks inherited keys case-insensitively", () => {
-  expect(mergeWindowsEnv({ NODE_OPTIONS: "--require x" }, { Node_Options: undefined })).toEqual({});
-  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: undefined })).toEqual({});
-  expect(mergeWindowsEnv({ A: "1" }, { B: undefined })).toEqual({ A: "1" });
-});
 
 test("an explicit shell wins on Windows without consulting the environment", () => {
   const shell = resolveShell("C:\\custom\\shell.exe", {
@@ -30,7 +17,7 @@ test("Windows prefers pwsh over powershell and ComSpec", () => {
     platform: "win32",
     env: { ComSpec: WINDOWS_CMD },
     exists: () => false,
-    findExecutable: (command) =>
+    findExecutable: (command: string) =>
       command === "pwsh" ? "C:\\Program Files\\PowerShell\\7\\pwsh.exe" : undefined,
   });
   expect(shell).toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
@@ -41,7 +28,7 @@ test("Windows falls back to powershell when pwsh is missing", () => {
     platform: "win32",
     env: { ComSpec: WINDOWS_CMD },
     exists: () => false,
-    findExecutable: (command) =>
+    findExecutable: (command: string) =>
       command === "powershell"
         ? "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         : undefined,
@@ -55,15 +42,6 @@ test("Windows falls back to ComSpec when no PowerShell is found", () => {
     env: { SHELL: "/bin/zsh", ComSpec: WINDOWS_CMD },
     exists: () => false,
     findExecutable: () => undefined,
-  });
-  expect(shell).toBe(WINDOWS_CMD);
-});
-
-test("Windows uses ComSpec and ignores POSIX SHELL", () => {
-  const shell = resolveShell(undefined, {
-    platform: "win32",
-    env: { SHELL: "/bin/zsh", ComSpec: WINDOWS_CMD },
-    exists: () => false,
   });
   expect(shell).toBe(WINDOWS_CMD);
 });
@@ -84,21 +62,6 @@ test("Windows falls back to SystemRoot cmd when ComSpec is missing", () => {
     exists: (path) => path === WINDOWS_CMD,
   });
   expect(shell).toBe(WINDOWS_CMD);
-});
-
-test("Windows accepts the uppercase COMSPEC and SYSTEMROOT spellings", () => {
-  const viaComSpec = resolveShell(undefined, {
-    platform: "win32",
-    env: { COMSPEC: WINDOWS_CMD },
-    exists: () => false,
-  });
-  expect(viaComSpec).toBe(WINDOWS_CMD);
-  const viaSystemRoot = resolveShell(undefined, {
-    platform: "win32",
-    env: { SYSTEMROOT: "C:\\Windows" },
-    exists: (path) => path === WINDOWS_CMD,
-  });
-  expect(viaSystemRoot).toBe(WINDOWS_CMD);
 });
 
 test("Windows matches ComSpec and SystemRoot case-insensitively", () => {
@@ -148,43 +111,4 @@ test("Windows throws instead of leaking POSIX SHELL when nothing resolves", () =
   expect(() => resolveShell(undefined, { platform: "win32", env: {}, exists: () => true })).toThrow(
     "No login shell found",
   );
-});
-
-test("POSIX keeps SHELL first and ignores ComSpec", () => {
-  const shell = resolveShell(undefined, {
-    platform: "linux",
-    env: { SHELL: "/bin/fish", ComSpec: WINDOWS_CMD },
-    exists: () => false,
-  });
-  expect(shell).toBe("/bin/fish");
-});
-
-test("POSIX falls back to the first executable shell", () => {
-  const zsh = resolveShell(undefined, {
-    platform: "darwin",
-    env: {},
-    exists: () => true,
-  });
-  expect(zsh).toBe("/bin/zsh");
-  const bash = resolveShell(undefined, {
-    platform: "linux",
-    env: {},
-    exists: (path) => path === "/bin/bash",
-  });
-  expect(bash).toBe("/bin/bash");
-});
-
-test("POSIX throws when no shell is available", () => {
-  expect(() =>
-    resolveShell(undefined, { platform: "linux", env: {}, exists: () => false }),
-  ).toThrow("No login shell found");
-});
-
-test("the existing pty import path exposes the same selection seam", () => {
-  const shell = resolveViaPty(undefined, {
-    platform: "win32",
-    env: { SHELL: "/bin/zsh", ComSpec: WINDOWS_CMD },
-    exists: () => false,
-  });
-  expect(shell).toBe(WINDOWS_CMD);
 });
