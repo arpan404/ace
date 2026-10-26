@@ -6,24 +6,21 @@ name: Windows desktop
 
 on:
   push:
-    branches: [ace/win-desktop-ui]
-    paths:
+    branches: [main, ace/win-desktop-ui]
+    paths: &desktop-paths
       - .github/workflows/windows-desktop.yml
-      - apps/desktop/src/main/**
-      - apps/desktop/src/preload/**
+      - apps/desktop/src/**
       - apps/desktop/e2e/desktop-chrome.e2e.ts
       - apps/desktop/e2e/fixtures/screen-capture.ts
-      - apps/web/src/**
-      - apps/web/*.ts
-      - apps/web/index.html
-      - packages/ui-core/src/**
+      - apps/desktop/vitest.e2e.config.ts
+      - apps/desktop/scripts/**
+      - apps/desktop/resources/**
+      - apps/desktop/build/**
+      - apps/web/**
+      - packages/ui-core/**
+      - scripts/prepare-windows-screen.ps1
   pull_request:
-    paths:
-      - .github/workflows/windows-desktop.yml
-      - apps/desktop/src/main/**
-      - apps/desktop/src/preload/**
-      - apps/desktop/e2e/desktop-chrome.e2e.ts
-      - apps/desktop/e2e/fixtures/screen-capture.ts
+    paths: *desktop-paths
   workflow_dispatch:
 
 permissions:
