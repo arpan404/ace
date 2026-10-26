@@ -138,11 +138,11 @@ export class MachineCaller {
     // Saved before it leaves: until the machine answers for it, no status reply settles the
     // child, and after a restart or a lost reply it is sent again under the same request id.
     const release = this.deps.children.send(id, message);
-    const outcome = { answered: false };
+    const outcome: { answer?: "taken" | "refused" } = {};
     try {
       return await this.sendMessage(id, child.machine, origin, message, outcome);
     } finally {
-      release(outcome.answered);
+      release(outcome.answer);
     }
   }
   /**
@@ -175,7 +175,7 @@ export class MachineCaller {
     machine: string,
     origin: MachineCallOrigin,
     message: MachineMessage,
-    outcome: { answered: boolean },
+    outcome: { answer?: "taken" | "refused" },
   ): Promise<AgentControlResult> {
     let lost: MachineFailure | undefined;
     for (let attempt = 0; ; attempt++)
@@ -188,9 +188,9 @@ export class MachineCaller {
             { timeoutMs: 15_000 },
           ),
         );
-        // A settled child given more work is working again until its next result.
-        outcome.answered = true;
-        this.deps.children.reopen(id);
+        // A settled child given more work is working again until its next result: the release
+        // reopens it as it drops the message's record.
+        outcome.answer = "taken";
         return { ok: true, data: answer };
       } catch (error) {
         const dropped = error instanceof MachineFailure && error.kind === "disconnected";
@@ -201,7 +201,7 @@ export class MachineCaller {
         // and if nothing changed there, the next poll settles it again under the same result.
         if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
         // A machine never reached, or one that refused, answered for the message: it never runs.
-        else outcome.answered = true;
+        else outcome.answer = "refused";
         // The parent hears the call was lost, not that the machine never had it.
         throw this.deps.directory.controlError(machine, lost ?? error);
       }

@@ -15,7 +15,7 @@ import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
-import { ChildMessages, type ChildMessagesDeps } from "./child-messages.ts";
+import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
 import { ChildResults } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
@@ -238,7 +238,7 @@ export class MachineChildren implements RemoteChildren {
     this.arm();
   }
   /** New work is on its way to the child; see ChildMessages.send. */
-  send(id: ThreadId, message: MachineMessage): (answered: boolean) => void {
+  send(id: ThreadId, message: MachineMessage): (answer: Answer | undefined) => void {
     return this.messages.send(id, message);
   }
   delivered(id: ThreadId): void {

@@ -2,6 +2,9 @@ import type { MachineMessage, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { ChildLedger, ChildRow } from "./child-ledger.ts";
 
+/** How a machine answered for a message: it holds it, or it will never run it. */
+export type Answer = "taken" | "refused";
+
 export interface ChildMessagesDeps {
   store: Store;
   ledger: ChildLedger;
@@ -41,10 +44,10 @@ export class ChildMessages {
    * New work is on its way to the child. It is saved first, with the child reopened, so a caller
    * that stops before the reply finds it open and the message unanswered. Until its machine
    * answers for the message no status reply settles the child, and replies read before now never
-   * will. The returned release says whether the machine answered for it (took it, refused it, or
-   * was never reached); an unanswered message is sent again on the next poll.
+   * will. The returned release takes the machine's answer for it: "taken", "refused" (it never
+   * runs, or was never reached), or none; an unanswered message is sent again on the next poll.
    */
-  send(id: ThreadId, message: MachineMessage): (answered: boolean) => void {
+  send(id: ThreadId, message: MachineMessage): (answer: Answer | undefined) => void {
     const { ledger } = this.deps;
     const key = `${id}:${message.requestId}`;
     this.deps.store.atomic(() => {
@@ -54,21 +57,26 @@ export class ChildMessages {
     });
     this.inFlight.add(key);
     let released = false;
-    return (answered) => {
+    return (answer) => {
       if (released) return;
       released = true;
       this.inFlight.delete(key);
-      if (answered) this.resolve(id, message.requestId);
+      if (answer) this.answered(id, message.requestId, answer);
       this.deps.changed();
     };
   }
   /**
-   * The machine answered for a message. Should saving that fail (a busy store), the message stays
-   * unanswered and the next poll sends it again, which its machine answers without running it twice.
+   * The machine answered for a message. A message taken advances the child's generation in the
+   * same transaction that drops the record, so a status reply read before it can never settle
+   * the child once nothing guards it. Should saving fail (a busy store), the record stays and the
+   * next poll sends the message again, which its machine answers without running it twice.
    */
-  private resolve(id: ThreadId, requestId: string): void {
+  private answered(id: ThreadId, requestId: string, answer: Answer): void {
     try {
-      this.deps.ledger.resolveMessage(id, requestId);
+      this.deps.store.atomic(() => {
+        this.deps.ledger.resolveMessage(id, requestId);
+        if (answer === "taken") this.deps.reopen(id);
+      });
     } catch (error) {
       this.deps.log("Machine message answer not saved yet", { id, error: String(error) });
     }
@@ -93,8 +101,7 @@ export class ChildMessages {
             child.id,
             message,
           );
-          this.resolve(child.id, message.requestId);
-          if (answer === "taken") this.deps.reopen(child.id);
+          this.answered(child.id, message.requestId, answer);
         } catch (error) {
           this.deps.log("Machine message still unanswered", { id: child.id, error: String(error) });
         } finally {

@@ -37,13 +37,32 @@ const message = (requestId: string): MachineMessage => ({
 /**
  * Children on another machine, played by `report` (what its status says) and `resendAnswer`
  * (how it answers a message sent again). Timers queue up and run only when the test fires them;
- * `failNextWrite` makes the next storage transaction fail, as a store busy past its timeout.
+ * `failNextWrite` makes the next storage transaction fail, as a store busy past its timeout, and
+ * `failSql` the next statement whose SQL contains it. `holdNextStatus` keeps the next status
+ * reply (read now) from arriving until the test releases it.
  */
 function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
   if (!homes.includes(home)) homes.push(home);
   const real = new Store(join(home, "events.sqlite"));
   stores.push(real);
-  const faults = { failNextWrite: false };
+  const faults: { failNextWrite: boolean; failSql?: string | undefined } = {
+    failNextWrite: false,
+  };
+  const failing = (db: import("node:sqlite").DatabaseSync) =>
+    new Proxy(db, {
+      get(target, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            if (faults.failSql && sql.includes(faults.failSql)) {
+              faults.failSql = undefined;
+              throw new Error("database is locked");
+            }
+            return target.prepare(sql);
+          };
+        const value: unknown = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
   const store = new Proxy(real, {
     get(target, prop) {
       if (prop === "atomic" && faults.failNextWrite) {
@@ -52,6 +71,9 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
           throw new Error("database is locked");
         };
       }
+      if (prop === "atomic")
+        return <T>(run: (db: import("node:sqlite").DatabaseSync) => T) =>
+          target.atomic((db) => run(faults.failSql ? failing(db) : db));
       const value: unknown = Reflect.get(target, prop, target);
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -62,6 +84,19 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
   const delivered: string[] = [];
   const timers: { ms: number; run: () => void }[] = [];
   const clock = { now: 1_000_000 };
+  const holds: { next?: Promise<void> | undefined } = {};
+  const holdNextStatus = () => {
+    let release: (() => void) | undefined;
+    holds.next = new Promise((resolve) => {
+      release = () => resolve();
+    });
+    return {
+      async release() {
+        release?.();
+        await new Promise((resolve) => setImmediate(resolve));
+      },
+    };
+  };
   const answers = { resend: async (): Promise<"taken" | "refused"> => "taken" };
   const children = new MachineChildren({
     store,
@@ -78,10 +113,13 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
     pollMs: POLL_MS,
     status: async (_machine, _parent, ids) => {
       asked.push([...ids]);
-      return ids.flatMap((id) => {
+      const read = ids.flatMap((id) => {
         const view = views.get(id);
         return view ? [view] : [];
       });
+      const held = holds.next;
+      holds.next = undefined;
+      return held ? held.then(() => read) : read;
     },
     resend: async (_machine, _parent, _child, sent) => {
       resent.push(sent.requestId);
@@ -147,6 +185,7 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
     clock,
     answers,
     faults,
+    holdNextStatus,
   };
 }
 
@@ -190,7 +229,7 @@ it("an answer the store could not save is not lost: the message is sent again an
   await h.fire();
   const release = h.children.send(id, message("follow-up"));
   h.faults.failNextWrite = true;
-  release(true);
+  release("taken");
 
   // The answer did not stick: the child stays open, and the next poll asks again.
   h.report(id, done("Follow-up done."));
@@ -210,7 +249,7 @@ it("an unchanged result after a follow-up that never ran is not repeated, and po
   expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
 
   // A follow-up its machine refused: the child reopens, then reads the same result again.
-  h.children.send(id, message("refused"))(true);
+  h.children.send(id, message("refused"))("refused");
   await h.fire();
   await h.fire();
   expect(h.state(id)).toBe("done");
@@ -244,4 +283,36 @@ it("with more settled children than one re-check asks about, every one is checke
   expect(h.asked.at(-1)).toContain(left);
   expect(h.state(left)).toBe("working");
   expect(h.asked.every((batch) => batch.length <= RECHECK_PER_MACHINE)).toBe(true);
+});
+
+it("a status reply read before a retried message was taken can't settle the child when saving the take fails", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("First pass done."));
+  await h.fire();
+  expect(h.delivered).toHaveLength(1);
+  // A follow-up whose reply was lost: it is sent again on the next poll.
+  h.children.send(id, message("second"))(undefined);
+
+  // That poll's status reply reads the old result and is held back; meanwhile the machine takes
+  // the message again, but the write that would fence that old reply fails.
+  const held = h.holdNextStatus();
+  h.faults.failSql = "generation=generation+1";
+  await h.fire();
+  expect(h.resent).toEqual(["second"]);
+  await held.release();
+  expect(h.state(id)).toBe("working");
+  expect(h.delivered).toHaveLength(1);
+
+  // Taken again with the store healthy, the work runs and its own result reaches the parent.
+  h.report(id, working);
+  await h.fire();
+  await h.fire();
+  h.report(id, done("Second pass done.", 9));
+  await h.fire();
+  expect(h.state(id)).toBe("done");
+  expect(h.delivered).toEqual([
+    expect.stringContaining("First pass done."),
+    expect.stringContaining("Second pass done."),
+  ]);
 });
