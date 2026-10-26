@@ -16,6 +16,7 @@ export function computerLockedUseGate(
   return lockedUseGate({
     // Read on every call, so turning it off applies to the next one.
     enabled: async () => (await services.settings?.get("computer.lockedUse"))?.value === true,
+    intervalActive: () => runtime.intervalActive(),
     status: () => runtime.refresh(),
     turn: (threadId, agentId) => {
       const thread = ThreadId.safeParse(threadId);
@@ -28,4 +29,24 @@ export function computerLockedUseGate(
     runProtected: (scope, agentProcessIDs, work, signal) =>
       runtime.runProtected(scope, agentProcessIDs, work, signal),
   });
+}
+
+/**
+ * Turning `computer.lockedUse` off stops any queued or running protected attempt; each relocks
+ * the Mac and reports itself cancelled. Resolves to the subscription's release.
+ */
+export async function cancelLockedUseWhenTurnedOff(
+  services: Pick<Partial<Services>, "lockedUseRuntime" | "settings">,
+): Promise<(() => void) | undefined> {
+  const runtime = services.lockedUseRuntime;
+  const settings = services.settings;
+  if (!runtime || !settings) return undefined;
+  // Without the subscription the gate still reads the setting on every call.
+  return settings
+    .subscribe({ keys: ["computer.lockedUse"], scope: {} }, (notification) => {
+      if (notification.type !== "changed") return;
+      const entry = notification.entries.find((each) => each.key === "computer.lockedUse");
+      if (entry && entry.value !== true) runtime.cancelActive();
+    })
+    .catch(() => undefined);
 }

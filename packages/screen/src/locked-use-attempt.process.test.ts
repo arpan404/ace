@@ -20,6 +20,10 @@ afterEach(async () => {
 const failingWork = async () => {
   throw new Error("app_not_found");
 };
+const slow = async (signal: AbortSignal) => {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  return signal.aborted ? "aborted" : "the outline";
+};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 async function setup() {
@@ -215,10 +219,6 @@ it("a relock read together with working never starts the work, and reports why i
 
 it("work that outlasts the unlock deadline still finishes: the deadline stops at working", async () => {
   const { run, types } = await setup();
-  const slow = async (signal: AbortSignal) => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    return signal.aborted ? "aborted" : "the outline";
-  };
   await expect(run({ work: slow, readyTimeoutMs: 100 })).resolves.toBe("the outline");
   expect(types()).toEqual(["status", "enable", "begin", "finish"]);
 });

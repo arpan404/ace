@@ -82,3 +82,43 @@ it("the service dying mid-work stops the attempt, and the next use starts a new 
   await expect(owner.refresh()).resolves.toMatchObject({ session: "locked" });
   expect(started).toHaveLength(2);
 });
+
+it("an interval counts as active from the protected run's start until it relocks", async () => {
+  const { owner } = await runtime();
+  expect(owner.intervalActive()).toBe(false);
+  const seen: boolean[] = [];
+  const run = owner.runProtected(
+    { threadID: "thread-1", turnID: "run-1" },
+    [process.pid],
+    async () => {
+      seen.push(owner.intervalActive());
+      return "done";
+    },
+  );
+  expect(owner.intervalActive()).toBe(true);
+  await expect(run).resolves.toBe("done");
+  expect(seen).toEqual([true]);
+  expect(owner.intervalActive()).toBe(false);
+});
+
+it("cancelling active runs stops the work, and the interval ends only once the Mac relocks", async () => {
+  const { owner } = await runtime();
+  const aborted: boolean[] = [];
+  const failed = owner
+    .runProtected({ threadID: "thread-1", turnID: "run-1" }, [process.pid], async (signal) => {
+      owner.cancelActive();
+      if (!signal.aborted)
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      aborted.push(signal.aborted);
+      return "must not be returned";
+    })
+    .catch((error: unknown) => error);
+  expect(await failed).toMatchObject({ code: "cancelled" });
+  expect(aborted).toEqual([true]);
+  // Cancelled, but not yet relocked: other calls still may not use the Mac.
+  expect(owner.intervalActive()).toBe(true);
+  for (let tries = 0; tries < 100 && owner.status?.phase !== "ready"; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(owner.status).toMatchObject({ phase: "ready", session: "locked" });
+  expect(owner.intervalActive()).toBe(false);
+});

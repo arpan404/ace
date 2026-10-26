@@ -35,6 +35,19 @@ export interface LockedUseRuntimeOptions {
 
 const retryMs = 50;
 
+/**
+ * Service phases in which the Mac may be unlocked by locked use rather than by the person:
+ * from covering until relock is confirmed, and indefinitely while faulted.
+ */
+const intervalPhases: ReadonlySet<string> = new Set([
+  "covering",
+  "authorizing",
+  "unlocking",
+  "working",
+  "relocking",
+  "faulted",
+]);
+
 export class LockedUseRuntime {
   readonly #options: LockedUseRuntimeOptions;
   #status: LockedUseServiceStatus | undefined;
@@ -43,6 +56,10 @@ export class LockedUseRuntime {
   #child: ChildProcess | undefined;
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
+  /** Protected runs queued or in flight; each can cancel its own attempt. */
+  readonly #runs = new Set<AbortController>();
+  /** The newest attempt whose completion arrived: the service confirmed the Mac relocked. */
+  #relocked: string | undefined;
 
   constructor(options: LockedUseRuntimeOptions) {
     this.#options = options;
@@ -56,6 +73,24 @@ export class LockedUseRuntime {
   /** The installation is verified and the Mac is locked, by the newest status. */
   verifiedAndLocked(): boolean {
     return this.#status?.installation.verified === true && this.#status.session === "locked";
+  }
+
+  /**
+   * Whether a protected interval is underway or may still hold the Mac unlocked: a protected
+   * run is queued or in flight, or the service's newest phase is between covering and a
+   * confirmed relock (or faulted). While true, only that run may act on the Mac.
+   */
+  intervalActive(): boolean {
+    if (this.#runs.size > 0) return true;
+    const status = this.#status;
+    if (!status || !intervalPhases.has(status.phase)) return false;
+    // The `relocking` state can trail its attempt's completion, which already confirmed it.
+    return !(status.phase === "relocking" && status.attemptID === this.#relocked);
+  }
+
+  /** Stops every queued or running protected attempt; each relocks and reports cancelled. */
+  cancelActive(): void {
+    for (const run of this.#runs) run.abort();
   }
 
   /** Reads a fresh status, starting and connecting to the service if needed. */
@@ -77,21 +112,26 @@ export class LockedUseRuntime {
     work: (signal: AbortSignal) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
-    const run = this.#tail.then(async () => {
-      const connection = await this.#connect();
-      return runProtectedAttempt(connection, {
-        ...scope,
-        agentProcessIDs,
-        attemptID: this.#options.attemptId(),
-        work,
-        scheduler: this.#options.scheduler,
-        ...(signal ? { signal } : {}),
-        ...(this.#options.readyTimeoutMs ? { readyTimeoutMs: this.#options.readyTimeoutMs } : {}),
-        ...(this.#options.relockTimeoutMs
-          ? { relockTimeoutMs: this.#options.relockTimeoutMs }
-          : {}),
-      });
-    });
+    const stop = new AbortController();
+    this.#runs.add(stop);
+    const stopped = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal;
+    const run = this.#tail
+      .then(async () => {
+        const connection = await this.#connect();
+        return runProtectedAttempt(connection, {
+          ...scope,
+          agentProcessIDs,
+          attemptID: this.#options.attemptId(),
+          work,
+          scheduler: this.#options.scheduler,
+          signal: stopped,
+          ...(this.#options.readyTimeoutMs ? { readyTimeoutMs: this.#options.readyTimeoutMs } : {}),
+          ...(this.#options.relockTimeoutMs
+            ? { relockTimeoutMs: this.#options.relockTimeoutMs }
+            : {}),
+        });
+      })
+      .finally(() => this.#runs.delete(stop));
     this.#tail = run.then(
       () => {},
       () => {},
@@ -129,7 +169,9 @@ export class LockedUseRuntime {
       scheduler: this.#options.scheduler,
     });
     connection.onEvent((event) => {
-      if (event.type === "state" && this.#connection === connection) this.#status = event.status;
+      if (this.#connection !== connection) return;
+      if (event.type === "state") this.#status = event.status;
+      else if (event.type === "completion" && event.attemptID) this.#relocked = event.attemptID;
     });
     connection.onClose(() => {
       if (this.#connection !== connection) return;
