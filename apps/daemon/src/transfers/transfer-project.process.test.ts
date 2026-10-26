@@ -164,3 +164,30 @@ test.runIf(process.platform === "win32")(
     expect(await readdir(join(m.target.h.home, "daemon", "transfers", "incoming"))).toEqual([]);
   },
 );
+
+test.runIf(process.platform === "win32")(
+  "on Windows, copies a folder that isn't a repository, leaving its links behind",
+  async () => {
+    const m = await transferMachines();
+    const path = join(m.sourceRoot, "notes");
+    await mkdir(join(path, "sub"), { recursive: true });
+    await writeFile(join(path, "sub", "today.md"), "notes\n");
+    await symlink("sub/today.md", join(path, "latest.md"));
+    await symlink("../../outside", join(path, "escape"));
+    const workspaceId = await m.addProject(m.source, path);
+
+    await m.here.command({
+      type: "workspace.transfer",
+      workspaceId,
+      hostId: m.targetHostId,
+      includeChanges: true,
+    });
+    const transfer = await m.settled();
+    expect(transfer).toMatchObject({ phase: "completed", method: "archive" });
+    const there = transfer.result?.path ?? "";
+    expect(there.startsWith(m.targetRoot)).toBe(true);
+    // ace never asks for the privilege Windows links need: the copy lands without them.
+    expect(await readFile(join(there, "sub", "today.md"), "utf8")).toBe("notes\n");
+    expect((await readdir(there)).toSorted()).toEqual(["sub"]);
+  },
+);
