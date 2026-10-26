@@ -1,13 +1,13 @@
 #!/bin/sh
-# Prepares a Debian 11 (glibc 2.31) container, as root, to build ace's Linux release:
+# Prepares a Debian 12 (glibc 2.36) container, as root, to build ace's Linux release:
 # the C/C++ toolchain for node-pty, the workspace addon and the terminal guardian, Rust and the
 # PipeWire headers for the screen helper, Node 24.13.0 (checksum-pinned, the release runtime),
-# and Bun. Everything built here runs on Ubuntu 20.04+, Debian 11+, Fedora and Arch.
+# and Bun. Everything built here runs on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy).
 # Used by .github/workflows/release.yml and for local builds (tools/release/README.md).
 set -eu
-[ "$(id -u)" = 0 ] || { echo 'Run as root inside the debian:11 build container' >&2; exit 1; }
+[ "$(id -u)" = 0 ] || { echo 'Run as root inside the debian:12 build container' >&2; exit 1; }
 . /etc/os-release
-[ "$ID" = debian ] && [ "$VERSION_ID" = 11 ] || { echo 'Expected Debian 11' >&2; exit 1; }
+[ "$ID" = debian ] && [ "$VERSION_ID" = 12 ] || { echo 'Expected Debian 12' >&2; exit 1; }
 
 NODE_VERSION=24.13.0
 BUN_VERSION=1.4.0
@@ -19,13 +19,6 @@ case "$(uname -m)" in
 esac
 
 export DEBIAN_FRONTEND=noninteractive
-# Debian 11 has left the regular mirrors (their pools no longer hold its security updates);
-# archive.debian.org keeps the final, signed bullseye and bullseye-security suites.
-rm -f /etc/apt/sources.list.d/debian.sources
-cat > /etc/apt/sources.list <<'EOF'
-deb http://archive.debian.org/debian bullseye main
-deb http://archive.debian.org/debian-security bullseye-security main
-EOF
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl git xz-utils unzip file binutils build-essential python3 pkg-config \

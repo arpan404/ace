@@ -34,9 +34,9 @@ jobs:
   linux:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
-    # Natives are built against Debian 11's glibc 2.31 so the artifacts run on Ubuntu 20.04+,
-    # Debian 11+, Fedora and Arch (ADR 0093).
-    container: debian:11
+    # Natives are built against Debian 12's glibc 2.36 so the artifacts run on Ubuntu 24.04+,
+    # Debian 12+, Fedora and Arch (ADR 0093).
+    container: debian:12
     strategy:
       fail-fast: false
       matrix:
@@ -51,8 +51,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Prepare the Debian 11 toolchain (Node 24.13.0, Bun, Rust, C/C++, git)
-        run: sh tools/release/linux/setup-debian11.sh
+      - name: Prepare the Debian 12 toolchain (Node 24.13.0, Bun, Rust, C/C++, git)
+        run: sh tools/release/linux/setup-debian12.sh
 
       # The first checkout ran before the container had git, so it is a plain download.
       # release.ts builds from a commit (it records it and refuses uncommitted changes).
@@ -122,7 +122,7 @@ jobs:
           path: dist/releases/v${{ env.VERSION }}/
 
   linux-verify:
-    # The artifacts built on glibc 2.31 run on a current distribution (Ubuntu 24.04, 2.39).
+    # The artifacts built on glibc 2.36 run on the oldest supported Ubuntu (24.04, 2.39).
     name: Verify ${{ matrix.target }} on Ubuntu 24.04
     needs: linux
     runs-on: ${{ matrix.runner }}
