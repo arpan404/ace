@@ -78,6 +78,10 @@ export default defineConfig({
       "packages/adapter-claude/src/cmd-shim-session.process.test.ts",
       "packages/adapter-claude/src/cmd-shim-metadata.process.test.ts",
       "packages/adapter-claude/src/fork.process.test.ts",
+      // Providers: OpenCode, ACP and Pi sessions
+      "packages/adapter-opencode/src/shim-launch.process.test.ts",
+      "packages/adapter-acp/src/shim-session.process.test.ts",
+      "packages/adapter-pi/src/shim-session.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its

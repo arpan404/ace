@@ -10,6 +10,8 @@ export type Runtime = {
   spawn: typeof spawnSupervised;
   fetch: typeof fetch;
   schedule(callback: () => void, delayMs: number): () => void;
+  /** Host platform; tests inject "win32" to cover the Windows launch path. */
+  platform?: NodeJS.Platform;
 };
 /** All nondeterminism enters through this I/O boundary. */
 export function runtime(overrides: Partial<Runtime> = {}): Runtime {
