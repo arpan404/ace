@@ -45,11 +45,13 @@ export interface LockedUseGatePorts {
   turn(threadId: string, agentId: string): string | undefined;
   /** The computer helper processes that will carry out requests for `app`. */
   agentProcessIDs(app: string): Promise<readonly number[]>;
+  /** `optIn` is the person's setting as read for this call: the service requires it on. */
   runProtected<T>(
     scope: LockedUseTurnScope,
     agentProcessIDs: readonly number[],
     work: (signal: AbortSignal) => Promise<T>,
     signal: AbortSignal,
+    optIn: boolean,
   ): Promise<T>;
 }
 
@@ -70,6 +72,7 @@ export type LockedUseGate = (
 interface Protected {
   scope: LockedUseTurnScope;
   agentProcessIDs: readonly number[];
+  optIn: boolean;
 }
 
 async function decide(ports: LockedUseGatePorts, call: LockedUseCall) {
@@ -80,7 +83,12 @@ async function decide(ports: LockedUseGatePorts, call: LockedUseCall) {
   if (!turnID) return undefined;
   const agentProcessIDs = await ports.agentProcessIDs(call.app);
   if (!agentProcessIDs.length) return undefined;
-  return { scope: { threadID: call.threadId, turnID }, agentProcessIDs } satisfies Protected;
+  // Only reached with the setting on: the protected route is never taken otherwise.
+  return {
+    scope: { threadID: call.threadId, turnID },
+    agentProcessIDs,
+    optIn: enabled,
+  } satisfies Protected;
 }
 
 /** Fails closed: a port that can't answer counts as an interval underway. */
@@ -113,6 +121,7 @@ export function lockedUseGate(ports: LockedUseGatePorts): LockedUseGate {
       route.agentProcessIDs,
       (signal) => send(AbortSignal.any([call.signal, signal])),
       call.signal,
+      route.optIn,
     );
   };
 }

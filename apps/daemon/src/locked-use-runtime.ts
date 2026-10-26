@@ -3,8 +3,14 @@
  * <path>`, started on first use, restarted after it exits, and its one socket connection.
  * It keeps the service's latest status and runs one protected attempt at a time. Nothing
  * here starts unless asked, so with locked use off the service never runs.
+ *
+ * The service serves only this daemon: each start gets a fresh 32-byte token, written to its
+ * stdin as one line of hex, and every connection opens with a `hello` carrying it. Stdin stays
+ * open for the service's life; closing it tells the service the daemon is gone, so it relocks
+ * and exits.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import type { Socket } from "node:net";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -25,7 +31,12 @@ export interface LockedUseRuntimeOptions {
   /** A fresh, unguessable attempt id each call. */
   attemptId: () => string;
   scheduler: Scheduler;
+  /** Starts the service with stdin piped: the token goes there and it stays open. */
   spawnService?: (command: string, args: readonly string[]) => ChildProcess;
+  /** Cryptographic random bytes, for each start's token. */
+  randomBytes?: (size: number) => Uint8Array;
+  /** How long the service may take to accept a connection's hello. */
+  helloTimeoutMs?: number;
   connect?: (path: string) => Promise<Socket>;
   /** How long a started service may take to accept the connection. */
   connectTimeoutMs?: number;
@@ -54,6 +65,8 @@ export class LockedUseRuntime {
   #connection: LockedUseConnection | undefined;
   #connecting: Promise<LockedUseConnection> | undefined;
   #child: ChildProcess | undefined;
+  /** The running service's token; it answers no one without it. */
+  #token: string | undefined;
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
   /** Protected runs queued or in flight; each can cancel its own attempt. */
@@ -110,7 +123,8 @@ export class LockedUseRuntime {
     scope: LockedUseTurnScope,
     agentProcessIDs: readonly number[],
     work: (signal: AbortSignal) => Promise<T>,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    optIn: boolean,
   ): Promise<T> {
     const stop = new AbortController();
     this.#runs.add(stop);
@@ -122,6 +136,7 @@ export class LockedUseRuntime {
           ...scope,
           agentProcessIDs,
           attemptID: this.#options.attemptId(),
+          optIn,
           work,
           scheduler: this.#options.scheduler,
           signal: stopped,
@@ -144,8 +159,15 @@ export class LockedUseRuntime {
     this.#connection?.close();
     this.#connection = undefined;
     this.#status = undefined;
+    this.#stop();
+  }
+
+  /** Ends the running service: closing its stdin tells it the daemon is gone. */
+  #stop(): void {
+    this.#child?.stdin?.end();
     this.#child?.kill("SIGTERM");
     this.#child = undefined;
+    this.#token = undefined;
   }
 
   #connect(): Promise<LockedUseConnection> {
@@ -164,6 +186,7 @@ export class LockedUseRuntime {
       socket.destroy();
       throw new Error("Locked use is shutting down");
     }
+    const token = this.#token;
     const connection = new LockedUseConnection(socket, {
       nextId: this.#options.nextId,
       scheduler: this.#options.scheduler,
@@ -178,6 +201,20 @@ export class LockedUseRuntime {
       this.#connection = undefined;
       this.#status = undefined;
     });
+    // Listeners first, so a state sent right after the accept isn't missed.
+    try {
+      if (!token) throw new Error("Locked use service has no token");
+      await connection.authenticate(token, this.#options.helloTimeoutMs);
+    } catch (error) {
+      connection.close();
+      // A service that won't accept this daemon is replaced on the next use.
+      this.#stop();
+      throw error;
+    }
+    if (this.#closed) {
+      connection.close();
+      throw new Error("Locked use is shutting down");
+    }
     this.#connection = connection;
     return connection;
   }
@@ -192,13 +229,23 @@ export class LockedUseRuntime {
     ]);
     started.on("error", () => {});
     started.stderr?.resume();
+    if (!started.stdin) {
+      started.kill("SIGTERM");
+      throw new Error("Locked use service has no stdin for its token");
+    }
+    // A service that exits early makes this write fail; the exit is handled below.
+    started.stdin.on("error", () => {});
+    const token = Buffer.from((this.#options.randomBytes ?? randomBytes)(32)).toString("hex");
+    started.stdin.write(`${token}\n`);
     // The service going away ends its connection, and with it any attempt.
     started.once("exit", () => {
       if (this.#child !== started) return;
       this.#child = undefined;
+      this.#token = undefined;
       this.#connection?.close();
     });
     this.#child = started;
+    this.#token = token;
   }
 
   /**
@@ -244,5 +291,5 @@ export function lockedUseSocketPath(dataDir: string): string {
 }
 
 function defaultSpawn(command: string, args: readonly string[]): ChildProcess {
-  return spawn(command, [...args], { stdio: ["ignore", "ignore", "pipe"] });
+  return spawn(command, [...args], { stdio: ["pipe", "ignore", "pipe"] });
 }

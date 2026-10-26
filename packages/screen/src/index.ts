@@ -65,6 +65,7 @@ export {
   LockedUseConnectionError,
   LockedUseReplyError,
   connectLockedUse,
+  openLockedUseConnection,
 } from "./locked-use-connection.ts";
 export {
   LockedUseFrameDecoder,

@@ -26,6 +26,11 @@ export interface ProtectedAttempt<T> {
   agentProcessIDs: readonly number[];
   /** Unguessable and never reused. */
   attemptID: string;
+  /**
+   * The person's `computer.lockedUse` setting is on. Sent as `optIn: true` on enable and begin;
+   * without it the service refuses with `not_enabled` and turns itself off.
+   */
+  optIn: boolean;
   /** The approved computer-use step; it must stop when `signal` aborts. */
   work: (signal: AbortSignal) => Promise<T>;
   scheduler: Scheduler;
@@ -92,9 +97,12 @@ function phaseFailure(phase: string): LockedUseAttemptError {
 }
 
 /** Reads a fresh status, enabling the service first if it is off, and checks it can begin. */
-async function readyStatus(connection: LockedUseConnection): Promise<LockedUseServiceStatus> {
+async function readyStatus(
+  connection: LockedUseConnection,
+  optIn: boolean,
+): Promise<LockedUseServiceStatus> {
   let status = await connection.request({ type: "status" });
-  if (status?.phase === "disabled") status = await connection.request({ type: "enable" });
+  if (status?.phase === "disabled") status = await connection.request({ type: "enable", optIn });
   if (!status) throw new Error("the service sent no status");
   if (!status.installation.verified)
     throw new LockedUseAttemptError(
@@ -125,7 +133,7 @@ export async function runProtectedAttempt<T>(
 ): Promise<T> {
   let status: LockedUseServiceStatus;
   try {
-    status = await readyStatus(connection);
+    status = await readyStatus(connection, attempt.optIn);
   } catch (error) {
     throw refused(error);
   }
@@ -239,6 +247,7 @@ export async function runProtectedAttempt<T>(
             attemptID,
           },
           agentProcessIDs: attempt.agentProcessIDs,
+          optIn: attempt.optIn,
         });
         stage = "starting";
         for (const next of [...(begun ? [begun] : []), ...early.splice(0)]) observe(next);

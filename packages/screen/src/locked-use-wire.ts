@@ -175,23 +175,38 @@ export interface LockedUseScope {
   attemptID: string;
 }
 
+/**
+ * What the daemon sends. `hello` must be a connection's first frame. `enable` and `begin`
+ * carry the person's opt-in: only `optIn: true` on the wire counts, and it is sent exactly
+ * when the person's `computer.lockedUse` setting is on.
+ */
 export type LockedUseRequest =
-  | { type: "status" | "enable" | "disable" }
-  | { type: "begin"; scope: LockedUseScope; agentProcessIDs: readonly number[] }
+  | { type: "hello"; token: string }
+  | { type: "status" | "disable" }
+  | { type: "enable"; optIn: boolean }
+  | { type: "begin"; scope: LockedUseScope; agentProcessIDs: readonly number[]; optIn: boolean }
   | { type: "finish" | "cancel"; attemptID: string };
+
+function body(id: string, request: LockedUseRequest): Record<string, unknown> {
+  switch (request.type) {
+    case "enable":
+      return { v: 1, id, type: request.type, ...(request.optIn ? { optIn: true } : {}) };
+    case "begin":
+      return {
+        v: 1,
+        id,
+        type: request.type,
+        scope: request.scope,
+        agentProcessIDs: [...request.agentProcessIDs],
+        ...(request.optIn ? { optIn: true } : {}),
+      };
+    default:
+      return { v: 1, id, ...request };
+  }
+}
 
 /** One request as a frame. `id` is 1 to 64 characters and comes back in the reply. */
 export function encodeLockedUseRequest(id: string, request: LockedUseRequest): Buffer {
   if (id.length < 1 || id.length > 64) throw new LockedUseFrameError("Invalid request id");
-  const body =
-    request.type === "begin"
-      ? {
-          v: 1,
-          id,
-          type: request.type,
-          scope: request.scope,
-          agentProcessIDs: [...request.agentProcessIDs],
-        }
-      : { v: 1, id, ...request };
-  return encodeLockedUseFrame(new TextEncoder().encode(JSON.stringify(body)));
+  return encodeLockedUseFrame(new TextEncoder().encode(JSON.stringify(body(id, request))));
 }

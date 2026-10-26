@@ -4,9 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runProtectedAttempt } from "../locked-use-attempt.ts";
-import { LockedUseConnection, connectLockedUse } from "../locked-use-connection.ts";
+import {
+  connectLockedUse,
+  openLockedUseConnection,
+  type LockedUseConnection,
+} from "../locked-use-connection.ts";
 import { systemScheduler } from "../runtime.ts";
-import { fakeLockedUseService, fakeStatus } from "../testing/fake-locked-use-service.ts";
+import {
+  fakeLockedUseService,
+  fakeLockedUseToken,
+  fakeStatus,
+} from "../testing/fake-locked-use-service.ts";
 import type { ComputerClient } from "./client.ts";
 import { lockedUseGate } from "./locked-use-gate.ts";
 import { computerWorld } from "./testing/world.ts";
@@ -39,9 +47,10 @@ async function gated(facts: Facts) {
   let connection: LockedUseConnection | undefined;
   let next = 0;
   const connect = async () =>
-    (connection ??= new LockedUseConnection(await connectLockedUse(service.path), {
+    (connection ??= await openLockedUseConnection(await connectLockedUse(service.path), {
       nextId: () => `r${++next}`,
       scheduler: systemScheduler,
+      token: fakeLockedUseToken,
     }));
   cleanups.push(() => connection?.close());
   const protectedRuns: string[] = [];
@@ -56,7 +65,7 @@ async function gated(facts: Facts) {
       const pid = await client?.helperProcessId(app);
       return pid === undefined ? [] : [pid];
     },
-    runProtected: async (scope, agentProcessIDs, work, signal) => {
+    runProtected: async (scope, agentProcessIDs, work, signal, optIn) => {
       protectedRuns.push(scope.turnID);
       running++;
       try {
@@ -64,6 +73,7 @@ async function gated(facts: Facts) {
           ...scope,
           agentProcessIDs,
           attemptID: `attempt-${protectedRuns.length}`,
+          optIn,
           work: async (inner) => {
             await facts.duringWork?.();
             return work(inner);

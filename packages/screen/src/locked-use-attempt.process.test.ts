@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runProtectedAttempt, type ProtectedAttempt } from "./locked-use-attempt.ts";
-import { LockedUseConnection, connectLockedUse } from "./locked-use-connection.ts";
+import { connectLockedUse, openLockedUseConnection } from "./locked-use-connection.ts";
 import { systemScheduler } from "./runtime.ts";
 import {
   endAttempt,
   fakeLockedUseService,
+  fakeLockedUseToken,
   fakeStatus,
   type FakeLockedUseService,
 } from "./testing/fake-locked-use-service.ts";
@@ -32,10 +33,11 @@ async function setup() {
   const service = await fakeLockedUseService(join(dir, "s.sock"));
   cleanups.push(() => service.close());
   let next = 0;
-  const connection = new LockedUseConnection(await connectLockedUse(service.path), {
+  const connection = await openLockedUseConnection(await connectLockedUse(service.path), {
     nextId: () => `r${++next}`,
     scheduler: systemScheduler,
     requestTimeoutMs: 200,
+    token: fakeLockedUseToken,
   });
   cleanups.push(() => connection.close());
   const ran: string[] = [];
@@ -50,6 +52,7 @@ async function setup() {
       turnID: "run-1",
       agentProcessIDs: [4242],
       attemptID: "attempt-1",
+      optIn: true,
       scheduler: systemScheduler,
       readyTimeoutMs: 300,
       relockTimeoutMs: 300,
@@ -242,4 +245,25 @@ it("a begin that gets no reply in time is cancelled, so the service can't hold t
   expect(String(error)).toContain("Nothing ran");
   expect((await service.received("cancel")).attemptID).toBe("attempt-1");
   expect(ran).toEqual([]);
+});
+
+it("with the setting off, enable carries no opt-in: the service refuses and nothing runs", async () => {
+  const { service, ran, work, run, types } = await setup();
+  await expect(run({ work, optIn: false })).rejects.toMatchObject({
+    code: "locked_use_not_enabled",
+  });
+  expect(types()).toEqual(["status", "enable"]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled", session: "locked" });
+});
+
+it("a begin without the opt-in is refused as not enabled, even with the service ready", async () => {
+  const { service, ran, work, run, types } = await setup();
+  service.status = fakeStatus({ phase: "ready" });
+  await expect(run({ work, optIn: false })).rejects.toMatchObject({
+    code: "locked_use_not_enabled",
+  });
+  expect(types()).toEqual(["status", "begin"]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled", session: "locked" });
 });

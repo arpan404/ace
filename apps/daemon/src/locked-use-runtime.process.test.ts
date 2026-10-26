@@ -19,20 +19,30 @@ const exited = (child: ChildProcess) =>
     child.once("exit", () => resolve());
   });
 
+async function untilReady(owner: LockedUseRuntime) {
+  for (let tries = 0; tries < 100 && owner.status?.phase !== "ready"; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
 async function runtime() {
   const dir = await mkdtemp(join(tmpdir(), "ace-lur-"));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const started: { args: readonly string[]; child: ChildProcess }[] = [];
   let next = 0;
   let attempts = 0;
+  let starts = 0;
   const owner = new LockedUseRuntime({
     helper: async () => "ace-screen-helper",
     socketPath: join(dir, "s.sock"),
     nextId: () => `r${++next}`,
     attemptId: () => `attempt-${++attempts}`,
     scheduler: { after: (ms, run) => clearTimeout.bind(undefined, setTimeout(run, ms)) },
+    // Each start's token differs, so a restarted service proves it got its own.
+    randomBytes: (size) => new Uint8Array(size).fill(++starts),
     spawnService: (_command, args) => {
-      const child = spawn(process.execPath, [fakeService, ...args], { stdio: "ignore" });
+      const child = spawn(process.execPath, [fakeService, ...args], {
+        stdio: ["pipe", "ignore", "ignore"],
+      });
       started.push({ args, child });
       return child;
     },
@@ -60,8 +70,13 @@ it("a protected run returns the work's result after the service relocks", async 
     { threadID: "thread-1", turnID: "run-1" },
     [process.pid],
     async (signal) => (signal.aborted ? "aborted" : "done"),
+    undefined,
+    true,
   );
   expect(result).toBe("done");
+  // The relock is confirmed; the service's own `ready` report may follow a moment later.
+  expect(owner.intervalActive()).toBe(false);
+  await untilReady(owner);
   expect(owner.status).toMatchObject({ phase: "ready", session: "locked" });
 });
 
@@ -69,12 +84,18 @@ it("the service dying mid-work stops the attempt, and the next use starts a new 
   const { owner, started } = await runtime();
   const aborted: boolean[] = [];
   const failed = await owner
-    .runProtected({ threadID: "thread-1", turnID: "run-1" }, [process.pid], async (signal) => {
-      started[0]?.child.kill("SIGKILL");
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-      aborted.push(signal.aborted);
-      return "must not be returned";
-    })
+    .runProtected(
+      { threadID: "thread-1", turnID: "run-1" },
+      [process.pid],
+      async (signal) => {
+        started[0]?.child.kill("SIGKILL");
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        aborted.push(signal.aborted);
+        return "must not be returned";
+      },
+      undefined,
+      true,
+    )
     .catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "locked_use_connection_lost" });
   expect(aborted).toEqual([true]);
@@ -94,6 +115,8 @@ it("an interval counts as active from the protected run's start until it relocks
       seen.push(owner.intervalActive());
       return "done";
     },
+    undefined,
+    true,
   );
   expect(owner.intervalActive()).toBe(true);
   await expect(run).resolves.toBe("done");
@@ -105,20 +128,25 @@ it("cancelling active runs stops the work, and the interval ends only once the M
   const { owner } = await runtime();
   const aborted: boolean[] = [];
   const failed = owner
-    .runProtected({ threadID: "thread-1", turnID: "run-1" }, [process.pid], async (signal) => {
-      owner.cancelActive();
-      if (!signal.aborted)
-        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-      aborted.push(signal.aborted);
-      return "must not be returned";
-    })
+    .runProtected(
+      { threadID: "thread-1", turnID: "run-1" },
+      [process.pid],
+      async (signal) => {
+        owner.cancelActive();
+        if (!signal.aborted)
+          await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        aborted.push(signal.aborted);
+        return "must not be returned";
+      },
+      undefined,
+      true,
+    )
     .catch((error: unknown) => error);
   expect(await failed).toMatchObject({ code: "cancelled" });
   expect(aborted).toEqual([true]);
   // Cancelled, but not yet relocked: other calls still may not use the Mac.
   expect(owner.intervalActive()).toBe(true);
-  for (let tries = 0; tries < 100 && owner.status?.phase !== "ready"; tries++)
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  await untilReady(owner);
   expect(owner.status).toMatchObject({ phase: "ready", session: "locked" });
   expect(owner.intervalActive()).toBe(false);
 });

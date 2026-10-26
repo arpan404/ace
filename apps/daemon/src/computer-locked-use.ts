@@ -26,8 +26,8 @@ export function computerLockedUseGate(
       const pid = await computer.helperProcessId(app);
       return pid === undefined ? [] : [pid];
     },
-    runProtected: (scope, agentProcessIDs, work, signal) =>
-      runtime.runProtected(scope, agentProcessIDs, work, signal),
+    runProtected: (scope, agentProcessIDs, work, signal, optIn) =>
+      runtime.runProtected(scope, agentProcessIDs, work, signal, optIn),
   });
 }
 
