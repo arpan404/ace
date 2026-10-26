@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { writeCmdShim } from "@ace/adapter-testkit";
+import { z } from "zod";
+import { writeCmdShim } from "@ace/provider-kit/testing/cmd-shim";
 import { discoverClaudeModels } from "./model-discovery.ts";
 import { readClaudePlanUsage } from "./usage-read.ts";
 
@@ -44,7 +45,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 `,
   );
   const executable = await writeCmdShim(root, "claude", script);
-  const ran = async () => JSON.parse(await readFile(pids, "utf8")) as { pid: number };
+  const ran = async () =>
+    z.object({ pid: z.number().int().positive() }).parse(JSON.parse(await readFile(pids, "utf8")));
   return { input: { executable, args: [], cwd: root, env: { USERPROFILE: root } }, ran };
 }
 

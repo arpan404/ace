@@ -36,13 +36,13 @@ const baseCapabilities: Capabilities = {
   },
   rewindFiles: false,
 };
-/** Cursor's SDK has no file sandbox on Windows, so its sandboxed Auto review is never offered. */
-const windowsCapabilities: Capabilities = {
-  ...baseCapabilities,
-  accessModes: baseCapabilities.accessModes?.filter((offer) => offer.mode !== "auto-review"),
-};
 export function cursorCapabilitiesForSandbox(_supported: boolean): Capabilities {
-  if (process.platform === "win32") return windowsCapabilities;
+  // Cursor's SDK has no file sandbox on Windows, so its sandboxed Auto review is never offered.
+  if (process.platform === "win32")
+    return {
+      ...baseCapabilities,
+      accessModes: baseCapabilities.accessModes?.filter((offer) => offer.mode !== "auto-review"),
+    };
   return baseCapabilities;
 }
 export const cursorCapabilities = baseCapabilities;

@@ -82,7 +82,8 @@ test.runIf(windows)(
         ok: true,
         reading: { usageWindows: { "gemini-2.5-pro": { usedPercent: expect.closeTo(75, 6) } } },
       });
-      expect(io.urls).toHaveLength(2);
+      // The token went out only as the CLI's own bearer credential.
+      expect(new Set(io.tokens)).toEqual(new Set([`Bearer ${secret}`]));
     }
   },
 );
@@ -96,8 +97,19 @@ test.runIf(windows)(
     });
     const declaration = usageDeclaration({ provider: "opencode" });
     if (!declaration) throw new Error("no OpenCode declaration");
-    const io = ports(() => ({}));
-    await readDeclaredUsage(declaration, account(home, home), io.ports, AbortSignal.timeout(5000));
+    const io = ports(() => ({
+      usage: { rolling: { percent: 40, resetsAt: "2026-10-15T15:00:00Z" } },
+    }));
+    const result = await readDeclaredUsage(
+      declaration,
+      account(home, home),
+      io.ports,
+      AbortSignal.timeout(5000),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      reading: { usageWindows: { five_hour: { usedPercent: 40 } } },
+    });
     expect(io.urls).toEqual(["https://opencode.ai/zen/go/v1/usage"]);
     expect(io.tokens).toEqual([`Bearer ${secret}`]);
   },

@@ -54,6 +54,20 @@ function cursorUsage(token: z.input<typeof TokenStore>, platform: "darwin" | "li
   };
 }
 
+/**
+ * On Windows cursor-agent 2026.10.22 keeps its login in `%APPDATA%\Cursor\auth.json` (its
+ * `cli-credentials` file store; it uses no Credential Manager entry).
+ */
+function windowsCursorUsage(): z.input<typeof UsageSource> {
+  return {
+    ...cursorUsage(
+      { from: "file", files: ["$APPDATA/Cursor/auth.json"], path: ["accessToken"] },
+      "linux",
+    ),
+    platforms: ["win32"],
+  };
+}
+
 /** One of OpenCode Go's meters, under its key in the answer's `usage`. */
 const goMeter = (key: string, label: string) => ({
   each: ["usage", key],
@@ -142,15 +156,7 @@ const declarations: Record<string, Declared> = {
         { from: "file", files: ["$XDG_CONFIG_HOME/cursor/auth.json"], path: ["accessToken"] },
         "linux",
       ),
-      // On Windows cursor-agent 2026.10.22 keeps it in `%APPDATA%\Cursor\auth.json` (its
-      // `cli-credentials` file store; it uses no Credential Manager entry).
-      {
-        ...cursorUsage(
-          { from: "file", files: ["$APPDATA/Cursor/auth.json"], path: ["accessToken"] },
-          "linux",
-        ),
-        platforms: ["win32" as const],
-      },
+      ...(process.platform === "win32" ? [windowsCursorUsage()] : []),
     ],
   },
   // Gemini CLI 0.43 with Google sign-in: the Code Assist quota its `/stats` shows. Endpoints,

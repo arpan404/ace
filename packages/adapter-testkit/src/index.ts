@@ -14,5 +14,3 @@ export type {
 
 export { createTurnProvider, ScriptedTurnConfig } from "./turn-provider.ts";
 export type { ScriptedTurnResponse } from "./turn-provider.ts";
-
-export { ended, stubbornTree, writeCmdShim } from "./cmd-shim.ts";

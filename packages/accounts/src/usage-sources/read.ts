@@ -99,7 +99,8 @@ function configHome(account: UsageAccount): string {
 function homeFile(account: UsageAccount, file: string): string | undefined {
   if (file.startsWith("~/")) return inHome(account.userHome, file.slice(2));
   if (file.startsWith(xdgConfig)) return inHome(configHome(account), file.slice(xdgConfig.length));
-  if (file.startsWith(appData)) return inHome(appDataHome(account), file.slice(appData.length));
+  if (process.platform === "win32" && file.startsWith(appData))
+    return inHome(appDataHome(account), file.slice(appData.length));
   return inHome(account.homeDir, file);
 }
 const xdgConfig = "$XDG_CONFIG_HOME/";

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
-import { writeCmdShim } from "@ace/adapter-testkit";
 import { afterEach, beforeEach } from "vitest";
 import { createClaudeAdapter, type ClaudeOptions } from "./index.ts";
 import { object } from "./native.ts";
@@ -17,7 +16,10 @@ beforeEach(async () => {
   await writeFile(executable, `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`);
   await chmod(executable, 0o755);
   // Windows installs are `.cmd` shims: launch the same fake through cmd.exe.
-  if (process.platform === "win32") executable = await writeCmdShim(directory, "claude", script);
+  if (process.platform === "win32") {
+    const { writeCmdShim } = await import("@ace/provider-kit/testing/cmd-shim");
+    executable = await writeCmdShim(directory, "claude", script);
+  }
 });
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });

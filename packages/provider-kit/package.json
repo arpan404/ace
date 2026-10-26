@@ -23,6 +23,7 @@
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
+    "./testing/cmd-shim": "./src/testing/cmd-shim.ts",
     "./test-isolation": "./src/test-isolation.ts",
     "./jsonl": "./src/jsonl.ts",
     "./streams": "./src/streams.ts",

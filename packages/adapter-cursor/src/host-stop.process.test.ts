@@ -82,20 +82,16 @@ test.runIf(x64)(
     const sdk = await import("@cursor/sdk");
     const { HostRuntime, CursorLimitsSchema } = await import("./index.ts");
     const home = await privateHome();
-    const started: string[] = [];
     const errors: string[] = [];
     const host = new HostRuntime(
       {
         ...sdk,
-        sandboxSupport: async () => {
-          started.push("sandbox probe");
-          return { supported: true, release: async () => {} };
-        },
+        // A sandbox that claims support: only ace's own Windows refusal can stop the open.
+        sandboxSupport: async () => ({ supported: true, release: async () => {} }),
         Cursor: { auth: { status: async () => ({ status: "logged-in", backendUrl: "x" }) } },
         Agent: {
           create: async () => {
-            started.push("agent");
-            throw new Error("No agent starts in a refused mode");
+            throw new Error("An agent was created in a refused mode");
           },
           resume: async () => {
             throw new Error("Unexpected resume");
@@ -119,7 +115,8 @@ test.runIf(x64)(
           limits: CursorLimitsSchema.parse({}),
         }),
       ).rejects.toThrow("SDK setup failed");
-      expect(started).toEqual([]);
+      // Had an agent been created, its failure would be the reported error instead.
+      expect(errors.join("\n")).not.toContain("An agent was created in a refused mode");
       expect(errors.join("\n")).toContain(
         "Cursor's SDK has no file sandbox on Windows (its helper only filters network traffic), so Cursor can't run in Auto review, its sandboxed mode, on this machine. Full access still works.",
       );

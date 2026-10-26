@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { array, object } from "./data.ts";
 import { cli, setup } from "./testing/v2-session.ts";
-import { ended, stubbornTree, writeCmdShim } from "@ace/adapter-testkit";
+import { ended, stubbornTree, writeCmdShim } from "@ace/provider-kit/testing/cmd-shim";
 import type { ServerOptions } from "./server.ts";
 
 // npm installs OpenCode on Windows as `opencode.cmd`, so every case launches the fake through

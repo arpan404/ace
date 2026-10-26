@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
-import { writeCmdShim } from "@ace/adapter-testkit";
 import { createCodexAdapter } from "./index.ts";
 import { requestKey } from "./native.ts";
 import { replayHarness } from "./replay.test-helper.ts";
@@ -32,7 +31,11 @@ export async function sessionHarness(
   const windows =
     process.platform === "win32"
       ? {
-          overrides: { codex: await writeCmdShim(directory, "codex", binary) },
+          overrides: {
+            codex: await (
+              await import("@ace/provider-kit/testing/cmd-shim")
+            ).writeCmdShim(directory, "codex", binary),
+          },
           env: {
             ACE_FAKE_RESUME: mode,
             PATH: `${directory};${join(process.env["SystemRoot"] ?? "C:\\Windows", "System32")}`,
