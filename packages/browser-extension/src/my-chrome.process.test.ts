@@ -187,13 +187,22 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome end 
     const backend = new UserChromeBackend(browser.hub, process.platform);
     await browser.chrome.send("Target.createTarget", { url: `${site}/mine` });
     await browser.chrome.send("Target.createTarget", { url: `${site}/private` });
-    const tabIds = z.record(z.string(), z.number()).parse(
-      await browser.asPerson(`chrome.tabs.query({}).then((tabs) =>
-        Object.fromEntries(tabs.map((tab) => [new URL(tab.url || "about:blank").pathname, tab.id])))`),
-    );
+    // A new target exists before its page commits: the person shares a page they can see.
+    const loaded = async () =>
+      z.record(z.string(), z.number()).parse(
+        await browser.asPerson(`chrome.tabs.query({ status: "complete" }).then((tabs) =>
+          Object.fromEntries(tabs.map((tab) => [new URL(tab.url || "about:blank").pathname, tab.id])))`),
+      );
+    let tabIds: Record<string, number> = {};
+    await until(async () => {
+      tabIds = await loaded();
+      return tabIds["/mine"] !== undefined && tabIds["/private"] !== undefined;
+    }, "the person's tabs to load");
     const mine = tabIds["/mine"] ?? -1;
     const other = tabIds["/private"] ?? -1;
-    await browser.asPerson(`chrome.runtime.sendMessage({ kind: "share", tabId: ${mine} })`);
+    expect(
+      await browser.asPerson(`chrome.runtime.sendMessage({ kind: "share", tabId: ${mine} })`),
+    ).toEqual(expect.objectContaining({ ok: true }));
     await until(() => backend.sharedTabs().length === 1, "the shared tab to reach ace");
     const [shared] = backend.sharedTabs();
     expect(shared?.tab).toEqual(expect.objectContaining({ title: "My tab", access: "shared" }));

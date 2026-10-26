@@ -30,6 +30,16 @@ async function profileId(): Promise<string> {
   await chrome.storage.local.set({ profileId: created });
   return created;
 }
+/**
+ * Read once, starting as the worker starts: a new profile's first storage access can take
+ * seconds, and this way it overlaps starting the host and reaching ace instead of following it.
+ */
+let profile: Promise<string> | undefined;
+const ownProfile = (): Promise<string> =>
+  (profile ??= profileId().catch((error: unknown) => {
+    profile = undefined;
+    throw error;
+  }));
 
 async function register(): Promise<void> {
   const { family, version } = browserFamily(navigator.userAgentData?.brands ?? []);
@@ -40,7 +50,7 @@ async function register(): Promise<void> {
     browser: {
       family,
       version,
-      profileId: await profileId(),
+      profileId: await ownProfile(),
       extensionVersion: chrome.runtime.getManifest().version,
     },
   });
@@ -110,4 +120,5 @@ chrome.runtime.onMessage.addListener((raw, _sender, respond) => {
 });
 
 void chrome.action.setBadgeBackgroundColor({ color: "#2563eb" });
+void ownProfile().catch(() => {});
 connect();

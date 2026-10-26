@@ -31,6 +31,12 @@ export async function launchTestChrome(
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // A person's Chrome shows its windows; headless has none, so Chrome would treat every
+      // renderer (the extension's service worker too) as backgrounded, and macOS starves those
+      // for many seconds on a busy machine.
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
       ...extraArgs,
       "about:blank",
     ],
