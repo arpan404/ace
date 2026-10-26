@@ -265,6 +265,12 @@ preference changes, and hourly thereafter. Worktree inspection, filesystem sizin
 backup commits, pushes and removal run on a dedicated idle worker. The daemon
 retains ownership and admission fences, and the worker asks it to recheck
 permission immediately before mutations. Shutdown drains accepted operations.
+Backup and deletion are separate operations composed by the scheduler. Each has
+its own per-daemon cursor over managed creation records and examines at most 256
+records per pass. The cursors advance past protected or unavailable entries and
+wrap at the end, so an early protected checkout cannot starve later work.
+Manual usage and cleanup previews keep their existing bounded prefix scans and
+do not advance either maintenance cursor. Cursors reset when the daemon restarts.
 
 "Delete all settled worktrees" creates a worktree-only preview that ignores age.
 It requires the existing explicit confirmation before applying. It preserves

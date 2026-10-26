@@ -2,9 +2,11 @@ import { z } from "zod";
 import { StorageUsage, ThreadId } from "@ace/protocol";
 import type { StorageInventory } from "./inventory.ts";
 import type { StorageOwner } from "./types.ts";
+import { WorktreeBatches } from "./worktree-batches.ts";
 
 export class WorktreeBackups {
   private owner: StorageOwner;
+  private batches = new WorktreeBatches();
   constructor(owner: StorageOwner) {
     this.owner = owner;
     owner.store.atomic((db) =>
@@ -16,7 +18,7 @@ export class WorktreeBackups {
   results(): StorageUsage["backups"] {
     return this.owner.store
       .statement(
-        "SELECT b.result FROM storage_worktree_backups b JOIN managed_worktrees m ON m.path=b.path WHERE m.removed=0 ORDER BY b.path LIMIT 256",
+        "SELECT b.result FROM storage_worktree_backups b JOIN managed_worktrees m ON m.path=b.path WHERE m.removed=0 ORDER BY (json_extract(b.result,'$.state')='failed') DESC,b.path LIMIT 256",
       )
       .all()
       .map((row) =>
@@ -36,7 +38,8 @@ export class WorktreeBackups {
     const { store, services, worktrees } = this.owner;
     const git = worktrees ?? services.workspaceActions?.git;
     if (!git) return;
-    for (const record of inventory.managed.list().slice(0, 256)) {
+    if (!allowed()) return;
+    for (const record of this.batches.next(inventory.managed)) {
       if (!allowed()) return;
       if (!inventory.managed.verify(record.repo, record.path)) continue;
       const ownership = inventory.worktreeOwnership(record.path);

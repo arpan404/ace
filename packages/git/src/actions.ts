@@ -68,20 +68,20 @@ export async function commitChanges(
     // name, a staged deletion) is in no worktree and `git add` would refuse it.
     const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
     const staging = paths ? named.filter((path) => changed.has(path)) : named;
-    options.beforeCommit?.();
     if (staging.length)
       await repository.cli.call(root, ["add", "--all", "--", ...staging], {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         captureBytes: 65536,
         env: literal,
       });
-    options.beforeCommit?.();
     await repository.cli.call(
       root,
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
       {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         input: message,
         captureBytes: 65536,
@@ -137,7 +137,6 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
     const ref = `refs/heads/${destination}`;
-    options.beforePush?.();
     try {
       await repository.cli.push(
         root,
@@ -152,6 +151,7 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         ],
         {
           write: true,
+          beforeSpawn: options.beforePush,
           timeoutMs: 600_000,
           captureBytes: 65536,
           env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },

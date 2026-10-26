@@ -53,8 +53,13 @@ export class WorktreeMaintenance {
     this.cancel = this.schedule(delay, () => {
       this.cancel = undefined;
       const revision = this.revision;
-      this.flight = this.service
-        .maintainWorktrees(this.days, this.backup, () => !this.closed && this.revision === revision)
+      const days = this.days;
+      const backup = this.backup;
+      const allowed = () => !this.closed && this.revision === revision;
+      this.flight = (async () => {
+        if (backup) await this.service.backupWorktrees(allowed);
+        if (days !== null && allowed()) await this.service.cleanupWorktrees(days, allowed);
+      })()
         .catch(this.failed)
         .finally(() => {
           this.flight = undefined;

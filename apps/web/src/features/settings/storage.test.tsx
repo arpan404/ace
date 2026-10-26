@@ -145,3 +145,67 @@ test("delete all settled worktrees previews recent checkouts without deleting ot
   );
   expect(await within(list).findByText("Removed")).toBeTruthy();
 });
+
+test("forcing one worktree keeps the delete-all preview scoped to worktrees and preserves pins", async () => {
+  const now = 200 * 86400000;
+  const app = harness({ clock: () => now, throughWorker: true });
+  app.daemon.seedServices({
+    storageItems: [
+      {
+        id: "dirty-tree",
+        kind: "worktrees",
+        label: "worktrees/dirty",
+        bytes: 4096,
+        modifiedAt: now,
+        settledAt: now,
+        fingerprint: "dirty",
+        threadIds: [],
+        protections: ["uncommitted", "unpushed"],
+        eligibleReason: "task_finished",
+      },
+      {
+        id: "pinned-tree",
+        kind: "worktrees",
+        label: "worktrees/pinned",
+        bytes: 4096,
+        modifiedAt: now,
+        settledAt: now,
+        fingerprint: "pinned",
+        threadIds: [],
+        protections: ["pinned"],
+        eligibleReason: "task_finished",
+      },
+      {
+        id: "old-log",
+        kind: "logs",
+        label: "logs/old",
+        bytes: 512,
+        modifiedAt: 1,
+        fingerprint: "log",
+        threadIds: [],
+        protections: [],
+        eligibleReason: "expired",
+      },
+    ],
+  });
+  await app.open("/settings/storage");
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Delete all settled worktrees" }),
+  );
+  const list = await screen.findByRole("list", { name: "Cleanup items" });
+  expect(within(list).getAllByRole("checkbox")).toHaveLength(1);
+  await userEvent.click(within(list).getByRole("checkbox"));
+  await userEvent.click(screen.getByRole("button", { name: "Preview selected force removals" }));
+  await within(list).findByText(/Forced for this item/);
+  expect(within(list).queryByText("logs/old")).toBeNull();
+  expect(within(list).getByText("Keep · Pinned thread")).toBeTruthy();
+  expect(within(list).queryByText("Removed")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
+  const dialog = await screen.findByRole("dialog");
+  await waitFor(() =>
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBe(document.activeElement),
+  );
+  await userEvent.click(within(dialog).getByRole("button", { name: "Remove items" }));
+  expect(await within(list).findByText("Removed")).toBeTruthy();
+  expect(within(list).getByText("Keep · Pinned thread")).toBeTruthy();
+});

@@ -46,22 +46,13 @@ export function StorageSettings() {
       return response.usage;
     },
   });
-  const preview = async (allWorktrees = false) => {
+  const preview = async (
+    operation: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
+  ) => {
     setBusy(true);
     setError(undefined);
     try {
-      const worktreesOnly =
-        allWorktrees || (forceItems.length > 0 && plan?.retention.worktreeMode === "all_settled");
-      const response = await request({
-        op: "cleanup.plan",
-        forceItems,
-        ...(worktreesOnly
-          ? {
-              kinds: ["worktrees"],
-              retention: StorageRetention.parse({ worktreeMode: "all_settled" }),
-            }
-          : {}),
-      });
+      const response = await request(operation);
       if (response.kind !== "plan") throw new Error("Unexpected cleanup response.");
       setPlan(response.plan);
       setResult(undefined);
@@ -72,6 +63,17 @@ export function StorageSettings() {
       setBusy(false);
     }
   };
+  const previewWorktrees = () =>
+    preview({
+      op: "cleanup.plan",
+      kinds: ["worktrees"],
+      retention: StorageRetention.parse({ worktreeMode: "all_settled" }),
+      forceItems,
+    });
+  const previewCleanup = () =>
+    forceItems.length && plan?.retention.worktreeMode === "all_settled"
+      ? previewWorktrees()
+      : preview({ op: "cleanup.plan", forceItems });
   const apply = async () => {
     if (!plan) return;
     setBusy(true);
@@ -152,8 +154,8 @@ export function StorageSettings() {
               .filter((backup) => backup.state === "failed")
               .map((backup) => (
                 <SettingNote key={backup.path} role="alert">
-                  Backup failed for {backup.path}. The worktree was kept. Check origin access and
-                  refresh after the next backup.
+                  Backup failed for <span className="break-all">{backup.path}</span>. The worktree
+                  was kept. Check origin access and refresh after the next backup.
                 </SettingNote>
               ))}
           </>
@@ -175,7 +177,7 @@ export function StorageSettings() {
           >
             Refresh usage
           </Button>
-          <Button size="sm" disabled={!ready || busy} onClick={() => void preview()}>
+          <Button size="sm" disabled={!ready || busy} onClick={() => void previewCleanup()}>
             {busy
               ? "Working…"
               : forceItems.length
@@ -206,7 +208,7 @@ export function StorageSettings() {
       )}
       <WorktreeStorageSettings
         busy={busy}
-        onPreviewAll={() => void preview(true)}
+        onPreviewAll={() => void previewWorktrees()}
         onSaved={() => {
           setPlan(undefined);
           setResult(undefined);

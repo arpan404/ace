@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { textOutput } from "./cli.ts";
+import { decode, hashSchema } from "./decode.ts";
 import { ignoredPaths } from "./nested.ts";
 import { statusWithoutHidingFlags } from "./temporary-index.ts";
 import type { Repository } from "./repository.ts";
@@ -92,12 +93,21 @@ async function inspect(
         ["merge-base", "--is-ancestor", tree.head, mainHead],
         { allowFailure: true },
       );
-      const unchanged = await repository.cli.call(
-        root,
-        ["diff", "--quiet", "--no-ext-diff", "--no-textconv", tree.head, mainHead, "--"],
-        { allowFailure: true },
-      );
-      mergedIntoMain = ancestor.exitCode === 0 || unchanged.exitCode === 0;
+      mergedIntoMain = ancestor.exitCode === 0;
+      if (!mergedIntoMain) {
+        // A configured diff can hide tracked gitlink changes. Object IDs cover the full tree.
+        const commitTrees = await repository.cli.call(root, [
+          "rev-parse",
+          `${tree.head}^{tree}`,
+          `${mainHead}^{tree}`,
+        ]);
+        const [worktreeTree, mainTree] = decode(
+          z.tuple([hashSchema, hashSchema]),
+          textOutput(commitTrees).split("\n"),
+          "commit trees",
+        );
+        mergedIntoMain = worktreeTree === mainTree;
+      }
     }
     const unpublished = await repository.cli.call(root, [
       "rev-list",

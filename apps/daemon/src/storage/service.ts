@@ -14,13 +14,14 @@ import {
   type StorageResult,
 } from "@ace/protocol";
 import { initializeThreadCleanup } from "../thread-cleanup-journal.ts";
-import { StorageInventory } from "./inventory.ts";
+import { StorageInventory, type StorageScan } from "./inventory.ts";
 import { StorageJournal, type CleanupJournal, type CompactionJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
 import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 import { WorktreeBackups } from "./worktree-backups.ts";
+import { WorktreeBatches } from "./worktree-batches.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -35,6 +36,7 @@ export class StorageService {
   private closing: Promise<void> | undefined;
   private limits: CompactionLimits;
   private backups: WorktreeBackups;
+  private worktreeBatches = new WorktreeBatches();
   constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
@@ -160,6 +162,7 @@ export class StorageService {
     device: string,
     input: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
     allowed: () => boolean = () => true,
+    scanned?: StorageScan,
   ): Promise<CleanupJournal> {
     const operation = StorageRequest.shape.operation.parse(input);
     if (operation.op !== "cleanup.plan") throw new Error("storage_invalid_request");
@@ -167,7 +170,7 @@ export class StorageService {
     const kinds = new Set(operation.kinds ?? StorageKind.options);
     const force = new Set(operation.forceItems);
     const now = this.owner.now();
-    const scan = await this.inventory.scan(kinds, () => !this.closed && allowed());
+    const scan = scanned ?? (await this.inventory.scan(kinds, () => !this.closed && allowed()));
     const selected = scan.candidates
       .filter((candidate) => kinds.has(candidate.kind))
       .map((candidate) => ({
@@ -259,11 +262,14 @@ export class StorageService {
   status(device: string, planId: string): StorageApply {
     return this.journal.result(this.owned(device, planId));
   }
-  /** One bounded, host-authorized pass. Backup failures never authorize a removal. */
-  maintainWorktrees(days: number | null, backup: boolean, allowed: () => boolean): Promise<void> {
+  /** One bounded backup pass, independent of automatic deletion. */
+  backupWorktrees(allowed: () => boolean): Promise<void> {
+    return this.serial(() => this.backups.run(this.inventory, () => !this.closed && allowed()));
+  }
+  /** One bounded, host-authorized deletion pass. Backup failures never authorize removal. */
+  cleanupWorktrees(days: number, allowed: () => boolean): Promise<void> {
     return this.serial(async () => {
-      if (backup) await this.backups.run(this.inventory, () => !this.closed && allowed());
-      if (days === null || !allowed() || this.closed) return;
+      if (!allowed() || this.closed) return;
       for (const id of this.journal.pending()) {
         const pending = this.journal.get(id);
         if (pending?.owner === "storage:worktrees") {
@@ -272,6 +278,16 @@ export class StorageService {
           this.journal.discard(id);
         }
       }
+      const scan = await this.inventory.scanWorktrees(
+        // Ownership alone can forbid deletion. Save expensive Git inspection for candidates
+        // that might be removed; final admission still rechecks every owner and Git state.
+        this.worktreeBatches
+          .next(this.inventory.managed)
+          .filter(
+            (record) => this.inventory.worktreeOwnership(record.path).protections.length === 0,
+          ),
+        () => !this.closed && allowed(),
+      );
       const draft = await this.draft(
         "storage:worktrees",
         {
@@ -281,6 +297,7 @@ export class StorageService {
           retention: StorageRetention.parse({ worktrees: days, worktreeMode: "settled" }),
         },
         allowed,
+        scan,
       );
       draft.entries = draft.entries.filter(
         (entry) => entry.item.disposition === "remove" && !this.backups.failed(entry.item.label),

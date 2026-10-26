@@ -1,10 +1,15 @@
-import { ManagedWorktrees } from "../managed-worktrees.ts";
+import { ManagedWorktrees, type ManagedWorktree } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
 import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
 import { storageProtections, storageTree } from "./ownership.ts";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
+
+export interface StorageScan {
+  candidates: OwnedStorageCandidate[];
+  complete: boolean;
+}
 
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -245,33 +250,46 @@ export class StorageInventory {
     if (kinds.has("worktrees") && services.workspaceActions) {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
-      for (const record of records.slice(0, 256)) {
-        if (!going()) return { candidates, complete: false };
-        try {
-          const candidate = await this.worktree(record.repo, record.path);
-          if (candidate) candidates.push(candidate);
-        } catch {
-          complete = false;
-          candidates.push({
-            id: storageId("worktrees", `${record.repo}:${record.path}`),
-            kind: "worktrees",
-            label: record.path,
-            bytes: 0,
-            modifiedAt: record.created_at,
-            threadIds: [],
-            fingerprint: "unavailable",
-            protections: ["unknown_git_state"],
-            eligibleReason: "orphaned",
-            target: {
-              type: "worktree",
-              repo: record.repo,
-              path: record.path,
-              gitFingerprint: "unavailable",
-              head: null,
-              branch: null,
-            },
-          });
-        }
+      const scan = await this.scanWorktrees(records.slice(0, 256), going);
+      candidates.push(...scan.candidates);
+      complete &&= scan.complete;
+    }
+    return { candidates, complete };
+  }
+
+  /** Inspect only the selected page; ownership and Git checks match reviewed cleanup. */
+  async scanWorktrees(
+    records: readonly ManagedWorktree[],
+    going: () => boolean,
+  ): Promise<StorageScan> {
+    const candidates: OwnedStorageCandidate[] = [];
+    let complete = true;
+    for (const record of records) {
+      if (!going()) return { candidates, complete: false };
+      try {
+        const candidate = await this.worktree(record.repo, record.path);
+        if (candidate) candidates.push(candidate);
+      } catch {
+        complete = false;
+        candidates.push({
+          id: storageId("worktrees", `${record.repo}:${record.path}`),
+          kind: "worktrees",
+          label: record.path,
+          bytes: 0,
+          modifiedAt: record.created_at,
+          threadIds: [],
+          fingerprint: "unavailable",
+          protections: ["unknown_git_state"],
+          eligibleReason: "orphaned",
+          target: {
+            type: "worktree",
+            repo: record.repo,
+            path: record.path,
+            gitFingerprint: "unavailable",
+            head: null,
+            branch: null,
+          },
+        });
       }
     }
     return { candidates, complete };
