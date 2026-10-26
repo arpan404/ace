@@ -19,6 +19,6 @@ export async function nativeLaunchedTree(): Promise<LaunchedTree> {
       const found = kit.processIdentity(pid);
       return found && { pid, start: found.start, uid: String(found.uid) };
     },
-    members: (leader) => kit.windowsTreeRuntime.members(leader),
+    members: (leader) => kit.windowsTreeRuntime.state([leader]).live,
   };
 }

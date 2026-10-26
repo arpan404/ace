@@ -3,6 +3,7 @@ import type { Writable } from "node:stream";
 import {
   processIdentity,
   windowsTreeRuntime,
+  type WindowsProcessRecord,
   type WindowsTreeMember,
   type WindowsTreeRuntime,
 } from "./process-identity.ts";
@@ -38,39 +39,41 @@ export interface RecordedTree {
   end(): Promise<void>;
 }
 
-type Roots = { uid: string; members: WindowsTreeMember[] };
+/** Proven members of the tree, grown as live members are found to have started children. */
+type Recorded = WindowsProcessRecord[];
 
-function snapshot(pid: number, runtime: TreeStopRuntime): Roots | undefined {
+function snapshot(pid: number, runtime: TreeStopRuntime): Recorded | undefined {
   try {
     const leader = runtime.identify(pid);
     if (!leader) return undefined;
-    return { uid: leader.uid, members: runtime.tree.members({ pid, ...leader }) };
+    return runtime.tree.state([{ pid, ...leader }]).live;
   } catch {
     // Without a readable identity nothing can be proven ours; the tree stop stays in charge.
     return undefined;
   }
 }
 
-/** Survivors of the recorded roots: each root's live descendants, the root included. */
-function survivors(roots: Roots, runtime: TreeStopRuntime): WindowsTreeMember[] {
-  const found = new Map<string, WindowsTreeMember>();
-  for (const root of roots.members)
-    for (const member of runtime.tree.members({ ...root, uid: roots.uid }))
-      found.set(`${member.pid}:${member.start}`, member);
-  return [...found.values()];
+/**
+ * Recorded members still alive, plus children they were proven to start since. A process whose
+ * ancestry can no longer be proven is never ended: it may belong to someone else.
+ */
+function survivors(recorded: Recorded, runtime: TreeStopRuntime): WindowsTreeMember[] {
+  const state = runtime.tree.state(recorded);
+  recorded.push(...state.discovered);
+  return state.live;
 }
 
 /** Record `pid`'s tree now, while its leader still names its descendants. */
 export function recordTree(pid: number, runtime: TreeStopRuntime = treeStopRuntime): RecordedTree {
-  const roots = snapshot(pid, runtime);
+  const recorded = snapshot(pid, runtime);
   return {
     async end() {
-      if (!roots) return;
+      if (!recorded) return;
       const deadline = performance.now() + survivorStopMs;
       for (;;) {
         let left: WindowsTreeMember[];
         try {
-          left = survivors(roots, runtime);
+          left = survivors(recorded, runtime);
         } catch {
           // An unreadable snapshot proves nothing either way; the job and tree stop remain.
           return;
@@ -114,14 +117,14 @@ export function endDescendantsSync(
   pid: number = process.pid,
   runtime: TreeStopRuntime = treeStopRuntime,
 ): void {
-  const roots = snapshot(pid, runtime);
-  if (!roots) return;
+  const recorded = snapshot(pid, runtime);
+  if (!recorded) return;
   const own = (member: WindowsTreeMember) => member.pid !== pid;
   const wait = new Int32Array(new SharedArrayBuffer(4));
   const deadline = performance.now() + survivorStopMs;
   try {
     for (;;) {
-      const left = survivors(roots, runtime).filter(own);
+      const left = survivors(recorded, runtime).filter(own);
       if (left.length === 0 || performance.now() >= deadline) return;
       for (const member of left) runtime.tree.terminate(member);
       Atomics.wait(wait, 0, 0, 25);
