@@ -28,6 +28,13 @@ struct AttachmentStaging: Sendable {
         try FileManager.default.copyItem(at: source, to: target)
         return try staged(localId, name: name, mimeType: mimeType)
     }
+    /// Takes over a file already copied aside (a video from Photos), without copying it again.
+    func stage(moving source: URL, name: String, mimeType: String) throws -> StagedAttachment {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let localId = UUID().uuidString.lowercased()
+        try FileManager.default.moveItem(at: source, to: url(localId))
+        return try staged(localId, name: name, mimeType: mimeType)
+    }
     func stage(data: Data, name: String, mimeType: String) throws -> StagedAttachment {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let localId = UUID().uuidString.lowercased()

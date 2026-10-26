@@ -75,6 +75,8 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let state: String
     let progress: Double
     let error: String
+    /// The file's type, for drawing a video; absent from older bridges.
+    var mimeType: String? = nil
 }
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
