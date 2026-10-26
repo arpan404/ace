@@ -5,19 +5,6 @@ import { extract } from "tar";
 import type { z } from "zod";
 import type { ReleaseTarget as ReleaseTargets } from "@ace/protocol";
 import { downloadArchive, hashFile } from "@ace/service";
-import {
-  nodeDistBaseUrl,
-  nodeLicenseUrl,
-  windowsNodeCacheNames,
-  windowsNodeExeFiles,
-  windowsNodeLicenseFile,
-  windowsRuntimePaths,
-  type PinnedRuntimeFile,
-  type WindowsDesktopRuntimeTarget,
-} from "./windows-node-files.ts";
-
-export { windowsRuntimePaths };
-export type { WindowsDesktopRuntimeTarget } from "./windows-node-files.ts";
 
 export type ReleaseTarget = z.infer<typeof ReleaseTargets>;
 
@@ -71,124 +58,108 @@ export async function stageNodeRuntime(options: {
   });
 }
 
-/**
- * Downloads one pinned file into the cache, reusing the cached copy only while its
- * SHA-256 matches the pin. Concurrent stagings share the LICENSE cache entry, so the
- * cache is never removed in place: the download streams into a unique temp file through
- * `downloadArchive` (which caps bytes at the pinned length and rejects checksum
- * mismatches), then the verified temp file is published atomically. A failed download
- * removes only its temp file and never leaves a partial cache entry; a lost publish
- * race reuses the winner's verified cache. The fetch itself times out. No shell, no
- * extraction, no credentials.
- */
-async function fetchPinnedRuntimeFile(options: {
-  url: string;
-  cachePath: string;
-  file: PinnedRuntimeFile;
-  fetchImpl: typeof fetch;
-}): Promise<void> {
-  try {
-    if ((await hashFile(options.cachePath)) === options.file.sha256) return;
-  } catch {
-    // Missing or unreadable cache falls through to a verified download. A hash
-    // mismatch also falls through: it just means the cache needs refresh.
-  }
-  const tempPath = `${options.cachePath}.${randomUUID()}.tmp`;
-  try {
-    const response = await options.fetchImpl(options.url, {
-      signal: AbortSignal.timeout(120_000),
-    });
-    await downloadArchive(response, tempPath, {
-      bytes: options.file.bytes,
-      sha256: options.file.sha256,
-    });
-  } catch (error) {
-    await rm(tempPath, { force: true }).catch(() => {});
-    try {
-      if ((await hashFile(options.cachePath)) === options.file.sha256) return;
-    } catch {
-      // Cache is still missing or untrusted; report the download failure.
-    }
-    throw error;
-  }
-  try {
-    if ((await hashFile(options.cachePath)) === options.file.sha256) {
-      await rm(tempPath, { force: true });
-      return;
-    }
-  } catch {
-    // Cache is still missing or untrusted; publish the verified temp file below.
-  }
-  try {
-    await rename(tempPath, options.cachePath);
-  } catch {
-    try {
-      if ((await hashFile(options.cachePath)) === options.file.sha256) {
-        await rm(tempPath, { force: true }).catch(() => {});
-        return;
-      }
-    } catch {
-      // Cache is still unusable; fall through to report the publish failure.
-    }
-    await rm(tempPath, { force: true }).catch(() => {});
-    throw new Error("Windows Node runtime cache publication lost its verified file");
-  }
+// Windows desktop builds ship the raw official node.exe and the tagged LICENSE (no zip). The
+// standalone ReleaseTarget above stays macOS and Linux: its updater has no Windows archives.
+export type WindowsTarget = "win32-x64" | "win32-arm64";
+
+export function isWindowsTarget(target: string): target is WindowsTarget {
+  return target === "win32-x64" || target === "win32-arm64";
+}
+
+interface PinnedFile {
+  /** Exact byte length; also the streaming download limit. */
+  bytes: number;
+  sha256: string;
+}
+/** Pinned from the official Node v24.13.0 SHASUMS256.txt and the v24.13.0 source tag. */
+const windowsExes: Record<WindowsTarget, PinnedFile> = {
+  "win32-x64": {
+    bytes: 89_953_280,
+    sha256: "d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11",
+  },
+  "win32-arm64": {
+    bytes: 79_135_232,
+    sha256: "91e25b2ef61ee30a9e6afce0f336b4d55d688c3717244e496fa11d69fc3a1717",
+  },
+};
+const windowsLicense: PinnedFile = {
+  bytes: 143_310,
+  sha256: "537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+};
+
+/** The staged Windows Node executable inside a `runtime/` directory. */
+export function windowsNodePath(destination: string): string {
+  return join(destination, "node.exe");
+}
+
+async function trusted(path: string, sha256: string): Promise<boolean> {
+  return hashFile(path).then(
+    (hash) => hash === sha256,
+    () => false,
+  );
 }
 
 /**
- * Puts `node.exe` and Node's `LICENSE` for a Windows desktop target into
- * `destination` (a `runtime/` directory). The official raw `node.exe` and the pinned
- * matching `LICENSE` are cached in `cacheDir` and used only while their SHA-256
- * matches the pin; otherwise each is downloaded again and verified before staging.
- *
- * The staged executable path is owned by `windowsRuntimePaths`: `runtime/node.exe`.
- * This is only the runtime staging foundation for win32 desktop builds. It does not
- * make the full Windows installer work: the desktop still runs no local daemon on
- * Windows, and the daemon bundler has other blockers. Standalone updater/archive
- * support for Windows targets is future work.
+ * Caches one pinned file. Stagings for both architectures share the LICENSE entry, so a
+ * download streams into a unique temp file and is published atomically once verified.
  */
+async function fetchPinned(
+  url: string,
+  cachePath: string,
+  file: PinnedFile,
+  fetchImpl: typeof fetch,
+) {
+  if (await trusted(cachePath, file.sha256)) return;
+  const tempPath = `${cachePath}.${randomUUID()}.tmp`;
+  try {
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(120_000) });
+    await downloadArchive(response, tempPath, file);
+    if (!(await trusted(cachePath, file.sha256))) await rename(tempPath, cachePath);
+  } catch (error) {
+    // A concurrent staging may have published the same verified file.
+    if (!(await trusted(cachePath, file.sha256))) {
+      await rm(tempPath, { force: true });
+      throw error;
+    }
+  }
+  await rm(tempPath, { force: true });
+}
+
+/** Puts `node.exe` and Node's `LICENSE` for a Windows target into `destination`. */
 export async function stageWindowsNodeRuntime(options: {
-  target: WindowsDesktopRuntimeTarget;
+  target: WindowsTarget;
   cacheDir: string;
   destination: string;
-  /** Test seam: defaults to the pinned official distribution base. */
+  /** Test seams: the distribution base, LICENSE URL, fetch and the pins they serve. */
   distBaseUrl?: string;
-  /** Test seam: defaults to the pinned official LICENSE source. */
   licenseUrl?: string;
-  /** Test seam: defaults to global fetch. */
   fetchImpl?: typeof fetch;
-  /** Test seam: defaults to the pinned files; tests serve fixtures with matching pins. */
-  files?: { exe: PinnedRuntimeFile; license: PinnedRuntimeFile };
+  files?: { exe: PinnedFile; license: PinnedFile };
 }): Promise<void> {
   const { target, cacheDir, destination } = options;
-  const exeMeta = windowsNodeExeFiles[target];
-  const exeFile = options.files?.exe ?? exeMeta;
-  const licenseFile = options.files?.license ?? windowsNodeLicenseFile;
-  const distBase = options.distBaseUrl ?? nodeDistBaseUrl(nodeVersion);
-  const licenseSource = options.licenseUrl ?? nodeLicenseUrl(nodeVersion);
+  const exe = options.files?.exe ?? windowsExes[target];
+  const license = options.files?.license ?? windowsLicense;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const names = windowsNodeCacheNames(nodeVersion, target);
-  const exeCache = join(cacheDir, names.exe);
-  const licenseCache = join(cacheDir, names.license);
+  const exeCache = join(cacheDir, `node-v${nodeVersion}-${target}.exe`);
+  const licenseCache = join(cacheDir, `node-v${nodeVersion}-LICENSE`);
   await mkdir(cacheDir, { recursive: true });
-  await fetchPinnedRuntimeFile({
-    url: `${distBase}/${exeMeta.distPath}`,
-    cachePath: exeCache,
-    file: exeFile,
+  await fetchPinned(
+    `${options.distBaseUrl ?? `https://nodejs.org/dist/v${nodeVersion}`}/win-${target.slice(6)}/node.exe`,
+    exeCache,
+    exe,
     fetchImpl,
-  });
-  await fetchPinnedRuntimeFile({
-    url: licenseSource,
-    cachePath: licenseCache,
-    file: licenseFile,
+  );
+  await fetchPinned(
+    options.licenseUrl ?? `https://raw.githubusercontent.com/nodejs/node/v${nodeVersion}/LICENSE`,
+    licenseCache,
+    license,
     fetchImpl,
-  });
-  const staged = windowsRuntimePaths(destination);
+  );
   await mkdir(destination, { recursive: true });
-  await copyFile(exeCache, staged.exePath);
-  await copyFile(licenseCache, staged.licensePath);
-  if ((await hashFile(staged.exePath)) !== exeFile.sha256)
+  await copyFile(exeCache, windowsNodePath(destination));
+  await copyFile(licenseCache, join(destination, "LICENSE"));
+  if (!(await trusted(windowsNodePath(destination), exe.sha256)))
     throw new Error("Untrusted staged Windows Node runtime");
-  if ((await hashFile(staged.licensePath)) !== licenseFile.sha256)
+  if (!(await trusted(join(destination, "LICENSE"), license.sha256)))
     throw new Error("Untrusted staged Windows Node LICENSE");
 }

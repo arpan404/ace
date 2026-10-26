@@ -31,6 +31,7 @@ on:
       - packages/provider-kit/src/sqlite*
       - packages/terminal/**
       - tools/release/src/pty-assets.ts
+      - tools/release/src/node-runtime*.ts
       - tools/release/src/archive*.ts
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**

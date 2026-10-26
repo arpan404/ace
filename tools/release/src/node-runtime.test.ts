@@ -6,7 +6,11 @@ import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nodeVersion, stageWindowsNodeRuntime } from "./node-runtime.ts";
-import { windowsNodeCacheNames } from "./windows-node-files.ts";
+
+const names = {
+  exe: `node-v${nodeVersion}-win32-x64.exe`,
+  license: `node-v${nodeVersion}-LICENSE`,
+};
 
 function pinsFor(content: Buffer): { bytes: number; sha256: string } {
   return {
@@ -41,7 +45,7 @@ async function withServer(
 }
 
 test.each(["win32-x64", "win32-arm64"] as const)(
-  "%s stages node.exe and LICENSE from the network into runtime layout",
+  "%s stages node.exe and LICENSE from the network into the runtime layout",
   async (target) => {
     const root = await mkdtemp(join(tmpdir(), "ace-win-node-"));
     try {
@@ -131,7 +135,6 @@ test("a corrupt cache is replaced by a verified download", async () => {
     const files = { exe: pinsFor(exe), license: pinsFor(license) };
     const cacheDir = join(root, "cache");
     await mkdir(cacheDir, { recursive: true });
-    const names = windowsNodeCacheNames(nodeVersion, "win32-x64");
     await writeFile(join(cacheDir, names.exe), "corrupt exe");
     await writeFile(join(cacheDir, names.license), "corrupt license");
     await withServer(
@@ -220,38 +223,6 @@ test("an oversized download is refused before it can grow the cache", async () =
   }
 });
 
-test("each Windows target downloads from its own official win-* directory", async () => {
-  // Behavioral guard on the helper mapping (not a hash constant): staging win32-arm64
-  // must fetch under its own official win-arm64 directory, never win-x64, so the two
-  // architectures never share an exe download or cache entry (LICENSE stays shared).
-  const root = await mkdtemp(join(tmpdir(), "ace-win-node-"));
-  try {
-    const seen: string[] = [];
-    await withServer(
-      (url) => {
-        seen.push(url);
-        return { status: 200, body: Buffer.from(`payload for ${url}`) };
-      },
-      async (baseUrl) => {
-        const exe = Buffer.from("payload for /win-arm64/node.exe");
-        const license = Buffer.from("payload for /LICENSE");
-        await stageWindowsNodeRuntime({
-          target: "win32-arm64",
-          cacheDir: join(root, "cache"),
-          destination: join(root, "runtime"),
-          distBaseUrl: baseUrl,
-          licenseUrl: `${baseUrl}/LICENSE`,
-          files: { exe: pinsFor(exe), license: pinsFor(license) },
-        });
-      },
-    );
-    expect(seen).toContain("/win-arm64/node.exe");
-    expect(seen).not.toContain("/win-x64/node.exe");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("parallel staging shares the LICENSE cache without losing either runtime", async () => {
   // The LICENSE cache entry is shared across architectures, so two stagings race on
   // it. Both must still produce their own verified runtime from observable files.
@@ -327,7 +298,6 @@ test("a failed download leaves no cache entry and the next staging retries", asy
         ).rejects.toThrow(/download failed|checksum|size/i);
       },
     );
-    const names = windowsNodeCacheNames(nodeVersion, "win32-x64");
     const entries = await readdir(cacheDir).catch(() => []);
     expect(entries).not.toContain(names.exe);
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);

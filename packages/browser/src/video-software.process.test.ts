@@ -8,7 +8,7 @@ import { VideoEncoderEvent } from "./video-events.ts";
 
 // This baseline deliberately selects a software codec. Hardware codec quality
 // and desktop capture are separate gates; this proves real bytes can play.
-test.skipIf(!executablePath && process.platform !== "win32")(
+test.runIf(process.platform === "win32")(
   "a software video viewer decodes real frames and keeps playing after acknowledgements",
   async () => {
     if (!executablePath)

@@ -79,3 +79,35 @@ export function launcherScript(options: { node: string; entry: string; dataDir: 
 exec ${quote(options.node)} ${quote(options.entry)} --data-dir ${quote(options.dataDir)} "$@"
 `;
 }
+
+// Windows hosts live in HKCU keys, which the 32- and 64-bit registry views share.
+const windowsRoots = [
+  ["Chrome", "Google/Chrome/User Data", "Google\\Chrome"],
+  ["Edge", "Microsoft/Edge/User Data", "Microsoft\\Edge"],
+  ["Chromium", "Chromium/User Data", "Chromium"],
+] as const;
+
+/** Windows: each browser's user data root and the HKCU key whose default value names the manifest. */
+export function windowsHostKeys(home: string, env: { LOCALAPPDATA?: string | undefined } = {}) {
+  const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
+  return windowsRoots.map(([browser, path, vendor]) => ({
+    browser,
+    root: join(local, path),
+    key: `Software\\${vendor}\\NativeMessagingHosts\\${userBrowserHostName}`,
+  }));
+}
+
+/** cmd.exe quoted word; `%` doubles so variable expansion never rewrites a path. */
+function batchWord(value: string): string {
+  if (/[\r\n\0"]/.test(value)) throw new Error("Invalid native host path");
+  return `"${value.replaceAll("%", "%%")}"`;
+}
+
+/** The Windows launcher. cmd.exe reads batch lines in the OEM code page, so switch to UTF-8 first. */
+export function windowsLauncherScript(options: {
+  node: string;
+  entry: string;
+  dataDir: string;
+}): string {
+  return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
+}

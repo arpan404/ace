@@ -138,28 +138,24 @@ export function uiReadRequest(args: UIRead & UITree):
 
 export const computerUseSchemas = {
   screen_open_app: z.strictObject({
-    bundleId: ScreenBundle.describe(
-      "Exact app id: macOS bundle id (e.g. com.apple.TextEdit) or exact lowercase Windows exe path.",
-    ),
+    bundleId: ScreenBundle.describe("Exact macOS bundle id, e.g. com.apple.TextEdit."),
     windowId: windowId
       .optional()
       .describe(
         "A windowId from screen_windows or an earlier result. On an app you already control, switches to that window.",
       ),
     url: ScreenAppURL.optional().describe(
-      "URL or deep link to open in the app once acquired (macOS only; Windows rejects url). For websites use browser_open.",
+      "URL or deep link to open in the app once acquired. For websites use browser_open.",
     ),
     mode: z
       .enum(["background", "foreground"])
       .optional()
       .describe(
-        "foreground uses the real cursor and keyboard; use it only when the app ignores background input. Omitted keeps the current mode on macOS (new sessions start in background); Windows always uses foreground and rejects background.",
+        "foreground activates the app and uses the real cursor and keyboard; use it only when the app ignores background input. Omitted keeps the current mode (new sessions start in background).",
       ),
   }),
   screen_windows: z.strictObject({
-    bundleId: ScreenBundle.describe(
-      "Exact app id: macOS bundle id or exact lowercase Windows exe path.",
-    ),
+    bundleId: ScreenBundle.describe("Exact macOS bundle id."),
   }),
   screen_ui_tree: z.strictObject({ sessionId, ...uiReadShape }),
   screen_ui_act: ScreenUIActArgs,
@@ -197,14 +193,13 @@ export const screenToolMetadata: Record<
     riskClass: "external-effect",
     timeoutMs: 15_000,
     description:
-      "Launch or rejoin a macOS app by bundle id and take a background session the person can watch; on Windows rejoin a running window only by exact lowercase exe path with no launch or activation (the window must already be open, foreground only). Returns sessionId and candidate windows. Pass windowId to pick or switch window, url for a deep link (macOS only), mode for foreground input. Then screen_ui_tree. For websites use browser_open.",
+      "Launch or rejoin a macOS app by bundle id and take a background session the person can watch. Returns sessionId and candidate windows. Pass windowId to pick or switch window, url for a deep link, mode for foreground input. Then screen_ui_tree. For websites use browser_open.",
   },
   screen_windows: {
     title: "List app windows",
     riskClass: "read-only",
     timeoutMs: 15_000,
-    description:
-      "List an app's windows with windowIds (macOS bundle id or exact lowercase Windows exe path). Pass one to screen_open_app.",
+    description: "List an app's windows with windowIds. Pass one to screen_open_app.",
   },
   screen_ui_tree: {
     title: "Read app UI",

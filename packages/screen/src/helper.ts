@@ -2,11 +2,13 @@ import { PermissionFacts } from "./permission-facts.ts";
 import { z } from "zod";
 import { ScreenPermissions, ScreenError } from "@ace/protocol";
 import { frameChannel } from "./transport.ts";
-import { spawnWindowsHelper } from "./windows-process.ts";
 import { ScreenHelperRequestV2, ScreenPermissionsV2 } from "@ace/protocol";
+import { spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import {
+  lineReader,
   spawnSupervised,
+  type ProcessExit,
   type SpawnOptions,
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
@@ -44,6 +46,57 @@ export type HelperOptions = {
   timeoutMs?: number;
   scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
 };
+/**
+ * The Windows helper never creates children, so it needs no process-tree supervision: own this
+ * one process until stdin EOF, then kill it if it is stuck.
+ */
+export function spawnOwnedHelper(options: SpawnOptions): SupervisedProcess {
+  const child = spawn(options.command, [...(options.args ?? [])], {
+    env: { ...process.env, ...options.env },
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const controller = new AbortController();
+  const limit = options.maxLineBytes ?? 1024 * 1024;
+  const stdout = lineReader(child.stdout, limit, () => child.kill());
+  const stderr = lineReader(child.stderr, limit, () => child.kill());
+  child.stdin.on("error", () => {});
+  let failed = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  child.once("error", () => {
+    failed = true;
+    controller.abort();
+  });
+  const exited = new Promise<ProcessExit>((resolve) =>
+    child.once("close", (code, signal) => {
+      if (timer) clearTimeout(timer);
+      controller.abort();
+      stdout.close();
+      stderr.close();
+      resolve({
+        code,
+        signal,
+        reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
+      });
+    }),
+  );
+  return {
+    stdin: child.stdin,
+    stdout,
+    stderr,
+    signal: controller.signal,
+    exited,
+    stop({ graceMs = 1000 } = {}) {
+      if (!stopped && !controller.signal.aborted) {
+        stopped = true;
+        child.stdin.end();
+        timer = setTimeout(() => child.kill(), graceMs);
+      }
+      return exited;
+    },
+  };
+}
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "version" | "id"> : never;
 export class Helper {
   private readonly commandTails = new Map<string, Promise<void>>();
@@ -148,7 +201,7 @@ export class Helper {
         (error) => helper?.fail(error),
       );
       try {
-        const proc = (options.spawn ?? spawnWindowsHelper)({
+        const proc = (options.spawn ?? spawnOwnedHelper)({
           command: options.command,
           args: [...(options.args ?? []), ...channel.args],
           env: options.env ?? {},

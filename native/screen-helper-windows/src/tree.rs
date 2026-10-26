@@ -140,34 +140,6 @@ fn visit<S: Source>(
     }
     Ok(Some(node))
 }
-pub fn find(tree: &Tree, query: &Query, limit: usize) -> Result<Vec<Node>> {
-    query.validate()?;
-    if limit == 0 || limit > 128 {
-        return Err(Error::new(Code::Bounds, "Find limit exceeded"));
-    }
-    let mut result = Vec::new();
-    if let Some(root) = &tree.root {
-        search(root, query, limit, &mut result);
-    }
-    Ok(result)
-}
-fn search(node: &Node, query: &Query, limit: usize, result: &mut Vec<Node>) {
-    if result.len() >= limit {
-        return;
-    }
-    if query.matches(node) {
-        let mut found = node.clone();
-        found.children.clear();
-        result.push(found);
-    }
-    for child in &node.children {
-        search(child, query, limit, result);
-        if result.len() == limit {
-            break;
-        }
-    }
-}
-
 fn prune(mut node: Node) -> Option<Node> {
     node.name = limited(node.name);
     node.value = node.value.map(limited);

@@ -56,7 +56,7 @@ cargo fmt --check
 cargo bench --bench core
 ```
 
-If Homebrew Cargo invokes a different rustc than rustup, put the rustup toolchain's bin directory first in PATH or set `RUSTC="$(rustup which rustc)"`. Cross-checking does not link an exe on macOS. Tests run on the host for codecs, Unicode event planning, coordinate mapping, hashing, pacing, tree pruning/search, ref eviction, fallback policy and error mapping. `bun run test packages/screen --maxWorkers=2` exercises real fake-helper processes and local IPC, including Windows process ownership, negotiation and semantic tools. See `bench/results.md` for the pending measurement matrix and `bench/mutations.json` for mutation cases, marked not executed. The repo owner requires tests and benchmarks to run only at merge; the final revision has static checks only.
+If Homebrew Cargo invokes a different rustc than rustup, put the rustup toolchain's bin directory first in PATH or set `RUSTC="$(rustup which rustc)"`. Cross-checking does not link an exe on macOS. Tests run on the host for codecs, Unicode event planning, coordinate mapping, hashing, pacing, tree pruning/search, ref eviction, fallback policy and error mapping. `bun run test packages/screen --maxWorkers=2` exercises real fake-helper processes and local IPC, including Windows process ownership, negotiation and semantic tools.
 
 ## Exact Windows manual test plan
 

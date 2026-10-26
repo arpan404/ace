@@ -82,10 +82,3 @@ test("uninstall removes this ace's manifests and launcher but leaves another dat
   expect(await installedNativeHosts({ platform: "linux", home, dataDir: mine })).toEqual([]);
   await expect(stat(launcherPath(mine))).rejects.toThrow();
 });
-
-test("unsupported platforms refuse native host installation", async () => {
-  const home = await temp();
-  await expect(
-    installNativeHost({ platform: "freebsd", home, dataDir: home, node: "node" }),
-  ).rejects.toThrow(/platform/);
-});

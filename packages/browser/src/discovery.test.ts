@@ -1,8 +1,8 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { detectChromium } from "./discovery.ts";
+import { detectChromium, installedWindowsChromium } from "./discovery.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -23,7 +23,7 @@ async function tempRoot(): Promise<string> {
 }
 
 describe("Windows Chromium detection", () => {
-  it("prefers the explicit executablePath override", async () => {
+  it("prefers the explicit executablePath override on Windows", async () => {
     const root = await tempRoot();
     const explicit = await fakeExecutable(root, "custom", "chrome.exe");
     expect(await detectChromium({ platform: "win32", env: {}, executablePath: explicit })).toBe(
@@ -45,40 +45,44 @@ describe("Windows Chromium detection", () => {
     ).toBeUndefined();
   });
 
-  it("detects installed Edge when Chrome is absent", async () => {
+  it("detects installed Edge on Windows when Chrome is absent", async () => {
     const root = await tempRoot();
     const edge = await fakeExecutable(root, "Microsoft", "Edge", "Application", "msedge.exe");
     expect(await detectChromium({ platform: "win32", env: { LOCALAPPDATA: root } })).toBe(edge);
   });
 
-  it("prefers installed Chrome over installed Edge", async () => {
+  it("prefers installed Chrome over installed Edge on Windows", async () => {
     const root = await tempRoot();
     await fakeExecutable(root, "Microsoft", "Edge", "Application", "msedge.exe");
     const chrome = await fakeExecutable(root, "Google", "Chrome", "Application", "chrome.exe");
     expect(await detectChromium({ platform: "win32", env: { LOCALAPPDATA: root } })).toBe(chrome);
   });
 
-  it("finds msedge.exe on PATH through the shared Windows lookup", async () => {
+  it("finds msedge.exe on a Windows PATH", async () => {
     const root = await tempRoot();
     const bin = join(root, "bin");
     const edge = await fakeExecutable(bin, "msedge.exe");
     expect(await detectChromium({ platform: "win32", env: { PATH: bin } })).toBe(edge);
   });
 
-  it("rejects a batch wrapper without a real executable", async () => {
+  it("rejects a Windows batch wrapper without a real executable", async () => {
     const root = await tempRoot();
     const bin = join(root, "bin");
     await fakeExecutable(bin, "msedge.bat");
     expect(await detectChromium({ platform: "win32", env: { PATH: bin } })).toBeUndefined();
   });
+});
 
-  it("keeps POSIX PATH order: chromium before google-chrome", async () => {
+describe("Windows ARM64 browser", () => {
+  it("uses the installed browser, since no pinned download exists", async () => {
     const root = await tempRoot();
-    const bin = join(root, "bin");
-    const first = await fakeExecutable(bin, "chromium");
-    await fakeExecutable(bin, "google-chrome");
-    await chmod(first, 0o755);
-    await chmod(join(bin, "google-chrome"), 0o755);
-    expect(await detectChromium({ platform: "linux", env: { PATH: bin } })).toBe(first);
+    const edge = await fakeExecutable(root, "Microsoft", "Edge", "Application", "msedge.exe");
+    expect(await installedWindowsChromium({ env: { LOCALAPPDATA: root } })).toBe(edge);
+  });
+
+  it("asks for Chrome or Edge when neither is installed", async () => {
+    await expect(installedWindowsChromium({ env: {} })).rejects.toThrow(
+      "Install Chrome or Microsoft Edge",
+    );
   });
 });

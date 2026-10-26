@@ -36,8 +36,7 @@ const text = (value: unknown) => [{ type: "text" as const, text: JSON.stringify(
 async function openApp(manager: ScreenManager, args: unknown, context: ToolContext) {
   const { caller, signal } = context;
   const { bundleId, windowId, url, mode } = computerUseSchemas.screen_open_app.parse(args);
-  const isWindows = (await manager.capabilities())?.platform === "windows";
-  if (isWindows) {
+  if (manager.isWindowsHost()) {
     if (mode === "background")
       throw new HelperCommandError("foreground_required", "Windows needs foreground input");
     if (url !== undefined)
@@ -46,9 +45,9 @@ async function openApp(manager: ScreenManager, args: unknown, context: ToolConte
   const opened = await manager.openAgentApp(bundleId, caller, signal, windowId);
   signal.throwIfAborted();
   const sessionId = manager.agentSession(caller, opened.sessionId);
-  const effectiveMode = mode ?? (isWindows ? "foreground" : undefined);
-  if (effectiveMode !== undefined && manager.state(sessionId).mode !== effectiveMode)
-    manager.mode(sessionId, effectiveMode);
+  if (mode !== undefined && manager.state(sessionId).mode !== mode) manager.mode(sessionId, mode);
+  if (manager.isWindowsHost() && manager.state(sessionId).mode !== "foreground")
+    manager.mode(sessionId, "foreground");
   const windows = { windows: opened.windows, selectedWindowId: opened.selectedWindowId };
   const afterUrl =
     url === undefined
