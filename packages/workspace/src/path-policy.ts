@@ -1,18 +1,6 @@
-/**
- * Windows lexical relative-path policy.
- *
- * Primary source: Microsoft "Naming Files, Paths, and Namespaces"
- * (Win32 apps, File and Directory Names + Paths + Namespaces sections).
- * No guessed restrictions beyond that page.
- *
- * Request paths are already normalized with "/" separators before this runs
- * (see SafeRoot.path). This module only adds win32-only lexical rejections;
- * POSIX behavior is owned by validRelativePath's base checks.
- */
+/** Windows name rules ("Naming Files, Paths, and Namespaces"), checked before any native call. */
 
-// Reserved file names, case-insensitive, with or without an extension.
-// Microsoft lists CON, PRN, AUX, NUL, COM1-9, COM superscript 1-3,
-// LPT1-9, LPT superscript 1-3. Superscript digits are U+00B9, U+00B2, U+00B3.
+// Reserved device stems, case-insensitive, with or without an extension.
 const WINDOWS_RESERVED = new Set([
   "CON",
   "PRN",
@@ -45,36 +33,21 @@ const WINDOWS_RESERVED = new Set([
 ]);
 
 /**
- * Win32-only lexical extras. Assumes base validRelativePath checks
- * (NUL, backslash, absolute, "..") already passed.
- *
- * Device and NT-namespace inputs ("//./", "//?/", "/??/") are absolute and
- * are rejected by the base validRelativePath checks (isAbsolute plus
- * win32.isAbsolute plus backslash); no separate check lives here.
+ * One Windows file name: no reserved characters, controls, ":" streams, trailing space or dot,
+ * and no reserved device stem ("CON .txt" is CON; only ASCII spaces are stripped).
+ */
+export function windowsNameAllowed(name: string): boolean {
+  if (name === "" || name === "." || name === "..") return false;
+  if (/[<>:"/\\|?*]/.test(name) || name.endsWith(" ") || name.endsWith(".")) return false;
+  for (const character of name) if (character.charCodeAt(0) < 32) return false;
+  const stem = (name.split(".")[0] ?? "").replace(/ +$/, "");
+  return !WINDOWS_RESERVED.has(stem.toUpperCase());
+}
+
+/**
+ * Win32-only lexical extras for a "/"-separated relative request path, after the base
+ * validRelativePath checks. Empty and "." parts normalize away in SafeRoot.path.
  */
 export function passesWindowsRelativePathPolicy(input: string): boolean {
-  // Drive-relative: "C:tmp.txt" is relative to the current directory on C.
-  if (/^[A-Za-z]:/.test(input)) return false;
-  // ADS colon: "file.txt:stream". Any colon is rejected on win32 requests.
-  if (input.includes(":")) return false;
-  // Reserved characters (< > " | ? *).
-  // "/" is the request separator, "\" is already rejected globally.
-  if (/[<>"|?*]/.test(input)) return false;
-  // Controls 1-31, checked without a control regex for lint clarity.
-  for (const character of input) {
-    const code = character.charCodeAt(0);
-    if (code >= 1 && code <= 31) return false;
-  }
-  for (const part of input.split("/")) {
-    // Empty (repeated separators, trailing slash) and "." normalize away
-    // in SafeRoot.path and stay valid.
-    if (part === "" || part === ".") continue;
-    if (part.endsWith(" ") || part.endsWith(".")) return false;
-    const rawStem = part.split(".")[0] ?? "";
-    // Strip only ASCII trailing spaces before the DOS reserved comparison
-    // ("CON .txt" is CON). Unicode whitespace stays significant and valid.
-    const stem = rawStem.replace(/ +$/, "");
-    if (WINDOWS_RESERVED.has(stem.toUpperCase())) return false;
-  }
-  return true;
+  return input.split("/").every((part) => part === "" || part === "." || windowsNameAllowed(part));
 }

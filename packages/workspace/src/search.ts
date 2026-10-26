@@ -24,6 +24,8 @@ async function backend(
   signal?: AbortSignal,
 ): Promise<"node" | "ripgrep"> {
   if (binary === null) return "node";
+  // ripgrep reads confined bytes through /dev/fd pipes, which Windows lacks.
+  if (safe.runtime.platform === "win32") return "node";
   try {
     const result = await command(binary, ["--version"], signal ? { signal } : {}, safe.runtime);
     if (result.code !== 0)
@@ -129,7 +131,7 @@ export async function search(
           continue;
         }
         batch.push({ path: entry.path, content });
-        if (batch.length >= (fallback || safe.runtime.platform === "win32" ? 1 : 64)) await drain();
+        if (batch.length >= (fallback ? 1 : 64)) await drain();
         if (result.matches.length >= limit) {
           result.truncated = true;
           break;

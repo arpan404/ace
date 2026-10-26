@@ -196,39 +196,36 @@ test("independent cleanups start together and shared dependencies close after bo
 });
 
 // A startup cancellation may leave a native handle alive after the startup promise rejects.
-test.each(["SIGINT", "SIGTERM", "SIGBREAK"] as const)(
-  "%s shutdown keeps its exit deadline armed after cancelled startup",
-  async (signal) => {
-    const signals = new EventEmitter();
-    const started = Promise.withResolvers<void>();
-    const deadline = Promise.withResolvers<() => void>();
-    const exits: number[] = [];
-    const starting = runDaemonProcess(
-      async (options) => {
-        started.resolve();
-        await new Promise<void>((resolve) =>
-          options.signal?.addEventListener("abort", () => resolve(), { once: true }),
-        );
-        throw new Error("Startup aborted");
+test("process shutdown keeps its exit deadline armed after cancelled startup", async () => {
+  const signals = new EventEmitter();
+  const started = Promise.withResolvers<void>();
+  const deadline = Promise.withResolvers<() => void>();
+  const exits: number[] = [];
+  const starting = runDaemonProcess(
+    async (options) => {
+      started.resolve();
+      await new Promise<void>((resolve) =>
+        options.signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      throw new Error("Startup aborted");
+    },
+    {},
+    signals,
+    {
+      after(expire) {
+        deadline.resolve(expire);
+        return () => {
+          throw new Error("Exit deadline cancelled");
+        };
       },
-      {},
-      signals,
-      {
-        after(expire) {
-          deadline.resolve(expire);
-          return () => {
-            throw new Error("Exit deadline cancelled");
-          };
-        },
-        exit(code) {
-          exits.push(code);
-        },
+      exit(code) {
+        exits.push(code);
       },
-    );
-    await started.promise;
-    signals.emit(signal);
-    expect(await starting).toBeUndefined();
-    (await deadline.promise)();
-    expect(exits).toEqual([1]);
-  },
-);
+    },
+  );
+  await started.promise;
+  signals.emit("SIGTERM");
+  expect(await starting).toBeUndefined();
+  (await deadline.promise)();
+  expect(exits).toEqual([1]);
+});

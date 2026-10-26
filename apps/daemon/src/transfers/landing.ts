@@ -3,8 +3,8 @@ import type { PinnedDirectory } from "@ace/workspace";
 import { basename, dirname, join } from "node:path";
 import type { IncomingTransfer, ThreadId, TransferCommit, WorkspaceId } from "@ace/protocol";
 import type { IncomingRecord } from "./incoming-rows.ts";
-import { type FileIdentity } from "@ace/workspace/pinned-directory";
-import { folderIdentity, freeFolder, identityAt, removeIfOwned, removeQuietly } from "./files.ts";
+import { lstat } from "node:fs/promises";
+import { folderIdentity, freeFolder, removeIfOwned, removeQuietly } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 
 /**
@@ -33,7 +33,7 @@ export interface TargetProjects {
     name: string;
     url: string;
     signal: AbortSignal;
-    made(directory: { identity: FileIdentity }): void;
+    made(directory: { dev: number; ino: number }): void;
   }): Promise<WorkspaceId>;
   /** `workspace.add` of a folder this transfer made. */
   register(input: { key: string; path: string; name: string }): Promise<WorkspaceId>;
@@ -197,7 +197,7 @@ class Made {
     return this.own(folder, handle);
   }
   /** `workspace.clone` made the reserved folder: from here it is this landing's to remove. */
-  cloning(directory: { identity: FileIdentity }): void {
+  cloning(directory: { dev: number; ino: number }): void {
     this.record(this.need(), folderIdentity(directory));
   }
   /** The folder `workspace.clone` made and filled, held open from here; never a swapped one. */
@@ -232,7 +232,7 @@ class Made {
   /** The worktree beside it was made: from here it is this landing's to remove. */
   async madeBeside(): Promise<void> {
     if (!this.beside) return;
-    this.beside.id = identityAt(this.beside.path);
+    this.beside.id = folderIdentity(await lstat(this.beside.path));
     this.deps.made({ createdPath: this.beside.path, createdId: this.beside.id });
   }
   registeredAs(workspaceId: WorkspaceId): void {
@@ -246,13 +246,8 @@ class Made {
       await this.deps.projects.unregister(this.registered).catch(() => undefined);
     const beside = this.beside;
     if (beside?.id) {
-      let there: string | undefined;
-      try {
-        there = identityAt(beside.path);
-      } catch {
-        there = undefined;
-      }
-      if (there === beside.id) await removeQuietly(beside.path);
+      const there = await lstat(beside.path).catch(() => undefined);
+      if (there && folderIdentity(there) === beside.id) await removeQuietly(beside.path);
     }
     const folder = this.folder;
     if (folder?.id) removeIfOwned(folder.parent, folder.name, folder.id);

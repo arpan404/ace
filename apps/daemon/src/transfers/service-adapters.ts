@@ -1,4 +1,3 @@
-import type { FileIdentity } from "@ace/workspace/pinned-directory";
 import { createHash } from "node:crypto";
 import {
   Command,
@@ -31,7 +30,7 @@ export function targetProjects(context: ServiceContext): TargetProjects {
     clone?: {
       signal: AbortSignal;
       timeoutMs: number;
-      made?: (directory: { identity: FileIdentity }) => void;
+      made?: (directory: { dev: number; ino: number }) => void;
     },
   ): Promise<CommandResult> => {
     const result = await projects().execute(
