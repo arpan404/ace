@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The files on the next message, in one row above the words: a picture as a small thumbnail of
-/// its staged bytes (tap to view it full screen), any other file, or one the bridge refused, as a
-/// chip with its name and why. Upload progress and Remove show on both.
+/// The files on the next message, in one row above the words: a picture or video as a small
+/// thumbnail of its staged bytes (a video with its length; tap to view or play it full screen),
+/// any other file, or one the bridge refused, as a chip with its name and why. Upload progress
+/// and Remove show on both.
 struct ComposerMediaStrip: View {
     let files: [AttachmentFile]
     /// Where the picked bytes were staged (`AttachMenu.staging`).
@@ -17,8 +18,8 @@ struct ComposerMediaStrip: View {
             // stays inside the row and clear of the next file.
             HStack(spacing: ComposerMediaThumb.reach + AceTheme.Spacing.xxs) {
                 ForEach(files) { file in
-                    if file.kind == "image", file.state != "failed", let url = staging.file(file.id) {
-                        ComposerMediaThumb(file: file, url: url) { viewing = StagedMedia(name: file.name, url: url) } remove: { remove(file.id) }
+                    if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
+                        ComposerMediaThumb(file: file, url: url) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
                         AttachmentChip(file: file) { remove(file.id) }
                     }
@@ -28,7 +29,11 @@ struct ComposerMediaStrip: View {
             .padding(.top, ComposerMediaThumb.reach).padding(.trailing, ComposerMediaThumb.reach)
         }
         .fullScreenCover(item: $viewing) { media in
-            MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
+            if let video = media.video {
+                VideoViewer(title: media.name, url: media.url, mimeType: video)
+            } else {
+                MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
+            }
         }
     }
 }
@@ -36,11 +41,19 @@ struct ComposerMediaStrip: View {
 private struct StagedMedia: Identifiable {
     let name: String
     let url: URL
+    /// The video's MIME type; nil for a picture.
+    let video: String?
     var id: URL { url }
+    init(file: AttachmentFile, url: URL) {
+        name = file.name
+        self.url = url
+        video = file.kind == "video" ? (file.mimeType ?? "video/quicktime") : nil
+    }
 }
 
-/// A staged picture, square and rounded, decoded off the main thread at the size it is drawn
-/// (one at a time). A picture the phone can't decode (SVG, PSD, a broken file) shows as a chip.
+/// A staged picture or video, square and rounded, decoded off the main thread at the size it is
+/// drawn (a picture one at a time, a video's first frame with its length). One the phone can't
+/// decode (SVG, PSD, a broken file) shows as a chip.
 private struct ComposerMediaThumb: View {
     let file: AttachmentFile
     let url: URL
@@ -53,7 +66,9 @@ private struct ComposerMediaThumb: View {
     static let reach: CGFloat = 20
     @Environment(\.displayScale) private var scale
     @State private var image: UIImage?
+    @State private var length: String?
     @State private var unreadable = false
+    private var video: Bool { file.kind == "video" }
     var body: some View {
         if unreadable { AttachmentChip(file: file, remove: remove) } else { thumb }
     }
@@ -64,6 +79,13 @@ private struct ComposerMediaThumb: View {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: Self.side, height: Self.side).clipped()
+                }
+                if let length {
+                    Text(length).aceFont(AceTheme.Typography.caption, relativeTo: .caption2).monospacedDigit()
+                        .foregroundStyle(Color.white)
+                        .shadow(color: .black.opacity(0.6), radius: 2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(AceTheme.Spacing.xs)
                 }
                 if file.state == "uploading" {
                     ProgressView(value: file.progress).progressViewStyle(.linear)
@@ -77,8 +99,8 @@ private struct ComposerMediaThumb: View {
             .contentShape(AceShape.rounded(AceTheme.Radii.code))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(file.state == "uploading" ? "\(file.name), uploading" : file.name)
-        .accessibilityHint("Opens it full screen")
+        .accessibilityLabel([file.name, length.map { "video, \($0)" }, file.state == "uploading" ? "uploading" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityHint(video ? "Plays it full screen" : "Opens it full screen")
         .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("composer.media")
         .overlay(alignment: .topTrailing) {
@@ -98,8 +120,15 @@ private struct ComposerMediaThumb: View {
             .accessibilityIdentifier("composer.media.remove")
         }
         .task(id: url) {
-            image = await PreviewDecoder.shared.preview(at: url, pixels: Self.side * scale)
-            unreadable = image == nil
+            if video {
+                let frame = await VideoPreview.frame(url, mimeType: file.mimeType ?? "video/quicktime", pixels: Self.side * scale)
+                image = frame.image
+                length = frame.seconds.map(VideoPreview.length)
+                unreadable = frame.image == nil && frame.seconds == nil
+            } else {
+                image = await PreviewDecoder.shared.preview(at: url, pixels: Self.side * scale)
+                unreadable = image == nil
+            }
         }
     }
 }

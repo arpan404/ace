@@ -1,13 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import type { ContextOperation, ContextResult, MessageContext, ThreadId } from "@ace/protocol";
-import {
-  ContextError,
-  attachmentLimits,
-  attachmentProblem,
-  attachmentSizeProblem,
-  expectContext,
-  type AttachmentReader,
-} from "@ace/ui-core";
+import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } from "@ace/ui-core";
 import { z } from "zod";
 import { call } from "./host.ts";
 import { preview } from "./presentation.ts";
@@ -15,7 +8,8 @@ import { preview } from "./presentation.ts";
 /*
  * Files and photos for a message: the open thread's next one, or New thread's first. Swift keeps
  * the picked file on the phone and hands the bridge only its name, type, size and SHA-256; the
- * bridge checks the shared limits and what the agent can read before anything uploads, then
+ * bridge checks the shared size and count limits before anything uploads (every type reaches
+ * the agent, natively or as a file path, ADR 0034), then
  * runs the daemon's resumable upload (`context.request`: begin, chunks at the acknowledged
  * offset, commit), pulling each chunk from Swift as it goes: at most one 48 KiB chunk of a file
  * is in JavaScript at a time. Before a thread exists the files go into New thread's draft scope,
@@ -84,16 +78,16 @@ export class AttachmentTray {
   }
 
   /** Stage a picked file; a refusal is said on its row and nothing uploads. */
-  attach(picked: Picked, reader: AttachmentReader | undefined): void {
+  attach(picked: Picked): void {
     if (this.#files.has(picked.localId)) return;
     const held = [...this.#files.values()].filter((file) => file.state !== "failed");
     const problem =
       held.length >= attachmentLimits.perMessage
         ? `A message carries up to ${attachmentLimits.perMessage} files`
-        : (attachmentSizeProblem(
+        : attachmentSizeProblem(
             picked.bytes,
             held.reduce((sum, file) => sum + file.bytes, 0),
-          ) ?? attachmentProblem({ name: picked.name, mimeType: picked.mimeType }, reader));
+          );
     const file: Staged = {
       ...picked,
       state: problem ? "failed" : "uploading",
@@ -243,7 +237,8 @@ export class AttachmentTray {
       [...this.#files.values()].map((file) => ({
         id: file.localId,
         name: preview(file.name, 128),
-        kind: file.mimeType.startsWith("image/") ? "image" : "file",
+        kind: trayKind(file.mimeType),
+        mimeType: file.mimeType,
         bytes: file.bytes,
         state: file.state,
         progress: file.progress,
@@ -251,4 +246,11 @@ export class AttachmentTray {
       })),
     );
   }
+}
+
+/** How the phone draws a file on the next message: a picture or a video gets a preview. */
+function trayKind(mimeType: string): "image" | "video" | "file" {
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  return "file";
 }

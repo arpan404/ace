@@ -14,12 +14,10 @@ import {
   optionEffort,
   pickEffort,
   pickSpeed,
-  providerNames,
   reconcileNextOptions,
   recordedChoice,
   speedLabel,
   threadTuning,
-  type AttachmentReader,
   type ModelChoice,
   type Speed,
 } from "@ace/ui-core";
@@ -148,23 +146,6 @@ export class TuneFollower {
     if (this.#pending !== pick) return;
     this.#pending = undefined;
     this.#emit();
-  }
-
-  /** What the agent can read, for checking an attachment before it uploads. */
-  reader(): AttachmentReader | undefined {
-    const thread = this.#store.thread;
-    const selection = runsOn(thread);
-    if (!thread || !selection) return undefined;
-    const choice = this.#current();
-    const model = this.#catalog.find(
-      (entry) => entry.provider === choice?.provider && entry.id === choice?.modelId,
-    );
-    return {
-      provider: providerNames[selection.provider],
-      imageInput: thread.capabilities?.imageInput,
-      model: choice?.model,
-      modalities: model?.inputModalities,
-    };
   }
 
   #current(): ModelChoice | undefined {

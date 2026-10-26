@@ -23,16 +23,7 @@ struct MediaViewer: View {
                 ProgressView().accessibilityLabel("Loading \(title)")
             }
         }
-        .overlay(alignment: .topTrailing) {
-            Button("Done") { dismiss() }
-                .aceFont(AceTheme.Typography.label, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .padding(.horizontal, AceTheme.Spacing.lg)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .floatingGlass()
-                .padding(.trailing, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
-                .accessibilityIdentifier("media.close")
-        }
+        .overlay(alignment: .topTrailing) { MediaDoneButton { dismiss() } }
         .environment(\.colorScheme, .dark)
         // VoiceOver's scrub gesture closes it too.
         .accessibilityAction(.escape) { dismiss() }
@@ -52,5 +43,20 @@ struct MediaViewer: View {
         await Task.detached(priority: .userInitiated) {
             Data(base64Encoded: base64).flatMap(ImageDecoding.source).flatMap(ImageDecoding.viewed)
         }.value
+    }
+}
+
+/// Done in the top corner of a full-screen picture or video.
+struct MediaDoneButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button("Done", action: action)
+            .aceFont(AceTheme.Typography.label, relativeTo: .body)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceTheme.Spacing.lg)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .floatingGlass()
+            .padding(.trailing, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
+            .accessibilityIdentifier("media.close")
     }
 }
