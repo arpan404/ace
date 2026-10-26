@@ -46,7 +46,7 @@ const server = createServer((_request, response) => {
   response.setHeader("Content-Type", "text/html");
   response.end(`<!doctype html><title>Scroll</title>
     <body style="margin:24px;font:16px/1.5 system-ui;color:#1d1d1f;background:#fff">${paragraphs}
-    <script>let y = 0; const step = () => { y = (y + 4) % 30000; scrollTo(0, y); requestAnimationFrame(step); }; requestAnimationFrame(step);</script>`);
+    <script>let y = 0; const stamps = (window.aceStamps = []); const step = (at) => { y = (y + 4) % 30000; scrollTo(0, y); stamps.push(at); if (stamps.length > 2000) stamps.splice(0, 1000); requestAnimationFrame(step); }; requestAnimationFrame(step);</script>`);
 });
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
@@ -350,15 +350,21 @@ async function pipeline(args: string[], scale: number) {
       viewport: { width: 1280, height: 800, devicePixelRatio: 2 },
       video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
     });
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // No agent command runs in the measured 8 s (a command starts the JPEG screencast): the page
+    // stamps its own frames, read once afterwards.
+    await new Promise((resolve) => setTimeout(resolve, 6000));
     counting = true;
-    const started = performance.now();
-    const streaming = await service.execute("profile", { action: "evaluate", expression: rafRate });
+    await new Promise((resolve) => setTimeout(resolve, 8000));
     counting = false;
+    const streaming = await service.execute("profile", {
+      action: "evaluate",
+      expression:
+        "Math.round(aceStamps.filter((at) => at > performance.now() - 8000).length / 0.8) / 10",
+    });
     return {
-      unwatchedPageFps: unwatched,
+      duringCommandPageFps: unwatched,
       streamingPageFps: streaming,
-      deliveredFps: Math.round((shown.length / ((performance.now() - started) / 1000)) * 10) / 10,
+      deliveredFps: Math.round(shown.length / 0.8) / 10,
       encodes: [...sizes],
     };
   } finally {
