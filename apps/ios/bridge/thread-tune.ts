@@ -35,6 +35,8 @@ import { preview } from "./presentation.ts";
  */
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+const accountOf = (selection: { provider: string; instanceId?: string | undefined }) =>
+  JSON.stringify([selection.provider, selection.instanceId ?? ""]);
 
 export class TuneFollower {
   readonly #client: ClientCore;
@@ -44,7 +46,10 @@ export class TuneFollower {
   readonly #now: () => number;
   #catalog: CatalogModel[] = [];
   #choices: ModelChoice[] = [];
-  #provider: string | undefined;
+  /** The provider and account the catalog was last asked for; cleared when that read fails. */
+  #account: string | undefined;
+  /** The newest catalog read: an older one answering late is dropped. */
+  #reading = 0;
   #pending: PendingTurn | undefined;
   #notice = "";
 
@@ -62,10 +67,10 @@ export class TuneFollower {
     this.#now = now;
   }
 
-  /** The thread changed: read the catalog for a new provider, re-check a pick, redraw. */
+  /** The thread changed: read the catalog for a new provider or account, re-check a pick, redraw. */
   update(): void {
     const selection = runsOn(this.#store.thread);
-    if (selection && selection.provider !== this.#provider) void this.read().catch(() => {});
+    if (selection && accountOf(selection) !== this.#account) void this.read().catch(() => {});
     this.#reconcile();
     this.#emit();
   }
@@ -74,19 +79,31 @@ export class TuneFollower {
   async read(): Promise<CatalogModel[]> {
     const selection = runsOn(this.#store.thread);
     if (!selection) return [];
-    this.#provider = selection.provider;
-    const reply = await this.#client.request(
-      {
-        type: "models.list",
-        options: {
-          provider: selection.provider,
-          ...(selection.instanceId ? { instance: selection.instanceId } : {}),
-          limit: 100,
+    const account = accountOf(selection);
+    const reading = ++this.#reading;
+    this.#account = account;
+    let models: CatalogModel[];
+    try {
+      const reply = await this.#client.request(
+        {
+          type: "models.list",
+          options: {
+            provider: selection.provider,
+            ...(selection.instanceId ? { instance: selection.instanceId } : {}),
+            limit: 100,
+          },
         },
-      },
-      { signal: this.#signal },
-    );
-    this.#catalog = ModelListResult.parse(reply.result).models;
+        { signal: this.#signal },
+      );
+      models = ModelListResult.parse(reply.result).models;
+    } catch (error) {
+      // Not read: the next change of the thread asks again.
+      if (reading === this.#reading) this.#account = undefined;
+      throw error;
+    }
+    // A newer read (the thread moved again) owns the catalog.
+    if (reading !== this.#reading) return this.#catalog;
+    this.#catalog = models;
     this.#choices = modelChoices(this.#catalog, [], this.#now());
     this.#reconcile();
     this.#emit();

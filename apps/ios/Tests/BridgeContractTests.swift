@@ -188,7 +188,7 @@ import SQLite3
         warmup.prepare(1)
         // The bundle evaluates before the machine is known; the machine then adopts it.
         try await Task.sleep(for: .milliseconds(300))
-        let model = ClientModel(now: { 0 }, makeRuntime: warmup.makeRuntime)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: warmup.makeRuntime)
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         await model.connect(target: try target(), directory: root)
         try await until("warm runtime ready") { model.connection == "ready" && model.inbox["ios-tree"] != nil }

@@ -18,8 +18,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @State private var width: CGFloat = 0
     /// Counts the window's changes still settling; zero once the split view has settled.
     @State private var settling = 0
-    /// The split view said the list is on top; it is, once the list itself appears.
-    @State private var listReported = false
+    /// Whether the list coming back on top closes the open thread (`BackToList`).
+    @State private var back = BackToList()
     /// The width of the window's controls in its top-leading corner; zero without them.
     @State private var windowControls: CGFloat = 0
 
@@ -35,10 +35,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 .environment(\.onSidebarGlass, onSidebarGlass)
                 .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
                 // Going back to the list in a compact window closes the thread, as popping it did.
-                .onAppear {
-                    if ThreadColumns.backToList(sizeClass, reported: listReported) { path = [] }
-                    listReported = false
-                }
+                .onAppear { if back.listAppeared(sizeClass) { path = [] } }
+                .onDisappear { back.listDisappeared() }
                 // As a stack, the tab bar hides once a page is pushed; beside the list the
                 // sidebar's foot takes its place.
                 .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
@@ -104,10 +102,10 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })
     }
     /// The split view reports the list on top whenever a compact window pops a page, the
-    /// browser over a thread included: the report only arms `backToList`.
+    /// browser over a thread included: the report alone never closes the thread (`BackToList`).
     private var compactColumn: Binding<NavigationSplitViewColumn> {
         Binding(get: { ThreadColumns.compactColumn(path) }, set: { column in
-            if column == .sidebar, sizeClass == .compact { listReported = true }
+            if column == .sidebar, back.listReported(sizeClass) { path = [] }
         })
     }
 }
