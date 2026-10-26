@@ -270,6 +270,8 @@ test("comments sharing an ending line keep independent replies and resolve actio
 
 test("a changed file's menu opens it in the installed editor, and offers none without one", async () => {
   const { app, panel } = await openChanges();
+  // The harness installs editors; this machine starts with none.
+  app.daemon.workspace.setEditors([]);
   const menu = () => within(panel).getByRole("button", { name: `Actions for ${path}` });
   await userEvent.click(menu());
   expect(await screen.findByRole("menuitem", { name: "Copy path" })).toBeTruthy();
