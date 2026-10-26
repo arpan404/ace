@@ -1,21 +1,30 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { createInterface } from "node:readline";
+import { afterEach, expect, test, vi } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { array, object } from "./data.ts";
 import { cli, setup } from "./testing/v2-session.ts";
 import { ended, stubbornTree, writeCmdShim } from "@ace/adapter-testkit";
 import type { ServerOptions } from "./server.ts";
+import { nativeLaunchedTree } from "./launched-tree.ts";
 
 // npm installs OpenCode on Windows as `opencode.cmd`, so every case launches the fake through
 // cmd.exe. The pid ace spawns is the shim's, never the server's own.
 const windows = process.platform === "win32";
 const dirs: string[] = [];
+const others: (() => void)[] = [];
 afterEach(async () => {
+  for (const stop of others.splice(0)) stop();
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
 });
-async function shimmed(env: NodeJS.ProcessEnv = {}, preload?: (dir: string) => Promise<string>) {
+async function shimmed(
+  env: NodeJS.ProcessEnv = {},
+  preload?: (dir: string) => Promise<string>,
+  runtime: ServerOptions["runtime"] = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), "ace-opencode-shim-"));
   dirs.push(dir);
   const shim = await writeCmdShim(dir, "opencode", cli, await preload?.(dir));
@@ -23,6 +32,7 @@ async function shimmed(env: NodeJS.ProcessEnv = {}, preload?: (dir: string) => P
   const options: ServerOptions = {
     discovery: { env },
     runtime: {
+      ...runtime,
       spawn: (spawnOptions) => {
         const proc = spawnSupervised({
           ...spawnOptions,
@@ -174,5 +184,93 @@ test.runIf(windows)(
     expect(await spawned[0]?.exited).toMatchObject({ reason: "stopped" });
     expect(await ended(Number(tree.agent))).toBe(true);
     expect(await ended(Number(tree.child))).toBe(true);
+  },
+);
+
+/** A compatible OpenCode server ace did not launch, answering to the password tests use. */
+async function otherServer() {
+  const child = spawn(process.execPath, [cli, "serve", "--stdio", "--port", "0"], {
+    env: { ...process.env, OPENCODE_PASSWORD: "ephemeral-test-secret" },
+    stdio: ["pipe", "pipe", "ignore"],
+    windowsHide: true,
+  });
+  others.push(() => child.kill());
+  for await (const line of createInterface({ input: child.stdout })) {
+    const url = String(object(JSON.parse(line)).url);
+    const authorization = `Basic ${Buffer.from("opencode:ephemeral-test-secret").toString("base64")}`;
+    const info = async () =>
+      object(await (await fetch(new URL("/api/info", url), { headers: { authorization } })).json());
+    return { url, pid: Number((await info()).pid), info };
+  }
+  throw new Error("The other OpenCode server never announced its URL");
+}
+/** Rewrites the launched fake's readiness line to announce `ACE_TEST_READY_URL` instead. */
+async function staleReadiness(dir: string): Promise<string> {
+  const path = join(dir, "stale-readiness.mjs");
+  await writeFile(
+    path,
+    [
+      "const log = console.log;",
+      "console.log = (...args) =>",
+      '  typeof args[0] === "string" && args[0].startsWith(\'{"url"\')',
+      "    ? log(JSON.stringify({ url: process.env.ACE_TEST_READY_URL }))",
+      "    : log(...args);",
+      "",
+    ].join("\n"),
+  );
+  return path;
+}
+
+test.runIf(windows)(
+  "Windows OpenCode refuses a readiness URL that names a compatible server outside its launch, leaving that server running",
+  async () => {
+    const other = await otherServer();
+    const launched: ReturnType<typeof spawnSupervised>[] = [];
+    const dir = await mkdtemp(join(tmpdir(), "ace-opencode-stale-"));
+    dirs.push(dir);
+    const shim = await writeCmdShim(dir, "opencode", cli, await staleReadiness(dir));
+    await expect(
+      setup({
+        discovery: { env: { ACE_TEST_READY_URL: other.url } },
+        runtime: {
+          spawn: (options) => {
+            const proc = spawnSupervised({ ...options, command: shim });
+            launched.push(proc);
+            return proc;
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "unreachable",
+      detail: expect.stringMatching(/outside the process tree ace launched/),
+    });
+    // ace stops only its own launch; the server the stale URL named keeps answering.
+    expect(await launched[0]?.exited).toBeDefined();
+    expect(await ended(other.pid, 500)).toBe(false);
+    expect((await other.info()).pid).toBe(other.pid);
+  },
+);
+
+test.runIf(windows)(
+  "Windows OpenCode accepts its own shimmed server, then refuses it on recovery once that pid carries another creation time",
+  async () => {
+    const real = await nativeLaunchedTree();
+    let reused: number | undefined;
+    const { h } = await shimmed({}, undefined, {
+      launchedTree: {
+        leader: (pid) => real.leader(pid),
+        members: (leader) =>
+          real
+            .members(leader)
+            .map((m) => (m.pid === reused ? { pid: m.pid, start: `${BigInt(m.start) + 1n}` } : m)),
+      },
+    });
+    const pid = await serverPid(h);
+    await h.session.send([{ type: "text", text: "verified" }], "queue");
+    expect(h.exits).toHaveLength(0);
+    reused = pid;
+    await h.control("/test/drop", {});
+    await vi.waitFor(() => expect(h.exits).toHaveLength(1), { timeout: 10_000 });
+    expect(await ended(pid)).toBe(true);
   },
 );
