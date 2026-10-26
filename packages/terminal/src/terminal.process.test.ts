@@ -365,8 +365,13 @@ describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
   test("ctrl-C at the prompt leaves the shell running", async () => {
     const { terminal, attachment, evaluate } = await openConpty();
     terminal.write("\x03");
+    // Let the line editor finish cancelling before the next line arrives.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     evaluate("4000+321");
-    expect(await until(attachment, "4321")).toContain("4321");
+    const shellExit = terminal.exited.then((status) => {
+      throw new Error(`The shell exited on ctrl-C: ${JSON.stringify(status)}`);
+    });
+    expect(await Promise.race([until(attachment, "4321"), shellExit])).toContain("4321");
     expect(terminal.ownsProcesses).toBe(true);
   });
 

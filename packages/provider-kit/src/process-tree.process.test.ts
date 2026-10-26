@@ -157,7 +157,7 @@ describe.each(modes)("an owned $name", (mode) => {
         command: process.execPath,
         args: ["-e", "process.exit(3)"],
         cwd: root,
-        env: {},
+        env: { ...process.env },
       });
       await expect(done.exited).resolves.toBe(3);
       const running = spawnBytes({
@@ -165,7 +165,7 @@ describe.each(modes)("an owned $name", (mode) => {
         command: process.execPath,
         args: ["-e", `console.log('ready'); ${stubborn}`],
         cwd: root,
-        env: {},
+        env: { ...process.env },
       });
       await once(running.stdout, "data");
       await running.stop();
