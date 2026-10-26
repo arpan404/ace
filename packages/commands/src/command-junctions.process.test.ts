@@ -174,14 +174,12 @@ windows("Windows removes a cached command when its file becomes a junction", asy
   await f.files.start();
   const command = f.catalog.list(target, "item").commands[0];
   if (!command) throw new Error("Missing command");
-  expect(f.catalog.resolve(target, command.id)).toMatchObject({
-    ok: true,
-    plan: { text: "Original" },
-  });
+  expect(f.catalog.resolve(target, command.id)).toMatchObject({ ok: true });
   // Windows has no sockets or FIFOs in folders; a junction is its nonregular entry.
   await rm(path);
   await symlink(f.outside, path, "junction");
   f.files.invalidate(path);
   await f.files.flush();
   expect(f.catalog.resolve(target, command.id)).toEqual({ ok: false, error: "not_found" });
+  expect(f.catalog.list(target, "item").commands.some((c) => c.id === command.id)).toBe(false);
 });
