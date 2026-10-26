@@ -419,7 +419,7 @@ async function windowsBrowserName(executable: string): Promise<string> {
   const entries = await readdir(dirname(executable)).catch(() => []);
   const versions = entries
     .map((entry) => /^(\d+\.\d+\.\d+\.\d+)(?:\.manifest)?$/.exec(entry)?.[1])
-    .filter((version): version is string => version !== undefined)
+    .filter((found): found is string => found !== undefined)
     .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
   const product = basename(executable).replace(/\.exe$/i, "");
   const newest = versions.at(-1);
