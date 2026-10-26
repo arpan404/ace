@@ -90,11 +90,33 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         var downloads: [Download]? = nil
         var downloading: Int? = nil
     }
+    /// The device the shown tab is shown as (`bridge/browser-device.ts`), and the device toolbar.
+    struct Device: Codable, Sendable, Equatable {
+        struct Preset: Codable, Sendable, Equatable, Identifiable {
+            let id: String
+            let label: String
+            /// phone, tablet or computer.
+            let kind: String
+            let width: Int
+            let height: Int
+        }
+        let toolbar: Bool
+        /// The preset the tab is, either way up; nil for any other size.
+        let preset: String?
+        let label: String
+        /// The tab's emulated size; nil while the page follows another screen's pane.
+        let width: Int?
+        let height: Int?
+        /// False for the person's own Chrome, which ace never resizes.
+        let supported: Bool
+        let presets: [Preset]
+    }
     /// Bumped whenever the daemon starts this viewer's pictures again.
     let generation: Int
     /// Why the browser can't be watched yet (none open); retried while the view is shown.
     let error: String?
     let state: State?
+    var device: Device? = nil
 }
 
 /// One-shot answers from the browser's tools (`bridge/browser-tools.ts`).

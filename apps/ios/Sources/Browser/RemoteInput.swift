@@ -32,20 +32,64 @@ enum RemoteInput: Equatable, Sendable {
     }
 }
 
-/// Where the picture sits in the view (aspect fit) and how points map between the view and the
-/// page's CSS pixels. Pure, so the mapping is tested directly.
+/// Where the picture sits in the view and how points map between the view and the page's CSS
+/// pixels. The page's width fits the view (never drawn larger than 1:1), from the top, as a phone's
+/// browser shows a page; a picture larger than the view (a desktop, or a phone taller than the
+/// view) can be zoomed and moved by the person. Pure, so the mapping is tested directly.
 struct PageGeometry: Equatable {
     /// The view's size in points.
     let view: CGSize
     /// The page's size in CSS pixels, as the latest picture reports it.
     let page: CGSize
+    /// The person's zoom on top of the fit, 1 to `maxZoom`.
+    var zoom: CGFloat = 1
+    /// The picture's top-left corner as the person moved it, in view points; kept inside `box`'s limits.
+    var offset: CGPoint = .zero
 
-    /// The picture's box in the view.
+    static let maxZoom: CGFloat = 4
+
+    /// The scale the picture is drawn at before the person's zoom.
+    var fitScale: CGFloat {
+        guard view.width > 0, page.width > 0 else { return 1 }
+        return min(1, view.width / page.width)
+    }
+    /// The picture's box in the view: centred across while it is narrower, at the top while it is
+    /// shorter, and otherwise where the person moved it, never leaving a gap at an edge.
     var box: CGRect {
         guard view.width > 0, view.height > 0, page.width > 0, page.height > 0 else { return .zero }
-        let scale = min(view.width / page.width, view.height / page.height)
+        let scale = fitScale * zoom
         let size = CGSize(width: page.width * scale, height: page.height * scale)
-        return CGRect(x: (view.width - size.width) / 2, y: (view.height - size.height) / 2, width: size.width, height: size.height)
+        let x = size.width <= view.width ? (view.width - size.width) / 2 : min(0, max(view.width - size.width, offset.x))
+        let y = size.height <= view.height ? 0 : min(0, max(view.height - size.height, offset.y))
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+    /// The picture is larger than the view, or zoomed: two fingers move and zoom it instead of
+    /// going to the page.
+    var movable: Bool {
+        let box = box
+        return zoom > 1 || box.width > view.width + 0.5 || box.height > view.height + 0.5
+    }
+    /// Moved by a two-finger drag of `delta` view points.
+    func panned(by delta: CGPoint) -> PageGeometry {
+        var next = self
+        let origin = box.origin
+        next.offset = CGPoint(x: origin.x + delta.x, y: origin.y + delta.y)
+        return next.settled()
+    }
+    /// Zoomed by `factor` around a view point, which stays over the same place in the page.
+    func zoomed(by factor: CGFloat, around focus: CGPoint) -> PageGeometry {
+        var next = self
+        next.zoom = min(Self.maxZoom, max(1, zoom * factor))
+        let ratio = next.zoom / zoom
+        let origin = box.origin
+        next.offset = CGPoint(x: focus.x - (focus.x - origin.x) * ratio, y: focus.y - (focus.y - origin.y) * ratio)
+        return next.settled()
+    }
+    /// The offset where the box actually is, so a later move starts from what is shown.
+    private func settled() -> PageGeometry {
+        var next = self
+        next.offset = box.origin
+        return next
     }
     /// A view point in the page, clamped to its edges (a finger that slides off keeps its edge).
     func pagePoint(_ point: CGPoint) -> CGPoint {

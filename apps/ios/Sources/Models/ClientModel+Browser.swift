@@ -47,7 +47,7 @@ extension ClientModel {
         browser.close(streams: browserStreams)
         browserAction(["kind": "close"])
     }
-    /// The view's size changed: the page lays out at it, as a touch screen.
+    /// The view's size changed: the picture is sized for it; the page keeps its device.
     func browserViewport(size: CGSize, scale: CGFloat) {
         guard browser.threadId != nil else { return }
         browserAction(["kind": "viewport", "viewport": Self.viewport(size, scale)])
@@ -64,6 +64,21 @@ extension ClientModel {
     func browserSelectTab(_ tabId: String) {
         guard canOperate, browser.threadId != nil else { return }
         browserAction(["kind": "tab", "tabId": tabId])
+    }
+
+    /// Show the tab as a device preset (the web's device toolbar); the page is told through `emulate`.
+    func browserDevice(_ preset: String) {
+        guard canOperate, browser.threadId != nil else { return }
+        browserAction(["kind": "device", "preset": preset])
+    }
+    func browserRotateDevice() {
+        guard canOperate, browser.threadId != nil else { return }
+        browserAction(["kind": "rotate"])
+    }
+    /// The device toolbar above the bar, for the shown tab; kept on this phone.
+    func browserDeviceToolbar(_ show: Bool) {
+        guard browser.threadId != nil else { return }
+        browserAction(["kind": "deviceToolbar", "show": show])
     }
 
     private func browserAction(_ value: [String: Any]) { action(["type": "browser", "action": value]) }
