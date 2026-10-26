@@ -12,7 +12,11 @@ import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
 import { isAbsolute, join, relative, sep, win32, dirname, basename } from "node:path";
 import { failure, errorCode, WorkspaceError } from "./types.ts";
-import { passesWindowsRelativePathPolicy } from "./path-policy.ts";
+import {
+  passesWindowsRelativePathPolicy,
+  windowsInternal,
+  windowsTransferTemporary,
+} from "./path-policy.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
 export function validRelativePath(input: string): boolean {
@@ -216,7 +220,22 @@ export class SafeRoot {
     } catch (error) {
       if (errorCode(error) !== "ENOENT") throw error;
     }
+    // Windows: realpath returns on-disk long names, so case and 8.3 aliases (GIT~1) of
+    // reserved entries are caught on the resolved parent and the existing leaf.
+    if (process.platform === "win32") await this.windowsReservedTarget(resolved, destination);
     return { path: destination, verify: () => this.verify(parent, resolved, expected) };
+  }
+  private async windowsReservedTarget(resolved: string, destination: string): Promise<void> {
+    let leaf: string | undefined;
+    try {
+      // A link leaf was refused above, so realpath names the leaf itself.
+      leaf = basename(await this.fs.realpath(destination));
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    const parent = relative(this.root, resolved).split(sep).join("/");
+    if (internal(parent) || (leaf !== undefined && internal(leaf)))
+      throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
   }
   async metadata(input: string) {
     try {
@@ -295,9 +314,11 @@ export class SafeRoot {
   }
 }
 export function transferTemporary(path: string): boolean {
+  if (process.platform === "win32") return windowsTransferTemporary(path);
   return path.split("/").some((part) => part.startsWith(".ace-upload-"));
 }
 export function internal(path: string): boolean {
+  if (process.platform === "win32") return windowsInternal(path);
   return path.split("/").includes(".git") || transferTemporary(path);
 }
 export function transient(error: unknown): boolean {

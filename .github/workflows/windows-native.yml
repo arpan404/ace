@@ -88,6 +88,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Workspace tests check that 8.3 aliases (GIT~1) of reserved names are refused.
+      - name: Generate 8.3 names on the temp volume
+        run: fsutil 8dot3name set $env:RUNNER_TEMP.Substring(0, 2) 0
+
       - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.node_arch }})
         uses: actions/setup-node@v7
         with:

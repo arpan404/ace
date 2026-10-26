@@ -51,3 +51,15 @@ export function windowsNameAllowed(name: string): boolean {
 export function passesWindowsRelativePathPolicy(input: string): boolean {
   return input.split("/").every((part) => part === "" || part === "." || windowsNameAllowed(part));
 }
+
+// NTFS resolves names case-insensitively, so reserved entries match in any case on Windows.
+/** Win32: whether any component is an upload temporary, in any case. */
+export function windowsTransferTemporary(path: string): boolean {
+  return path.split("/").some((part) => part.toLowerCase().startsWith(".ace-upload-"));
+}
+/** Win32: whether any component is `.git` or an upload temporary, in any case. */
+export function windowsInternal(path: string): boolean {
+  return (
+    path.split("/").some((part) => part.toLowerCase() === ".git") || windowsTransferTemporary(path)
+  );
+}
