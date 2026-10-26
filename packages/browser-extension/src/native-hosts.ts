@@ -104,8 +104,11 @@ export function launcherScript(
   platform: NodeJS.Platform,
   options: { node: string; entry: string; dataDir: string },
 ): string {
+  // cmd.exe decodes each batch line in the console code page (OEM, such as 437), not UTF-8, so
+  // non-ASCII paths would reach Node mangled. `chcp 65001` switches the host's own console to
+  // UTF-8 before cmd reads the line that carries the paths.
   if (platform === "win32")
-    return `@echo off\r\nsetlocal DisableDelayedExpansion\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
+    return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
   return `#!/bin/sh
 # Written by ace for "Use my Chrome" (ADR 0084). Chrome starts this as a native messaging host.
 exec ${quote(options.node)} ${quote(options.entry)} --data-dir ${quote(options.dataDir)} "$@"
