@@ -1,5 +1,10 @@
-import { expect, test } from "vitest";
-import { captionSymbolColor, titleBarSymbolColor, windowOptions } from "./options.ts";
+import { describe, expect, test } from "vitest";
+import {
+  captionHeight,
+  captionSymbolColor,
+  titleBarSymbolColor,
+  windowOptions,
+} from "./options.ts";
 
 const darkGlyphs = titleBarSymbolColor(false);
 const lightGlyphs = titleBarSymbolColor(true);
@@ -17,20 +22,31 @@ function windowsOverlay(osDark: boolean, background?: string) {
   return typeof overlay === "object" ? overlay.symbolColor : undefined;
 }
 
-test("Windows caption buttons stay readable when the page's theme differs from the OS", () => {
-  // A light page under a dark OS, and a dark page under a light one.
-  expect(windowsOverlay(true, "#ffffff")).toBe(darkGlyphs);
-  expect(windowsOverlay(false, "#0c0c0c")).toBe(lightGlyphs);
-  // Before the page has said, the OS scheme decides.
-  expect(windowsOverlay(true)).toBe(lightGlyphs);
-  expect(windowsOverlay(false)).toBe(darkGlyphs);
-});
+describe.runIf(process.platform === "win32")("the Windows caption buttons", () => {
+  test("Windows caption buttons stay readable when the page's theme differs from the OS", () => {
+    // A light page under a dark OS, and a dark page under a light one.
+    expect(windowsOverlay(true, "#ffffff")).toBe(darkGlyphs);
+    expect(windowsOverlay(false, "#0c0c0c")).toBe(lightGlyphs);
+    // Before the page has said, the OS scheme decides.
+    expect(windowsOverlay(true)).toBe(lightGlyphs);
+    expect(windowsOverlay(false)).toBe(darkGlyphs);
+  });
 
-test("caption glyphs follow the background's lightness, mid tones included", () => {
-  expect(captionSymbolColor("#f4f4f5")).toBe(darkGlyphs);
-  expect(captionSymbolColor("#1d1d20")).toBe(lightGlyphs);
-  expect(captionSymbolColor("#2563eb")).toBe(lightGlyphs);
-  expect(captionSymbolColor("#fbbf24")).toBe(darkGlyphs);
-  // Not a hex colour: the OS scheme decides.
-  expect(captionSymbolColor("transparent", true)).toBe(lightGlyphs);
+  test("caption glyphs follow the background's lightness, mid tones included", () => {
+    expect(captionSymbolColor("#f4f4f5")).toBe(darkGlyphs);
+    expect(captionSymbolColor("#1d1d20")).toBe(lightGlyphs);
+    expect(captionSymbolColor("#2563eb")).toBe(lightGlyphs);
+    expect(captionSymbolColor("#fbbf24")).toBe(darkGlyphs);
+    // Not a hex colour: the OS scheme decides.
+    expect(captionSymbolColor("transparent", true)).toBe(lightGlyphs);
+  });
+
+  test("grow with the page's zoom and keep the top bar's centre line", () => {
+    expect(captionHeight(1)).toBe(44);
+    expect(captionHeight(1.5)).toBe(66);
+    expect(captionHeight(0.5)).toBe(22);
+    // Chromium's own zoom range, and nonsense, stay within it.
+    expect(captionHeight(9)).toBe(220);
+    expect(captionHeight(Number.NaN)).toBe(44);
+  });
 });

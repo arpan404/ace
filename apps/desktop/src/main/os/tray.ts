@@ -1,4 +1,3 @@
-import { basename, dirname, join } from "node:path";
 import { Menu, Tray, nativeImage, type NativeImage } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import type { WorkSummary } from "../link/thread-watch.ts";
@@ -100,15 +99,10 @@ function icon(path: string): NativeImage {
   return image;
 }
 
-/**
- * Windows: the colour app tile beside the template image (both are packaged). The taskbar never
- * tints tray icons and is dark by default, where the black template glyph would vanish.
- */
-function windowsIcon(templatePath: string): NativeImage {
-  const image = nativeImage.createFromPath(
-    join(dirname(templatePath), basename(templatePath).replace("trayTemplate", "trayColor")),
-  );
-  // The notification area's slot is 16 px (more at higher scales, drawn from the 2x image).
+/** Windows: the colour app tile (`appPaths().trayIcon`) at the notification area's size. */
+function windowsIcon(path: string): NativeImage {
+  const image = nativeImage.createFromPath(path);
+  // The slot is 16 px (more at higher scales, drawn from the 2x image).
   return image.isEmpty()
     ? fallbackIcon()
     : image.resize({ width: 16, height: 16, quality: "best" });

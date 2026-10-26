@@ -62,7 +62,7 @@ export function windowOptions(options: {
           ? captionSymbolColor(options.background)
           : titleBarSymbolColor(options.dark),
         // The page's top bar (`--header-h`), so the glyphs share its centre line.
-        height: 44,
+        height: captionHeight(1),
       },
     };
   return base;
@@ -71,6 +71,18 @@ export function windowOptions(options: {
 /** The window's colour before the page paints: the default theme's (ace) page colour. */
 export function solidBackground(dark: boolean): string {
   return dark ? "#0C0C0C" : "#ffffff";
+}
+
+/** The page's top bar in CSS pixels (`--header-h`). */
+const headerHeight = 44;
+
+/**
+ * Windows: the caption buttons' height for the page's zoom. The top bar grows with zoom, so the
+ * buttons do too and keep its centre line (Chromium zooms from 25% to 500%).
+ */
+export function captionHeight(zoomFactor: number): number {
+  const factor = Number.isFinite(zoomFactor) ? Math.min(5, Math.max(0.25, zoomFactor)) : 1;
+  return Math.round(headerHeight * factor);
 }
 
 /** Windows: the colour of the caption buttons drawn over the page. */
