@@ -42,6 +42,11 @@ on:
       - package.json
       - bun.lock
   workflow_dispatch:
+    inputs:
+      screen_only:
+        description: "Run only the native screen helper checks (skip the browser and the rest of the native suite)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -241,14 +246,16 @@ jobs:
           rem Run from the crate so .cargo/config.toml enables its static CRT.
           pushd native\screen-helper-windows || exit /b 1
           cargo build --locked --target %RUST_TARGET% || exit /b 1
+          rem The owned Win32 window the computer-use engine tests drive.
+          cargo build --locked --target %RUST_TARGET% --example computer_fixture || exit /b 1
           cargo test --locked --target %RUST_TARGET% || exit /b 1
           popd
 
       - name: Clear runner shell overlays before owned screen tests
         run: ./scripts/prepare-windows-screen.ps1
 
-      - name: Verify real screen helper pipe, owned capture, UIA and input
-        timeout-minutes: 3
+      - name: Verify real screen helper pipe, owned capture, UIA, input and the computer-use engine
+        timeout-minutes: 10
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
           TEMP: ${{ runner.temp }}
@@ -258,12 +265,12 @@ jobs:
 
       - name: Prepare real Windows browser for streaming checks
         id: browser-prepare
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only }}
         timeout-minutes: 25
         env:
           TEMP: ${{ runner.temp }}

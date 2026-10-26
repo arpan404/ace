@@ -166,6 +166,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         ? [
             computerToolkit(services.computer, {
               platform: process.platform === "linux" ? "linux" : "macos",
+              ...(process.platform === "win32" ? { platform: "windows" as const } : {}),
               // Read on every call, so a change in Settings applies to the next one.
               blockedApps: async () =>
                 (await services.settings?.get("computer.blockedApps"))?.value ?? [],

@@ -8,6 +8,7 @@ import {
   type Simulators,
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -57,6 +58,23 @@ export async function startScreen({ config, options, resources, services, store 
         },
       }
     : {};
+  if (process.platform === "win32") {
+    // The session helper's executable; `--computer` selects the background engine. Paths the
+    // agent names for executables outside the Start menu are remembered under the data dir.
+    const computer = new ComputerClient({
+      helper: async () => helper,
+      nextId: randomUUID,
+      helperArgs: ["--data-dir", join(config.dataDir, "screen")],
+      // A console program started from a windowless daemon would open a console window.
+      spawnHelper: (command, args, env) =>
+        spawn(command, [...args], { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true }),
+      ...timings,
+    });
+    resources.own(() => computer.close());
+    services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+    return;
+  }
   const computer =
     process.platform === "darwin"
       ? // Same signed helper, so the person's Accessibility and Screen Recording grants apply.

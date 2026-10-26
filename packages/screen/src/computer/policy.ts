@@ -91,6 +91,53 @@ const linuxAuthentication = [
   "org.kde.kdesu",
 ] as const;
 
+// Windows identities: executable file names, and AppUserModelIDs for packaged apps.
+const windowsTerminals = [
+  "cmd.exe",
+  "powershell.exe",
+  "powershell_ise.exe",
+  "pwsh.exe",
+  "windowsterminal.exe",
+  "wt.exe",
+  "openconsole.exe",
+  "conhost.exe",
+  "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+  "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe!App",
+  "wsl.exe",
+  "wslhost.exe",
+  "bash.exe",
+  "git-bash.exe",
+  "mintty.exe",
+  "alacritty.exe",
+  "wezterm-gui.exe",
+  "wezterm.exe",
+  "tabby.exe",
+  "hyper.exe",
+  "warp.exe",
+  "putty.exe",
+  "kitty.exe",
+] as const;
+const windowsScripts = ["wscript.exe", "cscript.exe", "mshta.exe"] as const;
+const windowsPasswords = [
+  "keepass.exe",
+  "keepassxc.exe",
+  "1password.exe",
+  "bitwarden.exe",
+  "dashlane.exe",
+  "nordpass.exe",
+  "proton pass.exe",
+  "lastpass.exe",
+  "credwiz.exe",
+] as const;
+const windowsAuthentication = [
+  "consent.exe",
+  "credentialuibroker.exe",
+  "logonui.exe",
+  "lockapp.exe",
+  "Microsoft.LockApp_cw5n1h2txyewy!WindowsDefaultLockScreen",
+  "Microsoft.Windows.SecureAssessmentBrowser_cw5n1h2txyewy!App",
+] as const;
+
 const builtIn: ReadonlyMap<string, string> = new Map(
   (
     [
@@ -135,6 +182,12 @@ const builtIn: ReadonlyMap<string, string> = new Map(
       // The tar.gz's Electron, started through its `ace-desktop` launcher.
       ["ace-desktop-bin", ace],
       ["ace-screen-helper-linux", ace],
+      ...windowsTerminals.map((id) => [id, shell] as const),
+      ...windowsScripts.map((id) => [id, scripts] as const),
+      ...windowsPasswords.map((id) => [id, passwords] as const),
+      ...windowsAuthentication.map((id) => [id, authentication] as const),
+      ["ace.exe", ace],
+      ["ace-screen-helper-windows.exe", ace],
     ] as const
   ).map(([bundleId, reason]) => [bundleId.toLowerCase(), reason]),
 );

@@ -205,6 +205,15 @@ impl Service {
                 launch: Some(query.to_owned()),
             });
         }
+        // The id the daemon passes back after resolving: no Start menu read needed.
+        if let Some(app) = running.iter().find(|r| r.id.eq_ignore_ascii_case(query)) {
+            return Ok(Resolved {
+                id: app.id.clone(),
+                name: self.name_of(&app.id, app.path.as_deref()),
+                running: true,
+                launch: None,
+            });
+        }
         let candidates = self.candidates(&running);
         let found = match catalog::resolve(query, &candidates) {
             Ok(found) => found,
