@@ -107,3 +107,5 @@ try {
   Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)"
 }
 if ($failed) { throw $failed }
+
+exit 0
