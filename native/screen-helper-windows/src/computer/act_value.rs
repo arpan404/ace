@@ -156,6 +156,46 @@ impl Actor<'_> {
         label: &str,
         value: &str,
     ) -> CuResult<String> {
+        // Win32 edit controls take the text by message; UI Automation's proxy focuses the
+        // control first, which brings its window forward.
+        let fresh = self.uia.refresh(element)?;
+        if let Some(hwnd) =
+            uia::native_window(&fresh).filter(|_| uia::is_edit_class(&uia::class_name(&fresh)))
+        {
+            if uia::facts(&fresh).value_writable == Some(false) {
+                return Err(CuError::new(
+                    "not_settable",
+                    format!("{label} is read-only."),
+                ));
+            }
+            let text: Vec<u16> = value
+                .replace("\r\n", "\n")
+                .replace('\n', "\r\n")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            let sent = unsafe {
+                SendMessageTimeoutW(
+                    hwnd,
+                    WM_SETTEXT,
+                    WPARAM(0),
+                    LPARAM(text.as_ptr() as isize),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                    2_000,
+                    None,
+                )
+            };
+            if sent.0 == 0 {
+                return Err(CuError::new(
+                    "app_busy",
+                    format!("{} did not take the value in time.", self.session.name),
+                ));
+            }
+            return Ok(format!(
+                "set {label} to \"{}\"",
+                clip(value, 60).unwrap_or_default()
+            ));
+        }
         unsafe {
             let pattern =
                 pattern::<IUIAutomationValuePattern>(element, UIA_ValuePatternId, "value change")?;
