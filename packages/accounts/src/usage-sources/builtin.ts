@@ -27,7 +27,7 @@ const cursorMeter = (label: string, field: string) => ({
  * `/usage` makes with its login (`src/usage-data.ts`), confirmed read-only against a signed-in
  * CLI. Included usage can run past 100% on bonus and on-demand spend, so the meters never hold.
  */
-function cursorUsage(token: z.input<typeof TokenStore>, platform: "darwin" | "linux") {
+function cursorUsage(token: z.input<typeof TokenStore>, platform: "darwin" | "linux" | "win32") {
   return {
     kind: "token-http" as const,
     platforms: [platform],
@@ -141,6 +141,12 @@ const declarations: Record<string, Declared> = {
       cursorUsage(
         { from: "file", files: ["$XDG_CONFIG_HOME/cursor/auth.json"], path: ["accessToken"] },
         "linux",
+      ),
+      // On Windows cursor-agent 2026.10.22 keeps it in `%APPDATA%\Cursor\auth.json` (its
+      // `cli-credentials` file store; it uses no Credential Manager entry).
+      cursorUsage(
+        { from: "file", files: ["$APPDATA/Cursor/auth.json"], path: ["accessToken"] },
+        "win32",
       ),
     ],
   },
