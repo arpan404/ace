@@ -127,7 +127,7 @@ export default defineConfig({
     testNamePattern: new RegExp(`^(?!(?:${posixOnly.map(escapeName).join("|")})$)`),
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/git-template-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });

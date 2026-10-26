@@ -38,7 +38,7 @@ export function spawnPinned(
   );
 }
 
-/** Windows: Git starts by the held directory's volume path while a lease keeps it in place. */
+/** Windows: Git starts in the held directory by its canonical path while a lease keeps it in place. */
 function spawnLeased(
   runtime: GitProcessRuntime,
   binary: string,
@@ -62,7 +62,7 @@ function spawnLeased(
     try {
       lease.verify();
     } catch {
-      // The folder became a link while Git was starting: stop before it does any work there.
+      // The folder or its drive changed while Git was starting: stop it before it does any work.
       child.kill("SIGKILL");
     }
   });

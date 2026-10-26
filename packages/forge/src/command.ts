@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { win32 } from "node:path";
 import type { WindowsJob } from "@ace/provider-kit/process-containment";
 import { ForgeError } from "./errors.ts";
 import { LogTail } from "./tail.ts";
@@ -167,6 +168,8 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
     import("@ace/provider-kit/discovery"),
     import("@ace/provider-kit/process-containment"),
   ]);
+  // A configured absolute path is never searched for, so the checkout can't stand in for it.
+  if (win32.isAbsolute(command)) return { command, createJob: () => createKillOnCloseJob() };
   const searched = Object.fromEntries(
     Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
   );
