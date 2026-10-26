@@ -55,11 +55,16 @@ const phase = {
   transactionsPerTurn: 1,
   memory,
 };
-const result = (workload: Workload, transactions: number, platform = "darwin-arm64") =>
+const result = (
+  workload: Workload,
+  transactions: number,
+  platform = "darwin-arm64",
+  node = "v24.0.0",
+) =>
   BenchResult.parse({
     version: 2,
     platform,
-    node: "v24.0.0",
+    node,
     workload,
     calibrationMs: 50,
     startup: memory,
@@ -176,4 +181,34 @@ test("adopting a new standard names the platforms still measured with the old on
   const changed = { ...standard, options: { ...standardOptions, newThreads: 30 } };
   const updated = adopt(baseline, combine([result(changed, 140, "linux-x64")]), changed);
   expect(staleBaselines(updated, changed)).toEqual(["darwin-arm64"]);
+});
+
+test("runs on different Node versions don't combine into one measurement", () => {
+  expect(() =>
+    combine([result(standard, 100), result(standard, 100, "darwin-arm64", "v26.8.1")]),
+  ).toThrow(/Node/);
+});
+
+test("memory measured on another Node major isn't held to that baseline, while portable costs still are", () => {
+  const newer = { ...measured({}), node: "v26.8.1" };
+  const verdicts = compare(
+    {
+      ...newer,
+      metrics: {
+        "startup.rss": 400_000_000,
+        "idle.cpuPerMinute": 9,
+        "phases.newThreads.transactionsPerTurn": 150,
+      },
+    },
+    baseline,
+  );
+  expect(Object.fromEntries(verdicts.map((v) => [v.metric, v.status]))).toEqual({
+    "startup.rss": "unbaselined",
+    "idle.cpuPerMinute": "unbaselined",
+    "phases.newThreads.transactionsPerTurn": "regressed",
+  });
+  // The same Node major is held to it.
+  expect(
+    compare({ ...measured({ "startup.rss": 400_000_000 }), node: "v24.13.0" }, baseline)[0]?.status,
+  ).toBe("regressed");
 });

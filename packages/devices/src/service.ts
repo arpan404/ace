@@ -1,6 +1,11 @@
 import { DeviceStreamOwners } from "./stream-owners.ts";
 import { watchDeviceLease } from "./lease-expiry.ts";
-import { DeviceStreamControl, deviceVideoStream } from "./stream-control.ts";
+import {
+  DeviceStreamControl,
+  deviceImageStream,
+  deviceStillStream,
+  deviceVideoStream,
+} from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import {
@@ -482,6 +487,15 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
+        // Nobody may be watching yet: a capture that makes stills on demand drops to its heartbeat.
+        if (session.capture?.still)
+          await this.streamControlFor(session)
+            .refresh()
+            .catch((error) =>
+              this.options.log?.("warn", "Device stream update failed", {
+                message: String(error),
+              }),
+            );
         // An agent starting a foldable device learns its posture from the reply.
         await this.refreshPosture(session);
         return this.state(session);
@@ -740,6 +754,12 @@ export class DevicesService {
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
       return oneOffFrame(shot, this.options.runtime);
     }
+    if (session.capture?.still) {
+      // Stills come on demand while nobody watches: make one of the screen as it is now.
+      await session.capture.still();
+      this.authorize(session, actor);
+      if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+    }
     return session.latest;
   }
   /** A viewer's stream preference; one the capture can't stream is withdrawn, not kept. */
@@ -757,11 +777,14 @@ export class DevicesService {
     }
   }
   private streamControlFor(session: DeviceSession): DeviceStreamControl {
-    session.streamControl ??= new DeviceStreamControl(async (settings) => {
-      this.authorize(session, { kind: "human", owner: "capture" });
-      if (session.lifecycle !== "live") throw new Error("Device stream stopped");
-      return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
-    });
+    session.streamControl ??= new DeviceStreamControl(
+      async (settings) => {
+        this.authorize(session, { kind: "human", owner: "capture" });
+        if (session.lifecycle !== "live") throw new Error("Device stream stopped");
+        return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+      },
+      () => (session.capture?.still ? deviceStillStream : deviceImageStream),
+    );
     return session.streamControl;
   }
   /** The live view's frames, the newest one whenever `sink` is ready for another. */

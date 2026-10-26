@@ -331,6 +331,7 @@ setInterval(() => {
       const last = capture.last;
       if (!last) continue;
       if (entry.pacer.still(at, capture.lastAt, busy(entry))) encode(entry, last, true);
+      else if (entry.pacer.catchUp(at, busy(entry))) encode(entry, last, false);
       else if (entry.encoder?.state === "configured") {
         const idle = entry.encoder.encodeQueueSize === 0;
         if (entry.pacer.settle(at, capture.lastAt, idle)) {

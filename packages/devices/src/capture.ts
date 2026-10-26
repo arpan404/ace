@@ -23,6 +23,12 @@ export interface DeviceCapture extends Capture {
   streamId?: string;
   configure?(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }>;
   keyframe?(): Promise<void>;
+  /**
+   * Publishes a still of the screen as it is now, when the capture is on stills (JPEG). A
+   * capture with this makes stills on demand while nobody watches or records, rather than a
+   * stream of them (`deviceStillStream`).
+   */
+  still?(): Promise<void>;
   /** Pointer input may carry fingers other than the first. */
   readonly multiTouch?: boolean;
   /** Accessibility served by the capture's own transport rather than the screen helper. */

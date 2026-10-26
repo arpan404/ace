@@ -1,7 +1,7 @@
 /*
- * Which encoded chunks reach the daemon while the backend socket is backed up (ADR 0088,
- * embedded backend). Video is never queued here and never closes the socket: a chunk the socket
- * refuses is dropped. A delta decodes only after every chunk since its keyframe, so once one of
+ * Which encoded chunks get through a link that is backed up: the desktop's backend socket
+ * (ADR 0088, embedded backend) and the Simulator transcoder's input pipe. Video is never queued
+ * here and never closes the link: a chunk the link refuses is dropped. A delta decodes only after every chunk since its keyframe, so once one of
  * an encode's chunks is dropped, its later deltas are dropped too until a keyframe gets through,
  * and the encoder is asked for that keyframe. Pure: the send is passed in.
  */
