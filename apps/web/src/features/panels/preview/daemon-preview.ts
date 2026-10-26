@@ -212,15 +212,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   /** A pane size waiting for the tab's current state (`fitPane`). */
   const panes = new Map<string, () => void>();
   /** Threads whose state arrived since their stream last started over: it is the current one. */
-  const current = new Set<string>();
+  const currentState = new Set<string>();
   /** Sends a waiting pane size, unless the shown tab has a device by now. */
   const releasePane = (threadId: string) => {
     const send = panes.get(threadId);
-    if (!send || !current.has(threadId) || !watches.get(threadId)?.subscribed) return;
+    if (!send || !currentState.has(threadId) || !watches.get(threadId)?.subscribed) return;
     if (client.state !== "ready") return;
     panes.delete(threadId);
-    const view = views.get(threadId);
-    const shown = view?.tabs?.find((tab) => tab.tabId === view.activeTabId);
+    const known = views.get(threadId);
+    const shown = known?.tabs?.find((tab) => tab.tabId === known.activeTabId);
     if (!shown?.emulation) send();
   };
   const frames = new Map<string, LivePicture>();
@@ -326,7 +326,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     sounds.reset(threadId);
     // The next subscription sends every tab's page state again.
     pages.delete(threadId);
-    current.delete(threadId);
+    currentState.delete(threadId);
   };
   /** The page is gone (the browser closed): so is its picture. */
   const dropPicture = (threadId: string) => {
@@ -526,7 +526,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           });
       }
       views.set(state.threadId, view(state));
-      current.add(state.threadId);
+      currentState.add(state.threadId);
       releasePane(state.threadId);
       if (state.tabs)
         pages.keep(

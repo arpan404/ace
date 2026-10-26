@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
-import { McpScope } from "@ace/protocol";
+import { BrowserState, McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
 import { executablePath, fixture, textRef, toolPort } from "./test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
@@ -101,6 +101,44 @@ it("refuses an act whose fields do not fit its action before touching the page",
       ]),
     });
     expect(touched).toBe(false);
+  } finally {
+    f.close();
+  }
+});
+
+it("tells agents the tab works at a person's phone viewport, in tab lists and screenshots", async () => {
+  const phone = {
+    tabId: "t1",
+    url: "https://shop.test/",
+    title: "Shop",
+    emulation: {
+      width: 390,
+      height: 700,
+      deviceScaleFactor: 3,
+      mobile: true,
+      touch: true,
+      by: "human" as const,
+    },
+  };
+  const f = agent({
+    open: unused,
+    tab: async () => ({ tabId: "t1", url: phone.url, title: phone.title }),
+    state: () =>
+      BrowserState.parse({ threadId: "thread", url: phone.url, closed: false, tabs: [phone] }),
+    execute: async () => ({ tabs: [{ ...phone, current: true }], tabId: "t1" }),
+    screenshot: async () => ({ bytes: new Uint8Array([1, 2, 3]) }),
+    close: unused,
+  });
+  try {
+    const device = { width: 390, height: 700, mobile: true, touch: true, setBy: "person" };
+    expect(jsonOf(await f.call("browser_tabs", { action: "list" }))).toMatchObject({
+      tabs: [{ tabId: "t1", device }],
+    });
+    const shot = (await f.call("browser_screenshot", {})) as {
+      content: { type: string; text?: string }[];
+    };
+    const note = shot.content.find((part) => part.type === "text")?.text ?? "{}";
+    expect(JSON.parse(note)).toMatchObject({ device });
   } finally {
     f.close();
   }

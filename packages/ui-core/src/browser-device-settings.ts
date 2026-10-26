@@ -12,7 +12,7 @@ export interface TabDevice {
    * This screen gave the tab its own automatic device once (the phone's "this phone"). A tab
    * marked so and showing no device had it removed elsewhere, so it is not sent again.
    */
-  applied?: boolean;
+  applied?: boolean | undefined;
 }
 
 const Size = z.object({ preset: z.string(), width: z.number(), height: z.number() });
