@@ -129,3 +129,37 @@ test.runIf(x64)(
     }
   },
 );
+
+test.runIf(x64)("ace stops a Windows SDK host without waiting out the grace", async () => {
+  const home = await privateHome();
+  const host = new CursorHost(
+    {
+      env: cursorSdkEnvironment({ id: "windows", homeDir: home }, launch()),
+      // A long grace: only the host's own exit on EOF can end it before the forced tree stop.
+      limits: { graceMs: 30_000 },
+    },
+    () => {},
+  );
+  try {
+    expect(await host.request("status")).toEqual({ status: "logged-out", source: "none" });
+    const started = performance.now();
+    await host.stop();
+    expect(performance.now() - started).toBeLessThan(20_000);
+    expect(await host.process.exited).toMatchObject({ code: 0, reason: "exit" });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+const offered = (offers: readonly { mode: string }[] | undefined) =>
+  offers?.map((offer) => offer.mode);
+
+test.runIf(process.platform === "win32")(
+  "Cursor on Windows offers Full access and never Auto review",
+  async () => {
+    const { cursorCapabilitiesForSandbox } = await import("./policy.ts");
+    const { instanceAccessModes } = await import("@ace/provider-kit/access-modes");
+    expect(offered(cursorCapabilitiesForSandbox(true).accessModes)).toEqual(["full-access"]);
+    expect(offered(instanceAccessModes({ provider: "cursor" }, []))).toEqual(["full-access"]);
+  },
+);

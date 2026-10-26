@@ -209,6 +209,8 @@ export class CursorHost {
   stop(): Promise<void> {
     this.stopped ??= (async () => {
       this.rpc.close();
+      // A hidden Windows console ignores taskkill without /F; EOF lets the host end itself.
+      if (process.platform === "win32") this.process.stdin.end();
       await this.process.stop({ graceMs: this.limits.graceMs });
     })();
     return this.stopped;
