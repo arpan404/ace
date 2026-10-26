@@ -40,6 +40,10 @@ export default defineConfig({
       "packages/workspace/src/pinned-directory.process.test.ts",
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
+      // Daemon lifecycle from the real `ace` CLI: stop, lock refusal, crash restart, Ctrl+Break,
+      // and startup recovery of escaped provider trees and skill leases.
+      "apps/daemon/src/daemon-lifecycle.process.test.ts",
+      "apps/daemon/src/daemon-crash-recovery.process.test.ts",
       "packages/git/src/disabled-hooks.process.test.ts",
       "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",

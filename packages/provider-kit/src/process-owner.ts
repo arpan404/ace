@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
+import { win32 } from "node:path";
 import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
@@ -144,7 +145,8 @@ export type WindowsKillTree = (pid: number, force: boolean) => void;
 export function killWindowsTree(pid: number, force: boolean): void {
   try {
     const killer = spawn(
-      "taskkill",
+      // From System32, never PATH: a daemon started with a bare PATH still stops its trees.
+      win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
       force ? ["/pid", String(pid), "/T", "/F"] : ["/pid", String(pid), "/T"],
       {
         stdio: "ignore",

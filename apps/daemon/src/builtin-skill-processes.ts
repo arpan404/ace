@@ -15,6 +15,11 @@ import {
   processIdentity,
   processGroupIsGone,
 } from "@ace/provider-kit/process-identity";
+import {
+  WindowsSid,
+  windowsTreeRuntime,
+  type WindowsTreeRuntime,
+} from "@ace/provider-kit/process-identity";
 import type { ProcessLease } from "@ace/provider-kit/process";
 
 export const skillLeaseFilename = "skill-processes.json";
@@ -32,11 +37,14 @@ export interface SkillProcessRuntime {
   /** undefined means confirmed absent; unavailable inspection must throw. */
   identity(pid: number): ProcessIdentity | undefined;
   groupGone(group: number): boolean;
+  /** Windows only: no process groups exist, so a recorded leader's live descendants hold it. */
+  windowsTree?: Pick<WindowsTreeRuntime, "members">;
 }
 export const skillProcessRuntime: SkillProcessRuntime = {
   ownerPid: process.pid,
   identity: processIdentity,
   groupGone: processGroupIsGone,
+  ...(process.platform === "win32" ? { windowsTree: windowsTreeRuntime } : {}),
 };
 
 /** All inputs are validated before they can authorize deletion. Never follow a metadata symlink. */
@@ -92,6 +100,11 @@ function leaseUnused(record: LeaseRecord, runtime: SkillProcessRuntime): boolean
   for (const saved of record.processes) {
     if (saved.uid !== record.owner.uid || saved.group !== saved.pid)
       throw new Error("Invalid provider process ownership");
+    if (
+      runtime.windowsTree &&
+      runtime.windowsTree.members({ ...saved, uid: WindowsSid.parse(saved.uid) }).length > 0
+    )
+      return false;
     if (sameProcess(saved, runtime.identity(saved.pid)) || !runtime.groupGone(saved.group))
       return false;
   }

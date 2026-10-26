@@ -26,6 +26,9 @@ on:
       - packages/files/src/upload*
       - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*
+      - apps/daemon/src/daemon-*
+      - apps/daemon/src/process-daemon.ts
+      - apps/daemon/src/builtin-skill-*
       - packages/preview/**
       - native/screen-helper-windows/**
       - packages/screen/**
