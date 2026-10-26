@@ -16,11 +16,8 @@ import {
   packagedAppVersion,
   targetArch,
 } from "./common.ts";
-import {
-  notaryCredentials,
-  windowsSigning,
-  windowsSigningConfig,
-} from "../src/packaging/release-signing.ts";
+import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
