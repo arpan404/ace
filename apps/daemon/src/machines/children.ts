@@ -15,7 +15,8 @@ import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
-import { ChildOutbox } from "./child-outbox.ts";
+import { ChildMessages, type ChildMessagesDeps } from "./child-messages.ts";
+import { ChildResults } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
   RECHECK_PER_MACHINE,
@@ -24,7 +25,7 @@ import {
   recheckOutcome,
 } from "./child-recheck.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
-import { digest, monitoredChild, outcomeOf, watchedChild } from "./child-views.ts";
+import { monitoredChild, outcomeOf, watchedChild } from "./child-views.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -38,16 +39,7 @@ export interface ChildrenDeps {
     parentThreadId: ThreadId,
     ids: readonly ThreadId[],
   ): Promise<MachineThreadView[]>;
-  /**
-   * Sends a message again under its own request id, which the machine runs at most once.
-   * "taken" or "refused" answers for it; a machine that can't be reached throws.
-   */
-  resend(
-    machine: string,
-    parentThreadId: ThreadId,
-    child: ThreadId,
-    message: MachineMessage,
-  ): Promise<"taken" | "refused">;
+  resend: ChildMessagesDeps["resend"];
   mirror: RequestMirror;
   label(machine: string): string;
   /** Hands a settled result or a message notice to the parent; `key` names it once. */
@@ -92,15 +84,21 @@ export class MachineChildren implements RemoteChildren {
   private sinceRecheck = 0;
   /** The last re-check turn handed out; each machine's least recently checked go next. */
   private recheckTurn: number;
-  /** Messages this process is sending now, by child and request id: not sent again meanwhile. */
-  private inFlight = new Set<string>();
   private closed = false;
-  private outbox: ChildOutbox;
+  private results: ChildResults;
+  private messages: ChildMessages;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
     this.recheckTurn = this.ledger.lastRecheckTurn();
-    this.outbox = new ChildOutbox(deps.store);
+    this.results = new ChildResults({ ...deps, ledger: this.ledger });
+    this.messages = new ChildMessages({
+      ...deps,
+      ledger: this.ledger,
+      reopenSettled: (row) => this.reopenSettled(row),
+      reopen: (id) => this.reopen(id),
+      changed: () => this.arm(),
+    });
     this.arm();
   }
   close() {
@@ -215,7 +213,7 @@ export class MachineChildren implements RemoteChildren {
   private reopenSettled(row: ChildRow): void {
     const { id } = row;
     // The result it settled with stays owed to the parent, whatever the child does next.
-    if (row.delivered === 0) this.queueResult(row, savedView(row));
+    if (row.delivered === 0) this.results.queueResult(row, savedView(row));
     this.deps.store.atomic(() => {
       // Its last view showed it finished; until a poll reads it again it shows as working.
       this.ledger.markReopened(id);
@@ -239,75 +237,12 @@ export class MachineChildren implements RemoteChildren {
     this.emit([id]);
     this.arm();
   }
-  /**
-   * New work is on its way to the child. It is saved first, with the child reopened, so a caller
-   * that stops before the reply finds it open and the message unanswered. Until its machine
-   * answers for the message no status reply settles the child, and replies read before now never
-   * will. The returned release says whether the machine answered for it (took it, refused it, or
-   * was never reached); an unanswered message is sent again on the next poll.
-   */
+  /** New work is on its way to the child; see ChildMessages.send. */
   send(id: ThreadId, message: MachineMessage): (answered: boolean) => void {
-    const key = `${id}:${message.requestId}`;
-    this.deps.store.atomic(() => {
-      this.ledger.addMessage(id, message, this.deps.now());
-      const row = this.ledger.row(id);
-      if (row?.settled === 1) this.reopenSettled(row);
-    });
-    this.inFlight.add(key);
-    let released = false;
-    return (answered) => {
-      if (released) return;
-      released = true;
-      this.inFlight.delete(key);
-      if (answered) this.resolve(id, message.requestId);
-      this.arm();
-    };
-  }
-  /**
-   * The machine answered for a message. Should saving that fail (a busy store), the message stays
-   * unanswered and the next poll sends it again, which its machine answers without running it twice.
-   */
-  private resolve(id: ThreadId, requestId: string): void {
-    try {
-      this.ledger.resolveMessage(id, requestId);
-    } catch (error) {
-      this.deps.log("Machine message answer not saved yet", { id, error: String(error) });
-    }
-  }
-  /**
-   * Sends every unanswered message not being sent now again, under its own request id. An answer
-   * proves the machine holds the message (it runs, or ran) or refused it; one that can't be
-   * reached keeps it unanswered, and its child unsettled.
-   */
-  private async reconcile(): Promise<void> {
-    const pending = this.ledger
-      .messages(16)
-      .filter(({ child, message }) => !this.inFlight.has(`${child.id}:${message.requestId}`));
-    await Promise.all(
-      pending.map(async ({ child, message }) => {
-        const key = `${child.id}:${message.requestId}`;
-        this.inFlight.add(key);
-        try {
-          const answer = await this.deps.resend(
-            child.machine,
-            child.parent_thread,
-            child.id,
-            message,
-          );
-          this.resolve(child.id, message.requestId);
-          if (answer === "taken") this.reopen(child.id);
-        } catch (error) {
-          this.deps.log("Machine message still unanswered", { id: child.id, error: String(error) });
-        } finally {
-          this.inFlight.delete(key);
-          this.arm();
-        }
-      }),
-    );
+    return this.messages.send(id, message);
   }
   delivered(id: ThreadId): void {
-    this.ledger.markDelivered(id);
-    this.outbox.resultsRead(id);
+    this.results.read(id);
   }
   subscribe(listener: (ids: readonly string[]) => void): () => void {
     this.listeners.add(listener);
@@ -324,7 +259,7 @@ export class MachineChildren implements RemoteChildren {
     try {
       due =
         this.ledger.rows("settled=0 OR delivered=0").length > 0 ||
-        this.outbox.hasUnsent() ||
+        this.results.hasUnsent() ||
         this.ledger.anyMessages();
       watchingSettled = !due && this.ledger.hasRecentlySettled(this.deps.now() - RECHECK_WINDOW_MS);
     } catch (error) {
@@ -346,9 +281,11 @@ export class MachineChildren implements RemoteChildren {
     try {
       // Alongside the poll, never ahead of it: a machine slow to answer one message must not
       // stop its children being watched.
-      void this.reconcile().catch((error: unknown) =>
-        this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
-      );
+      void this.messages
+        .reconcile()
+        .catch((error: unknown) =>
+          this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
+        );
       const active = this.ledger.rows("settled=0");
       await Promise.all([
         ...statusBatches(active).map(async ([machine, rows]) => {
@@ -391,8 +328,8 @@ export class MachineChildren implements RemoteChildren {
         }),
       ]);
       for (const row of this.ledger.rows("settled=1 AND delivered=0"))
-        this.queueResult(row, savedView(row));
-      this.drain();
+        this.results.queueResult(row, savedView(row));
+      this.results.drain();
     } finally {
       this.polling = false;
     }
@@ -441,14 +378,7 @@ export class MachineChildren implements RemoteChildren {
     const row = this.ledger.row(polled.id);
     if (!row || row.generation !== polled.generation || this.ledger.hasMessages(row.id)) return;
     this.unreachable.delete(row.id);
-    if (view.notice)
-      this.outbox.queue({
-        key: `notice:${row.id}:${view.notice.commandId}:${view.notice.code}`,
-        child: row.id,
-        parent: row.parent_thread,
-        kind: "notice",
-        text: `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${view.notice.text}`,
-      });
+    if (view.notice) this.results.notice(row, view.notice);
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
@@ -481,55 +411,10 @@ export class MachineChildren implements RemoteChildren {
         },
         settled ? "end" : undefined,
       );
-      if (settled) this.queueResult(row, view);
+      if (settled) this.results.queueResult(row, view);
     });
     if (settled) this.deps.mirror.release(`child:${row.id}`);
     this.emit([row.id]);
-  }
-  /**
-   * Owes the parent the result a settled view carries. Keyed by the outcome, its settle time and
-   * its text alone, so the same settle read again (a notice changed the view, the child was
-   * reopened and settled unchanged) is the same entry, while a new settle is a new one.
-   */
-  private queueResult(row: ChildRow, view: MachineThreadView | undefined) {
-    if (!view || !settledStates.has(view.state)) return;
-    const outcome = outcomeOf(view.state);
-    const result = view.result ?? "";
-    const key = `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`;
-    // The same settle read again after a reopen that ran nothing: its parent already has it, so
-    // it is delivered again in the ledger only, and the poll can go quiet.
-    if (this.outbox.wasSent(key)) return this.ledger.markResultDelivered(row.id);
-    this.outbox.queue({
-      key,
-      child: row.id,
-      parent: row.parent_thread,
-      kind: "result",
-      text: `[ace: ${row.role} on ${this.deps.label(row.machine)} ${outcome}]\n${result || "No text result returned."}${view.truncated ? "\n[Result truncated.]" : ""}`,
-    });
-  }
-  /**
-   * Hands every owed result and notice to its parent, oldest first. Each is marked sent only
-   * once the parent took it; one that fails waits for the next poll. A result a live wait is
-   * about to read is left for that wait.
-   */
-  private drain() {
-    for (const entry of this.outbox.unsent()) {
-      if (entry.kind === "result" && this.deps.waiting(ThreadId.parse(entry.child))) continue;
-      try {
-        this.deps.deliver(
-          ThreadId.parse(entry.parent),
-          `${entry.kind}:${digest(entry.key)}`,
-          entry.text,
-        );
-        this.outbox.sent(entry.key);
-        if (entry.kind === "result") this.ledger.markResultDelivered(entry.child);
-      } catch (error) {
-        this.deps.log("Machine result not delivered yet", {
-          id: entry.child,
-          error: String(error),
-        });
-      }
-    }
   }
   private emit(ids: readonly string[]) {
     for (const listener of this.listeners) listener(ids);
