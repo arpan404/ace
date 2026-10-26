@@ -2,7 +2,7 @@ import type { DeviceChrome } from "@ace/protocol";
 import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { deviceBrowser, openDevices } from "@/test/device-browser.ts";
+import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
 
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
@@ -91,4 +91,32 @@ test("a foldable wears its cover's body while shut and its inner screen's body w
     expect(body("iPhone Duo (shut)")).toBe(art("cover"));
     expect(body("iPhone Duo (open)")).toBe(art("inner"));
   });
+});
+
+test("a tablet whose skin is drawn on its side wears that body before its first picture arrives", async () => {
+  // No picture is ever decoded here: the skin's own screen has to stand in for it.
+  browser.restore();
+  browser = deviceBrowser("none");
+  const { app, panel } = await openDevices();
+  const devices = app.daemon.appDevices;
+  const tablet = "android:Pixel_Tablet_API_36";
+  devices.chromes.set(tablet, {
+    body: { width: 2636, height: 1676, image: svg },
+    screen: { x: 38, y: 38, width: 2560, height: 1600 },
+    buttons: [],
+  });
+  act(() =>
+    devices.addDevice({
+      id: tablet,
+      platform: "android",
+      name: "Pixel Tablet",
+      state: "booted",
+      runtime: "Android 16",
+    }),
+  );
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+
+  const view = await openDevice(panel, "Pixel Tablet");
+
+  await waitFor(() => expect(view.querySelector("[data-device-chrome]")).not.toBeNull());
 });
