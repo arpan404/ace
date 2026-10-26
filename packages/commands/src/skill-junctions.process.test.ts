@@ -8,9 +8,11 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { fstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult } from "@ace/protocol";
@@ -42,10 +44,21 @@ async function fixture() {
   await put(join(outside, "SKILL.md"), skillText("notes"));
   await put(join(outside, "keep.md"), "Keep me.\n");
   await mkdir(claudeSkills, { recursive: true });
+  // Outside every root, a junction named like Claude's link that also reaches the skill.
+  const outsideLinks = join(root, "outside-links");
+  await mkdir(outsideLinks);
+  await symlink(join(skills, "notes"), join(outsideLinks, "notes"), "junction");
   let swapArmed = false;
+  let armedRoot: number | undefined;
   // The moment ace opens the skill folder, another program moves it and leaves a junction.
   const openChild: OpenCommandChild = async (directory, name, flags) => {
     const fd = await openCommandChild(directory, name, flags);
+    if (armedRoot !== undefined && fstatSync(fd).ino === armedRoot) {
+      // Right after ace pins Claude's skill folder, it becomes a junction to the outside folder.
+      armedRoot = undefined;
+      await rename(claudeSkills, join(home, ".claude", "moved"));
+      await symlink(outsideLinks, claudeSkills, "junction");
+    }
     if (swapArmed && name === "notes") {
       swapArmed = false;
       await rename(join(skills, "notes"), join(skills, ".moved"));
@@ -77,7 +90,11 @@ async function fixture() {
     skills,
     claudeSkills,
     outside,
+    outsideLinks,
     library,
+    async swapLinkRootNext() {
+      armedRoot = (await stat(claudeSkills)).ino;
+    },
     swapNext() {
       swapArmed = true;
     },
@@ -244,5 +261,61 @@ windows(
     } finally {
       stop();
     }
+  },
+);
+
+windows(
+  "Windows removing an agent raced by a link-root swap removes nothing and reports the change",
+  async () => {
+    const f = await fixture();
+    await symlink(join(f.skills, "notes"), join(f.claudeSkills, "notes"), "junction");
+    const notes = await named(f.library, "notes");
+    expect(agents(notes)).toContain("claude:link");
+    await f.swapLinkRootNext();
+    const result = await f.library.request({
+      op: "setAgents",
+      id: notes.id,
+      agents: ["codex", "opencode", "cursor", "pi"],
+    });
+    // Windows reads a link through the folder's path, which no longer names the pinned folder, so
+    // the removal is refused rather than made in the moved folder as POSIX does.
+    expect(result).toMatchObject({ kind: "error", code: "conflict" });
+    expect((await lstat(join(f.outsideLinks, "notes"))).isSymbolicLink()).toBe(true);
+    expect((await lstat(join(f.home, ".claude", "moved", "notes"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(f.skills, "notes", "SKILL.md"), "utf8")).toBe(skillText("notes"));
+  },
+);
+
+windows(
+  "Windows a junction-linked skill is listed once, with each agent's access and a copy kept separate",
+  async () => {
+    const f = await fixture();
+    await symlink(join(f.skills, "notes"), join(f.claudeSkills, "notes"), "junction");
+    await put(join(f.claudeSkills, "cloudflare", "SKILL.md"), skillText("cloudflare"));
+    await put(join(f.home, ".codex", "skills", "cloudflare", "SKILL.md"), skillText("cloudflare"));
+    await put(join(f.root, "elsewhere", "SKILL.md"), skillText("elsewhere"));
+    await symlink(join(f.root, "elsewhere"), join(f.claudeSkills, "elsewhere"), "junction");
+    const result = await f.library.request({ op: "list" });
+    const entries = result.kind === "list" ? result.entries : [];
+    expect(entries.filter((e) => e.name === "notes")).toHaveLength(1);
+    const notes = await named(f.library, "notes");
+    expect(notes).toMatchObject({ scope: "personal", editable: true });
+    expect(agents(notes)).toEqual([
+      "claude:link",
+      "codex:native",
+      "opencode:native",
+      "cursor:native",
+      "pi:native",
+    ]);
+    const cloudflare = entries.filter((e) => e.name === "cloudflare");
+    expect(cloudflare).toHaveLength(1);
+    expect(agents(cloudflare[0] as SkillEntry)).toEqual([
+      "claude:native",
+      "codex:copy",
+      "opencode:native",
+      "cursor:native",
+    ]);
+    // A junction to a folder outside every root is listed, but read-only.
+    expect(entries.find((e) => e.name === "elsewhere")).toMatchObject({ editable: false });
   },
 );

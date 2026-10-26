@@ -40,7 +40,7 @@ async function fixture() {
       .list(target, name)
       .commands.find((command) => command.namespace === "provider" && command.name === name)
       ?.description;
-  return { home, root, outside, files, names, description };
+  return { home, root, outside, catalog, files, names, description };
 }
 
 windows("Windows command discovery reads a drive-absolute root and picks up edits", async () => {
@@ -166,3 +166,22 @@ windows(
     await rm(join(f.home, "moved"), { recursive: true });
   },
 );
+
+windows("Windows removes a cached command when its file becomes a junction", async () => {
+  const f = await fixture();
+  const path = join(f.root, "item.md");
+  await writeFile(path, "Original");
+  await f.files.start();
+  const command = f.catalog.list(target, "item").commands[0];
+  if (!command) throw new Error("Missing command");
+  expect(f.catalog.resolve(target, command.id)).toMatchObject({
+    ok: true,
+    plan: { text: "Original" },
+  });
+  // Windows has no sockets or FIFOs in folders; a junction is its nonregular entry.
+  await rm(path);
+  await symlink(f.outside, path, "junction");
+  f.files.invalidate(path);
+  await f.files.flush();
+  expect(f.catalog.resolve(target, command.id)).toEqual({ ok: false, error: "not_found" });
+});
