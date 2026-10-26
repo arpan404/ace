@@ -120,9 +120,21 @@ async function launch(scale: number): Promise<Launched> {
             chunk = (/fake-[\\w-]+\\.js/.exec(text) || [])[0] || chunk;
           }
           if (!chunk) return "no fake chunk named in " + entries.join(",");
-          const loaded = import("/assets/" + chunk).then(() => "loaded", (error) => "failed: " + String(error));
-          const late = new Promise((resolve) => setTimeout(() => resolve("still pending after 10s"), 10000));
-          return chunk + ": " + (await Promise.race([loaded, late]));
+          const settle = (url, ms) =>
+            Promise.race([
+              import(url).then(() => "loaded", (error) => "failed: " + String(error)),
+              new Promise((resolve) => setTimeout(() => resolve("pending"), ms)),
+            ]);
+          const top = await settle("/assets/" + chunk, 5000);
+          // One level down: each module the chunk imports, to find the one that never settles.
+          const source = await (await fetch("/assets/" + chunk)).text();
+          const deps = [...new Set([...source.matchAll(/from\\s*"\\.\\/([^"]+\\.js)"/g)].map((m) => m[1]))];
+          const report = [];
+          for (const dep of deps) {
+            const result = await settle("/assets/" + dep, 3000);
+            if (result !== "loaded") report.push(dep + "=" + result);
+          }
+          return chunk + ": " + top + "; " + deps.length + " imports; not loaded: " + (report.join(" ") || "none");
         })()`,
       )
       .catch((reason: unknown) => String(reason));
