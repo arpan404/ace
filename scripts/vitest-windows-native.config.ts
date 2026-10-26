@@ -115,6 +115,9 @@ const posixOnly = [
   // Makes links in the copy; ace never asks for the privilege Windows links need, so a folder
   // holding links can't land there yet (@ace/files has to leave them behind instead).
   "copies a folder that isn't a repository, keeping links inside it and dropping one that escapes",
+  // POSIX mode bits (0600, 0755); "on Windows, brings .env and ignored local config..." checks
+  // the same transfer without them.
+  "brings .env and ignored local config with their modes, but not node_modules",
 ];
 
 export default defineConfig({
