@@ -1,21 +1,18 @@
-import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { userBrowserHostName } from "@ace/protocol";
 import { extensionOrigin } from "./extension-id.ts";
-import { launcherPath, userBrowserDir } from "./host-files.ts";
-import {
-  launcherScript,
-  nativeHostManifest,
-  nativeHostTargets,
-  windowsHostKeys,
-  windowsLauncherScript,
-  windowsLocalAppData,
-} from "./native-hosts.ts";
+import { launcherPath } from "./host-files.ts";
+import { launcherScript, nativeHostManifest, nativeHostTargets } from "./native-hosts.ts";
+// Windows only.
+import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { userBrowserDir } from "./host-files.ts";
+import { windowsHostKeys, windowsLauncherScript, windowsLocalAppData } from "./native-hosts.ts";
 
 export interface NativeHostInstall {
   browser: string;
@@ -43,7 +40,8 @@ const manifestName = `${userBrowserHostName}.json`;
 const ManifestFile = z.object({ name: z.literal(userBrowserHostName), path: z.string() });
 
 export function installSupported(platform: NodeJS.Platform): boolean {
-  return platform === "darwin" || platform === "linux" || platform === "win32";
+  if (platform === "win32") return true;
+  return platform === "darwin" || platform === "linux";
 }
 
 async function exists(path: string): Promise<boolean> {
