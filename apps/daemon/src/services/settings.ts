@@ -57,7 +57,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
-          (key !== "computer.blockedApps" || authorize("admin")),
+          ((key !== "computer.blockedApps" && key !== "computer.lockedUse") || authorize("admin")),
       ),
     set: async (key, value, commit) => {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
@@ -73,6 +73,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
         request.key.startsWith("browser.download") ||
         // Which apps agents can't use: only the person may loosen it.
         request.key === "computer.blockedApps" ||
+        // Whether agents may operate this Mac while it is locked.
+        request.key === "computer.lockedUse" ||
         request.key.startsWith("host.") ||
         request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&

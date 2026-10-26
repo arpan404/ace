@@ -37,3 +37,8 @@ export { ScreenStopError } from "./stop-error.ts";
 export { deviceWindowBundles } from "./device-input-policy.ts";
 
 export type { ScreenAccess } from "./access.ts";
+export {
+  placeholderLockedUseInstaller,
+  LockedUseNotImplementedError,
+  type LockedUseInstaller,
+} from "./locked-use.ts";

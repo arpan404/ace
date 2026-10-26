@@ -185,6 +185,8 @@ export class SettingsService {
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
     if (key === "computer.blockedApps" && layer.kind !== "global")
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
+    if (key === "computer.lockedUse" && layer.kind !== "global")
+      throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Roles are a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")
