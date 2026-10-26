@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 import { processIdentity, windowsTreeRuntime } from "./process-identity.ts";
-import { ProcessInventory } from "./process-inventory.ts";
+import { ProcessInventory, windowsTreeRecorded } from "./process-inventory.ts";
 import { DatabaseSync } from "./sqlite.ts";
 
 const Pids = z.object({ leader: z.number().int().positive(), child: z.number().int().positive() });
@@ -110,8 +110,9 @@ describe.runIf(process.platform === "win32")("Windows restart recovery", () => {
       const { leader, child } = pids;
       await expect.poll(() => alive(leader), { timeout: 10_000 }).toBe(false);
       expect(alive(child)).toBe(true);
-      // The leader's record and its recorded child stay as evidence.
-      expect(recover(path)).toEqual({ result: { removed: 0, killed: 1 }, left: 2 });
+      // The tree's records stay as evidence until its members are proven gone.
+      expect(recover(path).result).toEqual({ removed: 0, killed: 1 });
+      expect(windowsTreeRecorded(path, leader)).toBe(true);
       await expect.poll(() => alive(child), { timeout: 10_000 }).toBe(false);
       // The evidence stays until a later recovery proves the tree is gone.
       expect(recover(path)).toEqual({ result: { removed: 1, killed: 0 }, left: 0 });

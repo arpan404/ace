@@ -27,6 +27,9 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 const plan = JSON.parse(process.env.ACE_CONSOLE_PLAN);
 const report = (value) => { writeFileSync(plan.out, JSON.stringify(value)); process.exit(0); };
+// Bind stderr to the test's log before the new console replaces the standard handles.
+process.stderr.write("");
+process.on("uncaughtException", (error) => report({ error: String(error?.stack ?? error) }));
 const kernel = koffi.load("kernel32.dll");
 const user = koffi.load("user32.dll");
 const alloc = kernel.func("int __stdcall AllocConsole()");
