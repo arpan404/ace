@@ -88,9 +88,11 @@ export default defineConfig({
     // which Windows can't create; "/dev/null" as a root; the forced Linux per-directory
     // watch strategy, which Windows never uses (it watches the root recursively); and the
     // symlink swap race, whose child can't rename a folder ace holds open on Windows
-    // (junction-race.process.test.ts is the Windows case).
+    // (junction-race.process.test.ts is the Windows case). The ignore-process count runs in
+    // recursive-watch.process.test.ts with held timers: slow Windows runners start a native
+    // scan of their own before the count.
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)(?!.*(?:with backend rg|cancels after ripgrep begins matching and reaps it before rejecting|ripgrep and Node return identical literal, regex, case and glob results|uses the injected real process boundary for ripgrep selection and search|returns typed missing-file and wrong-kind errors|uses batched git ignore rules including nested negations and newline filenames|omits unsupported discovered filenames without corrupting listing or watch paths|never places a watch inside ignored or Git directories|never returns outside bytes while a real child swaps a parent directory for a symlink)$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)(?!.*(?:with backend rg|cancels after ripgrep begins matching and reaps it before rejecting|ripgrep and Node return identical literal, regex, case and glob results|uses the injected real process boundary for ripgrep selection and search|returns typed missing-file and wrong-kind errors|uses batched git ignore rules including nested negations and newline filenames|omits unsupported discovered filenames without corrupting listing or watch paths|never places a watch inside ignored or Git directories|never returns outside bytes while a real child swaps a parent directory for a symlink|one ignore process reconciles nested visible files while pruning ignored directories)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],

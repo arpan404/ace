@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -56,6 +57,59 @@ describe.runIf(process.platform === "win32")("Windows recursive watching", () =>
       const again = events.next("again/c.ts", "created");
       await file("again/c.ts", "c");
       await again;
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
+  // Native timers are held, so only flush() reconciles; slow runners otherwise start a scan of
+  // their own between the writes and the count.
+  test("one ignore process reconciles nested visible files and prunes ignored folders on flush", async () => {
+    let processes = 0;
+    const h = await fixture(
+      {
+        runtime: {
+          spawn(binary, args, options) {
+            processes++;
+            return spawn(binary, args, options);
+          },
+          clock: {
+            after() {
+              return () => {};
+            },
+            every() {
+              throw new Error("Native watching must not poll");
+            },
+          },
+        },
+      },
+      true,
+    );
+    await h.file(".gitignore", "ignored/\n*.log\n!keep.log\n");
+    await h.file("old/a/b/c.ts", "original");
+    const events = batches();
+    const watcher = await h.service.watch({ onChange: events.onChange });
+    try {
+      await h.file("old/a/b/c.ts", "changed");
+      await h.file("new/a/b/file.ts", "visible");
+      await h.file("new/a/b/keep.log", "visible negation");
+      await h.file("new/a/b/hide.log", "hidden");
+      await h.file("ignored/deep/file.ts", "hidden directory");
+      const before = processes;
+      await watcher.flush();
+      expect(processes - before).toBe(1);
+      expect(events.history.flat()).toEqual(
+        expect.arrayContaining([
+          { path: "old/a/b/c.ts", kind: "changed" },
+          { path: "new/a/b/file.ts", kind: "created" },
+          { path: "new/a/b/keep.log", kind: "created" },
+        ]),
+      );
+      expect(
+        events.history
+          .flat()
+          .some((change) => change.path.includes("hide.log") || change.path.startsWith("ignored")),
+      ).toBe(false);
     } finally {
       await watcher.dispose();
     }
