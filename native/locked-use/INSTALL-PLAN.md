@@ -69,8 +69,9 @@ daemon or the rule would load it. A symlinked source or staged copy is refused.
 - The rule edit currently shells out to `/usr/bin/python3`, which is only a stub on a Mac without
   the Command Line Tools. Before shipping, move the plist edit to a compiled helper (e.g. a
   subcommand of the already signature-checked broker) so install has no Python dependency.
-- A same-user process could, in principle, launch its own copy of the signed service; the broker
-  trust model (root-held opt-in / registration lock) is being hardened separately.
+- A same-user process could launch its own copy of the signed service. The broker now binds one
+  coordinator, refuses takeovers while an attempt may be live, and requires the service's parent
+  to be ace-signed; what remains is described under "Coordinator trust" in `README.md`.
 
 ## What still needs the person (and a real Mac)
 
