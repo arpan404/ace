@@ -113,6 +113,8 @@ test.runIf(process.platform === "win32").each(["overflow", "timeout", "exit"] as
     const disconnected = Promise.withResolvers<void>();
     const server = createServer((socket) => {
       connection = socket;
+      // Windows resets the connection of a killed process; the close below is the proof.
+      socket.on("error", () => {});
       socket.once("close", () => disconnected.resolve());
     });
     try {
