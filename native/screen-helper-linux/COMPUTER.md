@@ -52,8 +52,9 @@ for its window.
   turn it on. ace starts them from their `Exec=` line with that switch (recognized by name, or by
   the Chromium files beside the binary), and waits for their pages to join the tree. One running
   without it gets an `accessibilityNote` asking the person to quit it so ace can reopen it.
-  Chromium offers no `EditableText` on Linux, so typing into its fields is refused with that
-  reason; web pages are for ace's browser tools.
+  Chromium offers no `EditableText` on Linux, so its fields take no typing in the background:
+  that is refused with the reason, unless the batch types in front (below). Web pages are for
+  ace's browser tools.
 - **Apps that read accessibility only at start** (Firefox) and were started before it was on are
   not on the bus: instead of opening them again, `state` answers `app_inaccessible`, asking the
   person to quit and reopen them. The daemon turns accessibility on for the session as soon as
@@ -94,27 +95,28 @@ programs no way to send input to an app's window, so raw steps fail with `not_su
 point the agent to element ids. The helper runs in Wayland sessions only; the daemon refuses an
 X11 session before it starts the helper.
 
-| Step                                                                   | Works                                                                                                 |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `click {id}` (press, select, focus a field)                            | in the background                                                                                     |
-| `click {x,y}`                                                          | on the clickable element under that screenshot pixel, or within 8 px of it; never the window          |
-| `click` with modifiers, hold, middle button; `move`, `drag`            | unsupported                                                                                           |
-| `type`, `paste` into a text element                                    | in the background (EditableText); into a document, its paragraph with the caret                       |
-| `type`/`paste` with nothing editable focused, or into a Chromium field | unsupported, with the reason                                                                          |
-| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text     | in the background                                                                                     |
-| `key`: ctrl+C / ctrl+X / ctrl+V in text                                | the text's own CopyText / CutText / PasteText                                                         |
-| `key`: Tab                                                             | a tab in multi-line text; otherwise the focus moves to the next control (where the toolkit allows it) |
-| `key`: a shortcut an app's menu lists (ctrl+s, F5, …)                  | presses that menu item, in the background (GTK 3, Qt, LibreOffice accelerators)                       |
-| `key`: other keys                                                      | unsupported                                                                                           |
-| `set_value`, `select_text`, `focus`, `action`, `scroll_to`             | in the background                                                                                     |
-| `menu {path}` (apps with a menu bar, e.g. GTK3)                        | in the background; items the app turns off without focus say so                                       |
-| `scroll {id}` or `scroll {x,y}`                                        | moves the scroll bar of the scroll area around the element or point                                   |
-| `scroll` with no scroll bar                                            | unsupported                                                                                           |
-| `window` close, minimize, zoom, fullscreen                             | through the app's own window actions (GTK4); otherwise unsupported                                    |
-| `window` restore, raise, move, resize                                  | unsupported                                                                                           |
-| `activate`                                                             | asks via GrabFocus; compositors usually refuse                                                        |
-| `wait`, `wait_for`, `when`                                             | yes                                                                                                   |
-| screenshot and id marks                                                | through the ScreenCast portal once the person approves (see below)                                    |
+| Step                                                               | Works                                                                                                 |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `click {id}` (press, select, focus a field)                        | in the background                                                                                     |
+| `click {x,y}`                                                      | on the clickable element under that screenshot pixel, or within 8 px of it; never the window          |
+| `click` with modifiers, hold, middle button; `move`, `drag`        | unsupported                                                                                           |
+| `type`, `paste` into a text element                                | in the background (EditableText); into a document, its paragraph with the caret                       |
+| `type`/`paste` with nothing editable focused                       | unsupported, with the reason                                                                          |
+| `type`/`paste` into a Chromium field                               | after `activate` in the batch, in front with the keyboard; otherwise unsupported, saying so           |
+| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text | in the background                                                                                     |
+| `key`: ctrl+C / ctrl+X / ctrl+V in text                            | the text's own CopyText / CutText / PasteText                                                         |
+| `key`: Tab                                                         | a tab in multi-line text; otherwise the focus moves to the next control (where the toolkit allows it) |
+| `key`: a shortcut an app's menu lists (ctrl+s, F5, …)              | presses that menu item, in the background (GTK 3, Qt, LibreOffice accelerators)                       |
+| `key`: other keys                                                  | after `activate` in the batch, in front with the keyboard; otherwise unsupported                      |
+| `set_value`, `select_text`, `focus`, `action`, `scroll_to`         | in the background                                                                                     |
+| `menu {path}` (apps with a menu bar, e.g. GTK3)                    | in the background; items the app turns off without focus say so                                       |
+| `scroll {id}` or `scroll {x,y}`                                    | moves the scroll bar of the scroll area around the element or point                                   |
+| `scroll` with no scroll bar                                        | unsupported                                                                                           |
+| `window` close, minimize, zoom, fullscreen                         | through the app's own window actions (GTK4); otherwise unsupported                                    |
+| `window` restore, raise, move, resize                              | unsupported                                                                                           |
+| `activate`                                                         | asks via GrabFocus; compositors usually refuse                                                        |
+| `wait`, `wait_for`, `when`                                         | yes                                                                                                   |
+| screenshot and id marks                                            | through the ScreenCast portal once the person approves (see below)                                    |
 
 An x,y click needs a screenshot with marks of that window first: its pixels are mapped back to the
 element frames read for the marks (`shot_offset`, `scale`).
@@ -166,6 +168,29 @@ RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input _out of_ the deskto
   Desktops that send a picture at once (GNOME, KDE) still close the session after each look.
 - XDPH 1.3 marks its shared-memory buffers mappable but not readable, so PipeWire's own mapping
   can't be read; the helper maps such a buffer read-only itself, after checking its size.
+
+## Typing in front
+
+For what accessibility can't type (`act_front.rs`, `keyboard.rs`): a batch that has an
+`activate` step may then type text and press keys with the desktop's keyboard, the app in front.
+`activate` is the agent saying it will take the person's focus, as on macOS.
+
+- **The keyboard** is a keyboard-only RemoteDesktop portal session, never a virtual device or
+  compositor IPC. The first time, the portal asks the person (GNOME: turn on Allow Remote
+  Interaction, then Share); the step returns `keyboard_not_allowed` meanwhile and doesn't wait.
+  The grant is remembered (`<data>/portal/computer-keyboard.token`) and restored silently. The
+  session is open only while a batch types in front and closes when the batch ends.
+- **Keys never reach another window.** `activate` asks the app forward (its window's
+  `GrabFocus`, `org.freedesktop.Application.Activate`). Wayland desktops may refuse; then the
+  person has to bring it forward. Before typing, the field gets the focus inside the app, and
+  before every 16 keys the app's window must still be the active one with that field focused;
+  otherwise typing stops with `focus_changed` and how far it got.
+- **The person wins.** Typing doesn't start within 1.5 s of the person's own input
+  (`person_active`); the desktop's idle clock also counts the helper's keys, so input explained by
+  them is not the person's. Their Stop ends typing between bursts.
+- After typing, the field's text is read back: unchanged text is reported, not claimed typed.
+  Characters the person's keyboard layout lacks can't be typed this way.
+- Hyprland's portal has no RemoteDesktop, so there these apps can't be typed into.
 
 ## The person
 
@@ -232,13 +257,17 @@ Mousepad, which a person closes the shell's overview over first:
     silent restore after a helper restart, and a revoked grant asking again.
 - `tests/computer/run-kde.sh`: the same on KDE Plasma 6 (KCalc, KWrite, Kate), with KDE's
   chooser answered through its accessibility tree.
+- `tests/computer/run-front.sh`: typing in front into VS Code's chat input: refused without
+  `activate`; the portal's dialog cancelled, then allowed (answered through its accessibility
+  tree); the text arriving exactly; the grant restored by a later helper without asking; keys;
+  waiting while the person types; and no key typed when another app has the focus.
 - `tests/computer/run-hyprland.sh`: on Hyprland, the notice in mako, Stop by its button and by a
   click on the notice, and a lock screen seen through Hyprland from a lock program it doesn't
   know by name (a renamed swaylock, as Omarchy 4's shell runs no lock program).
 - `tests/computer/omarchy.py`: on a real Omarchy 4 desktop, run from a terminal in the person's
   session with a helper build: the person's facts, the shell kept out of `apps`, Nautilus and
   Chromium outlines with timings, and Stop by a click on the notice (`omarchy-shell
-  notifications invokeLast`). The lock screen is left out: only the person's password unlocks it.
+notifications invokeLast`). The lock screen is left out: only the person's password unlocks it.
 - `tests/computer/run-person.sh`: the notice in GNOME Shell and a click on its Stop (with
   Mutter's remote-desktop pointer at the place the shell's accessibility tree gives), the
   session state and a lock (a stand-in hyprlock), and the inhibitors (stand-ins for GNOME's
@@ -273,8 +302,9 @@ Mousepad, which a person closes the shell's overview over first:
   the background, and commands that act on the selection (Edit › Convert) didn't see a selection
   set through AT-SPI in the live checks.
 - Rich (`html`, `markdown`) paste is inserted as plain text.
-- Chromium and Electron fields take no typed text (no `EditableText` on Linux), and VS Code's
-  menus have no items until opened, so its shortcuts can't be found through them.
+- Chromium and Electron fields take no typed text in the background (no `EditableText` on
+  Linux); typing in front needs GNOME or KDE. VS Code's menus have no items until opened, so its
+  shortcuts can't be found through them.
 - GTK 4 refuses to move the focus in a background window, so Tab between controls works only
   where the toolkit allows it.
 - LibreOffice Calc's cells take no typed text; its "Input line" field does, with Return to enter.

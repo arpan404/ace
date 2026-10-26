@@ -17,6 +17,7 @@ pub struct Person {
     awake: Option<Awake>,
     notice: Option<Notice>,
     stop: StopSignal,
+    own_input: Option<std::time::Instant>,
 }
 
 impl Person {
@@ -37,6 +38,7 @@ impl Person {
             awake,
             notice,
             stop,
+            own_input: None,
         }
     }
 
@@ -86,6 +88,20 @@ impl Person {
         }
     }
 
+    /// When this helper last typed in front: the desktop counts those keys as input, and they
+    /// are not the person's.
+    pub fn own_input(&mut self, at: Option<std::time::Instant>) {
+        self.own_input = at;
+    }
+
+    /// Milliseconds since the last input the desktop saw (the person's or the helper's own).
+    pub async fn idle_ms(&mut self) -> Option<u64> {
+        match &mut self.presence {
+            Some(presence) => presence.ms_since_input().await,
+            None => None,
+        }
+    }
+
     /// Whether `step` may run in `session` now. Reads the person's focus only when they may be
     /// using the app.
     pub async fn check_step(&mut self, bus: &Bus, session: &mut AppSession, step: &Map<String, Value>) -> CuResult<()> {
@@ -101,6 +117,10 @@ impl Person {
             (Some(presence), Some(_)) => presence.ms_since_input().await,
             _ => None,
         };
+        // Input explained by the helper's own keys is not the person's.
+        let since_own = self.own_input.map(|at| at.elapsed());
+        let ms_since_input = ms_since_input
+            .filter(|ms| *ms >= guard::RECENT_INPUT_MS || crate::computer::act_front::person_input_recent(Some(*ms), since_own));
         let facts = GuardFacts {
             stop_requested,
             status,

@@ -60,20 +60,4 @@ impl Actor<'_> {
             ),
         ))
     }
-
-    /// Last resort: asks the app's window to come to the front. This takes focus from the person.
-    pub async fn activate(&mut self) -> CuResult<String> {
-        let name = self.session.name.clone();
-        let Some(window) = self.session.window.clone() else {
-            return Err(CuError::new(
-                "no_window",
-                format!("{name} has no open window to bring forward."),
-            ));
-        };
-        let _ = element::grab_focus(self.bus, &window.obj).await;
-        self.changed();
-        Ok(format!(
-            "asked {name} to come to the front; Wayland compositors often refuse, so it may stay behind (raw keys and clicks still can't be sent there)"
-        ))
-    }
 }

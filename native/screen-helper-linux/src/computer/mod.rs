@@ -20,6 +20,8 @@ pub mod wire;
 #[cfg(target_os = "linux")]
 mod act;
 #[cfg(target_os = "linux")]
+mod act_front;
+#[cfg(target_os = "linux")]
 mod act_input;
 #[cfg(target_os = "linux")]
 mod act_text;
@@ -36,6 +38,8 @@ mod element;
 #[cfg(target_os = "linux")]
 mod events;
 #[cfg(target_os = "linux")]
+mod keyboard;
+#[cfg(target_os = "linux")]
 mod notice;
 #[cfg(target_os = "linux")]
 mod observe;
@@ -43,6 +47,8 @@ mod observe;
 mod person;
 #[cfg(target_os = "linux")]
 mod presence;
+#[cfg(target_os = "linux")]
+mod portal_call;
 #[cfg(target_os = "linux")]
 mod pw_frame;
 #[cfg(target_os = "linux")]

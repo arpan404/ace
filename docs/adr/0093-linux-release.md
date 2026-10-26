@@ -109,9 +109,20 @@ and registers the same three tools as on macOS.
   person's pointer would). So steps the macOS engine posts are done through AT-SPI, in the
   background: an x,y click is the clickable element under that screenshot pixel; an x,y scroll
   moves the scroll bar there; a shortcut presses the menu item whose accelerator it is; ctrl+C/X/V
-  use the text's own clipboard calls; Tab inserts a tab or moves the focus. Hover, drags and keys
-  with no accessible equivalent are refused with the steps that work. The `cmd` modifier means
-  Control on Linux, so shortcuts keep their intent across platforms.
+  use the text's own clipboard calls; Tab inserts a tab or moves the focus. Hover and drags are
+  refused with the steps that work. The `cmd` modifier means Control on Linux, so shortcuts keep
+  their intent across platforms.
+- **Typing in front (2026-10-26).** Chromium's Linux accessibility has no EditableText, so
+  Chrome and Electron apps (VS Code, Slack) take no typed text in the background. A batch that
+  starts with `activate` may type into them, and press keys with no accessible equivalent, with
+  a keyboard-only RemoteDesktop portal session: the person allows the keyboard once in the
+  portal's dialog (remembered with a restore token), the session is open only while that batch
+  types, and before every few keys the app's window must be the active one with the field
+  focused, so keys never reach another window. It never starts within 1.5 s of the person's own
+  input. GNOME and KDE have the portal; Hyprland's has no RemoteDesktop, so there these apps stay
+  untypable. Compositor IPC and virtual input devices (uinput) were rejected: both bypass the
+  person's consent that the portal asks for. Chromium's remote debugging port was rejected too:
+  any local program could drive the person's signed-in browser through it.
 - **Apps that hide their tree.** Chromium-based apps (Chrome, Electron apps such as VS Code) show
   their tree only when started with `--force-renderer-accessibility`, so ace starts them with it
   and tells the agent to have the person quit one running without it. Apps that read the

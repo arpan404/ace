@@ -1,5 +1,6 @@
 //! The ops: `hello`, `apps`, `resolve`, `state` and `act`, one at a time.
 use crate::computer::act::Actor;
+use crate::computer::act_front::Front;
 use crate::computer::apps::{self, RunningApp};
 use crate::computer::bus::Bus;
 use crate::computer::cancel::{Cancellations, Checkpoint};
@@ -55,6 +56,8 @@ pub struct Service {
     person: Option<Person>,
     /// `--lease-seconds`: the keep-awake lease, for tests.
     lease: Option<Duration>,
+    /// Typing in front, for batches that activate their app.
+    front: Front,
 }
 
 fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -71,6 +74,7 @@ impl Service {
             sessions: HashMap::new(),
             resolved: HashMap::new(),
             cast: None,
+            front: Front::new(data_dir.clone()),
             data_dir,
             person: None,
             lease,
@@ -343,8 +347,10 @@ impl Service {
             activity,
             cast,
             person,
+            front,
             ..
         } = self;
+        front.begin();
         let person = person.as_mut().ok_or_else(|| CuError::new("internal", "No person watch."))?;
         let session = sessions
             .get_mut(&pid)
@@ -375,8 +381,13 @@ impl Service {
                 session: &mut *session,
                 activity,
                 check,
+                front: &mut *front,
             };
             for (index, step) in steps.iter().enumerate() {
+                person.own_input(actor.front.last_key);
+                if actor.front.allowed && matches!(step.get("type").and_then(Value::as_str), Some("type" | "paste" | "key")) {
+                    actor.front.person_idle_ms = person.idle_ms().await;
+                }
                 let outcome = match check.check() {
                     Ok(()) => match person.check_step(&bus, actor.session, step).await {
                         Ok(()) => actor.run(step).await,
@@ -407,6 +418,7 @@ impl Service {
                 }
             }
         }
+        front.finish().await;
         let mut result = json!({"done": done});
         if let Some(failure) = failure {
             result["error"] = failure;
