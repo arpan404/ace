@@ -422,8 +422,8 @@ async function windowsBrowserName(executable: string): Promise<string> {
     .filter((version): version is string => version !== undefined)
     .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
   const product = basename(executable).replace(/\.exe$/i, "");
-  const version = versions.at(-1);
-  return version ? `${product} ${version}` : product;
+  const newest = versions.at(-1);
+  return newest ? `${product} ${newest}` : product;
 }
 
 /** What `ace doctor --fix` can change on this machine so ace's browser starts. */
