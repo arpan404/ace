@@ -3,14 +3,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import {
-  Command,
-  MonitorSnapshot,
-  ThreadId,
-  WaitResult,
-  type AgentControlOperation,
-} from "@ace/protocol";
-import { commandContext } from "../commands.ts";
+import { MonitorSnapshot, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
+import { SettingsService } from "@ace/settings";
 import { pairedMachines } from "./machine-test-support.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
@@ -114,6 +108,13 @@ it("waiting tasks survive a restart of the other machine: they start when a slot
   const cancelled = await delegate(pair, "cancelled-later");
   expect(await stateHere(pair, waiting)).toBe("queued");
 
+  // The running child is mid-turn, so the restart resumes it and it keeps its slot; restarted
+  // before its task reached the provider, it would end with the restart and free the slot.
+  await vi.waitFor(
+    () =>
+      expect((pair.target.h.inputs.get(running) ?? []).join("\n")).toContain("Do the running part"),
+    { timeout: 15_000 },
+  );
   await pair.restartTarget();
   expect(pair.target.daemon.store.getThread(waiting)?.queuedLaunch?.text).toBe(
     "Do the waiting part",
@@ -188,23 +189,7 @@ it("a delegation made before the slot table existed counts against the limit onc
       db.close();
     }
   });
-  // The person resumes the earlier child there; it runs again and holds the slot.
-  const engine = pair.target.daemon.engine;
-  if (!engine) throw new Error("Engine unavailable");
-  const resume = Command.parse({
-    id: "person-resume-existing",
-    deviceId: "person",
-    payload: {
-      type: "thread.resume",
-      threadId: existing,
-      expectedRevision: engine.queue(existing).revision,
-    },
-  });
-  expect(
-    pair.target.daemon.store.recordCommand(resume.id, resume.deviceId, () =>
-      engine.handler.handle(resume, commandContext(pair.target.daemon.store)),
-    ).ok,
-  ).toBe(true);
+  // The earlier child was mid-turn, so the upgraded daemon resumes it and it runs again.
   await vi.waitFor(
     () => expect(pair.target.daemon.store.getThread(existing)?.status.state).toBe("working"),
     { timeout: 15_000 },
@@ -214,4 +199,39 @@ it("a delegation made before the slot table existed counts against the limit onc
   const next = await delegate(pair, "after-upgrade");
   expect(pair.target.daemon.store.getThread(next)?.queuedLaunch).toBeDefined();
   expect(await stateHere(pair, next)).toBe("queued");
+}, 60_000);
+
+it("a slot freed while the other machine was down goes to the waiting task as soon as it starts again", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.target.daemon.settings.set("agents.maxRunningChildren", 1, { kind: "global" });
+  await pair.source.call({ op: "machines" });
+  const running = await delegate(pair, "keeps-running");
+  const waiting = await delegate(pair, "waits-for-room");
+  await vi.waitFor(
+    () =>
+      expect((pair.target.h.inputs.get(running) ?? []).join("\n")).toContain(
+        "Do the keeps-running part",
+      ),
+    { timeout: 15_000 },
+  );
+  expect(await stateHere(pair, waiting)).toBe("queued");
+
+  // While it is down its settings file gains room for a second child: no change event fires,
+  // so only the drain when it starts again can start the waiting task.
+  await pair.restartTarget(async (dataDir) => {
+    const settings = new SettingsService({ dataDir });
+    try {
+      await settings.set("agents.maxRunningChildren", 2, { kind: "global" });
+    } finally {
+      await settings.close();
+    }
+  });
+  await vi.waitFor(
+    () =>
+      expect((pair.target.h.inputs.get(waiting) ?? []).join("\n")).toContain(
+        "Do the waits-for-room part",
+      ),
+    { timeout: 15_000 },
+  );
+  expect(pair.target.daemon.store.getThread(waiting)?.queuedLaunch).toBeUndefined();
 }, 60_000);

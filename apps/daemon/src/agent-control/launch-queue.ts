@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
-import { engineFull } from "./failure.ts";
+import { startsLater } from "./failure.ts";
 
 const Entry = z.object({ child_id: ThreadId, parent_id: z.string(), text: z.string() });
 /**
@@ -91,8 +91,9 @@ export class LaunchQueue {
 }
 
 /**
- * Starts `launch` now when its parent has a free slot, or queues it. A full engine is a wait,
- * not a refusal: the launch queues like any other. Any other failure to start is the caller's.
+ * Starts `launch` now when its parent has a free slot, or queues it. An engine that is full or
+ * still starting is a wait, not a refusal: the launch queues like any other. Any other failure
+ * to start is the caller's.
  */
 export function startOrQueue(
   queue: LaunchQueue,
@@ -105,7 +106,7 @@ export function startOrQueue(
       start();
       return "started";
     } catch (error) {
-      if (!engineFull(error)) throw error;
+      if (!startsLater(error)) throw error;
     }
   queue.add(launch);
   return "queued";
@@ -116,8 +117,9 @@ const DRAIN_BATCH = 32;
 
 /**
  * Starts the oldest waiting launches of one parent until `slots` of them have started or the
- * engine is full. Each is taken and started in one transaction, so a full engine leaves it
- * queued and ends the drain (and says so, for callers that retry only then). A launch that is
+ * engine can't take more yet (full, or still starting). Each is taken and started in one
+ * transaction, so such an engine leaves it queued and ends the drain, answering "later" for
+ * callers that retry only then. A launch that is
  * skipped (`start` returns "skipped": stopped, gone) or fails for any other reason goes to
  * `failed` and uses no slot, so the children queued behind it still start now.
  */
@@ -128,7 +130,7 @@ export function drainLaunches(
   slots: number,
   start: (launch: QueuedLaunch) => "started" | "skipped",
   failed: (child: ThreadId, error: unknown) => void,
-): "drained" | "engine_full" {
+): "drained" | "later" {
   let started = 0;
   // A cursor past each entry tried, so one left queued by a failure is not tried again here.
   let cursor = 0;
@@ -146,7 +148,7 @@ export function drainLaunches(
         });
         if (outcome === "started" && ++started >= slots) return "drained";
       } catch (error) {
-        if (engineFull(error)) return "engine_full";
+        if (startsLater(error)) return "later";
         failed(child, error);
       }
     }

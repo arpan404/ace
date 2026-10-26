@@ -1,5 +1,5 @@
 import { delegationRequest } from "./cursor-request.ts";
-import { AgentControlError, controlAdmissionError, engineFull } from "./failure.ts";
+import { AgentControlError, controlAdmissionError, startsLater } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
 import { ReservationLifetimes } from "./reservation-lifetimes.ts";
 import { controlCommandId } from "./command-id.ts";
@@ -862,7 +862,7 @@ export class DelegationService {
       });
     } catch (error) {
       // A full engine keeps the task queued; the person's own input still goes through.
-      if (!engineFull(error)) throw error;
+      if (!startsLater(error)) throw error;
     }
   }
   /** Fills free slots from each waiting parent's queue, oldest first. */

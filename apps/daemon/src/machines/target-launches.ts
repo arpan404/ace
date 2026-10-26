@@ -5,7 +5,7 @@ import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { DelegationJournal } from "../agent-control/journal.ts";
 import { commandContext } from "../commands.ts";
-import { controlAdmissionError, engineFull } from "../agent-control/failure.ts";
+import { controlAdmissionError, startsLater } from "../agent-control/failure.ts";
 import { heldFor } from "../agent-control/watch-view.ts";
 import {
   LaunchQueue,
@@ -62,7 +62,10 @@ export class TargetLaunches {
   private pumping = false;
   private closed = false;
   /** The last start hit a full engine: retry as threads go idle, and on a timer. */
-  private engineBlocked: boolean;
+  private engineBlocked = false;
+  /** The engine finished starting; until then nothing is drained. */
+  private engineReady = false;
+  private awaitingReady = false;
   constructor(deps: TargetLaunchDeps) {
     this.deps = deps;
     this.queue = new LaunchQueue(deps.store, "machine_launch_queue");
@@ -78,9 +81,9 @@ export class TargetLaunches {
     // Settle, archive and delete end a thread by writing it; its waiting launch is cancelled in
     // that same transaction, whichever path wrote it.
     this.unhook = deps.store.onWrite((events) => this.ended(events));
-    // After a restart nothing else announces the waiting children: try once the engine is up.
-    this.engineBlocked = this.queue.waiting();
-    this.arm();
+    // After a restart nothing else announces the waiting children, nor a slot a child gave back
+    // while the daemon was down: drain as soon as the engine can take work.
+    this.pump();
   }
   close() {
     this.closed = true;
@@ -121,8 +124,11 @@ export class TargetLaunches {
         ]);
       return outcome;
     });
-    // A free slot that still queued it means the engine is full.
-    if (state === "queued" && slots > 0) this.engineBlocked = true;
+    // A free slot that still queued it means the engine is full, or still starting.
+    if (state === "queued" && slots > 0) {
+      this.engineBlocked = true;
+      if (!this.engineReady) this.whenReady();
+    }
     this.arm();
     return state;
   }
@@ -158,14 +164,13 @@ export class TargetLaunches {
         if (launch) this.start(launch);
       });
     } catch (error) {
-      if (!engineFull(error)) throw error;
+      if (!startsLater(error)) throw error;
     }
   }
   /** Fills each calling thread's free slots from its waiting children, oldest first. */
   pump(): void {
     if (this.closed || this.pumping || !this.queue.waiting()) return;
-    // Not up yet: the retry timer comes back once it is.
-    if (!this.deps.engine()) return this.arm();
+    if (!this.engineReady) return this.whenReady();
     this.pumping = true;
     let blocked = false;
     try {
@@ -186,7 +191,7 @@ export class TargetLaunches {
                 this.settle(child, "failed");
               });
             },
-          ) === "engine_full" || blocked;
+          ) === "later" || blocked;
     } catch (error) {
       this.deps.report(error);
     } finally {
@@ -313,6 +318,23 @@ export class TargetLaunches {
         .run(launch.childId);
     });
     return "started";
+  }
+  /** Drains once the engine has started; a daemon still creating it asks again on the timer. */
+  private whenReady() {
+    const engine = this.deps.engine();
+    if (!engine) {
+      this.engineBlocked = true;
+      return this.arm();
+    }
+    if (this.awaitingReady) return;
+    this.awaitingReady = true;
+    void engine.ready().then(
+      () => {
+        this.engineReady = true;
+        this.pump();
+      },
+      (error: unknown) => this.deps.report(error),
+    );
   }
   /** Only a start waiting on engine room is retried on a timer; slots announce themselves. */
   private arm() {

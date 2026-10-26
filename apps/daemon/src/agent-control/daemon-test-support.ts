@@ -26,7 +26,12 @@ export async function daemonFixture(
       ACE_PORT: "0",
       ACE_LOG_LEVEL: environment["ACE_LOG_LEVEL"] ?? "silent",
     });
-  const boot = () =>
+  /**
+   * A restart registers the scripted providers' instances as it starts, as a real daemon finds
+   * its installed CLIs at boot, so work it resumes or starts sees their models from the first
+   * moment; the first start leaves them to `prepare`, as before.
+   */
+  const boot = (restarted = false) =>
     startDaemon({
       config: config(),
       engine: {
@@ -35,7 +40,9 @@ export async function daemonFixture(
         ...(options.engineLimits ? { limits: options.engineLimits } : {}),
       },
       ...(agentControl ? { agentControl } : {}),
-      modelInstances: [],
+      modelInstances: restarted
+        ? (["codex", "claude"] as const).map((provider) => scriptedModelInstance(provider, h.home))
+        : [],
       ...(options.accounts ? { accounts: options.accounts } : {}),
       ...(options.browser ? { browser: options.browser } : {}),
       ...(options.machines ? { machines: options.machines } : {}),
@@ -93,7 +100,7 @@ export async function daemonFixture(
     async restart(stopped?: (dataDir: string) => void | Promise<void>) {
       await current.close();
       await stopped?.(config().dataDir);
-      current = await boot();
+      current = await boot(true);
       await prepare(current);
       return current;
     },
