@@ -175,7 +175,9 @@ export function startMachines(context: ServiceContext): void {
       .cancel(ThreadId.parse(id))
       .catch((error: unknown) => log.log("warn", "Machine child not stopped", logError(error)));
   };
-  services.engine?.bindHostInteractions((command) => mirror.resolve(command));
+  services.engine?.bindHostInteractions(
+    (command) => mirror.resolve(command) ?? children.resolve(command),
+  );
   services.engine?.bindExternalTaskStop("ace-machine:", cancel);
   const delegations = services.agentControl?.delegations;
   if (delegations) {

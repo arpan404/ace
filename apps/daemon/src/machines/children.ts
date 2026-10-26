@@ -1,6 +1,8 @@
 import {
   ThreadId,
   type AgentId,
+  type Command,
+  type CommandResult,
   type DelegationOutcome,
   type MachineMessage,
   type MachineThreadView,
@@ -26,13 +28,13 @@ import {
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
 import {
   heldMessageReason,
-  lostView,
   monitoredChild,
   outcomeOf,
   unreadReason,
   watchedChild,
 } from "./child-views.ts";
 import { statusBatches, unsettledPage } from "./child-paging.ts";
+import { LostChildren } from "./child-lost.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -87,12 +89,19 @@ export class MachineChildren implements RemoteChildren {
   private closed = false;
   private results: ChildResults;
   private messages: ChildMessages;
+  private lost: LostChildren;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
     this.turn = this.ledger.lastRecheckTurn();
     this.served = this.ledger.lastServedTurn();
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
+    this.lost = new LostChildren({
+      ...deps,
+      ledger: this.ledger,
+      results: this.results,
+      emit: (ids) => this.emit(ids),
+    });
     this.messages = new ChildMessages({
       ...deps,
       ledger: this.ledger,
@@ -249,6 +258,10 @@ export class MachineChildren implements RemoteChildren {
     this.emit([id]);
     this.arm();
   }
+  /** The person's answer about a lost child (LostChildren.resolve); undefined for any other. */
+  resolve(command: Command): CommandResult | undefined {
+    return this.lost.resolve(command);
+  }
   /** New work is on its way to the child; see ChildMessages.send. */
   send(id: ThreadId, message: MachineMessage): (answer: Answer | undefined) => void {
     return this.messages.send(id, message);
@@ -298,9 +311,13 @@ export class MachineChildren implements RemoteChildren {
       // A fixed number of status calls, every child read in turn (ADR 0099).
       const page = unsettledPage(this.ledger, ++this.served).flatMap(([machine, rows]) => {
         const lost = this.lostFrom(machine);
-        const reachable = rows.filter((row) => !lost(row));
-        for (const row of rows) if (lost(row)) this.settleLost(row);
-        return reachable;
+        // Pairings that can't be read leave every child as it was, lost or not.
+        if (!lost) return rows.filter((row) => row.lost_at === null);
+        for (const row of rows) {
+          if (lost(row)) this.lost.keep(row);
+          else if (row.lost_at !== null) this.lost.found(row);
+        }
+        return rows.filter((row) => !lost(row));
       });
       await Promise.all([
         ...statusBatches(page).map(async ([machine, rows]) => {
@@ -364,63 +381,24 @@ export class MachineChildren implements RemoteChildren {
       );
       // A machine no longer paired as the child's device can't be asked about it.
       const lost = this.lostFrom(machine);
-      const asked = rows.filter((row) => !lost(row));
+      const asked = lost ? rows.filter((row) => !lost(row)) : rows;
       return asked.length ? [[machine, asked] as [string, ChildRow[]]] : [];
     });
   }
   /**
    * Which of a machine's children this machine can no longer reach: the pairing they were
-   * delegated through is gone (removed, or the machine linked again as a new device). Pairings
-   * that can't be read leave every child as it is.
+   * delegated through is gone (removed, or the machine linked again as a new device). Undefined
+   * when the pairings can't be read, which is never taken as gone or as back.
    */
-  private lostFrom(machine: string): (row: ChildRow) => boolean {
+  private lostFrom(machine: string): ((row: ChildRow) => boolean) | undefined {
     let device: string | undefined;
     try {
       device = this.deps.device(machine);
     } catch (error) {
       this.deps.log("Machine pairings not read", { machine, error: String(error) });
-      return () => false;
+      return undefined;
     }
     return (row) => device === undefined || (row.device_id !== null && row.device_id !== device);
-  }
-  /**
-   * The child's pairing is gone, so nothing here can read, message or stop it again. It settles
-   * failed with a result saying so, and the parent gets that result instead of waiting forever:
-   * the person removed the link, and no answer can ever come back over it (ADR 0099).
-   */
-  private settleLost(row: ChildRow) {
-    const name = this.deps.label(row.machine);
-    const view = lostView(row, name, this.deps.now());
-    this.deps.store.atomic(() => {
-      this.ledger.markLost(row.id, JSON.stringify(view));
-      this.deps.engine()?.machineChild(
-        {
-          id: row.id,
-          parentId: row.parent_thread,
-          parentAgentId: row.parent_agent,
-          machine: row.machine,
-          name,
-          provider: row.provider,
-          model: row.model ?? undefined,
-          role: row.role,
-          title: view.title,
-          status: view.status,
-          outcome: {
-            threadId: row.id,
-            outcome: "failed",
-            result: view.result ?? "",
-            truncated: false,
-            before: null,
-          },
-        },
-        "end",
-      );
-      this.results.queueResult(row, view);
-    });
-    this.unreachable.delete(row.id);
-    this.held.delete(row.id);
-    this.deps.mirror.release(`child:${row.id}`);
-    this.emit([row.id]);
   }
   /**
    * A settled child re-read: work started on its machine reopens it, so its parent reads it

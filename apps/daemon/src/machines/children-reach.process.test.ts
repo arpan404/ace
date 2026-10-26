@@ -89,7 +89,7 @@ it("a cascading stop reaches every unsettled child of the stopped tree, however 
   expect(listed.filter((child) => child.state === "working")).toHaveLength(78);
 });
 
-it("a child whose pairing was removed here settles with a lost result its parent gets, and stops being retried", async () => {
+it("a child whose pairing was removed here is lost, never settled, until the pairing comes back and tracking resumes", async () => {
   const h = machine();
   const id = h.add("child");
   h.report(id, working);
@@ -100,17 +100,30 @@ it("a child whose pairing was removed here settles with a lost result its parent
   };
   h.children.send(id, message("second"))(undefined);
   await h.fire();
-  expect(h.state(id)).toBe("working");
 
   h.pairings.set("studio", undefined);
-  await h.fire();
-  const read = h.children.watched(id);
-  expect(read?.view.state).toBe("failed");
-  expect(read?.outcome).toMatchObject({ outcome: "failed" });
-  expect(read?.outcome?.result).toContain("no longer paired");
-  expect(h.delivered.join("\n")).toContain("no longer paired");
-  // Nothing is left to poll, retry or re-check for it.
-  expect(h.timers).toEqual([]);
+  h.report(id, done("Finished while unpaired."));
+  for (let poll = 0; poll < 3; poll++) await h.fire();
+  const lost = h.children.watched(id);
+  expect(lost?.view).toMatchObject({
+    state: "needs_you",
+    step: "Lost: Studio is no longer paired; its work there may still be running",
+  });
+  expect(lost?.outcome).toBeUndefined();
+  expect(h.children.children(caller(parent))[0]?.state).toBe("needs_you");
+  expect(h.delivered.join("\n")).not.toContain("Finished while unpaired.");
+  // It is still watched, so the pairing coming back is noticed.
+  expect(h.timers).not.toEqual([]);
+
+  // Paired again as the same device: its machine is read again and its result arrives.
+  h.pairings.delete("studio");
+  h.answers.resend = async () => "taken";
+  for (let poll = 0; poll < 3; poll++) {
+    h.clock.now += 60_000;
+    await h.fire();
+  }
+  expect(h.state(id)).toBe("done");
+  expect(h.delivered.join("\n")).toContain("Finished while unpaired.");
 });
 
 it("children delegated through a pairing since replaced are lost, while children of the new pairing are still watched", async () => {
@@ -125,7 +138,7 @@ it("children delegated through a pairing since replaced are lost, while children
   h.report(after, working);
   h.asked.length = 0;
   await h.fire();
-  expect(h.state(before)).toBe("failed");
+  expect(h.state(before)).toBe("needs_you");
   expect(h.state(after)).toBe("working");
   expect(h.asked.flat()).toEqual([after]);
 });

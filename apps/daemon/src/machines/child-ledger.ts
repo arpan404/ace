@@ -24,6 +24,11 @@ export const ChildRow = z.object({
   rechecked: z.number(),
   /** The paired device it was delegated through; null for children from before it was kept. */
   device_id: z.string().nullable(),
+  /** When its pairing was found gone; null while it is reachable. */
+  lost_at: z.number().nullable(),
+  /** The approval its parent shows the person while it is lost: key and interaction id. */
+  lost_key: z.string().nullable(),
+  lost_ask: z.string().nullable(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
 
@@ -310,17 +315,44 @@ export class ChildLedger {
       if (settled) db.prepare("UPDATE machine_children SET settled_at=? WHERE id=?").run(now, id);
     });
   }
+  /** Its pairing is gone: lost, still unsettled, until it returns or the person stops tracking. */
+  markLost(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET lost_at=? WHERE id=? AND lost_at IS NULL")
+        .run(at, id),
+    );
+  }
+  /** The approval its parent now shows the person about it. */
+  setLostAsk(id: ThreadId, key: string, ask: string): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET lost_key=?, lost_ask=? WHERE id=?").run(key, ask, id),
+    );
+  }
+  /** Its pairing is back: tracked again. */
+  clearLost(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET lost_at=NULL, lost_key=NULL, lost_ask=NULL WHERE id=?",
+        )
+        .run(id),
+    );
+  }
+  /** The lost child the parent's approval `ask` is about. */
+  byLostAsk(ask: string): ChildRow | undefined {
+    return this.all("SELECT * FROM machine_children WHERE lost_ask=?", ask)[0];
+  }
   /**
-   * Its pairing is gone, so its machine can never be asked again: settled with `view`, its
-   * unanswered messages dropped (none can be sent), and no re-check window (`settled_at` null).
+   * The person stopped tracking a lost child: settled with `view`, its unanswered messages
+   * dropped (none can be sent), and no re-check window (`settled_at` null).
    */
-  markLost(id: ThreadId, view: string): void {
+  markAbandoned(id: ThreadId, view: string): void {
     this.store.atomic((db) => {
       db.prepare("DELETE FROM machine_child_messages WHERE child_id=?").run(id);
-      db.prepare("UPDATE machine_children SET view=?, settled=1, settled_at=NULL WHERE id=?").run(
-        view,
-        id,
-      );
+      db.prepare(
+        "UPDATE machine_children SET view=?, settled=1, settled_at=NULL, lost_key=NULL, lost_ask=NULL WHERE id=?",
+      ).run(view, id);
     });
   }
   markDelivered(id: string): void {

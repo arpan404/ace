@@ -183,7 +183,7 @@ it("a delegation made before the slot table existed counts against the limit onc
     const db = new DatabaseSync(join(dataDir, "events.sqlite"));
     try {
       db.exec(
-        "DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; ALTER TABLE machine_children DROP COLUMN device_id",
+        "DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; DROP INDEX machine_children_lost; ALTER TABLE machine_children DROP COLUMN device_id; ALTER TABLE machine_children DROP COLUMN lost_at; ALTER TABLE machine_children DROP COLUMN lost_key; ALTER TABLE machine_children DROP COLUMN lost_ask",
       );
       const version = Number(db.prepare("SELECT version FROM schema_version").get()?.version);
       db.prepare("UPDATE schema_version SET version=?").run(version - 2);

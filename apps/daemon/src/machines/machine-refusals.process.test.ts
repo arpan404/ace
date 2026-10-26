@@ -97,24 +97,86 @@ it("a child whose thread was deleted on the other machine gives its parent a fin
   expect((await shownHere(pair, child))?.state).toBe("cancelled");
 }, 90_000);
 
-it("removing the pairing here ends a child still working there with a lost result its parent gets", async () => {
-  const pair = await pairedMachines({ access: "operate" });
+/** A child working there, then the person removes the machine here, as `ace remote remove`. */
+async function unpairedChild(pair: Pair) {
   await pair.source.call({ op: "machines" });
   const child = Delegated.parse((await pair.source.call(task("long"))).data).threadId;
   await eventually(() =>
     expect((pair.target.h.inputs.get(child) ?? []).join("\n")).toContain("Do the long part"),
   );
-  expect((await shownHere(pair, child))?.state).toBe("working");
-
-  // The person removes the other machine here, as `ace remote remove studio` does.
+  const parent = pair.source.caller.threadId;
+  const asked = pair.requestIn(
+    pair.source,
+    parent,
+    (interaction) =>
+      interaction.request.kind === "approval" && interaction.request.title.startsWith("Lost:"),
+  );
   const profiles = new Profiles(join(pair.source.h.home, "daemon"));
+  const saved = profiles.get("studio");
   profiles.remove("studio");
   profiles.close();
+  return { child, parent, ask: await asked, saved };
+}
 
+it("removing the pairing here leaves the parent unresolved and asking the person, and stopping tracking gives it the result", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const { child, parent, ask } = await unpairedChild(pair);
+  expect(ask.request).toMatchObject({
+    title: "Lost: Studio is no longer paired; its work there may still be running.",
+  });
+
+  // The child is lost, needing the person, and its parent is not done.
+  const shown = await shownHere(pair, child);
+  expect(shown).toMatchObject({ state: "needs_you", needs: 1 });
+  expect(shown?.step).toContain("Lost: Studio");
+  const waited = await waitFor(pair, child);
+  expect(waited.status).toBe("needs_you");
+  expect(waited.threads[0]).toMatchObject({ state: "needs_you" });
+  expect(pair.source.daemon.store.getThread(parent)?.status.state).toBe("needs_you");
+
+  // The person stops tracking it: only now does it settle, saying its work may still run.
+  expect(pair.answer(ask, "stop-tracking").ok).toBe(true);
   const [ended] = (await waitFor(pair, child)).threads;
-  expect(ended?.state).toBe("failed");
-  expect(ended?.result).toContain("no longer paired");
+  expect(ended?.state).toBe("cancelled");
+  expect(ended?.result).toContain("Its work there may still be running");
   expect(pair.target.daemon.store.getThread(child)?.status.state).toBe("working");
+}, 60_000);
+
+it("a lost child stays lost and asking the person across a restart here", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const { child, parent } = await unpairedChild(pair);
+  await pair.restartSource();
+  await eventually(async () => {
+    const shown = await shownHere(pair, child);
+    expect(shown).toMatchObject({ state: "needs_you", needs: 1 });
+  });
+  // The approval its parent shows is open, whether it survived the restart or opened again.
+  await eventually(async () => {
+    const [read] = (await waitFor(pair, child)).threads;
+    const ask = read?.needs?.[0]?.interactionId;
+    expect(ask && pair.source.daemon.store.getInteraction(ask)?.state).toBe("pending");
+  });
+  expect(pair.source.daemon.store.getThread(parent)?.status.state).not.toBe("done");
+}, 60_000);
+
+it("pairing the same device again resumes tracking a lost child, and its result reaches the parent", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const { child, parent, ask, saved } = await unpairedChild(pair);
+  await pair.finish(child, "Finished while it was unpaired.");
+  expect((await shownHere(pair, child))?.state).toBe("needs_you");
+
+  const profiles = new Profiles(join(pair.source.h.home, "daemon"));
+  const { id: _id, ...again } = saved;
+  profiles.add(again);
+  profiles.close();
+  await eventually(() =>
+    expect(pair.source.daemon.store.getInteraction(ask.id)?.state).toBe("expired"),
+  );
+  expect((await waitFor(pair, child)).threads[0]).toMatchObject({
+    state: "done",
+    result: "Finished while it was unpaired.",
+  });
+  expect(pair.source.daemon.store.getThread(parent)?.status.state).not.toBe("needs_you");
 }, 60_000);
 
 it("a child on a machine that turned agents off stays working here, and agents_status and wait say why", async () => {

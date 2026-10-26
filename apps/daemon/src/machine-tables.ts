@@ -67,6 +67,9 @@ export const machineChildGenerations = `${machineChildren}
  *   before have none and fall back to the machine's name.
  * - Indexes for a parent's children (listing, cascading Stop) and for settled results not yet
  *   delivered, so neither reads the whole history or stops at a fixed count.
+ * - `lost_at`, `lost_key` and `lost_ask` mark a child whose pairing is gone: it stays unsettled,
+ *   and its parent asks the person (the open approval's key and id) until the pairing returns or
+ *   the person stops tracking it.
  * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
  *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
  *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
@@ -79,6 +82,11 @@ export const machineChildGenerations = `${machineChildren}
  */
 export const machineChildReach = `
   ALTER TABLE machine_children ADD COLUMN device_id TEXT;
+  ALTER TABLE machine_children ADD COLUMN lost_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN lost_key TEXT;
+  ALTER TABLE machine_children ADD COLUMN lost_ask TEXT;
+  CREATE INDEX IF NOT EXISTS machine_children_lost ON machine_children(lost_ask)
+    WHERE lost_ask IS NOT NULL;
   CREATE INDEX IF NOT EXISTS machine_children_parent ON machine_children(parent_thread, settled);
   CREATE INDEX IF NOT EXISTS machine_children_undelivered ON machine_children(settled_at)
     WHERE settled = 1 AND delivered = 0;

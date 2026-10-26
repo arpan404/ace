@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { InteractionId } from "@ace/protocol";
 import type {
   DelegationOutcome,
   MachineThreadView,
@@ -39,21 +40,45 @@ export const unreadReason = (name: string, error: unknown) => `${name}: ${refuse
 export const heldMessageReason = (name: string, error: unknown) =>
   `Message waits on ${name}: ${refusedWhy(error)}`;
 
+/** What a lost child says: its pairing is gone, and its work there may still be running. */
+export const lostLine = (name: string) =>
+  `Lost: ${name} is no longer paired; its work there may still be running`;
+
 /**
- * The settled view of a child whose pairing is gone: its machine can never be asked or told
- * anything again, so the parent gets this as its result instead of waiting forever (ADR 0099).
+ * The settled view of a lost child the person stopped tracking: the parent gets this result,
+ * which says the work may still be running there (ADR 0099).
  */
-export function lostView(row: ChildRow, name: string, now: number): MachineThreadView {
+export function abandonedView(row: ChildRow, name: string, now: number): MachineThreadView {
   const saved = savedView(row);
   return {
     threadId: row.id,
-    state: "failed",
+    state: "cancelled",
     title: saved?.title || clip(row.role, 120),
     elapsedSeconds: saved?.elapsedSeconds ?? elapsedSeconds(row.created_at, now),
-    status: { state: "failed" },
+    status: { state: "done" },
     requests: [],
-    result: `Lost: ${name} is no longer paired with this machine, so this child can't report back or be stopped from here. Any work it started there may still be running; check on that machine.`,
+    result: `Stopped tracking: ${name} is no longer paired with this machine, so this child can't report back. Its work there may still be running; check on ${name}.`,
     truncated: false,
+  };
+}
+
+/**
+ * A lost child as a wait reads it: needing the person, with the parent's approval about it as
+ * its request, never settled.
+ */
+function lostChild(row: ChildRow, name: string, now: number): WatchedThread {
+  const saved = savedView(row);
+  const line = lostLine(name);
+  return {
+    threadId: row.id,
+    state: "needs_you",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: elapsedSeconds(row.created_at, now),
+    step: clip(line, 120),
+    needs: row.lost_ask
+      ? [{ interactionId: InteractionId.parse(row.lost_ask), kind: "approval", prompt: line }]
+      : [],
+    machine: name,
   };
 }
 
@@ -68,6 +93,7 @@ export function watchedChild(
   waitingOn: string | undefined,
   now: number,
 ): { view: WatchedThread; outcome?: DelegationOutcome } {
+  if (row.settled !== 1 && row.lost_at !== null) return { view: lostChild(row, name, now) };
   const {
     status: _status,
     requests: _requests,
