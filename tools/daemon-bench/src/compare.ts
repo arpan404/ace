@@ -87,7 +87,7 @@ export interface Measured {
   workload: Workload;
   metrics: Record<string, number>;
 }
-/** Medians across runs; refuses to mix platforms or workloads. */
+/** Medians across runs; refuses to mix platforms, Node versions or workloads. */
 export function combine(results: readonly BenchResult[]): Measured {
   const [first, ...rest] = results;
   if (!first) throw new Error("No benchmark results to combine");
@@ -95,6 +95,10 @@ export function combine(results: readonly BenchResult[]): Measured {
     if (result.platform !== first.platform)
       throw new Error(
         `Results must come from one platform: run 1 is ${first.platform}, run ${index + 2} is ${result.platform}`,
+      );
+    if (result.node !== first.node)
+      throw new Error(
+        `Results must come from one Node version: run 1 is ${first.node}, run ${index + 2} is ${result.node}`,
       );
     requireSameWorkload(
       `Run ${index + 2} measured a different workload from run 1`,
@@ -136,6 +140,8 @@ export function staleBaselines(baseline: Baseline, standard: Workload): string[]
     .map(([name]) => name);
 }
 
+const nodeMajor = (version: string) => /^v?(\d+)/.exec(version)?.[1];
+
 function matches(pattern: string, metric: string) {
   const parts = pattern.split(".");
   const names = metric.split(".");
@@ -151,6 +157,8 @@ function matches(pattern: string, metric: string) {
 export function compare(measured: Measured, baseline: Baseline): Verdict[] {
   const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
+  // Memory and idle costs depend on the runtime: another Node major's numbers don't hold.
+  const sameRuntime = own !== undefined && nodeMajor(own.node) === nodeMajor(measured.node);
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
   if (own)
     requireSameWorkload(
@@ -172,9 +180,11 @@ export function compare(measured: Measured, baseline: Baseline): Verdict[] {
     if (!tolerance) continue;
     let from: string | undefined;
     let reference: number | undefined;
-    if (own?.metrics[metric] !== undefined) {
+    if (own?.metrics[metric] !== undefined && (sameRuntime || tolerance.portable)) {
       from = platform;
       reference = own.metrics[metric];
+    } else if (own?.metrics[metric] !== undefined) {
+      from = platform;
     } else if (!own && tolerance.portable) {
       const other = others.find(([, entry]) => entry.metrics[metric] !== undefined);
       from = other?.[0];
