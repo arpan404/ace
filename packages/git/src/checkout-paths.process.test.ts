@@ -25,7 +25,22 @@ describe.runIf(process.platform === "win32")("Windows checkouts", () => {
     }
   });
 
-  test("a worktree checks out paths past MAX_PATH and keeps them usable for the person's Git", async () => {
+  test("with no Git on PATH, a git.exe in the checkout never runs and Git is reported missing", async () => {
+    const repo = await repository();
+    await copyFile(process.execPath, join(repo, "git.exe"));
+    const path = process.env.PATH;
+    // Only Windows' own commands: no Git anywhere on PATH.
+    process.env.PATH = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+    const service = new GitService();
+    try {
+      await expect(service.projectInfo(repo)).rejects.toMatchObject({ code: "git_missing" });
+    } finally {
+      process.env.PATH = path;
+      await service.close();
+    }
+  });
+
+  test("a worktree checks out paths past MAX_PATH without changing the person's repository config", async () => {
     const repo = await repository();
     const deep = Array.from({ length: 12 }, (_, index) => `folder-${index}-${"x".repeat(18)}`);
     await mkdir(join(repo, ...deep), { recursive: true });
@@ -33,17 +48,23 @@ describe.runIf(process.platform === "win32")("Windows checkouts", () => {
     expect(join(repo, ...deep, "deep.txt").length).toBeGreaterThan(260);
     await git(repo, "-c", "core.longpaths=true", "add", "--all");
     await git(repo, "-c", "core.longpaths=true", "commit", "-m", "Deep");
+    const config = await readFile(join(repo, ".git", "config"));
     const worktree = join(await scratch(), "long");
     const service = new GitService();
     try {
       await service.createWorktree({ repo, path: worktree, baseRef: "HEAD", branch: "long" });
+      expect(await readFile(join(worktree, ...deep, "deep.txt"), "utf8")).toContain("deep");
+      expect(await service.status(worktree)).toEqual({
+        staged: [],
+        unstaged: [],
+        untracked: [],
+        conflicted: [],
+      });
     } finally {
       await service.close();
     }
-    expect(await readFile(join(worktree, ...deep, "deep.txt"), "utf8")).toContain("deep");
-    // The person's own Git, without ace's per-command setting, sees a clean checkout.
-    expect((await git(worktree, "config", "core.longpaths")).toString().trim()).toBe("true");
-    expect((await git(worktree, "status", "--porcelain")).toString()).toBe("");
+    // The shared config is the person's main checkout's too: ace leaves it as it was.
+    expect(await readFile(join(repo, ".git", "config"))).toEqual(config);
   });
 
   test("worktrees, checkpoints and restore under core.autocrlf=true leave no line-ending changes", async () => {
