@@ -355,6 +355,32 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         expect(problems).toEqual([]);
       });
 
+      it.runIf(process.env.GITHUB_ACTIONS === "true" && scale === 1)(
+        "probe: does the page follow a live Windows dark-mode switch",
+        async () => {
+          const { app, page } = launched;
+          const read = () =>
+            page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
+          const probe: Record<string, unknown> = {};
+          await scheme(launched, false);
+          probe.lightBefore = await read();
+          await scheme(launched, true);
+          await page.waitForTimeout(3_000);
+          probe.afterRegistry = await read();
+          probe.mainDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+          await app.evaluate(({ nativeTheme }) => {
+            nativeTheme.themeSource = "system";
+          });
+          await page.waitForTimeout(1_500);
+          probe.afterReassign = await read();
+          await page.reload();
+          await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 60_000 });
+          probe.afterReload = await read();
+          appendFileSync(join(screens, "report.jsonl"), `${JSON.stringify({ probe })}\n`);
+          await scheme(launched, false);
+        },
+      );
+
       it("draws the caption buttons for the page's own theme, not only the OS scheme", async () => {
         // Light app under a dark OS, then dark app under a light OS: a person's Appearance choice.
         await go(launched, "ace://new");
