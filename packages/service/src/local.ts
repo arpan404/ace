@@ -51,9 +51,6 @@ function localTask(dataDir: string) {
   return lazy;
 }
 
-/** A PowerShell single-quoted string. */
-const quoted = (path: string) => `'${path.replaceAll("'", "''")}'`;
-
 /**
  * Windows uninstall. A running program's files cannot be deleted there, and this command
  * usually runs from the installed release itself, so that one release is removed by a hidden
@@ -81,25 +78,23 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
     return result;
   }
   // cmd.exe reads ace.cmd again after node returns, so the launcher goes once both have exited.
+  // A detached cmd.exe outlives this process (a detached PowerShell has no console and quits).
   const release = join(releases, running);
-  const script = [
-    "$ErrorActionPreference = 'SilentlyContinue'",
-    `Wait-Process -Id ${process.pid},${process.ppid} -Timeout 120`,
-    `for ($i = 0; $i -lt 40 -and (Test-Path -LiteralPath ${quoted(release)}); $i++) { Remove-Item -LiteralPath ${quoted(release)} -Recurse -Force; Start-Sleep -Milliseconds 250 }`,
-    `if (-not (Get-ChildItem -LiteralPath ${quoted(releases)} -Force)) { Remove-Item -LiteralPath ${quoted(releases)} -Force }`,
-    `if (-not (Test-Path -LiteralPath ${quoted(join(dataDir, "current"))})) { Remove-Item -LiteralPath ${quoted(launcher)} -Force }`,
-  ].join("\n");
-  spawn(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      Buffer.from(script, "utf16le").toString("base64"),
-    ],
-    // Not detached: PowerShell started without a console exits before running anything.
-    { stdio: "ignore", windowsHide: true },
-  ).unref();
+  const remove = `rmdir /s /q "${release}" 2>nul`;
+  const command = [
+    "ping -n 4 127.0.0.1 >nul",
+    remove,
+    "ping -n 3 127.0.0.1 >nul",
+    remove,
+    `rmdir "${releases}" 2>nul`,
+    `if not exist "${join(dataDir, "current")}" del /f /q "${launcher}" 2>nul`,
+  ].join(" & ");
+  spawn("cmd.exe", ["/d", "/s", "/c", `"${command}"`], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    windowsVerbatimArguments: true,
+  }).unref();
   return result;
 }
 
