@@ -51,11 +51,12 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
   `,
   );
   const config = join(root, "vitest.config.mjs");
+  // Homes are what this rehearses; the web performance build is left out, as no fixture serves it.
   await writeFile(
     config,
     `
     import config from ${JSON.stringify(new URL("../vitest.config.ts", import.meta.url).href)};
-    export default {...config, test:{...config.test, projects:config.test.projects.map(project => ({...project, test:{...project.test, include:[${JSON.stringify(fixture)}], exclude:[], setupFiles:[...project.test.setupFiles,${JSON.stringify(setup)}], provide:{...project.test.provide,rehearsalProject:project.test.name}}}))}};
+    export default {...config, test:{...config.test, projects:config.test.projects.map(project => ({...project, test:{...project.test, include:[${JSON.stringify(fixture)}], exclude:[], globalSetup:project.test.globalSetup?.filter(file => !file.endsWith("perf-build-setup.ts")), setupFiles:[...project.test.setupFiles,${JSON.stringify(setup)}], provide:{...project.test.provide,rehearsalProject:project.test.name}}}))}};
   `,
   );
   const env = {
@@ -102,6 +103,7 @@ test("all projects and concurrent runs own distinct homes and remove them after 
       "browser-process",
       "client-react",
       "history-scale",
+      "perf-browser",
       "process",
       "unit",
       "web",

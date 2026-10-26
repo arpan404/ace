@@ -11,11 +11,13 @@ const react = ["apps/web/**", "packages/client-react/**"];
 // This review suite owns real history workers and awaits their replies and shutdown.
 // Preserve its review path while applying the process project's shared hang guards.
 const historyWorkerReview = "packages/history-import/src/review.test.ts";
-const browserStartupSuites = [
-  "tools/real-smoke/src/browser.process.test.ts",
+// Suites that serve the production build in `--mode perf`, built once for all of them.
+const perfBuildSuites = [
   "tools/web-perf/src/search-jump.process.test.ts",
   "tools/web-perf/src/live-motion.process.test.ts",
 ];
+const realSmokeSuite = "tools/real-smoke/src/browser.process.test.ts";
+const browserStartupSuites = [realSmokeSuite, ...perfBuildSuites];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
 // Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
 const workers = Number(process.env.ACE_TEST_WORKERS) || 4;
@@ -69,7 +71,7 @@ export default defineConfig({
       {
         test: {
           name: "browser-process",
-          include: browserStartupSuites,
+          include: [realSmokeSuite],
           maxWorkers: workers,
           // Browser startup follows the desktop and browser bundle-building suites.
           sequence: { groupOrder: 2 },
@@ -80,6 +82,23 @@ export default defineConfig({
             "./tools/web-perf/src/browser-test-setup.ts",
           ],
           setupFiles: ["./scripts/test-home-setup.ts"],
+        },
+      },
+      {
+        test: {
+          name: "perf-browser",
+          include: perfBuildSuites,
+          maxWorkers: workers,
+          sequence: { groupOrder: 2 },
+          testTimeout: PROCESS_TEST_TIMEOUT,
+          hookTimeout: PROCESS_TEST_TIMEOUT,
+          // The app is built once before these suites start, outside any test's time limit.
+          globalSetup: [
+            "./scripts/test-home-global-setup.ts",
+            "./tools/web-perf/src/browser-test-setup.ts",
+            "./tools/web-perf/src/perf-build-setup.ts",
+          ],
+          setupFiles: ["./scripts/test-home-setup.ts", "./tools/web-perf/src/perf-build-worker.ts"],
         },
       },
       {
