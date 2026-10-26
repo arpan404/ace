@@ -104,6 +104,30 @@ export function folderIdentity(info: { dev: number | bigint; ino: number | bigin
  * Removes `name` from a held parent only while it is still the folder with identity `id`.
  * Answers false when the name is gone or leads somewhere else; a failed removal throws.
  */
+/**
+ * Windows can't finish removing a folder while a just-stopped child (a cancelled `git clone`)
+ * still holds files in it, and its kill lands a moment later. Retry the owned removal briefly;
+ * the last failure is the caller's to record.
+ */
+export async function removeIfOwnedSettling(
+  parent: { handle: PinnedDirectory },
+  name: string,
+  id: string,
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds)),
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      removeIfOwned(parent, name, id);
+      return;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      const held = ["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"].includes(String(code));
+      if (!held || attempt >= 10) throw error;
+      await wait(Math.min(50 * 2 ** attempt, 800));
+    }
+  }
+}
 export function removeIfOwned(parent: { handle: PinnedDirectory }, name: string, id: string) {
   let there;
   try {
