@@ -82,6 +82,18 @@ function WaitForDaemon($installDir) {
 }
 
 function Shot($name) {
+  # On a CI runner: capture the desktop here, for the uploaded artifact.
+  if ($env:ACE_SMOKE_SCREENSHOTS) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+    New-Item -ItemType Directory -Force -Path $env:ACE_SMOKE_SCREENSHOTS | Out-Null
+    $bitmap.Save((Join-Path $env:ACE_SMOKE_SCREENSHOTS "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+    $graphics.Dispose(); $bitmap.Dispose()
+    return
+  }
   if (-not $ShotDir) { return }
   Set-Content -Path (Join-Path $ShotDir "shot-$name") -Value $name
   $deadline = (Get-Date).AddMinutes(1)
@@ -138,7 +150,7 @@ Done
 
 Step "The app starts its own daemon"
 $firstDaemon = LaunchApp $installDir
-if ($ShotDir) { Start-Sleep -Seconds 45 }
+if ($ShotDir -or $env:ACE_SMOKE_SCREENSHOTS) { Start-Sleep -Seconds 45 }
 Shot "first-launch"
 Set-Content -Path (Join-Path $homeDir "smoke-marker.txt") -Value "kept"
 # A login item as the app's Settings writes it, so uninstall must remove it.
@@ -152,7 +164,7 @@ if ($entry.DisplayVersion -ne $SecondVersion) { Fail "installed version is $($en
 if (Get-Process -Id $firstDaemon -ErrorAction SilentlyContinue) { Fail "the old daemon still runs after the update" }
 $secondDaemon = LaunchApp $installDir
 Write-Host "daemon after update: pid $secondDaemon"
-if ($ShotDir) { Start-Sleep -Seconds 45 }
+if ($ShotDir -or $env:ACE_SMOKE_SCREENSHOTS) { Start-Sleep -Seconds 45 }
 Shot "after-update"
 Done
 

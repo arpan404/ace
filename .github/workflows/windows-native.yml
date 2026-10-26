@@ -449,18 +449,21 @@ jobs:
 
       - name: Install, run, update and uninstall
         timeout-minutes: 20
+        env:
+          ACE_SMOKE_SCREENSHOTS: ${{ runner.temp }}/screenshots
         run: >-
           ./apps/desktop/scripts/installer-smoke.ps1
           -First "$env:RUNNER_TEMP/installers/ace-${{ env.FIRST_VERSION }}-${{ matrix.arch }}-setup.exe"
           -Second "$env:RUNNER_TEMP/installers/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe"
           -SecondVersion "${{ env.SECOND_VERSION }}"
 
-      - name: Upload app and daemon logs
-        if: failure()
+      - name: Upload app logs and desktop screenshots
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: installer-logs-${{ matrix.arch }}
           path: |
-            ~/AppData/Roaming/ace/logs
+            ~/AppData/Roaming/ace-next/logs
             ~/.ace/logs
+            ${{ runner.temp }}/screenshots
           if-no-files-found: ignore
