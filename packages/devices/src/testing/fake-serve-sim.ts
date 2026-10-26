@@ -59,6 +59,7 @@ export async function fakeServeSim(
   const avcc: ServerResponse[] = [];
   let avccOpened = 0;
   let mjpegOpen = 0;
+  const mjpeg = new Set<ServerResponse>();
   const jpeg = await sharp({
     create: { width: 201, height: 437, channels: 3, background: "white" },
   })
@@ -67,7 +68,11 @@ export async function fakeServeSim(
   const server = createServer((req, res) => {
     if (req.url === `${base}/stream.mjpeg`) {
       mjpegOpen++;
-      res.on("close", () => mjpegOpen--);
+      mjpeg.add(res);
+      res.on("close", () => {
+        mjpegOpen--;
+        mjpeg.delete(res);
+      });
       res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=frame" });
       res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
       res.write(jpeg);
@@ -146,6 +151,15 @@ export async function fakeServeSim(
     avcc,
     opened: () => avccOpened,
     mjpegOpen: () => mjpegOpen,
+    /** The screen changes: every open MJPEG stream gets `image`, as serve-sim sends a change. */
+    paint: (image: Buffer) => {
+      for (const res of mjpeg) {
+        res.write(
+          `\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${image.length}\r\n\r\n`,
+        );
+        res.write(image);
+      }
+    },
     /** A delta access unit; `size` pads it, to stand for a busy screen's bigger pictures. */
     delta: (byte: number, size = 2) =>
       avcc

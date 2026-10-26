@@ -540,6 +540,10 @@ export async function simulatorCapture(options: {
         await follow(settings);
         return { codec };
       },
+      still: async () => {
+        controller.signal.throwIfAborted();
+        if (mode === "jpeg") await jpeg?.replay();
+      },
       keyframe: async () => {
         controller.signal.throwIfAborted();
         if (transcode) transcode.keyframe();
