@@ -263,6 +263,11 @@ const config: Configuration = {
 };
 
 if (!signed) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+// Windows ARM64: 7-Zip picks its ARM64 executable filter for .exe and .dll files, which the
+// installer's 7z extractor cannot decode, so it silently skips them (ace.exe included). BCJ
+// is one it decodes; it only costs a little compression on ARM64 code.
+if (process.platform === "win32" && arch === "arm64")
+  process.env.ELECTRON_BUILDER_7Z_FILTER = "BCJ";
 // An unsigned Windows build must not pick up a certificate from the environment.
 if (process.platform === "win32" && authenticode?.kind !== "certificate")
   for (const name of ["CSC_LINK", "WIN_CSC_LINK"]) delete process.env[name];
