@@ -22,3 +22,11 @@ export async function canonicalHome(path: string): Promise<string> {
   }
   return join(await realpath(ancestor), ...missing.toReversed());
 }
+/**
+ * The person's home on Windows, where the daemon and every provider CLI find it: Node's
+ * `os.homedir()` and the CLIs read USERPROFILE there, so a HOME that Git Bash or MSYS sets is
+ * never theirs. `fallback` is that `os.homedir()`.
+ */
+export function profileHome(env: NodeJS.ProcessEnv, fallback: () => string): string {
+  return env.USERPROFILE || fallback();
+}
