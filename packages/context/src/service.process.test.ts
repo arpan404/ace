@@ -456,3 +456,46 @@ test("Codex receives exact image bytes at a MIME-derived filename even when the 
     result.release();
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "Windows mentions reach providers with native full paths to binary files, images and PDFs",
+  async () => {
+    const f = await fixture();
+    const pdf = Buffer.from("%PDF-1.7\n%synthetic\n");
+    await f.write("binary.dat", Buffer.from([0, 1]));
+    await f.write("assets/pic.png", png);
+    await f.write("docs/spec.pdf", pdf);
+    const binary = await f.service.compose(
+      "device",
+      thread,
+      { mentions: [{ path: "binary.dat" }], attachments: [] },
+      caps,
+    );
+    expect(JSON.stringify(binary.projection.input)).toContain(
+      JSON.stringify(join(f.root, "binary.dat")).slice(1, -1),
+    );
+    const image = await f.service.compose(
+      "device",
+      thread,
+      { mentions: [{ path: "assets/pic.png" }], attachments: [] },
+      { ...caps, provider: "codex" },
+    );
+    expect(image.projection.input).toEqual([
+      { type: "localImage", path: join(f.root, "assets", "pic.png"), mimeType: "image/png" },
+    ]);
+    await expect(access(join(f.root, "assets", "pic.png"))).resolves.toBeUndefined();
+    const document = await f.service.compose(
+      "device",
+      thread,
+      { mentions: [{ path: "docs/spec.pdf" }], attachments: [] },
+      { ...caps, documents: ["application/pdf"] },
+    );
+    expect(document.projection.input).toEqual([
+      expect.objectContaining({
+        type: "document",
+        title: "docs/spec.pdf",
+        path: join(f.root, "docs", "spec.pdf"),
+      }),
+    ]);
+  },
+);
