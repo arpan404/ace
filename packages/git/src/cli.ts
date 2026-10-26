@@ -38,6 +38,7 @@ import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
 import { windowsLongPathsEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
 import type { GitJob } from "./git-job.ts";
+import type { GitProcess } from "./git-processes.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
 import {
@@ -188,15 +189,17 @@ export class GitCli {
     if (!evidence) return;
     if (!options.processRuntime?.groupAlive)
       evidence.groupAlive = (pid) => (this.jobs ? this.jobs.jobAlive(pid) : true);
-    const seenGone = new Map<string, number>();
-    evidence.stoppedBy ??= (lease) => {
-      let at = seenGone.get(lease.id);
-      if (at === undefined) {
+    // The Git running when each stopped owner was first found gone, by PID and start.
+    const seenGone = new Map<string, Set<string>>();
+    evidence.runningWhenGone ??= (lease, listing) => {
+      let running = seenGone.get(lease.id);
+      if (!running) {
         if (seenGone.size >= 4096) seenGone.clear();
-        at = this.runtime.fileClock();
-        seenGone.set(lease.id, at);
+        running = new Set(listing.map(gitProcessKey));
+        seenGone.set(lease.id, running);
       }
-      return at;
+      const known = running;
+      return (process) => known.has(gitProcessKey(process));
     };
   }
 
@@ -912,6 +915,11 @@ export class GitCli {
 }
 
 function ignoreError() {}
+
+/** One process, distinct from a later one that reuses its PID. */
+function gitProcessKey(process: GitProcess): string {
+  return `${process.pid}@${process.startedAt ?? "?"}`;
+}
 
 /** The daemon's environment without Git's: repository/index selectors inherited from an agent
  * must not redirect our commands. */

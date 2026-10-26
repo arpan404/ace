@@ -46,11 +46,18 @@ export interface LeaseProbe {
         groupAlive: (pid: number) => boolean;
         now: () => Date | Promise<Date>;
         /**
-         * Windows only: a time, in epoch milliseconds, by which the stopped daemon that owns
-         * `lease` had already stopped. Its Git ran in kill-on-close jobs that ended with it, so
-         * Git started later is someone else's.
+         * Windows only: whether `process` was already running when this service first found
+         * the stopped daemon that owns `lease` gone, given each listing taken since. That
+         * daemon's Git ran in kill-on-close jobs that ended with it, so Git started later is
+         * someone else's. Identity, not clocks: process start times and the daemon's clock can
+         * drift apart.
          */
-        stoppedBy?: ((lease: MutationLease) => number) | undefined;
+        runningWhenGone?:
+          | ((
+              lease: MutationLease,
+              listing: readonly GitProcess[],
+            ) => (process: GitProcess) => boolean)
+          | undefined;
       }
     | undefined;
   /** How long admission waits for leases that clear on their own before refusing. */
@@ -95,13 +102,10 @@ async function busy(
   const listing = await scan();
   if (!listing) return;
   const roots = await Promise.all(record.roots.map(canonical));
-  const stoppedBy = owner === "gone" ? evidence.stoppedBy?.(record) : undefined;
-  if (stoppedBy !== undefined)
+  const earlier = owner === "gone" ? evidence.runningWhenGone?.(record, listing) : undefined;
+  if (earlier)
     return listing
-      .filter(
-        (entry) =>
-          touches(entry, roots) && (entry.startedAt === undefined || entry.startedAt <= stoppedBy),
-      )
+      .filter((entry) => touches(entry, roots) && earlier(entry))
       .map(
         (entry) => `a running Git process (pid ${entry.pid}${entry.cwd ? ` in ${entry.cwd}` : ""})`,
       );
