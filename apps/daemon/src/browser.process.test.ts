@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { detectChromium } from "@ace/browser";
-import { startDaemon } from "./index.ts";
+import { startDaemon, stubHandler } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
@@ -23,6 +23,20 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     const daemon = await startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
+      handler: stubHandler({ development: true }),
+      history: { instances: [] },
+      modelInstances: [],
+      providerStatus: {
+        env: { PATH: "" },
+        versions: async () => ({}),
+        cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+        antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+      },
+      modelDiscovery: {
+        spawn: () => {
+          throw new Error("model discovery must stay idle");
+        },
+      },
     });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {
@@ -65,13 +79,12 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
       );
       for (const found of await Promise.all(
         clients.map((client) =>
-          client.nextStream((message) =>
-            message.kind === "browser.video" &&
-            message.threadId === thread.id &&
-            message.chunk.key &&
-            message.chunk.bytes.length > 0
-              ? message
-              : undefined,
+          client.nextStream(
+            (message) =>
+              message.kind === "browser.video" &&
+              message.threadId === thread.id &&
+              message.chunk.key &&
+              message.chunk.bytes.length > 0,
           ),
         ),
       )) {

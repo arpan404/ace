@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import type { ClientCore, ThreadSource } from "@ace/client";
 import { ThreadId } from "@ace/protocol";

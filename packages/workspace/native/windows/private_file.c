@@ -1,0 +1,295 @@
+// Private-file ACL check and owner-only secure for the Windows handle core.
+//
+// checkPrivateAt fails closed unless the named child is a regular file with
+// exactly one hard link, owned by the current process user, guarded by a
+// protected owner-only DACL: exactly one ACCESS_ALLOWED_ACE with zero flags
+// and a FILE_ALL_ACCESS mask for that same owner SID. Any reparse point is
+// ELOOP, directories are EISDIR, hardlinks and every DACL/owner mismatch
+// are EACCES. There is no uid-0/admin bypass on Windows: ownership is
+// owner-SID equality against the current process TokenUser only.
+//
+// securePrivateAt opens the same validated child with WRITE_DAC (never
+// WRITE_OWNER: current-user ownership is a precondition, never taken),
+// requires the same regular single-link shape, installs the exact
+// owner-only protected DACL, then re-reads the SAME handle through the
+// shared check logic before reporting success.
+//
+// securePrivateFd applies the same same-handle hardening to an already-open
+// fd: the caller first opens openPrivateMetadataAt (READ_CONTROL | WRITE_DAC
+// | FILE_READ_ATTRIBUTES | SYNCHRONIZE, no data), then this setter borrows
+// the HANDLE via libuv, re-applies the preconditions on that SAME handle,
+// installs the protected owner-only DACL, and re-reads the SAME handle. It
+// never reopens by name and never closes the borrowed handle.
+//
+// openPrivateMetadataAt opens one validated child with metadata-only access
+// (READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES | SYNCHRONIZE, never
+// data) for later same-handle secure. The parent is pinned (directory,
+// no reparse) and the component is strict (no follow); the child must be
+// a regular single link owned by the current TokenUser before the fd is
+// returned. The DACL may be broad here so it stays healable by secure.
+//
+// Primary sources (fresh, no other-project code):
+// - NtCreateFile RootDirectory relative resolution + OPEN_REPARSE_POINT:
+//   Microsoft Learn "NtCreateFile function (ntifs.h)"
+//   (https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile).
+// - Owner/DACL read: Microsoft Learn "GetSecurityInfo function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo)
+//   (SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+//   the returned descriptor is released with LocalFree).
+// - DACL/ACE model: Microsoft Learn "DACLs and ACEs"
+//   (https://learn.microsoft.com/en-us/windows/win32/secauthz/dacls-and-aces),
+//   "ACCESS_ALLOWED_ACE structure"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-access_allowed_ace),
+//   "ACL structure"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-acl).
+// - SID equality: Microsoft Learn "EqualSid function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-equalsid).
+// - Current user: Microsoft Learn "OpenProcessToken function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken)
+//   and "GetTokenInformation function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation)
+//   (TokenUser).
+// - Link count / directory class: Microsoft Learn
+//   "GetFileInformationByHandleEx function" + "FILE_STANDARD_INFO structure"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex).
+// - Error codes: Microsoft Learn "System Error Codes"
+//   (https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes).
+// - DACL install: Microsoft Learn "SetSecurityInfo function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo)
+//   (DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION; the
+//   owner is untouched: no OWNER_SECURITY_INFORMATION, NULL owner/group).
+// - ACL build: Microsoft Learn "InitializeAcl function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-initializeacl)
+//   and "AddAccessAllowedAceEx function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-addaccessallowedaceex)
+//   (one zero-flag ACCESS_ALLOWED_ACE, FILE_ALL_ACCESS, owner SID).
+// - SID copy: Microsoft Learn "CopySid function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-copysid).
+//
+// Local helpers stay file-static by responsibility (open, type/link,
+// owner equality for the healable metadata path) so check and secure reuse
+// the same logic. The strict owner-only protected-DACL + TokenUser verdict
+// and the owner-only ACL build are shared (private_security.c, via
+// windows_core.h). No addon CRT fd calls:
+// the subject HANDLE is closed with CloseHandle, security descriptors with
+// LocalFree, SID/ACL buffers with free, token state with CloseHandle.
+
+#ifdef _WIN32
+// Win10 baseline (matches nt_bridge.c) so FILE_STANDARD_INFO and the
+// FileStandardInfo class are declared.
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+#include <windows.h>
+#include <aclapi.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include "windows_core.h"
+
+// Open one validated component without any DIRECTORY or NON_DIRECTORY type
+// constraint, so reparse points and directories can be identified explicitly
+// instead of surfacing as NT type-status refusals. OPEN_REPARSE_POINT keeps
+// the open on the link itself. The caller picks `access`: the checker reads
+// owner/DACL with READ_CONTROL, the setter additionally needs WRITE_DAC.
+static const char *private_open_subject(
+    HANDLE parent, const char *name, ACCESS_MASK access, HANDLE *out) {
+  if (name == NULL || out == NULL) return "EINVAL";
+  size_t len = strlen(name);
+  const char *valid = wcore_validate_component(name, len);
+  if (valid != NULL) return valid;
+  WCHAR wname[1024];
+  DWORD wlen = 0;
+  const char *conv = wcore_wide_from_utf8(name, len, wname, 1024, &wlen);
+  if (conv != NULL) return conv;
+  return wcore_nt_create_child(parent, wname, wlen,
+      WCORE_FILE_SYNCHRONOUS_IO_NONALERT | WCORE_FILE_OPEN_REPARSE_POINT,
+      access, out);
+}
+
+// Reject links, directories and hardlinks before any security read.
+// Reparse points are ELOOP, directories EISDIR, hardlinks EACCES.
+static const char *private_assert_regular_single_link(HANDLE child) {
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  memset(&tag, 0, sizeof(tag));
+  if (!GetFileInformationByHandleEx(
+          child, FileAttributeTagInfo, &tag, sizeof(tag))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  if (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) return "ELOOP";
+  if (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) return "EISDIR";
+  FILE_STANDARD_INFO stdinfo;
+  memset(&stdinfo, 0, sizeof(stdinfo));
+  if (!GetFileInformationByHandleEx(
+          child, FileStandardInfo, &stdinfo, sizeof(stdinfo))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  if (stdinfo.Directory) return "EISDIR";
+  if (stdinfo.NumberOfLinks != 1) return "EACCES";
+  return NULL;
+}
+
+const char *wcore_check_private_at(int parent_fd, const char *name) {
+  if (name == NULL) return "EINVAL";
+  HANDLE parent = NULL;
+  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
+  if (borrowed != NULL) return borrowed;
+  const char *parent_type = wcore_assert_dir_noreparse(parent);
+  if (parent_type != NULL) return parent_type;
+  HANDLE child = NULL;
+  const char *opened = private_open_subject(parent, name,
+      READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
+  if (opened != NULL) return opened;
+  const char *shape = private_assert_regular_single_link(child);
+  if (shape != NULL) {
+    CloseHandle(child);
+    return shape;
+  }
+  const char *verdict = wcore_verify_private_file_security(child);
+  // A CloseHandle failure is only reported when the verdict was success.
+  if (!CloseHandle(child) && verdict == NULL) {
+    const char *mapped = wcore_dos_to_code(GetLastError());
+    verdict = mapped != NULL ? mapped : "EIO";
+  }
+  return verdict;
+}
+
+// Borrowed-handle check: same fail-closed verdict as checkPrivateAt, but on
+// an already-open fd. Never reopens by name, never closes the borrowed
+// handle, never changes any ACL. The caller keeps the fd alive through this
+// synchronous call.
+const char *wcore_check_private_fd(int fd) {
+  HANDLE handle = NULL;
+  const char *borrowed = wcore_borrow_handle(fd, &handle);
+  if (borrowed != NULL) return borrowed;
+  const char *shape = private_assert_regular_single_link(handle);
+  if (shape != NULL) return shape;
+  return wcore_verify_private_file_security(handle);
+}
+
+// Same-object owner-only hardening applied to an already-open child
+// HANDLE. Requires the regular single-link shape, requires current
+// TokenUser ownership as a precondition (never WRITE_OWNER, never taken,
+// no admin bypass), installs the exact protected owner-only DACL via the
+// shared builder, then re-reads the SAME handle through the shared check
+// logic. The caller owns open/close; this helper never closes.
+static const char *private_secure_handle(HANDLE child) {
+  const char *verdict = private_assert_regular_single_link(child);
+  PSID user = NULL;
+  PACL acl = NULL;
+  if (verdict == NULL) verdict = wcore_current_user_sid(&user);
+  if (verdict == NULL) {
+    PSID owner = NULL;
+    PSECURITY_DESCRIPTOR descriptor = NULL;
+    DWORD status = GetSecurityInfo(child, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &descriptor);
+    if (status != ERROR_SUCCESS) {
+      const char *code = wcore_dos_to_code(status);
+      verdict = code != NULL ? code : "EIO";
+    } else {
+      if (owner == NULL || !IsValidSid(owner) || !EqualSid(owner, user)) verdict = "EACCES";
+      LocalFree(descriptor);
+    }
+  }
+  if (verdict == NULL) {
+    // Shared owner-only ACL build (private_security.c): one zero-flag
+    // ACCESS_ALLOWED_ACE with FILE_ALL_ACCESS for the owner SID.
+    verdict = wcore_owner_only_acl(user, &acl);
+    if (verdict == NULL) {
+      // DACL-only replacement, protected from inheritance. The owner is
+      // left untouched: NULL owner/group and no OWNER_SECURITY_INFORMATION.
+      DWORD set_status = SetSecurityInfo(child, SE_FILE_OBJECT,
+          DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+          NULL, NULL, acl, NULL);
+      if (set_status != ERROR_SUCCESS) {
+        const char *mapped = wcore_dos_to_code(set_status);
+        verdict = mapped != NULL ? mapped : "EIO";
+      } else {
+        // Re-read the SAME handle through the shared checker logic: only
+        // an observed owner-only protected DACL is success.
+        verdict = private_assert_regular_single_link(child);
+        if (verdict == NULL) verdict = wcore_verify_private_file_security(child);
+      }
+    }
+  }
+  if (user != NULL) free(user);
+  if (acl != NULL) free(acl);
+  return verdict;
+}
+
+const char *wcore_secure_private_at(int parent_fd, const char *name) {
+  if (name == NULL) return "EINVAL";
+  HANDLE parent = NULL;
+  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
+  if (borrowed != NULL) return borrowed;
+  const char *parent_type = wcore_assert_dir_noreparse(parent);
+  if (parent_type != NULL) return parent_type;
+  HANDLE child = NULL;
+  // WRITE_DAC authorizes the DACL replacement below. WRITE_OWNER is never
+  // requested: current-user ownership is a precondition, never taken, and
+  // there is no admin bypass.
+  const char *opened = private_open_subject(parent, name,
+      READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
+  if (opened != NULL) return opened;
+  const char *verdict = private_secure_handle(child);
+  // A CloseHandle failure is only reported when the verdict was success.
+  if (!CloseHandle(child) && verdict == NULL) {
+    const char *mapped = wcore_dos_to_code(GetLastError());
+    verdict = mapped != NULL ? mapped : "EIO";
+  }
+  return verdict;
+}
+
+// Borrowed-handle secure: same fail-closed hardening as securePrivateAt,
+// but on an already-open fd. Borrows the HANDLE via Node libuv, applies
+// private_secure_handle to that SAME handle (shape + TokenUser owner
+// precondition, protected single-owner DACL install, same-handle
+// postcheck), then returns without closing. The caller keeps the fd alive
+// through this synchronous call and closes it. Never reopens by name,
+// never WRITE_OWNER, no admin bypass.
+const char *wcore_secure_private_fd(int fd) {
+  HANDLE handle = NULL;
+  const char *borrowed = wcore_borrow_handle(fd, &handle);
+  if (borrowed != NULL) return borrowed;
+  return private_secure_handle(handle);
+}
+
+const char *wcore_open_private_metadata_at(int parent_fd, const char *name, int *out_fd) {
+  if (name == NULL || out_fd == NULL) return "EINVAL";
+  HANDLE parent = NULL;
+  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
+  if (borrowed != NULL) return borrowed;
+  const char *parent_type = wcore_assert_dir_noreparse(parent);
+  if (parent_type != NULL) return parent_type;
+  HANDLE child = NULL;
+  // Metadata-only access for a later same-handle secure: no data, never
+  // WRITE_OWNER. WRITE_DAC authorizes the later DACL replacement.
+  const char *opened = private_open_subject(parent, name,
+      READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
+  if (opened != NULL) return opened;
+  const char *verdict = private_assert_regular_single_link(child);
+  if (verdict == NULL) {
+    PSID owner = NULL;
+    PSECURITY_DESCRIPTOR descriptor = NULL;
+    DWORD status = GetSecurityInfo(child, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &descriptor);
+    if (status != ERROR_SUCCESS) {
+      const char *code = wcore_dos_to_code(status);
+      verdict = code != NULL ? code : "EIO";
+    } else {
+      // Ownership helper reuses the shared TokenUser equality check; the
+      // DACL is deliberately unchecked here so a broad DACL stays healable
+      // by securePrivateFd.
+      verdict = wcore_assert_current_owner(owner);
+      LocalFree(descriptor);
+    }
+  }
+  if (verdict != NULL) {
+    CloseHandle(child);
+    return verdict;
+  }
+  return wcore_adopt_handle(child, out_fd);
+}
+#endif

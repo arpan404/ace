@@ -83,9 +83,9 @@ test("uninstall removes this ace's manifests and launcher but leaves another dat
   await expect(stat(launcherPath(mine))).rejects.toThrow();
 });
 
-test("windows is refused instead of writing manifests Chrome would never read", async () => {
+test("unsupported platforms refuse native host installation", async () => {
   const home = await temp();
   await expect(
-    installNativeHost({ platform: "win32", home, dataDir: home, node: "node.exe" }),
+    installNativeHost({ platform: "freebsd", home, dataDir: home, node: "node" }),
   ).rejects.toThrow(/platform/);
 });

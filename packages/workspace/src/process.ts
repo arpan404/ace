@@ -4,13 +4,19 @@ import { pipeline } from "node:stream/promises";
 import { workspaceRuntime, type WorkspaceRuntime } from "./runtime.ts";
 import { aborted, errorCode, WorkspaceError } from "./types.ts";
 
+/** EPIPE or a premature-close from pipeline when the child exits before draining stdin. */
+function isExpectedEarlyClose(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === "EPIPE" || code === "ERR_STREAM_PREMATURE_CLOSE";
+}
+
 /** Own the process, drain both streams, and always reap it before returning. */
 export async function command(
   binary: string,
   args: string[],
   options: {
     cwd?: string;
-    input?: Buffer;
+    input?: Buffer | AsyncIterable<Buffer>;
     signal?: AbortSignal;
     outputCap?: number;
     onLine?: (line: string) => boolean;
@@ -50,8 +56,11 @@ export async function command(
     let stopped = false;
     let problem: unknown;
     const decoder = new TextDecoder();
+    const sources: Readable[] = [];
     const stop = () => {
       stopped = true;
+      for (const source of sources) source.destroy();
+      stdin.destroy();
       child.kill("SIGKILL");
     };
     const cancel = () => {
@@ -64,7 +73,7 @@ export async function command(
       problem = error;
     });
     stdin.on("error", (error) => {
-      if (!stopped && errorCode(error) !== "EPIPE") {
+      if (!stopped && !isExpectedEarlyClose(error)) {
         problem = error;
         stop();
       }
@@ -127,20 +136,63 @@ export async function command(
         reject(error);
       }
     });
-    const writers = (options.inputs ?? []).map((input, index) => {
+    const sourceFor = (input: AsyncIterable<Buffer>) => {
+      async function* observed() {
+        const iterator = input[Symbol.asyncIterator]();
+        async function next() {
+          try {
+            return await iterator.next();
+          } catch (error) {
+            // Observe errors from the producer's next call, not errors injected
+            // into yield when pipeline closes a child's destination.
+            if (!stopped) {
+              problem = error;
+              stop();
+            }
+            throw error;
+          }
+        }
+        try {
+          for (;;) {
+            const item = await next();
+            if (item.done) return;
+            yield item.value;
+          }
+        } finally {
+          await iterator.return?.();
+        }
+      }
+      const source = Readable.from(observed());
+      sources.push(source);
+      return source;
+    };
+    const writers: Promise<void>[] = (options.inputs ?? []).map((input, index) => {
       const pipe = pipes[index];
       if (!pipe) {
         problem = new Error("Missing search input pipe");
         stop();
         return Promise.resolve();
       }
-      return pipeline(Readable.from(input), pipe.stream).catch((error: unknown) => {
-        if (!stopped && errorCode(error) !== "EPIPE") {
+      const source = sourceFor(input);
+      return pipeline(source, pipe.stream).catch((error: unknown) => {
+        if (!stopped && !isExpectedEarlyClose(error)) {
           problem = error;
           stop();
         }
       });
     });
-    stdin.end(options.input);
+    if (options.input !== undefined && !Buffer.isBuffer(options.input)) {
+      const source = sourceFor(options.input);
+      writers.push(
+        pipeline(source, stdin).catch((error: unknown) => {
+          if (!stopped && !isExpectedEarlyClose(error)) {
+            problem = error;
+            stop();
+          }
+        }),
+      );
+    } else {
+      stdin.end(options.input);
+    }
   });
 }

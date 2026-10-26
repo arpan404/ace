@@ -1,3 +1,4 @@
+import { disabledAttributesPath, disabledHooksPath } from "./disabled-hooks.ts";
 import { z } from "zod";
 import { GitError } from "./types.ts";
 
@@ -33,15 +34,13 @@ const hookEvents = [
   "post-index-change",
 ];
 /** Command-scope configuration wins over repository, worktree, global and system files. */
-const hookSwitches: readonly (readonly [string, string])[] = [
-  ["core.hooksPath", "/dev/null"],
+const hookSwitches = (): readonly (readonly [string, string])[] => [
+  ["core.hooksPath", disabledHooksPath()],
   ...hookEvents.map((event): readonly [string, string] => [`hook.${event}.enabled`, "false"]),
 ];
 const fixed: readonly (readonly [string, string])[] = [
-  ...hookSwitches,
   ["core.fsmonitor", "false"],
   ["core.untrackedCache", "false"],
-  ["core.attributesFile", "/dev/null"],
   ["gc.auto", "0"],
   ["maintenance.auto", "false"],
   ["commit.gpgSign", "false"],
@@ -112,6 +111,8 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
   const { drivers, hooks } = configuredExtensions(keys);
   return {
     ...commandConfig([
+      ...hookSwitches(),
+      ["core.attributesFile", disabledAttributesPath()],
       ...fixed,
       ...[...drivers].flatMap((name) => [
         [`${name}.clean`, ""],
@@ -130,7 +131,7 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
 
 /** Only hooks are switched off: every other program the person configured runs as usual. */
 export function hooklessEnv(keys: string): Record<string, string> {
-  return commandConfig([...hookSwitches, ...namedHookSwitches(configuredExtensions(keys).hooks)]);
+  return commandConfig([...hookSwitches(), ...namedHookSwitches(configuredExtensions(keys).hooks)]);
 }
 
 function commandConfig(pairs: readonly (readonly string[])[]): Record<string, string> {

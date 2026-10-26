@@ -2,10 +2,12 @@ import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { constants as osConstants, tmpdir, userInfo } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
+import { resolveShell as selectShell } from "./shell.ts";
+import type { ShellSelectionPorts } from "./shell.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
@@ -54,45 +56,10 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-/** What shell selection reads from the machine; tests substitute each one. */
-export interface ShellSelectionPorts {
-  readonly env?: NodeJS.ProcessEnv | undefined;
-  readonly exists?: ((path: string) => boolean) | undefined;
-  /**
-   * The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. Defaults
-   * to the real account only when `env` is the real environment too.
-   */
-  readonly accountShell?: (() => string | null) | undefined;
-}
+export type { ShellSelectionPorts, ShellSelectionEnv } from "./shell.ts";
 
-function systemAccountShell(): string | null {
-  try {
-    return userInfo().shell;
-  } catch {
-    return null;
-  }
-}
-
-// Accounts that may not log in name these instead of a shell.
-const refusing = /\/(?:nologin|false)$/;
-
-/**
- * `$SHELL` (the session's choice), then the account's login shell (a daemon started by systemd
- * or launchd may have no `$SHELL`) unless it refuses logins, then the first of `/bin/zsh`,
- * `/bin/bash` and `/bin/sh` that is installed.
- */
 export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
-  if (shell !== undefined) return shell;
-  const env = ports?.env ?? process.env;
-  const exists = ports?.exists ?? isExecutable;
-  if (env.SHELL) return env.SHELL;
-  const accountShell = ports?.accountShell ?? (ports?.env ? () => null : systemAccountShell);
-  const account = accountShell();
-  if (account && !refusing.test(account) && exists(account)) return account;
-  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
-    if (exists(candidate)) return candidate;
-  }
-  throw new Error("No login shell found");
+  return selectShell(shell, ports);
 }
 
 function isExecutable(path: string): boolean {
