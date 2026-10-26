@@ -36,6 +36,9 @@ const posixOnly = [
   "a viewer whose screen changes scale gets a keyframe sized for the new screen",
   // desktop relay: deadlines shrunk 1000 times, below Windows' timer granularity
   "a slow command fails alone without losing the page",
+  // annotation: pins <html> by clicking below its scroller; passes at scale 2 only by the
+  // long-edge rule ("Windows: an element crop is the element..." runs instead)
+  "an element crop is the element with an 8 px margin, its long edge at most 1024 px",
   // process-table: POSIX process groups (the Windows tree is a job: chrome-job.process.test.ts)
   "finds a detached process by its command line with its own process group",
   // profile-scope: `/` separator

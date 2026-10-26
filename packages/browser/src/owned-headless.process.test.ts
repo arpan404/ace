@@ -106,6 +106,9 @@ it.runIf(process.platform === "win32" && process.arch === "arm64")(
       ]),
     );
     for (const key of Object.keys(saved)) process.env[key] = hidden;
+    // CI names its own Chrome; first use here must find none.
+    const named = process.env.ACE_CHROMIUM_PATH;
+    delete process.env.ACE_CHROMIUM_PATH;
     const server = createServer((_request, response) => {
       response.setHeader("content-type", "text/html");
       response.end('<!doctype html><input aria-label="Name">');
@@ -140,6 +143,7 @@ it.runIf(process.platform === "win32" && process.arch === "arm64")(
       for (const [key, value] of Object.entries(saved))
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
+      if (named !== undefined) process.env.ACE_CHROMIUM_PATH = named;
       await service.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
