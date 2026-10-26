@@ -87,4 +87,6 @@ test.runIf(process.platform === "win32")(
       if (now.value !== before.value) await userPathRegistry.write(before);
     }
   },
+  // Each registry step starts Windows PowerShell, which takes seconds on a cold runner.
+  120_000,
 );

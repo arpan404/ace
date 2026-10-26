@@ -441,6 +441,13 @@ jobs:
           Move-Item "$release/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe" "$env:RUNNER_TEMP/installers/"
           Get-ChildItem $release -Filter "latest*.yml" | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
 
+      - name: Keep the installers for manual checks
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.arch }}
+          path: ${{ runner.temp }}/installers/*.exe
+          retention-days: 3
+
       - name: Install, run, update and uninstall
         timeout-minutes: 20
         run: >-
