@@ -572,6 +572,14 @@ jobs:
         run: |
           node -e "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519');f.writeFileSync(process.argv[1],k.privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync(process.argv[2],k.publicKey.export({type:'spki',format:'pem'}))" "$env:RUNNER_TEMP\ace-key.pem" "$env:RUNNER_TEMP\ace-public.pem"
 
+      # TEMPORARY until tools/release/src/bundle.ts rewrites every descriptor.node require (its
+      # `.replace` misses the Windows binding's). CI workspace only; remove once that lands.
+      - name: Patch the bundle's descriptor rewrite (temporary)
+        run: |
+          $f = "tools/release/src/bundle.ts"
+          (Get-Content -Raw $f).Replace("contents.replace('`"../dist/descriptor.node`"'", "contents.replaceAll('`"../dist/descriptor.node`"'") | Set-Content -NoNewline $f
+          if (-not (Select-String -Path $f -SimpleMatch "replaceAll('`"../dist/descriptor.node`"'")) { throw "patch did not apply" }
+
       - name: Build the win32-${{ matrix.arch }} daemon archive
         id: build
         if: ${{ !cancelled() }}
