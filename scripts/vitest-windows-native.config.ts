@@ -48,6 +48,9 @@ export default defineConfig({
       "packages/git/src/checkout-paths.process.test.ts",
       "packages/git/src/checkpoint-bytes.process.test.ts",
       "packages/git/src/reviewer-hooks.process.test.ts",
+      // A timed-out Git call ends with its whole job and unlocks its repository; a stopped
+      // daemon's lease ignores Git elsewhere, Git started later and the fsmonitor daemon.
+      "packages/git/src/timeout-cleanup.process.test.ts",
       "packages/forge/src/command-search.process.test.ts",
       "packages/forge/src/command.process.test.ts",
       "packages/files/src/upload-identity.process.test.ts",

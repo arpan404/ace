@@ -312,6 +312,30 @@ function scanWindowsGitProcesses(): GitProcessScan {
       const pid = Number(match[2]);
       if (!runningChildren.has(pid)) found.push({ pid, startedAt: await windowsStart(pid) });
     }
-    return found;
+    return windowsGitFacts(found);
   };
+}
+
+/**
+ * Each listed Git's working directory and checkout, as lsof and /proc give them elsewhere, and
+ * without the long-lived fsmonitor daemon. A process Windows won't describe keeps no `cwd`.
+ */
+async function windowsGitFacts(found: GitProcess[]): Promise<GitProcess[]> {
+  if (!found.length) return found;
+  const { gitProcessFacts } = await import("./git-process-facts.ts");
+  const { realpath } = await import("node:fs/promises");
+  const facts = gitProcessFacts(found.map((entry) => entry.pid));
+  const kept: GitProcess[] = [];
+  for (const entry of found) {
+    const fact = facts.get(entry.pid);
+    if (fact?.commandLine !== undefined && longLived(fact.commandLine)) continue;
+    const cwd = fact?.cwd;
+    if (cwd !== undefined) {
+      // The same canonical form lease roots and lock paths are compared in.
+      entry.cwd = await realpath(cwd).catch(() => cwd);
+      entry.checkout = await checkoutOf(entry.cwd);
+    }
+    kept.push(entry);
+  }
+  return kept;
 }
