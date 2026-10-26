@@ -44,6 +44,45 @@ import SwiftUI
         #expect(ThreadColumns.path([], detail: [.thread(child)]) == [])
     }
 
+    @Test func goingBackToTheListOnAPhoneClosesTheThreadWhicheverSignalComesFirst() {
+        // The split view's report, then the list appearing.
+        var back = BackToList()
+        back.listDisappeared()
+        let reportFirst = back.listReported(.compact)
+        let thenShown = back.listAppeared(.compact)
+        #expect(!reportFirst && thenShown)
+        // The list appearing first, then the report: the order that left the row stuck open.
+        back.listDisappeared()
+        let shownFirst = back.listAppeared(.compact)
+        let thenReported = back.listReported(.compact)
+        #expect(!shownFirst && thenReported)
+    }
+
+    @Test func poppingABrowserOverTheThreadOrResizingTheWindowKeepsTheThreadOpen() {
+        // A page popped over the thread: reported, but the list stays covered.
+        var back = BackToList()
+        back.listDisappeared()
+        let popped = back.listReported(.compact)
+        back.listDisappeared()
+        // The window changing shape: the list appears with no report.
+        let resized = back.listAppeared(.compact)
+        #expect(!popped && !resized)
+        // Beside the list (regular) neither ever closes the thread.
+        var wide = BackToList()
+        let wideReport = wide.listReported(.regular)
+        let wideShown = wide.listAppeared(.regular)
+        #expect(!wideReport && !wideShown)
+    }
+
+    @Test func aTapJustAfterARowActionOpensNothingButALaterOneDoes() {
+        var taps = RowTapGuard()
+        #expect(taps.opens(at: 100))
+        taps.acted(at: 100)
+        // The row sliding in under the finger takes the same touch.
+        #expect(!taps.opens(at: 100.2))
+        #expect(taps.opens(at: 100 + RowTapGuard.window))
+    }
+
     @Test func besideTheListTheSidebarCarriesTheTabsAndAPhoneKeepsItsTabBar() {
         // Regular: Threads, Pull requests and New thread live in the sidebar; no tab bar at all.
         #expect(ThreadColumns.sidebarHoldsTabs(.regular))

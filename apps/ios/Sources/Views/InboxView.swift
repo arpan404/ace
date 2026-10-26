@@ -41,6 +41,8 @@ struct InboxView: View {
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
     @State private var reveal: InboxKey?
     @State private var settles = 0
+    /// Holds off row taps just after a row action, so the row sliding into its place stays shut.
+    @State private var rowTaps = RowTapGuard()
     /// The thread on screen when the app last ran: a relaunch opens it again, as the web reopens
     /// its URL, whether the system ended the app in the background or it was killed.
     @AppStorage("ace.inbox.openThread") private var lastPlace = ""
@@ -167,19 +169,23 @@ struct InboxView: View {
     }
 
     private var actions: InboxRowActions {
-        InboxRowActions(
-            open: { openThread($0) },
+        // Each row action first holds off row taps for a moment (`RowTapGuard`).
+        let acted = { rowTaps.acted(at: ProcessInfo.processInfo.systemUptime) }
+        return InboxRowActions(
+            open: { key in if rowTaps.opens(at: ProcessInfo.processInfo.systemUptime) { openThread(key) } },
             settle: { row, key in
+                acted()
                 settles += 1
                 command(key, .settled) { await $0.settle(row.id) }
             },
             unsettle: { row, key in
+                acted()
                 Task { if await inbox.client(key.machineId)?.unsettle(row.id) == true { reveal = key } }
             },
-            snooze: { snoozing = $0 },
-            snoozeUntil: { row, key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
-            wake: { row, key in Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
-            archive: { row, key in command(key, .archived) { await $0.archive(row.id) } })
+            snooze: { acted(); snoozing = $0 },
+            snoozeUntil: { row, key, preset in acted(); Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
+            wake: { row, key in acted(); Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
+            archive: { row, key in acted(); command(key, .archived) { await $0.archive(row.id) } })
     }
     /// Runs an undoable inbox command; once this device admits it, the toast offers Undo.
     private func command(_ key: InboxKey, _ kind: InboxUndo.Kind, _ run: @escaping (ClientModel) async -> Bool) {
