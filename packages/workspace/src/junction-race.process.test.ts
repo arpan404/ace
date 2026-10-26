@@ -7,9 +7,9 @@ import { fixture } from "./test-support.ts";
 // Windows refuses to rename a folder while ace holds a handle inside it, so the swapping child
 // retries; a junction stands in for the symlink, needing no privilege. Windows also reports a
 // folder that is pending deletion as access denied, so that is an allowed refusal here.
-test.runIf(process.platform === "win32")(
-  "never returns outside bytes while a real child swaps a parent folder for a junction",
-  async () => {
+test.runIf(process.platform === "win32").each(["reads", "searches"])(
+  "never %s outside bytes while a real child swaps a parent folder for a junction",
+  async (operation) => {
     const inside = await fixture();
     const outside = await fixture();
     await inside.file("changing/file", "inside");
@@ -59,8 +59,14 @@ test.runIf(process.platform === "win32")(
       await once(child, "message");
       for (let index = 0; index < 100; index++) {
         try {
-          const result = await inside.service.read({ path: "changing/file" });
-          expect(result).toMatchObject({ text: "inside" });
+          if (operation === "reads") {
+            const result = await inside.service.read({ path: "changing/file" });
+            expect(result).toMatchObject({ text: "inside" });
+          } else {
+            // Searches hold directory handles for the pass; none may lead outside.
+            const result = await inside.service.search({ query: "SECRET", limit: 10 });
+            expect(result.matches).toEqual([]);
+          }
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           expect(error.code, String(error)).toMatch(

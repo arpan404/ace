@@ -194,7 +194,8 @@ describe.runIf(process.platform === "win32")("Windows project paths", () => {
     const milliseconds = performance.now() - start;
     console.log(JSON.stringify({ search: "20k files", milliseconds, bytes: result.bytesScanned }));
     expect(result.matches).toHaveLength(directories);
-    expect(milliseconds).toBeLessThan(90_000);
+    // Each file is one native open relative to its held folder; ARM64 runners are slower.
+    expect(milliseconds).toBeLessThan(process.arch === "arm64" ? 30_000 : 10_000);
   }, 180_000);
 });
 
