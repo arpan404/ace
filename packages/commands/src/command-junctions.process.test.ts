@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   mkdir,
   mkdtemp,
@@ -138,3 +138,31 @@ windows("Windows prompt files save, reopen and refuse a junctioned prompt folder
   ).toMatchObject({ kind: "error" });
   expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("Private fixture");
 });
+
+windows(
+  "Windows command discovery lets the person rename and delete watched command folders",
+  async () => {
+    const f = await fixture();
+    await mkdir(join(f.root, "nested", "deeper"), { recursive: true });
+    await writeFile(join(f.root, "top.md"), "Top");
+    await writeFile(join(f.root, "nested", "inner.md"), "Inner");
+    await writeFile(join(f.root, "nested", "deeper", "low.md"), "Low");
+    await f.files.start();
+    const has = (part: string) => f.names().some((name) => name.includes(part));
+    expect(has("inner") && has("low")).toBe(true);
+    // While ace watches, the person renames a nested folder, then deletes it, then the whole root.
+    await rename(join(f.root, "nested"), join(f.root, "renamed"));
+    await vi.waitFor(
+      () => expect(f.names().some((name) => name.startsWith("renamed"))).toBe(true),
+      {
+        timeout: 10_000,
+      },
+    );
+    expect(f.names().some((name) => name.startsWith("nested"))).toBe(false);
+    await rm(join(f.root, "renamed"), { recursive: true });
+    await vi.waitFor(() => expect(has("inner") || has("low")).toBe(false), { timeout: 10_000 });
+    await rename(f.root, join(f.home, "moved"));
+    await vi.waitFor(() => expect(has("top")).toBe(false), { timeout: 10_000 });
+    await rm(join(f.home, "moved"), { recursive: true });
+  },
+);

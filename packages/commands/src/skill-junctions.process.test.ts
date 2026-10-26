@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   lstat,
   mkdir,
@@ -216,5 +216,33 @@ windows(
       "SKILL.md": skillText("notes"),
       "keep.md": "Keep me.\n",
     });
+  },
+);
+
+windows(
+  "Windows person can rename and delete a skill folder while the library watches it",
+  async () => {
+    const f = await fixture();
+    const changed = vi.fn();
+    const stop = f.library.subscribe(undefined, changed);
+    try {
+      await named(f.library, "notes");
+      await vi.waitFor(async () => {
+        await put(join(f.skills, "fresh", "SKILL.md"), skillText("fresh"));
+        expect(changed).toHaveBeenCalled();
+      }, 10_000);
+      await rename(join(f.skills, "fresh"), join(f.skills, "renamed"));
+      await rm(join(f.skills, "notes"), { recursive: true });
+      await vi.waitFor(async () => {
+        const result = await f.library.request({ op: "list" });
+        const names = result.kind === "list" ? result.entries.map((e) => e.name) : [];
+        expect(names).toContain("fresh");
+        expect(names).not.toContain("notes");
+      }, 10_000);
+      expect(await lstat(join(f.skills, "notes")).catch(() => undefined)).toBeUndefined();
+      expect(await lstat(join(f.skills, "renamed", "SKILL.md"))).toBeDefined();
+    } finally {
+      stop();
+    }
   },
 );
