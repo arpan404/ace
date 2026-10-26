@@ -64,6 +64,15 @@ test("removing takes out only ace's folder", async () => {
   expect(await removeFromUserPath(registry, "C:\\Users\\Ada\\.ace\\bin", env)).toBe(false);
 });
 
+test("removing leaves the person's other entries exactly as they were, empty ones included", async () => {
+  const registry = memoryRegistry({
+    value: ";C:\\Tools;;C:\\Users\\Ada\\.ace\\bin;%USERPROFILE%\\go\\bin;",
+    kind: "ExpandString",
+  });
+  await removeFromUserPath(registry, "C:\\Users\\Ada\\.ace\\bin", env);
+  expect(registry.current.value).toBe(";C:\\Tools;;%USERPROFILE%\\go\\bin;");
+});
+
 test("a folder that would split into several PATH entries is refused", async () => {
   const registry = memoryRegistry({ value: "C:\\Tools", kind: "String" });
   await expect(addToUserPath(registry, "C:\\a;C:\\b", env)).rejects.toThrow("Unsupported");

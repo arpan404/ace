@@ -59,12 +59,11 @@ export function withoutEntry(
 ): string | undefined {
   if (!hasEntry(value, directory, env)) return undefined;
   const wanted = normalise(directory, env);
+  // Only ace's entries go; everything else, empty entries included, stays exactly as it was.
   return value
     .split(";")
     .filter((entry) => entry.trim() === "" || normalise(entry, env) !== wanted)
-    .join(";")
-    .replace(/;{2,}/g, ";")
-    .replace(/^;|;$/g, "");
+    .join(";");
 }
 
 /** Adds `directory` to the user PATH; true when it changed anything. */
