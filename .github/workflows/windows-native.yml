@@ -575,6 +575,7 @@ jobs:
       # TEMPORARY until tools/release/src/bundle.ts rewrites every descriptor.node require (its
       # `.replace` misses the Windows binding's). CI workspace only; remove once that lands.
       - name: Patch the bundle's descriptor rewrite (temporary)
+        if: ${{ !cancelled() }}
         run: |
           $f = "tools/release/src/bundle.ts"
           (Get-Content -Raw $f).Replace("contents.replace('`"../dist/descriptor.node`"'", "contents.replaceAll('`"../dist/descriptor.node`"'") | Set-Content -NoNewline $f

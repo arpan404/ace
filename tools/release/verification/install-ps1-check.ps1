@@ -87,7 +87,10 @@ try {
   if ("$removed" -notmatch '"active":false') { throw "Service did not uninstall: $removed" }
   & schtasks.exe /Query /TN ace-next-daemon *> $null
   if ($LASTEXITCODE -eq 0) { throw 'The login task is still registered after uninstall' }
+  # The release the CLI ran from is removed once that process has exited.
+  for ($i = 0; $i -lt 60 -and (Test-Path (Join-Path $home_ 'releases')); $i++) { Start-Sleep -Milliseconds 500 }
   if (Test-Path (Join-Path $home_ 'releases')) { throw 'Uninstall left the releases behind' }
+  if (Test-Path (Join-Path $home_ 'bin\ace.cmd')) { throw 'Uninstall left the launcher behind' }
   Write-Host 'install.ps1 check passed'
 } catch {
   $failed = $_

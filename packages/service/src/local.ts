@@ -17,6 +17,8 @@ import { TaskService } from "./service.ts";
 import { assertCompatibleTask } from "./compatibility.ts";
 import { CMD_LAUNCHER } from "./launcher.ts";
 import { checked } from "./process.ts";
+import { spawn } from "node:child_process";
+import { isAbsolute, relative, sep } from "node:path";
 
 const windowsLinger =
   "--linger is not available on Windows: ace's task runs while you are logged on, from logon to sign-out.";
@@ -47,6 +49,48 @@ function localTask(dataDir: string) {
     },
   };
   return lazy;
+}
+
+/** A PowerShell single-quoted string. */
+const quoted = (path: string) => `'${path.replaceAll("'", "''")}'`;
+
+/**
+ * Windows uninstall. A running program's files cannot be deleted there, and this command
+ * usually runs from the installed release itself, so that one release is removed by a hidden
+ * PowerShell once this process has exited; everything else goes now.
+ */
+async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> {
+  const releases = join(dataDir, "releases");
+  if (existsSync(releases) && !(await lstat(releases)).isDirectory())
+    throw new Error("Invalid releases directory");
+  for (const name of [join("bin", CMD_LAUNCHER), join("bin", "ace"), "current", "previous"])
+    await rm(join(dataDir, name), { force: true });
+  if (!existsSync(releases)) return result;
+  const running = relative(releases, process.argv[1] ?? "").split(sep)[0] ?? "";
+  const { readdir } = await import("node:fs/promises");
+  for (const name of await readdir(releases))
+    if (name !== running) await rm(join(releases, name), { recursive: true, force: true });
+  if (!running || running.startsWith("..") || isAbsolute(running)) {
+    await rm(releases, { recursive: true, force: true });
+    return result;
+  }
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `Wait-Process -Id ${process.pid} -Timeout 120`,
+    `for ($i = 0; $i -lt 40 -and (Test-Path -LiteralPath ${quoted(join(releases, running))}); $i++) { Remove-Item -LiteralPath ${quoted(join(releases, running))} -Recurse -Force; Start-Sleep -Milliseconds 250 }`,
+    `if (-not (Get-ChildItem -LiteralPath ${quoted(releases)} -Force)) { Remove-Item -LiteralPath ${quoted(releases)} -Force }`,
+  ].join("\n");
+  spawn(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    { detached: true, stdio: "ignore", windowsHide: true },
+  ).unref();
+  return result;
 }
 
 /** The signed-in account's SID; `whoami /user` prints it as the second CSV field. */
@@ -123,13 +167,13 @@ export async function serviceCommand(dataDir: string, args: string[]) {
     if (existsSync(join(dataDir, "update.json")))
       throw new Error("Recover the pending update before uninstalling");
     const result = await localService(dataDir).perform(action);
+    if (process.platform === "win32") return removeCmdInstallation(dataDir, result);
     for (const name of ["bin/ace", "current", "previous", "releases"]) {
       const path = join(dataDir, name);
       if (name === "releases" && existsSync(path) && !(await lstat(path)).isDirectory())
         throw new Error("Invalid releases directory");
       await rm(path, { recursive: true, force: true });
     }
-    if (process.platform === "win32") await rm(join(dataDir, "bin", CMD_LAUNCHER), { force: true });
     return result;
   });
 }
