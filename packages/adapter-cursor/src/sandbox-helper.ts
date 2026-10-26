@@ -25,8 +25,7 @@ export type HelperProblem =
   | { kind: "apparmor" }
   | { kind: "library"; library: string }
   | { kind: "missing" }
-  | { kind: "other" }
-  | { kind: "windows" };
+  | { kind: "other" };
 
 function newer(a: string, b: string): boolean {
   const left = a.split(".").map(Number);
@@ -68,10 +67,11 @@ export function sandboxUnavailableMessage(problem: HelperProblem): string {
       return `Cursor's sandbox helper is not installed with this ace, ${affected}. ${fallback}.`;
     case "other":
       return `Cursor's sandbox reports this system unsupported (its kernel features or a policy block it), ${affected}. ${fallback}.`;
-    case "windows":
-      return `Cursor's SDK has no file sandbox on Windows (its helper only filters network traffic), ${affected}. ${fallback}.`;
   }
 }
+
+/** Windows has no Cursor file sandbox: the SDK's helper there only filters network traffic. */
+export const noWindowsSandboxMessage = `Cursor's SDK has no file sandbox on Windows (its helper only filters network traffic), ${affected}. ${fallback}.`;
 
 const Report = z.object({
   header: z.object({ glibcVersionRuntime: z.string().max(32).optional() }).loose(),
