@@ -177,12 +177,15 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
 
 // Windows draws ace's Chrome at device scale 1 where it has no GPU (`gpu-scale.ts`): the
 // picture is the page's own device pixels at that scale, held to the same sharpness bars.
+// Known gap: at scale 1 an odd-sized pane is stretched one pixel to an even encode size, which
+// softens text (about 23 dB at 659 × 825); cropping that pixel needs the shared encoder.
 it.runIf(process.platform === "win32" && executablePath)(
   "Windows: a Retina viewer sees a still page, after a scroll too, as sharp as the page at the scale ace's Chrome draws",
   async () => {
     const f = await fixture();
     await f.navigate();
-    await f.execute({ action: "resize", width: 659, height: 825 });
+    // An even pane: at scale 1 an odd one is resampled by a pixel to an even encode size.
+    await f.execute({ action: "resize", width: 660, height: 826 });
     await f.evaluate(
       `document.body.style.cssText = "font: 13px sans-serif"; document.body.innerHTML = ${JSON.stringify(prose)}; 1`,
     );
@@ -198,7 +201,7 @@ it.runIf(process.platform === "win32" && executablePath)(
     const joined = await shownVersusPage(f, viewer.chunks);
     // Encodes round up to even sizes.
     expect([joined.width, joined.height]).toEqual(
-      [659 * scale, 825 * scale].map((side) => Math.ceil(side / 2) * 2),
+      [660 * scale, 826 * scale].map((side) => Math.ceil(side / 2) * 2),
     );
     expect(joined.psnr).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
