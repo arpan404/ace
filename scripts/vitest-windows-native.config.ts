@@ -125,6 +125,14 @@ const posixOnly = [
         `a pending receipt with a ${alteration} destination settles without blocking ${blocked}`,
     ),
   ),
+  // Expect LF bytes in landed tracked files; Windows lands them as the person's own Git writes
+  // them (core.autocrlf). "on Windows, a repository sent whole lands..." and "on Windows, opens
+  // a project there..." check the same transfers against that.
+  "sends the whole repository when the target can't clone its origin",
+  "opens a project on another machine on the same branch, uncommitted changes still uncommitted there",
+  // Makes links in the copy; ace never asks for the privilege Windows links need, so a folder
+  // holding links can't land there yet (@ace/files has to leave them behind instead).
+  "copies a folder that isn't a repository, keeping links inside it and dropping one that escapes",
 ];
 
 /**
