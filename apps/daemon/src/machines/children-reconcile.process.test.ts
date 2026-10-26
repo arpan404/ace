@@ -97,7 +97,9 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
       },
     };
   };
-  const answers = { resend: async (): Promise<"taken" | "decided"> => "taken" };
+  const answers = {
+    resend: async (_machine: string): Promise<"taken" | "decided"> => "taken",
+  };
   const children = new MachineChildren({
     store,
     engine: () => undefined,
@@ -123,7 +125,7 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
     },
     resend: async (_machine, _parent, _child, sent) => {
       resent.push(sent.requestId);
-      return answers.resend();
+      return answers.resend(_machine);
     },
     mirror: new RequestMirror({
       store,
@@ -139,14 +141,14 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
     isDescendant: () => false,
     log: () => {},
   });
-  const add = (id: string) => {
+  const add = (id: string, host = "studio") => {
     const threadId = ThreadId.parse(id);
     children.add({
       id: threadId,
       requestKey: `parent:${id}`,
       parentThreadId: parent,
       parentAgentId: AgentId.parse("agent"),
-      machine: "studio",
+      machine: host,
       role: `Task-${id}`,
       provider: "claude",
       title: `Task-${id}`,
@@ -205,7 +207,9 @@ it("a message its machine has not answered for keeps the child open, even across
     throw new Error("Studio is unreachable");
   };
   // Its machine still reports the earlier result: that can't settle it while the message is open.
+  // Each failed retry waits longer before the next (one second, then two).
   await restarted.fire();
+  restarted.clock.now += 1_000;
   await restarted.fire();
   expect(restarted.state(id)).toBe("working");
   expect(restarted.resent).toEqual(["second-pass", "second-pass"]);
@@ -214,6 +218,7 @@ it("a message its machine has not answered for keeps the child open, even across
   // Sent again under the same id, the machine answers for it: the work runs and settles.
   restarted.answers.resend = async () => "taken";
   restarted.report(id, working);
+  restarted.clock.now += 2_000;
   await restarted.fire();
   expect(restarted.state(id)).toBe("working");
   restarted.report(id, done("Second pass done.", 9));
@@ -304,8 +309,10 @@ it("a status reply read before a retried message was taken can't settle the chil
   expect(h.state(id)).toBe("working");
   expect(h.delivered).toHaveLength(1);
 
-  // Taken again with the store healthy, the work runs and its own result reaches the parent.
+  // Taken again with the store healthy once its retry is due, the work runs and its own result
+  // reaches the parent.
   h.report(id, working);
+  h.clock.now += 1_000;
   await h.fire();
   await h.fire();
   h.report(id, done("Second pass done.", 9));
@@ -315,4 +322,34 @@ it("a status reply read before a retried message was taken can't settle the chil
     expect.stringContaining("First pass done."),
     expect.stringContaining("Second pass done."),
   ]);
+});
+
+it("messages to an unreachable machine never hold back a message to a healthy one", async () => {
+  const h = machine();
+  // Sixteen children on a machine that can't be reached, sent messages first, then one on a
+  // healthy machine.
+  const stuck = Array.from({ length: 16 }, (_, index) => h.add(`stuck-${index}`, "down"));
+  const healthy = h.add("healthy", "studio");
+  for (const id of [...stuck, healthy]) h.report(id, working);
+  await h.fire();
+  for (const id of [...stuck, healthy]) h.children.send(id, message(`follow-up-${id}`))(undefined);
+  h.answers.resend = async (host) => {
+    if (host === "down") throw new Error("down is unreachable");
+    return "taken";
+  };
+
+  // The healthy machine's message goes, though older ones wait ahead of it.
+  await h.fire();
+  expect(h.resent).toContain(`follow-up-${healthy}`);
+  h.report(healthy, done("Healthy work done."));
+  await h.fire();
+  expect(h.state(healthy)).toBe("done");
+  expect(h.delivered).toEqual([expect.stringContaining("Healthy work done.")]);
+  // The unreachable ones stay open, and are tried again in turn as their waits run out.
+  for (const id of stuck) expect(h.state(id), id).toBe("working");
+  const tried = new Set(h.resent.filter((sent) => sent.includes("stuck")));
+  h.clock.now += 60_000;
+  for (let poll = 0; poll < 4; poll++) await h.fire();
+  for (const sent of h.resent) tried.add(sent);
+  for (const id of stuck) expect(tried, id).toContain(`follow-up-${id}`);
 });

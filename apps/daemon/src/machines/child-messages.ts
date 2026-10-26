@@ -2,6 +2,14 @@ import type { MachineMessage, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { ChildLedger, ChildRow } from "./child-ledger.ts";
 
+/** Retries running at once: across all machines, and on any one machine. */
+const MAX_IN_FLIGHT = 16;
+const MAX_IN_FLIGHT_PER_MACHINE = 4;
+/** The wait before a message's next retry: one second, doubling, at most a minute. */
+export function retryDelay(attempts: number): number {
+  return Math.min(1000 * 2 ** attempts, 60_000);
+}
+
 /**
  * How a machine answered for a message. "taken": it holds it. "decided": it recorded a final
  * answer that every copy gets (the message may still be queued there, so this counts as new work
@@ -41,8 +49,11 @@ export interface ChildMessagesDeps {
  */
 export class ChildMessages {
   private deps: ChildMessagesDeps;
-  /** Messages this process is sending now, by child and request id: not sent again meanwhile. */
-  private inFlight = new Set<string>();
+  /**
+   * Messages this process is sending now, by child and request id, with their machine: not sent
+   * again meanwhile, and counted against the retry caps.
+   */
+  private inFlight = new Map<string, string>();
   constructor(deps: ChildMessagesDeps) {
     this.deps = deps;
   }
@@ -56,12 +67,13 @@ export class ChildMessages {
   send(id: ThreadId, message: MachineMessage): (answer: Answer | undefined) => void {
     const { ledger } = this.deps;
     const key = `${id}:${message.requestId}`;
-    this.deps.store.atomic(() => {
+    const machine = this.deps.store.atomic(() => {
       ledger.addMessage(id, message, this.deps.now());
       const row = ledger.row(id);
       if (row?.settled === 1) this.deps.reopenSettled(row);
+      return row?.machine ?? "";
     });
-    this.inFlight.add(key);
+    this.inFlight.set(key, machine);
     let released = false;
     return (answer) => {
       if (released) return;
@@ -88,19 +100,37 @@ export class ChildMessages {
     }
   }
   /**
-   * Sends every unanswered message not being sent now again, under its own request id. An answer
-   * proves the machine holds the message (it runs, or ran) or refused it; one that can't be
-   * reached keeps it unanswered, and its child unsettled.
+   * Sends unanswered messages that are due again, under their own request ids. An answer proves
+   * the machine holds the message or recorded a final answer for it; anything else leaves it
+   * unanswered, its child unsettled, and its next retry later than the last. Messages being sent
+   * now and machines already at their cap are left out before choosing, so one slow or
+   * unreachable machine never holds back a message to another.
    */
   async reconcile(): Promise<void> {
-    const pending = this.deps.ledger
-      .messages(16)
-      .filter(({ child, message }) => !this.inFlight.has(`${child.id}:${message.requestId}`));
+    const room = MAX_IN_FLIGHT - this.inFlight.size;
+    if (room <= 0) return;
+    const perMachine = new Map<string, number>();
+    for (const machine of this.inFlight.values())
+      perMachine.set(machine, (perMachine.get(machine) ?? 0) + 1);
+    const full = [...perMachine]
+      .filter(([, count]) => count >= MAX_IN_FLIGHT_PER_MACHINE)
+      .map(([machine]) => machine);
+    const now = this.deps.now();
+    const picked = [];
+    for (const entry of this.deps.ledger.dueMessages(now, 64, [...this.inFlight.keys()], full)) {
+      if (picked.length >= room) break;
+      const count = perMachine.get(entry.child.machine) ?? 0;
+      if (count >= MAX_IN_FLIGHT_PER_MACHINE) continue;
+      perMachine.set(entry.child.machine, count + 1);
+      picked.push(entry);
+    }
     await Promise.all(
-      pending.map(async ({ child, message }) => {
+      picked.map(async ({ child, message, attempts }) => {
         const key = `${child.id}:${message.requestId}`;
-        this.inFlight.add(key);
+        this.inFlight.set(key, child.machine);
         try {
+          // Saved before it goes: should this attempt fail, the next waits longer.
+          this.deps.ledger.deferMessage(child.id, message.requestId, now + retryDelay(attempts));
           const answer = await this.deps.resend(
             child.machine,
             child.parent_thread,

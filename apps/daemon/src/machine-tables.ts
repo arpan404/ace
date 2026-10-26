@@ -40,7 +40,8 @@ export const machineChildLaunches = `${machineThreads}
  *   that work can't settle it afterwards.
  * - `machine_child_messages` holds each message sent to it until its machine has answered for it
  *   (taken or refused); while one is unanswered no status reply settles the child, and the
- *   message is sent again under the same request id, which its machine runs at most once.
+ *   message is sent again under the same request id, which its machine runs at most once, each
+ *   retry after a growing wait (`attempts`, `next_retry_at`) so failing ones step aside.
  * - `settled_at` and `rechecked` let the caller keep re-checking recently settled children that
  *   work started on their machine may reopen, in turns, so every one is eventually checked.
  */
@@ -54,4 +55,7 @@ export const machineChildGenerations = `${machineChildren}
     ON machine_children(settled, machine, rechecked);
   CREATE TABLE IF NOT EXISTS machine_child_messages (
     child_id TEXT NOT NULL, request_id TEXT NOT NULL, message TEXT NOT NULL,
-    created_at INTEGER NOT NULL, PRIMARY KEY (child_id, request_id));`;
+    created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (child_id, request_id));
+  CREATE INDEX IF NOT EXISTS machine_child_messages_due
+    ON machine_child_messages(next_retry_at, created_at);`;

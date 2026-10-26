@@ -129,21 +129,50 @@ export class ChildLedger {
       this.store.atomic((db) => db.prepare("SELECT 1 FROM machine_child_messages LIMIT 1").get()),
     );
   }
-  /** Unanswered messages, oldest first. */
-  messages(limit: number): { child: ChildRow; message: MachineMessage }[] {
+  /**
+   * Unanswered messages due a retry by `now`, those due longest first, leaving out the ones being
+   * sent now (`busy`, as "child:request") and machines with no room for another (`full`). Both
+   * are left out before the limit, so they never crowd out a message that could go.
+   */
+  dueMessages(
+    now: number,
+    limit: number,
+    busy: readonly string[],
+    full: readonly string[],
+  ): { child: ChildRow; message: MachineMessage; attempts: number }[] {
+    const notBusy = busy.length
+      ? ` AND (m.child_id||':'||m.request_id) NOT IN (${busy.map(() => "?").join(",")})`
+      : "";
+    const notFull = full.length ? ` AND c.machine NOT IN (${full.map(() => "?").join(",")})` : "";
     const raw = this.store.atomic((db) =>
       db
         .prepare(
-          "SELECT child_id,message FROM machine_child_messages ORDER BY created_at, request_id LIMIT ?",
+          `SELECT m.child_id,m.message,m.attempts FROM machine_child_messages m JOIN machine_children c ON c.id=m.child_id WHERE m.next_retry_at<=?${notBusy}${notFull} ORDER BY m.next_retry_at, m.created_at LIMIT ?`,
         )
-        .all(limit),
+        .all(now, ...busy, ...full, limit),
     );
     return raw.flatMap((entry) => {
       const child = this.row(z.string().parse(entry.child_id));
       return child
-        ? [{ child, message: MachineMessage.parse(JSON.parse(z.string().parse(entry.message))) }]
+        ? [
+            {
+              child,
+              message: MachineMessage.parse(JSON.parse(z.string().parse(entry.message))),
+              attempts: Number(entry.attempts),
+            },
+          ]
         : [];
     });
+  }
+  /** A retry of the message is starting: the next one waits until `next`. */
+  deferMessage(id: ThreadId, requestId: string, next: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_child_messages SET attempts=attempts+1, next_retry_at=? WHERE child_id=? AND request_id=?",
+        )
+        .run(next, id, requestId),
+    );
   }
   /** Open again, with no view until its machine is read. */
   markReopened(id: ThreadId): void {

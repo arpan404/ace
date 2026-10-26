@@ -82,7 +82,10 @@ settle, and the caller must notice so the parent never reads done while it runs.
     exists.
 
   A refusal of one attempt alone (the access check, a machine still starting) answers nothing
-  and the message is sent again. A take or a final refusal drops the record in the same
+  and the message is sent again. Retries wait one second after an attempt, doubling to at most a
+  minute (saved, from the injected clock); at most 16 run at once, and 4 to any one machine;
+  messages being sent and machines at their cap are left out before choosing, so an unreachable
+  or slow machine never holds back a message to another. A take or a final refusal drops the record in the same
   transaction that advances the generation (a final refusal may leave the message queued there),
   so a reply read before it can't settle the child once nothing guards it; if that transaction
   fails the record stays. A restart keeps the record, so the restarted caller does the same.
