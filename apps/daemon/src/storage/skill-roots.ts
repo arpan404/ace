@@ -59,7 +59,7 @@ function measure(directory: PinnedDirectory, depth: number, tree: Tree): void {
 
 function owned(root: PinnedDirectory): boolean {
   try {
-    const text = root.readText(ownershipMarker.name, 64, process.getuid?.());
+    const text = root.readPrivateText(ownershipMarker.name, 64);
     return text === ownershipMarker.contents;
   } catch {
     return false;
@@ -81,15 +81,15 @@ export function inspectSkillRoot(sessions: PinnedDirectory, name: string): Skill
     measure(root, 0, tree);
     if (tree.exceeded) return { ...unsafe, bytes: tree.bytes };
     const protections = skillRootProtections(() =>
-      root.readText(skillLeaseFilename, skillLeaseLimit, process.getuid?.()),
+      root.readPrivateText(skillLeaseFilename, skillLeaseLimit),
     );
     let lease: unknown[] = [];
     if (!protections.length && !owned(root)) protections.push("owner_unavailable");
     if (!protections.length) {
       const info = root.fileMetadata(skillLeaseFilename);
-      lease = [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs];
+      lease = [info.identity, info.size, info.mtimeMs, info.ctimeMs];
     }
-    const identity = [self.dev, self.ino, tree.entries, tree.modifiedAt, lease];
+    const identity = [self.identity, tree.entries, tree.modifiedAt, lease];
     return {
       bytes: tree.bytes,
       modifiedAt: Math.floor(Math.max(self.mtime, tree.modifiedAt)),

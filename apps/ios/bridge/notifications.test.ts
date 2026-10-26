@@ -1,3 +1,5 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
+import "./test-host.ts";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, Notification, ThreadId } from "@ace/protocol";

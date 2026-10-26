@@ -20,6 +20,8 @@ import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { assertManagedHome, restoreCursorHome } from "./managed-home.ts";
 import { canonicalHome } from "./paths.ts";
+import { antigravitySignInOf } from "./antigravity-sign-in.ts";
+import { accountProvider } from "./acp-instances.ts";
 const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
@@ -38,6 +40,16 @@ async function canonicalInstance(input: ProviderInstance): Promise<ProviderInsta
   }
   return ProviderInstance.parse({ ...parsed, homeDir, env });
 }
+
+/**
+ * ACP accounts on the agent's default home all share the person's own; managed ones, like native
+ * accounts, each need a home of their own.
+ */
+const sharedDefault = (account: ProviderInstance) =>
+  account.provider === "acp" && account.homeStrategy !== "managed";
+
+/** ACP agents each keep their own default account. */
+const acpSelectionKey = (acpAgentId: string) => `provider:acp:${acpAgentId}`;
 
 function summarize(
   { instance, quota }: { instance: ProviderInstance; quota: AccountQuota },
@@ -61,7 +73,7 @@ function summarize(
           installationId: instance.installationId,
           instanceId: instance.id,
           homeStrategy: instance.homeStrategy,
-          isolation: "unsupported" as const,
+          ...(instance.homeStrategy === "managed" ? {} : { isolation: "unsupported" as const }),
           profileRevision: instance.profileRevision,
           installationVersion: instance.installationVersion,
         }
@@ -288,7 +300,8 @@ export class AccountRegistry {
           other.instance.implicit ||
           instance.implicit ||
           other.instance.provider !== instance.provider ||
-          instance.provider === "acp"
+          sharedDefault(instance) ||
+          sharedDefault(other.instance)
         )
           continue;
         if (
@@ -348,7 +361,7 @@ export class AccountRegistry {
           const stat = await lstat(instance.homeDir);
           if (!stat.isDirectory()) throw new Error("home_missing");
         }
-        if (instance.provider !== "acp" && !instance.implicit) {
+        if ((instance.provider !== "acp" || instance.managed) && !instance.implicit) {
           const used = roots.get(instance.provider) ?? new Set<string>();
           const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
           for (const path of selectors) if (used.has(path)) throw new Error("home_conflict");
@@ -432,6 +445,12 @@ export class AccountRegistry {
         /* Reader owns delivery. */
       }
     }
+  }
+  /** How an Antigravity account signed in, for its Settings row; nothing for other accounts. */
+  private antigravitySignIn(instance: ProviderInstance) {
+    if (accountProvider(instance) !== "antigravity") return {};
+    const method = antigravitySignInOf(this.acpSignInMethod(instance.id));
+    return method ? { antigravitySignIn: method } : {};
   }
   /** The ACP method the person last signed in with, while they stay signed in. */
   acpSignInMethod(id: string): string | undefined {
@@ -555,6 +574,17 @@ export class AccountRegistry {
     this.setSelection.run(`provider:${provider}`, id);
     if (provider === "cursor") this.clearSelection.run("cursor-sdk");
   }
+  /** The account new threads of one ACP agent use, when the person chose one. */
+  selectedAcp(acpAgentId: string): string | undefined {
+    const value = this.selection.get(acpSelectionKey(acpAgentId));
+    return value ? AccountInstanceId.parse(value.instance_id) : undefined;
+  }
+  selectAcp(acpAgentId: string, id: string): void {
+    const instance = this.get(id)?.instance;
+    if (this.pending.has(id) || instance?.provider !== "acp" || instance.acpAgentId !== acpAgentId)
+      throw new Error("Provider mismatch");
+    this.setSelection.run(acpSelectionKey(acpAgentId), id);
+  }
   rename(
     id: string,
     label: string,
@@ -610,13 +640,30 @@ export class AccountRegistry {
     return account && !this.pending.has(id)
       ? {
           ...summarize(account, now),
+          ...this.antigravitySignIn(account.instance),
           isDefault:
-            (this.selectedProvider(account.instance.provider) ??
-              (account.instance.provider === "cursor"
-                ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
-                : `${account.instance.provider}-cli-default`)) === id,
+            account.instance.provider === "acp"
+              ? this.acpDefault(account.instance, (key) => {
+                  const value = this.selection.get(key);
+                  return value ? AccountInstanceId.parse(value.instance_id) : undefined;
+                })
+              : (this.selectedProvider(account.instance.provider) ??
+                  (account.instance.provider === "cursor"
+                    ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
+                    : `${account.instance.provider}-cli-default`)) === id,
         }
       : undefined;
+  }
+  /**
+   * Whether new threads of an ACP agent use this account: the one the person chose for that
+   * agent, else the agent CLI's own login.
+   */
+  private acpDefault(
+    instance: ProviderInstance,
+    selected: (key: string) => string | undefined,
+  ): boolean {
+    const chosen = instance.acpAgentId ? selected(acpSelectionKey(instance.acpAgentId)) : undefined;
+    return chosen === undefined ? instance.homeStrategy !== "managed" : chosen === instance.id;
   }
   summaries(now: number) {
     const selected = new Map(
@@ -628,12 +675,14 @@ export class AccountRegistry {
     return this.list()
       .filter(({ instance }) => !this.pending.has(instance.id))
       .map((account) =>
-        Object.assign(summarize(account, now), {
+        Object.assign(summarize(account, now), this.antigravitySignIn(account.instance), {
           isDefault:
-            (selected.get(`provider:${account.instance.provider}`) ??
-              (account.instance.provider === "cursor"
-                ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
-                : `${account.instance.provider}-cli-default`)) === account.instance.id,
+            account.instance.provider === "acp"
+              ? this.acpDefault(account.instance, (key) => selected.get(key))
+              : (selected.get(`provider:${account.instance.provider}`) ??
+                  (account.instance.provider === "cursor"
+                    ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
+                    : `${account.instance.provider}-cli-default`)) === account.instance.id,
         }),
       );
   }

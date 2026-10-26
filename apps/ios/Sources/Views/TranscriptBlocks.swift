@@ -10,8 +10,13 @@ struct TranscriptLinks {
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openChanges: (() -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
-    /// The whole agent tree, from a subagent rollup.
+    /// The whole agent tree, for a subagent not seen yet (only its spawn call is known).
     var openAgents: (() -> Void)? = nil
+    /// A child thread's status, as the thread list words it, for a started conversation's row.
+    var threadStatus: ((String) -> StatusDisplay?)? = nil
+    /// A thread's title as the thread list has it, for a fork's "Forked from" divider; nil when
+    /// the list doesn't know it.
+    var threadTitle: ((String) -> String?)? = nil
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -23,25 +28,31 @@ struct BlockView: View {
     var body: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, open: open, openAll: links.openAgents) }
-        // The live state floats above the composer; the transcript never narrates it.
+        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
+        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
+        // The live state is the pill over the composer, not a line in the transcript.
         case "live": EmptyView()
-        case "end": if let ending = row.ending { EndingLine(ending: ending) }
+        case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
-            if let openChanges = links.openChanges {
-                QuietLink(icon: "doc.text", title: "Edited files", action: openChanges)
-                    .accessibilityIdentifier("transcript.changes")
+            if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {
+                ChangedFilesRow(files: files, open: openChanges)
             }
         case "started":
             if let started = row.started {
-                QuietLink(icon: "bubble.left.and.text.bubble.right", title: started.title) { links.openThread(started.threadId) }
+                StartedThreadRow(started: started, status: links.threadStatus?(started.threadId), open: links.openThread)
             }
-        case "question": QuestionLine(interaction: thread.interactions[row.interactionId])
-        case "event":
-            ForEach(row.items, id: \.self) { id in
-                if let item = thread.items[id] { EventLine(item: item) }
+        case "forked":
+            if let forked = row.forked {
+                ForkedDivider(forked: forked, title: links.threadTitle?(forked.threadId), open: links.openThread)
             }
+        case "question": if let question = row.question { QuestionAskedLine(question: question) }
+        case "user", "message", "event", "item":
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                ForEach(row.items, id: \.self) { id in
+                    if let item = thread.items[id] { BlockItemView(item: item, block: row, links: links) }
+                }
+            }
+            .environment(\.readMessage, reader)
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
@@ -50,9 +61,37 @@ struct BlockView: View {
             }
         }
     }
+    /// Where a long answer reads its whole text: the thread's own model, when the feed has one.
+    private var reader: (@MainActor (String) async throws -> String)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id in
+            try await model.service(["type": "native.message", "threadId": threadId, "itemId": id], as: MessageText.self).text
+        }
+    }
     private func open(_ entry: BlockRow.Agents.Entry) {
         if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
         else if !entry.agentId.isEmpty { links.openAgent(entry) }
+        else { links.openAgents?() }
+    }
+}
+
+/// A one-item block's item, observed on its own so streaming text re-renders this row alone: the
+/// person's bubble, the agent's answer, or an event as the bridge decided it.
+private struct BlockItemView: View {
+    @Bindable var item: ItemModel
+    let block: BlockRow
+    let links: TranscriptLinks
+    var body: some View {
+        if let event = block.event {
+            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+        } else if block.kind == "user" {
+            UserMessageRow(row: item.row)
+        } else if block.kind == "message" {
+            AnswerRow(row: item.row, streaming: block.streaming ?? false, openMessage: links.openMessage)
+        } else {
+            ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+        }
     }
 }
 
@@ -65,13 +104,13 @@ struct ItemRowView: View {
     var body: some View {
         let row = item.row
         switch row.type {
-        case "message": MessageRow(row: row, openMessage: openMessage)
-        case "reasoning": ThoughtRow(row: row, openMessage: openMessage, workEnded: workEnded)
+        case "message":
+            // In a work log, what the agent says between its steps: plain prose.
+            if row.role == "user" { UserMessageRow(row: row) } else { AnswerRow(row: row, between: true, openMessage: openMessage) }
+        case "reasoning": ReasoningRow(row: row, openMessage: openMessage, workEnded: workEnded)
         case "html", "image":
-            if let openMedia {
-                QuietLink(icon: row.type == "html" ? "chart.bar.doc.horizontal" : "photo", title: row.text) { openMedia(row) }
-                    .accessibilityIdentifier("media.\(row.id)")
-            } else { VisualizationRow(row: row) }
+            if let openMedia { PublishedMediaRow(row: row) { openMedia(row) } }
+            else { VisualizationRow(row: row) }
         default:
             if let step = row.step { StepRow(step: step) }
             else { Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
@@ -79,65 +118,5 @@ struct ItemRowView: View {
     }
 }
 
-/// The person's words: a filled bubble on the right, at most about 85% of the column.
-struct UserBubble: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            Spacer(minLength: AceTheme.Spacing.xxxl * 2)
-            Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
-                .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
-        }
-    }
-}
-
-/// A user bubble, or the agent's bare full-width Markdown.
-struct MessageRow: View {
-    let row: TranscriptRow
-    var openMessage: ((TranscriptRow) -> Void)? = nil
-    @Environment(\.fileLinks) private var fileLinks
-    var body: some View {
-        let user = row.role == "user"
-        VStack(alignment: user ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
-            if user {
-                UserBubble(text: row.text)
-            } else if !row.text.isEmpty {
-                MarkdownView(text: row.text).fileLinks(fileLinks, itemId: row.id)
-            }
-            if let attachments = row.attachments, !attachments.isEmpty {
-                AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
-            }
-            if row.truncated, let openMessage {
-                Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .accessibilityIdentifier("message.full.\(row.id)")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
-        .contextMenu {
-            Button(row.truncated ? "Copy visible text" : "Copy message", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
-            ShareLink(item: row.text) { Label(row.truncated ? "Share visible text" : "Share message", systemImage: "square.and.arrow.up") }
-            if row.truncated, let openMessage { Button("Read full message") { openMessage(row) } }
-            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.month().day().hour().minute())
-        }
-    }
-}
-
-struct AttachmentChips: View {
-    let attachments: [AttachmentLine]
-    let more: Int
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            ForEach(Array(attachments.enumerated()), id: \.offset) { _, attachment in
-                Label(attachment.name.isEmpty ? "Attachment" : attachment.name, systemImage: attachment.kind == "image" ? "photo" : attachment.kind == "pdf" ? "doc.richtext" : "doc")
-                    .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: Capsule())
-            }
-            if more > 0 { Text("+\(more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit() }
-        }
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .accessibilityElement(children: .combine)
-    }
-}
+/// `native.message`'s reply: an item's whole text.
+struct MessageText: Decodable { let text: String }

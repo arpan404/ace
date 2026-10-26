@@ -186,16 +186,48 @@ test("the device's logs appear while the drawer shows them, and the filter narro
   expect(within(panel).queryByRole("log", { name: "Device logs" })).toBeNull();
 });
 
-test("a dropped devices channel says so, and Reconnect opens a fresh one", async () => {
+test("a devices channel the daemon drops comes back by itself", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("list", { name: "Running devices" });
+
+  act(() => app.daemon.appDevices.dropAll());
+
+  await waitFor(() => expect(app.daemon.appDevices.openChannels).toBe(1));
+  expect(await within(panel).findByRole("list", { name: "Running devices" })).toBeTruthy();
+  expect(within(panel).queryByText("Devices disconnected")).toBeNull();
+});
+
+test("a devices channel dropped while the page is hidden reconnects once the page shows", async () => {
   const { app, panel } = await openDevices();
   await within(panel).findByRole("button", { name: "Enable devices" });
 
+  try {
+    visibility("hidden");
+    act(() => app.daemon.appDevices.dropAll());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(app.daemon.appDevices.openChannels).toBe(0);
+
+    act(() => visibility("visible"));
+    await waitFor(() => expect(app.daemon.appDevices.openChannels).toBe(1));
+    expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
+  } finally {
+    visibility("visible");
+  }
+});
+
+test("a devices channel that can't come back says so, and Reconnect opens a fresh one", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("button", { name: "Enable devices" });
+
+  app.daemon.appDevices.refusing = true;
   act(() => app.daemon.appDevices.dropAll());
 
   expect(await within(panel).findByText("Devices disconnected")).toBeTruthy();
   expect(
     within(panel).getByText(/Lost the connection to this machine's simulators and emulators/),
   ).toBeTruthy();
+  app.daemon.appDevices.refusing = false;
   await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
   expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
@@ -359,8 +391,8 @@ test("a device tab says loading during a slow inventory read and then returns to
     resume = () => send(message);
     return true;
   });
+  // The dropped channel comes back by itself and reads the inventory again.
   act(() => app.daemon.appDevices.dropAll());
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
   expect(await within(panel).findByLabelText("Loading iPhone 16 Pro")).toBeTruthy();
   expect(within(panel).queryByText(/isn't on this machine any more/)).toBeNull();
   act(() => resume?.());
@@ -394,7 +426,6 @@ test("booting has a visible status until the emulator finishes", async () => {
     return true;
   });
   act(() => app.daemon.appDevices.dropAll());
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
   pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
   await userEvent.click(within(pixel).getByRole("button", { name: /^Boot$/ }));
   // Said under the name and over the device, with nothing left to press until it is up.
@@ -440,7 +471,6 @@ test.each(["booted", "shutdown", "offline"] as const)(
       return true;
     });
     act(() => app.daemon.appDevices.dropAll());
-    await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
     iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
     await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
     await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
@@ -480,7 +510,6 @@ test("administrator refusals explain inventory and enable access immediately", a
     };
   });
   act(() => app.daemon.appDevices.dropAll());
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
   expect(
     await within(panel).findByText("Administrator scope is required for device access"),
   ).toBeTruthy();

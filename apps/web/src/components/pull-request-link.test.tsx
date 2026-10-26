@@ -2,6 +2,7 @@ import { facts } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { applePlatform } from "@/lib/keymap.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -30,16 +31,18 @@ test("a pull request an answer links opens in the thread's side panel", async ()
   expect(await within(side).findByRole("tab", { name: "#1173", selected: true })).toBeTruthy();
 }, 30_000);
 
-test("a bare pull request address opens in the panel; a cmd-click leaves it to the browser", async () => {
+test("a bare pull request address opens in the panel; the platform's modified click opens the browser", async () => {
   const feed = await answer(
     "See https://github.com/acme/ace/pull/7/files and https://github.com/acme/ace/pull/8.",
   );
   const user = userEvent.setup();
-  await user.keyboard("{Meta>}");
+  // The system browser's modifier: ⌘ on Apple platforms, Ctrl elsewhere.
+  const mod = applePlatform ? "Meta" : "Control";
+  await user.keyboard(`{${mod}>}`);
   await user.click(
     await within(feed).findByRole("link", { name: "https://github.com/acme/ace/pull/8" }),
   );
-  await user.keyboard("{/Meta}");
+  await user.keyboard(`{/${mod}}`);
   expect(screen.queryByRole("tab", { name: "#8" })).toBeNull();
 
   await user.click(

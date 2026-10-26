@@ -16,6 +16,7 @@ function Frame() {
       fill={false}
       webview={false}
       measured={measured}
+      settled={measured !== undefined}
       onHeight={setMeasured}
     />
   );

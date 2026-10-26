@@ -32,9 +32,9 @@ test("prevent sleep follows working agents and changing the preference applies i
     () => settings,
     () => undefined,
   );
-  attention.update({ needsYou: 0, working: 2 });
+  attention.update({ needsYou: 0, working: 2, held: 0 });
   expect(effects.blockers.size).toBe(1);
-  attention.update({ needsYou: 0, working: 1 });
+  attention.update({ needsYou: 0, working: 1, held: 0 });
   expect(effects.blockers.size).toBe(1);
   settings = { ...settings, preventSleep: false };
   attention.refresh();
@@ -42,7 +42,7 @@ test("prevent sleep follows working agents and changing the preference applies i
   settings = { ...settings, preventSleep: true };
   attention.refresh();
   expect(effects.blockers.size).toBe(1);
-  attention.update({ needsYou: 1, working: 0 });
+  attention.update({ needsYou: 1, working: 0, held: 0 });
   expect(effects.blockers.size).toBe(0);
 });
 
@@ -53,12 +53,12 @@ test("dock attention follows the preference when new work needs a person", () =>
     () => undefined,
     "darwin",
   );
-  attention.update({ needsYou: 1, working: 0 });
+  attention.update({ needsYou: 1, working: 0, held: 0 });
   expect(effects.bounces).toEqual([]);
   settings = { ...settings, attention: true };
   attention.refresh();
   expect(effects.bounces).toEqual([]);
-  attention.update({ needsYou: 2, working: 0 });
+  attention.update({ needsYou: 2, working: 0, held: 0 });
   expect(effects.bounces).toEqual(["informational"]);
 });
 
@@ -73,14 +73,14 @@ test("on Linux an unfocused window is flagged urgent when new work needs a perso
     () => win as unknown as BrowserWindow,
     "linux",
   );
-  attention.update({ needsYou: 1, working: 0 });
+  attention.update({ needsYou: 1, working: 0, held: 0 });
   expect(flashes).toEqual([]);
   settings = { ...settings, attention: true };
-  attention.update({ needsYou: 2, working: 0 });
+  attention.update({ needsYou: 2, working: 0, held: 0 });
   expect(flashes).toEqual([true]);
-  attention.update({ needsYou: 1, working: 0 });
+  attention.update({ needsYou: 1, working: 0, held: 0 });
   focused = true;
-  attention.update({ needsYou: 3, working: 0 });
+  attention.update({ needsYou: 3, working: 0, held: 0 });
   expect(flashes).toEqual([true]);
   expect(effects.bounces).toEqual([]);
 });

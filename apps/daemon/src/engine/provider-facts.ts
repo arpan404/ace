@@ -11,6 +11,7 @@ import { capFact } from "./raw.ts";
 import { retireEndedTurnInputs } from "./stale-inputs.ts";
 import { bindConsumedInput, bindStartedRun } from "./transcript-inputs.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
+import { forkReplaySource, inheritedReplay } from "./fork-replay.ts";
 export interface FactPorts {
   ids: IdSource;
   snapshot: Snapshot | undefined;
@@ -40,8 +41,10 @@ export function foldProviderFacts(
     ports.snapshot ? { deadline: ports.snapshot.deadline() } : undefined,
   );
   let continuationStarted = false;
+  const replayedFrom = ports.opening ? forkReplaySource(repo, id) : undefined;
   const events = coalesceFacts(facts).flatMap((input) => {
     if (repo.interactions.obsolete(id, input)) return [];
+    if (replayedFrom) input = inheritedReplay(input, replayedFrom, state);
     if (
       (input.type === "item.upsert" || input.type === "item.reconciled") &&
       input.agent === (state.rootKey ?? "root") &&

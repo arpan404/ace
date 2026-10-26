@@ -5,10 +5,10 @@ import { LongRows } from "@/components/virtual-rows.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { QueryState } from "./query-state.tsx";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
-import { composerClearance } from "./pr-composer.tsx";
+import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { cn } from "@/lib/cn.ts";
 import { usePrCommits } from "./pr-commits.tsx";
-import { prTimelineItems } from "./pr-timeline.ts";
+import { prTimelineItems } from "@ace/ui-core";
 import { PrTimelineRow, type TimelineExpansion } from "./pr-timeline-rows.tsx";
 
 export function PrActivity(props: {
@@ -56,8 +56,7 @@ export function PrActivity(props: {
     <section
       aria-label="Pull request timeline"
       className={cn(
-        "mx-auto w-full max-w-3xl px-[var(--forge-gutter,1rem)] pt-5",
-        composerClearance,
+        "mx-auto w-full max-w-3xl px-[var(--forge-gutter,1rem)] pt-5 pb-10",
         props.className,
       )}
     >
@@ -69,6 +68,8 @@ export function PrActivity(props: {
         </p>
       )}
       {props.order === "oldest" && older}
+      {/* The comment box sits at the newest end, where what it posts appears. */}
+      {props.order === "newest" && <PrConversationBox />}
       {!rows.length ? (
         settled && (
           <div className="flex flex-col items-center gap-2 py-16 text-sm text-muted-foreground">
@@ -89,6 +90,7 @@ export function PrActivity(props: {
           />
         </div>
       )}
+      {props.order === "oldest" && <PrConversationBox />}
       {props.order === "newest" && older}
     </section>
   );

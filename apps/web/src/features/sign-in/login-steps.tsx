@@ -21,6 +21,7 @@ import {
 } from "./login-parts.tsx";
 import { ApiKeyStep } from "./api-key-step.tsx";
 import { PasteCodeStep } from "./paste-code-step.tsx";
+import { ReturnUrlStep } from "./return-url-step.tsx";
 import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
 
 /*
@@ -119,6 +120,19 @@ export function LoginBody(props: {
               onSubmit={(code) => login.submitCode(code)}
             />
           )}
+          {progress.returnUrlEntry && (
+            <ReturnUrlStep
+              name={name}
+              disabled={view.sending}
+              onSubmit={(returnUrl) => login.submitReturnUrl(returnUrl)}
+            />
+          )}
+          {login.target.provider === "antigravity" &&
+            progress.hint &&
+            progress.url &&
+            !progress.returnUrlEntry && (
+              <p className="text-center text-sm text-muted-foreground">{progress.hint}</p>
+            )}
           {progress.message && <Notice text={progress.message} />}
           {notice && <Notice text={notice} />}
           <ChallengeFooter url={progress.url} cancel={cancel} />

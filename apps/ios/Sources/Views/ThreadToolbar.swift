@@ -1,39 +1,41 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case search, files, terminal, browser, devices, computer, tools }
+enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
 
-/// The thread's header: its title with "project · branch" under it, then Changes, Agents and ⋯
-/// sharing one glass capsule on iOS 26.
+/// The thread's header: the native back (or the split view's sidebar button), the title centred
+/// with a small "project · branch" line under it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String
+    /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
-    let status: String
-    let openChanges: () -> Void
-    let openAgents: () -> Void
+    let status: StatusDisplay?
     let menu: ThreadMenu
 
     var body: some ToolbarContent {
-        if #unavailable(iOS 26) {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    Text(title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .headline).fontWeight(.bold).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityValue(status)
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
+            // ⋯ sits in the same glass circle as the system's back button across from it.
+            ToolbarItem(placement: .topBarTrailing) { menu }
+        } else {
+            ToolbarItem(placement: .principal) { heading }
+            ToolbarItem(placement: .topBarTrailing) { menu }
+        }
+    }
+    private var heading: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            if !subtitle.isEmpty {
+                Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
             }
         }
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Changes", systemImage: "plusminus", action: openChanges)
-                .accessibilityIdentifier("thread.changes")
-            Button("Agents", systemImage: "point.3.connected.trianglepath.dotted", action: openAgents)
-                .accessibilityIdentifier("thread.agents")
-            menu
-        }
+        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityValue(status?.label ?? "")
+        .accessibilityIdentifier("thread.title")
     }
 }
 
@@ -41,6 +43,8 @@ struct ThreadToolbar: ToolbarContent {
 struct ThreadMenu: View {
     let model: ClientModel
     let thread: ThreadModel
+    /// The thread's title, as Continue on… names it.
+    var title = ""
     let archived: Bool
     /// The row a Lock Screen activity starts from; nil when there is none yet.
     let activityRow: ThreadRow?
@@ -52,41 +56,61 @@ struct ThreadMenu: View {
     var body: some View {
         Menu {
             Section {
-                Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
-                Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
-                Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
-                Button("Devices", systemImage: "iphone") { open(.devices) }.accessibilityIdentifier("thread.devices")
-                Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
-                Button("Computer use", systemImage: "macwindow") { open(.computer) }
-                Button("Skills and tools", systemImage: "wrench.and.screwdriver") { open(.tools) }.accessibilityIdentifier("thread.tools")
+                Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
+                Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
+                Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
+                Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
+                Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
+                Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
+                Button("Computer use", ace: .appWindow) { open(.computer) }
+                Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
             Section {
+                if model.canOperate, model.transfers.linked, !archived {
+                    // Shown only while this machine links to another (ADR 0101).
+                    let ready = model.transfers.thread(thread.id)?.canContinue == true
+                    Button { model.continueOn(threadId: thread.id, title: title) } label: {
+                        Label {
+                            Text("Continue on…")
+                            if !ready { Text("Available once the thread stops working") }
+                        } icon: { Image(ace: .desktop) }
+                    }
+                    .disabled(!ready)
+                    .accessibilityIdentifier("thread.continueOn")
+                }
                 if let activityRow, let hostId = model.hostId {
-                    Button("Show on Lock Screen", systemImage: "widget.small") {
+                    Button("Show on Lock Screen", ace: .squaresFour) {
                         do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
                         catch { problem(error.localizedDescription) }
                     }
                 }
                 if model.canOperate, !model.inboxLayout.snooze.isEmpty {
-                    Menu("Snooze", systemImage: "moon.zzz") {
+                    Menu {
                         ForEach(model.inboxLayout.snooze) { option in
                             Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { leave() } } }
                         }
-                    }
+                    } label: { Label("Snooze", ace: .bellSimpleZ) }
                 }
                 if model.canOperate, !archived {
-                    Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { leave() } } }
+                    Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
                 }
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {
-                    Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }
+                    // Stop isn't destructive: it reads in ink, never red.
+                    Button("Stop all agents", ace: .stopCircle) { model.stopTree() }
                         .disabled(thread.screen.stopping)
                 }
             }
         } label: {
-            Label("Thread options", systemImage: "ellipsis")
+            AceIcon(.dotsThree, size: 20)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .contentShape(Rectangle())
         }
+        // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
+        .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
     }
 }

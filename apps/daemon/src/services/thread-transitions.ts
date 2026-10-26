@@ -1,5 +1,6 @@
 import { GitService } from "@ace/git";
 import { AccountProvider } from "@ace/protocol/accounts";
+import { accountProvider } from "@ace/accounts";
 import { commandContext } from "../commands.ts";
 import { ThreadId } from "@ace/protocol";
 import type { TransitionIO } from "../engine/transitions.ts";
@@ -25,7 +26,8 @@ export function accountTransitions(
       if (!registry) return undefined;
       if (registry.isPending(instanceId)) return "That account hasn't finished signing in";
       const account = registry.summary(instanceId, context.now());
-      if (!account || account.provider !== provider)
+      // Antigravity's accounts are ACP accounts of its installation (`accountProvider`).
+      if (!account || accountProvider(account) !== provider)
         return "That account isn't set up for this provider";
       if (account.availability === "logged_out") return "That account is signed out";
       if (account.availability === "exhausted") return "That account has no usage left";

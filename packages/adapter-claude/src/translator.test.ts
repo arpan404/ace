@@ -343,3 +343,70 @@ test("assistant reasoning retains its source once without a transcript notice", 
   ).toHaveLength(1);
   expect(h.items().filter((item) => item.type === "notice")).toEqual([]);
 });
+
+const unreachable =
+  "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)";
+const noModelCall = {
+  origin: { kind: "task-notification" },
+  usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
+};
+/** A turn whose background shell finishes while Claude retries, then loses the network. */
+function networkLossWithFinishedShell() {
+  const h = harness();
+  h.init();
+  h.tool("bash", "Bash", { command: "xcodebuild test", run_in_background: true });
+  h.system("task_started", { task_id: "b", task_type: "local_bash", is_backgrounded: true });
+  h.system("task_notification", { task_id: "b", status: "completed" });
+  h.send({
+    type: "assistant",
+    error: "server_error",
+    message: { id: "lost", model: "<synthetic>", content: [{ type: "text", text: unreachable }] },
+  });
+  h.send({ type: "result", is_error: true, terminal_reason: "completed" }, "sdk", "recv", 1000);
+  return h;
+}
+const threadStates = (h: ReturnType<typeof harness>) =>
+  h.events.flatMap((event) =>
+    event.type === "thread.updated" && event.status ? [event.status.state] : [],
+  );
+
+test("a run lost to a network error never reads done while Claude folds its queued notifications", () => {
+  const h = networkLossWithFinishedShell();
+  h.init();
+  h.send({ type: "result", ...noModelCall }, "sdk", "recv", 1100);
+  h.init();
+  h.send({ type: "result", ...noModelCall }, "sdk", "recv", 1200);
+  expect(h.state.status.state).toBe("working");
+  h.tick(6200);
+  expect(h.state.status.state).toBe("failed");
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "failed",
+    error: { code: "server_error", detail: unreachable },
+  });
+  expect(threadStates(h)).not.toContain("done");
+});
+
+test("the turn that answers the folded notifications decides how the run ends", () => {
+  const h = networkLossWithFinishedShell();
+  h.init();
+  h.send({ type: "result", ...noModelCall }, "sdk", "recv", 1100);
+  h.init();
+  h.send({
+    type: "assistant",
+    message: { id: "back", content: [{ type: "text", text: "All seven tests passed." }] },
+  });
+  h.send(
+    {
+      type: "result",
+      terminal_reason: "completed",
+      origin: { kind: "task-notification" },
+      usage: { input_tokens: 12, output_tokens: 40 },
+    },
+    "sdk",
+    "recv",
+    1300,
+  );
+  expect(h.state.status.state).toBe("done");
+  expect(h.state.agents["root"]?.agent.status.state).toBe("idle");
+  expect(threadStates(h).filter((state) => state === "done")).toHaveLength(1);
+});

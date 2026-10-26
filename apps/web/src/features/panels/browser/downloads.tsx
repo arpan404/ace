@@ -10,7 +10,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { downloadStateLabels } from "@ace/ui-core";
-import { revealer } from "@/boot/open-external.ts";
+import { useLocalReveal } from "@/lib/local-reveal.ts";
 import { formatBytes } from "@/components/format-bytes.ts";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -18,22 +18,12 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.t
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { BrowserDownloadView } from "../sources.ts";
 import { toolbarButton } from "./page-toolbar.tsx";
 import { useSaveDownload } from "./use-save-download.ts";
 
 const states: Record<BrowserDownloadView["state"], string> = downloadStateLabels;
-
-/** Show in Finder, when the files are on this computer (the desktop app, a local daemon). */
-function useReveal() {
-  const connection = useDaemonConnection();
-  const local =
-    connection.mode === "daemon" &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(safeHost(connection.url));
-  return local ? revealer() : undefined;
-}
 
 function DownloadRow(props: {
   download: BrowserDownloadView;
@@ -140,7 +130,7 @@ export function DownloadsButton(props: {
   open?: boolean;
   onOpenChange?(open: boolean): void;
 }) {
-  const reveal = useReveal();
+  const reveal = useLocalReveal();
   const device = useSaveDownload(props.threadId);
   const { downloads } = props;
   const pending = downloads.filter((download) => download.state === "pending").length;
@@ -202,12 +192,4 @@ export function DownloadsButton(props: {
       </PopoverContent>
     </Popover>
   );
-}
-
-function safeHost(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "";
-  }
 }

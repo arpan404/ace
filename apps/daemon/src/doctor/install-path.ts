@@ -70,8 +70,8 @@ export function pathVerdict(found: readonly AceOnPath[]): Verdict {
     return {
       status: "ok",
       message:
-        "No ace command on PATH. Open the ace app once to install it in ~/.ace/bin, then add that folder to PATH",
-      fix: "Add ~/.ace/bin to PATH to run ace from any terminal.",
+        "No ace command on PATH. The ace app installs it in ~/.ace/bin and puts it on PATH when it opens",
+      fix: "Turn on ace command in terminals in ace's Settings > General, or add ~/.ace/bin to PATH.",
     };
   const installs = new Set(found.map((entry) => entry.install));
   if (installs.size === 1)

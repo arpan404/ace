@@ -1,11 +1,18 @@
 import { once } from "node:events";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import { z } from "zod";
 import { BrowserServerMessage, ServerMessage } from "@ace/protocol";
-import { StreamAssembler, decodeStreamMessage, type StreamMessage } from "@ace/browser/stream";
+import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "@ace/browser/stream";
 
 const Message = z.union([BrowserServerMessage, ServerMessage]);
 type Message = z.infer<typeof Message>;
+
+export type { StreamMessage };
+
+function toBytes(data: RawData): Buffer {
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return Buffer.isBuffer(data) ? data : Buffer.from(data);
+}
 export class BrowserClient {
   readonly socket: WebSocket;
   private messages: Message[] = [];
@@ -14,16 +21,43 @@ export class BrowserClient {
     resolve: (message: Message) => void;
     reject: (error: Error) => void;
   }[] = [];
+  private assembler = new StreamAssembler();
+  private streams: StreamMessage[] = [];
+  private streamWaiters: {
+    predicate: (message: StreamMessage) => boolean;
+    resolve: (message: StreamMessage) => void;
+    reject: (error: Error) => void;
+  }[] = [];
   private closed = false;
+  private streamError: Error | undefined;
   receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
     this.socket.on("message", (data, isBinary) => {
       if (isBinary) {
-        this.receiveStream(data);
+        let stream: StreamMessage | undefined;
+        try {
+          const envelope = this.assembler.push(toBytes(data));
+          if (!envelope) return;
+          stream = decodeStreamMessage(envelope);
+        } catch (error) {
+          this.streamError = error instanceof Error ? error : new Error("Invalid browser stream");
+          for (const waiter of this.streamWaiters.splice(0)) waiter.reject(this.streamError);
+          this.socket.terminate();
+          return;
+        }
+        if (!stream) return;
+        const decoded = stream;
+        const index = this.streamWaiters.findIndex((waiter) => waiter.predicate(decoded));
+        const waiter = this.streamWaiters[index];
+        if (waiter) {
+          this.streamWaiters.splice(index, 1);
+          waiter.resolve(stream);
+        } else this.streams.push(stream);
         return;
       }
-      const message = Message.parse(JSON.parse(data.toString()));
+      const bytes = toBytes(data);
+      const message = Message.parse(JSON.parse(new TextDecoder().decode(bytes)));
       if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
       const index = this.waiters.findIndex((waiter) => waiter.predicate(message));
       const waiter = this.waiters[index];
@@ -36,30 +70,9 @@ export class BrowserClient {
       this.closed = true;
       for (const waiter of this.waiters.splice(0))
         waiter.reject(new Error("Browser socket closed"));
+      for (const waiter of this.streamWaiters.splice(0))
+        waiter.reject(new Error("Browser socket closed"));
     });
-  }
-  /** Binary stream messages (video, audio, pictures) received so far, decoded. */
-  readonly streamed: StreamMessage[] = [];
-  private assembler = new StreamAssembler();
-  private streamWaiters: { predicate: (message: StreamMessage) => boolean; resolve(): void }[] = [];
-  private receiveStream(data: import("ws").RawData): void {
-    const pieces = Array.isArray(data) ? data : [data];
-    for (const piece of pieces) {
-      const envelope = this.assembler.push(new Uint8Array(piece));
-      const message = envelope && decodeStreamMessage(envelope);
-      if (!message) continue;
-      this.streamed.push(message);
-      this.streamWaiters = this.streamWaiters.filter((waiter) => {
-        if (!waiter.predicate(message)) return true;
-        waiter.resolve();
-        return false;
-      });
-    }
-  }
-  /** Resolves once a binary stream message matching `predicate` has arrived. */
-  untilStreamed(predicate: (message: StreamMessage) => boolean): Promise<void> {
-    if (this.streamed.some(predicate)) return Promise.resolve();
-    return new Promise((resolve) => this.streamWaiters.push({ predicate, resolve }));
   }
   next(predicate: (message: Message) => boolean): Promise<Message> {
     const index = this.messages.findIndex(predicate);
@@ -70,6 +83,19 @@ export class BrowserClient {
     }
     if (this.closed) return Promise.reject(new Error("Browser socket closed"));
     return new Promise((resolve, reject) => this.waiters.push({ predicate, resolve, reject }));
+  }
+  nextStream(predicate: (message: StreamMessage) => boolean): Promise<StreamMessage> {
+    if (this.streamError) return Promise.reject(this.streamError);
+    const index = this.streams.findIndex(predicate);
+    const message = this.streams[index];
+    if (message) {
+      this.streams.splice(index, 1);
+      return Promise.resolve(message);
+    }
+    if (this.closed) return Promise.reject(new Error("Browser socket closed"));
+    return new Promise((resolve, reject) =>
+      this.streamWaiters.push({ predicate, resolve, reject }),
+    );
   }
   async hello(token: string) {
     if (this.socket.readyState === WebSocket.CONNECTING) await once(this.socket, "open");

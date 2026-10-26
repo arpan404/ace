@@ -854,7 +854,11 @@ export class BrowserService {
     // A new viewer starts from each tab's current page state, then follows its changes.
     for (const { tabId, page } of session.pageStates())
       onBackendEvent?.({ type: "browser.page", threadId: ThreadId.parse(threadId), tabId, page });
-    return stop;
+    return () => {
+      stop();
+      // A viewer that stops watching gives the page back to the previous viewer's size.
+      this.sessions.get(threadId)?.leave(connectionId);
+    };
   }
   configureCapture(
     threadId: string,

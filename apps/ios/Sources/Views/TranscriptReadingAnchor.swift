@@ -15,8 +15,8 @@ import SwiftUI
         // from the old geometry retains partial rows as well as rows aligned to the top.
         pinned = (first.key, UnitPoint(x: 0, y: (first.value.minY - topInset) / available))
     }
-    func restore(in position: inout ScrollPosition) {
+    func restore(with proxy: ScrollViewProxy) {
         guard let pinned else { return }
-        position.scrollTo(id: pinned.id, anchor: pinned.point)
+        proxy.scrollTo(pinned.id, anchor: pinned.point)
     }
 }

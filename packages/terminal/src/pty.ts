@@ -2,10 +2,12 @@ import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { constants as osConstants, tmpdir, userInfo } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
+import { resolveShell as selectShell } from "./shell.ts";
+import type { ShellSelectionPorts } from "./shell.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
@@ -54,55 +56,26 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-export interface ShellHost {
-  /** The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. */
-  accountShell(): string | null;
-  env: NodeJS.ProcessEnv;
-  executable(path: string): boolean;
+export type { ShellSelectionPorts, ShellSelectionEnv } from "./shell.ts";
+
+export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
+  return selectShell(shell, ports);
 }
 
-const systemShellHost: ShellHost = {
-  accountShell: () => {
-    try {
-      return userInfo().shell;
-    } catch {
-      return null;
-    }
-  },
-  env: process.env,
-  executable: (path) => {
-    try {
-      accessSync(path, constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-};
-
-// Accounts that may not log in name these instead of a shell.
-const refusing = /\/(?:nologin|false)$/;
-
-/**
- * The shell a terminal opens: the one asked for, else `$SHELL` (the session's choice), else the
- * account's login shell (a daemon started by systemd or launchd may have no `$SHELL`), else
- * the first of bash and sh that is installed.
- */
-export function resolveShell(shell?: string, host: ShellHost = systemShellHost): string {
-  if (shell !== undefined) return shell;
-  if (host.env.SHELL) return host.env.SHELL;
-  const account = host.accountShell();
-  if (account && !refusing.test(account) && host.executable(account)) return account;
-  for (const candidate of ["/bin/bash", "/bin/sh"])
-    if (host.executable(candidate)) return candidate;
-  throw new Error("No login shell found");
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * `sleep` for the terminal launcher, by absolute path: the terminal's environment may carry
  * any PATH (or none), and NixOS has no `/bin/sleep`, only its system profile's.
  */
-export function resolveSleep(executable: ShellHost["executable"] = systemShellHost.executable) {
+export function resolveSleep(executable: (path: string) => boolean = isExecutable) {
   for (const candidate of ["/bin/sleep", "/usr/bin/sleep", "/run/current-system/sw/bin/sleep"])
     if (executable(candidate)) return candidate;
   return "sleep";

@@ -34,12 +34,14 @@ const Entry = z.object({
   durationMs: z.number().nonnegative().optional(),
 });
 
+const LogResult = z.object({ entries: z.array(z.unknown()).max(1000) });
+
 /**
  * A `logs` result as a log view reads it. Lenient: an entry this client can't read is skipped,
  * never the whole log.
  */
 export function readBrowserLogs(result: unknown): readonly BrowserLogEntry[] {
-  const parsed = z.object({ entries: z.array(z.unknown()).max(1000) }).safeParse(result);
+  const parsed = LogResult.safeParse(result);
   if (!parsed.success) return [];
   const entries: BrowserLogEntry[] = [];
   for (const raw of parsed.data.entries) {

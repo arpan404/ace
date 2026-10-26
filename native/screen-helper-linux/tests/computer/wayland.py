@@ -1,6 +1,6 @@
 """Live check of `--computer` in a GNOME Wayland session (see run-wayland.sh).
 
-AT-SPI semantics work as on X11. Screenshots go through the ScreenCast portal: the first one
+Semantics come from AT-SPI. Screenshots go through the ScreenCast portal: the first one
 asks the person in the portal's dialog (approved here through the dialog's own accessibility
 tree, as a person would click it), later ones restore silently from the saved token. Raw input
 is unavailable and must say so in words the model can act on.

@@ -3,7 +3,7 @@ import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import { measureSession } from "./measurement.ts";
-import { humanDeviceInput } from "./device-input-policy.ts";
+import { deviceWindowBundles, humanDeviceInput } from "./device-input-policy.ts";
 import { SessionObservations } from "./session-observations.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { ScreenAccessPolicy } from "./access-policy.ts";
@@ -263,6 +263,31 @@ export class ScreenManager {
         ...(await this.windows.list(bundleId)),
       };
     }
+    this.authorize({ kind: "app", bundleId });
+    const helper = await this.host.open();
+    await helper.negotiate();
+    signal.throwIfAborted();
+    if (helper.capabilities?.platform === "windows") {
+      const windows = await this.windows.ready(bundleId, signal, windowId);
+      if (windows.selectedWindowId === undefined)
+        throw new HelperCommandError(
+          "target_gone",
+          "No running window for this app",
+          "rejected-before-dispatch",
+        );
+      const state = await this.start(
+        { kind: "window", bundleId, windowId: windows.selectedWindowId },
+        10,
+        caller,
+      );
+      if (signal.aborted) {
+        await this.stop(state.sessionId);
+        signal.throwIfAborted();
+      }
+      this.mode(state.sessionId, "foreground");
+      this.delegateAgent(state.sessionId, caller);
+      return { ...this.state(state.sessionId), ...windows };
+    }
     await this.openApp(bundleId, signal);
     signal.throwIfAborted();
     const windows = await this.windows.ready(bundleId, signal, windowId);
@@ -416,9 +441,7 @@ export class ScreenManager {
     const inventory = ScreenInventory.parse(await this.inspect("targets"));
     return {
       displays: [],
-      windows: inventory.windows.filter(
-        (window) => window.bundleId === "com.apple.iphonesimulator",
-      ),
+      windows: inventory.windows.filter((window) => deviceWindowBundles.has(window.bundleId)),
     };
   }
   async targets(): Promise<ScreenInventory> {

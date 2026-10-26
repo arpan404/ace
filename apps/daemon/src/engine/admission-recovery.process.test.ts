@@ -118,7 +118,7 @@ for (const delivery of ["queue", "steer"] as const) {
 }
 
 for (const interruption of ["exit", "crash"] as const) {
-  test(`admitted recovery interrupted by ${interruption} resumes native history with a fresh ace continuation`, async () => {
+  test(`admitted recovery interrupted by ${interruption} continues native history with a fresh ace continuation`, async () => {
     const frames = scriptFrames();
     const h = await fixture(
       [
@@ -168,14 +168,60 @@ for (const interruption of ["exit", "crash"] as const) {
     await h.engine.flush();
     const oldInput = admitted.commands.find((command) => command.type === "send");
     expect(oldInput).toBeDefined();
-    let store = h.store,
-      engine = h.engine;
-    if (interruption === "exit") {
-      h.contexts.at(-1)?.onExit({ deliberate: false, message: "Transport died" });
+    if (interruption === "crash") {
+      // A restart ends the provider's ownership; ace continues by itself with a fresh restart
+      // continuation and never replays the admitted input.
+      const replacement = replaceProvider(h, frames, [
+        { on: "send", frames: [frames.frame(start, end)] },
+      ]);
+      // The same admission-based provider reports taking the fresh continuation.
+      const fresh = h.registry.get("codex").adapter;
+      h.registry.register(
+        {
+          ...fresh,
+          async openSession(ctx) {
+            const session = await fresh.openSession(ctx);
+            return {
+              ...session,
+              async send(input, delivery, commandId) {
+                if (!commandId) throw new Error("Missing correlation");
+                ctx.onFrame(
+                  frames.frame({
+                    type: "input.admitted",
+                    agent: "root",
+                    nativeInputId: "fresh-restart",
+                    commandId,
+                  }),
+                );
+                await session.send(input, delivery, commandId);
+              },
+            };
+          },
+        },
+        { installed: true, auth: "logged_in", loginHint: "unused" },
+      );
+      const { store, engine } = await crashCopy(h);
       await engine.flush();
-    } else {
-      ({ store, engine } = await crashCopy(h));
+      const sent = replacement.commands.filter((command) => command.type === "send");
+      expect(sent).toHaveLength(1);
+      expect(JSON.stringify(sent[0]?.input)).toContain("ace restarted while you were working");
+      expect(sent[0]?.input).not.toEqual(oldInput?.type === "send" ? oldInput.input : undefined);
+      expect(
+        Object.values(store.snapshotThread(id).items).filter(
+          (item) => item.type === "message" && item.origin?.kind === "restart",
+        ),
+      ).toEqual([expect.objectContaining({ synthetic: true })]);
+      expect(
+        Object.values(store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
+      ).toBe(true);
+      expect(store.getThread(id)?.status.state).toBe("done");
+      expect(engine.queue(id).messages).toHaveLength(0);
+      return;
     }
+    const store = h.store,
+      engine = h.engine;
+    h.contexts.at(-1)?.onExit({ deliberate: false, message: "Transport died" });
+    await engine.flush();
     expect(engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
     const replacement = replaceProvider(h, frames, [
       {

@@ -15,9 +15,14 @@ final class DeviceSurfaceView: UIView {
     var onGesture: (DevicePress, DevicePress) -> Void = { _, _ in }
     /// The upright picture's size in device points, each time it changes.
     var onScreenSize: (CGSize) -> Void = { _ in }
-    var interactive = false
+    /// The degrees the picture turns to stand upright, each time they change.
+    var onTurn: (DeviceRotation) -> Void = { _ in }
+    /// While the person drives, a swipe here goes to the device, never to ace's back swipe.
+    var interactive = false { didSet { claim.isEnabled = interactive } }
+    private lazy var claim = SurfaceTouchClaim.install(on: self)
     override init(frame: CGRect) {
         super.init(frame: frame)
+        claim.isEnabled = interactive
         video.videoGravity = .resize
         video.anchorPoint = .zero
         layer.addSublayer(video)
@@ -43,6 +48,7 @@ final class DeviceSurfaceView: UIView {
         guard let picture = nextPicture(), let sample = samples.sample(picture.image) else { return }
         let size = Self.screenSize(picture.chunk)
         if chunk.map(Self.screenSize) != size { onScreenSize(size) }
+        if chunk?.rotation != picture.chunk.rotation { onTurn(picture.chunk.rotation) }
         chunk = picture.chunk
         shown = picture.image
         fit()
@@ -111,6 +117,7 @@ struct DeviceSurface: UIViewRepresentable {
     var label = "Remote device screen"
     var identifier = "devices.surface"
     var screenSize: (CGSize) -> Void = { _ in }
+    var turn: (DeviceRotation) -> Void = { _ in }
     let input: (DevicePress, DevicePress) -> Void
     func makeUIView(context: Context) -> DeviceSurfaceView {
         let view = DeviceSurfaceView()
@@ -119,7 +126,7 @@ struct DeviceSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: DeviceSurfaceView, context: Context) {
-        view.nextPicture = next; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize
+        view.nextPicture = next; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize; view.onTurn = turn
         handle?.view = view
     }
 }

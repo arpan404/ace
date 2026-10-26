@@ -71,8 +71,8 @@ pub const KDE_WATCH_ONLY: &str = "KDE's remote control shares the whole desktop 
 pub const NO_REMOTE_DESKTOP: &str = "This desktop's screen-sharing portal has no remote control (RemoteDesktop; e.g. xdg-desktop-portal-hyprland or -wlr), so ace can show what you share here but can't send it your clicks or keys. Use the app on the desktop itself; agents act through element ids.";
 
 /// GNOME's portal shares the picked window or screen together with input to it. KDE's would
-/// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's and wlroots'
-/// portals have no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
+/// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's portal (like other
+/// portals without it) has no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
 pub fn portal_route(desktop: &str, offer: &PortalOffer) -> PortalRoute {
     if desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
         PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY)

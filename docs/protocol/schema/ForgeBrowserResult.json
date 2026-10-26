@@ -102,11 +102,83 @@
     {
       "properties": {
         "resource": {
+          "const": "inboxList",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeInboxList.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "fileContent",
           "type": "string"
         },
         "value": {
           "$ref": "https://ace.local/protocol/v1/ForgeFileContent.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "people": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgePerson.json"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "resource": {
+          "const": "people",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "people"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "references": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeReference.json"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "resource": {
+          "const": "references",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "references"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prReviewers",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrReviewers.json"
         }
       },
       "required": [
@@ -362,6 +434,125 @@
       "required": [
         "resource",
         "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "newPrContext",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeNewPrContext.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "repoPrOptions",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepoPrOptions.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "repoMilestones",
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeMilestone.json"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "compare",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeCompare.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeMediaResult.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "resource": {
+          "const": "media",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "items"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "images": {
+          "additionalProperties": {
+            "maxLength": 512,
+            "pattern": "^https:\\/\\/",
+            "type": "string"
+          },
+          "examples": [
+            {
+              "octocat": "https://github.githubassets.com/images/icons/emoji/octocat.png"
+            }
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z0-9_+-]{1,64}$",
+            "type": "string"
+          },
+          "type": "object",
+          "x-ace-constraint": "At most 256 shortcodes."
+        },
+        "resource": {
+          "const": "emojiImages",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "images"
       ],
       "type": "object"
     }

@@ -18,6 +18,7 @@ import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
+import { Route as HomeInboxRouteImport } from "./routes/_home.inbox"
 import { Route as HomeIssuesRouteImport } from "./routes/_home.issues"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as HomePullsRouteImport } from "./routes/_home.pulls"
@@ -38,6 +39,7 @@ import { Route as SettingsSourceControlRouteImport } from "./routes/settings.sou
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
+import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -48,6 +50,7 @@ import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.rem
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
+import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
@@ -93,6 +96,11 @@ const HomeIndexRoute = HomeIndexRouteImport.update({
 const HomeArchivedRoute = HomeArchivedRouteImport.update({
   id: "/archived",
   path: "/archived",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeInboxRoute = HomeInboxRouteImport.update({
+  id: "/inbox",
+  path: "/inbox",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomeIssuesRoute = HomeIssuesRouteImport.update({
@@ -195,6 +203,11 @@ const SkillsSkillIdRoute = SkillsSkillIdRouteImport.update({
   path: "/$skillId",
   getParentRoute: () => SkillsRoute,
 } as any)
+const SkillsNewRoute = SkillsNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => SkillsRoute,
+} as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
   path: "/t/$threadId",
@@ -248,6 +261,11 @@ const HomePullsProjectNumberRoute = HomePullsProjectNumberRouteImport.update({
   path: "/pulls/$project/$number",
   getParentRoute: () => HomeRoute,
 } as any)
+const HomePullsProjectNewRoute = HomePullsProjectNewRouteImport.update({
+  id: "/pulls_/$project/new",
+  path: "/pulls/$project/new",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   id: "/t/$threadId_/fork",
   path: "/t/$threadId/fork",
@@ -269,6 +287,7 @@ export interface FileRoutesByFullPath {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
@@ -286,6 +305,7 @@ export interface FileRoutesByFullPath {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -299,6 +319,7 @@ export interface FileRoutesByFullPath {
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
+  "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -307,6 +328,7 @@ export interface FileRoutesByTo {
   "/setup": typeof SetupRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
@@ -324,6 +346,7 @@ export interface FileRoutesByTo {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
@@ -338,6 +361,7 @@ export interface FileRoutesByTo {
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
+  "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -351,6 +375,7 @@ export interface FileRoutesById {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
+  "/_home/inbox": typeof HomeInboxRoute
   "/_home/issues": typeof HomeIssuesRoute
   "/_home/new": typeof HomeNewRoute
   "/_home/pulls": typeof HomePullsRoute
@@ -368,6 +393,7 @@ export interface FileRoutesById {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
@@ -382,6 +408,7 @@ export interface FileRoutesById {
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
+  "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -396,6 +423,7 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/archived"
+    | "/inbox"
     | "/issues"
     | "/new"
     | "/pulls"
@@ -413,6 +441,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -426,6 +455,7 @@ export interface FileRouteTypes {
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
+    | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
@@ -434,6 +464,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/usage"
     | "/archived"
+    | "/inbox"
     | "/issues"
     | "/new"
     | "/pulls"
@@ -451,6 +482,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/"
     | "/automations"
     | "/settings"
@@ -465,6 +497,7 @@ export interface FileRouteTypes {
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
+    | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   id:
@@ -477,6 +510,7 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/_home/archived"
+    | "/_home/inbox"
     | "/_home/issues"
     | "/_home/new"
     | "/_home/pulls"
@@ -494,6 +528,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/_home/"
     | "/automations/"
     | "/settings/"
@@ -508,6 +543,7 @@ export interface FileRouteTypes {
     | "/_home/issues_/$project/$number"
     | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
+    | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
@@ -585,6 +621,13 @@ declare module "@tanstack/react-router" {
       path: "/archived"
       fullPath: "/archived"
       preLoaderRoute: typeof HomeArchivedRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/inbox": {
+      id: "/_home/inbox"
+      path: "/inbox"
+      fullPath: "/inbox"
+      preLoaderRoute: typeof HomeInboxRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/issues": {
@@ -727,6 +770,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SkillsSkillIdRouteImport
       parentRoute: typeof SkillsRoute
     }
+    "/skills/new": {
+      id: "/skills/new"
+      path: "/new"
+      fullPath: "/skills/new"
+      preLoaderRoute: typeof SkillsNewRouteImport
+      parentRoute: typeof SkillsRoute
+    }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
       path: "/t/$threadId"
@@ -797,6 +847,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomePullsProjectNumberRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/_home/pulls_/$project/new": {
+      id: "/_home/pulls_/$project/new"
+      path: "/pulls/$project/new"
+      fullPath: "/pulls/$project/new"
+      preLoaderRoute: typeof HomePullsProjectNewRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/t/$threadId_/fork": {
       id: "/_home/t/$threadId_/fork"
       path: "/t/$threadId/fork"
@@ -816,6 +873,7 @@ declare module "@tanstack/react-router" {
 
 interface HomeRouteChildren {
   HomeArchivedRoute: typeof HomeArchivedRoute
+  HomeInboxRoute: typeof HomeInboxRoute
   HomeIssuesRoute: typeof HomeIssuesRoute
   HomeNewRoute: typeof HomeNewRoute
   HomePullsRoute: typeof HomePullsRoute
@@ -824,12 +882,14 @@ interface HomeRouteChildren {
   HomeIssuesProjectNumberRoute: typeof HomeIssuesProjectNumberRoute
   HomeIssuesProjectNewRoute: typeof HomeIssuesProjectNewRoute
   HomePullsProjectNumberRoute: typeof HomePullsProjectNumberRoute
+  HomePullsProjectNewRoute: typeof HomePullsProjectNewRoute
   HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
 }
 
 const HomeRouteChildren: HomeRouteChildren = {
   HomeArchivedRoute: HomeArchivedRoute,
+  HomeInboxRoute: HomeInboxRoute,
   HomeIssuesRoute: HomeIssuesRoute,
   HomeNewRoute: HomeNewRoute,
   HomePullsRoute: HomePullsRoute,
@@ -838,6 +898,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeIssuesProjectNumberRoute: HomeIssuesProjectNumberRoute,
   HomeIssuesProjectNewRoute: HomeIssuesProjectNewRoute,
   HomePullsProjectNumberRoute: HomePullsProjectNumberRoute,
+  HomePullsProjectNewRoute: HomePullsProjectNewRoute,
   HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
 }
@@ -908,11 +969,13 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 interface SkillsRouteChildren {
   SkillsSkillIdRoute: typeof SkillsSkillIdRoute
+  SkillsNewRoute: typeof SkillsNewRoute
   SkillsIndexRoute: typeof SkillsIndexRoute
 }
 
 const SkillsRouteChildren: SkillsRouteChildren = {
   SkillsSkillIdRoute: SkillsSkillIdRoute,
+  SkillsNewRoute: SkillsNewRoute,
   SkillsIndexRoute: SkillsIndexRoute,
 }
 

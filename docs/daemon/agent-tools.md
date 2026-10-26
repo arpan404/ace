@@ -250,7 +250,10 @@ accessibility; `tap`, `long_press`, `swipe`, `type` and `key` (`home`, `back`, `
 are the coordinate and key fallbacks, in target
 points. `open_app`, `open_url`, `install`, `record_start` and `record_stop` cover apps and
 recordings; `clipboard_get` reads the clipboard (`{text, truncated}`, at most 4,096
-characters) and `clipboard_set` puts `text` on it without pasting;
+characters) and `clipboard_set` puts `text` on it without pasting; `posture` folds a
+foldable simulator (the iPhone Duo) to `closed` (cover screen), `partiallyOpen` (half open, like
+a book) or `open` (flat, inner screen), and `sim_start` reports such a device's current
+`posture` (other devices have none and refuse with `not_supported`);
 install paths are local to the daemon. `sim_screenshot` and `sim_logs` read, and
 `sim_stop` releases it.
 

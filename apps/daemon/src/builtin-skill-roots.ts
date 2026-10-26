@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, opendir, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, opendir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { removeProjection } from "@ace/plugins";
 import { PinnedDirectory } from "@ace/workspace";
@@ -22,8 +22,13 @@ export function isBuiltinSkillRootName(name: string): boolean {
   return pattern.test(name);
 }
 
+/**
+ * Links above the ace home are the user's own layout (Fedora Atomic's /home, macOS's /var and
+ * /tmp), so the home is resolved once. Everything ace creates below it must stay link-free.
+ */
 export async function createBuiltinSkillRoot(dataDir: string): Promise<string> {
-  const base = sessionsPath(dataDir);
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  const base = sessionsPath(await realpath(dataDir));
   await mkdir(base, { recursive: true, mode: 0o700 });
   return mkdtemp(join(base, prefix));
 }
@@ -47,7 +52,7 @@ function discard(directory: PinnedDirectory, name: string): void {
 export function readSkillCursor(directory: PinnedDirectory, file: string): string | undefined {
   let text: string;
   try {
-    text = directory.readText(file, 64, process.getuid?.());
+    text = directory.readPrivateText(file, 64);
   } catch (error) {
     if (missingEntry(error)) return undefined;
     discard(directory, file);

@@ -1,5 +1,13 @@
 import type { Fact } from "@ace/core";
-import type { CommandPayload, EventPayload, ForkPoint } from "@ace/protocol";
+import { inheritedDrafts } from "@ace/handoff";
+import {
+  AgentId,
+  type CommandPayload,
+  type EventPayload,
+  type ForkPoint,
+  type Item,
+  type ThreadLineage,
+} from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -17,6 +25,50 @@ export function forkPointError(host: ThreadHost, point: ForkPoint): string | und
   }
   const item = host.view.items[point.itemId];
   return item && (!("complete" in item) || item.complete) ? undefined : "fork_point_unavailable";
+}
+
+/** The agent whose conversation a fork at `point` continues: the turn's or the answer's. */
+function forkedAgent(host: ThreadHost, point: ForkPoint): string {
+  const owner =
+    point.type === "turn"
+      ? host.view.runs[point.runId]?.agentId
+      : host.view.items[point.itemId]?.agentId;
+  return owner ?? host.view.thread.rootAgentId ?? "";
+}
+
+/**
+ * A fork's lineage and the copies it opens on, as the daemon makes them: the forked agent's
+ * asks and answers through the fork point (`@ace/handoff`'s drafts), to apply after the fork's
+ * root agent and before its first message.
+ */
+export function forkOpening(
+  host: ThreadHost,
+  point: ForkPoint,
+  provider: string,
+): { lineage: ThreadLineage; facts: Fact[] } {
+  const items = Object.values(host.view.items).toSorted(
+    (a: Item, b: Item) => a.createdAt - b.createdAt,
+  );
+  const end = items.findLastIndex((item) =>
+    point.type === "turn" ? item.runId === point.runId : item.id === point.itemId,
+  );
+  const agentId = forkedAgent(host, point);
+  const from = host.view.thread;
+  return {
+    lineage: {
+      parentThreadId: from.id,
+      parentAgentId: AgentId.parse(agentId || `${from.id}.root`),
+      point,
+      mode: provider === from.provider ? "native" : "portable",
+      lossy: provider !== from.provider,
+    },
+    facts: inheritedDrafts(items.slice(0, end + 1), agentId, from.id).map(({ key, draft }) => ({
+      type: "item.upsert",
+      agent: "root",
+      item: key,
+      draft,
+    })),
+  };
 }
 
 /** Publish a selection split off a steer, then apply a queued switch once nothing runs. */

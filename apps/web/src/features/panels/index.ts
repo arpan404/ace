@@ -2,8 +2,6 @@
  * The thread's workspace: its tab kinds (Changes, Terminal, Preview, Devices, Agents, Logs, the
  * new-tab launcher) and the definition the thread screen hands to `<Screen workspace>`.
  */
-import { deferredComponent } from "@/lib/deferred-component.tsx";
-
 export { threadWorkspace } from "./thread-workspace.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts). */
 export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/thread-parts.ts";
@@ -25,13 +23,18 @@ export { useAgentShells, useBackgroundShells } from "./terminal/use-terminals.ts
 export { fileTab } from "./files/tab-id.ts";
 export { PullRequestViewProvider } from "./pull-request-view.tsx";
 export { useScriptConfigurations } from "./files/script-configurations.ts";
-export const loadCreateFile = () => import("./files/create-file.tsx");
-/** A provider's sign-in terminal, outside any thread (the app hands it to the sign-in dialog). */
-export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
-
-export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
-/** Every thread's page floating in picture-in-picture, over whatever screen shows. */
-export const loadFloatingBrowsers = () => import("./browser/floating-browsers.tsx");
+/**
+ * Views that load on first use: the new-file dialog, the sign-in terminal, the thread browser,
+ * floating browsers and diff rendering. Keep this file re-exports only (see `loaders.ts`).
+ */
+export {
+  loadCreateFile,
+  loadAuthTerminal,
+  loadThreadBrowser,
+  loadFloatingBrowsers,
+  DeferredFileDiffBlock,
+  DeferredFileTree,
+} from "./loaders.ts";
 /**
  * Bring one of the thread's browser tabs to the person (a help request's Open tab), or the
  * Browser the daemon shows them (an agent's page, from its transcript row).
@@ -40,16 +43,6 @@ export { useRevealBrowserTab, useShowBrowserPanel } from "./browser/reveal-tab.t
 /** The thread's browser tabs the composer's `@` list offers. */
 export { useMentionTabs, type MentionTab } from "./browser/mention-tabs.ts";
 
-/**
- * Shared, bounded diff rendering for hosted and local changes. Its code loads with the view that
- * shows a diff: re-exported from here it would join the first paint, which never draws one.
- */
-export const DeferredFileDiffBlock = deferredComponent(() =>
-  import("./changes/file-diff.tsx").then((module) => module.FileDiffBlock),
-);
-export const DeferredFileTree = deferredComponent(() =>
-  import("./changes/file-tree.tsx").then((module) => module.FileTree),
-);
 export { freshView, fileHeight, type FileView } from "./changes/file-view.ts";
 export { useFileViews } from "./changes/file-views.ts";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";

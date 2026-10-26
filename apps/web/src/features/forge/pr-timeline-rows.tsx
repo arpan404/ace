@@ -1,5 +1,4 @@
 import type { ComponentType, ReactNode } from "react";
-import { PrClampedText } from "./pr-clamped.tsx";
 import type { ForgeComment } from "@ace/protocol";
 import {
   ArrowsClockwiseIcon,
@@ -17,32 +16,20 @@ import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
-import { PrOwnComment } from "./pr-review-forms.tsx";
-import { PrReactions } from "./pr-reactions.tsx";
+import { PrComment } from "./pr-comment.tsx";
+import { PrThread } from "./pr-thread.tsx";
 import {
   eventText,
-  type PrLifecycleState,
+  lifecycleWords,
+  reviewVerdictWords,
   type PrReference,
-  type PrReviewVerdict,
   type PrTimelineItem,
-} from "./pr-timeline.ts";
+} from "@ace/ui-core";
 import { WebLink } from "@/components/web-link.tsx";
 
 export type TimelineExpansion = { isOpen(id: string): boolean; toggle(id: string): void };
 
-const verdictWords: Record<PrReviewVerdict, { text: string; tone?: string }> = {
-  approved: { text: "approved", tone: "done" },
-  changes: { text: "requested changes", tone: "failed" },
-  commented: { text: "reviewed" },
-  dismissed: { text: "review dismissed" },
-  pending: { text: "review pending" },
-};
-const lifecycleWords: Record<PrLifecycleState, { text: string; tone: string }> = {
-  opened: { text: "opened this pull request", tone: "done" },
-  reopened: { text: "reopened this pull request", tone: "done" },
-  merged: { text: "merged this pull request", tone: "waiting" },
-  closed: { text: "closed this pull request", tone: "failed" },
-};
+const verdictWords = reviewVerdictWords;
 
 function Avatar(props: { name: string; url?: string | undefined; small?: boolean }) {
   return (
@@ -85,43 +72,19 @@ function Line(props: { children: ReactNode; at: string | null }) {
     </p>
   );
 }
-/** A long body shows about six lines until it is opened. */
-function Clamped(props: { id: string; text: string; expansion: TimelineExpansion }) {
-  if (!props.text.trim()) return null;
-  return (
-    <div className="mt-1.5">
-      <PrClampedText
-        text={props.text}
-        open={props.expansion.isOpen(props.id)}
-        onToggle={() => props.expansion.toggle(props.id)}
-      />
-    </div>
-  );
-}
 function CommentBody(props: { comment: ForgeComment; expansion: TimelineExpansion }) {
   const comment = props.comment;
+  const id = `body:${comment.kind}:${comment.id}`;
   return (
-    <>
-      <Line at={comment.createdAt ?? comment.updatedAt}>
-        <span className="font-medium text-foreground">{comment.author}</span>
-        <span>commented</span>
-        {comment.file && (
-          <span className="truncate font-mono text-2xs text-subtle-foreground">
-            {comment.file}
-            {comment.line ? `:${comment.line}` : ""}
-          </span>
-        )}
-      </Line>
-      <Clamped
-        id={`body:${comment.kind}:${comment.id}`}
-        text={comment.body}
-        expansion={props.expansion}
-      />
-      {comment.kind !== "review" && (
-        <PrReactions subject={{ kind: comment.kind, commentId: comment.id }} />
-      )}
-      <PrOwnComment comment={comment} />
-    </>
+    <PrComment
+      comment={comment}
+      avatar={false}
+      words={<span>commented</span>}
+      place={comment.file ? `${comment.file}${comment.line ? `:${comment.line}` : ""}` : undefined}
+      quoteTarget="conversation"
+      open={props.expansion.isOpen(id)}
+      onToggle={() => props.expansion.toggle(id)}
+    />
   );
 }
 /** Where a reference points: a pull request opens in a tab beside this one, an issue on GitHub. */
@@ -263,17 +226,24 @@ export function PrTimelineRow(props: {
           marker={<Avatar name={item.comment.author} url={item.comment.authorAvatarUrl} />}
           className={item.stale ? "opacity-55" : undefined}
         >
-          <Line at={item.at}>
-            <span className="font-medium text-foreground">{item.comment.author}</span>
-            <span
-              data-tone={words.tone}
-              className={cn("font-medium", words.tone && "text-(--tone-text)")}
-            >
-              {words.text}
-            </span>
-            {item.stale && <span className="text-subtle-foreground">outdated</span>}
-          </Line>
-          <Clamped id={`body:${item.id}`} text={item.comment.body} expansion={expansion} />
+          <PrComment
+            comment={item.comment}
+            avatar={false}
+            words={
+              <>
+                <span
+                  data-tone={words.tone}
+                  className={cn("font-medium", words.tone && "text-(--tone-text)")}
+                >
+                  {words.text}
+                </span>
+                {item.stale && <span className="text-subtle-foreground">outdated</span>}
+              </>
+            }
+            quoteTarget="conversation"
+            open={expansion.isOpen(`body:${item.id}`)}
+            onToggle={() => expansion.toggle(`body:${item.id}`)}
+          />
         </Row>
       );
     }
@@ -283,6 +253,14 @@ export function PrTimelineRow(props: {
           <CommentBody comment={item.comment} expansion={expansion} />
         </Row>
       );
+    case "thread": {
+      const first = item.thread.comments[0];
+      return (
+        <Row marker={<Avatar name={first?.author ?? ""} url={first?.authorAvatarUrl} />}>
+          <PrThread thread={item.thread} place />
+        </Row>
+      );
+    }
     case "comments": {
       const open = expansion.isOpen(item.id);
       const first = item.comments[0];

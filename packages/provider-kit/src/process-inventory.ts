@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
-import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
+import {
+  ProcessIdentity as ProcessIdentitySchema,
+  processIdentity,
+  processGroupIsGone,
+  type ProcessIdentity,
+} from "./process-identity.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
   remove(pid: number): void;
@@ -8,7 +13,7 @@ export interface ProcessJournal {
 const Entry = z.object({
   pid: z.number().int().positive(),
   start: z.string(),
-  uid: z.number().int().nonnegative(),
+  uid: ProcessIdentitySchema.shape.uid,
   group: z.number().int().positive(),
   ownerPid: z.number().int().positive(),
   ownerStart: z.string(),
@@ -32,6 +37,8 @@ export const inventoryRuntime: InventoryRuntime = {
     return !processGroupIsGone(group);
   },
   kill(group) {
+    if (process.platform === "win32")
+      throw new Error("Process-group kill is unavailable on Windows");
     try {
       process.kill(-group, "SIGKILL");
     } catch (error) {
@@ -46,6 +53,10 @@ export class ProcessInventory implements ProcessJournal {
   constructor(path: string, runtime: InventoryRuntime = inventoryRuntime) {
     this.runtime = runtime;
     this.db = new DatabaseSync(path);
+    // Every spawn and exit writes here on the main thread. WAL commits are durable when the
+    // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
+    // work one fsync held the event loop for seconds.
+    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)",
     );

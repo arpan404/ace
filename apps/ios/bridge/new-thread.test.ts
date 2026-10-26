@@ -1,11 +1,14 @@
-import { latest, native, until } from "./test-native.ts";
+import { latest, native, until } from "./test-host.ts";
 import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, ProviderConfigurations } from "@ace/protocol";
 import { PatchPump } from "./patches.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { threadRow } from "./presentation.ts";
+import { NativeReads } from "./native-reads.ts";
+import type { NewThreadMemory } from "./new-thread.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -28,7 +31,11 @@ afterEach(async () => {
   sent.length = 0;
 });
 
-async function connect(daemon: FakeDaemon, chunks?: ChunkReader): Promise<ComposeActions> {
+async function connect(
+  daemon: FakeDaemon,
+  chunks?: ChunkReader,
+  memory?: (owner: ClientCore) => NewThreadMemory,
+): Promise<ComposeActions> {
   let saved: string | null = null;
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-compose-test"),
@@ -72,6 +79,7 @@ async function connect(daemon: FakeDaemon, chunks?: ChunkReader): Promise<Compos
     (text, limit) => text.slice(0, limit),
     () => Date.now(),
     chunks,
+    memory?.(owner),
   );
 }
 
@@ -319,23 +327,57 @@ test("a first message of only files starts the thread; one with nothing is refus
   });
 });
 
-test("the picker leads with the model in use and keeps the rest of a long list behind More", async () => {
+test("the picker keeps its order when a model is picked and leaves out CLIs not installed", async () => {
   const compose = await connect(fixture());
   const agents = await readyAgents(compose);
   type Row = { provider: string; models: { key: string; account: string }[]; lead: number };
-  const codex = (agents.providers as Row[]).find((row) => row.provider === "codex");
+  const rows = agents.providers as Row[];
+  expect(rows.some((row) => row.provider === "antigravity")).toBe(false);
+  const codex = rows.find((row) => row.provider === "codex");
   expect(codex && codex.lead).toBeGreaterThan(0);
   expect(codex && codex.lead).toBeLessThanOrEqual(codex?.models.length ?? 0);
   const last = codex?.models.at(-1);
   expect(codex?.models[0]?.key).not.toBe(last?.key);
   compose.compose({ kind: "choice", provider: "codex", model: last?.key, account: last?.account });
-  const reordered = await until(() => {
+  const afterPick = await until(() => {
     const row = (latest("compose.agents")?.providers as Row[] | undefined)?.find(
       (entry) => entry.provider === "codex",
     );
-    return row?.models[0]?.key === last?.key && row;
+    return row?.lead === row?.models.length && row;
   });
-  expect(reordered.models).toHaveLength(codex?.models.length ?? 0);
+  expect(afterPick.models.map((model) => model.key)).toEqual(
+    codex?.models.map((model) => model.key),
+  );
+});
+
+test("the picker has Favorites and one tab per account, and a star is saved where the web keeps it", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  type Tab = { id: string; provider: string | null; models: { key: string; account: string }[] };
+  const tabs = agents.tabs as Tab[];
+  expect(tabs[0]?.id).toBe("favorites");
+  expect(tabs[0]?.models).toEqual([]);
+  const codex = tabs.filter((tab) => tab.provider === "codex");
+  expect(codex.length).toBeGreaterThan(0);
+  for (const tab of codex) expect(new Set(tab.models.map((model) => model.account)).size).toBe(1);
+  const starred = codex[0]?.models[0];
+  compose.compose({ kind: "favorite", key: starred?.key });
+  const saved = await until(() => {
+    const patch = latest("compose.agents");
+    return (patch?.favorites as string[] | undefined)?.includes(starred?.key ?? "") && patch;
+  });
+  expect((saved.tabs as Tab[])[0]?.models.map((model) => model.key)).toEqual([starred?.key]);
+  const reply = await client?.request({
+    type: "settings.get",
+    key: "providers.configuration",
+    scope: {},
+  });
+  const rows = ProviderConfigurations.parse(reply?.entries[0]?.value ?? []);
+  const own = rows.find((row) => row.provider === "codex" && !row.instance);
+  expect(own?.favourites?.length).toBe(1);
+  compose.compose({ kind: "favorite", key: starred?.key });
+  await until(() => (latest("compose.agents")?.favorites as string[] | undefined)?.length === 0);
 });
 
 test("access the provider can't express is never loosened: Send waits with the reason", async () => {
@@ -354,4 +396,107 @@ test("access the provider can't express is never loosened: Send waits with the r
   expect(access.problem).toBe(
     "Cursor has nothing as strict as Read-only. Choose its access before sending.",
   );
+});
+
+test("a thread started from an issue links that issue", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const issue = {
+    repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+    number: 240,
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-issue-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Work on GitHub issue #240: Sidebar loses its scroll position",
+    issue,
+  });
+  await until(() => latest("admission", "draft-issue-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    issue,
+  });
+});
+
+test("New thread opens again on its last projects and agents, and keeps them when the reread fails", async () => {
+  const daemon = fixture();
+  const compose = await connect(
+    daemon,
+    undefined,
+    (owner) => new NativeReads(owner, pump, { now: () => Date.now(), schedule: () => () => {} }),
+  );
+  compose.compose({ kind: "open" });
+  const projects = await until(
+    () => latest("compose.projects")?.state === "ready" && latest("compose.projects"),
+  );
+  const agents = await until(
+    () => latest("compose.agents")?.state === "ready" && latest("compose.agents"),
+  );
+  compose.compose({ kind: "close" });
+  daemon.failRequests("workspace.request", "providers.request");
+  const reopened = native.frames.length;
+  compose.compose({ kind: "open" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const since = native.frames.slice(reopened);
+  expect(since.some((frame) => frame.type === "compose.projects" && frame.state !== "ready")).toBe(
+    false,
+  );
+  expect(since.some((frame) => frame.type === "compose.agents" && frame.state !== "ready")).toBe(
+    false,
+  );
+  expect(latest("compose.projects")?.projects).toEqual(projects.projects);
+  expect(latest("compose.agents")?.providers).toEqual(agents.providers);
+});
+
+test("a chat with no project starts in its own hidden project, with its photo, and reads as a chat", async () => {
+  const compose = await connect(fixture(), staged);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string };
+  const chat = (commandId: string, text: string) => ({
+    kind: "create",
+    commandId,
+    workspaceId: "chat",
+    provider: start.provider,
+    model: start.model,
+    mode: "worktree",
+    text,
+  });
+  compose.compose({ kind: "attach", workspaceId: "chat", file: picked });
+  const attached = await until(() => {
+    const patch = latest("compose.attachments") as
+      | (Attachments & { workspaceId: string })
+      | undefined;
+    return patch?.files[0]?.state === "ready" && patch;
+  });
+  expect(attached.workspaceId).toBe("chat");
+  compose.compose(chat("chat-command-0001", "What's a semaphore?"));
+  const started = await until(() => latest("compose.start", "chat-command-0001"));
+  expect(started.ok).toBe(true);
+  const first = createPayloads().at(-1);
+  const thread = await until(() => client?.cachedThreads()?.thread(String(started.threadId)));
+  expect(threadRow(thread)).toMatchObject({ chat: true, project: "Chat", badge: "" });
+  // A chat runs in its own folder: never a worktree, whatever the draft held.
+  expect(first).toMatchObject({ mode: "local", context: { attachments: [{ sha256: photoSha }] } });
+  compose.compose(chat("chat-command-0002", "And a mutex?"));
+  expect((await until(() => latest("compose.start", "chat-command-0002"))).ok).toBe(true);
+  const second = createPayloads().at(-1);
+  expect(first?.workspaceId).not.toBe("chat");
+  expect(second?.workspaceId).not.toBe(first?.workspaceId);
+  // Neither chat's hidden project is offered as a project.
+  compose.compose({ kind: "projects" });
+  const projects = await until(() => {
+    const patch = latest("compose.projects");
+    return patch?.state === "ready" && patch;
+  });
+  const ids = (projects.projects as { id: string }[]).map((row) => row.id);
+  expect(ids).toContain("ace");
+  expect(ids).not.toContain(first?.workspaceId);
+  expect(ids).not.toContain(second?.workspaceId);
 });

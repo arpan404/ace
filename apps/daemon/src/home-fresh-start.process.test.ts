@@ -145,6 +145,9 @@ test("a home whose old daemon is still running is not renamed", async () => {
   const home = join(parent, "ace-data");
   const old = launchDaemon(daemonEnv(home), /Token file:/, cleanups);
   await old.ready;
+  // The old daemon recovers transfers in the background after it listens; let that settle so
+  // the snapshot below holds only what the refused start could have changed.
+  await expect.poll(() => readdir(home), { timeout: 30_000 }).toContain("transfers");
   // The running daemon's home now reads as an older format, as after this build's format bump.
   await writeFile(
     join(home, HOME_FORMAT_FILE),

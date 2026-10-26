@@ -1,10 +1,11 @@
 import { ClientError } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
-import { attachmentLimits, attachmentSizeProblem } from "@ace/ui-core";
+import { attachmentLimits, attachmentSizeProblem, type DraftFile } from "@ace/ui-core";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-format.ts";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { imageStill } from "@/components/image-still.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -19,6 +20,9 @@ export interface ReadyAttachment {
   sha256: string;
   name: string;
 }
+
+/** How many images of one draft keep a still; past it they preview through the daemon. */
+const keptStills = 16;
 
 /** How one file's upload ended: the daemon holds it, or why not, in words. */
 export type Outcome = ReadyAttachment | { error: string };
@@ -60,12 +64,10 @@ interface Waiting {
 
 /**
  * Files and images added to the next message, uploaded into the thread's context right away.
- * `restored` are uploads the daemon already holds, from a draft kept across a reload.
+ * `restored` are uploads the daemon already holds, from a draft kept across a reload; each
+ * comes back with its type, size and image still, so its chip looks as it did when attached.
  */
-export function useAttachments(
-  thread: ThreadRef,
-  restored: readonly { sha256: string; name: string }[] = [],
-) {
+export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[] = []) {
   const sources = useThreadSources();
   const client = useClient();
   const toast = useToast();
@@ -79,6 +81,9 @@ export function useAttachments(
       state: "ready",
       progress: 1,
       sha256: file.sha256,
+      mimeType: file.mimeType,
+      bytes: file.bytes,
+      still: file.still,
     })),
   );
   const next = useRef(0);
@@ -92,7 +97,10 @@ export function useAttachments(
   const files = useRef(new Map<number, File>());
   const known = useRef(
     new Map<number, Known>(
-      restored.map((file, index) => [-1 - index, { bytes: 0, id: `${file.sha256}\0${file.name}` }]),
+      restored.map((file, index) => [
+        -1 - index,
+        { bytes: file.bytes ?? 0, id: `${file.sha256}\0${file.name}` },
+      ]),
     ),
   );
   const [restoredFiles] = useState(restored);
@@ -305,6 +313,14 @@ export function useAttachments(
         }
         files.current.set(key, file);
         outcomes.current.set(key, upload(key, file));
+        // A still small enough to keep with the draft, so its preview outlives this page.
+        if (preview)
+          void imageStill(file).then((still) => {
+            if (still)
+              setItems((list) =>
+                list.map((item) => (item.key === key ? { ...item, still } : item)),
+              );
+          });
       }
       return left;
     },
@@ -402,7 +418,7 @@ export function useAttachments(
       name: item.name,
       mimeType: item.mimeType ?? "application/octet-stream",
       bytes: item.bytes ?? 0,
-      previewUrl: item.preview,
+      previewUrl: item.preview ?? item.still,
       ...(item.state === "ready" && item.sha256 ? { sha256: item.sha256 } : {}),
     }));
     forget([...outcomes.current.keys()]);
@@ -441,9 +457,21 @@ export function useAttachments(
       },
     };
   };
-  const ready = items.flatMap((item) =>
-    item.state === "ready" && item.sha256 ? [{ sha256: item.sha256, name: item.name }] : [],
-  );
+  // What a saved draft keeps of each held file: enough to show its chip again as it is now.
+  let stills = 0;
+  const ready = displayed.flatMap((item): DraftFile[] => {
+    if (item.state !== "ready" || !item.sha256) return [];
+    const still = item.still && stills < keptStills ? (stills++, item.still) : undefined;
+    return [
+      {
+        sha256: item.sha256,
+        name: item.name,
+        ...(item.mimeType ? { mimeType: item.mimeType } : {}),
+        ...(item.bytes !== undefined ? { bytes: item.bytes } : {}),
+        ...(still ? { still } : {}),
+      },
+    ];
+  });
   return {
     items: displayed,
     add,

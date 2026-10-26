@@ -10,6 +10,9 @@ import {
   ThreadId,
 } from "@ace/protocol";
 import { z } from "zod";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { DeviceChromeReader, deviceChromeSources } from "@ace/devices";
 
 const DeviceStateMessage = z.object({ type: z.literal("devices.state"), state: DeviceState });
 import type { ServerWebSocket } from "bun";
@@ -49,6 +52,18 @@ function seedDevices(daemon: FakeDaemon): void {
     daemon.appDevices.addDevice(
       AppDevice.parse({ ...device, platform: "ios", runtime: "iOS 26.0" }),
     );
+  // A foldable iPhone, booted and open flat, for the posture control.
+  const duo = "ios:5e6d3b4c-3f6d-4e5c-9b2a-8d9e0f1a2b3c";
+  daemon.appDevices.addDevice(
+    AppDevice.parse({
+      id: duo,
+      name: "iPhone Duo",
+      state: "booted",
+      platform: "ios",
+      runtime: "iOS 27.1",
+    }),
+  );
+  daemon.appDevices.folds.set(duo, "open");
 }
 
 /** One of ace's simulator tools on the iPhone, as the agent called it. */
@@ -86,8 +101,48 @@ function seedThread(daemon: FakeDaemon, details: (branch: string) => object): st
 }
 
 /** Turn devices on, give the iPhone to the thread's agent and keep it acting. */
+/** A process's output, for reading Xcode's device profiles. */
+const output = (command: string, args: readonly string[]) =>
+  new Promise<string>((resolve, reject) =>
+    execFile(command, [...args], { maxBuffer: 4 * 1024 * 1024 }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout),
+    ),
+  );
+
+/**
+ * The fake iPhone wears the real iPhone 16 Pro body from this Mac's Xcode, read and drawn by the
+ * daemon's own reader, so the phone shows what a real daemon sends. Off a Mac, or without
+ * Xcode's files, it keeps the drawn frame.
+ */
+async function seedChrome(daemon: FakeDaemon): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const reader = new DeviceChromeReader(
+    deviceChromeSources({
+      home: homedir(),
+      env: process.env,
+      simctl: (args) => output("xcrun", ["simctl", ...args]),
+      plutil: (args) => output("/usr/bin/plutil", args),
+      simulatorType: async () => undefined,
+    }),
+  );
+  const chrome = await reader
+    .chrome(
+      AppDevice.parse({
+        id: iphone,
+        platform: "ios",
+        name: "iPhone 16 Pro",
+        state: "booted",
+        model: "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+      }),
+      "png",
+    )
+    .catch(() => undefined);
+  if (chrome) daemon.appDevices.chromes.set(iphone, chrome);
+}
+
 export function spikeDevices(daemon: FakeDaemon, details: (branch: string) => object): void {
   seedDevices(daemon);
+  void seedChrome(daemon);
   const agentId = seedThread(daemon, details);
   const owner = daemon.appDevices.transport();
   // The agent acts only while it holds the iPhone: a person who took over sees no actions.
@@ -214,6 +269,17 @@ export function featureMessage(
     });
   }
   return true;
+}
+
+/** `GET /devices/inputs`: every input a person sent to a device, for tests that drive the screen. */
+export function devicesControl(daemon: FakeDaemon, request: Request): Response | undefined {
+  if (request.method !== "GET") return undefined;
+  const path = new URL(request.url).pathname;
+  if (path === "/devices/inputs") return Response.json({ inputs: daemon.appDevices.inputs });
+  // How each foldable device sits, for the posture UI test.
+  if (path === "/devices/folds")
+    return Response.json({ folds: Object.fromEntries(daemon.appDevices.folds) });
+  return undefined;
 }
 
 export function featureClosed(socket: Socket): void {

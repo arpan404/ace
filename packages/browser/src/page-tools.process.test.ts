@@ -56,6 +56,39 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
     expect(tabOf(f.service.state("thread")).emulation).toBeUndefined();
   }, 60_000);
 
+  it("a phone's size lays the page out as a phone's, and the desktop's comes back when it leaves", async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.evaluate(
+      "document.head.insertAdjacentHTML('beforeend', '<meta name=viewport content=\"width=device-width\">')",
+    );
+    const ownAgent = String(await f.evaluate("navigator.userAgent"));
+    const read = () =>
+      f.evaluate(
+        "[innerWidth, navigator.userAgent, navigator.maxTouchPoints > 0, navigator.userAgentData?.mobile === true]",
+      );
+    const desktop = { kind: "human", connectionId: "desktop" } as const;
+    const phone = { kind: "human", connectionId: "phone" } as const;
+    await f.service.execute("thread", { action: "resize", width: 1200, height: 800 }, desktop);
+    expect(await read()).toEqual([1200, ownAgent, false, false]);
+
+    const size = { action: "resize", width: 390, height: 700, touch: true, devicePixelRatio: 3 };
+    await f.service.execute("thread", size, phone);
+    const [width, agent, touch, mobile] = z
+      .tuple([z.number(), z.string(), z.boolean(), z.boolean()])
+      .parse(await read());
+    expect([width, touch, mobile]).toEqual([390, true, true]);
+    expect(agent).toMatch(/Android.*Chrome\/\d+\.0\.0\.0 Mobile Safari/);
+    expect(agent).not.toContain("Headless");
+
+    // Turned sideways the phone is still a phone.
+    await f.service.execute("thread", { ...size, width: 700, height: 390 }, phone);
+    expect(await read()).toEqual([700, agent, true, true]);
+
+    f.service.disconnect("phone");
+    await expect.poll(read, { timeout: 10_000 }).toEqual([1200, ownAgent, false, false]);
+  }, 60_000);
+
   it("an agent's resize is listed as the agent's size, for the person's view to follow", async () => {
     const f = await fixture();
     await f.navigate();

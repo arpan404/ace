@@ -26,8 +26,62 @@ struct InboxConnectionProblem: Equatable {
     }
 }
 
-/// The inbox's leading title: the ace wordmark, or, once a connection problem has lasted
-/// 800ms, what is wrong in its place. Tapping the problem opens Machines.
+/// The list's title in the bar's leading slot: "Threads ⌄" or "Pull requests ⌄" opening the
+/// list's scope menu, and under it the scope, or what is wrong with the connection while it lasts.
+/// With no `choices` the title has no menu.
+struct InboxHeading<Choices: View>: View {
+    let title: String
+    let scope: String?
+    let problem: InboxConnectionProblem?
+    let openMachines: () -> Void
+    var identifier = "inbox.projects"
+    let choices: Choices?
+
+    init(title: String, scope: String?, problem: InboxConnectionProblem?, openMachines: @escaping () -> Void,
+         identifier: String = "inbox.projects", @ViewBuilder choices: () -> Choices?) {
+        self.title = title
+        self.scope = scope
+        self.problem = problem
+        self.openMachines = openMachines
+        self.identifier = identifier
+        self.choices = choices()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let choices {
+                Menu { choices } label: { label(chevron: true) }
+                    .accessibilityIdentifier(identifier)
+                    .accessibilityHint("Chooses what the list shows")
+            } else {
+                label(chevron: false)
+            }
+            InboxTitle(problem: problem, openMachines: openMachines)
+        }
+        .fixedSize()
+    }
+
+    private func label(chevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                if chevron {
+                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+            }
+            .accessibilityAddTraits(.isHeader)
+            if problem == nil, let scope {
+                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// What is wrong with the connection, once a problem has lasted 800ms, under the title; the
+/// nothing while every machine is reachable. Tapping it opens Machines.
 struct InboxTitle: View {
     let problem: InboxConnectionProblem?
     let openMachines: () -> Void
@@ -41,22 +95,15 @@ struct InboxTitle: View {
                         if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
                         Text(shown.text).lineLimit(1)
                     }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .fixedSize()
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
-            } else {
-                HStack(alignment: .center, spacing: 6) {
-                    AceMark().frame(width: 22, height: 20)
-                    Text("ace").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3)
-                }
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .fixedSize()
-                .accessibilityHidden(true)
             }
         }
         .task(id: problem) {
@@ -68,8 +115,8 @@ struct InboxTitle: View {
     }
 }
 
-/// "All machines ⌄" and "All projects ⌄" under the header, each a native menu with checkmarks.
-/// The machine chip shows only while more than one machine is paired.
+/// The scope the Threads title's menu chooses: the machine (while more than one is paired), the
+/// project, and how the machines sort threads. Each is a native picker with checkmarks.
 struct InboxFilters: View {
     let inbox: MachineInbox
     @Binding var machine: String
@@ -79,36 +126,55 @@ struct InboxFilters: View {
     private var projects: [Choice] {
         var seen = Set<String>()
         return inbox.sessions.filter { machine.isEmpty || $0.hostId == machine }.flatMap { $0.client.inbox.values }.compactMap { row in
-            guard let id = row.workspaceId, seen.insert(id).inserted else { return nil }
+            // Each chat's hidden project is not a project to filter by (ADR 0099).
+            guard let id = row.workspaceId, row.chat != true, seen.insert(id).inserted else { return nil }
             return Choice(id: id, name: row.project)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            if inbox.showsMachineNames {
-                Menu {
-                    Picker("Machine", selection: $machine) {
-                        Text("All machines").tag("")
-                        ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
-                    }
-                } label: { chip(machine.isEmpty ? "All machines" : inbox.name(machine)) }
-                    .accessibilityIdentifier("inbox.machines.filter")
-            }
-            Menu {
-                Picker("Project", selection: $project) {
-                    Text("All projects").tag("")
-                    ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
-                }
-            } label: { chip(projects.first { $0.id == project }?.name ?? "All projects") }
-                .accessibilityIdentifier("inbox.projects")
-            Spacer(minLength: AceTheme.Spacing.none)
-        }
-        .padding(.horizontal, 18)
-        .padding(.bottom, AceTheme.Spacing.xs)
+    /// The scope in words, under the title: "All projects", "ace", "Studio · ace".
+    var subtitle: String {
+        let projectName = projects.first { $0.id == project }?.name ?? "All projects"
+        guard inbox.showsMachineNames else { return projectName }
+        return "\(machine.isEmpty ? "All machines" : inbox.name(machine)) · \(projectName)"
     }
 
-    private func chip(_ title: String) -> some View {
+    var body: some View {
+        if inbox.showsMachineNames {
+            Picker("Machine", selection: $machine) {
+                Text("All machines").tag("")
+                ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
+            }
+        }
+        Picker("Project", selection: $project) {
+            Text("All projects").tag("")
+            ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
+        }
+        sortPicker
+    }
+
+    /// Sort threads, the machines' own setting (the web's Settings › Agents › Sort threads), under
+    /// the projects. Choosing saves it on every machine this phone can act on.
+    @ViewBuilder private var sortPicker: some View {
+        let choices = inbox.sortChoices
+        if !choices.isEmpty && inbox.sessions.contains(where: { $0.client.canOperate }) {
+            Section("Sort threads") {
+                Picker("Sort threads", selection: Binding(
+                    get: { inbox.sortBy(in: machine) ?? "activity" },
+                    set: { choice in Task { await inbox.setSort(choice) } })) {
+                    ForEach(choices) { Text($0.label).tag($0.id) }
+                }
+            }
+            .accessibilityIdentifier("inbox.sort")
+        }
+    }
+}
+
+/// The inbox's glass chip: a menu's current choice and a chevron. The Pull requests and Issues
+/// tab uses the same chips.
+struct InboxChip: View {
+    let title: String
+    var body: some View {
         HStack(spacing: 6) {
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
@@ -117,8 +183,8 @@ struct InboxFilters: View {
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .aceGlass(in: Capsule(), interactive: true)
-        .contentShape(Capsule())
+        .aceGlass(in: AceShape.capsule, interactive: true)
+        .contentShape(AceShape.capsule)
     }
 }
 

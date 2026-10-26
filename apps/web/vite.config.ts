@@ -2,10 +2,12 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
+import { contentPolicy } from "./content-policy.ts";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
+import { mermaidChunk } from "./mermaid-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
@@ -45,6 +47,7 @@ export default defineConfig(({ mode }) => ({
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
+    contentPolicy(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },
@@ -59,7 +62,10 @@ export default defineConfig(({ mode }) => ({
     rolldownOptions: {
       output: {
         codeSplitting: {
-          groups: [initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))],
+          groups: [
+            initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
+            mermaidChunk(),
+          ],
         },
       },
     },

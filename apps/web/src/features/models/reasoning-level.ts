@@ -1,5 +1,3 @@
-import { effortLabel } from "@ace/ui-core";
-
 /** `effort` is one the model supports and its name matches `names`. */
 const supportedAs = (effort: string | undefined, supported: readonly string[], names: RegExp) =>
   effort !== undefined && supported.includes(effort) && names.test(effort);
@@ -40,15 +38,4 @@ export function reasoningDescription(effort: string | undefined): string {
     default:
       return "Use the selected reasoning setting reported by this model.";
   }
-}
-
-/** A short name for a compact chip ("Med"), without relabelling an ordinary High as Max. */
-export function reasoningShortLabel(effort: string): string {
-  const labels: Record<string, string> = {
-    minimal: "Min",
-    medium: "Med",
-    xhigh: "XHigh",
-    extra_high: "XHigh",
-  };
-  return labels[effort.toLowerCase()] ?? effortLabel(effort);
 }

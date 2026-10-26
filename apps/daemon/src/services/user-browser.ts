@@ -11,7 +11,7 @@ export async function startUserBrowser(context: ServiceContext): Promise<void> {
     dataDir: context.config.dataDir,
     platform: process.platform,
     home: homedir(),
-    env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, LOCALAPPDATA: process.env.LOCALAPPDATA },
     node: process.execPath,
     devices: context.store.devices,
     now: context.now,

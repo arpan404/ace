@@ -22,7 +22,9 @@ test("a pull request no thread is linked to merges from the page and leaves the 
   const panel = await screen.findByRole("article", { name: "Pull request #224" });
   const merge = await within(panel).findByRole("button", { name: "Squash and merge" });
   await userEvent.click(merge);
-  await userEvent.click(await within(panel).findByRole("button", { name: "Confirm merge?" }));
+  // The commit GitHub writes opens to edit; confirming it merges.
+  const commit = await screen.findByRole("dialog", { name: "Squash and merge into main" });
+  await userEvent.click(within(commit).getByRole("button", { name: "Confirm squash and merge" }));
   // Merged: the state shows once, as the badge under the title, and the merge button is gone.
   expect(await within(panel).findByText("Merged")).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: /merge/i })).toBeNull();
@@ -55,8 +57,17 @@ test("an unlinked pull request waiting on checks and review turns auto-merge on,
   await userEvent.click(
     await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),
   );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Confirm auto-merge?" }));
-  expect(await within(panel).findByText("Auto-merge on · squash · by you")).toBeTruthy();
+  const commit = await screen.findByRole("dialog", {
+    name: "Squash and merge into main automatically",
+  });
+  await userEvent.click(within(commit).getByRole("button", { name: "Enable auto-merge" }));
+  // At narrow widths the words after the first " · " step aside on screen, in their own span.
+  expect(
+    await within(panel).findByText(
+      (_, element) =>
+        element?.tagName === "SPAN" && element.textContent === "Auto-merge on · squash · by you",
+    ),
+  ).toBeTruthy();
   await userEvent.click(within(panel).getByRole("button", { name: "Disable" }));
   expect(
     await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),

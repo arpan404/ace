@@ -13,9 +13,11 @@ export * from "./mobile-changes.ts";
 export { snoozePresets, type SnoozePreset } from "./snooze.ts";
 export * from "./mobile-machines.ts";
 export * from "./mobile-new-thread.ts";
+export * from "./mobile-new-thread-tabs.ts";
 /** Git and forge refusal codes in the same words the web shows. */
 export { actionErrorText } from "./action-errors.ts";
 export { checkoutOf } from "./checkout.ts";
 /** The archive browser: archived threads, most recently archived first (as the web lists them). */
 export { archivedOrder } from "./arrange.ts";
 export { mergeMethods, parseReviewers } from "./pull-request.ts";
+export * from "./live-pill.ts";

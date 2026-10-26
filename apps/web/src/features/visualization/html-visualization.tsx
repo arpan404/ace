@@ -1,4 +1,5 @@
 import { useCallback, useId, useMemo, useState } from "react";
+import { LruCache } from "@ace/ui-core";
 import { CheckIcon, CopyIcon, CornersOutIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { usePageActions } from "./page-actions.ts";
 import type { HtmlVisualization } from "@ace/protocol";
@@ -7,11 +8,20 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
+import { useLayout, type SessionKey } from "@/lib/layout.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { HtmlFrame } from "./html-frame.tsx";
 import { useLiveFrame } from "./live-frames.ts";
 import { useHtmlTheme, usePageHtml } from "./page-source.ts";
 import { visualizationTab } from "./visualization-tab.ts";
+
+/**
+ * Each page's last measured height, by thread and document, for this app's life: a page that
+ * scrolls out of the transcript unmounts, and comes back at its own height rather than at the
+ * agent's guess, which would move everything under it once it measured again.
+ */
+const heightsKey: SessionKey<LruCache<string, number>> = { name: "visualization heights" };
+const keptHeights = () => new LruCache<string, number>({ maxEntries: 500 });
 
 /** An action, dimmed until hovered, focused or pressed. */
 const action =
@@ -35,12 +45,23 @@ export function HtmlVisualizationView(props: {
   const attach = useCallback((node: HTMLElement | null) => setElement(node), []);
   const id = useId();
   const live = useLiveFrame(id, element);
-  const [measured, setMeasured] = useState<number>();
-  const page = useMemo(
+  const heights = useLayout().sessionValue(heightsKey, keptHeights);
+  const page = `${props.threadId}\u0000${visualization.document.sha256}`;
+  const [known, setKnown] = useState(() => ({ page, height: heights.get(page) }));
+  if (known.page !== page) setKnown({ page, height: heights.get(page) });
+  const measured = known.height;
+  const setMeasured = useCallback(
+    (height: number) => {
+      heights.set(page, height);
+      setKnown({ page, height });
+    },
+    [heights, page],
+  );
+  const source = useMemo(
     () => ({ sha256: visualization.document.sha256, bytes: visualization.document.bytes }),
     [visualization.document.sha256, visualization.document.bytes],
   );
-  const { html, failed, retry } = usePageHtml(props.threadId, page);
+  const { html, failed, retry } = usePageHtml(props.threadId, source);
   const mode = useMemo(
     () => (html === undefined ? "static" : resolveHtmlMode(html, visualization.mode)),
     [html, visualization.mode],
@@ -98,6 +119,7 @@ export function HtmlVisualizationView(props: {
             fill={false}
             webview={desktopVisualizations() !== undefined}
             measured={measured}
+            settled={measured !== undefined}
             onHeight={setMeasured}
           />
         ) : html ? (

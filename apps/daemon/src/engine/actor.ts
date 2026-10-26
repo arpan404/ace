@@ -1,6 +1,6 @@
 import { attachmentEcho } from "./attachment-echo.ts";
 import { markYieldedEnd, type SteerYield } from "./steer-yield.ts";
-import { hasRunningForegroundCommand, type Fact } from "@ace/core";
+import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
@@ -341,14 +341,18 @@ export class ThreadActor {
     this.pendingFrames = [];
     this.pendingBytes = 0;
     let translatedFacts: Fact[] | undefined;
+    // A retried batch never streams its facts a second time.
+    let streamedFacts: boolean | undefined;
+    let statusBefore: ThreadState["status"] | undefined;
     const admitted = this.acceptOperation(
       () => {
         const live = pending.filter((entry) => entry.generation === this.generation);
+        const sdk = live.some((entry) => entry.frame.channel === "sdk");
+        const cursorSdk =
+          this.repo.requireState(this.id).config.provider === "cursor" &&
+          this.repo.backend(this.id) === "cursor-sdk";
         const fold = () => {
-          const before = this.repo.requireState(this.id).status;
-          const cursorSdk =
-            this.repo.requireState(this.id).config.provider === "cursor" &&
-            this.repo.backend(this.id) === "cursor-sdk";
+          const before = (statusBefore ??= this.repo.requireState(this.id).status);
           const facts = (translatedFacts ??= markYieldedEnd(
             live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
             this.repo.requireState(this.id),
@@ -362,36 +366,42 @@ export class ThreadActor {
           );
           const commandRunning =
             toolBoundary && hasRunningForegroundCommand(this.repo.requireState(this.id));
-          if (!cursorSdk && this.repo.stream(this.id, facts, this.clock.now())) this.schedule();
-          else this.apply(facts);
-          if (
-            live.some((entry) => entry.frame.channel === "sdk") &&
-            facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
-          )
-            this.lifetime?.abort();
-          if (
-            before !== this.repo.requireState(this.id).status ||
-            (toolBoundary &&
-              commandRunning !== hasRunningForegroundCommand(this.repo.requireState(this.id))) ||
-            facts.some((fact) =>
-              [
-                "turn.started",
-                "input.admitted",
-                "turn.ended",
-                "process.exited",
-                "queue.changed",
-                "limit.cleared",
-                "interaction.closed",
-                "background.ended",
-                "retry",
-              ].includes(fact.type),
-            )
-          ) {
-            this.syncQueue();
-            this.wake();
-          }
+          // A streamable stretch goes to the live buffer without a transaction of its own.
+          const streamed = (streamedFacts ??=
+            !cursorSdk && this.repo.stream(this.id, facts, this.clock.now()));
+          const settle = () => {
+            if (streamed) this.schedule();
+            else this.apply(facts);
+            if (sdk && facts.some((fact) => fact.type === "process.exited" && !fact.deliberate))
+              this.lifetime?.abort();
+            if (
+              before !== this.repo.requireState(this.id).status ||
+              (toolBoundary &&
+                commandRunning !== hasRunningForegroundCommand(this.repo.requireState(this.id))) ||
+              facts.some((fact) =>
+                [
+                  "turn.started",
+                  "input.admitted",
+                  "turn.ended",
+                  "process.exited",
+                  "queue.changed",
+                  "limit.cleared",
+                  "interaction.closed",
+                  "background.ended",
+                  "retry",
+                ].includes(fact.type),
+              )
+            ) {
+              this.syncQueue();
+              this.wake();
+            }
+          };
+          // An SDK batch's control facts and its queue sync commit together.
+          if (sdk && !streamed && !cursorSdk) this.repo.store.atomic(settle);
+          else settle();
         };
-        if (live.some((entry) => entry.frame.channel === "sdk")) this.repo.store.atomic(fold);
+        // Cursor's journal commits provenance, offsets and facts in the batch's one transaction.
+        if (sdk && cursorSdk) this.repo.store.atomic(fold);
         else fold();
       },
       bytes,

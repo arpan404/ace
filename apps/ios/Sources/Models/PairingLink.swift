@@ -15,6 +15,8 @@ enum PairingLinkError: Error, Equatable {
 }
 
 /// A link from `ace pair` or Machines and devices: `https://host:port/pair#fingerprint=…&code=…&scopes=…`.
+/// A link that opens the hosted web app names the computer in its fragment instead:
+/// `https://app.acehq.dev/pair#host=https%3A%2F%2Fhost%3Aport&fingerprint=…`.
 /// The fragment carries the code and pin; only scheme, host and port are ever used for networking.
 struct PairingLink: Sendable, Equatable {
     let socketURL: URL
@@ -36,14 +38,23 @@ struct PairingLink: Sendable, Equatable {
         func value(_ name: String) -> String? { values.first { $0.name == name }?.value }
         guard let code = value("code"), !code.isEmpty, code.utf8.count <= 256 else { throw .missingCode }
         guard let pin = value("fingerprint")?.lowercased(), PinnedTrust.isPin(pin) else { throw .invalidPin }
+        var computer = components
+        if let named = value("host") {
+            guard let address = URLComponents(string: named), let namedHost = address.host, !namedHost.isEmpty,
+                  address.path.isEmpty || address.path == "/", address.query == nil, address.fragment == nil else { throw .notALink }
+            guard address.scheme?.lowercased() == "https" else { throw .insecure }
+            guard address.user == nil, address.password == nil else { throw .credentialsInURL }
+            computer = address
+        }
+        guard let computerHost = computer.host else { throw .notALink }
         var socket = URLComponents()
         socket.scheme = "wss"
-        socket.percentEncodedHost = components.percentEncodedHost
-        socket.port = components.port
+        socket.percentEncodedHost = computer.percentEncodedHost
+        socket.port = computer.port
         socket.path = "/"
         guard let url = socket.url else { throw .notALink }
         let scopes = (value("scopes") ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
-        let shown = components.port.map { "\(host):\($0)" } ?? host
+        let shown = computer.port.map { "\(computerHost):\($0)" } ?? computerHost
         return PairingLink(socketURL: url, displayHost: shown, code: code, fingerprint: pin, scopes: scopes)
     }
 

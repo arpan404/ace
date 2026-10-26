@@ -42,9 +42,9 @@ struct DeviceLogsSheet: View {
             .searchable(text: $filter, prompt: "Filter logs")
             .navigationTitle("Logs").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    Button(held == nil ? "Pause" : "Resume", systemImage: held == nil ? "pause" : "play") {
+                    Button(held == nil ? "Pause" : "Resume", ace: held == nil ? .pause : .play) {
                         held = held == nil ? logs : nil
                     }
                     .accessibilityIdentifier("devices.logs.pause")
@@ -110,9 +110,9 @@ struct DeviceTreeSheet: View {
             .searchable(text: $query, prompt: "Search elements")
             .navigationTitle("UI tree").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Read again", systemImage: "arrow.clockwise") { Task { await read() } }.disabled(!live || reading)
+                    Button("Read again", ace: .arrowClockwise) { Task { await read() } }.disabled(!live || reading)
                 }
             }
             .task { if live { await read() } }

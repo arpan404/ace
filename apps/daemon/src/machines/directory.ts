@@ -17,6 +17,8 @@ export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
   profiles(): RemoteProfile[];
   transport: MachineTransport;
+  /** Whether the machine takes transfers from this device; asked when agents can't use it. */
+  transfers?(profile: RemoteProfile): Promise<{ name: string; accepts: boolean }>;
   log(message: string, fields: Record<string, unknown>): void;
 }
 /** A failure as the calling agent reads it: an authored code and a short reason. */
@@ -57,12 +59,25 @@ export class MachineDirectory {
             tools: description.tools,
             providers: description.providers,
           };
+          if (description.transfers !== undefined) summary.transfers = description.transfers;
           this.seen.set(profile.name, summary);
           return summary;
         } catch (error) {
           const offline = error instanceof MachineFailure && error.kind !== "refused";
           const known = this.seen.get(profile.name);
           if (!offline) this.seen.delete(profile.name);
+          // Transfers don't need agent access there (ADR 0101): list a machine that takes them.
+          if (!offline && this.deps.transfers) {
+            const probe = await this.deps.transfers(profile).catch(() => undefined);
+            if (probe?.accepts)
+              return {
+                machine: profile.name,
+                name: probe.name,
+                status: "online",
+                transfers: true,
+                next: "Agents can't delegate there, but transfer can move work there.",
+              };
+          }
           return offline && known
             ? {
                 machine: profile.name,

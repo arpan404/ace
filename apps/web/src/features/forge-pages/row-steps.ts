@@ -1,8 +1,7 @@
+import { workKey, type LinkedThreads, rowStep, waitingWord, type RowStep } from "@ace/ui-core";
 import { useMemo } from "react";
 import type { ForgePrRow, VerifyRun } from "@ace/protocol";
-import { workKey, type LinkedThreads } from "./linked-threads.ts";
 import type { MergeRun } from "./merge-run.ts";
-import { rowStep, waitingWord, type RowStep } from "./next-steps.ts";
 import type { RowStepView } from "./pr-row.tsx";
 import { stepLabel, useStepAction } from "./pr-step.tsx";
 

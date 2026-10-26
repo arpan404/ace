@@ -26,11 +26,53 @@ export function storageTree(store: Store, id: ThreadId): ThreadId[] {
   ];
 }
 
+/** Union of delegation trees for one synchronous protections pass.
+ * Equivalent to ids.flatMap(storageTree): one point lookup per distinct input id,
+ * one full member scan per distinct root. A repeated root never rescans its members.
+ * Fail closed: every distinct input id resolves its own root even when already covered,
+ * and every tree contributes its id, root and full member scan. Overlapping or
+ * missing rows can only add. */
+function storageTreeUnion(store: Store, ids: readonly ThreadId[]): Set<ThreadId> {
+  const members = new Set<ThreadId>();
+  if (ids.length === 0) return members;
+  if (!hasTable(store, "delegation_participants")) {
+    for (const id of ids) members.add(id);
+    return members;
+  }
+  const rootOf = store.statement("SELECT root_id FROM delegation_participants WHERE thread_id=?");
+  const membersOf = store.statement(
+    "SELECT thread_id FROM delegation_participants WHERE root_id=?",
+  );
+  const expandedRoots = new Set<string>();
+  const seenInputs = new Set<ThreadId>();
+  for (const id of ids) {
+    if (seenInputs.has(id)) continue;
+    seenInputs.add(id);
+    const row = rootOf.get(id)?.root_id;
+    if (typeof row !== "string") {
+      members.add(id);
+      continue;
+    }
+    const root = ThreadId.parse(row);
+    if (expandedRoots.has(row)) {
+      members.add(id);
+      members.add(root);
+      continue;
+    }
+    members.add(id);
+    members.add(root);
+    const rows = membersOf.all(row);
+    for (const memberRow of rows) members.add(ThreadId.parse(memberRow.thread_id));
+    expandedRoots.add(row);
+  }
+  return members;
+}
+
 /** Held, uncertain and admitted inputs are protected even when nothing is executing now. */
 export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]): StorageReason[] {
   const { store, services } = owner;
   const reasons = new Set<StorageReason>();
-  const members = new Set(ids.flatMap((id) => storageTree(store, id)));
+  const members = storageTreeUnion(store, ids);
   for (const id of members) {
     const thread = store.getThread(id);
     if (!thread) continue;

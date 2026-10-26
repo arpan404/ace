@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 static napi_value fail(napi_env env, int number) {
   napi_value message, error, value;
@@ -89,6 +91,18 @@ static napi_value stat_at(napi_env env, napi_callback_info info) {
   struct stat metadata;
   if (fstatat(parent, name, &metadata, AT_SYMLINK_NOFOLLOW) < 0) return fail(env, errno);
   napi_create_object(env, &result);
+  napi_value identity;
+  char exact[32];
+  napi_create_object(env, &identity);
+  napi_create_string_utf8(env, "posix", NAPI_AUTO_LENGTH, &value);
+  napi_set_named_property(env, identity, "kind", value);
+  snprintf(exact, sizeof(exact), "%" PRIu64, (uint64_t)metadata.st_dev);
+  napi_create_string_utf8(env, exact, NAPI_AUTO_LENGTH, &value);
+  napi_set_named_property(env, identity, "dev", value);
+  snprintf(exact, sizeof(exact), "%" PRIu64, (uint64_t)metadata.st_ino);
+  napi_create_string_utf8(env, exact, NAPI_AUTO_LENGTH, &value);
+  napi_set_named_property(env, identity, "ino", value);
+  napi_set_named_property(env, result, "identity", identity);
   napi_create_double(env, (double)metadata.st_dev, &value);
   napi_set_named_property(env, result, "dev", value);
   napi_create_double(env, (double)metadata.st_ino, &value);
@@ -263,6 +277,23 @@ static napi_value rename_at(napi_env env, napi_callback_info info) {
   napi_get_undefined(env, &result);
   return result;
 }
+// Creates a symlink named `name` in `parent`. The target is stored as text and never resolved here.
+static napi_value symlink_at(napi_env env, napi_callback_info info) {
+  napi_value args[3], result;
+  size_t count = 3, size;
+  int32_t parent;
+  char target[4096], name[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 3 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      napi_get_value_string_utf8(env, args[1], NULL, 0, &size) != napi_ok ||
+      size == 0 || size >= sizeof(target) ||
+      !component(env, args[2], name, sizeof(name))) return fail(env, EINVAL);
+  napi_get_value_string_utf8(env, args[1], target, sizeof(target), &size);
+  if (strlen(target) != size) return fail(env, EINVAL);
+  if (symlinkat(target, parent, name) < 0) return fail(env, errno);
+  napi_get_undefined(env, &result);
+  return result;
+}
 static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"openAt", NULL, open_at, NULL, NULL, NULL, napi_default, NULL},
@@ -275,7 +306,8 @@ static napi_value init(napi_env env, napi_value exports) {
     {"pipe", NULL, make_pipe, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"removeDirectoryAt", NULL, remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
-    {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL}
+    {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL},
+    {"symlinkAt", NULL, symlink_at, NULL, NULL, NULL, napi_default, NULL}
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
   return exports;

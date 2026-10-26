@@ -1,5 +1,6 @@
 import {
   MachineDelegateResult,
+  MachineMessageResult,
   MachineSessionResult,
   MachineStatusResult,
   MachineToolResult,
@@ -7,6 +8,7 @@ import {
   type DelegationRequest,
   type InteractionResolution,
   type MachineCallOrigin,
+  type MachineMessage,
   type MachinePendingRequest,
   type MachineThreadView,
   type McpAttribution,
@@ -122,6 +124,41 @@ export class MachineCaller {
       throw this.deps.directory.controlError(child.machine, error);
     }
     return { ok: true };
+  }
+  /**
+   * Follow-up work for a child there. The target keys the message by requestId, so a retry after
+   * a dropped connection never sends it twice. An offline machine or one that refuses is an
+   * error naming what to do, never a silent drop.
+   */
+  async message(id: ThreadId, message: MachineMessage): Promise<AgentControlResult> {
+    const child = this.deps.children.child(id);
+    if (!child) return { ok: false, code: "not_found" };
+    const origin = await this.origin(child.parentThreadId);
+    let lost: MachineFailure | undefined;
+    for (let attempt = 0; ; attempt++)
+      try {
+        const answer = MachineMessageResult.parse(
+          await this.deps.directory.call(
+            child.machine,
+            origin,
+            { op: "message", threadId: id, ...message },
+            { timeoutMs: 15_000 },
+          ),
+        );
+        // A settled child given more work is working again until its next result.
+        this.deps.children.reopen(id);
+        return { ok: true, data: answer };
+      } catch (error) {
+        const dropped = error instanceof MachineFailure && error.kind === "disconnected";
+        if (dropped) lost = error;
+        if (attempt === 0 && dropped) continue;
+        // Only a machine that never took the call or refused it outright proves nothing ran. A
+        // lost reply may follow a message the child is already working on: it stays watched,
+        // and if nothing changed there, the next poll settles it again under the same result.
+        if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
+        // The parent hears the call was lost, not that the machine never had it.
+        throw this.deps.directory.controlError(child.machine, lost ?? error);
+      }
   }
   async status(
     machine: string,

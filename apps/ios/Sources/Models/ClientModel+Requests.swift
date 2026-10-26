@@ -22,6 +22,12 @@ extension ClientModel {
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "effort", "effort": effort ?? NSNull(), "requestId": id]) }
     }
+    /// The thread's access from the agent's next turn.
+    func setAccess(_ mode: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { threadAction(["type": "access", "mode": mode, "requestId": id]) }
+    }
     func setSpeed(_ speed: String) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()

@@ -17,6 +17,8 @@ import {
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
 import {
   createAttemptsKey,
   forgetCreateAttempt,
@@ -62,10 +64,14 @@ export function useCreateThread(
   draftKey?: string | undefined,
   /** False when the person navigated here: a recovered start then never takes them away. */
   recoverStart = true,
+  /** False when the composer is empty, so a recovered refusal is not reported. */
+  holdsMessage?: () => boolean,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest, after?: AfterCreate): Promise<boolean>;
   error: string | undefined;
+  /** Clears the last start's problem once it no longer applies (the message was discarded). */
+  dismissError(): void;
   /** A thread start not yet settled carries this draft scope, so no editor may resume it. */
   claims(draftId: string | undefined): boolean;
 } {
@@ -75,7 +81,13 @@ export function useCreateThread(
   const connection = useDaemonConnection();
   const host = useHostIdentity();
   const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
-  const recoveryKey = createAttemptsKey(connection.url, deviceId);
+  // Under another machine's client (ADR 0102) its starts are kept apart from this window's
+  // own, so each machine's recovery replays only its own starts, on its own client.
+  const scoped = useScopedMachine()?.id;
+  const recoveryKey = scoped
+    ? createAttemptsKey(`machine:${scoped}`, deviceId)
+    : createAttemptsKey(connection.url, deviceId);
+  const search = useMachineSearch();
   const [error, setError] = useState<string>();
 
   const mounted = useRef(false);
@@ -99,10 +111,12 @@ export function useCreateThread(
     storage,
     key: recoveryKey,
     hostId: host?.hostId,
+    search,
     draftKey,
     onError: setError,
     onRecovered,
     canNavigate: () => recoverStart && canNavigate?.() !== false,
+    holdsMessage,
   });
 
   const submit = useCallback(
@@ -152,7 +166,7 @@ export function useCreateThread(
         // Its view drawn at once on arrival: no empty frame between New thread and the thread.
         await preloadPendingThread().catch(() => {});
         if (mounted.current && canNavigate?.() !== false)
-          void navigate({ to: "/t/$threadId", params: { threadId } });
+          void navigate({ to: "/t/$threadId", params: { threadId }, search });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
         if (commandId) settlingFor(client).delete(commandId);
@@ -182,7 +196,7 @@ export function useCreateThread(
         return false;
       }
     },
-    [client, navigate, storage, recoveryKey, host, canNavigate],
+    [client, navigate, storage, recoveryKey, host, canNavigate, search],
   );
   const create = useCallback(
     (request: CreateRequest, after: AfterCreate = "open") => {
@@ -213,7 +227,8 @@ export function useCreateThread(
     },
     [storage, recoveryKey],
   );
-  return { create, error, claims };
+  const dismissError = useCallback(() => setError(undefined), []);
+  return { create, error, dismissError, claims };
 }
 
 /**

@@ -54,6 +54,12 @@
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/TransfersResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TransferProgress.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ProvidersResult.json"
     },
     {
@@ -441,6 +447,12 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/CatalogChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SkillsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SkillsChanged.json"
     },
     {
       "properties": {
@@ -1438,6 +1450,9 @@
         },
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
+        },
+        "inboxAction": {
+          "$ref": "https://ace.local/protocol/v1/ForgeInboxAction.json"
         },
         "inspection": {
           "$ref": "https://ace.local/protocol/v1/ProjectInspection.json"

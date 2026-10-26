@@ -63,6 +63,12 @@ export interface ProviderAdapter {
  * (dropped transcripts, unreadable data): the daemon logs it as a warning, never the transcript.
  */
 export const adapterWarning = "adapter.warning";
+/**
+ * Thrown by `ProviderSession.send` when the provider refused the input before taking any of it:
+ * a steer that lost a race with the end of its turn, or an admission the provider turned down.
+ * Unlike a transport failure, it proves the input never ran, so ace may send it again.
+ */
+export class InputRejected extends Error {}
 
 export interface Translator {
   /** Native debug evidence kept outside the transcript. Drain after each translation. */

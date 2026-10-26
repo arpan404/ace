@@ -13,7 +13,13 @@ import {
   ToolCall,
 } from "@ace/protocol";
 import { ItemStore } from "./item-store.ts";
-import { applyDelta, outputStreamId, summarizeOutput, utf8Slice } from "@ace/projection";
+import {
+  applyDelta,
+  outputStreamId,
+  summarizeOutput,
+  utf8Slice,
+  type StreamEncoding,
+} from "@ace/projection";
 
 // Only the retired shell fields differ from the current protocol. All other
 // fields pass through unchanged and are validated by Event after conversion.
@@ -292,8 +298,8 @@ export class PayloadStore {
       .parse(row);
   }
   readOutput(streamId: string, offset: number, limit: number) {
-    const result = this.readLiveOutputBytes(streamId, offset, limit);
-    return { ...result, bytes: result.bytes.toString("base64") };
+    const { bytes, nextOffset, eof } = this.readLiveOutputBytes(streamId, offset, limit);
+    return { bytes: bytes.toString("base64"), nextOffset, eof };
   }
   /** Retired bytes are readable only through a cutoff-authorized historical read. */
   readLiveOutputBytes(streamId: string, offset: number, limit: number) {
@@ -331,7 +337,9 @@ export class PayloadStore {
     const table = output ? "output_chunks" : "item_source_chunks";
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
-    if (offset >= size) return { bytes: Buffer.alloc(0), nextOffset: offset, eof: true };
+    // Shell output is stored as UTF-8; message, reasoning and notice text as UTF-16LE.
+    const encoding: StreamEncoding = output ? "utf-8" : "utf-16le";
+    if (offset >= size) return { bytes: Buffer.alloc(0), nextOffset: offset, eof: true, encoding };
     const end = Math.min(size, offset + limit);
     // Seek the predecessor using the primary key, then read only the intersecting range.
     const predecessor = this.readStatement(
@@ -351,6 +359,7 @@ export class PayloadStore {
       bytes,
       nextOffset: offset + bytes.length,
       eof: offset + bytes.length >= size,
+      encoding,
     };
   }
   wirePage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {

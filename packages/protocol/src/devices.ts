@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
 import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
+export * from "./device-chrome.ts";
 
 export const AppDeviceId = z
   .string()
@@ -14,6 +15,11 @@ export const AppDevice = z.object({
   state: z.enum(["booted", "shutdown", "offline", "unauthorized"]),
   runtime: z.string().max(256).optional(),
   serial: z.string().max(256).optional(),
+  /**
+   * The hardware it simulates, when known: a Simulator's device type identifier. Devices of one
+   * model share a look (`chrome`), so a client asks for it once per model.
+   */
+  model: z.string().max(256).optional(),
 });
 export type AppDevice = z.infer<typeof AppDevice>;
 const point = { x: z.number().int().min(0).max(16384), y: z.number().int().min(0).max(16384) };
@@ -53,6 +59,12 @@ export const DeviceInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;
+/**
+ * How a foldable device's hinge sits: shut on its cover screen, half open like a book, or open
+ * flat on its inner screen.
+ */
+export const DevicePosture = z.enum(["closed", "partiallyOpen", "open"]);
+export type DevicePosture = z.infer<typeof DevicePosture>;
 export const DeviceSettings = z.object({
   appearance: z.enum(["light", "dark"]).optional(),
   location: z
@@ -85,6 +97,11 @@ export const DeviceFailure = z.object({
   hint: z.string().max(2048),
   /** The macOS privacy permission the daemon's screen helper is missing, when that is the cause. */
   permission: z.enum(["screenRecording", "accessibility"]).optional(),
+  /**
+   * The platform an inventory issue concerns (a missing Android SDK, the Simulator's tools).
+   * Absent when it concerns the whole machine or the daemon is older.
+   */
+  platform: z.enum(["ios", "android"]).optional(),
 });
 export type DeviceFailure = z.infer<typeof DeviceFailure>;
 export const DeviceInventory = z.object({
@@ -135,6 +152,11 @@ export const DeviceState = z.object({
    * Absent from older daemons.
    */
   touch: z.enum(["multi", "pointer", "gestures"]).optional(),
+  /**
+   * The live picture already shows the device's own body (a Simulator window captured without
+   * its title bar, when serve-sim isn't there): clients draw no frame of their own around it.
+   */
+  framed: z.boolean().optional(),
   controller: z.enum(["none", "human", "agent"]),
   /** Whether this authenticated connection holds the human controller lease. */
   ownedHere: z.boolean().optional(),
@@ -143,6 +165,11 @@ export const DeviceState = z.object({
   error: DeviceFailure.optional(),
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
+  /**
+   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows). Absent for every other device.
+   */
+  posture: DevicePosture.optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };
@@ -164,6 +191,13 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("permissions.request"), permission: DevicePermission }),
   /** Download the device tools ace runs (serve-sim on a Mac, the scrcpy server), if missing. */
   z.object({ op: z.literal("tools.install") }),
+  /** The device's real hardware look from the SDK on the daemon's machine (`DeviceChromeResult`). */
+  z.object({
+    op: z.literal("chrome"),
+    ...target,
+    /** `png` for a client that can't draw SVG (the native apps); SVG otherwise. */
+    format: z.enum(["svg", "png"]).optional(),
+  }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
   z.object({ op: z.literal("install"), ...target, path: z.string().min(1).max(4096) }),
@@ -185,6 +219,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     agentId: AgentId.optional(),
   }),
   z.object({ op: z.literal("input"), ...target, input: DeviceInput }),
+  /** Fold or unfold a foldable device. Needs control, like input. */
+  z.object({ op: z.literal("posture"), ...target, posture: DevicePosture }),
   z.object({ op: z.literal("screenshot"), ...target }),
   /** The device clipboard's text, at most 4,096 characters. Needs control, like input. */
   z.object({ op: z.literal("clipboard.get"), ...target }),

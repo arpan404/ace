@@ -20,7 +20,7 @@ export class WorkspacePrLinks {
     store.atomic((db) => {
       for (const row of db
         .prepare(
-          "SELECT DISTINCT thread_id FROM forge_links JOIN threads ON threads.id=thread_id WHERE json_extract(client,'$.details.linkedPrs') IS NULL",
+          "SELECT DISTINCT forge_links.thread_id FROM forge_links JOIN threads ON threads.id=forge_links.thread_id LEFT JOIN thread_cold ON thread_cold.thread_id=threads.id WHERE json_extract(thread_cold.details,'$.linkedPrs') IS NULL",
         )
         .all())
         this.publish(ThreadId.parse(row.thread_id));

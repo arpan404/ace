@@ -70,7 +70,6 @@ describe.skipIf(process.platform === "win32")("the ace command for an AppImage",
       platform: process.platform,
       node: join(app.mount, "resources", "runtime", "bin", "node"),
       entry: join(app.mount, "resources", "daemon", "ace.mjs"),
-      loginPath: async () => "/usr/bin:/bin",
       appImage: { image: app.image, mount: app.mount },
     });
     expect(result).toMatchObject({ state: "created" });
@@ -100,7 +99,6 @@ describe.skipIf(process.platform === "win32")("the ace command for an AppImage",
       platform: process.platform,
       node: join(app.mount, "resources", "runtime", "bin", "node"),
       entry: join(app.mount, "resources", "daemon", "ace.mjs"),
-      loginPath: async () => "/usr/bin:/bin",
       appImage: { image: app.image, mount: app.mount },
     });
     await rm(app.image);

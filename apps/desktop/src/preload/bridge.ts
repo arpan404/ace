@@ -102,6 +102,12 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       appIdentity: (bundleId: string) => call("shell.appIdentity", { bundleId }),
       openExternal: (url: string) => call("shell.openExternal", url),
     },
+    cli: {
+      /** Whether a terminal runs `ace`, once the launch's own install is done. */
+      status: () => call("cli.status"),
+      /** Puts the `ace` command on the terminal's PATH, or takes it off; the choice is saved. */
+      setOnPath: (on: boolean) => call("cli.setOnPath", on),
+    },
     dialogs: {
       /** The native folder picker: an absolute path, or null when cancelled. */
       openFolder: () => call("dialog.openFolder"),

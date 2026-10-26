@@ -1,5 +1,5 @@
 import { native } from "./test-host.ts";
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { ClientCore, type Lease, type ReadSnapshotStorage, type ThreadSource } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
@@ -19,6 +19,8 @@ native.ack = (accepted) => pump.ack(accepted);
 export const sent: string[] = [];
 /** A send the daemon turns down once (its retry goes through), by its text. */
 export const refuseOnce = { text: "Refuse this once" };
+/** How long the daemon takes to receive a `settings.get` (a slow link), in milliseconds. */
+export const slowSettings = { ms: 0 };
 
 let client: ClientCore | undefined;
 let lease: Lease<ThreadSource> | undefined;
@@ -31,6 +33,7 @@ export async function reset(): Promise<void> {
   lease?.release();
   await client?.close();
   native.frames.length = 0;
+  slowSettings.ms = 0;
   native.calls.clear();
   sent.length = 0;
 }
@@ -55,23 +58,47 @@ export function fixture(): FakeDaemon {
   return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
-export function connect(daemon: FakeDaemon): ClientCore {
+/**
+ * `items`: the SDK's window. `readSnapshots`: what an earlier launch kept, painted before the
+ * daemon's snapshot. `held`: nothing the daemon sends arrives until it settles, as on a slow
+ * network.
+ */
+export function connect(
+  daemon: FakeDaemon,
+  {
+    items,
+    readSnapshots,
+    held,
+  }: { items?: number; readSnapshots?: ReadSnapshotStorage; held?: Promise<void> } = {},
+): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
+    ...(readSnapshots ? { readSnapshots } : {}),
     deviceId: DeviceId.parse("ios-bridge-test"),
     expectedHostId: HostId.parse("ios-test-host"),
+    ...(items ? { limits: { items } } : {}),
     transport: () => {
       const inner = fakeTransport(daemon);
       let deliver: ((text: string) => void) | undefined;
       return {
         open: (events) => {
-          deliver = (text) => events.message(text);
-          inner.open(events);
+          let arriving = held ?? Promise.resolve();
+          const later =
+            <A extends unknown[]>(run: (...args: A) => void) =>
+            (...args: A) => {
+              if (!held) return run(...args);
+              arriving = arriving.then(() => run(...args));
+            };
+          const gated = { ...events, open: later(events.open), message: later(events.message) };
+          deliver = (text) => gated.message(text);
+          inner.open(gated);
         },
         send: (text) => {
           sent.push(text);
           const refused = refusal(text);
           if (refused) queueMicrotask(() => deliver?.(refused));
+          else if (slowSettings.ms && text.includes('"type":"settings.get"'))
+            setTimeout(() => inner.send(text), slowSettings.ms);
           else inner.send(text);
         },
         close: () => inner.close(),

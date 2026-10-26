@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineTransferCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "probe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TransferBegin.json"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "status",
+          "type": "string"
+        },
+        "transferId": {
+          "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+        }
+      },
+      "required": [
+        "op",
+        "transferId"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TransferCommit.json"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "cancel",
+          "type": "string"
+        },
+        "transferId": {
+          "$ref": "https://ace.local/protocol/v1/TransferKey.json"
+        }
+      },
+      "required": [
+        "op",
+        "transferId"
+      ],
+      "type": "object"
+    }
+  ]
+}

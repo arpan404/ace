@@ -105,7 +105,7 @@ const config: Configuration = {
       to: "icons",
       filter: ["trayTemplate*.png", "trayColor*.png"],
     },
-    // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
+    // The pinned Node runtime; Windows local-daemon activation is still pending.
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
       ? existsSync(helper)

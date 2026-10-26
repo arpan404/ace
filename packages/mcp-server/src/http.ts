@@ -8,6 +8,8 @@ import type { KnowledgePort } from "./knowledge-tools.ts";
 import {
   OpenToolsets,
   aceClient,
+  callBudgetHeader,
+  callBudgetSeconds,
   codexClientHeader,
   coreToolsHeader,
   dispatches,
@@ -225,6 +227,7 @@ async function createHandler(
     const caller = principal;
     const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
     const client = aceClient(requestInfo?.headers.get(codexClientHeader.name));
+    const callBudget = callBudgetSeconds(requestInfo?.headers.get(callBudgetHeader.name));
     const reader = resultReader(client);
     const catalog = (): CatalogTool[] =>
       [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
@@ -237,6 +240,7 @@ async function createHandler(
       return registry.call(name, args, principal, signal, {
         listing,
         ...(client ? { client } : {}),
+        ...(callBudget ? { callBudgetSeconds: callBudget } : {}),
         ...(registry === meta ? { session } : {}),
       });
     };

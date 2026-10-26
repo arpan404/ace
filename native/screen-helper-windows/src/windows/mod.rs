@@ -2,6 +2,7 @@
 mod automation_tests;
 mod capture;
 mod gpu;
+mod gpu_readback;
 mod input;
 mod pipe;
 mod roles;
@@ -15,7 +16,7 @@ use crate::{
 };
 use capture::Capture;
 use pipe::Writer;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use target::Target;
 use uia::Automation;

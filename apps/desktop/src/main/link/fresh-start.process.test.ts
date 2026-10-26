@@ -128,7 +128,7 @@ function startWork(owner: ReturnType<typeof launch>, home: string) {
     Date.now(),
   );
 }
-const working = { needsYou: 0, working: 1 };
+const working = { needsYou: 0, working: 1, held: 0 };
 
 it("after a fresh start the desktop connects to its new local daemon without a manual token", async () => {
   const m = await machine();

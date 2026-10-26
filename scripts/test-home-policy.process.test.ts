@@ -14,7 +14,7 @@ const desktop = {
 const home = "/tmp/ace-test-homes/worker";
 
 test("an ordinary test run never reaches the person's desktop session or screen helper", () => {
-  const env = isolatedTestEnvironment(desktop, home, "/home/person");
+  const env = isolatedTestEnvironment(desktop, home, "/home/person", "linux");
   expect(env.XDG_RUNTIME_DIR).toBe(join(home, ".runtime"));
   expect(env.XDG_DATA_DIRS).toBe(join(home, ".local/share"));
   expect(env.XDG_SESSION_TYPE).toBeUndefined();
@@ -27,6 +27,7 @@ test("the Linux desktop run reaches the desktop its runner started, with writabl
     { ...desktop, ACE_LINUX_DESKTOP_E2E: "wayland" },
     home,
     "/home/person",
+    "linux",
   );
   expect(env).toMatchObject({
     ACE_LINUX_DESKTOP_E2E: "wayland",
@@ -48,6 +49,7 @@ test("the Android run reaches the SDK its runner points at, with homes still iso
     },
     home,
     "/home/person",
+    "linux",
   );
   expect(env.ACE_ANDROID_E2E_SDK).toBe("/tmp/ace-android-sdk.abc");
   expect(env.XDG_RUNTIME_DIR).toBe(join(home, ".runtime"));
@@ -65,6 +67,7 @@ test("an Android run that boots an AVD reaches the runner's AVD folder and its g
     },
     home,
     "/home/person",
+    "linux",
   );
   expect(env).toMatchObject({
     ACE_ANDROID_E2E_BOOT_AVD: "ace_ci",

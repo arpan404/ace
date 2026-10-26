@@ -42,12 +42,19 @@ export interface MergeStateWrite {
   action: "enable" | "disable" | "dequeue";
   headSha: string;
   method: "merge" | "squash" | "rebase";
+  /** The commit an enabled auto-merge writes, as the person edited it. */
+  commit?: import("@ace/protocol").ForgeMergeCommit | undefined;
 }
 export function mergeStateWrite(action: ForgeWriteReceipt["action"]): MergeStateWrite | undefined {
   if (action.type === "forge.pr.auto-merge")
     return { action: "enable", headSha: action.headSha, method: action.method };
   if (action.type === "forge.pr.merge-state.change" || action.type === "forge.hosted.merge-state")
-    return { action: action.action, headSha: action.headSha, method: action.method };
+    return {
+      action: action.action,
+      headSha: action.headSha,
+      method: action.method,
+      ...(action.action === "enable" && action.commit ? { commit: action.commit } : {}),
+    };
   return undefined;
 }
 

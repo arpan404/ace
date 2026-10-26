@@ -11,11 +11,18 @@ struct RemoteSettingsCategory: Identifiable {
     let title: String
     var symbol = "slider.horizontal.3"
     let settings: [RemoteSetting]
+    /// Said under the rows, instead of the usual "Saved on this machine".
+    var footer: String? = nil
     var id: String { title }
     static let computer = RemoteSettingsCategory(title: "App access and devices", settings: [
         .init(key: "computer.blockedApps", title: "Apps agents can't use", control: .stringList),
         .init(key: "devices.emulatorWindow", title: "Show emulator window", control: .toggle),
     ])
+    /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
+    static let fleet = RemoteSettingsCategory(title: "Fleet", symbol: "point.3.connected.trianglepath.dotted", settings: [
+        .init(key: "remote.agentTransfers", title: "Agents can move projects and threads to other machines", control: .toggle),
+        .init(key: "remote.transferIgnoredFiles", title: "Bring ignored files", control: .toggle),
+    ], footer: "With Bring ignored files, local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead.")
     static let all: [RemoteSettingsCategory] = [
         .init(title: "Threads", symbol: "bubble.left.and.bubble.right", settings: [
             .init(key: "threads.followUpBehavior", title: "Follow-up delivery", control: .choices(["steer", "queue"])),
@@ -32,6 +39,7 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "host.displayName", title: "Machine name", control: .text),
             .init(key: "remote.enabled", title: "Remote connections", control: .toggle),
             .init(key: "remote.transport", title: "Transport", control: .choices(["local", "lan", "tailscale", "relay"])),
+            .init(key: "remote.hostedPairingLink", title: "Pairing links open app.acehq.dev", control: .toggle),
             .init(key: "remote.agentAccess", title: "Other machines' agents", control: .choices(["off", "read", "operate"])),
             .init(key: "remote.relayUrl", title: "Relay address", control: .text),
         ]),
@@ -66,10 +74,14 @@ struct RemoteSettingsView: View {
     let category: RemoteSettingsCategory
     var body: some View {
         Form {
-            Section {
-                ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
-            } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            Group {
+                Section {
+                    ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
+                } footer: { Text(category.footer ?? "Saved on this machine. A thread or project can override these defaults.") }
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(category.title).navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -81,6 +93,19 @@ private struct RemoteSettingRow: View {
     @State private var entries: [String] = []
     @State private var saving = false
     @State private var problem: String?
+    private var request: [String: Any] { ["type": "settings.get", "key": setting.key, "scope": [:] as [String: Any]] }
+
+    /// Opens on the value this phone last saw, read again behind it.
+    init(model: ClientModel, setting: RemoteSetting) {
+        self.model = model
+        self.setting = setting
+        let kept = model.kept(["type": "settings.get", "key": setting.key, "scope": [:] as [String: Any]], as: SettingsReply.self)
+        if let entry = kept?.entries.first(where: { $0.key == setting.key }) {
+            _value = State(initialValue: entry.value)
+            _words = State(initialValue: Self.text(entry.value))
+            if case .array(let values) = entry.value { _entries = State(initialValue: values.compactMap { if case .string(let text) = $0 { text } else { nil } }) }
+        }
+    }
     var body: some View {
         VStack(alignment: .leading) {
             if let value {
@@ -115,15 +140,15 @@ private struct RemoteSettingRow: View {
         }
         .disabled(saving || !model.canOperate)
         .accessibilityIdentifier("setting.\(setting.key)")
-        .task { await read() }
+        .task(id: model.readGeneration(request)) { await read() }
     }
-    private var changed: Bool { text(value) != words }
-    private func text(_ value: ServiceValue?) -> String {
+    private var changed: Bool { Self.text(value) != words }
+    private static func text(_ value: ServiceValue?) -> String {
         switch value { case .string(let text): text; case .number(let number): String(format: "%.0f", number); default: "" }
     }
     private func read() async {
         do {
-            let reply = try await model.service(["type": "settings.get", "key": setting.key, "scope": [:]], as: SettingsReply.self)
+            let reply = try await model.read(request, as: SettingsReply.self)
             try apply(reply)
         } catch { problem = error.localizedDescription }
     }
@@ -150,7 +175,7 @@ private struct RemoteSettingRow: View {
         guard reply.ok, let entry = reply.entries.first(where: { $0.key == setting.key }) else {
             throw ServiceFailure(message: reply.diagnostics.first?.message ?? "This setting couldn't be saved.")
         }
-        value = entry.value; words = text(entry.value); problem = nil
+        value = entry.value; words = Self.text(entry.value); problem = nil
         if case .array(let values) = entry.value { entries = values.compactMap { if case .string(let text) = $0 { text } else { nil } } }
     }
 }

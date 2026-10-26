@@ -28,11 +28,26 @@ export type ScrollMode =
 
 export type ScrollEvent =
   /** A wheel, touch move, key or scrollbar drag, before the scroll it causes. */
-  | { type: "gesture"; upward: boolean; atEnd: boolean; detached: boolean; at: number }
+  | {
+      type: "gesture";
+      upward: boolean;
+      atEnd: boolean;
+      scrollable: boolean;
+      hasOlder: boolean;
+      detached: boolean;
+      at: number;
+    }
   /** A press on the view (a click, a touch starting): no direction, but the reader is there. */
   | { type: "press"; at: number }
   /** A scroll event, from any cause. `upward` is the reader's last direction. */
-  | { type: "scrolled"; atEnd: boolean; upward: boolean; detached: boolean; gliding: boolean }
+  | {
+      type: "scrolled";
+      atEnd: boolean;
+      upward: boolean;
+      detached: boolean;
+      gliding: boolean;
+      at: number;
+    }
   | {
       type: "jump";
       key: string;
@@ -64,6 +79,9 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
   switch (event.type) {
     case "gesture": {
       const cancelAim = aiming(mode, event.at);
+      // A fitting window cannot produce a scroll event. Release following so
+      // the upward gesture can page older history and hold the visible row.
+      if (event.upward && event.hasOlder && !event.scrollable) return { mode: free, cancelAim };
       if (mode.kind === "following" && event.atEnd && !event.detached)
         return {
           mode: event.upward ? { kind: "following", until: event.at + nudgeWindow } : following,
@@ -81,8 +99,13 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
     case "scrolled": {
       // Only the reader releases an anchored row; code scrolling it into place never does.
       if (mode.kind === "anchoring") return { mode, cancelAim: false };
-      if (mode.kind === "following")
-        return { mode: event.atEnd || event.gliding ? mode : free, cancelAim: false };
+      // Only the reader leaves the end: a scroll that lands off it without their gesture (rows
+      // grew between a scroll and its event) keeps following. Their gesture at the end that
+      // moved the view off it (one Page Up) arrives as its scroll within the nudge window.
+      if (mode.kind === "following") {
+        const left = !event.atEnd && !event.gliding && event.at < (mode.until ?? 0);
+        return { mode: left ? free : mode, cancelAim: false };
+      }
       const back = event.atEnd && !event.upward && !event.detached;
       return { mode: back ? following : mode, cancelAim: false };
     }
@@ -169,6 +192,36 @@ export function heldKey(
   if (mode.kind === "anchoring") return { key: mode.key, itemId: mode.itemId };
   if (mode.kind !== "free") return undefined;
   return settling ? { key: settling.key, itemId: settling.itemId } : top;
+}
+
+/**
+ * A held row that left the transcript (a duplicate dropped once older history brought in the row
+ * that says the same) hands its place to the nearest row that followed it and is still shown, so
+ * rows landing above never lose the reader's place. `keys` are the rows before the change, `from`
+ * the gone row's index among them; looks a few rows on at most.
+ */
+export function heldSuccessor<T>(
+  keys: readonly string[],
+  from: number,
+  find: (key: string) => T | undefined,
+  limit = 8,
+): T | undefined {
+  for (const key of keys.slice(from + 1, from + 1 + limit)) {
+    const found = find(key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The anchored row left the transcript and `next` took its place (`heldSuccessor`): a jump or an
+ * opened disclosure holds that row from now on, so the next look never goes back to the one gone.
+ */
+export function handOver(
+  mode: ScrollMode,
+  next: { key: string; itemId: string | undefined },
+): ScrollMode {
+  return mode.kind === "anchoring" ? { ...mode, key: next.key, itemId: next.itemId } : mode;
 }
 
 /** Where the held row is now, and whether older items just joined it at its top. */

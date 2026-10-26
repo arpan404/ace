@@ -100,9 +100,8 @@ test("settling a done thread releases its provider at once and the next message 
   const id = await h.create();
   h.settle(id);
   await h.engine.flush();
-  h.clock.advance(h.clock.now());
-  await h.engine.flush();
-  expect(h.closes()).toEqual([{ type: "close", reason: "idle" }]);
+  // Settling stops the session itself, with no idle wait: no time passes here.
+  expect(h.engine.hasSession(id)).toBe(false);
   expect(await h.processes(id)).toEqual([]);
 
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
@@ -165,4 +164,85 @@ test("a live subagent keeps the provider alive however long the root has been id
   await h.engine.flush();
   expect(h.closes()).toEqual([]);
   expect(await h.states(id)).toEqual(["busy"]);
+});
+
+test("settling a done parent releases a warm done delegated child at once", async () => {
+  const frames = scriptFrames();
+  const h = await setup([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  const parent = await h.create();
+  const second = h.command({
+    type: "thread.create",
+    workspaceId: h.workspace,
+    provider: "codex",
+    model: "model",
+    input: [{ type: "text", text: "second" }],
+  });
+  if (!second.ok) throw new Error(second.error);
+  await h.engine.flush();
+  const delegated = h.store.listThreads().find((thread) => thread.id !== parent)?.id;
+  if (!delegated) throw new Error("Missing child thread");
+  const childThread = h.store.getThread(delegated);
+  if (!childThread) throw new Error("Missing child thread record");
+  h.engine.rootAgent(parent);
+  const parentAgent = h.store.getThread(parent)?.rootAgentId;
+  if (!parentAgent) throw new Error("Missing parent root agent");
+  h.engine.attachChild(parent, parentAgent, childThread, "test-role", false);
+  await h.engine.flush();
+  expect(h.engine.cleanupThreads(parent)).toEqual(expect.arrayContaining([parent, delegated]));
+  expect(h.store.getThread(parent)?.status.state).toBe("done");
+  expect(h.store.getThread(delegated)?.status.state).toBe("done");
+
+  h.settle(parent);
+  await h.engine.flush();
+  h.clock.advance(h.clock.now());
+  await h.engine.flush();
+
+  const closes = h.closes();
+  expect(closes).toHaveLength(2);
+  expect(closes.every((entry) => entry.type === "close" && entry.reason === "idle")).toBe(true);
+  expect(await h.processes(parent)).toEqual([]);
+  expect(await h.processes(delegated)).toEqual([]);
+});
+
+test("reopening while a settled done thread is closing runs the new message", async () => {
+  const frames = scriptFrames();
+  const h = await setup(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
+  const id = await h.create();
+  // Slow the idle close so the reopen arrives while the stop is in flight.
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  for (const session of h.adapter.sessions) {
+    const close = session.close.bind(session);
+    Object.assign(session, {
+      close: async (reason: Parameters<typeof close>[0]) => {
+        entered.resolve();
+        await gate.promise;
+        await close(reason);
+      },
+    });
+  }
+  h.settle(id);
+  await entered.promise;
+  const unsettled = organizeThread(
+    h.store,
+    Command.parse({
+      id: crypto.randomUUID(),
+      deviceId: "device",
+      payload: { type: "thread.unsettle", threadId: id },
+    }),
+    h.clock.now(),
+  );
+  if (!unsettled.ok) throw new Error(unsettled.error);
+  h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
+  gate.resolve();
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
+  expect(h.engine.hasSession(id)).toBe(true);
+  expect(h.store.getThread(id)?.settledAt).toBeUndefined();
 });

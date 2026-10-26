@@ -4,6 +4,7 @@
   "enum": [
     "human",
     "subagents",
+    "queue",
     "background_task",
     "rate_limit",
     "network",

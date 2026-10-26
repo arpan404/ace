@@ -283,8 +283,18 @@
 /*
  * Touch targets: on a coarse pointer, an invisible area past the control's edges so a 30px
  * button takes a 44px tap (7px each side; add -lg for 12px on ~20px controls, -xl for 14px
- * on ~16px ones). The control keeps its size; it must be positioned.
+ * on ~16px ones). The control keeps its size.
+ *
+ * The area is measured from the control, so the control must be positioned. The base layer makes
+ * it `relative`; a positioning utility on the control (`absolute`, `sticky`) still wins. Without
+ * this, a static control's area grows to its nearest positioned ancestor, often the whole page,
+ * and swallows every tap there.
  */
+@layer base {
+  :where(.touch-hit) {
+    position: relative;
+  }
+}
 @utility touch-hit {
   @media (pointer: coarse) {
     &::after {

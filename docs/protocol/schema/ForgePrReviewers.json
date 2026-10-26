@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrReviewers.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "author": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "canDismiss": {
+      "type": "boolean"
+    },
+    "canRequest": {
+      "type": "boolean"
+    },
+    "requested": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeRequestedReviewer.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "reviews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeLatestReview.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "suggested": {
+      "items": {
+        "properties": {
+          "avatarUrl": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "isAuthor": {
+            "type": "boolean"
+          },
+          "isCommenter": {
+            "type": "boolean"
+          },
+          "login": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "isAuthor",
+          "isCommenter"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    }
+  },
+  "required": [
+    "requested",
+    "reviews",
+    "suggested",
+    "author",
+    "canRequest",
+    "canDismiss"
+  ],
+  "type": "object"
+}

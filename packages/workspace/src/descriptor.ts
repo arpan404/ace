@@ -1,129 +1,276 @@
-import { close, fstat, read, write, type Stats } from "node:fs";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import {
+  close,
+  constants,
+  fstat,
+  read,
+  write,
+  fstatSync,
+  fchmodSync,
+  type BigIntStats,
+} from "node:fs";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
+import {
+  identifiedStats,
+  posixStats,
+  Win32FileIdentitySchema,
+  type IdentifiedStats,
+} from "./file-identity.ts";
+import { posixBinding, windowsBinding } from "./descriptor-native.ts";
 import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
-const require = createRequire(import.meta.url);
-const Binding = z.object({
-  pipe: z.function({
-    input: [],
-    output: z.object({
-      read: z.number().int().nonnegative(),
-      write: z.number().int().nonnegative(),
-    }),
-  }),
-  openRoot: z.function({ input: [z.string()], output: z.number().int().nonnegative() }),
-  openAt: z.function({
-    input: [z.number().int(), z.string(), z.number().int()],
-    output: z.number().int().nonnegative(),
-  }),
-  openMetadataAt: z.function({
-    input: [z.number().int(), z.string()],
-    output: z.number().int().nonnegative(),
-  }),
-  chmodMetadata: z.function({
-    input: [z.number().int().nonnegative(), z.number().int().min(0).max(0o777)],
-    output: z.void(),
-  }),
-  unlinkAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
-  removeDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
-  renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
-  mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
-  statAt: z.function({
-    input: [z.number().int(), z.string()],
-    output: z.object({
-      dev: z.number(),
-      ino: z.number(),
-      mode: z.number().int(),
-      size: z.number(),
-      mtime: z.number(),
-    }),
-  }),
-  names: z.function({
-    input: [z.number().int(), z.number().int()],
-    output: z.array(z.string()).max(DIRECTORY_CAP),
-  }),
-});
-let loaded: z.infer<typeof Binding> | undefined;
-function binding(): z.infer<typeof Binding> {
-  // Importing the shared service API needs no native addon. Filesystem operations load it on demand.
-  if (!loaded) {
-    let native: unknown;
-    try {
-      native = require("../dist/descriptor.node");
-    } catch (error) {
-      if (
-        !process.versions.electron ||
-        !(error instanceof Error && "code" in error && error.code === "MODULE_NOT_FOUND")
-      )
-        throw error;
-      native = require(
-        join(
-          z.object({ resourcesPath: z.string().min(1) }).parse(process).resourcesPath,
-          "daemon/descriptor.node",
-        ),
-      );
-    }
-    loaded = Binding.parse(native);
-  }
-  return loaded;
-}
 function nativeFailure(error: unknown): never {
-  if (error instanceof Error && "errno" in error && typeof error.errno === "number") {
-    const code = getSystemErrorName(error.errno);
-    if (code === "E2BIG")
+  if (error instanceof Error) {
+    const existing = "code" in error ? error.code : undefined;
+    if (existing === "E2BIG")
       throw new WorkspaceError("LIMIT_EXCEEDED", "Directory exceeds 10,000 entries");
-    Object.assign(error, { code });
+    if ("errno" in error && typeof error.errno === "number") {
+      const code = getSystemErrorName(error.errno);
+      if (code === "E2BIG")
+        throw new WorkspaceError("LIMIT_EXCEEDED", "Directory exceeds 10,000 entries");
+      if (existing === undefined) Object.assign(error, { code });
+    }
   }
   throw error;
 }
-export function openAt(parent: number, name: string, flags: number): Descriptor {
+function onWindows(): boolean {
+  return process.platform === "win32";
+}
+export function openRoot(path: string): Descriptor {
   try {
-    return new Descriptor(binding().openAt(parent, name, flags));
+    const fd = onWindows() ? windowsBinding().openRoot(path) : posixBinding().openRoot(path);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function openDirectoryAt(parent: number, name: string): Descriptor {
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openDirectoryAt(parent, name)
+      : posixBinding().openAt(parent, name, constants.O_RDONLY | constants.O_DIRECTORY);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function openFileAt(parent: number, name: string): Descriptor {
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openFileAt(parent, name)
+      : posixBinding().openAt(parent, name, constants.O_RDONLY);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function createFileAt(parent: number, name: string): Descriptor {
+  try {
+    const fd = onWindows()
+      ? windowsBinding().createPrivateFileAt(parent, name)
+      : posixBinding().openAt(
+          parent,
+          name,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        );
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function createPrivateDirectoryAt(parent: number, name: string): Descriptor {
+  if (process.platform !== "win32") {
+    mkdirAt(parent, name);
+    return openDirectoryAt(parent, name);
+  }
+  try {
+    return new Descriptor(windowsBinding().createPrivateDirectoryAt(parent, name));
   } catch (error) {
     return nativeFailure(error);
   }
 }
 export function openMetadataAt(parent: number, name: string): Descriptor {
   try {
-    return new Descriptor(binding().openMetadataAt(parent, name));
+    const fd = onWindows()
+      ? windowsBinding().openMetadataAt(parent, name)
+      : posixBinding().openMetadataAt(parent, name);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function openPrivateMetadataAt(parent: number, name: string): Descriptor {
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openPrivateMetadataAt(parent, name)
+      : posixBinding().openMetadataAt(parent, name);
+    return new Descriptor(fd);
   } catch (error) {
     return nativeFailure(error);
   }
 }
 export function mkdirAt(parent: number, name: string): void {
   try {
-    binding().mkdirAt(parent, name);
+    if (onWindows()) windowsBinding().mkdirAt(parent, name);
+    else posixBinding().mkdirAt(parent, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
+/** Creates a symlink in `parent` without resolving its target or following `name`. */
+export function symlinkAt(parent: number, target: string, name: string): void {
+  try {
+    if (onWindows())
+      throw Object.assign(new Error("Symbolic-link creation is unavailable on Windows"), {
+        code: "ENOTSUP",
+      });
+    posixBinding().symlinkAt(parent, target, name);
   } catch (error) {
     nativeFailure(error);
   }
 }
 export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
   try {
-    return binding().names(fd, limit).toSorted();
+    const names = onWindows() ? windowsBinding().names(fd, limit) : posixBinding().names(fd, limit);
+    return names.toSorted();
   } catch (error) {
     return nativeFailure(error);
   }
 }
-/** Own a descriptor acquired by openat. Node's callback API accepts it directly. */
+/** Fd metadata adapter. Implementations observe the caller-held fd directly. */
+export interface DescriptorStatSource {
+  statSync(fd: number): IdentifiedStats;
+  stat(fd: number): Promise<IdentifiedStats>;
+}
+
+function fstatAsync(fd: number): Promise<BigIntStats> {
+  return new Promise((resolve, reject) =>
+    fstat(fd, { bigint: true }, (error, info) => (error ? reject(error) : resolve(info))),
+  );
+}
+
+const posixDescriptorStats: DescriptorStatSource = {
+  statSync(fd: number): IdentifiedStats {
+    if (process.platform === "win32")
+      throw new Error("Windows descriptor metadata requires native file identity integration");
+    return posixStats(fstatSync(fd, { bigint: true }));
+  },
+  stat(fd: number): Promise<IdentifiedStats> {
+    if (process.platform === "win32")
+      return Promise.reject(
+        new Error("Windows descriptor metadata requires native file identity integration"),
+      );
+    return fstatAsync(fd).then((info) => posixStats(info));
+  },
+};
+
+/** Build a Windows fd stat source from a native metadata lookup.
+ * Both observations run on the same caller-held fd: bigint display metadata
+ * from fstat plus FILE_ID_INFO and reparse-aware mode from statFd. Node's
+ * fstat classifies an opened junction as a directory, so native mode owns
+ * the type predicates as well. The path is never reopened,
+ * so a pathname rename cannot redirect the observation. The caller keeps the
+ * fd alive through the async stat.
+ */
+export function windowsDescriptorStats(statFd: (fd: number) => unknown): DescriptorStatSource {
+  const nativeMetadata = Win32FileIdentitySchema.omit({ kind: true }).extend({
+    mode: z.number().int().min(0).max(0o177777),
+  });
+  return {
+    statSync(fd: number): IdentifiedStats {
+      const info = fstatSync(fd, { bigint: true });
+      const fields = nativeMetadata.parse(statFd(fd));
+      return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id }, fields.mode);
+    },
+    stat(fd: number): Promise<IdentifiedStats> {
+      return fstatAsync(fd).then((info) => {
+        const fields = nativeMetadata.parse(statFd(fd));
+        return identifiedStats(
+          info,
+          { kind: "win32", vol: fields.vol, id: fields.id },
+          fields.mode,
+        );
+      });
+    },
+  };
+}
+
+const windowsDefaultStats: DescriptorStatSource = windowsDescriptorStats((fd) =>
+  windowsBinding().statFd(fd),
+);
+function defaultStats(): DescriptorStatSource {
+  if (process.platform === "win32") return windowsDefaultStats;
+  return posixDescriptorStats;
+}
+
+/** Own a descriptor acquired by openat. Node's callback API accepts it directly.
+ * The descriptor owns normal fd lifetime; the stat source only observes it.
+ */
 export class Descriptor {
   readonly fd: number;
-  constructor(fd: number) {
+  private readonly statsSource: DescriptorStatSource;
+  constructor(fd: number, statsSource?: DescriptorStatSource) {
     this.fd = fd;
+    this.statsSource = statsSource ?? defaultStats();
   }
-  chmod(mode: number): void {
+  checkPrivate(owner: number): void {
     try {
-      binding().chmodMetadata(this.fd, mode);
+      if (process.platform === "win32") {
+        windowsBinding().checkPrivateFd(this.fd);
+        return;
+      }
+      const info = this.statSync();
+      if (!info.isFile() || info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0)
+        throw new Error("Refusing private descriptor: expected a regular file owned by the owner");
+      if (info.nlink === 0)
+        throw Object.assign(new Error("Private file was removed during read"), { code: "ENOENT" });
     } catch (error) {
       nativeFailure(error);
     }
   }
-  stat(): Promise<Stats> {
-    return new Promise((resolve, reject) =>
-      fstat(this.fd, (error, info) => (error ? reject(error) : resolve(info))),
-    );
+  checkPrivateDirectory(): void {
+    try {
+      if (process.platform === "win32") {
+        windowsBinding().checkPrivateDirectoryFd(this.fd);
+        return;
+      }
+      const info = this.statSync();
+      if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
+        throw new Error("Refusing directory: expected a private directory owned by this user");
+    } catch (error) {
+      nativeFailure(error);
+    }
+  }
+  chmod(mode: number): void {
+    try {
+      if (process.platform === "win32") {
+        if (mode !== 0o600)
+          throw Object.assign(
+            new Error(`Unsupported mode ${mode.toString(8)}: Windows private files use 0600`),
+            { code: "ENOTSUP" },
+          );
+        try {
+          windowsBinding().checkPrivateFd(this.fd);
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error;
+          windowsBinding().securePrivateFd(this.fd);
+        }
+        // A protected DACL and the readonly attribute are independent. Node's
+        // Windows fchmod clears readonly through the same file object, so an
+        // upload recovery must not report 0600 while owner writes remain blocked.
+        if ((this.statSync().mode & 0o200) === 0) fchmodSync(this.fd, mode);
+        return;
+      }
+      posixBinding().chmodMetadata(this.fd, mode);
+    } catch (error) {
+      nativeFailure(error);
+    }
+  }
+  statSync(): IdentifiedStats {
+    return this.statsSource.statSync(this.fd);
+  }
+  stat(): Promise<IdentifiedStats> {
+    return this.statsSource.stat(this.fd);
   }
   read(
     buffer: Buffer,
@@ -158,15 +305,16 @@ export class Descriptor {
 
 export function statAt(parent: number, name: string) {
   try {
-    return binding().statAt(parent, name);
-  } catch (error) {
-    return nativeFailure(error);
-  }
-}
-
-export function openRoot(path: string): Descriptor {
-  try {
-    return new Descriptor(binding().openRoot(path));
+    if (process.platform === "win32") {
+      const raw = windowsBinding().statAt(parent, name);
+      return {
+        identity: { kind: "win32" as const, vol: raw.vol, id: raw.id },
+        mode: raw.mode,
+        size: raw.size,
+        mtime: raw.mtimeMs,
+      };
+    }
+    return posixBinding().statAt(parent, name);
   } catch (error) {
     return nativeFailure(error);
   }
@@ -174,7 +322,11 @@ export function openRoot(path: string): Descriptor {
 
 export function pipeDescriptors() {
   try {
-    return binding().pipe();
+    if (process.platform === "win32")
+      throw Object.assign(new Error("pipeDescriptors is not supported on Windows"), {
+        code: "ENOTSUP",
+      });
+    return posixBinding().pipe();
   } catch (error) {
     return nativeFailure(error);
   }
@@ -182,7 +334,8 @@ export function pipeDescriptors() {
 
 export function unlinkAt(parent: number, name: string): void {
   try {
-    binding().unlinkAt(parent, name);
+    if (onWindows()) windowsBinding().unlinkAt(parent, name);
+    else posixBinding().unlinkAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
@@ -190,14 +343,16 @@ export function unlinkAt(parent: number, name: string): void {
 /** Removes an empty child directory; a symlink of that name is never followed. */
 export function removeDirectoryAt(parent: number, name: string): void {
   try {
-    binding().removeDirectoryAt(parent, name);
+    if (onWindows()) windowsBinding().removeDirectoryAt(parent, name);
+    else posixBinding().removeDirectoryAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
 }
 export function renameAt(parent: number, from: string, to: string): void {
   try {
-    binding().renameAt(parent, from, to);
+    if (onWindows()) windowsBinding().renameAt(parent, from, to);
+    else posixBinding().renameAt(parent, from, to);
   } catch (error) {
     nativeFailure(error);
   }

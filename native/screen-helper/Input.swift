@@ -60,8 +60,10 @@ extension Capture {
         if ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind) {
             let geometry = target.kind == "window" ? try pointerGeometry(window) : nil
             let pointCoordinates = action.coordinates == .windowPoints
-            let bounds = try geometry?.bounds ?? (pointCoordinates ? currentWindowBounds(window) : frame)
-            pointerBounds = bounds
+            let whole = try geometry?.bounds ?? (pointCoordinates ? currentWindowBounds(window) : frame)
+            // A content-only capture shows the window below its title bar: input lands there too.
+            let bounds = target.kind == "window" ? contentBounds(whole, inset: contentInset) : whole
+            pointerBounds = whole
             let x = action.x ?? (pointCoordinates && action.kind == "scroll" ? bounds.width / 2 : -1)
             let y = action.y ?? (pointCoordinates && action.kind == "scroll" ? bounds.height / 2 : -1)
             let limitX = pointCoordinates ? bounds.width : Double(width), limitY = pointCoordinates ? bounds.height : Double(height)
@@ -81,7 +83,7 @@ extension Capture {
                 inputWindow = hit
             }
         }
-        if mode == "background", bundle == "com.apple.iphonesimulator",
+        if mode == "background", simulatorWindowBundles.contains(bundle),
            ["type", "key", "paste"].contains(action.kind), !humanDeviceInput,
            keyboardApplicationPID() != window.owningApplication?.processID {
             throw HelperError("Background Simulator typing requires native idb HID", code: "foreground_required")
@@ -165,7 +167,7 @@ extension Capture {
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
             let typing = ValidatedTextInput(destination: destination, replaceSelection: { element, value in
                 // Simulator's macOS AX destination is not the UIKit text field.
-                if bundle == "com.apple.iphonesimulator" { return false }
+                if simulatorWindowBundles.contains(bundle) { return false }
                 self.measurementInputMark?()
                 let success = try replaceAXSelection(element, text: value)
                 if success { self.dispatched = true; self.deliveryConfirmed = true }

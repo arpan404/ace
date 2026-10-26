@@ -11,9 +11,12 @@ import { startDaemon, readConfig } from "./index.ts";
 import { Resources } from "./services/resources.ts";
 import { runDaemonProcess } from "./process-daemon.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
+import { retainNotifications } from "./notification-test-support.ts";
 
 async function stalledWorker() {
   const root = await mkdtemp(join(tmpdir(), "ace-shutdown-audit-"));
+  // A saved push device needs the worker from startup, so there is a worker whose close stalls.
+  await retainNotifications(root);
   const held = Promise.withResolvers<void>();
   const cleanupDeadline = Promise.withResolvers<() => void>();
   const overallDeadline = Promise.withResolvers<() => void>();
@@ -82,15 +85,24 @@ async function stalledWorker() {
   };
 }
 
+/** How `close` settled, as a value: a failed shutdown never leaves an assertion pending. */
+function outcome(closing: Promise<void>): Promise<unknown> {
+  return closing.then(
+    () => new Error("close resolved instead of failing"),
+    (error: unknown) => error,
+  );
+}
+
 test("a failed cleanup names its service and still removes the endpoint", async () => {
   const f = await stalledWorker();
   try {
-    const closing = f.daemon.close();
-    const failed = expect(closing).rejects.toThrow("Daemon shutdown failed");
+    const failed = outcome(f.daemon.close());
     await f.held;
     (await f.cleanupDeadline)();
     f.resume();
-    await failed;
+    expect(await failed).toMatchObject({
+      message: expect.stringContaining("Daemon shutdown failed"),
+    });
     await expect(readFile(join(f.root, "daemon-endpoint"))).rejects.toThrow("ENOENT");
     const log = await readFile(join(f.root, "logs/daemon.log"), "utf8").catch(async () => {
       const { readdir } = await import("node:fs/promises");
@@ -109,11 +121,12 @@ test("a failed cleanup names its service and still removes the endpoint", async 
 test("the overall deadline removes discovery but retains the home lock until stalled cleanup settles", async () => {
   const f = await stalledWorker();
   try {
-    const closing = f.daemon.close();
-    const failed = expect(closing).rejects.toThrow("Daemon shutdown deadline exceeded");
+    const failed = outcome(f.daemon.close());
     await f.held;
     (await f.overallDeadline)();
-    await failed;
+    expect(await failed).toMatchObject({
+      message: expect.stringContaining("Daemon shutdown deadline exceeded"),
+    });
     await expect(readFile(join(f.root, "daemon-endpoint"))).rejects.toThrow("ENOENT");
     const { acquireLock } = await import("./local-files.ts");
     expect(() => acquireLock(f.root)).toThrow("Another daemon owns it");
@@ -128,11 +141,12 @@ test("the overall deadline removes discovery but retains the home lock until sta
 test("when a resource hangs, the deadline log names it and the next start reports the overrun, not a crash", async () => {
   const f = await stalledWorker();
   try {
-    const closing = f.daemon.close();
-    const failed = expect(closing).rejects.toThrow("Daemon shutdown deadline exceeded");
+    const failed = outcome(f.daemon.close());
     await f.held;
     (await f.overallDeadline)();
-    await failed;
+    expect(await failed).toMatchObject({
+      message: expect.stringContaining("Daemon shutdown deadline exceeded"),
+    });
     const overran = (await daemonLogRecords(f.root)).find(
       (record) => record.message === "Daemon shutdown deadline exceeded",
     );
@@ -182,36 +196,39 @@ test("independent cleanups start together and shared dependencies close after bo
 });
 
 // A startup cancellation may leave a native handle alive after the startup promise rejects.
-test("process shutdown keeps its exit deadline armed after cancelled startup", async () => {
-  const signals = new EventEmitter();
-  const started = Promise.withResolvers<void>();
-  const deadline = Promise.withResolvers<() => void>();
-  const exits: number[] = [];
-  const starting = runDaemonProcess(
-    async (options) => {
-      started.resolve();
-      await new Promise<void>((resolve) =>
-        options.signal?.addEventListener("abort", () => resolve(), { once: true }),
-      );
-      throw new Error("Startup aborted");
-    },
-    {},
-    signals,
-    {
-      after(expire) {
-        deadline.resolve(expire);
-        return () => {
-          throw new Error("Exit deadline cancelled");
-        };
+test.each(["SIGINT", "SIGTERM", "SIGBREAK"] as const)(
+  "%s shutdown keeps its exit deadline armed after cancelled startup",
+  async (signal) => {
+    const signals = new EventEmitter();
+    const started = Promise.withResolvers<void>();
+    const deadline = Promise.withResolvers<() => void>();
+    const exits: number[] = [];
+    const starting = runDaemonProcess(
+      async (options) => {
+        started.resolve();
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        throw new Error("Startup aborted");
       },
-      exit(code) {
-        exits.push(code);
+      {},
+      signals,
+      {
+        after(expire) {
+          deadline.resolve(expire);
+          return () => {
+            throw new Error("Exit deadline cancelled");
+          };
+        },
+        exit(code) {
+          exits.push(code);
+        },
       },
-    },
-  );
-  await started.promise;
-  signals.emit("SIGTERM");
-  expect(await starting).toBeUndefined();
-  (await deadline.promise)();
-  expect(exits).toEqual([1]);
-});
+    );
+    await started.promise;
+    signals.emit(signal);
+    expect(await starting).toBeUndefined();
+    (await deadline.promise)();
+    expect(exits).toEqual([1]);
+  },
+);

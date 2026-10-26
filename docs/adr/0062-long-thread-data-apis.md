@@ -220,3 +220,31 @@ then its summary's `endSeq` moves past the read, which the client already detect
 - **Budget.** Turn records share the read-snapshot database. Its entry bound rose from 128 to 512
   (ADR 0056) so the many small turn records don't use up the count long before the bytes; the
   64 MiB byte bound is unchanged and shared, least recently used first.
+
+## Phone client (2026-10-23)
+
+The iPhone reads long threads through the same `JumpController` as the web, in the bridge
+(`apps/ios/bridge/native-transcript.ts`): one live tail (the daemon's 200-item snapshot, kept by
+the SDK) and at most one history window beside it, slid by whole turns, trimmed at the end away
+from the reader, joined to the tail where they meet, opened around an item for a jump and
+discarded by Scroll to end. The phone's own paging (filling the live store with `loadOlder`
+behind the first paint, and a separate search pager over `items.window`) is gone; a search hit
+opens its thread at the hit through the window.
+
+- **Rows as patches.** The window's rows reach Swift from the same row and block followers as
+  the live transcript, run over one stable source that wraps the controller's current window
+  (`reading-source.ts`). A slide reaches the followers as the keys it changed, so a page sends
+  only the rows it added or evicted, and a joined window's streaming rows stay live. The patches
+  are scoped `reading:` in the pump and carry the reading view's own negative epoch, so Swift
+  keeps them in a second `ThreadModel` and drops them once the view ends. A change to an item the
+  window doesn't hold (the tail streaming past a detached window) never reaches it.
+- **One change per page.** A read ends with `reading.settled`, queued after its rows. Swift holds
+  a requested page's reading patches until then and applies them together, so a page is one
+  layout and one keep-place scroll rather than one per 32-patch frame.
+- **Bounds.** The phone's window holds 400 items and 2 MiB (`phoneWindow`), as the web's agent
+  transcript does. Each change re-lays out the rows the feed holds, so the bound is also the
+  main-thread cost of a page.
+- **List.** The feed stays a `LazyVStack` in a `ScrollView`: with the window bounded, footprint
+  stays flat while reading thousands of items back and forth (README "Performance budgets"), so
+  a UIKit list was not needed. Inline media rows (WKWebView) are not on main yet and still need
+  the same measurement.

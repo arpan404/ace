@@ -1268,6 +1268,26 @@ it("without serve-sim or idb the iOS catalog says the device tools are missing a
     }),
   );
 });
+it("a missing Android SDK is reported as Android's, beside a working Simulator", async () => {
+  const f = await fixture("darwin");
+  const manager = new DevicePlatform({
+    platform: "darwin",
+    home: join(f.home, "no-android"),
+    env: f.env,
+    after: shutdownClock,
+  });
+  onTestFinished(() => manager.close());
+  expect(await manager.list()).toEqual([{ ...ios(), runtime: "iOS 18.0" }]);
+  expect(manager.diagnostics()).toEqual([
+    expect.objectContaining({
+      code: "sdk_missing",
+      platform: "android",
+      message: "Android SDK platform-tools were not found",
+      hint: expect.stringContaining("ANDROID_HOME"),
+    }),
+    expect.objectContaining({ code: "tool_missing", platform: "ios" }),
+  ]);
+});
 for (const closing of [false, true])
   it(`${closing ? "service close" : "console shutdown"} waits for snapshot saving before any process signal`, async () => {
     const f = await fixture();

@@ -62,6 +62,8 @@ function directOperation(args: SimAct): unknown {
       return { op: "clipboard.get", deviceId };
     case "clipboard_set":
       return { op: "clipboard.set", deviceId, text: args.text };
+    case "posture":
+      return { op: "posture", deviceId, posture: args.posture };
   }
 }
 

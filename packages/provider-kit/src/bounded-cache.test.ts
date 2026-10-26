@@ -37,3 +37,19 @@ test("deletion and clearing release reservations for subsequent entries", () => 
   expect(cache.get("b")).toBeUndefined();
   expect(cache.get("c")).toBe(3);
 });
+test("entries the budget pushes out are reported, explicit deletes are not, and an oversized set says it kept nothing", () => {
+  const evicted: string[] = [];
+  const cache = new BoundedCache<string, string>(2, 10, (key, value) =>
+    evicted.push(`${key}=${value}`),
+  );
+  expect(cache.set("a", "first", 1)).toBe(true);
+  cache.set("b", "second", 1);
+  cache.delete("b");
+  cache.set("c", "third", 1);
+  cache.set("d", "fourth", 1);
+  expect(cache.set("e", "huge", 11)).toBe(false);
+  cache.set("f", "wide", 9);
+  expect(evicted).toEqual(["a=first", "c=third"]);
+  expect(cache.get("f")).toBe("wide");
+  expect(cache.get("e")).toBeUndefined();
+});

@@ -30,6 +30,7 @@ struct DeviceScreen: View {
     @State private var sheet: DeviceSheet?
     @State private var confirmShutdown = false
     @State private var screenSize: CGSize?
+    @State private var pictureTurn = DeviceRotation.none
     @State private var caption: DeviceScreenInfo.Activity?
     @State private var seen: Int?
     @State private var autoStarted = false
@@ -77,26 +78,57 @@ struct DeviceScreen: View {
                 let size = screenSize ?? CGSize(width: info.screen.width, height: info.screen.height)
                 let geometry = size.width > size.height ? info.frame.landscape : info.frame.portrait
                 let room = CGSize(width: proxy.size.width - AceTheme.Spacing.xxl * 2, height: proxy.size.height - AceTheme.Spacing.lg * 2)
-                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size)) {
-                    ZStack {
-                        Color.black
-                        if info.live {
-                            DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }) { from, to in
-                                devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
-                            }
-                            ripple(size)
-                        } else {
-                            idle(info)
+                // The body's turn, as `bodyTurn` (@ace/ui-core) reads it for a Simulator: the
+                // picture's own rotation, else a landscape picture means turned to the right.
+                let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
+                Group {
+                    if info.framed == true {
+                        // The picture wears the device's own bezel: one frame, not two.
+                        stageScreen(info, size: size)
+                            .aspectRatio(size, contentMode: .fit)
+                            .frame(maxWidth: room.width, maxHeight: room.height)
+                    } else if let look = chromeLook(info, picture: size) {
+                        DeviceChromeFrameView(look: look, turn: turn, room: room, enabled: canDrive, press: { key($0) }) {
+                            stageScreen(info, size: size)
+                        }
+                    } else {
+                        DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size), turn: turn) {
+                            stageScreen(info, size: size)
                         }
                     }
-                    .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel("Loading \(name)")
             }
         }
+    }
+
+    /// The live picture (or what the device is doing) inside whichever frame draws it.
+    @ViewBuilder private func stageScreen(_ info: DeviceScreenInfo, size: CGSize) -> some View {
+        ZStack {
+            Color.black
+            if info.live {
+                DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
+                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
+                    devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
+                }
+                ripple(size)
+            } else {
+                idle(info)
+            }
+        }
+        .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
+    }
+
+    /// The device's real look, when the bridge sent one and its screen is the picture's shape.
+    private func chromeLook(_ info: DeviceScreenInfo, picture: CGSize) -> DeviceChromeLook? {
+        guard let key = info.chrome, let look = devices.chromes[key], let upright = look.art.turns.first else { return nil }
+        let shown = upright.screen
+        guard shown.width > 0, picture.width > 0, picture.height > 0 else { return nil }
+        let picture = picture.width > picture.height ? CGSize(width: picture.height, height: picture.width) : picture
+        let ratio = (picture.height / picture.width) / (shown.height / shown.width)
+        return abs(ratio - 1) <= 0.05 ? look : nil
     }
 
     /// Over the dark screen when it isn't streaming: what the device is doing, and the next step.
@@ -153,7 +185,7 @@ struct DeviceScreen: View {
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             .transition(.opacity)
             .accessibilityLabel("Agent action: \(caption.caption)")
             .accessibilityIdentifier("devices.activity")
@@ -186,7 +218,7 @@ struct DeviceScreen: View {
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
                 .accessibilityIdentifier("devices.keyboard")
             }
@@ -241,18 +273,18 @@ struct DeviceScreen: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
-            Button("Home", systemImage: "house") { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
+            Button("Home", ace: .house) { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
             if info?.platform == "android" {
-                Button("Back", systemImage: "arrow.uturn.backward") { key("back") }.disabled(!canDrive)
+                Button("Back", ace: .arrowUUpLeft) { key("back") }.disabled(!canDrive)
             }
             if let buttons = info?.buttons, !buttons.isEmpty {
                 Menu {
                     ForEach(buttons) { button in Button(button.label) { key(button.key) } }
-                } label: { Label("Side buttons", systemImage: "button.vertical.right.press") }
+                } label: { Label("Side buttons", ace: .handTap) }
                 .disabled(!canDrive)
             }
             Spacer()
-            Button("Type", systemImage: "keyboard") {
+            Button("Type", ace: .keyboard) {
                 typing.toggle()
                 fieldFocused = typing
             }

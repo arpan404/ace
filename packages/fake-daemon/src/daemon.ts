@@ -33,7 +33,6 @@ import {
 import {
   NotificationMessage,
   type Notification,
-  AgentId,
   CommandId,
   DeviceId,
   EventId,
@@ -52,6 +51,7 @@ import {
   type SubscriptionScope,
   type ThreadListView,
   type ServerMessage,
+  FleetLink,
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { CommandFlights } from "./command-status.ts";
@@ -60,10 +60,13 @@ import { FakeAccess } from "./access.ts";
 import { FakeScreen } from "./screen.ts";
 import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
+import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
+import { piControlResult } from "./pi-control.ts";
+import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
@@ -72,10 +75,9 @@ import type { FakeBrowser } from "./browser.ts";
 import type { FakeComputerUsing } from "./computer-using.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
-import type { FakeWorkspaceWire } from "./workspace-wire.ts";
+import type { FakeWorkspaceControls } from "./workspace-wire.ts";
 import { completedThread, startedThread } from "./scenarios/started-thread.ts";
 import {
-  busy,
   drainQueue,
   interruptFacts,
   sendFacts,
@@ -83,7 +85,13 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
+import {
+  forkPointError,
+  forkOpening,
+  mergeFacts,
+  mergeForkError,
+  switchEvents,
+} from "./transitions.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
@@ -134,6 +142,8 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
   readonly commandFlights = new CommandFlights();
+  /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
+  readonly transfers: FakeTransfers;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -240,10 +250,7 @@ export class FakeDaemon implements Host {
       clock: options.clock,
       access: this.access,
       threads: () => [...this.threads.values()].map((host) => host.view.thread),
-      broadcast: (message) => {
-        for (const connection of this.connections)
-          if (connection.authenticated) connection.push(message);
-      },
+      broadcast: (message) => this.broadcast(message),
       thread: (threadId) => {
         const host = this.threads.get(threadId);
         return (
@@ -252,6 +259,17 @@ export class FakeDaemon implements Host {
       },
     });
     Object.assign(this.services, options.catalog);
+    this.transfers = fakeTransfers(this, {
+      clock: options.clock,
+      broadcast: (message) => this.broadcast(message),
+      thread: (id) => this.threads.get(id)?.view.thread,
+      continued: (id, on) => {
+        const host = this.thread(id);
+        const changes = { details: { ...host.view.thread.details, continuedOn: on } };
+        this.append(host, [{ type: "thread.client.updated", changes }], options.clock());
+      },
+      ...(options.projectScheduler ? { schedule: options.projectScheduler } : {}),
+    });
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
@@ -312,30 +330,16 @@ export class FakeDaemon implements Host {
   > {
     return this.servicesWire.files;
   }
+  /** The skill library behind `skills.request`, for seeding skills. */
+  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+    return this.servicesWire.skills;
+  }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
   get mcp(): Pick<FakeMcpWire, "servers" | "idle"> {
     return this.servicesWire.mcp;
   }
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
-  get workspace(): Pick<
-    FakeWorkspaceWire,
-    | "gitStatus"
-    | "setGitStatus"
-    | "setGitDiff"
-    | "setEditors"
-    | "setForgeRead"
-    | "holdForgeRead"
-    | "forgeReadCount"
-    | "seedPullRequests"
-    | "mergePullRequest"
-    | "setDraftGenerator"
-    | "setIssueOutcome"
-    | "checkReruns"
-    | "git"
-    | "conflicts"
-    | "failMoves"
-    | "setDetails"
-  > {
+  get workspace(): FakeWorkspaceControls {
     return this.servicesWire.workspace;
   }
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
@@ -397,6 +401,18 @@ export class FakeDaemon implements Host {
     host.queue.paused = true;
     host.queue.reason = reason;
     host.queue.lastFailure = lastFailure ?? null;
+    delete host.queue.exited;
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
+
+  /** Stage a provider that died mid-turn while the daemon ran on: held like a restart, as a crash. */
+  holdExitedTurn(threadId: string): void {
+    const host = this.thread(threadId);
+    host.queue.paused = true;
+    host.queue.reason = "restart";
+    host.queue.exited = true;
+    host.queue.lastFailure = null;
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }
@@ -489,6 +505,7 @@ export class FakeDaemon implements Host {
       ...(init.lineage ? { lineage: init.lineage } : {}),
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
+      ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: init.access ?? null,
@@ -788,21 +805,7 @@ export class FakeDaemon implements Host {
   }
   service(message: ClientMessage, connection: Connection): boolean {
     if (message.type === "pi.control") {
-      const host = this.threads.get(message.threadId);
-      const valid =
-        host?.view.thread.provider === "pi" &&
-        !busy(host) &&
-        message.operation.kind === "rollback" &&
-        Object.values(host.view.items).some(
-          (item) =>
-            item.nativeId ===
-            (message.operation.kind === "rollback" ? message.operation.entryId : undefined),
-        );
-      connection.push({
-        type: "pi.result",
-        requestId: message.requestId,
-        result: valid ? { ok: true } : { ok: false, error: "Pi history point unavailable" },
-      });
+      connection.push(piControlResult(message, this.threads.get(message.threadId)));
       return true;
     }
     if (message.type === "terminal.request" && "terminalId" in message.operation) {
@@ -859,81 +862,17 @@ export class FakeDaemon implements Host {
       );
       return true;
     }
-    if (
-      [
-        "accounts.add",
-        "accounts.rename",
-        "accounts.remove",
-        "accounts.setDefault",
-        "accounts.login",
-        "accounts.logout",
-      ].includes(message.type)
-    ) {
-      const scopes = this.options.deviceScopes?.[connection.deviceId];
-      if (
-        this.options.deviceScopes &&
-        !scopes?.some((scope) => scope === "accounts" || scope === "desktop")
-      ) {
-        connection.push({
-          type: "error",
-          code: "forbidden",
-          message: "accounts scope required",
-          ...("requestId" in message ? { requestId: message.requestId } : {}),
-        });
-        return true;
-      }
-    }
-    if (
-      message.type.startsWith("provider.install.") &&
-      this.options.deviceScopes &&
-      !this.options.deviceScopes[connection.deviceId]?.includes("operate")
-    ) {
-      if ("requestId" in message && message.requestId)
-        connection.push({
-          type: "provider.install.result",
-          requestId: message.requestId,
-          result: { ok: false, error: "forbidden" },
-        });
+    const refusal = scopeRefusal(message, this.options.deviceScopes, connection.deviceId);
+    if (refusal) {
+      if (refusal !== "silent") connection.push(refusal);
       return true;
     }
-    if (
-      message.type.startsWith("provider.accounts.") ||
-      message.type.startsWith("provider.login.") ||
-      message.type === "provider.logout" ||
-      message.type.startsWith("onboarding.")
-    ) {
-      const scope =
-        message.type === "onboarding.query" || message.type === "provider.accounts.list"
-          ? "read"
-          : "operate";
-      if (
-        this.options.deviceScopes &&
-        !this.options.deviceScopes[connection.deviceId]?.includes(scope)
-      ) {
-        if ("requestId" in message && message.requestId)
-          connection.push(
-            message.type.startsWith("provider.accounts.")
-              ? {
-                  type: "provider.accounts.result",
-                  requestId: message.requestId,
-                  result: { ok: false, error: "forbidden" },
-                }
-              : message.type.startsWith("onboarding.")
-                ? {
-                    type: "onboarding.result",
-                    requestId: message.requestId,
-                    result: { ok: false, error: "forbidden" },
-                  }
-                : {
-                    type: "provider.login.result",
-                    requestId: message.requestId,
-                    result: { ok: false, error: "forbidden" },
-                  },
-          );
-        return true;
-      }
-    }
+    if (this.transfers.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
+  }
+  /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */
+  linkTo(other: FakeDaemon, link: Partial<FleetLink> = {}): void {
+    this.transfers.link(other, link);
   }
   release(connection: Connection): void {
     this.connections.delete(connection);
@@ -951,6 +890,11 @@ export class FakeDaemon implements Host {
   /** A scripted Offshift run change, on the same stream as the daemon's run writes. */
   updateOffshift(id: string, card: OffshiftRunCard, agoMs = 0): void {
     this.append(this.thread(id), [{ type: "offshift.updated", card }], this.at(agoMs));
+  }
+  /** Push to every signed-in connection. */
+  private broadcast(message: ServerMessage): void {
+    for (const connection of this.connections)
+      if (connection.authenticated) connection.push(message);
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
@@ -1030,6 +974,16 @@ export class FakeDaemon implements Host {
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
     const payload = command.payload;
+    if (payload.type === "workspace.transfer" || payload.type === "thread.continueOn") {
+      const refused = this.canManageProjects(command.deviceId)
+        ? this.refusals.get(payload.type)
+        : "forbidden";
+      const result = refused
+        ? { commandId: command.id, ok: false, error: refused }
+        : this.transfers.start({ ...command, payload });
+      this.receipts.set(command.id, { deviceId: command.deviceId, result });
+      return result;
+    }
     const configurations = ProviderConfigurations.parse(
       this.services.settings.get("providers.configuration"),
     );
@@ -1237,17 +1191,12 @@ export class FakeDaemon implements Host {
           title: payload.title ?? `${from.title} (fork)`,
           input: [{ type: "text", text: payload.input }],
         });
+        const opening = forkOpening(source, payload.point, provider);
         this.createThread({
           ...started.thread,
           ...(from.details ? { details: from.details } : {}),
           execution: payload.selection ?? { provider, options: {} },
-          lineage: {
-            parentThreadId: from.id,
-            parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
-            point: payload.point,
-            mode: provider === from.provider ? "native" : "portable",
-            lossy: provider !== from.provider,
-          },
+          lineage: opening.lineage,
         });
         if (attachments.length)
           this.servicesWire.context.inherit(
@@ -1263,7 +1212,8 @@ export class FakeDaemon implements Host {
             attachments.length
           )
             fact.draft.attachments = attachments;
-        this.apply(id, started.facts);
+        const [root, ...rest] = started.facts;
+        this.apply(id, [...(root ? [root] : []), ...opening.facts, ...rest]);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
       }
       case "thread.merge": {
@@ -1387,6 +1337,9 @@ export class FakeDaemon implements Host {
               id: payload.workspaceId,
               name: payload.workspaceId,
               path: `/fake/${payload.workspaceId}`,
+              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
+                ? { kind: "chat" as const, name: "Chat" }
+                : {}),
             },
             mode: payload.mode ?? "local",
             worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),

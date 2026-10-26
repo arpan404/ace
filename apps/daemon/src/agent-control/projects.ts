@@ -13,14 +13,14 @@ export type ProjectLookup =
   | { ok: true; project: ProjectChoice }
   | { ok: false; code: "not_found" | "invalid"; hint: string };
 
-/** Registered projects on this machine, most recently opened first. */
+/** Registered projects on this machine, most recently opened first; chats are not projects. */
 function registered(store: Store): ProjectChoice[] {
   return store.atomic((db) =>
     db
       .prepare(
         `${projectSelect} LEFT JOIN workspace_recent r ON r.workspace_id=w.id
         WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
-        ORDER BY r.opened_at IS NULL, r.opened_at DESC, w.name`,
+        AND m.kind IS NULL ORDER BY r.opened_at IS NULL, r.opened_at DESC, w.name`,
       )
       .all()
       .map(decodeProjectRow)

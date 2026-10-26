@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ForgePrRef } from "@ace/protocol/forge";
 import type {
+  ForgeHiddenComment,
   ForgeReactionContent,
   ForgeReactionSubject,
   ForgeReactionSummary,
@@ -36,7 +37,15 @@ const Groups = z
   .max(32)
   .nullable();
 const PageInfo = z.object({ hasNextPage: z.boolean(), endCursor: text.nullable() });
-const Commented = z.object({ databaseId: z.number().int().positive(), reactionGroups: Groups });
+// Visibility fields are optional so a host that leaves them out marks visibility unread.
+const Commented = z.object({
+  databaseId: z.number().int().positive(),
+  reactionGroups: Groups,
+  isMinimized: z.boolean().optional(),
+  minimizedReason: text.nullable().optional(),
+  viewerCanMinimize: z.boolean().optional(),
+});
+const visibilityFields = "isMinimized minimizedReason viewerCanMinimize";
 const Conversation = z.object({
   data: z.object({
     repository: z.object({
@@ -68,8 +77,8 @@ const Reaction = z.looseObject({
   content: text,
   user: z.looseObject({ login: text }).nullable(),
 });
-const conversationQuery = `query PrReactions($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ ${groupFields} comments(first:100,after:$after){ nodes { databaseId ${groupFields} } pageInfo { hasNextPage endCursor } } } } }`;
-const threadsQuery = `query PrReviewReactions($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ reviewThreads(first:50,after:$after){ nodes { comments(first:100){ nodes { databaseId ${groupFields} } } } pageInfo { hasNextPage endCursor } } } } }`;
+const conversationQuery = `query PrReactions($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ ${groupFields} comments(first:100,after:$after){ nodes { databaseId ${groupFields} ${visibilityFields} } pageInfo { hasNextPage endCursor } } } } }`;
+const threadsQuery = `query PrReviewReactions($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ reviewThreads(first:50,after:$after){ nodes { comments(first:100){ nodes { databaseId ${groupFields} ${visibilityFields} } } } pageInfo { hasNextPage endCursor } } } } }`;
 
 function summary(
   subject: ForgeReactionSubject,
@@ -85,6 +94,17 @@ function summary(
   return kept.length ? { subject, groups: kept } : undefined;
 }
 
+/** GitHub's minimizedReason ("off-topic", "OUTDATED") as protocol text: lower case, hyphenated. */
+export function hiddenReason(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replaceAll("_", "-").slice(0, 100) || "unknown";
+}
+/** What the review page shows beside comments: reactions, which comments are hidden, and which the viewer may hide. */
+export type CommentDecorations = {
+  reactions: ForgeReactionSummary[];
+  /** Null when the host didn't report visibility for every comment. */
+  hidden: ForgeHiddenComment[] | null;
+  hideable: { source: "issue" | "inline"; commentId: number }[] | null;
+};
 /** Reactions on the PR description and its comments: who reacted how, and the viewer's own. */
 export class GitHubReactions {
   readonly #io: ReviewIo;
@@ -93,12 +113,31 @@ export class GitHubReactions {
     this.#io = io;
     this.#pr = pr;
   }
-  /** Every reacted subject of the PR. Bounded: 3,000 conversation comments, 1,000 threads. */
-  async summaries(number: number, signal: AbortSignal): Promise<ForgeReactionSummary[]> {
+  /**
+   * Every reacted subject of the PR, and every comment's visibility, from one traversal.
+   * Bounded: 3,000 conversation comments, 1,000 threads.
+   */
+  async decorations(number: number, signal: AbortSignal): Promise<CommentDecorations> {
     const { owner, name } = this.#pr(number).repository;
     const budget = new ReadBudget();
     const result: ForgeReactionSummary[] = [];
     const push = (item: ForgeReactionSummary | undefined) => item && result.push(item);
+    const hidden: ForgeHiddenComment[] = [];
+    const hideable: { source: "issue" | "inline"; commentId: number }[] = [];
+    let visibilityRead = true;
+    const see = (source: "issue" | "inline", node: z.infer<typeof Commented>) => {
+      if (node.isMinimized === undefined || node.viewerCanMinimize === undefined) {
+        visibilityRead = false;
+        return;
+      }
+      if (node.isMinimized)
+        hidden.push({
+          source,
+          commentId: node.databaseId,
+          reason: hiddenReason(node.minimizedReason),
+        });
+      if (node.viewerCanMinimize) hideable.push({ source, commentId: node.databaseId });
+    };
     const page = async <T>(
       query: string,
       schema: z.ZodType<T>,
@@ -130,8 +169,10 @@ export class GitHubReactions {
         const pr = data.data.repository.pullRequest;
         if (first) push(summary({ kind: "pr" }, pr.reactionGroups));
         for (const node of pr.comments.nodes)
-          if (node)
+          if (node) {
             push(summary({ kind: "issue", commentId: node.databaseId }, node.reactionGroups));
+            see("issue", node);
+          }
       },
       30,
     );
@@ -142,13 +183,20 @@ export class GitHubReactions {
       (data) => {
         for (const thread of data.data.repository.pullRequest.reviewThreads.nodes)
           for (const node of thread.comments.nodes)
-            if (node)
+            if (node) {
               push(summary({ kind: "inline", commentId: node.databaseId }, node.reactionGroups));
+              see("inline", node);
+            }
       },
       20,
     );
-    if (result.length > 4_001) throw new ForgeError("limit");
-    return result;
+    if (result.length > 4_001 || hidden.length > 4_000 || hideable.length > 4_000)
+      throw new ForgeError("limit");
+    return {
+      reactions: result,
+      hidden: visibilityRead ? hidden : null,
+      hideable: visibilityRead ? hideable : null,
+    };
   }
   #path(number: number, subject: ForgeReactionSubject): string {
     const root = this.#io.root;

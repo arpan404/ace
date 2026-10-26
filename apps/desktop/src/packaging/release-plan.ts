@@ -75,7 +75,8 @@ export function daemonTargetsFor(
   platform: NodeJS.Platform,
   arch: string,
 ): z.infer<typeof ReleaseTarget>[] {
-  if (platform === "darwin") return ["darwin-arm64", "darwin-x64"];
+  // Apple silicon only: Intel Macs are not offered a standalone daemon.
+  if (platform === "darwin") return ["darwin-arm64"];
   if (platform === "linux" && (arch === "arm64" || arch === "x64")) return [`linux-${arch}`];
   throw new Error(`No standalone daemon release is built on ${platform}-${arch}`);
 }

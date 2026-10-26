@@ -53,8 +53,9 @@ test("the first down and up share control acquisition so the Simulator receives 
       },
     };
   });
+  // Drop the channel so it comes back by itself through the wrapped transport.
   act(() => app.daemon.appDevices.dropAll());
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  await waitFor(() => expect(app.daemon.appDevices.openChannels).toBe(1));
   const device = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
   // An earlier press took control; by the next tap the service's clock has run its lease out.
   await userEvent.click(await within(device).findByRole("button", { name: "Home" }));

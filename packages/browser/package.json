@@ -29,12 +29,14 @@
     "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",
     "sharp": "0.34.5",
     "yauzl": "3.2.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/design-tokens": "workspace:*",
     "@types/ws": "8.18.1",
     "@types/yauzl": "2.10.3",
     "esbuild": "0.25.12",

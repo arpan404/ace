@@ -169,7 +169,11 @@ test("changed UID or group retains a live provider, while a recycled PID does no
       ...skillProcessRuntime,
       identity(pid) {
         return pid === identity.pid
-          ? { ...identity, uid: identity.uid + 1, group: identity.group + 1 }
+          ? {
+              ...identity,
+              uid: typeof identity.uid === "number" ? identity.uid + 1 : identity.uid + "-1",
+              group: identity.group + 1,
+            }
           : skillProcessRuntime.identity(pid);
       },
       groupGone() {
@@ -249,5 +253,33 @@ test("a retained prefix cannot starve later reclaimable roots, and each restart 
     expect(await readFile(outside, "utf8")).toBe("keep me");
   } finally {
     await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a home reached through a symlinked directory gets skill projections, while a link inside the home is still refused", async () => {
+  // Fedora Atomic links /home to /var/home; macOS links /var and /tmp into /private.
+  const real = await mkdtemp(join(tmpdir(), "ace-skill-linked-home-"));
+  const linked = `${real}-link`;
+  await symlink(real, linked);
+  try {
+    const dataDir = join(linked, ".ace");
+    await mkdir(dataDir);
+    const root = await createBuiltinSkillRoot(dataDir);
+    await prepareBuiltinSkills("claude", root);
+    expect(await readFile(skillPath(root), "utf8")).toContain("html_render");
+
+    const planted = join(real, "planted");
+    await mkdir(planted);
+    const guarded = join(linked, "guarded");
+    await mkdir(guarded);
+    await symlink(planted, join(guarded, "builtin-skill-sessions"));
+    await expect(
+      createBuiltinSkillRoot(guarded).then((linkedRoot) =>
+        prepareBuiltinSkills("claude", linkedRoot),
+      ),
+    ).rejects.toThrow("Symlink forbidden");
+  } finally {
+    await rm(linked, { force: true });
+    await rm(real, { recursive: true, force: true });
   }
 });

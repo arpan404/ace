@@ -8,15 +8,27 @@ import type { ForgeReviewAction, ForgeReviewDraft } from "@ace/protocol/forge-re
 import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { ReadBudget } from "./read-budget.ts";
-import { validHostedAnchor } from "./review-anchor.ts";
 import { decode, type ReviewIo } from "./review-io.ts";
 import { GitHubReactions } from "./github-reactions.ts";
 import { GitHubSuggestions } from "./github-suggestions.ts";
+import { GitHubCommentVisibility } from "./github-comment-visibility.ts";
+import {
+  GitHubLineComment,
+  anchorCoordinates,
+  assertHostedAnchors,
+} from "./github-line-comment.ts";
+import { GitHubReviewerWrites, isReviewerAction } from "./github-reviewer-writes.ts";
 const text = z.string().max(65_536);
 const positive = z.number().int().positive();
 const Comment = z.looseObject({
   id: positive,
   body: text,
+  // GitHub's GraphQL node id, used only to hide a comment; anything else reads as missing.
+  node_id: z
+    .string()
+    .regex(/^[A-Za-z0-9_=-]{1,200}$/)
+    .optional()
+    .catch(undefined),
   user: z.looseObject({ login: text }).nullable(),
   pull_request_url: text.optional(),
   issue_url: text.optional(),
@@ -71,9 +83,6 @@ const Files = z.object({
     }),
   }),
 });
-const Requested = z.looseObject({
-  users: z.array(z.looseObject({ login: text })).max(1_000),
-});
 export function reviewWriteMarker(operationId: string): string {
   return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -84,6 +93,10 @@ export class GitHubReviews {
   readonly #pr: (number: number) => ForgePrRef;
   readonly #reactions: GitHubReactions;
   readonly #suggestions: GitHubSuggestions;
+  readonly #visibility: GitHubCommentVisibility;
+  readonly #lineComment: GitHubLineComment;
+  readonly #io: ReviewIo;
+  readonly #reviewers: GitHubReviewerWrites;
   constructor(api: GhApi, pr: (number: number) => ForgePrRef) {
     this.#api = api;
     this.#pr = pr;
@@ -97,10 +110,14 @@ export class GitHubReviews {
     };
     this.#reactions = new GitHubReactions(io, pr);
     this.#suggestions = new GitHubSuggestions(io);
+    this.#visibility = new GitHubCommentVisibility(io, (...args) => this.#mutation(...args));
+    this.#lineComment = new GitHubLineComment(io);
+    this.#io = io;
+    this.#reviewers = new GitHubReviewerWrites(io);
   }
-  /** Reacted subjects of the PR: its description, conversation comments and inline comments. */
-  reactions(number: number, signal: AbortSignal) {
-    return this.#reactions.summaries(number, signal);
+  /** Reactions plus which comments are hidden and which the viewer may hide, read together. */
+  decorations(number: number, signal: AbortSignal) {
+    return this.#reactions.decorations(number, signal);
   }
   async #request(...args: Parameters<GhApi["request"]>) {
     const response = await this.#api.request(...args);
@@ -230,19 +247,15 @@ export class GitHubReviews {
       );
       return file?.state === (action.kind === "file.view" ? "VIEWED" : "UNVIEWED");
     }
+    if (action.kind === "line.comment")
+      return this.#lineComment.reconcile(number, action, host.viewer, marker, signal);
+    if (action.kind === "comment.hide" || action.kind === "comment.unhide")
+      return this.#visibility.reconcile(number, action, signal);
     if (action.kind === "reaction.add" || action.kind === "reaction.remove")
       return this.#reactions.reconcile(number, action, host.viewer, signal);
     if (action.kind === "suggestions.apply")
       return this.#suggestions.reconcile(number, action, signal);
-    if (action.kind === "reviewers.request") {
-      const requested = new Set(
-        decode(
-          Requested,
-          (await this.#request(`${this.#root}/pulls/${number}/requested_reviewers`, signal)).body,
-        ).users.map((u) => u.login.toLowerCase()),
-      );
-      return action.reviewers.every((name) => requested.has(name.toLowerCase()));
-    }
+    if (isReviewerAction(action)) return this.#reviewers.reconcile(number, action, signal);
     return false;
   }
   async #mutation(
@@ -291,16 +304,12 @@ export class GitHubReviews {
         drafts.some((d) => d.anchor.commit !== action.headSha)
       )
         throw new ForgeError("conflict");
-      // Validate every selected coordinate against the hosted patch, never a local worktree.
-      const files = await this.#records(
-        `${this.#root}/pulls/${number}/files?per_page=100`,
-        z.looseObject({ filename: text, patch: z.string().max(4_194_304).optional() }),
+      await assertHostedAnchors(
+        this.#io,
+        number,
+        drafts.map((d) => d.anchor),
         signal,
       );
-      for (const draft of drafts) {
-        const patch = files.find((f) => f.filename === draft.anchor.path)?.patch;
-        if (!patch || !validHostedAnchor(patch, draft.anchor)) throw new ForgeError("conflict");
-      }
       const latest = await this.host(number, signal);
       if (latest.pr.headRefOid !== action.headSha || latest.pr.state !== "OPEN")
         throw new ForgeError("conflict");
@@ -312,18 +321,7 @@ export class GitHubReviews {
           commit_id: action.headSha,
           event: action.event,
           body: `${action.body}\n\n${marker}`,
-          comments: drafts.map((d) => ({
-            path: d.anchor.path,
-            line: d.anchor.line,
-            side: d.anchor.side,
-            ...(d.anchor.startLine === undefined
-              ? {}
-              : {
-                  start_line: d.anchor.startLine,
-                  start_side: d.anchor.startSide ?? d.anchor.side,
-                }),
-            body: d.body,
-          })),
+          comments: drafts.map((d) => ({ ...anchorCoordinates(d.anchor), body: d.body })),
         },
         "POST",
         dispatch,
@@ -406,21 +404,27 @@ export class GitHubReviews {
       );
       return;
     }
+    if (action.kind === "line.comment") {
+      // Never sends drafts: a single comment must not submit the viewer's pending review.
+      if (drafts.length) throw new ForgeError("conflict");
+      return this.#lineComment.write(
+        number,
+        action,
+        host,
+        () => this.host(number, signal),
+        marker,
+        signal,
+        allowed,
+        dispatch,
+      );
+    }
+    if (action.kind === "comment.hide" || action.kind === "comment.unhide")
+      return this.#visibility.write(number, action, operationId, signal, allowed, dispatch);
     if (action.kind === "reaction.add" || action.kind === "reaction.remove")
       return this.#reactions.write(number, action, host.viewer, signal, allowed, dispatch);
     if (action.kind === "suggestions.apply")
       return this.#suggestions.write(number, action, host, operationId, signal, allowed, dispatch);
-    if (action.kind === "reviewers.request") {
-      if (host.pr.state !== "OPEN") throw new ForgeError("conflict");
-      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
-      const response = await this.#request(
-        `${this.#root}/pulls/${number}/requested_reviewers`,
-        signal,
-        { reviewers: action.reviewers },
-        "POST",
-        dispatch,
-      );
-      decode(z.looseObject({ number: positive }), response.body);
-    }
+    if (isReviewerAction(action))
+      return this.#reviewers.write(number, action, host, signal, allowed, dispatch);
   }
 }

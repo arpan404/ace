@@ -22,7 +22,8 @@ struct HostServices: Sendable {
     }
 
     /// Secret, directory and result operations. Returns nil for operations owned elsewhere.
-    func perform(_ operation: String, input: Data) throws -> String? {
+    func perform(_ request: HostRequest) throws -> String? {
+        let operation = request.operation, input = request.input
         switch operation {
         case "secret.get", "secret.delete":
             let key = try JSONDecoder().decode(String.self, from: input)
@@ -41,7 +42,7 @@ struct HostServices: Sendable {
             return try String(contentsOf: directoryURL, encoding: .utf8)
         case "directory.save":
             guard let directoryURL else { throw HostError.unsupported }
-            let value = try JSONDecoder().decode(String.self, from: input)
+            let value = try request.requireBody()
             guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
             try FileManager.default.createDirectory(at: directoryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(value.utf8).write(to: directoryURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -52,7 +53,7 @@ struct HostServices: Sendable {
             return try staging.chunk(read.localId, offset: read.offset, limit: read.limit)
         case "access.result":
             guard let result else { throw HostError.unsupported }
-            result(String(decoding: input, as: UTF8.self))
+            result(try request.requireBody())
             return ""
         default: return nil
         }

@@ -25,6 +25,7 @@
     "check:ui": "node scripts/check-ui-values.ts",
     "icons:providers": "node scripts/provider-icons.ts",
     "check:deps": "depcruise apps/android/src apps/android/modules/ace-native/index.tsx apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
+    "bench:daemon": "node tools/daemon-bench/src/check.ts",
     "check:perf": "node apps/daemon/bench/check.ts && node packages/browser/bench/video-link.ts && bun run --filter @ace/web-perf check && node tools/web-perf/device/check.ts",
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",

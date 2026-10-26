@@ -1,6 +1,7 @@
 import type { ForkPoint } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { createContext, use, useCallback } from "react";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** Where a fork starts, in the fork draft's address: `?run=` for a turn, `?item=` for an answer. */
 export type ForkDraftSearch = { run?: string | undefined; item?: string | undefined };
@@ -13,14 +14,15 @@ export const forkDraftSearch = (point: ForkPoint): ForkDraftSearch =>
  */
 export function useOpenFork() {
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   return useCallback(
     (threadId: string, point: ForkPoint) =>
       void navigate({
         to: "/t/$threadId/fork",
         params: { threadId },
-        search: forkDraftSearch(point),
+        search: { ...forkDraftSearch(point), ...machine },
       }),
-    [navigate],
+    [navigate, machine],
   );
 }
 

@@ -1,5 +1,6 @@
 import type { ForgeIssueList } from "@ace/protocol/forge-issues";
 import type { ForgeOpenWork, ForgePrList } from "@ace/protocol/forge-browser";
+import type { ForgePerson, ForgeReference } from "@ace/protocol/forge-people";
 
 /** How long a list read answers repeats without asking GitHub again. */
 export const listFreshMs = 60_000;
@@ -57,7 +58,8 @@ export class ListCache<T> {
       waiters: 0,
       settled: false,
       promise: load(controller.signal).then((value) => {
-        if (generation === this.#generation) this.#keep(key, value);
+        // With no freshness the cache only shares reads on their way; answers aren't kept.
+        if (generation === this.#generation && this.#freshMs > 0) this.#keep(key, value);
         return value;
       }),
     };
@@ -84,16 +86,23 @@ export class ForgeListCaches {
   readonly prs: ListCache<ForgePrList>;
   readonly issues: ListCache<ForgeIssueList>;
   readonly openWork: ListCache<ForgeOpenWork>;
+  /** `@` completions by search; a write never changes who can be mentioned. */
+  readonly people: ListCache<ForgePerson[]>;
+  /** `#` completions by search. */
+  readonly references: ListCache<ForgeReference[]>;
   constructor(now: () => number, freshMs = listFreshMs) {
     this.prs = new ListCache(now, freshMs);
     this.issues = new ListCache(now, freshMs);
     this.openWork = new ListCache(now, freshMs);
+    this.people = new ListCache(now, freshMs * 5);
+    this.references = new ListCache(now, freshMs);
   }
   /** A write may have changed any list: the next read of each asks GitHub. */
   invalidate(): void {
     this.prs.invalidate();
     this.issues.invalidate();
     this.openWork.invalidate();
+    this.references.invalidate();
   }
 }
 

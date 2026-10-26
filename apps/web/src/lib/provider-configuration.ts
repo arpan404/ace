@@ -5,6 +5,7 @@ import {
   type ProviderConfiguration,
   type ProviderKind,
 } from "@ace/protocol";
+import { changeProvider } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -45,18 +46,6 @@ export function editProviderConfiguration(
     })
     .catch(() => {});
   return next;
-}
-
-export function changeProvider(
-  rows: ProviderConfigurations,
-  provider: ProviderKind,
-  change: (row: ProviderConfiguration) => ProviderConfiguration,
-): ProviderConfigurations {
-  const own = rows.findIndex((row) => row.provider === provider && row.instance === undefined);
-  if (own === -1) return ProviderConfigurations.parse([...rows, change({ provider })]);
-  return ProviderConfigurations.parse(
-    rows.map((row, index) => (index === own ? change(row) : row)),
-  );
 }
 
 export function useProviderConfiguration(provider: ProviderKind) {

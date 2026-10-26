@@ -4,6 +4,7 @@ import { ScreenId, type ScreenState } from "@ace/protocol";
 import { type Toolkit, type ToolContext } from "@ace/mcp-server";
 import type { ScreenManager } from "./manager.ts";
 import { TargetBusyError } from "./target-busy.ts";
+import { HelperCommandError } from "./helper.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { computerUseHandler, settledResult } from "./tools.ts";
 import { computerUseSchemas, screenToolMetadata, type ScreenToolName } from "./tool-schemas.ts";
@@ -35,10 +36,19 @@ const text = (value: unknown) => [{ type: "text" as const, text: JSON.stringify(
 async function openApp(manager: ScreenManager, args: unknown, context: ToolContext) {
   const { caller, signal } = context;
   const { bundleId, windowId, url, mode } = computerUseSchemas.screen_open_app.parse(args);
+  const isWindows = (await manager.capabilities())?.platform === "windows";
+  if (isWindows) {
+    if (mode === "background")
+      throw new HelperCommandError("foreground_required", "Windows needs foreground input");
+    if (url !== undefined)
+      throw new HelperCommandError("not_supported", "Windows does not open URLs");
+  }
   const opened = await manager.openAgentApp(bundleId, caller, signal, windowId);
   signal.throwIfAborted();
   const sessionId = manager.agentSession(caller, opened.sessionId);
-  if (mode !== undefined && manager.state(sessionId).mode !== mode) manager.mode(sessionId, mode);
+  const effectiveMode = mode ?? (isWindows ? "foreground" : undefined);
+  if (effectiveMode !== undefined && manager.state(sessionId).mode !== effectiveMode)
+    manager.mode(sessionId, effectiveMode);
   const windows = { windows: opened.windows, selectedWindowId: opened.selectedWindowId };
   const afterUrl =
     url === undefined

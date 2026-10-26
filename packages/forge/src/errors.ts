@@ -12,6 +12,10 @@
  * - `head_moved`: a PR's head commit changed after it was selected.
  * - `fork_deleted`: the PR's head repository (usually a fork) no longer exists.
  * - `conflict`: the resource changed under a guarded write (stale SHA, 409, stale read).
+ * - `notifications_unavailable`: gh's sign-in can't read or change notifications (a token
+ *   without the `notifications` or `repo` scope, a fine-grained token, an app token).
+ * - `branch_in_use`: another open PR has this branch as its head; deleting it would close it.
+ * - `branch_gone`: the branch to delete is already gone from the host.
  */
 export type ForgeErrorKind =
   | "not_found"
@@ -24,6 +28,8 @@ export type ForgeErrorKind =
   | "cancelled"
   | "unsupported"
   | "conflict"
+  | "branch_in_use"
+  | "branch_gone"
   | "no_commits"
   | "head_missing"
   | "base_missing"
@@ -32,7 +38,8 @@ export type ForgeErrorKind =
   | "head_moved"
   | "fork_deleted"
   | "outcome_uncertain"
-  | "preferences_changed";
+  | "preferences_changed"
+  | "notifications_unavailable";
 export class ForgeError extends Error {
   readonly kind: ForgeErrorKind;
   readonly retryAt: number | undefined;
@@ -55,5 +62,19 @@ export class ForgeQueryRefused extends ForgeError {
   constructor() {
     super("invalid_data", undefined, false);
     this.name = "ForgeQueryRefused";
+  }
+}
+
+/**
+ * The host itself answered 401 or 403: a `forbidden` that names the HTTP status, so a reader can
+ * tell an account the token can't act for (403) from a sign-in that is gone (401, or gh's own
+ * "not signed in" exit, which stays a plain `forbidden`).
+ */
+export class ForgeAccessRefused extends ForgeError {
+  readonly status: 401 | 403;
+  constructor(status: 401 | 403) {
+    super("forbidden", undefined, false);
+    this.name = "ForgeAccessRefused";
+    this.status = status;
   }
 }

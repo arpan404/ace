@@ -1,6 +1,9 @@
 import { afterEach, expect, test } from "vitest";
 import { facts, fixtureImage } from "@ace/fake-daemon";
-import { ThreadId, ItemId } from "@ace/protocol";
+import { DeviceId, ThreadId, ItemId } from "@ace/protocol";
+import { Client, ClientError } from "@ace/client";
+import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { createHash } from "node:crypto";
 import { readNativeMedia } from "./native-media.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -59,7 +62,6 @@ test("published images read their own authenticated attachment and cannot be fet
   };
   const result = await readNativeMedia(client, request, new AbortController().signal);
   expect(result).toEqual({ kind: "image", data: fixtureImage.data });
-  daemon.createThread({ id: "foreign", workspaceId: "ace", provider: "codex", title: "Foreign" });
   await expect(
     readNativeMedia(
       client,
@@ -67,5 +69,74 @@ test("published images read their own authenticated attachment and cannot be fet
       new AbortController().signal,
     ),
   ).rejects.toThrow("Media unavailable");
+  lease.release();
+});
+
+test("a published canvas still opens on a daemon that has no attachment stream", async () => {
+  const daemon = new FakeDaemon({ clock: Date.now });
+  const client = new Client({
+    deviceId: DeviceId.parse("ios-media-device"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => daemon.token,
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(delayMs, callback) {
+        const timer = setTimeout(callback, delayMs);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: () => crypto.randomUUID(),
+    // Asked for the binary attachment stream, this daemon answers as one that never had it.
+    // oxlint-disable-next-line require-yield
+    async *attachmentSource() {
+      throw new ClientError("daemon", "UNSUPPORTED");
+    },
+  });
+  close = () => client.close();
+  const threadId = ThreadId.parse("canvas");
+  const html = "<!doctype html><html><head></head><body><p>Step 1</p></body></html>";
+  const sha256 = createHash("sha256").update(html).digest("hex");
+  daemon.createThread({ id: threadId, workspaceId: "ace", provider: "codex", title: "Canvas" });
+  daemon.apply(threadId, [
+    facts.rootAgent("codex"),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "page",
+      draft: {
+        type: "html",
+        complete: true,
+        visualization: {
+          title: "Counter",
+          mode: "interactive",
+          document: {
+            sha256,
+            bytes: Buffer.byteLength(html),
+            mimeType: "text/plain",
+            name: "c.html",
+          },
+        },
+      },
+    },
+  ]);
+  daemon.seedServices({ attachmentTexts: [{ threadId, sha256, text: html, name: "c.html" }] });
+  const lease = client.thread(threadId);
+  await client.start();
+  await until(
+    () => lease.store.order.some((id) => lease.store.item(id)?.type === "html"),
+    "canvas",
+  );
+  const itemId = lease.store.order.find((id) => lease.store.item(id)?.type === "html");
+  if (!itemId) throw new Error("Canvas missing");
+  const result = await readNativeMedia(
+    client,
+    { type: "native.media", threadId, itemId: ItemId.parse(itemId), scheme: "light" },
+    new AbortController().signal,
+  );
+  expect(result).toMatchObject({ kind: "html" });
+  // The page travels inside the sandboxed frame of an outer document that reports its height.
+  expect(JSON.stringify(result)).toContain("Step 1");
+  expect(JSON.stringify(result)).toContain("ace.html.height:");
   lease.release();
 });

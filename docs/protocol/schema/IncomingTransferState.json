@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/IncomingTransferState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "cloning",
+    "receiving",
+    "importing",
+    "completed",
+    "failed",
+    "cancelled"
+  ],
+  "type": "string"
+}

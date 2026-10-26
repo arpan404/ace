@@ -92,6 +92,23 @@
         }
       ]
     },
+    "threadIds": {
+      "items": {
+        "allOf": [
+          {
+            "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+          },
+          {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        ]
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
     "title": {
       "maxLength": 200,
       "type": "string"

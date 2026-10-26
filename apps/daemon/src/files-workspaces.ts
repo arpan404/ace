@@ -1,5 +1,6 @@
 import { BrowserArtifactFiles } from "./browser-artifact-files.ts";
 import { LinkedFiles } from "./linked-files.ts";
+import { ForgeMediaFiles } from "./forge-media/media-files.ts";
 import { createHash } from "node:crypto";
 import { FilesService } from "@ace/files";
 import type { ThreadId, WorkspaceId } from "@ace/protocol";
@@ -19,6 +20,7 @@ export class FilesWorkspaces {
   private pinned = new Set<string>();
   readonly browserArtifacts: BrowserArtifactFiles;
   readonly linkedFiles: LinkedFiles;
+  readonly forgeMedia: ForgeMediaFiles;
   private services = new Map<string, Promise<FilesService>>();
   private context: Context;
   private projects: ProjectStorage;
@@ -28,6 +30,11 @@ export class FilesWorkspaces {
     this.projects = new ProjectStorage(context.store, context.now);
     this.browserArtifacts = new BrowserArtifactFiles(context);
     this.linkedFiles = new LinkedFiles(context);
+    this.forgeMedia = new ForgeMediaFiles({
+      dataDir: context.config.dataDir,
+      now: context.now,
+      id: context.id,
+    });
   }
   root(threadId: ThreadId): string {
     const binding = this.context.store.executionWorkspace(threadId);
@@ -154,5 +161,6 @@ export class FilesWorkspaces {
     this.services.clear();
     await this.browserArtifacts.close();
     await this.linkedFiles.close();
+    await this.forgeMedia.close();
   }
 }

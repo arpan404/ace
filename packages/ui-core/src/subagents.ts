@@ -1,10 +1,13 @@
 import type { AgentStatus, ThreadStatus } from "@ace/protocol";
 import { agentRuns, type RunAgent } from "./agent-runs.ts";
+import { pluralCount } from "./counts.ts";
 
 export type SubagentState =
   | "working"
   | "human"
   | "waiting"
+  /** Delegated past its parent's run slots: it starts when a running sibling finishes. */
+  | "queued"
   | "unresponsive"
   | "failed"
   | "cancelled"
@@ -15,6 +18,7 @@ export const subagentLabels: Record<SubagentState, string> = {
   working: "Running",
   human: "Needs you",
   waiting: "Waiting",
+  queued: "Queued",
   unresponsive: "Not responding",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -32,6 +36,7 @@ const groupOf: Record<SubagentState, SubagentGroupStatus> = {
   unresponsive: "failed",
   working: "working",
   waiting: "working",
+  queued: "working",
   cancelled: "done",
   done: "done",
 };
@@ -56,6 +61,7 @@ export function subagentState(status: AgentStatus): SubagentState {
     case "working":
       return "working";
     case "blocked":
+      if (status.on === "queue") return "queued";
       return status.on === "human" ? "human" : status.on === "subagents" ? "working" : "waiting";
     case "unresponsive":
       return "unresponsive";
@@ -92,9 +98,10 @@ export function subagentTerminal(state: SubagentState): boolean {
 }
 
 const priority: Record<SubagentState, number> = {
-  human: 6,
-  working: 5,
-  waiting: 4,
+  human: 7,
+  working: 6,
+  waiting: 5,
+  queued: 4,
   unresponsive: 3,
   failed: 2,
   cancelled: 1,
@@ -125,6 +132,24 @@ export function subagentStatusLine(states: readonly SubagentState[]): string {
     .join(" · ");
 }
 
+/**
+ * A launch's heading in the transcript: "2 subagents" while any of them works or waits, and
+ * "2 subagents ran" once every one has ended, whatever its outcome.
+ */
+export function subagentGroupTitle(states: readonly SubagentState[]): string {
+  const count = pluralCount(states.length, "subagent");
+  return states.length && states.every(subagentTerminal) ? `${count} ran` : count;
+}
+
+/**
+ * The counts beside that heading, worst first: every state while the launch runs; once all have
+ * ended, only the ones that didn't finish (failed, cancelled), since "ran" already says the rest.
+ */
+export function subagentGroupCounts(states: readonly SubagentState[]) {
+  const counts = subagentStatusCounts(states);
+  return states.every(subagentTerminal) ? counts.filter((part) => part.state !== "done") : counts;
+}
+
 /** The status line's parts, worst first, so each count can take its own status tone. */
 export function subagentStatusCounts(
   states: readonly SubagentState[],
@@ -141,6 +166,7 @@ const statusWords: Record<SubagentState, string> = {
   human: "waiting on you",
   working: "working",
   waiting: "waiting",
+  queued: "queued",
   unresponsive: "not responding",
   failed: "failed",
   cancelled: "cancelled",
@@ -167,7 +193,9 @@ export function subagentBranchStates(
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];
     if (work.needsYou.has(agent.id)) return ["human"];
-    if (work.running.has(agent.id)) return ["working"];
-    return [subagentState(agent.status)];
+    const own = subagentState(agent.status);
+    // A child queued for its parent's run slot is unsettled, but not working yet.
+    if (work.running.has(agent.id) && own !== "queued") return ["working"];
+    return [own];
   });
 }

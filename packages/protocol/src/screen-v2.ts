@@ -309,7 +309,7 @@ export type ScreenInput = z.infer<typeof ScreenInput>;
 const Envelope = z.object({
   version: z.literal(2),
   id: ScreenId,
-  /** The person at a live view sent this input, not an agent (Linux X11 pointer input). */
+  /** The person at a live view sent this input, not an agent (Linux: only the person's input goes through the portal). */
   person: z.boolean().optional(),
 });
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [

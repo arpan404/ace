@@ -18,6 +18,9 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("notify"), notification: Notification }),
   z.object({ method: z.literal("drain") }),
   z.object({ method: z.literal("close") }),
+  z.object({ method: z.literal("sleep") }),
+  z.object({ method: z.literal("closeSleep") }),
+  z.object({ method: z.literal("forgetSleep") }),
   z.object({
     method: z.literal("ingest"),
     events: z.array(MetadataEvent).max(256),
@@ -66,7 +69,15 @@ export const FromWorker = z.discriminatedUnion("type", [
     type: z.literal("result"),
     id: seq,
     ok: z.boolean(),
-    value: z.union([seq, NotificationFeed, NotificationPreferences]).optional(),
+    value: z
+      .union([
+        seq,
+        NotificationFeed,
+        NotificationPreferences,
+        /** `closeSleep`: the spans in which queued agent notices are too old to send. */
+        z.array(z.object({ after: seq, before: seq }).strict()).max(64),
+      ])
+      .optional(),
     /** Why a call failed, so the daemon's log names the cause. */
     error: z.string().max(256).optional(),
   }),
@@ -77,7 +88,14 @@ export const FromWorker = z.discriminatedUnion("type", [
     notification: Notification,
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
+  /** Sent after a call changes when delivery next has work or whether the worker is idle. */
+  z.object({ type: z.literal("state"), deadline: seq.nullable(), idle: z.boolean() }),
 ]);
 /** What a successful call may return. */
 export type WorkerValue = Extract<z.infer<typeof FromWorker>, { type: "result" }>["value"];
-export const WorkerConfig = z.object({ path: z.string().max(4096), windowMs: seq.default(5000) });
+export const WorkerConfig = z.object({
+  path: z.string().max(4096),
+  windowMs: seq.default(5000),
+  alertsFrom: seq.default(0),
+  sleptAfter: z.object({ seq, at: seq }).optional(),
+});

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillUpdateFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "change": {
+      "enum": [
+        "added",
+        "changed",
+        "removed"
+      ],
+      "type": "string"
+    },
+    "flagged": {
+      "type": "boolean"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "change",
+    "flagged"
+  ],
+  "type": "object"
+}

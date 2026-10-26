@@ -72,14 +72,18 @@ test("Settle and Unsettle on a row's hover actions move it between the list and 
   expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined();
 });
 
-/** The row's first line as read, and the controls its box offers. */
+/**
+ * The row's first line as read, and the controls its box offers beside the row's link (the
+ * link's own pull request chip is part of the row, not one of its actions).
+ */
 const firstLine = (title: RegExp) => card(title).firstElementChild?.firstElementChild?.textContent;
 const controls = (title: RegExp) =>
   within(card(title).parentElement ?? document.body)
     .getAllByRole("button")
+    .filter((button) => !card(title).contains(button))
     .map((button) => button.getAttribute("aria-label"));
 
-test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {
+test("hovering an active row swaps status for actions and keeps its linked pull request", async () => {
   await openHome();
   const title = "Bump Codex app-server to 0.48";
   await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
@@ -87,11 +91,17 @@ test("hovering an active row shows only snooze, settle and more actions, not the
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
   const resting = firstLine(row);
+  expect(
+    within(card(row)).getByRole("button", { name: "Open merged pull request #212" }),
+  ).toBeTruthy();
 
   await userEvent.hover(card(row));
   expect(firstLine(row)).not.toBe(resting);
   expect(resting?.startsWith(firstLine(row) ?? "?")).toBe(true);
   expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
+  expect(
+    within(card(row)).getByRole("button", { name: "Open merged pull request #212" }),
+  ).toBeTruthy();
 
   await userEvent.unhover(card(row));
   expect(firstLine(row)).toBe(resting);

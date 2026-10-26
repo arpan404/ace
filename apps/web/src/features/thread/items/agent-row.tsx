@@ -1,4 +1,4 @@
-import type { SubagentState } from "@ace/ui-core";
+import type { SubagentDetailKind, SubagentState } from "@ace/ui-core";
 import { subagentLabels } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -21,6 +21,7 @@ export const subagentTones: Record<SubagentState, string> = {
   working: "working",
   human: "needs-you",
   waiting: "waiting",
+  queued: "idle",
   unresponsive: "unresponsive",
   failed: "failed",
   cancelled: "idle",
@@ -42,7 +43,7 @@ export const agentRowStyles = {
   detail: "col-span-2 min-w-0 truncate text-xs text-muted-foreground",
 } as const;
 
-export type AgentDetailKind = "live" | "result" | "human" | "failed";
+export type AgentDetailKind = SubagentDetailKind;
 
 export interface AgentRowParts {
   mark: AgentMark;

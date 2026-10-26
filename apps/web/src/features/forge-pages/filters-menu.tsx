@@ -19,7 +19,10 @@ export interface Choice {
   label: string;
 }
 
-/** A filter of the Filters menu: one choice of several, or any number of labels. */
+/**
+ * A part of the Filters menu: one choice of several, or any number of labels. A view setting
+ * (sort, project) sits in the menu too, but never counts as a filter that is on.
+ */
 export type FilterSection =
   | {
       kind: "one";
@@ -28,6 +31,7 @@ export type FilterSection =
       value: string;
       choices: Choice[];
       onChange(value: string): void;
+      setting?: boolean;
     }
   | {
       kind: "many";
@@ -38,13 +42,22 @@ export type FilterSection =
       onChange(values: string[]): void;
     };
 
+/** What a section is set to, said in the menu beside its name. */
+function chosen(section: FilterSection): string {
+  if (section.kind === "one")
+    return section.value === "" && !section.setting
+      ? ""
+      : (section.choices.find((choice) => choice.value === section.value)?.label ?? "");
+  return section.values.length ? String(section.values.length) : "";
+}
+
 const triggerClass =
   "inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground aria-expanded:bg-hover";
 
-/** The quiet "Filters ⌄" menu: each filter a submenu, with how many are on and a way to clear them. */
+/** The quiet "Filters ⌄" menu: each filter a submenu saying what it is set to, with how many are on and a way to clear them. */
 export function FiltersMenu(props: { sections: FilterSection[]; onClear(): void }) {
   const active = props.sections.filter((section) =>
-    section.kind === "one" ? section.value !== "" : section.values.length > 0,
+    section.kind === "one" ? !section.setting && section.value !== "" : section.values.length > 0,
   ).length;
   return (
     <Menu>
@@ -57,7 +70,12 @@ export function FiltersMenu(props: { sections: FilterSection[]; onClear(): void 
       <MenuContent align="end" className="min-w-52">
         {props.sections.map((section) => (
           <MenuSub key={section.id}>
-            <MenuSubTrigger>{section.label}</MenuSubTrigger>
+            <MenuSubTrigger>
+              <span className="flex min-w-0 items-center gap-4">
+                <span className="flex-1">{section.label}</span>
+                <span className="min-w-0 truncate text-subtle-foreground">{chosen(section)}</span>
+              </span>
+            </MenuSubTrigger>
             <MenuContent
               aria-label={section.label}
               side="right"

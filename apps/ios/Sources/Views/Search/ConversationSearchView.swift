@@ -20,6 +20,7 @@ struct ConversationSearchSheet: View {
                 }
             }
             .navigationTitle("Search").navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .navigationDestination(for: String.self) { id in
                 if let model, let thread = model.thread, thread.id == id {
@@ -56,13 +57,12 @@ struct ConversationSearchView: View {
                 Text("Visualizations").tag("html")
             }
             ForEach(search.hits) { hit in
-                if let itemId = hit.itemId {
-                    NavigationLink { ConversationHistoryView(model: model, threadId: hit.threadId, title: hit.threadTitle, itemId: itemId, openThread: openThread) } label: { SearchHitLabel(hit: hit) }
-                        .accessibilityIdentifier("search.hit.\(hit.id)")
-                } else {
-                    Button { openThread(hit.threadId) } label: { SearchHitLabel(hit: hit) }
-                        .buttonStyle(.plain).accessibilityIdentifier("search.hit.\(hit.id)")
-                }
+                // A hit in a message opens its thread there, in the thread's own history window.
+                Button {
+                    if let itemId = hit.itemId { model.focusOnOpen = ThreadFocus(thread: hit.threadId, item: itemId) }
+                    openThread(hit.threadId)
+                } label: { SearchHitLabel(hit: hit) }
+                    .buttonStyle(.plain).accessibilityIdentifier("search.hit.\(hit.id)")
             }
             if let problem = search.problem {
                 ServiceProblem(message: problem)

@@ -1,4 +1,3 @@
-// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { expect, test } from "vitest";
 import { Item, ThreadListEntry } from "@ace/protocol";

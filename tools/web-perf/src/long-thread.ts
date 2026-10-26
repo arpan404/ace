@@ -2,14 +2,14 @@ import { expect, type Page } from "@playwright/test";
 import { retryTiming, checkBudgets } from "@ace/perf-kit";
 import { budgets } from "./budgets.ts";
 import { observe, pageMemory, readRecord, report, reportDOM, resetRecord } from "./measure.ts";
-import { selectTurn, scrollTranscript, stepTurn } from "./navigation.ts";
+import { scrollTranscript, stepTurn } from "./navigation.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
 /*
  * A million-item thread in a real browser (ADR 0056, ADR 0062): the production build in
  * `--mode perf` with `?long=1`, whose client worker serves the synthetic five-day thread
  * (`multiDayThread`: 1,000,000 items, 2,000 turns, 48 subagent threads) on demand while a live
- * turn keeps adding items. Each round a person opens the turn timeline and jumps across days,
+ * turn keeps adding items. Each round a person jumps across days from the conversation rail,
  * scrolls the jumped window toward the present, steps between turns, searches the thread and
  * steps through hits, then jumps back to live. Input to next paint, long tasks, the DOM and the
  * page's retained heap must stay within budget.
@@ -17,7 +17,9 @@ import { open, withPerfApp } from "./perf-app.ts";
 
 const limits = budgets.longThread;
 const mod = process.platform === "darwin" ? "Meta" : "Control";
-/** Turns each round jumps to: days apart, old and recent. */
+/** The synthetic thread's turn count (`multiDayThread`). */
+const totalTurns = 2_000;
+/** Turns each round jumps near: days apart, old and recent. */
 const targets = [137, 1_777, 412, 1_503, 64, 1_024, 1_960, 750];
 /** Searches each round: words in every turn, error notices, a file, an early turn's output. */
 const queries = [
@@ -64,14 +66,26 @@ async function measureLongThread(): Promise<void> {
     const start = await resetRecord(page);
     let warm: number | undefined;
     for (let round = 0; round < limits.rounds; round++) {
-      const target = targets[round % targets.length] ?? 1;
-      // The timeline: across days to one turn (⌥⌘G; the header's ⋯ menu lists it too).
-      await page.keyboard.press(`Alt+${mod}+g`);
-      await page.getByRole("listbox", { name: "Turns of this thread" }).waitFor();
-      await selectTurn(page, target);
+      // Across days to one turn from its tick on the conversation rail, which shows a spread of
+      // the thread's turns: pick the tick nearest this round's point in the thread.
+      const rail = page.getByRole("navigation", { name: "Conversation turns" });
+      const ticks = rail.getByRole("button");
+      // The rail spreads its ticks once it has the turn index and its height.
+      await expect.poll(() => ticks.count(), { timeout: 20_000 }).toBeGreaterThan(8);
+      // Only the synthetic turns: the live turn the worker keeps adding asks something else.
+      const turns = (
+        await ticks.evaluateAll((buttons) => buttons.map((b) => b.getAttribute("aria-label")))
+      ).map((label) => Number(label?.replace(/^Turn /, "")));
+      if (!turns.every(Number.isInteger)) throw new Error("A rail tick has no turn number");
+      const history = turns.filter((turn) => turn <= totalTurns);
+      const point = (targets[round % targets.length] ?? 1) / totalTurns;
+      const index = Math.min(history.length - 1, Math.round(point * (history.length - 1)));
+      const target = history[index];
+      if (target === undefined) throw new Error("The rail shows no turns of the history");
+      // By its label: the rail re-spreads its ticks as live turns arrive.
+      const tick = rail.getByRole("button", { name: `Turn ${target}`, exact: true });
       const jumpAt = await page.evaluate(() => performance.now());
-      await page.keyboard.press("Enter");
-      await page.getByRole("status", { name: "Jumped" }).waitFor();
+      await tick.click();
       await feed.getByText(`Migrate checkpoint ${target}, inspect files`).first().waitFor();
       jumps.push(await since(page, jumpAt));
       await page.keyboard.press("Escape");
@@ -120,11 +134,9 @@ async function measureLongThread(): Promise<void> {
       await sampleDOM();
       await page.keyboard.press("Escape");
       // Back to the live end, then a look at the live tail.
-      await page
-        .getByRole("button", { name: /^Jump to live/ })
-        .first()
-        .click();
-      await page.getByRole("status", { name: "Jumped" }).waitFor({ state: "detached" });
+      const toEnd = page.getByRole("button", { name: /^Scroll to end/ }).first();
+      await toEnd.click();
+      await toEnd.waitFor({ state: "detached" });
       await feed.hover();
       await scrollTranscript(page, -1_200, 200);
       await scrollTranscript(page, 1_200, 400);

@@ -1,4 +1,5 @@
-import { createContext, use, useSyncExternalStore } from "react";
+import { createContext, use, useState, useSyncExternalStore } from "react";
+import { useLayout } from "@/lib/layout.tsx";
 
 /*
  * Whether the thread's Work card is open, and where it fits. The header's details icon and the
@@ -69,14 +70,29 @@ export function workCardColumnWidth(areaWidth: number, column: number): number {
   return Math.min(column, areaWidth - workCardWidth - workCardGaps);
 }
 
-export function createWorkCardStore(): WorkCardStore {
+export interface WorkCardMemory {
+  /** The card was open on the last thread screen. */
+  open: boolean;
+  /** The card opened or closed; kept for the next thread screen. */
+  remember(open: boolean): void;
+}
+
+/**
+ * The card a thread screen starts with. With `memory`, a card left open on the last screen
+ * opens again once the area has room beside the column; it never comes back as the header's
+ * popover, which would cover the transcript on its own.
+ */
+export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
+  let restore = memory?.open ?? false;
   const listeners = new Set<() => void>();
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
   const set = (next: WorkCardState) => {
     if (next.open === state.open && next.side === state.side) return;
+    const opened = next.open !== state.open;
     state = next;
+    if (opened) memory?.remember(state.open);
     for (const listener of listeners) listener();
   };
   return {
@@ -93,12 +109,42 @@ export function createWorkCardStore(): WorkCardStore {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    setOpen: (open) => set({ ...state, open }),
-    toggle: () => set({ ...state, open: !state.open }),
+    setOpen: (open) => {
+      restore = false;
+      set({ ...state, open });
+    },
+    toggle: () => {
+      restore = false;
+      set({ ...state, open: !state.open });
+    },
     // The side card stays until closed on purpose; one that no longer fits closes rather than
-    // jumping into the header's popover.
-    setSide: (side) => set({ open: state.open && (side || !state.side), side }),
+    // jumping into the header's popover. The first measure decides whether a remembered card
+    // comes back.
+    setSide: (side) => {
+      const reopen = restore && side;
+      restore = false;
+      set({ open: reopen || (state.open && (side || !state.side)), side });
+    },
   };
+}
+
+const openKey = "ace.thread.workCardOpen";
+
+/**
+ * A thread screen's card store that remembers, on this device, whether the card was left open:
+ * moving to another thread and back keeps it where the person left it.
+ */
+export function useRememberedWorkCardStore(): WorkCardStore {
+  const { storage } = useLayout();
+  const [store] = useState(() =>
+    createWorkCardStore({
+      open: storage?.getItem(openKey) === "1",
+      remember: (open) => {
+        storage?.setItem(openKey, open ? "1" : "0");
+      },
+    }),
+  );
+  return store;
 }
 
 export const WorkCardContext = createContext<WorkCardStore | null>(null);

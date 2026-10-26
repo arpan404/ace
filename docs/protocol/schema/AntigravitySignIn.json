@@ -1,0 +1,61 @@
+{
+  "$id": "https://ace.local/protocol/v1/AntigravitySignIn.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "google",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "$ref": "https://ace.local/protocol/v1/GcpLocation.json"
+        },
+        "method": {
+          "const": "enterprise",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "https://ace.local/protocol/v1/GcpProjectId.json"
+        }
+      },
+      "required": [
+        "method",
+        "project",
+        "location"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "$ref": "https://ace.local/protocol/v1/GcpLocation.json"
+        },
+        "method": {
+          "const": "agent_platform",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "https://ace.local/protocol/v1/GcpProjectId.json"
+        }
+      },
+      "required": [
+        "method",
+        "project",
+        "location"
+      ],
+      "type": "object"
+    }
+  ]
+}

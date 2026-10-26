@@ -1,9 +1,14 @@
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import * as nodePath from "node:path";
 import { BrowserActionError } from "./action-error.ts";
-function within(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../"));
+
+type PathApi = Pick<typeof nodePath, "isAbsolute" | "relative" | "sep">;
+
+/** Whether `path` is `root` or below it. `pathApi` is injectable so win32 rules test on any OS. */
+export function pathWithin(root: string, path: string, pathApi: PathApi = nodePath): boolean {
+  const rel = pathApi.relative(root, path);
+  if (rel === "") return true;
+  return !pathApi.isAbsolute(rel) && rel !== ".." && !rel.startsWith(".." + pathApi.sep);
 }
 /** Real paths fence symlinks. Only regular files are sent to Chromium, never directories/devices. */
 export async function uploadPaths(options: {
@@ -15,11 +20,11 @@ export async function uploadPaths(options: {
 }): Promise<string[]> {
   const roots = await Promise.all(options.roots.map((root) => realpath(root)));
   const paths = await Promise.all(
-    options.files.map((file) => realpath(resolve(roots[0] ?? ".", file))),
+    options.files.map((file) => realpath(nodePath.resolve(roots[0] ?? ".", file))),
   );
   const outside: string[] = [];
   for (const path of paths)
-    if (!roots.some((root) => within(root, path)) && !(await options.artifactAllowed?.(path)))
+    if (!roots.some((root) => pathWithin(root, path)) && !(await options.artifactAllowed?.(path)))
       outside.push(path);
   if (outside.length && options.policy && !(await options.policy(outside)))
     throw new BrowserActionError("denied");

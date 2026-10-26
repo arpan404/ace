@@ -15,7 +15,13 @@ import { appChord, browserChord, pageChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
-import { agentEmulation, deviceEmulation, type NativeDevice, type Rect } from "./placement.ts";
+import {
+  agentEmulation,
+  deviceEmulation,
+  touchDeviceLayout,
+  type NativeDevice,
+  type Rect,
+} from "./placement.ts";
 import { changesEmulationScale, emulationScale, scaledInput } from "./input-scale.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
@@ -115,6 +121,11 @@ export class EmbeddedPage implements ViewPage {
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   /** The CSS size an agent gave this view while no panel showed it; a placement replaces it. */
   private agentSize: { width: number; height: number } | undefined;
+  /**
+   * A person on a phone elsewhere sized this tab (`ace.touchDevice`): it lays out as that phone
+   * over the panel's size until the daemon resizes it again.
+   */
+  private touchDevice: { width: number; height: number } | undefined;
   private downloads: NativeDownloads;
   private popups: NativePopups;
   private activation = new UserActivation(() => Date.now());
@@ -397,6 +408,8 @@ export class EmbeddedPage implements ViewPage {
     });
     await this.send("Page.setInterceptFileChooserDialog", { enabled: this.agentControl });
     this.metrics = new PageMetrics();
+    // The daemon that adopts the page knows of no phone yet; one that still watches says again.
+    this.touchDevice = undefined;
     if (this.target && this.placed)
       this.place({
         window: this.home,
@@ -428,6 +441,7 @@ export class EmbeddedPage implements ViewPage {
     view.setBounds({ x: 0, y: 0, width, height });
     this.placed = false;
     this.covered = false;
+    if (this.touchDevice) void this.relayout().catch((error) => this.options.log(String(error)));
     this.updateThrottle();
   }
 
@@ -480,7 +494,16 @@ export class EmbeddedPage implements ViewPage {
     this.placed = target.visible && target.bounds !== undefined && !this.home.isDestroyed();
     this.covered = !this.placed && target.covered === true && target.bounds !== undefined;
     if (this.placed) this.attach(this.home);
-    if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
+    const touch =
+      this.touchDevice && target.bounds
+        ? touchDeviceLayout(
+            this.touchDevice,
+            this.placed ? target.bounds : undefined,
+            target.zoom ?? 1,
+          )
+        : undefined;
+    if (target.bounds && (this.placed || this.presence !== "parked"))
+      view.setBounds(touch?.bounds ?? target.bounds);
     if (target.visible && target.bounds) {
       this.appZoom = target.zoom ?? 1;
       const zoom = this.appZoom * this.pageZoom;
@@ -488,9 +511,9 @@ export class EmbeddedPage implements ViewPage {
       if (this.contents.getZoomFactor() !== zoom) this.contents.setZoomFactor(zoom);
       this.target = { bounds: target.bounds, zoom, device: target.device };
       this.agentSize = undefined;
-      const params = target.device
-        ? deviceEmulation(target.device, target.bounds, this.appZoom)
-        : undefined;
+      const params =
+        touch?.emulation ??
+        (target.device ? deviceEmulation(target.device, target.bounds, this.appZoom) : undefined);
       const key = JSON.stringify(
         params ?? { zoom, width: target.bounds.width, height: target.bounds.height },
       );
@@ -515,6 +538,9 @@ export class EmbeddedPage implements ViewPage {
           },
         );
     }
+    // A phone still watches a view the panel stopped showing: it keeps the phone's exact size.
+    if (this.touchDevice && !this.placed)
+      void this.relayout().catch((error) => this.options.log(String(error)));
     // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
     // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
@@ -576,6 +602,11 @@ export class EmbeddedPage implements ViewPage {
             : this.emulate(method);
         if (this.placed && this.target) {
           const { device, bounds } = this.target;
+          if (this.touchDevice)
+            return this.emulate(
+              "Emulation.setDeviceMetricsOverride",
+              touchDeviceLayout(this.touchDevice, bounds, this.appZoom).emulation,
+            );
           return device
             ? this.emulate(
                 "Emulation.setDeviceMetricsOverride",
@@ -587,6 +618,18 @@ export class EmbeddedPage implements ViewPage {
           ? this.emulate(method, this.fitted(params))
           : this.emulate(method);
       });
+    }
+    if (method === "ace.touchDevice") {
+      const size = z
+        .object({
+          width: z.number().int().min(1).max(8192),
+          height: z.number().int().min(1).max(8192),
+        })
+        .parse(params);
+      this.driven();
+      this.touchDevice = size;
+      await this.relayout();
+      return {};
     }
     if (method === "ace.zoom") {
       this.pageZoom = z.object({ factor: z.number().min(0.25).max(5) }).parse(params).factor;
@@ -751,7 +794,11 @@ export class EmbeddedPage implements ViewPage {
   async resize(width: number, height: number): Promise<void> {
     this.driven();
     const size = { width, height, deviceScaleFactor: 0, mobile: false };
+    // Any other size the daemon gives ends a phone's layout.
+    const hadTouch = this.touchDevice !== undefined;
+    this.touchDevice = undefined;
     if (this.placed) {
+      if (hadTouch && !this.agentControl) await this.relayout();
       // The panel sizes a shown page; an agent's size is drawn fitted into it until the
       // person's device toolbar takes it up.
       if (this.agentControl)
@@ -779,6 +826,36 @@ export class EmbeddedPage implements ViewPage {
     // view's own size is the one asked for, not the panel's size from its last placement.
     this.agentSize = { width, height };
     this.emit("ace.viewport", this.agentSize);
+  }
+
+  /**
+   * Lays the page out again after the phone's size changed: placed in the panel, as placement
+   * does; unshown, at the phone's size, or as a resize left it when no phone is left.
+   */
+  private async relayout(): Promise<void> {
+    if (this.placed && this.target) {
+      this.place({
+        window: this.home,
+        bounds: this.target.bounds,
+        visible: true,
+        zoom: this.appZoom,
+        device: this.target.device,
+      });
+      await this.metrics.settled();
+      return;
+    }
+    const device = this.touchDevice;
+    if (!device) return;
+    const { emulation, bounds } = touchDeviceLayout(device, undefined, this.appZoom);
+    await this.metrics.place(JSON.stringify(emulation), () =>
+      this.placed
+        ? Promise.resolve()
+        : this.emulate("Emulation.setDeviceMetricsOverride", emulation),
+    );
+    if (this.placed) return;
+    if (this.presence === "parked") this.options.park(bounds);
+    this.options.view.setBounds(bounds);
+    this.emit("ace.viewport", this.viewport());
   }
 
   /** The page zoom the daemon keeps for this tab, on top of the app window's own zoom. */
@@ -892,6 +969,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   viewport() {
+    if (this.touchDevice) return { ...this.touchDevice };
     if (this.agentSize && !this.placed) return this.agentSize;
     return this.target
       ? (this.target.device ?? {

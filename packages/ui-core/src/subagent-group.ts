@@ -1,4 +1,4 @@
-import type { ThreadReader } from "@ace/client";
+import type { SidebarReader, ThreadReader } from "@ace/client";
 import type { Agent, Item, ProviderKind } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { resultLead } from "./system-events.ts";
@@ -22,6 +22,10 @@ export interface SubagentEntry {
   machine?: string | undefined;
   title: string;
   state: SubagentState;
+  /** While queued past its parent's run slots: where it stands. */
+  slotLimit?: number | undefined;
+  slotsInUse?: number | undefined;
+  queuePosition?: number | undefined;
   startedAt: number;
   endedAt?: number | undefined;
   /** The first line of its final result, once it has one. */
@@ -99,7 +103,10 @@ export function readSubagentGroup(
   const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {
     const subtree = agent ? branch(agent.id) : undefined;
     let state = subtree?.state ?? "working";
-    if (launch) {
+    // A child still waiting in its parent's launch queue has run nothing: its launch row is all
+    // there is, and its agent's status (blocked on the queue) must not read as working.
+    if (launch && queuedLaunch(launch)) state = "queued";
+    else if (launch) {
       let launched = delegatedState(launch.status);
       if (launch.phase === "cancelling" && subagentTerminal(launched)) launched = "working";
       else if (subagentTerminal(launched) && launch.outcome?.outcome === "cancelled")
@@ -115,7 +122,7 @@ export function readSubagentGroup(
       launch && subagentTerminal(state)
         ? Math.max(launch.updatedAt, subtree?.end ?? 0)
         : subtree?.end;
-    return {
+    const entry: SubagentEntry = {
       id,
       agentId: agent?.id,
       childThreadId: launch?.childThreadId ?? agent?.childThreadId,
@@ -128,6 +135,11 @@ export function readSubagentGroup(
       endedAt: subagentTerminal(state) ? (end ?? spawn?.call.endedAt) : undefined,
       result: finalResult(launch, spawn),
     };
+    // A queued launch carries where the child stands on its waiting status, so the row can
+    // say: a running launch never carries them, since statuses replace one another whole.
+    const queue = queuePlace(launch);
+    if (queue) Object.assign(entry, queue);
+    return entry;
   });
   return {
     value,
@@ -142,6 +154,32 @@ export function readSubagentGroup(
           : [],
       ),
     ],
+  };
+}
+
+/** A launch admitted past its parent's run slots that has not started yet. */
+function queuedLaunch(launch: Launch): boolean {
+  return (
+    launch.phase === "created" && launch.status.state === "waiting" && launch.status.on === "queue"
+  );
+}
+
+/** Where a queued launch stands, from its waiting status; undefined once it runs or aged out. */
+function queuePlace(
+  launch: Launch | undefined,
+): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
+  const status = launch?.status;
+  if (
+    status?.state !== "waiting" ||
+    status.slotLimit === undefined ||
+    status.slotsInUse === undefined ||
+    status.queuePosition === undefined
+  )
+    return undefined;
+  return {
+    slotLimit: status.slotLimit,
+    slotsInUse: status.slotsInUse,
+    queuePosition: status.queuePosition,
   };
 }
 
@@ -237,6 +275,9 @@ export function subagentEntriesEqual(
         entry.machine === other.machine &&
         entry.title === other.title &&
         entry.state === other.state &&
+        entry.slotLimit === other.slotLimit &&
+        entry.slotsInUse === other.slotsInUse &&
+        entry.queuePosition === other.queuePosition &&
         entry.startedAt === other.startedAt &&
         entry.endedAt === other.endedAt &&
         entry.result === other.result
@@ -267,4 +308,19 @@ export function readSubagentResults(
       ...[...threadIds].flatMap((id) => [`launch:${id}`, `childThread:${id}`]),
     ],
   };
+}
+
+/**
+ * A delegated child's state as the thread list has it, which can hear first that a finished
+ * child took new work or asks the person. Only from a list the daemon keeps current: not one
+ * restored or kept unfollowed (unconfirmed), still waiting for its snapshot (syncing), or holding
+ * old rows after its subscription failed (error). Nothing for a child that never started.
+ */
+export function listedSubagentState(
+  list: Pick<SidebarReader, "unconfirmed" | "syncing" | "error" | "thread">,
+  threadId: string,
+): SubagentState | undefined {
+  if (list.unconfirmed || list.syncing || list.error) return undefined;
+  const status = list.thread(threadId)?.status;
+  return status && status.state !== "new" ? delegatedState(status) : undefined;
 }

@@ -44,7 +44,7 @@ import {
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
  * stages the files with their SHA-256 under `dist/releases/v<version>`. `--with-daemon` adds
- * the signed standalone daemon archives for both macOS architectures, so `ace update` on
+ * the signed standalone daemon archive for Apple silicon, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
  * draft release tagged at the built commit, then publishes it.
  *

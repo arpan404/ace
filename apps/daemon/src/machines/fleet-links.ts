@@ -1,4 +1,5 @@
 import { ClientError } from "@ace/client";
+import { parsePairingLink, type PairingLink } from "@ace/client/access";
 import type { DeviceCredential, FleetLink, HostId, MachineDescription } from "@ace/protocol";
 import type { Profiles, RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure } from "./transport.ts";
@@ -21,6 +22,11 @@ export interface FleetLinkDeps {
   redeem(url: string, name: string): Promise<DeviceCredential>;
   /** This machine's display name, which the other machine shows for the device. */
   hostName(): Promise<string>;
+  /**
+   * Whether that machine takes transfers from this device (`operate` and `projects` there),
+   * answered without its agent access (ADR 0101).
+   */
+  transfers?(profile: RemoteProfile): Promise<{ hostId: HostId; name: string; accepts: boolean }>;
 }
 
 /**
@@ -75,10 +81,15 @@ export class FleetLinks {
     return Promise.all(profiles.map((profile) => this.check(profile)));
   }
   async link(input: { pairingUrl: string; hostId: HostId; name: string }): Promise<FleetLink> {
-    const url = URL.parse(input.pairingUrl);
-    const fingerprint = new URLSearchParams(url?.hash.slice(1)).get("fingerprint") ?? "";
-    if (!url || url.protocol !== "https:" || url.search || !/^[a-f0-9]{64}$/.test(fingerprint))
+    let link: PairingLink | undefined;
+    try {
+      link = parsePairingLink(input.pairingUrl);
+    } catch {
+      link = undefined;
+    }
+    if (!link || !link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint))
       throw new FleetError("invalid", "That pairing link isn't complete. Copy it again.");
+    const { daemon, fingerprint } = link;
     const capacity = this.withProfiles((store) => {
       const existing = store.list();
       return existing.length < 64 || existing.some((entry) => entry.hostId === input.hostId);
@@ -105,7 +116,7 @@ export class FleetLinks {
             input.name,
             existing.map((entry) => entry.name),
           ),
-        origin: `${url.origin}/`,
+        origin: daemon,
         fingerprint,
         deviceId: credential.device.id,
         token: credential.token,
@@ -137,13 +148,20 @@ export class FleetLinks {
         name: description.name,
         status: "online",
         access: description.access,
+        ...(description.transfers === undefined ? {} : { projects: description.transfers }),
       };
     } catch (error) {
+      const refused = error instanceof MachineFailure && error.kind === "refused";
+      // Agents may be shut out there while the person's transfers still go (ADR 0101).
+      const probe = refused
+        ? await this.deps.transfers?.(profile).catch(() => undefined)
+        : undefined;
       return {
         ...base,
-        ...(profile.hostId ? { hostId: profile.hostId } : {}),
-        name: profile.label ?? profile.name,
-        status: error instanceof MachineFailure && error.kind === "refused" ? "refused" : "offline",
+        ...(profile.hostId || probe ? { hostId: profile.hostId ?? probe?.hostId } : {}),
+        name: profile.label ?? probe?.name ?? profile.name,
+        status: refused ? "refused" : "offline",
+        ...(probe ? { projects: probe.accepts } : {}),
       };
     }
   }

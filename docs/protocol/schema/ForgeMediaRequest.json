@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeMediaRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "role": {
+      "$ref": "https://ace.local/protocol/v1/ForgeMediaRole.json"
+    },
+    "url": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "url",
+    "role"
+  ],
+  "type": "object"
+}

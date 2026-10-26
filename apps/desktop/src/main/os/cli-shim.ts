@@ -189,8 +189,6 @@ export type CliShimResult =
       state: "created" | "replaced" | "unchanged";
       file: string;
       directory: string;
-      /** Whether a terminal finds `ace` without the full path. */
-      onPath: boolean;
     }
   | { state: "foreign"; file: string }
   | { state: "skipped"; reason: string }
@@ -213,19 +211,16 @@ export function cliShimLog(result: CliShimResult): string | undefined {
   }
 }
 
-/** The desktop's own check for the diagnostics list, or undefined when nothing needs doing. */
+/**
+ * The desktop's own check for the diagnostics list, or undefined when nothing needs doing.
+ * Whether a terminal finds the command is `terminalCommandCheck`'s.
+ */
 export function cliShimCheck(result: CliShimResult): DoctorCheck | undefined {
   switch (result.state) {
     case "created":
     case "replaced":
     case "unchanged":
-      if (result.onPath) return undefined;
-      return {
-        id: "desktop.cli-path",
-        status: "warn",
-        message: `The ace command is installed at ${result.file}, but its folder is not on PATH.`,
-        fix: `Add ${result.directory} to PATH in your shell profile.`,
-      };
+      return undefined;
     case "foreign":
       return {
         id: "desktop.cli",

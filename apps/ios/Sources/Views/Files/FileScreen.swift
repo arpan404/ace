@@ -57,7 +57,7 @@ struct FileScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(editing)
             .toolbar { if editing { editToolbar } else { viewToolbar } }
-            .task(id: "\(path)|\(model.files.revision)") { await load() }
+            .readWhenConnected(model, id: "\(path)|\(model.files.revision)") { await load() }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
             .sheet(item: $share) { ShareSheet(url: $0.url) }
             .sheet(isPresented: $showChanges) {

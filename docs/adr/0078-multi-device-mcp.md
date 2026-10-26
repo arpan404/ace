@@ -40,7 +40,10 @@ Tools that make sense elsewhere take a `machine` parameter:
 - `delegate` takes `machine` and `project`. The child is an ordinary thread on the target,
   in that project, started with the target's own access mode for the provider.
 - `wait` and `agents_status` include those children, marked with the machine.
-  `agent_cancel` works on them too.
+  `agent_cancel` and `agent_message` work on them too. A message goes to the target as a
+  `message` call keyed by its requestId, so a retry sends it once; the target answers with the
+  same `arrival` a local child gives, and an offline or refusing machine is an error, never a
+  silent drop.
 - Every `ace_browser_*` tool takes `machine`.
 
 A generic `remote_call(machine, tool, args)` was rejected. It would hide the target's tool
@@ -56,8 +59,8 @@ as they are. A tool is reachable elsewhere only when it was deliberately given `
   with a Scope of Read only or Read and act. It is an administrator setting like the other
   `remote.*` keys.
 - **Authority:** the target grants the lower of that setting and the calling device's pairing
-  scope. Describe, status and read-only browser tools need `read`. Delegating, cancelling,
-  answering and every other browser tool need `operate`. A read-only pairing can't start work.
+  scope. Describe, status and read-only browser tools need `read`. Delegating, messaging,
+  cancelling, answering and every other browser tool need `operate`. A read-only pairing can't start work.
 - **Caller's ceiling:** the calling side refuses writes from a thread whose access is
   read-only. So remote calls are capped by both the pairing and the caller's permission ceiling.
 - **Target policies:** the target applies its own policies. Delegated children use its access

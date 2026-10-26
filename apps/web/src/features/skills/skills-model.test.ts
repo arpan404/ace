@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 import {
   PluginNameInput,
   PluginRepository,
-  availabilityText,
   skillCatalog,
   suggestedPluginName,
 } from "./skills-model.ts";
@@ -36,15 +35,6 @@ test("a component is on only while its plugin is on for at least one provider", 
     ["plugin~tools", false],
   ]);
   expect(catalog[1]?.description).toBe("Version 1.2.0 · 1 skill");
-});
-
-test("availability reads as the providers by name", () => {
-  expect(availabilityText(["claude"])).toBe("Claude Code only");
-  expect(availabilityText(["claude", "codex", "opencode"])).toBe("Claude Code, Codex and OpenCode");
-  expect(availabilityText([])).toBe("No provider");
-  expect(
-    availabilityText(["acp", "antigravity", "claude", "codex", "cursor", "opencode", "pi"]),
-  ).toBe("Every provider");
 });
 
 test("a GitHub owner/name becomes its git URL; URLs and local paths pass through", () => {

@@ -29,7 +29,7 @@ export const bareGeometry: FrameGeometry = {
   bezel: { top: 0, right: 0, bottom: 0, left: 0 },
   screenRadius: 0.02,
   bodyRadius: 0.02,
-  cutout: { kind: "none" },
+  band: 0,
   homeButton: false,
 };
 
@@ -39,11 +39,12 @@ const px = (value: number) => `${Math.round(value * 10) / 10}px`;
 const homeBezel = { 0: "bottom", 90: "left", 180: "top", 270: "right" } as const;
 
 /**
- * A device drawn around its screen, sized to fit `room`: a graphite body with a lit rim, the
- * screen's black glass, its cutout, and `hardware`: the buttons on its sides and an older
+ * A device drawn around its screen, sized to fit `room`: a thin metal band, the black glass
+ * inside it, the screen with the model's own corner radius, and `hardware`: the buttons on its sides and an older
  * iPhone's home button, pressable when `hardware.press` says how. Drawn with boxes only;
  * `children` (the live screen) fill the screen and are clipped to its corners, and `overlay`
- * sits over them in the same box.
+ * sits over them in the same box. Nothing is painted over the picture: the device's own pixels
+ * already show its island, notch or camera.
  */
 export function DeviceFrame(props: {
   geometry: FrameGeometry;
@@ -58,7 +59,8 @@ export function DeviceFrame(props: {
   const { geometry } = props;
   const fit = fitFrame(props.room, geometry, props.screen);
   const { unit } = fit;
-  const { bezel, cutout } = geometry;
+  const { bezel } = geometry;
+  const band = geometry.band * unit;
   if (unit <= 0) return null;
   return (
     <div
@@ -71,6 +73,17 @@ export function DeviceFrame(props: {
         className="absolute inset-0 bg-(--device-body) shadow-(--device-rim)"
         style={{ borderRadius: px(geometry.bodyRadius * unit) }}
       />
+      {band > 0 && (
+        // The black glass inside the metal band, concentric with the body.
+        <span
+          aria-hidden
+          className="absolute bg-(--device-glass)"
+          style={{
+            inset: px(band),
+            borderRadius: px(Math.max(0, geometry.bodyRadius * unit - band)),
+          }}
+        />
+      )}
       {props.hardware && <SideButtons hardware={props.hardware} body={fit.body} unit={unit} />}
       <div
         data-device-screen=""
@@ -84,40 +97,6 @@ export function DeviceFrame(props: {
         }}
       >
         {props.children}
-        {cutout.kind === "island" && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-(--device-glass)"
-            style={{
-              top: px(cutout.top * unit),
-              width: px(cutout.width * unit),
-              height: px(cutout.height * unit),
-            }}
-          />
-        )}
-        {cutout.kind === "notch" && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 bg-(--device-glass)"
-            style={{
-              width: px(cutout.width * unit),
-              height: px(cutout.height * unit),
-              borderBottomLeftRadius: px(cutout.height * unit * 0.6),
-              borderBottomRightRadius: px(cutout.height * unit * 0.6),
-            }}
-          />
-        )}
-        {cutout.kind === "punch" && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-(--device-glass)"
-            style={{
-              top: px(cutout.top * unit),
-              width: px(cutout.size * unit),
-              height: px(cutout.size * unit),
-            }}
-          />
-        )}
         {props.overlay}
       </div>
       {geometry.homeButton && props.hardware && (
