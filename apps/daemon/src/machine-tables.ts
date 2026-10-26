@@ -67,6 +67,10 @@ export const machineChildGenerations = `${machineChildren}
  *   before have none and fall back to the machine's name.
  * - Indexes for a parent's children (listing, cascading Stop) and for settled results not yet
  *   delivered, so neither reads the whole history or stops at a fixed count.
+ * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
+ *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
+ *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
+ *   pages to the machine's unsettled children.
  * - `machine_message_rejections` is the target's answer for a message it refused before it ever
  *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
  *   copy of that request is admitted, so a refused request can never run later.
@@ -76,6 +80,14 @@ export const machineChildReach = `
   CREATE INDEX IF NOT EXISTS machine_children_parent ON machine_children(parent_thread, settled);
   CREATE INDEX IF NOT EXISTS machine_children_undelivered ON machine_children(settled_at)
     WHERE settled = 1 AND delivered = 0;
+  CREATE TABLE IF NOT EXISTS machine_child_cursors (
+    machine TEXT PRIMARY KEY, served INTEGER NOT NULL DEFAULT 0, after TEXT);
+  CREATE INDEX IF NOT EXISTS machine_child_cursors_served
+    ON machine_child_cursors(served, machine);
+  CREATE INDEX IF NOT EXISTS machine_children_unsettled ON machine_children(machine, id)
+    WHERE settled = 0;
+  INSERT OR IGNORE INTO machine_child_cursors (machine)
+    SELECT DISTINCT machine FROM machine_children WHERE settled = 0;
   CREATE TABLE IF NOT EXISTS machine_message_rejections (
     request_key TEXT PRIMARY KEY, code TEXT NOT NULL, message TEXT NOT NULL,
     created_at INTEGER NOT NULL);`;

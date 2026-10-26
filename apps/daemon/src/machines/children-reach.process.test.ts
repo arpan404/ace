@@ -42,6 +42,28 @@ it("with more than 64 children on several machines and the oldest never settling
   for (const id of stuck) expect(h.state(id), id).toBe("working");
 });
 
+it("five machines kept full of children, with more arriving on four, still all get read: the fifth machine's results arrive", async () => {
+  const h = machine();
+  const busy = ["a", "b", "c", "d"];
+  for (const host of [...busy, "e"])
+    for (const id of range(70, (index) => `${host}-${String(index).padStart(2, "0")}`))
+      h.report(h.add(id, host), working);
+  const late = h.add("e-zz-late", "e");
+  h.report(late, done("Finished on the fifth machine."));
+
+  let fresh = 0;
+  for (let poll = 0; poll < 6; poll++) {
+    // Each poll, every busy machine gets another child that never settles.
+    for (const host of busy) h.report(h.add(`${host}-new-${fresh}`, host), working);
+    fresh++;
+    h.asked.length = 0;
+    await h.fire();
+    expect(h.asked.length).toBeLessThanOrEqual(STATUS_CALLS_PER_POLL);
+  }
+  expect(h.state(late)).toBe("done");
+  expect(h.delivered.join("\n")).toContain("Finished on the fifth machine.");
+});
+
 it("a cascading stop reaches every unsettled child of the stopped tree, however many, and agents_status lists them all", async () => {
   const h = machine();
   const helper = ThreadId.parse("helper");

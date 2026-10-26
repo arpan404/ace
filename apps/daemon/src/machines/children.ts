@@ -80,8 +80,10 @@ export class MachineChildren implements RemoteChildren {
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
-  /** The last read turn handed out; each machine's least recently read children go next. */
+  /** The last re-check turn handed out; each machine's least recently checked go next. */
   private turn: number;
+  /** The last polling turn handed out; machines served longest ago go next. */
+  private served: number;
   private closed = false;
   private results: ChildResults;
   private messages: ChildMessages;
@@ -89,6 +91,7 @@ export class MachineChildren implements RemoteChildren {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
     this.turn = this.ledger.lastRecheckTurn();
+    this.served = this.ledger.lastServedTurn();
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
     this.messages = new ChildMessages({
       ...deps,
@@ -293,7 +296,7 @@ export class MachineChildren implements RemoteChildren {
           this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
         );
       // A fixed number of status calls, every child read in turn (ADR 0099).
-      const page = unsettledPage(this.ledger, ++this.turn).flatMap(([machine, rows]) => {
+      const page = unsettledPage(this.ledger, ++this.served).flatMap(([machine, rows]) => {
         const lost = this.lostFrom(machine);
         const reachable = rows.filter((row) => !lost(row));
         for (const row of rows) if (lost(row)) this.settleLost(row);

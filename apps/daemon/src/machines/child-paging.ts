@@ -2,8 +2,7 @@ import type { ChildLedger, ChildRow } from "./child-ledger.ts";
 
 /*
  * Which unsettled children on other machines one poll reads (ADR 0099). However many there are,
- * every one is read in turn: each machine's children read longest ago go first, and machines
- * left out of a poll go first in the next, within a fixed number of status calls per poll.
+ * every one is read in turn, within a fixed number of status calls per poll.
  */
 
 /** Children per status call, the call's own limit. */
@@ -30,25 +29,29 @@ export function statusBatches(rows: readonly ChildRow[]): [string, ChildRow[]][]
 }
 
 /**
- * The unsettled children this poll reads, by machine, each marked read in `turn` as it is
- * chosen so the next poll moves on to the ones left out.
+ * The unsettled children this poll reads, by machine. Machines served longest ago go first, so
+ * one left out of a poll goes first in the next however busy the others are; each is read from
+ * where it stopped, wrapping, so every child comes round. The work is bounded by the call budget,
+ * never by how many children are active: a few indexed pages and one write per machine served.
  */
 export function unsettledPage(ledger: ChildLedger, turn: number): [string, ChildRow[]][] {
   const page: [string, ChildRow[]][] = [];
   let calls = 0;
-  for (const machine of ledger.unsettledMachines()) {
+  for (const { machine, after } of ledger.machinesDue(STATUS_CALLS_PER_POLL)) {
     const room = Math.min(
       UNSETTLED_PER_MACHINE,
       (STATUS_CALLS_PER_POLL - calls) * STATUS_IDS_PER_CALL,
     );
     if (room <= 0) break;
-    const rows = ledger.unsettledTurn(machine, room);
-    ledger.markRechecked(
-      rows.map((row) => row.id),
-      turn,
-    );
+    const rows = ledger.unsettledAfter(machine, after, room);
+    const last = rows.at(-1);
+    if (!last) {
+      ledger.untrack(machine);
+      continue;
+    }
+    ledger.markServed(machine, turn, last.id);
     calls += Math.ceil(rows.length / STATUS_IDS_PER_CALL);
-    if (rows.length) page.push([machine, rows]);
+    page.push([machine, rows]);
   }
   return page;
 }
