@@ -166,8 +166,9 @@ export const DeviceState = z.object({
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
   /**
-   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
-   * an Xcode whose device service ace knows). Absent for every other device.
+   * A foldable device's posture, present only when ace can fold it: an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows, or an Android emulator with a hinge (a Pixel Fold).
+   * Absent for every other device.
    */
   posture: DevicePosture.optional(),
 });

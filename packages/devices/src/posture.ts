@@ -22,6 +22,12 @@ const Displays = z
   .object({ result: z.object({ displays: z.array(z.unknown()).max(16) }).passthrough() })
   .passthrough();
 
+/** How many screens a `devicectl` display report lists, or undefined when it can't be read. */
+export function screenCount(report: unknown): number | undefined {
+  const parsed = Displays.safeParse(report);
+  return parsed.success ? parsed.data.result.displays.length : undefined;
+}
+
 /**
  * A device's posture from `devicectl device info displays --json-output`, or undefined when it
  * has fewer than two built-in screens (it doesn't fold) or the report can't be read.

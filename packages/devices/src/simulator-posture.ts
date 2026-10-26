@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DevicePosture } from "@ace/protocol/devices";
-import { postureAngle, readPosture } from "./posture.ts";
+import { postureAngle, readPosture, screenCount } from "./posture.ts";
 import { DeviceError } from "./sdk.ts";
 
 /** A finished command: its exit code and what it printed. */
@@ -38,6 +38,9 @@ function reply(stdout: string) {
   return undefined;
 }
 
+/** One-screen reads in a row before a simulator is taken to have one screen for good. */
+const settledReads = 3;
+
 /**
  * Folds iOS Simulators that have two built-in screens (the iPhone Duo). Whether a device folds
  * is learned once per simulator; one that doesn't, or whose Xcode lacks the hinge service,
@@ -47,13 +50,27 @@ export class SimulatorPostures {
   private readonly options: SimulatorPosturesOptions;
   private readonly foldable = new Map<string, Promise<boolean>>();
   private readonly requested = new Map<string, DevicePosture>();
+  /**
+   * How many reads in a row found one screen. A screen count never changes once a simulator is
+   * up, so after a few such reads it isn't asked again; a few, because a booting one may not
+   * list every screen yet.
+   */
+  private readonly oneScreen = new Map<string, number>();
   constructor(options: SimulatorPosturesOptions) {
     this.options = options;
   }
   /** The simulator's posture, or undefined when ace can't fold it. */
   async read(udid: string, authorize?: () => void): Promise<DevicePosture | undefined> {
+    const seen = this.oneScreen.get(udid) ?? 0;
+    if (seen >= settledReads) return undefined;
     const report = await this.displays(udid, authorize);
     if (report === undefined) return undefined;
+    const screens = screenCount(report);
+    if (screens !== undefined && screens < 2) {
+      this.oneScreen.set(udid, seen + 1);
+      return undefined;
+    }
+    this.oneScreen.delete(udid);
     const posture = readPosture(report, this.requested.get(udid));
     if (posture === undefined || !(await this.available(udid, authorize))) return undefined;
     return posture;
