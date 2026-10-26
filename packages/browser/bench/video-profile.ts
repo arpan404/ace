@@ -4,7 +4,8 @@ import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { detectChromium } from "../src/index.ts";
+import { BrowserService, connectBrowser, detectChromium } from "../src/index.ts";
+import { decodeStreamMessage, StreamAssembler } from "../src/stream.ts";
 
 /*
  * Where a live view's frames go on this machine, report only. For several Chrome graphics
@@ -189,11 +190,23 @@ async function launch(args: readonly string[], scale: number) {
 async function page(cdp: Cdp, url: string): Promise<string> {
   const { targetId } = z
     .object({ targetId: z.string() })
-    .parse(await cdp.send("Target.createTarget", { url }));
+    .parse(await cdp.send("Target.createTarget", { url, newWindow: true }));
   const { sessionId } = z
     .object({ sessionId: z.string() })
     .parse(await cdp.send("Target.attachToTarget", { targetId, flatten: true }));
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  // Like ace's tabs: a window of its own, sized as a viewer's pane, loaded before measuring.
+  const { windowId } = z
+    .object({ windowId: z.number() })
+    .parse(await cdp.send("Browser.getWindowForTarget", { targetId }));
+  await cdp.send("Browser.setWindowBounds", { windowId, bounds: { width: 1280, height: 800 } });
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const ready = await evaluate(cdp, sessionId, "location.href + ' ' + document.readyState").catch(
+      () => "",
+    );
+    if (ready === `${url} complete`) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   return sessionId;
 }
 
@@ -204,6 +217,14 @@ const variants: { name: string; args: string[] }[] = [
   { name: "swiftshader", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
   { name: "disable-gpu", args: ["--disable-gpu"] },
   { name: "no-gpu-raster", args: ["--disable-gpu-rasterization"] },
+  { name: "warp-gpu-raster", args: ["--use-angle=d3d11-warp", "--enable-gpu-rasterization"] },
+];
+
+const pipelineVariants = [
+  { name: "default", args: [], scale: 2 },
+  { name: "default", args: [], scale: 1.5 },
+  { name: "default", args: [], scale: 1 },
+  { name: "angle-warp", args: ["--use-angle=d3d11-warp"], scale: 2 },
 ];
 
 const report: Record<string, unknown> = {
@@ -213,7 +234,7 @@ const report: Record<string, unknown> = {
 };
 try {
   for (const variant of variants) {
-    for (const scale of [2, 1]) {
+    for (const scale of [2, 1.5, 1]) {
       const name = `${variant.name}@${scale}x`;
       try {
         const browser = await launch(variant.args, scale);
@@ -239,7 +260,7 @@ try {
               ]),
             );
           }
-          if (scale === 2 && (variant.name === "default" || variant.name === "angle-d3d11")) {
+          if (scale === 2 && variant.name === "default") {
             const encodes: Record<string, unknown> = {};
             for (const codec of ["avc1.640033", "hvc1.1.6.L153.B0", "vp09.00.10.08", "vp8"])
               for (const [width, height] of [
@@ -264,8 +285,85 @@ try {
       console.log(JSON.stringify({ [name]: report[name] }));
     }
   }
+  // The real pipeline (tab capture, encoder, socket) with an instant link: what each setting
+  // delivers, next to the page's own rate while it streams.
+  for (const variant of pipelineVariants) {
+    const name = `pipeline ${variant.name}@${variant.scale}x`;
+    report[name] = await pipeline(variant.args, variant.scale).catch((error: unknown) => ({
+      error: String(error).slice(0, 300),
+    }));
+    console.log(JSON.stringify({ [name]: report[name] }));
+  }
 } finally {
   server.closeAllConnections();
   server.close();
 }
 console.log(JSON.stringify(report));
+
+async function pipeline(args: string[], scale: number) {
+  const home = await mkdtemp(join(tmpdir(), "ace-video-profile-"));
+  const service = new BrowserService({
+    dataDir: home,
+    executablePath: executable as string,
+    chrome: { args, deviceScaleFactor: scale },
+  });
+  const shown: number[] = [];
+  const sizes = new Set<string>();
+  const assembler = new StreamAssembler();
+  let counting = false;
+  const bridge = connectBrowser(service, {
+    connectionId: "profile",
+    authorize: () => true,
+    send: () => true,
+    sendStream: (pieces) => {
+      for (const piece of pieces) {
+        const envelope = assembler.push(piece);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (!message || message.kind !== "browser.video") continue;
+        if (counting) {
+          shown.push(performance.now());
+          sizes.add(
+            `${message.chunk.codec} ${message.chunk.codedWidth}x${message.chunk.codedHeight}`,
+          );
+        }
+        void bridge.handle({
+          type: "browser.ack",
+          threadId: "profile",
+          requestId: "ack",
+          sequence: message.chunk.sequence,
+          video: true,
+        });
+      }
+      return true;
+    },
+  });
+  try {
+    await service.open({ threadId: "profile", workspaceId: "profile", profile: "persistent" });
+    await service.execute("profile", { action: "navigate", url: pageUrl });
+    await service.execute("profile", { action: "resize", width: 1280, height: 800 });
+    const unwatched = await service.execute("profile", { action: "evaluate", expression: rafRate });
+    await bridge.handle({
+      type: "browser.subscribe",
+      threadId: "profile",
+      requestId: "subscribe",
+      binaryFrames: true,
+      viewport: { width: 1280, height: 800, devicePixelRatio: 2 },
+      video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    counting = true;
+    const started = performance.now();
+    const streaming = await service.execute("profile", { action: "evaluate", expression: rafRate });
+    counting = false;
+    return {
+      unwatchedPageFps: unwatched,
+      streamingPageFps: streaming,
+      deliveredFps: Math.round((shown.length / ((performance.now() - started) / 1000)) * 10) / 10,
+      encodes: [...sizes],
+    };
+  } finally {
+    bridge.close();
+    await service.close();
+    await rm(home, { recursive: true, force: true }).catch(() => {});
+  }
+}
