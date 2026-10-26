@@ -58,7 +58,7 @@ public final class LockedUseSocketServer: @unchecked Sendable {
         queue.sync {
             source?.cancel()
             source = nil
-            current?.close()
+            current?.closeAsync()
             current = nil
         }
         unlink(path)
