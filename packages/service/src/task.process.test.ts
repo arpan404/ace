@@ -80,7 +80,8 @@ afterEach(async () => {
   );
 });
 afterAll(async () => {
-  if (scratch) await rm(scratch, { recursive: true, force: true, maxRetries: 20 });
+  // A scanner may still hold the copied node.exe; the runner's temp is discarded anyway.
+  if (scratch) await rm(scratch, { recursive: true, force: true, maxRetries: 20 }).catch(() => {});
 });
 
 /** An installed home as install.ps1 leaves it: release, pointer file and ace.cmd. */
