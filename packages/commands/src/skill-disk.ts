@@ -18,6 +18,7 @@ import {
   type OpenCommandChild,
 } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
+import { commandEntryExists } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
@@ -232,6 +233,7 @@ export class SkillDisk {
   }
   /** Whether anything at all, link or not, is called `name` in the pinned directory. */
   async exists(parent: number, name: string): Promise<boolean> {
+    if (process.platform === "win32") return commandEntryExists(parent, name);
     if ((await this.readLink(parent, name)) !== undefined) return true;
     const fd = await this.openChild(parent, name, fileFlags).catch(() => undefined);
     if (fd === undefined) return false;
