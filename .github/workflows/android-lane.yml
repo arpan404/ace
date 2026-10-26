@@ -111,11 +111,15 @@ jobs:
             echo 'lane requires JDK 17 from setup-java; refusing' >&2
             exit 2
           fi
+          ls -l /dev/kvm || true
+          if [ -c /dev/kvm ]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
           if [ ! -c /dev/kvm ] || [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
             echo 'KVM (/dev/kvm) is not accessible on this runner; refusing' >&2
             exit 1
           fi
-          ls -l /dev/kvm
           CANDIDATE_SDK="$HOME/Android/Sdk"
           for cand in "${ANDROID_SDK_ROOT:-}" "${ANDROID_HOME:-}" /usr/local/lib/android/sdk; do
             if [ -n "$cand" ] && [ -x "$cand/cmdline-tools/latest/bin/sdkmanager" ]; then
