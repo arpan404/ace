@@ -75,6 +75,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
 
+      # Global bootstrap is confined to this disposable hosted runner.
+      - name: Bootstrap node-gyp for dependency install
+        shell: bash
+        run: |
+          npm install --global node-gyp@11.5.0
+          command -v node-gyp
+          node-gyp --version
+
       - name: Install dependencies
         shell: bash
         run: bun install --frozen-lockfile
