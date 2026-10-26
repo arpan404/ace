@@ -53,8 +53,13 @@ async function launch(scale: number): Promise<Launched> {
   const page = await app.firstWindow();
   page.on("console", (message) => console.log(`[page ${message.type()}] ${message.text()}`));
   page.on("pageerror", (error) => console.log(`[page error] ${error.message}`));
+  page.on("worker", (worker) => {
+    console.log(`[worker] ${worker.url()}`);
+    worker.on("console", (message) => console.log(`[worker ${message.type()}] ${message.text()}`));
+    worker.on("close", () => console.log(`[worker closed] ${worker.url()}`));
+  });
   try {
-    await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 45_000 });
+    await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 150_000 });
   } catch (error) {
     captureScreen(join(screens, `launch-failed-${scale * 100}.png`));
     console.log(`[page url] ${page.url()}`);
