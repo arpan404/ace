@@ -113,7 +113,7 @@ struct Frames {
     failed: bool,
     /// The open stream, to read each buffer's crop region from.
     capture: *mut c_void,
-    /// The newest picture's size in stream points (width << 32 | height), for input bounds.
+    /// The newest buffer's size in stream points (width << 32 | height), for input bounds.
     shown: Arc<AtomicU64>,
     control: Arc<Control>,
     pending: Option<Pending>,
@@ -130,6 +130,27 @@ fn unix_ms() -> f64 {
 }
 
 impl Frames {
+    /// What a `rw`×`rh` region of a `w`-wide buffer shows, in logical points. A logical width
+    /// of 0 is unknown (the portal gave none): one point per pixel.
+    fn logical(&self, w: u32, rw: u32, rh: u32) -> (f64, f64) {
+        let logical_width = if self.logical_width == 0 { w } else { self.logical_width };
+        (
+            f64::from(rw) * f64::from(logical_width) / f64::from(w),
+            f64::from(rh) * f64::from(logical_width) / f64::from(w),
+        )
+    }
+
+    /// The newest buffer's size in stream points, for input bounds: kept as buffers arrive,
+    /// whether or not anyone watches, so the person's input is checked against what is there.
+    fn note_shown(&self, w: u32, h: u32, crop: Option<(i32, i32, u32, u32)>) {
+        let (_, _, rw, rh) = visible_region(w, h, crop);
+        let (wide, high) = self.logical(w, rw, rh);
+        self.shown.store(
+            ((wide.round() as u64) << 32) | (high.round() as u64 & 0xffff_ffff),
+            Ordering::Release,
+        );
+    }
+
     fn generation(&self) -> Option<u64> {
         Some(self.control.generation.load(Ordering::Acquire)).filter(|g| *g > 0)
     }
@@ -164,15 +185,7 @@ impl Frames {
         jpeg_encoder::Encoder::new(&mut jpeg, 75)
             .encode(&self.rgb, ow as u16, oh as u16, jpeg_encoder::ColorType::Rgb)
             .map_err(internal)?;
-        // Picture pixels per logical point of what it shows.
-        // A logical width of 0 is unknown (the portal gave none): one point per pixel.
-        let logical_width = if self.logical_width == 0 { w } else { self.logical_width };
-        let logical_shown = f64::from(rw) * f64::from(logical_width) / f64::from(w);
-        let logical_high = f64::from(rh) * f64::from(logical_width) / f64::from(w);
-        self.shown.store(
-            ((logical_shown.round() as u64) << 32) | (logical_high.round() as u64 & 0xffff_ffff),
-            Ordering::Release,
-        );
+        let (logical_shown, _) = self.logical(w, rw, rh);
         let scale = f64::from(ow) / logical_shown;
         self.publisher
             .frame(jpeg.clone(), ow, oh, scale, buffer.at, self.generation())?;
@@ -259,6 +272,7 @@ unsafe extern "C" fn on_frame(
     pending.format = format;
     pending.crop = cropped.then_some((cx, cy, cw, ch));
     pending.at = at;
+    frames.note_shown(w, h, pending.crop);
     let watching = frames.control.watching.load(Ordering::Acquire);
     if !watching || Instant::now() < frames.next {
         // Published once the frame rate allows, or when someone watches again.
