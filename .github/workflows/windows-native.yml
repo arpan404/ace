@@ -29,6 +29,9 @@ on:
       - apps/daemon/src/daemon-*
       - apps/daemon/src/process-daemon.ts
       - apps/daemon/src/builtin-skill-*
+      - apps/daemon/src/process-recovery.ts
+      - apps/daemon/src/console-control-test-support.ts
+      - apps/daemon/src/engine/restart*
       - packages/preview/**
       - native/screen-helper-windows/**
       - packages/screen/**

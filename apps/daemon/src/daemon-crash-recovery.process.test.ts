@@ -10,14 +10,7 @@ import { invoke } from "./cli-test-support.ts";
 import { builtinSkillRecovery } from "./builtin-skill-roots.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { startDaemonCli, temporaryHome, type Cleanups } from "./daemon-launch-test-support.ts";
-import {
-  alive,
-  crashedDaemon,
-  endLater,
-  runningThread,
-  threadMentions,
-  type Member,
-} from "./daemon-crash-test-support.ts";
+import { alive, crashedDaemon, endLater, type Member } from "./daemon-crash-test-support.ts";
 
 const windows = process.platform === "win32";
 
@@ -105,14 +98,13 @@ test.runIf(windows)(
 );
 
 test.runIf(windows)(
-  "Windows: an orphan that cannot be proven the crashed run's is left running and on record, and its thread is told the run may still be running",
+  "Windows: an orphan that cannot be proven the crashed run's is left running and on record until it exits",
   async ({ onTestFinished }) => {
     const cleanups: Cleanups = [];
     onTestFinished(async () => {
       for (const close of cleanups.toReversed()) await close();
     });
     const home = await formattedHome("ace-win-unproven-", cleanups);
-    const thread = await runningThread(home, await temporaryHome("ace-win-work-", cleanups));
     let members: readonly Member[] = [];
     endLater(cleanups, () => members);
     // Nothing recorded the child: it names the dead leader's PID, which a stranger could reuse.
@@ -128,12 +120,6 @@ test.runIf(windows)(
     await next.ready;
     expect(alive(crashed.child)).toBe(true);
     expect((await daemonLogRecords(home)).map((record) => record.message)).toContain(unverified);
-    await expect
-      .poll(() => threadMentions(home, thread, "could not be verified as stopped"), {
-        timeout: 30_000,
-      })
-      .toBe(true);
-    expect(threadMentions(home, thread, "previous provider work stopped")).toBe(false);
     await stop(home);
     await next.exited;
     expect(windowsTreeRecorded(join(home, "processes.sqlite"), crashed.leader)).toBe(true);

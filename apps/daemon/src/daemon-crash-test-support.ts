@@ -2,12 +2,9 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { z } from "zod";
-import { Agent, AgentId, RunId, type ThreadId } from "@ace/protocol";
 import { processIdentity, windowsTreeRuntime } from "@ace/provider-kit/process-identity";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { createDevThread } from "./commands.ts";
 import { daemonPackage, type Cleanups } from "./daemon-launch-test-support.ts";
-import { Store } from "./store.ts";
 
 /** A process by creation identity: a reused PID is someone else and is never touched. */
 export type Member = { pid: number; start: string };
@@ -126,66 +123,6 @@ export function journaled(journal: string, pid: number): boolean {
   const db = new DatabaseSync(journal, { readOnly: true });
   try {
     return db.prepare("SELECT 1 FROM processes WHERE pid=?").get(pid) !== undefined;
-  } finally {
-    db.close();
-  }
-}
-
-/** A thread whose provider run was still active when the daemon went away. */
-export async function runningThread(home: string, workspace: string): Promise<ThreadId> {
-  const store = new Store(join(home, "events.sqlite"), (error) => {
-    throw error;
-  });
-  try {
-    const thread = createDevThread(store, store.createWorkspace(workspace, "Crash workspace"));
-    const root = AgentId.parse("root");
-    store.appendEvents(
-      thread.id,
-      [
-        {
-          type: "agent.created",
-          agent: Agent.parse({
-            id: root,
-            threadId: thread.id,
-            parentId: null,
-            origin: "root",
-            fidelity: "full",
-            native: { provider: "codex" },
-            cwd: workspace,
-            status: { state: "idle" },
-            createdAt: 10,
-          }),
-        },
-        { type: "agent.status", agentId: root, status: { state: "working", activity: "thinking" } },
-        {
-          type: "run.started",
-          run: {
-            id: RunId.parse("crashed-run"),
-            threadId: thread.id,
-            agentId: root,
-            trigger: "user",
-            state: "active",
-            startedAt: 20,
-          },
-        },
-      ],
-      20,
-    );
-    return thread.id;
-  } finally {
-    await store.close();
-  }
-}
-
-/** Whether the thread's stored history mentions `text`; readable while a daemon runs. */
-export function threadMentions(home: string, thread: ThreadId, text: string): boolean {
-  const db = new DatabaseSync(join(home, "events.sqlite"), { readOnly: true });
-  try {
-    return (
-      db
-        .prepare("SELECT 1 FROM events WHERE thread_id=? AND instr(payload, ?) > 0")
-        .get(thread, text) !== undefined
-    );
   } finally {
     db.close();
   }

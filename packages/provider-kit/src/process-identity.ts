@@ -479,8 +479,10 @@ export const windowsTreeRuntime: WindowsTreeRuntime = {
         expectNative(nativeInt.parse(times) !== 0);
         // The PID now names another process: the member itself is gone.
         if (creation.readBigUInt64LE(0).toString() !== member.start) return "gone";
-        expectNative(nativeInt.parse(api.terminate(handle, 1)) !== 0);
-        return "ended";
+        if (nativeInt.parse(api.terminate(handle, 1)) !== 0) return "ended";
+        // A process already exiting refuses termination; wait briefly for it to finish.
+        expectNative(nativeInt.parse(api.wait(handle, 2_000)) === WAIT_OBJECT_0);
+        return "gone";
       } finally {
         api.close(handle);
       }

@@ -44,6 +44,7 @@ export default defineConfig({
       // and startup recovery of escaped provider trees and skill leases.
       "apps/daemon/src/daemon-stop-restart.process.test.ts",
       "apps/daemon/src/daemon-crash-recovery.process.test.ts",
+      "apps/daemon/src/engine/restart-unverified.process.test.ts",
       "packages/git/src/disabled-hooks.process.test.ts",
       "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
