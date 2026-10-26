@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseSubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseUnsubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseInstall.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRemove.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRepair.json"
+    }
+  ]
+}

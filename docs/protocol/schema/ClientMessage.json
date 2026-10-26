@@ -51,6 +51,21 @@
       "$ref": "https://ace.local/protocol/v1/FleetRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/LockedUseSubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseUnsubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseInstall.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRemove.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseRepair.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TransfersRequest.json"
     },
     {

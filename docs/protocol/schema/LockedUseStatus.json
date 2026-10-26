@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/LockedUseStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseOff.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseInstalling.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseOn.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseNeedsApproval.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseInstallFailed.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseDriftRepairNeeded.json"
+    }
+  ]
+}
