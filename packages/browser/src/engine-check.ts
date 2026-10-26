@@ -74,7 +74,7 @@ interface Run {
   /** Over the debugging pipe: Chrome opened a page. */
   pageOpened: boolean;
   /** Windows: the browser's name and version from `Browser.getVersion`. */
-  product?: string;
+  product?: string | undefined;
 }
 type Child = ReturnType<typeof spawn>;
 /** Collects stderr and settles when Chrome exits, killing its process group at the bound. */
