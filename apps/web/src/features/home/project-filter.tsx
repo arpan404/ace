@@ -25,6 +25,8 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { useMachines } from "@/lib/machines.ts";
+import { DeviceFilter } from "./device-filter.tsx";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import {
@@ -40,7 +42,8 @@ import {
 export function ThreadsActions() {
   const directory = useProjectDirectory();
   const projects = useProjectDialogs();
-  if (directory.loaded && directory.projects.length === 0) {
+  const machines = useMachines();
+  if (directory.loaded && directory.projects.length === 0 && machines.length < 2) {
     return (
       <button
         type="button"
@@ -94,6 +97,7 @@ export function ProjectFilter() {
         <CaretDownIcon aria-hidden size={14} className="shrink-0" />
       </MenuTrigger>
       <MenuContent align="end" className="max-h-[60vh] min-w-[220px] overflow-y-auto">
+        <DeviceFilter />
         <MenuRadioGroup
           value={project ?? all}
           onValueChange={(value) =>
@@ -112,12 +116,8 @@ export function ProjectFilter() {
             />
           ))}
         </MenuRadioGroup>
-        {directory.projects.length > 0 && (
-          <>
-            <MenuSeparator />
-            <AddProjectItem />
-          </>
-        )}
+        <MenuSeparator />
+        <AddProjectItem />
       </MenuContent>
     </Menu>
   );
