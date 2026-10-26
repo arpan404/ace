@@ -184,6 +184,12 @@ export class SkillDisk {
     if (!(await renameCommandEntryAs("exchange", directory, first, directory, second)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
+  /** Windows only: the free name each swap backup trades places through, from its journal. */
+  private readonly windowsStaging = new Map<string, string>();
+  /** Record, before any exchange of `backup`, the journal's free staging name for it. */
+  stageWindowsExchange(backup: string, free: string): void {
+    this.windowsStaging.set(backup, free);
+  }
   /** Windows opens files and folders alike (no O_DIRECTORY), so the type is checked here. */
   private async openWindowsDirectory(parent: number, name: string): Promise<number | undefined> {
     const fd = await this.openChild(parent, name, directoryFlags).catch(() => undefined);
@@ -193,13 +199,14 @@ export class SkillDisk {
     return undefined;
   }
   /**
-   * Windows has no atomic exchange. A swap's backup `.<name>.ace-old-<id>` trades places through
-   * its journal's free staging name `.<name>.ace-update-<id>`, so recovery after a crash between
+   * Windows has no atomic exchange. `first` trades places with `second` through the free staging
+   * name its swap journal records (`stageWindowsExchange`), so recovery after a crash between
    * moves finds every folder at a name the journal knows (ADR 0103, Windows).
    */
   private async exchangeOnWindows(directory: number, first: string, second: string) {
-    const staging = /^\.(.+)\.ace-old-([A-Za-z0-9-]+)$/.exec(first);
-    const free = staging ? `.${staging[1]}.ace-update-${staging[2]}` : `${first}.ace-swap`;
+    const free = this.windowsStaging.get(first);
+    if (free === undefined)
+      throw new SkillError("unavailable", "Couldn't move this skill's files.");
     if (!(await exchangeCommandEntriesThrough(directory, first, second, free)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
