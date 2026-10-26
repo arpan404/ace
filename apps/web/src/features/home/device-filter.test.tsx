@@ -7,7 +7,8 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 const threads = () => within(screen.getByRole("navigation", { name: "Threads" }));
 
 async function chooseDevice(name: string) {
-  await userEvent.click(await screen.findByRole("button", { name: /^Device filter:/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Device filter:/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
@@ -40,7 +41,9 @@ test("the device filter narrows threads and drafts and remembers the choice afte
   expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Local draft");
   cleanup();
   await made.open("/");
-  await screen.findByRole("button", { name: "Device filter: Build server" });
+  await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
+  expect(await screen.findByRole("menuitem", { name: "Device filter: Build server" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(threads().getByRole("link", { name: /^Remote task\./ })).toBeTruthy());
   expect(threads().queryByRole("link", { name: /^Local task\./ })).toBeNull();
   await chooseDevice("This Mac");
@@ -63,6 +66,9 @@ test("a single device has no device filter and ignores a saved filter for a remo
   await made.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
   expect(screen.queryByRole("button", { name: /^Device filter:/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
+  expect(screen.queryByRole("menuitem", { name: /^Device filter:/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
   expect(
     within(screen.getByRole("navigation", { name: "Threads" })).getAllByRole("link").length,
   ).toBeGreaterThan(0);

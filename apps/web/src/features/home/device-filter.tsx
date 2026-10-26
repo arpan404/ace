@@ -1,10 +1,11 @@
-import { CaretDownIcon, DevicesIcon } from "@phosphor-icons/react";
+import { DevicesIcon } from "@phosphor-icons/react";
 import {
-  Menu,
   MenuContent,
   MenuRadioGroup,
   MenuRadioItem,
-  MenuTrigger,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
@@ -28,23 +29,16 @@ export function DeviceFilter() {
   const selected = machines.find((machine) => machine.id === device);
   const label = selected?.name ?? "All devices";
   return (
-    <div className="flex h-9 shrink-0 items-center px-2">
-      <Menu>
-        <MenuTrigger
-          aria-label={`Device filter: ${label}`}
-          className="inline-flex h-8 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 text-sm font-medium text-muted-foreground focus-ring touch-hit transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
-        >
+    <>
+      <MenuSub>
+        <MenuSubTrigger aria-label={`Device filter: ${label}`}>
           {selected ? (
             <MachineLabel name={label} icon={selected.icon} primary={selected.primary} />
           ) : (
             allLabel
           )}
-          <CaretDownIcon aria-hidden size={14} className="ml-auto shrink-0" />
-        </MenuTrigger>
-        <MenuContent
-          align="start"
-          className="max-h-[60vh] w-(--anchor-width) min-w-0 overflow-y-auto"
-        >
+        </MenuSubTrigger>
+        <MenuContent className="max-h-[60vh] overflow-y-auto">
           <MenuRadioGroup
             value={device ?? all}
             onValueChange={(value) =>
@@ -66,7 +60,8 @@ export function DeviceFilter() {
             ))}
           </MenuRadioGroup>
         </MenuContent>
-      </Menu>
-    </div>
+      </MenuSub>
+      <MenuSeparator />
+    </>
   );
 }

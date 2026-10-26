@@ -1,4 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openDeviceMenu(page: Page) {
+  await page.getByRole("button", { name: /^Project filter:/ }).click();
+  await page.getByRole("menuitem", { name: /^Device filter:/ }).click();
+}
 
 test("an empty chat has no top strip, while project controls still show", async ({
   page,
@@ -47,7 +52,8 @@ test("the sidebar device filter shows only the selected device's threads", async
   await page.goto("/new?project=chat");
   await page.getByRole("combobox", { name: "Message" }).waitFor();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("button", { name: "Device filter: All devices" }).click();
+  await expect(page.getByRole("button", { name: /^Device filter:/ })).toHaveCount(0);
+  await openDeviceMenu(page);
   await page.getByRole("menuitemradio", { name: "Build server", exact: true }).click();
   await page.keyboard.press("Escape");
   const threads = page.getByRole("navigation", { name: "Threads", exact: true });
@@ -60,7 +66,7 @@ test("the sidebar device filter shows only the selected device's threads", async
       path: info.outputPath(`device-filter-${colorScheme}.png`),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "Device filter: Build server" }).click();
+    await openDeviceMenu(page);
     await expect(
       page.getByRole("menuitemradio", { name: "Build server", exact: true }),
     ).toBeVisible();
@@ -69,8 +75,9 @@ test("the sidebar device filter shows only the selected device's threads", async
       animations: "disabled",
     });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
   }
-  await page.getByRole("button", { name: "Device filter: Build server" }).click();
+  await openDeviceMenu(page);
   await page.getByRole("menuitemradio", { name: "All devices", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(threads.getByRole("link", { name: /^Fix flaky checkout test\./ })).toBeVisible();

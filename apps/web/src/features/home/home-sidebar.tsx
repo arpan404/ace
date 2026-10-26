@@ -17,7 +17,6 @@ import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
-import { DeviceFilter } from "./device-filter.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
@@ -62,7 +61,6 @@ export function HomeSidebar() {
   const { only } = entry;
   return (
     <>
-      <DeviceFilter />
       <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
         <span className="flex-1" />
