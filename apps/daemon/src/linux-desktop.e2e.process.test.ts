@@ -1,8 +1,8 @@
 /*
  * Linux end to end: the real daemon, the real ace MCP server, ace's pinned Chrome (sandboxed)
  * and the real Linux screen helper, driven by a scripted agent. No provider CLI or model runs.
- * Opt-in only: `tools/linux-e2e/run.sh` starts a throwaway desktop and sets
- * `ACE_LINUX_DESKTOP_E2E` to the session it made (x11, wayland or headless) and
+ * Opt-in only: `apps/daemon/scripts/linux-e2e/run.sh` starts a throwaway desktop and sets
+ * `ACE_LINUX_DESKTOP_E2E` to the session it made (wayland, hyprland or headless) and
  * `ACE_SCREEN_HELPER` to the helper it built.
  */
 import { execFile } from "node:child_process";
@@ -18,8 +18,8 @@ import { answerChooser, scriptedChooser } from "./testing/portal-chooser.ts";
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
 const enabled = process.platform === "linux" && !!session && !!helper;
-/** x11 (Openbox), wayland (GNOME Shell), hyprland (Omarchy's compositor) or sway. */
-const graphical = ["x11", "wayland", "hyprland", "sway"].includes(session ?? "");
+/** wayland (GNOME Shell, or KWin in a KDE session) or hyprland (Omarchy's compositor). */
+const graphical = ["wayland", "hyprland"].includes(session ?? "");
 const exec = promisify(execFile);
 
 /** The desktop's own apps: GNOME's by default, KDE Plasma's when the runner made a KDE session. */
@@ -182,12 +182,11 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
         "screen_state",
       );
       const outline = words(look);
-      // X11 captures the window. On Wayland the first look opens the screen-sharing dialog
-      // and asks the person to approve it; a remembered approval captures directly. Hyprland
-      // sends a window's picture only when its screen redraws, so an idle desktop may have
-      // sent none yet: the look says so, and the stream stays open for the next look.
-      if (session === "x11") expect(look.images, outline).toBe(1);
-      else if (scriptedChooser)
+      // The first look opens the screen-sharing dialog and asks the person to approve it; a
+      // remembered approval captures directly. Hyprland sends a window's picture only when its
+      // screen redraws, so an idle desktop may have sent none yet: the look says so, and the
+      // stream stays open for the next look.
+      if (scriptedChooser)
         expect(
           look.images === 1 || /nothing on that screen has redrawn/.test(outline),
           outline,
@@ -209,7 +208,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
       );
       // Where sharing was approved in the first look, typing redrew the editor, so this look
       // has its picture.
-      const pictured = session === "x11" || scriptedChooser;
+      const pictured = scriptedChooser;
       const next = ok(
         await model.call("screen_state", { app: desktop.editor, screenshot: pictured }),
         "screen_state",
@@ -253,7 +252,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
   });
 
   it.skipIf(!graphical)(
-    "a raw key for a window in the background is refused with what to do instead",
+    "a raw key Wayland can't send is refused with what to do instead",
     async () => {
       const { agent: model } = await agent({ browser: false });
       ok(await model.call("screen_state", { app: desktop.calculator }), "screen_state");
@@ -262,13 +261,14 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
         actions: [{ type: "key", key: "Escape" }],
       });
       expect(refused.failed).toBe(true);
-      // X11 sends raw input to the front window only; Wayland gives ace no raw input at all.
-      expect(refused.text).toMatch(session === "x11" ? /activate/ : /not supported|Wayland/i);
+      // Wayland gives ace no raw input; the refusal points to element ids.
+      expect(refused.text).toMatch(/Wayland/);
+      expect(refused.text).toMatch(/element ids/);
     },
   );
 
-  it.skipIf(!kde || session !== "wayland")(
-    "on KDE Wayland the person picks the window in KDE's chooser once, and later looks come with a picture",
+  it.skipIf(!kde)(
+    "on KDE the person picks the window in KDE's chooser once, and later looks come with a picture",
     async () => {
       const { world, agent: model } = await agent({ browser: false });
       const first = ok(

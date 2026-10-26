@@ -121,8 +121,8 @@ export class TargetSessions {
       helper = await this.host.open();
       if (helper.capabilities && target.kind === "display" && !helper.capabilities.capture.displays)
         throw new Error("This desktop's screen sharing can't capture a whole screen");
-      // xdg-desktop-portal-wlr (Sway and other wlroots desktops) shares monitors only. Its
-      // sharing dialog (a `chooser` target) still offers the screen.
+      // A portal that shares monitors only (xdg-desktop-portal-wlr, for one) can't capture one
+      // window. Its sharing dialog (a `chooser` target) still offers the screen.
       if (
         helper.capabilities &&
         (target.kind === "app" || target.kind === "window") &&

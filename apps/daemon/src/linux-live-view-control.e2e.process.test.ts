@@ -5,9 +5,7 @@
  * writes what reaches it to ACE_E2E_FIXTURE_LOG. No provider CLI or model runs.
  * Opt-in only: `apps/daemon/scripts/linux-e2e/run.sh` starts a throwaway desktop.
  */
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScreenState } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
@@ -17,13 +15,9 @@ import { LiveViewer } from "./testing/live-viewer.ts";
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
 const log = process.env.ACE_E2E_FIXTURE_LOG;
-/**
- * X11 (Openbox or KWin) and GNOME on Wayland. KDE on Wayland, Hyprland and Sway are watch-only;
- * the live-view suite checks that they say so.
- */
-const controllable = session === "x11" || (session === "wayland" && !kde);
+/** GNOME. KDE and Hyprland are watch-only; the live-view suite checks that they say so. */
+const controllable = session === "wayland" && !kde;
 const enabled = process.platform === "linux" && controllable && !!helper && !!log;
-const exec = promisify(execFile);
 const fixture = { desktopId: "dev.ace.LiveViewFixture", title: "Live view fixture" };
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -74,7 +68,7 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     const ace = await world();
     const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
     cleanups.push(() => viewer.close());
-    const shared = await shareWindow(session ?? "", ace, viewer, fixture, cleanups);
+    const shared = await shareWindow(ace, viewer, fixture, cleanups);
     const { target } = shared;
     const state = ScreenState.parse(await startShared(viewer, shared));
     cleanups.push(async () => {
@@ -90,16 +84,6 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     await viewer.request({ op: "controller", sessionId, controller: "human" });
     const input = (value: Record<string, unknown>) =>
       viewer.request({ op: "input", sessionId, input: value });
-    // The person at the machine went back to the terminal: the shared window is behind it.
-    // Their click from the live view brings it forward, as their mouse there would.
-    if (session === "x11")
-      await exec("xdotool", [
-        "search",
-        "--classname",
-        kde ? "konsole" : "xterm",
-        "windowactivate",
-        "--sync",
-      ]);
     let before = await logged();
     await input({ kind: "pointer.click", x: 100, y: 80, button: "left" });
     await reached(before, (entry) => near(entry, 100, 80, 1));
@@ -123,52 +107,47 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     expect(await logged()).toBe(before);
   }, 180_000);
 
-  it.skipIf(session !== "wayland" || kde)(
-    "a person's click on a shared window that is behind another app never reaches the app in front",
-    async () => {
-      const ace = await world();
-      const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
-      cleanups.push(() => viewer.close());
-      // Calculator opened after the fixture, so GNOME keeps it behind; both sit mid-screen.
-      const { target } = await shareWindow(
-        "wayland",
-        ace,
-        viewer,
-        { desktopId: "org.gnome.Calculator", title: "Calculator" },
-        cleanups,
+  it("a person's click on a shared window that is behind another app never reaches the app in front", async () => {
+    const ace = await world();
+    const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
+    cleanups.push(() => viewer.close());
+    // Calculator opened after the fixture, so GNOME keeps it behind; both sit mid-screen.
+    const { target } = await shareWindow(
+      ace,
+      viewer,
+      { desktopId: "org.gnome.Calculator", title: "Calculator" },
+      cleanups,
+    );
+    const state = ScreenState.parse(await viewer.request({ op: "start", target }, 150_000));
+    cleanups.push(async () => {
+      await viewer.request({ op: "stop", sessionId: state.sessionId }).catch(() => {});
+    });
+    await viewer.request({ op: "controller", sessionId: state.sessionId, controller: "human" });
+    const before = await logged();
+    // The middle of Calculator, where the fixture covers it.
+    const sent = viewer
+      .request({
+        op: "input",
+        sessionId: state.sessionId,
+        input: { kind: "pointer.click", x: 185, y: 300, button: "left" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => String(error),
       );
-      const state = ScreenState.parse(await viewer.request({ op: "start", target }, 150_000));
-      cleanups.push(async () => {
-        await viewer.request({ op: "stop", sessionId: state.sessionId }).catch(() => {});
-      });
-      await viewer.request({ op: "controller", sessionId: state.sessionId, controller: "human" });
-      const before = await logged();
-      // The middle of Calculator, where the fixture covers it.
-      const sent = viewer
-        .request({
-          op: "input",
-          sessionId: state.sessionId,
-          input: { kind: "pointer.click", x: 185, y: 300, button: "left" },
-        })
-        .then(
-          () => undefined,
-          (error: unknown) => String(error),
-        );
-      const refusal = await sent;
-      // GNOME doesn't let it come forward: the person is told what to do instead.
-      if (refusal)
-        expect(refusal).toMatch(
-          /Calculator is behind another window on that computer.*Bring it to the front there, or share the screen/,
-        );
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      // Focus may move as the session's keyboard appears; no input reached the fixture.
-      const after = (await readFile(log ?? "", "utf8"))
-        .split("\n")
-        .filter(Boolean)
-        .slice(before)
-        .map((line) => JSON.parse(line) as Reached & { active?: boolean });
-      expect(after.filter((entry) => entry.active === undefined)).toEqual([]);
-    },
-    180_000,
-  );
+    const refusal = await sent;
+    // GNOME doesn't let it come forward: the person is told what to do instead.
+    if (refusal)
+      expect(refusal).toMatch(
+        /Calculator is behind another window on that computer.*Bring it to the front there, or share the screen/,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Focus may move as the session's keyboard appears; no input reached the fixture.
+    const after = (await readFile(log ?? "", "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .slice(before)
+      .map((line) => JSON.parse(line) as Reached & { active?: boolean });
+    expect(after.filter((entry) => entry.active === undefined)).toEqual([]);
+  }, 180_000);
 });

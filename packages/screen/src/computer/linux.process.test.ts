@@ -17,12 +17,12 @@ async function world(options: WorldOptions = {}) {
   return made;
 }
 
-/** A user manager that holds a logged-in X11 session, or none. */
+/** A user manager that holds a logged-in session, or none. */
 const manager = (output: string) =>
   linuxComputerEnvironment(graphicalSessionEnvironment({ env: {}, run: async () => output }));
 
 it("an agent drives a Linux app by its desktop-file id", async () => {
-  const { call } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
+  const { call } = await world({ client: { environment: manager("WAYLAND_DISPLAY=wayland-0\n") } });
   const look = await call("screen_state", { app: "org.gnome.TextEditor" });
   expect(look.result.isError).toBeFalsy();
   expect(look.text).toContain("Text Editor (org.gnome.TextEditor)");
@@ -37,10 +37,22 @@ it("an agent drives a Linux app by its desktop-file id", async () => {
 it("the computer helper starts inside the desktop session the user manager reports", async () => {
   const { call, ops } = await world({
     env: { FAKE_LOG_SESSION: "1" },
-    client: { environment: manager("DISPLAY=:7\nXDG_SESSION_TYPE=x11\n") },
+    client: { environment: manager("WAYLAND_DISPLAY=wayland-7\nXDG_SESSION_TYPE=wayland\n") },
   });
   await call("screen_apps", {});
-  expect((await ops())[0]).toBe("session DISPLAY=:7");
+  expect((await ops())[0]).toBe("session WAYLAND_DISPLAY=wayland-7");
+});
+
+it("in an X11 session the tools ask for a Wayland login and no helper starts", async () => {
+  const { call, ops, children } = await world({
+    client: { environment: manager("DISPLAY=:0\nXDG_SESSION_TYPE=x11\n") },
+  });
+  const look = await call("screen_state", { app: "Text Editor" });
+  expect(look.result.isError).toBe(true);
+  expect(look.text).toContain("X11 session");
+  expect(look.text).toContain("Wayland");
+  expect(children).toEqual([]);
+  expect(await ops()).toEqual([]);
 });
 
 it("the helper keeps screen-sharing approvals in the data directory it is given", async () => {
@@ -76,7 +88,9 @@ it.each([
   ["ace's desktop app by its Linux app id", "dev.ace.app", "ace itself"],
   ["ace's desktop app from the tar.gz", "ace-desktop-bin", "ace itself"],
 ])("%s is refused before any look or action reaches it", async (_label, app, reason) => {
-  const { call, ops } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
+  const { call, ops } = await world({
+    client: { environment: manager("WAYLAND_DISPLAY=wayland-0\n") },
+  });
   const refused = await call("screen_act", { app, actions: [{ type: "type", text: "ls" }] });
   expect(refused.result.isError).toBe(true);
   expect(refused.text).toContain(reason);
@@ -84,7 +98,7 @@ it.each([
 });
 
 it("refused Linux apps are left out of the app list", async () => {
-  const { call } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
+  const { call } = await world({ client: { environment: manager("WAYLAND_DISPLAY=wayland-0\n") } });
   const listed = await call("screen_apps", {});
   expect(listed.text).toContain("org.gnome.TextEditor");
   expect(listed.text).not.toContain("org.gnome.Ptyxis");
@@ -92,7 +106,9 @@ it("refused Linux apps are left out of the app list", async () => {
 });
 
 it("on KDE an agent sees KCalc but never Konsole or the wallet's password prompt", async () => {
-  const { call, ops } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
+  const { call, ops } = await world({
+    client: { environment: manager("WAYLAND_DISPLAY=wayland-0\n") },
+  });
   const listed = await call("screen_apps", {});
   expect(listed.text).toContain("org.kde.kcalc");
   expect(listed.text).not.toContain("Konsole");
