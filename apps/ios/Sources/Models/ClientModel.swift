@@ -103,6 +103,9 @@ import QuartzCore
     @ObservationIgnored private var connectionEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
+    /// Frames held to apply together on the next flush.
+    @ObservationIgnored private let batch = FrameBatch()
+    @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -127,7 +130,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
-        frames = BridgeFrames(); generation = 0
+        frames = BridgeFrames(); batch.reset(); flushTask?.cancel(); flushTask = nil; generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
@@ -142,7 +145,7 @@ import QuartzCore
             decoder.decode(data) { patches in
                 Task { @MainActor in
                     guard let self, self.connectionEpoch == epoch else { return }
-                    let accepted = self.accept(patches, bytes: data.count)
+                    let accepted = self.hold(patches, bytes: data.count)
                     self.runtime?.acknowledge(accepted: accepted)
                 }
             }
@@ -159,12 +162,52 @@ import QuartzCore
         let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(scope + ".sqlite")
     }
-    /// Decodes and applies one frame on the main thread, as tests deliver them.
+    /// Decodes and applies one frame on the main thread at once, as tests deliver them.
     @discardableResult func receive(_ data: Data) -> Bool {
-        accept(try? frames.decode(data), bytes: data.count)
+        flushFrames()
+        defer { flushFrames() }
+        return accept(try? frames.decode(data), bytes: data.count)
     }
-    /// Applies one decoded frame; nil is a frame that could not be read.
-    func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+    /// Takes one decoded frame from the runtime: it applies with the frames around it on the
+    /// next flush (`FrameBatch`), so a burst split over frames lands as one change.
+    func hold(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+        let accepted = accept(patches, bytes: bytes)
+        scheduleFlush()
+        return accepted
+    }
+    /// Applies every held frame now.
+    func flushFrames() {
+        flushTask?.cancel(); flushTask = nil
+        let patches = batch.take(at: now())
+        guard !patches.isEmpty else { return }
+        HostTrace.measure("main.apply") { apply(patches) }
+    }
+    private func scheduleFlush() {
+        guard flushTask == nil, let due = batch.due else { return }
+        flushTask = Task<Void, Never> { @MainActor [weak self, now] in
+            do { try await Task.sleep(for: .milliseconds(max(0, due - now()))) } catch { return }
+            guard let self else { return }
+            self.flushTask = nil
+            // A frame that added rows since this was set may have moved the time on.
+            if let next = self.batch.due, next > self.now() { self.scheduleFlush() } else { self.flushFrames() }
+        }
+    }
+    /// Whether `patches` add rows to the open thread after its first load: a new item or block.
+    private func addsRows(_ patches: [BridgePatch]) -> Bool {
+        guard let thread, thread.loaded else { return false }
+        return patches.contains { patch in
+            switch patch {
+            case .item(let id, let epoch, let itemId, let row):
+                return row != nil && id == thread.id && epoch == thread.epoch && thread.items[itemId] == nil
+            case .block(let id, let epoch, let blockId, let row):
+                return row != nil && id == thread.id && epoch == thread.epoch && thread.screen.blocks[blockId] == nil
+            default: return false
+            }
+        }
+    }
+    /// Resolves one decoded frame and holds it for the next flush; nil is a frame that could not
+    /// be read.
+    private func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
         let began = CACurrentMediaTime()
         let patchesBefore = patchCount, updatesBefore = streamedUpdates
         let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
@@ -183,23 +226,32 @@ import QuartzCore
         // An edit made against text this model no longer shows turns the whole frame down, before
         // anything applies; the bridge then sends that row whole.
         guard let edited = HostTrace.measure("main.edits", { resolveTextEdits(patches) }) else { return false }
-        HostTrace.measure("main.apply") { apply(edited) }
+        batch.hold(edited, at: now(), addsRows: addsRows(edited))
         return true
     }
     /// `patches` with each streaming text edit for the open thread turned into its whole row, or
-    /// nil when one was made against text other than the row shown.
+    /// nil when one was made against text other than the row it will show, held frames included.
     private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
-        var texts: [String: String] = [:]
+        let mark = batch.mark()
         var resolved: [BridgePatch] = []
         resolved.reserveCapacity(patches.count)
         for patch in patches {
-            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else { resolved.append(patch); continue }
+            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else {
+                batch.note(patch)
+                resolved.append(patch)
+                continue
+            }
             // Another thread's or an older generation's edit is dropped like its whole row would be.
             guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-            guard let shown = texts[itemId] ?? thread.items[itemId]?.row.text, let text = edit.applied(to: shown) else { return nil }
-            texts[itemId] = text
+            guard let shown = batch.text(id, epoch, itemId, shown: { thread.items[itemId]?.row.text }),
+                  let text = edit.applied(to: shown) else {
+                batch.restore(mark)
+                return nil
+            }
             row.text = text
-            resolved.append(.item(id, epoch, itemId, row))
+            let whole = BridgePatch.item(id, epoch, itemId, row)
+            batch.note(whole)
+            resolved.append(whole)
         }
         return resolved
     }
