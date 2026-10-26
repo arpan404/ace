@@ -28637,6 +28637,720 @@ Example:
 "http://ii3zsf:36761"
 ```
 
+## SkillAgent
+
+[JSON Schema](schema/SkillAgent.json), input validation.
+
+Type: ["claude","codex","opencode","cursor","pi"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"claude"
+```
+
+## SkillEntry
+
+[JSON Schema](schema/SkillEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| title | no | string | {"minLength":1,"maxLength":256} |
+| description | yes | string | {"maxLength":2048} |
+| scope | yes | [SkillScope.json](schema/SkillScope.json) |  |
+| path | yes | string | {"maxLength":4096} |
+| agents | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/SkillPresence.json"}} |
+| manual | yes | boolean |  |
+| argumentHint | no | string | {"maxLength":1024} |
+| editable | yes | boolean |  |
+| source | no | [SkillSource.json](schema/SkillSource.json) |  |
+| hash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "agents": [],
+  "description": "example",
+  "editable": true,
+  "hash": "94b02b4aac349d32e7ab2edfeaf23aca149960a0806653b983d0131c5fbe55a0",
+  "id": "skl_9f24fed344c33c64ec4cc56a4b363235b68dadd4",
+  "manual": true,
+  "name": "example",
+  "path": "example",
+  "scope": "builtin",
+  "source": {
+    "folderHash": "example",
+    "path": "example",
+    "source": "example",
+    "url": "example"
+  },
+  "title": "example"
+}
+```
+
+## SkillErrorCode
+
+[JSON Schema](schema/SkillErrorCode.json), input validation.
+
+Type: ["unavailable","busy","forbidden","not_found","conflict","exists","invalid","limit","read_only","update_failed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"busy"
+```
+
+## SkillHash
+
+[JSON Schema](schema/SkillHash.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"8e00891064494676cd940ff1ae04e2a9372ba1dd64d3ed559ac19597e874633f"
+```
+
+## SkillId
+
+[JSON Schema](schema/SkillId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"skl_b69b02cb256eaca0fb78f30bca9b17ab6161e212"
+```
+
+## SkillOperation
+
+[JSON Schema](schema/SkillOperation.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"list"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| subscribe | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "op": "list"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_4df06cd542d7c8216f75d7a241bfca4cd4f665ad",
+  "op": "read"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"create"` |  |
+| name | yes | [SkillSlug.json](schema/SkillSlug.json) |  |
+| description | yes | string | {"minLength":1,"maxLength":1024} |
+| body | yes | string | {"maxLength":262144} |
+| scope | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"personal"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"project"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["kind","workspaceId"]}]} |
+| agents | yes | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"}} |
+| manual | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "agents": [
+    "opencode"
+  ],
+  "body": "example",
+  "description": "example",
+  "manual": true,
+  "name": "rw",
+  "op": "create",
+  "scope": {
+    "kind": "project",
+    "workspaceId": "example"
+  }
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"edit"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+| description | yes | string | {"minLength":1,"maxLength":1024} |
+| body | yes | string | {"maxLength":262144} |
+| manual | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "description": "example",
+  "expectedHash": "f374a017608b073c04c54bc201db51d1c35aef4b9d6e5a1bc8619ea33e40d036",
+  "id": "skl_befe8f8b242daa4284d87f3970e28c55ebd86409",
+  "manual": true,
+  "op": "edit",
+  "workspaceId": "example"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"setAgents"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| agents | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"}} |
+
+Example:
+
+```json
+{
+  "agents": [],
+  "id": "skl_e66e91e615d71a62870a3b7d80fc6e516ec9e3af",
+  "op": "setAgents"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"delete"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "expectedHash": "ff752b411e7f234fe45876a0f3f5b6a36251cccc23f2e8fe2eb577c073ad1fdf",
+  "id": "skl_2eed933106828b73993c07c1a0064f5df2ba6355",
+  "op": "delete"
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"checkUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_576ca48cf72deb939c6ed305b01f205a86abe20b",
+  "op": "checkUpdate"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"prepareUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_9febb6e7e8d75ca3ae909f49df290166099c52b1",
+  "op": "prepareUpdate",
+  "workspaceId": "example"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"applyUpdate"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+| expectedHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+
+Example:
+
+```json
+{
+  "expectedHash": "999b4ce3525ec2bf308d927434369cd7bee4a51d754980432b026079dcd70d99",
+  "id": "skl_52a7fdd1dac8e35e18c3bb208317ef1ef49d0997",
+  "op": "applyUpdate",
+  "reviewId": "example",
+  "workspaceId": "example"
+}
+```
+
+### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"cancelUpdate"` |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "op": "cancelUpdate",
+  "reviewId": "example"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"usage"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| ids | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillId.json"}} |
+
+Example:
+
+```json
+{
+  "ids": [],
+  "op": "usage"
+}
+```
+
+## SkillPresence
+
+[JSON Schema](schema/SkillPresence.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | [SkillAgent.json](schema/SkillAgent.json) |  |
+| via | yes | ["native","link","copy"] |  |
+| path | yes | string | {"maxLength":4096} |
+| removable | yes | boolean |  |
+| honoursManual | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "honoursManual": false,
+  "path": "example",
+  "provider": "cursor",
+  "removable": true,
+  "via": "copy"
+}
+```
+
+## SkillResult
+
+[JSON Schema](schema/SkillResult.json), input validation.
+
+### list
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"list"` |  |
+| entries | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillEntry.json"}} |
+| stale | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "kind": "list",
+  "stale": true
+}
+```
+
+### skill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"skill"` |  |
+| entry | yes | [SkillEntry.json](schema/SkillEntry.json) |  |
+| text | yes | string | {"maxLength":262144} |
+| kept | no | array | {"maxItems":8,"items":{"type":"object","properties":{"provider":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"},"reason":{"type":"string","enum":["canonical","copy","shared"]}},"required":["provider","reason"]}} |
+
+Example:
+
+```json
+{
+  "entry": {
+    "agents": [],
+    "description": "example",
+    "editable": true,
+    "hash": "c55d85db6992f5507870542cb2fc0bec8f3f0ed2965f2c674ffb17c59bc715f2",
+    "id": "skl_cdf5ae8840700f0533a38b31790dee15c0e8b493",
+    "manual": false,
+    "name": "example",
+    "path": "example",
+    "scope": "personal",
+    "title": "example"
+  },
+  "kind": "skill",
+  "text": "example"
+}
+```
+
+### deleted
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"deleted"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_f575b0d3312a701636d557858917c02143c93349",
+  "kind": "deleted"
+}
+```
+
+### updateStatus
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"updateStatus"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| status | yes | ["current","available"] |  |
+| commit | yes | string | {"pattern":"^[a-f0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "commit": "9d0937908641d2ab0ed84365f86c21f170b5a5749671a748591a4e1df6d9",
+  "id": "skl_3ef4c22e22d5e036490712c9a821a12dd7bab3ff",
+  "kind": "updateStatus",
+  "status": "available"
+}
+```
+
+### updateReview
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"updateReview"` |  |
+| review | yes | [SkillUpdateReview.json](schema/SkillUpdateReview.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "updateReview",
+  "review": {
+    "after": "example",
+    "baseHash": "9973d7358a74c42e1d1b430ca79f5508dbda961759de40f92c0ed11a9c18aaf7",
+    "before": "example",
+    "commit": "e2b10f9d2b4fbd753f89602e41f0a469aaa3c263",
+    "files": [],
+    "folderHash": "example",
+    "id": "example",
+    "skillId": "skl_b49a66d19c2bec9406ba8fde0aac88081e334635"
+  }
+}
+```
+
+### cancelled
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"cancelled"` |  |
+| reviewId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "kind": "cancelled",
+  "reviewId": "example"
+}
+```
+
+### usage
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"usage"` |  |
+| usage | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillUsage.json"}} |
+
+Example:
+
+```json
+{
+  "kind": "usage",
+  "usage": []
+}
+```
+
+### error
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"error"` |  |
+| code | yes | [SkillErrorCode.json](schema/SkillErrorCode.json) |  |
+| message | yes | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "code": "read_only",
+  "kind": "error",
+  "message": "example"
+}
+```
+
+## SkillsChanged
+
+[JSON Schema](schema/SkillsChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.changed"` |  |
+| requestId | yes | string |  |
+| entries | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillEntry.json"}} |
+| stale | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "requestId": "example",
+  "stale": false,
+  "type": "skills.changed"
+}
+```
+
+## SkillScope
+
+[JSON Schema](schema/SkillScope.json), input validation.
+
+Type: ["project","personal","plugin","builtin"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"builtin"
+```
+
+## SkillSlug
+
+[JSON Schema](schema/SkillSlug.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"6f1d-99g-t-qt5q-s60g0kr-tyd-ohrk03y"
+```
+
+## SkillSource
+
+[JSON Schema](schema/SkillSource.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | string | {"maxLength":512} |
+| url | yes | string | {"maxLength":4096} |
+| path | yes | string | {"maxLength":4096} |
+| folderHash | yes | string | {"maxLength":64} |
+| updatedAt | no | string | {"maxLength":64} |
+
+Example:
+
+```json
+{
+  "folderHash": "example",
+  "path": "example",
+  "source": "example",
+  "url": "example"
+}
+```
+
+## SkillsRequest
+
+[JSON Schema](schema/SkillsRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | [SkillOperation.json](schema/SkillOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "list"
+  },
+  "requestId": "example",
+  "type": "skills.request"
+}
+```
+
+## SkillsResult
+
+[JSON Schema](schema/SkillsResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.result"` |  |
+| requestId | yes | string |  |
+| result | yes | [SkillResult.json](schema/SkillResult.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "kind": "updateReview",
+    "review": {
+      "after": "example",
+      "baseHash": "cc0a706caa9c050d68447331a2de9776f113b4142f8c3340e6815c2a1ca75ddd",
+      "before": "example",
+      "commit": "ba60e82bc3a3cbf0926aeb88c7959a829d9573ff65535cf5815893bc8",
+      "files": [],
+      "folderHash": "example",
+      "id": "example",
+      "skillId": "skl_c23bee4612a911a2969ae81539c178c1add78173"
+    }
+  },
+  "type": "skills.result"
+}
+```
+
+## SkillsUnsubscribe
+
+[JSON Schema](schema/SkillsUnsubscribe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"skills.unsubscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "skills.unsubscribe"
+}
+```
+
+## SkillUpdateFile
+
+[JSON Schema](schema/SkillUpdateFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"maxLength":4096} |
+| change | yes | ["added","changed","removed"] |  |
+| flagged | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "change": "changed",
+  "flagged": true,
+  "path": "example"
+}
+```
+
+## SkillUpdateReview
+
+[JSON Schema](schema/SkillUpdateReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":128} |
+| skillId | yes | [SkillId.json](schema/SkillId.json) |  |
+| commit | yes | string | {"pattern":"^[a-f0-9]{40,64}$"} |
+| folderHash | yes | string | {"maxLength":64} |
+| baseHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+| files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/SkillUpdateFile.json"}} |
+| before | yes | string | {"maxLength":262144} |
+| after | yes | string | {"maxLength":262144} |
+
+Example:
+
+```json
+{
+  "after": "example",
+  "baseHash": "e2abf01c9e3da206563abaadbc1caaa1833a7a85eb9f66f56d1d6d857b059186",
+  "before": "example",
+  "commit": "b827be834e9ed7a594506e7775b1f2d56b5081296b471e98e9",
+  "files": [],
+  "folderHash": "example",
+  "id": "example",
+  "skillId": "skl_6361e8c21a03ccfec1b3de25a78eb0046cc9a985"
+}
+```
+
+## SkillUsage
+
+[JSON Schema](schema/SkillUsage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| count | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| last | no | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"title":{"type":"string","maxLength":512},"at":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["threadId","title","at"]} |
+
+Example:
+
+```json
+{
+  "count": 8,
+  "id": "skl_3b52b1e583fec358aaad593af9e6c932ac79d0a7",
+  "last": {
+    "at": 4,
+    "threadId": "example",
+    "title": "example"
+  }
+}
+```
+
 ## SnapshotView
 
 [JSON Schema](schema/SnapshotView.json), input validation.

@@ -5,9 +5,11 @@ import {
   type PluginInstall,
   type PluginOrigin,
   type PluginSkillAvailability,
+  type SkillEntry,
 } from "@ace/protocol";
-import { extensionDisplayName, providerNames } from "@ace/ui-core";
+import { extensionDisplayName } from "@ace/ui-core";
 import { z } from "zod";
+import type { SkillHome } from "./library-model.ts";
 
 /*
  * The Skills catalog from the plugin service: every installed plugin, and the skills, slash
@@ -19,10 +21,13 @@ export const skillsLoadError = "Couldn't load your skills. Check your connection
 
 export type SkillKind = PluginComponent["kind"] | "plugin" | "workflow" | "mcp-tool";
 export interface Skill {
-  discovered?: import("@ace/protocol").CatalogEntry | undefined;
-  /** Route id: `plugin~kind~name` for a component, `plugin~name` for a plugin. */
+  /** A skill from the agents' own folders, as the daemon's library lists it. */
+  library?: SkillEntry | undefined;
+  /** Route id: `plugin~kind~name` for a component, `plugin~name` for a plugin, the library id. */
   id: string;
   kind: SkillKind;
+  /** Where it lives: the sidebar groups by this. */
+  home: SkillHome;
   name: string;
   title?: string | undefined;
   description: string;
@@ -142,6 +147,7 @@ export function skillCatalog(
       return {
         id: pluginSkillId(install.name),
         kind: "plugin",
+        home: "plugin",
         name: install.name,
         description: pluginDescription(install, own),
         plugin: install.name,
@@ -160,6 +166,7 @@ export function skillCatalog(
   const shipped = components.map((component): Skill => ({
     id: componentSkillId(component),
     kind: component.kind,
+    home: "plugin",
     name: component.name,
     title: component.title,
     description: component.description,
@@ -172,17 +179,31 @@ export function skillCatalog(
   return [...shipped, ...plugins];
 }
 
-/** "Every provider", or the providers by name: "Claude Code and Codex". */
-export function availabilityText(providers: readonly ProviderKind[]): string {
-  if (!providers.length) return "No provider";
-  if (ProviderKind.options.every((provider) => providers.includes(provider)))
-    return "Every provider";
-  const names = ProviderKind.options
-    .filter((provider) => providers.includes(provider))
-    .map((provider) => providerNames[provider]);
-  return names.length === 1
-    ? `${names[0]} only`
-    : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+/**
+ * The library's skills beside the ace plugin catalog. A plugin skill the library also lists is
+ * one of ace's own plugin components, which keeps its plugin controls, so it shows once.
+ */
+export function withLibrary(catalog: readonly Skill[], entries: readonly SkillEntry[]): Skill[] {
+  const shipped = new Set(
+    catalog.filter((skill) => skill.kind === "skill").map((skill) => skill.name),
+  );
+  const library = entries
+    .filter((entry) => !(entry.scope === "plugin" && shipped.has(entry.name)))
+    .map((entry): Skill => ({
+      id: entry.id,
+      kind: "skill",
+      home: entry.scope,
+      name: entry.name,
+      title: entry.title,
+      description: entry.description,
+      plugin: "",
+      path: entry.path,
+      enabled: true,
+      providers: entry.agents.map((agent) => agent.provider),
+      library: entry,
+    }))
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+  return [...library, ...catalog];
 }
 
 /**

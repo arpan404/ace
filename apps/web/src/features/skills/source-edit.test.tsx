@@ -15,7 +15,7 @@ async function setup(text: string) {
   component.text = text;
   app.daemon.seedServices(seed);
   await app.open("/skills/engineering~skill~code-review");
-  await screen.findByRole("heading", { name: "Code Review", level: 2 });
+  await screen.findByRole("heading", { name: "Code review", level: 2 });
   await screen.findByRole("button", { name: "Source actions" });
   return app;
 }

@@ -3,6 +3,7 @@ import { existsSync, renameSync, rmSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
+import { skillUsageTable } from "./skill-usage.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -133,6 +134,8 @@ const migrations = [
   `ALTER TABLE devices ADD COLUMN expires_at INTEGER;`,
   // A thread's large, rarely changing values; migrateThreadCold moves existing rows' values.
   threadColdTable,
+  // Skill mention counts for the Skills page (ADR 0103), backfilled from stored messages.
+  skillUsageTable,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the
