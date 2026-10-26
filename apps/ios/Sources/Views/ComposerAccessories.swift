@@ -13,11 +13,7 @@ struct ComposerAccessories: View {
         if !screen.attachments.isEmpty || notice != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !screen.attachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            ForEach(screen.attachments) { file in AttachmentChip(file: file) { model.detach(file.id) } }
-                        }
-                    }
+                    ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
                 }
                 if let notice {
                     Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)

@@ -208,9 +208,8 @@ struct MessageAttachmentRoutes: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.messageAttachments, access)
-            .sheet(item: $viewing) { target in
-                NavigationStack { NativeMediaView(model: model, threadId: threadId, item: target.row, attachment: target.line) }
-                    .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .fullScreenCover(item: $viewing) { target in
+                MediaViewer(title: target.line.name.isEmpty ? "Image" : target.line.name) { await original(target) }
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
@@ -250,6 +249,13 @@ struct MessageAttachmentRoutes: ViewModifier {
             },
             open: { row, line in open(row, line) }
         )
+    }
+
+    /// The image itself, read because its message carries it, for the full-screen viewer.
+    private func original(_ target: AttachmentTarget) async -> UIImage? {
+        let payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "itemId": target.row.id, "ref": target.line.ref ?? "", "variant": "original"]
+        guard let reply = try? await model.service(payload, as: AttachmentBytes.self), let data = Data(base64Encoded: reply.data) else { return nil }
+        return await MediaViewer.image(data)
     }
 
     private func open(_ row: TranscriptRow, _ line: AttachmentLine) {

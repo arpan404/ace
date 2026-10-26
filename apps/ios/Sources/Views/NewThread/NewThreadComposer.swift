@@ -85,11 +85,9 @@ struct NewThreadComposer: View {
     var body: some View {
         ComposerSurface {
             if !files.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AceTheme.Spacing.xs) {
-                        ForEach(files) { file in AttachmentChip(file: file) { client?.composeDetach(file.id); drafts.remove(file.id) } }
-                    }
-                    .padding(.horizontal, AceTheme.Spacing.md)
+                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceTheme.Spacing.md) { id in
+                    client?.composeDetach(id)
+                    drafts.remove(id)
                 }
             }
             // The thread composer's text view: a few lines tall while focused, and it grows to five

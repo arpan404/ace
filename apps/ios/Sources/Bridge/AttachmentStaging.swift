@@ -48,6 +48,8 @@ struct AttachmentStaging: Sendable {
     }
     /// Whether a staged copy is still here to read.
     func holds(_ localId: String) -> Bool { valid(localId) && FileManager.default.fileExists(atPath: url(localId).path) }
+    /// The staged copy itself, for drawing it on the phone; nil once it is gone.
+    func file(_ localId: String) -> URL? { holds(localId) ? url(localId) : nil }
     /// Removes every staged copy but `keeping`.
     func sweep(keeping: Set<String>) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
