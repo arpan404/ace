@@ -33,6 +33,9 @@ const posixOnly = [
   "a Retina viewer on this machine sees a still page, after a scroll too, as sharp as the page",
   // desktop download folder: chmod has no effect on Windows ACLs
   "the app's downloads folder must be a folder it can write on this computer",
+  "a viewer whose screen changes scale gets a keyframe sized for the new screen",
+  // desktop relay: deadlines shrunk 1000 times, below Windows' timer granularity
+  "a slow command fails alone without losing the page",
   // process-table: POSIX process groups (the Windows tree is a job: chrome-job.process.test.ts)
   "finds a detached process by its command line with its own process group",
   // profile-scope: `/` separator

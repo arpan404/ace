@@ -335,7 +335,8 @@ async function decodeInBatches(f: Fixture, chunks: readonly BrowserVideoChunk[])
 it.runIf(process.platform === "win32" && executablePath)(
   "Windows: a viewer that asks for video starts at a keyframe sized for its screen, plays decodable video and never gets JPEG",
   async () => {
-    const f = await fixture();
+    // Scale 2 as an embedder may choose it: GPU-less Windows would otherwise draw at 1.
+    const f = await fixture({ chrome: { deviceScaleFactor: 2 } });
     await f.navigate();
     await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
     const viewer = videoViewer(f);
@@ -362,6 +363,36 @@ it.runIf(process.platform === "win32" && executablePath)(
     expect(decoded.pictures[0]).toEqual([1280, 800]);
     expect(viewer.streamed.filter((message) => message.kind === "browser.frame")).toEqual([]);
     expect(viewer.sent.filter((type) => type === "browser.frame")).toEqual([]);
+    await f.evaluate("window.animating=false");
+    viewer.bridge.close();
+  },
+  90_000,
+);
+
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: a viewer whose screen changes scale gets a keyframe sized for the new screen",
+  async () => {
+    const f = await fixture({ chrome: { deviceScaleFactor: 2 } });
+    await f.navigate();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+    const viewer = videoViewer(f);
+    await viewer.subscribe();
+    await f.evaluate(animate);
+    await viewer.until(() => viewer.video().some((chunk) => chunk.key));
+    expect(viewer.video().find((chunk) => chunk.key)?.codedWidth).toBe(1280);
+    const before = viewer.video().length;
+    await viewer.rescale(1);
+    const resized = () =>
+      viewer
+        .video()
+        .slice(before)
+        .find((chunk) => chunk.key);
+    await viewer.until(() => {
+      const shown = viewer.video().at(-1);
+      if (shown) void viewer.ack(shown.sequence);
+      return resized()?.codedWidth === 640;
+    });
+    expect(resized()).toMatchObject({ width: 640, height: 400, codedWidth: 640, codedHeight: 400 });
     await f.evaluate("window.animating=false");
     viewer.bridge.close();
   },

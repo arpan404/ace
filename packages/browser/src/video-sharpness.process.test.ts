@@ -196,7 +196,10 @@ it.runIf(process.platform === "win32" && executablePath)(
     }
     await sleep(2_000);
     const joined = await shownVersusPage(f, viewer.chunks);
-    expect([joined.width, joined.height]).toEqual([659 * scale, 825 * scale].map(Math.round));
+    // Encodes round up to even sizes.
+    expect([joined.width, joined.height]).toEqual(
+      [659 * scale, 825 * scale].map((side) => Math.ceil(side / 2) * 2),
+    );
     expect(joined.psnr).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
     await sleep(2_000);
