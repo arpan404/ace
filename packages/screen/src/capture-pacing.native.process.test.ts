@@ -112,12 +112,19 @@ describe.runIf(windows)("Windows live-view capture", () => {
     const window = await fixture(`ace-burst-${process.pid}`);
     const capture = await stream(window.hwnd);
     await capture.start("burst");
-    await capture.firstOf("burst");
-    // Four repaints 40 ms apart, all inside the one-second interval after the first frame,
+    const first = await capture.firstOf("burst");
+    // Eight repaints 40 ms apart, all inside the one-second interval after the first frame,
     // then the window stays still.
-    await window.command("burst 0000ff,00ff00,ff0000,ff00ff", "burst");
+    await window.command("burst 0000ff,00ff00,ff0000,ff00ff,00ffff,ffff00,808080,4000c0", "burst");
     await settle(3_000);
-    const streamed = capture.framesOf("burst").at(-1);
+    const after = capture.framesOf("burst").slice(1);
+    // The changes were coalesced into the pacing interval rather than streamed one by one.
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.length).toBeLessThanOrEqual(2);
+    console.log(
+      `burst frames: ${after.map((frame) => Math.round(frame.header.timestamp - first.header.timestamp)).join(", ")} ms after the first`,
+    );
+    const streamed = after.at(-1);
     const fresh = await capture.reference("burst-reference");
     expect(capture.failures).toEqual([]);
     expect(streamed && Buffer.compare(streamed.payload, fresh.payload)).toBe(0);
