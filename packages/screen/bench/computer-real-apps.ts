@@ -1,12 +1,12 @@
 /*
- * Manual check on a real Windows desktop: drives Notepad, Calculator, File Explorer, Settings
+ * Manual check on a real Windows desktop: drives Notepad, Calculator, Settings
  * and Edge through the agent tools (screen_apps, screen_state, screen_act) with a Windows
  * helper built from native/screen-helper-windows, prints what an agent would read, and saves the screenshots.
  *
  *   node packages/screen/bench/computer-real-apps.ts <helper.exe> <output dir>
  *
- * File Explorer's window is closed through the tools; the caller stops the other apps it
- * started. It spends no provider quota.
+ * File Explorer and Task Manager are refused (they run typed commands). The caller stops the
+ * apps it started.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -70,7 +70,6 @@ try {
   console.log(`foreground at start: ${foreground()}`);
   await tool("screen_apps", {});
   await tool("screen_apps", { query: "calc" });
-  await tool("screen_apps", { query: "explor" });
 
   // Notepad: launched in the background, typed into by id, read back.
   await tool("screen_state", { app: "Notepad" });
@@ -106,7 +105,9 @@ try {
   // Refusal: a shortcut with no menu command in a background window.
   await tool("screen_act", { app: "Calculator", actions: [{ type: "key", key: "ctrl+shift+k" }] });
 
-  await tool("screen_state", { app: "File Explorer", screenshot: true });
+  // Launchers that run typed commands are refused before anything starts.
+  await tool("screen_state", { app: "File Explorer" });
+  await tool("screen_state", { app: "taskmgr.exe" });
   await tool("screen_state", { app: "Settings", screenshot: true });
   await tool("screen_state", { app: "Microsoft Edge", screenshot: true, outline: false });
 
@@ -121,11 +122,6 @@ try {
     screenshot: true,
   });
   console.log(`foreground after activate: ${foreground()}`);
-  await tool("screen_act", {
-    app: "File Explorer",
-    actions: [{ type: "window", op: "close" }],
-    observe: false,
-  });
 } finally {
   client.close();
   credentials.close();
