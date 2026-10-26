@@ -11,7 +11,12 @@ private final class TranscriptScrollIntent {
     /// The person opened something in place: the next change of height is theirs, not the end's.
     var opened = false
     var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
-    struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
+    struct Metrics: Equatable {
+        let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat
+        /// How far the end the feed can reach is below the bottom edge: negative only when the
+        /// feed sits past it. A feed shorter than the screen starts at its top, which is its end.
+        var toEnd: CGFloat { max(height + bottomInset - viewport, -topInset) - y }
+    }
     /// The feed's own animated scroll is still moving.
     var animating = false
     func begin() { active = true; consumed = false; direction = 0 }
@@ -21,19 +26,23 @@ private final class TranscriptScrollIntent {
 /// short of it, or past it on an empty stretch where no row is drawn, when the rows it passed
 /// turn out taller or shorter than estimated (or were swapped, leaving the history window). After
 /// each scroll to the end this looks again every frame and scrolls once more until the end has
-/// sat at the bottom for two frames, the person scrolls, or half a second has passed.
+/// sat at the bottom for two frames, the person scrolls, or about half a second of looking has
+/// passed. Frames spent waiting on an animated scroll don't count. VoiceOver moves the feed
+/// without a drag the feed can see, so it is left alone there.
 @MainActor private final class TranscriptEndSettle {
     private var task: Task<Void, Never>?
     /// `gap`: how far the end is from the bottom (negative past it), or nil to stop; `wait`: true
     /// while an animated scroll is still carrying the rows there.
     func run(gap: @escaping @MainActor () -> CGFloat?, wait: @escaping @MainActor () -> Bool, scroll: @escaping @MainActor () -> Void) {
         task?.cancel()
+        guard !UIAccessibility.isVoiceOverRunning else { task = nil; return }
         task = Task<Void, Never> { @MainActor in
-            var steady = 0
-            for _ in 0..<30 {
+            var steady = 0, looks = 0, waits = 0
+            while looks < 30, waits < 120 {
                 do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
                 guard let gap = gap() else { return }
-                if wait() { continue }
+                if wait() { waits += 1; continue }
+                looks += 1
                 if abs(gap) <= 1 {
                     steady += 1
                     if steady == 2 { return }
@@ -258,7 +267,7 @@ struct ConversationFeed: View {
     private func toEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         let intent = intent
-        settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.bottom : nil },
+        settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.toEnd : nil },
                    wait: { intent.animating }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
@@ -276,7 +285,7 @@ struct ConversationFeed: View {
         defer { intent.room = room }
         // Past the end is as wrong as short of it: there no row is drawn and the feed reads blank.
         guard pinned, !intent.active, !keyboardMoving, room == intent.room,
-              new.height != old.height, abs(new.bottom) > 1 else { return }
+              new.height != old.height, abs(new.toEnd) > 1 else { return }
         toEnd(proxy)
     }
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {

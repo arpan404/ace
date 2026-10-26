@@ -118,7 +118,7 @@ import Testing
                                                   sleep: { _ in await Task.yield() }, makeId: { "id" }, connectInBackground: { _ in [] })
         await coordinator.setEnabled(true)
         for host in ["mac", "studio"] {
-            let model = ClientModel(now: { 0 }, makeRuntime: { target, _, receive, _ in sessions.make(target.hostId, receive) })
+            let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { target, _, receive, _ in sessions.make(target.hostId, receive) })
             let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: host, deviceId: "device",
                                           pin: nil, credential: { "{}" })
             await coordinator.attach(model, target: target)

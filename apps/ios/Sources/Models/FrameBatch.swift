@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 
 /// Bridge frames held so they reach the screen together, as the web's store tells React once
 /// per animation frame rather than once per message.
@@ -20,6 +21,8 @@ import Foundation
     nonisolated static let rowPace = 120.0
 
     private(set) var held: [BridgePatch] = []
+    /// The held frames' size, for tracing.
+    private(set) var bytes = 0
     /// When the oldest held frame arrived, in ms.
     private(set) var heldSince: Double?
     /// The held frames add rows to the open thread.
@@ -66,9 +69,10 @@ import Foundation
     func restore(_ mark: Mark) { texts = mark.texts; cleared = mark.cleared }
     /// Holds a resolved frame that arrived at `now`; `addsRows` when it adds rows to the open
     /// thread after it first loaded.
-    func hold(_ patches: [BridgePatch], at now: Double, addsRows: Bool) {
+    func hold(_ patches: [BridgePatch], bytes: Int, at now: Double, addsRows: Bool) {
         guard !patches.isEmpty else { return }
         held.append(contentsOf: patches)
+        self.bytes += bytes
         if heldSince == nil { heldSince = now }
         if addsRows { self.addsRows = true }
     }
@@ -79,13 +83,14 @@ import Foundation
         clear()
         return taken
     }
-    /// Drops everything held, for a new connection.
+    /// Drops everything held, for a new connection or a retired runtime.
     func reset() {
         clear()
         rowsAt = nil
     }
     private func clear() {
         held = []
+        bytes = 0
         heldSince = nil
         addsRows = false
         texts = [:]
@@ -93,4 +98,14 @@ import Foundation
     }
     private static func scope(_ id: String, _ epoch: Int) -> String { "\(id)\u{0}\(epoch)\u{0}" }
     private static func key(_ id: String, _ epoch: Int, _ itemId: String) -> String { scope(id, epoch) + itemId }
+}
+
+/// When held bridge frames apply: a monotonic clock in ms (never the wall clock, which can step
+/// back) and a wait. Injected so tests run without real time.
+struct FrameTiming: Sendable {
+    let now: @MainActor @Sendable () -> Double
+    let wait: @Sendable (Double) async -> Void
+    static let live = FrameTiming(now: { CACurrentMediaTime() * 1000 }, wait: { ms in try? await Task.sleep(for: .milliseconds(ms)) })
+    /// Time stands still and waits end at once: held frames apply on the main actor's next turns.
+    static let immediate = FrameTiming(now: { 0 }, wait: { _ in })
 }

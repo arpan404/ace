@@ -133,7 +133,7 @@ import Testing
     }
     private func connected() async throws -> (ClientModel, ThreadActionRecorder) {
         let session = ThreadActionRecorder()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
         let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "device", pin: nil, credential: { "{}" })
         await model.connect(target: target, directory: FileManager.default.temporaryDirectory)
         model.open("thread")
