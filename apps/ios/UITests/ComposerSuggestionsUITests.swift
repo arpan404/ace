@@ -50,6 +50,35 @@ import XCTest
         screenshot("composer-add-files")
     }
 
+    func testNewThreadMentionsFilesAndOffersItsBuiltins() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launch()
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
+        if alert.waitForExistence(timeout: 5) { alert.tap() }
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
+        app.buttons["project.ace"].tap()
+        let message = app.descendants(matching: .any)["newThread.message"].firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        message.tap()
+        message.typeText("Read @")
+        let list = app.descendants(matching: .any)["composer.suggestions"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let file = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "composer.suggestion.file:")).firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 15))
+        screenshot("newthread-mention")
+        file.tap()
+        XCTAssertTrue(list.waitForNonExistence(timeout: 5))
+        XCTAssertTrue((message.value as? String)?.hasPrefix("Read @") == true)
+        app.buttons["newThread.attach"].tap()
+        XCTAssertTrue(app.buttons["composer.add.files"].waitForExistence(timeout: 10))
+        screenshot("newthread-add")
+    }
+
     private func screenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "ios-\(name)"
