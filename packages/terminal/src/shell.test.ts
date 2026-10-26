@@ -1,19 +1,39 @@
 import { expect, test } from "vitest";
-import { mergeWindowsEnv, resolveShell } from "./shell.ts";
-import { resolveShell as resolveViaPty } from "./pty.ts";
+import { resolveShell, terminalEnvironment } from "./shell.ts";
 
 const WINDOWS_CMD = "C:\\Windows\\System32\\cmd.exe";
 
-test("Windows env merge lets overrides win regardless of spelling", () => {
-  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: "C:\\b" })).toEqual({ PATH: "C:\\b" });
-  expect(mergeWindowsEnv({ A: "1" }, {})).toEqual({ A: "1" });
-  expect(mergeWindowsEnv({}, undefined)).toEqual({});
+const colors = { TERM: "xterm-256color", COLORTERM: "truecolor" };
+
+test("Windows terminal overrides win regardless of spelling", () => {
+  expect(terminalEnvironment({ Path: "C:\\a" }, { PATH: "C:\\b" }, "win32")).toEqual({
+    PATH: "C:\\b",
+    ...colors,
+  });
+  expect(terminalEnvironment({ term: "dumb" }, undefined, "win32")).toEqual(colors);
 });
 
-test("Windows env undefined masks inherited keys case-insensitively", () => {
-  expect(mergeWindowsEnv({ NODE_OPTIONS: "--require x" }, { Node_Options: undefined })).toEqual({});
-  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: undefined })).toEqual({});
-  expect(mergeWindowsEnv({ A: "1" }, { B: undefined })).toEqual({ A: "1" });
+test("an undefined override removes every spelling of an inherited key on Windows", () => {
+  const inherited = { NODE_OPTIONS: "--require x", Path: "C:\\a" };
+  expect(terminalEnvironment(inherited, { Node_Options: undefined }, "win32")).toEqual({
+    Path: "C:\\a",
+    ...colors,
+  });
+});
+
+test("POSIX terminal keys stay case-sensitive and gain a UTF-8 locale only when none is set", () => {
+  expect(
+    terminalEnvironment({ Path: "a", GONE: "x" }, { PATH: "b", GONE: undefined }, "linux"),
+  ).toEqual({
+    Path: "a",
+    PATH: "b",
+    ...colors,
+    LC_CTYPE: "C.UTF-8",
+  });
+  expect(terminalEnvironment({ LANG: "en_US.UTF-8" }, undefined, "darwin")).toEqual({
+    LANG: "en_US.UTF-8",
+    ...colors,
+  });
 });
 
 test("an explicit shell wins on Windows without consulting the environment", () => {
@@ -178,13 +198,4 @@ test("POSIX throws when no shell is available", () => {
   expect(() =>
     resolveShell(undefined, { platform: "linux", env: {}, exists: () => false }),
   ).toThrow("No login shell found");
-});
-
-test("the existing pty import path exposes the same selection seam", () => {
-  const shell = resolveViaPty(undefined, {
-    platform: "win32",
-    env: { SHELL: "/bin/zsh", ComSpec: WINDOWS_CMD },
-    exists: () => false,
-  });
-  expect(shell).toBe(WINDOWS_CMD);
 });

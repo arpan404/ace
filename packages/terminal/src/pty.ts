@@ -5,9 +5,9 @@ import { performance } from "node:perf_hooks";
 import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
+import { createRetainedJob, type RetainedJob } from "@ace/provider-kit/process-containment";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
-import { resolveShell as selectShell } from "./shell.ts";
-import type { ShellSelectionPorts } from "./shell.ts";
+import { terminalEnvironment } from "./shell.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
@@ -56,10 +56,33 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
+export { resolveShell } from "./shell.ts";
 export type { ShellSelectionPorts, ShellSelectionEnv } from "./shell.ts";
 
-export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
-  return selectShell(shell, ports);
+/** Output and exit, decoded the same way for every backend. */
+function streams(pty: NativePty, onExited: () => void) {
+  return {
+    onData(listener: (bytes: Buffer) => void) {
+      // ConPTY delivers utf8-decoded strings of whole code points; POSIX delivers raw bytes.
+      const subscription = pty.onData((input) =>
+        listener(typeof input === "string" ? Buffer.from(input, "utf8") : decodeBytes(input)),
+      );
+      return () => subscription.dispose();
+    },
+    onExit(listener: (status: ExitStatus | Error) => void) {
+      const subscription = pty.onExit((input) => {
+        onExited();
+        let status: ExitStatus | Error;
+        try {
+          status = decodeExit(input);
+        } catch (error) {
+          status = error instanceof Error ? error : new Error("Invalid native exit");
+        }
+        listener(status);
+      });
+      return () => subscription.dispose();
+    },
+  };
 }
 
 function isExecutable(path: string): boolean {
@@ -88,21 +111,9 @@ export function createPosixBackendFactory(
 ): BackendFactory {
   const read = createProcessTable();
   return (options, shell, context) => {
-    if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-    const environment: Record<string, string | undefined> = {
-      ...process.env,
-      ...options.env,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-    };
-    // A daemon started outside a terminal (launchd, a desktop app) inherits no locale, and a
-    // shell in the C locale mangles typed UTF-8. Terminal apps set one; so does ace, when unset.
-    if (!environment.LC_ALL && !environment.LC_CTYPE && !environment.LANG)
-      environment.LC_CTYPE = "C.UTF-8";
-    // node-pty stringifies undefined as "undefined". Preserve explicit environment masks.
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(environment))
-      if (value !== undefined) env[key] = value;
+    if (!ports && process.platform === "win32")
+      throw new Error("Windows terminals use the ConPTY backend");
+    const env = terminalEnvironment(process.env, options.env, process.platform);
     assertTestEnvironmentIsolation(env);
     const lease = ports?.createLease?.() ?? createGroupLease(leaseRoot, context.scheduler);
     const keeper = fileURLToPath(new URL("../native/group-keeper", import.meta.url));
@@ -213,23 +224,9 @@ export function createPosixBackendFactory(
       },
       write: (data) => pty.write(data),
       resize: (cols, rows) => pty.resize(cols, rows),
-      onData(listener) {
-        const subscription = pty.onData((input) => listener(decodeBytes(input)));
-        return () => subscription.dispose();
-      },
-      onExit(listener) {
-        const subscription = pty.onExit((input) => {
-          exited = true;
-          let status: ExitStatus | Error;
-          try {
-            status = decodeExit(input);
-          } catch (error) {
-            status = error instanceof Error ? error : new Error("Invalid native exit");
-          }
-          listener(status);
-        });
-        return () => subscription.dispose();
-      },
+      ...streams(pty, () => {
+        exited = true;
+      }),
       kill: async (signal) => {
         await ownership.kill(signal);
         if (signal === "SIGKILL") {
@@ -244,4 +241,141 @@ export function createPosixBackendFactory(
       },
     };
   };
+}
+
+export interface ConptyNative extends NativePty {
+  kill(): void;
+}
+export interface ConptyPorts {
+  spawn?: (file: string, args: string[], options: Parameters<typeof spawn>[2]) => ConptyNative;
+  /** Strict kernel containment. Every failure throws; there is no fallback. */
+  createJob?: () => RetainedJob;
+}
+
+/**
+ * ConPTY backend for Windows. The selected shell runs directly under ConPTY (`useConptyDll`,
+ * the shipped conpty.dll) inside a kill-on-close Job Object, which takes the place of the POSIX
+ * session lease: `terminate()` stops the tree and `activeCount()` is the only liveness source.
+ * No POSIX signals, `ps` table or PID kills are used. The dll kill path closes the
+ * pseudoconsole and terminates the exact shell handle, so there is no PID-reuse hazard (node-pty
+ * 1.1.0 `PtyKill`: `ConptyClosePseudoConsole` plus `TerminateProcess(hShell, 1)`).
+ *
+ * Containment race: node-pty starts the shell with a plain, non-suspended `CreateProcessW`
+ * inside `spawn()` and returns its pid, and the shell joins the job synchronously right after,
+ * before this event-loop turn ends. Only a process the shell starts within that window could
+ * escape. A shell can't start one that fast: pwsh and powershell load .NET first, and cmd.exe
+ * reads its AutoRun key first. node-pty has no suspended start, and the earlier alternative, a
+ * Node gate that started the shell only after joining, cost a Node process and temp files per
+ * terminal.
+ *
+ * Ownership outlives shell exit until `close` confirms `activeCount() === 0` and disposes the
+ * job; shell exit alone never completes it.
+ */
+export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFactory {
+  const spawnNative = ports.spawn ?? spawn;
+  const createJob = ports.createJob ?? (() => createRetainedJob());
+  return (options, shell, context) => {
+    const env = terminalEnvironment(process.env, options.env, "win32");
+    assertTestEnvironmentIsolation(env);
+    const job = createJob();
+    // An uncontained shell never runs on: stop its exact handle, then release the job.
+    const abandon = (error: unknown, pty?: ConptyNative): never => {
+      try {
+        pty?.kill();
+      } catch {
+        // The admission failure stays the cause.
+      }
+      const failures: unknown[] = [error];
+      try {
+        job.dispose();
+      } catch (disposal) {
+        failures.push(disposal);
+      }
+      if (failures.length > 1)
+        throw new AggregateError(failures, "Windows terminal containment failed", { cause: error });
+      throw error;
+    };
+    let pty: ConptyNative;
+    try {
+      pty = spawnNative(shell, options.args ?? [], {
+        cwd: options.cwd,
+        cols: options.cols,
+        rows: options.rows,
+        name: "xterm-256color",
+        env,
+        encoding: null,
+        handleFlowControl: false,
+        useConpty: true,
+        useConptyDll: true,
+      });
+    } catch (error) {
+      return abandon(error);
+    }
+    try {
+      job.assign(pty.pid);
+    } catch (error) {
+      return abandon(error, pty);
+    }
+    let ownershipComplete = false;
+    const { scheduler } = context;
+
+    async function pollZero(): Promise<void> {
+      const deadline = scheduler.now() + 1000;
+      for (let sweep = 0; sweep < 32; sweep++) {
+        if (job.activeCount() === 0) return;
+        if (scheduler.now() >= deadline) break;
+        await scheduler.delay(0);
+      }
+      if (job.activeCount() === 0) return;
+      throw new Error("Terminal processes survived bounded shutdown");
+    }
+
+    async function escalate(): Promise<void> {
+      if (ownershipComplete) return;
+      try {
+        job.terminate();
+      } catch (error) {
+        // A job that already emptied cannot be terminated; that is still a stopped tree.
+        if (job.activeCount() !== 0) throw error;
+      }
+      await pollZero();
+      // A disposal failure retains ownership for retry; only a clean dispose completes it.
+      job.dispose();
+      ownershipComplete = true;
+      try {
+        // Pseudoconsole teardown only; the job already stopped the tree.
+        pty.kill();
+      } catch {
+        // The exit event still arrives through the native exit callback.
+      }
+    }
+
+    return {
+      pid: pty.pid,
+      get ownsProcesses() {
+        return !ownershipComplete;
+      },
+      write: (data) => pty.write(data),
+      resize: (cols, rows) => pty.resize(cols, rows),
+      ...streams(pty, () => {}),
+      kill: async (signal) => {
+        if (ownershipComplete) return;
+        // Windows has no POSIX signals and no graceful stop: anything but SIGKILL is an error,
+        // so callers use close() instead of receiving a force-kill dressed as grace.
+        if (signal !== "SIGKILL")
+          throw new Error("Windows terminals do not support POSIX signals; use close()");
+        await escalate();
+      },
+      close: async (graceMs) => {
+        if (ownershipComplete) return;
+        await scheduler.delay(graceMs);
+        await escalate();
+      },
+    };
+  };
+}
+
+/** The terminal backend for this OS: a POSIX pty in its own leased session, or ConPTY in a job. */
+export function createBackendFactory(platform: NodeJS.Platform = process.platform): BackendFactory {
+  return platform === "win32" ? createConptyBackendFactory() : createPosixBackendFactory();
 }

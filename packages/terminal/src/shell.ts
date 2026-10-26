@@ -60,7 +60,7 @@ function defaultExists(path: string): boolean {
  * case-insensitively, empty values count as missing, and SystemRoot must be
  * drive-absolute so the fallback never depends on the cwd.
  *
- * Selection only; the ConPTY backend spawns the selected shell directly.
+ * Selection only; each backend spawns the selected shell directly.
  */
 export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
   if (shell !== undefined) return shell;
@@ -96,14 +96,11 @@ function lookupWindowsEnv(env: ShellSelectionEnv, name: string): string | undefi
 }
 
 /**
- * Windows env blocks are case-insensitive: merge `overrides` over `base` so a
- * later key wins regardless of spelling, and `undefined` masks (removes) any
- * inherited spelling. Pre-existing duplicates inside `base` are preserved:
- * real Windows hosts never carry them (Node already folds `process.env`
- * there). No public provider-kit helper owns this; POSIX callers keep
- * case-sensitive behavior by not using it.
+ * Windows env blocks are case-insensitive: a later key wins regardless of spelling, and
+ * `undefined` masks (removes) any inherited spelling. Duplicates already inside `base` are
+ * kept: real Windows hosts never carry them (Node folds `process.env` there).
  */
-export function mergeWindowsEnv(
+function mergeIgnoringCase(
   base: Readonly<Record<string, string | undefined>>,
   overrides: Readonly<Record<string, string | undefined>> | undefined,
 ): Record<string, string | undefined> {
@@ -112,19 +109,40 @@ export function mergeWindowsEnv(
   for (const key of Object.keys(merged)) byLower.set(key.toLowerCase(), key);
   for (const [key, value] of Object.entries(overrides ?? {})) {
     const prior = byLower.get(key.toLowerCase());
-    if (prior !== undefined && prior !== key) {
-      delete merged[prior];
-      byLower.delete(prior);
-    }
-    if (value === undefined) {
-      delete merged[key];
-      byLower.delete(key.toLowerCase());
-    } else {
-      merged[key] = value;
-      byLower.set(key.toLowerCase(), key);
-    }
+    if (prior !== undefined) delete merged[prior];
+    byLower.delete(key.toLowerCase());
+    if (value === undefined) continue;
+    merged[key] = value;
+    byLower.set(key.toLowerCase(), key);
   }
   return merged;
+}
+
+/**
+ * The shell's environment: the daemon's, then the terminal's overrides (`undefined` removes a
+ * key), with terminal colors enforced. Windows matches keys case-insensitively. Unset values are
+ * dropped because node-pty would stringify them as "undefined".
+ */
+export function terminalEnvironment(
+  base: Readonly<Record<string, string | undefined>>,
+  overrides: Readonly<Record<string, string | undefined>> | undefined,
+  platform: NodeJS.Platform,
+): Record<string, string> {
+  const merge =
+    platform === "win32"
+      ? mergeIgnoringCase
+      : (into: typeof base, from: typeof overrides) => ({ ...into, ...from });
+  const environment = merge(merge(base, overrides), {
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+  });
+  // A daemon started outside a terminal (launchd, a desktop app) inherits no locale, and a POSIX
+  // shell in the C locale mangles typed UTF-8. Terminal apps set one; so does ace, when unset.
+  if (platform !== "win32" && !environment.LC_ALL && !environment.LC_CTYPE && !environment.LANG)
+    environment.LC_CTYPE = "C.UTF-8";
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(environment)) if (value !== undefined) env[key] = value;
+  return env;
 }
 
 function isDriveAbsoluteSystemRoot(value: string): boolean {
