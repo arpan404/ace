@@ -40,6 +40,17 @@ impl Person {
         }
     }
 
+    /// What this desktop gives the person's side, for `hello`.
+    pub async fn facts(&mut self) -> serde_json::Value {
+        let Some(presence) = &mut self.presence else {
+            return serde_json::json!({"idle": "none", "notifications": false, "session": "active"});
+        };
+        let idle = presence.idle_source().await;
+        let notifications = presence.notifications().await;
+        let session = presence.status().await.as_str();
+        serde_json::json!({"idle": idle, "notifications": notifications, "session": session})
+    }
+
     pub async fn status(&self) -> SessionStatus {
         match &self.presence {
             Some(presence) => presence.status().await,

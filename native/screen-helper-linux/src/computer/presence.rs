@@ -69,6 +69,33 @@ impl Presence {
         }
     }
 
+    /// Where idle time comes from here, for `hello`: "mutter", "wayland", "screensaver" or "none".
+    pub async fn idle_source(&mut self) -> &'static str {
+        if matches!(self.idle, IdleSource::Unprobed) {
+            self.idle = self.probe_idle().await;
+        }
+        match self.idle {
+            IdleSource::Mutter => "mutter",
+            IdleSource::Wayland(_) => "wayland",
+            IdleSource::ScreenSaver => "screensaver",
+            IdleSource::Unprobed | IdleSource::None => "none",
+        }
+    }
+
+    /// Whether a desktop notification server is running, to show the "ace is using" notice.
+    pub async fn notifications(&self) -> bool {
+        Self::call::<String>(
+            &self.session,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "GetNameOwner",
+            &("org.freedesktop.Notifications",),
+        )
+        .await
+        .is_some()
+    }
+
     async fn probe_idle(&self) -> IdleSource {
         if self.mutter_idle().await.is_some() {
             return IdleSource::Mutter;

@@ -107,8 +107,9 @@ impl Service {
         match body.get("op").and_then(Value::as_str).unwrap_or_default() {
             "hello" => {
                 let accessibility = self.bus().await.is_ok();
+                let person = self.person().await.facts().await;
                 Ok(
-                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.cast.is_some(), "capabilities": CAPABILITIES}),
+                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.cast.is_some(), "capabilities": CAPABILITIES, "person": person}),
                 )
             }
             "apps" => self.apps(body.get("query").and_then(Value::as_str)).await,
