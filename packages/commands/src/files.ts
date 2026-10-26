@@ -1,4 +1,5 @@
 import { watch } from "node:fs";
+import { watch as watchTree } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -30,6 +31,19 @@ export type WatchSource = (
 ) => () => void;
 const nativeWatch: WatchSource = (path, changed, failed) => {
   const watcher = watch(path, (_event, file) => changed(file === null ? undefined : String(file)));
+  watcher.on("error", failed);
+  watcher.unref();
+  return () => watcher.close();
+};
+/**
+ * Windows refuses to rename or delete a folder while any handle inside it is open, so a watcher
+ * per folder would lock the person out of their own command and skill folders. On Windows each
+ * root gets one recursive watcher on the root itself instead.
+ */
+const nativeTreeWatch: WatchSource = (path, changed, failed) => {
+  const watcher = watchTree(path, { recursive: true }, (_event, file) =>
+    changed(file === null ? undefined : String(file)),
+  );
   watcher.on("error", failed);
   watcher.unref();
   return () => watcher.close();
@@ -87,6 +101,8 @@ export class CommandFiles {
   }
   private watchDirectory(root: RegisteredRoot, path: string): void {
     if (this.closed) return;
+    if (process.platform === "win32" && this.watchSource === nativeWatch && inside(root.path, path))
+      return this.watchWindowsTree(root);
     const slot = key(root, path);
     if (this.watchers.has(slot)) return;
     if (this.watchers.size >= 128) {
@@ -120,6 +136,36 @@ export class CommandFiles {
       else this.watchers.set(slot, stop);
     } catch {
       this.index.report(root, path, "Native watcher unavailable; metadata recovery remains active");
+    }
+  }
+  /** The root's one recursive watcher, keyed like the root's own folder watcher. */
+  private watchWindowsTree(root: RegisteredRoot): void {
+    const slot = key(root, root.path);
+    if (this.watchers.has(slot)) return;
+    const failed = () =>
+      this.index.report(
+        root,
+        root.path,
+        "Native watcher unavailable; metadata recovery remains active",
+      );
+    if (this.watchers.size >= 128) {
+      this.index.report(
+        root,
+        root.path,
+        "Native watcher limit exceeded; metadata recovery remains active",
+      );
+      return;
+    }
+    try {
+      const stop = nativeTreeWatch(
+        root.path,
+        (file) => this.invalidate(file ? resolve(root.path, file) : root.path),
+        failed,
+      );
+      if (this.closed) stop();
+      else this.watchers.set(slot, stop);
+    } catch {
+      failed();
     }
   }
   private async watchAncestor(root: RegisteredRoot): Promise<void> {

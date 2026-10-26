@@ -161,3 +161,47 @@ it("writes into the folder the caller holds open even when its path is swapped f
     await held.close();
   }
 });
+
+const windows = process.platform === "win32";
+
+it.runIf(windows)(
+  "Windows: refuses member names with backslashes, drives or streams, writing nothing",
+  async () => {
+    for (const name of ["..\\..\\escaped", "sub\\..\\..\\escaped", "C:escaped", "a:stream"]) {
+      const t = await refuses([{ name, content: "escaped" }]);
+      expect(await readdir(t.destination)).toEqual([]);
+      expect((await readdir(t.outside)).toSorted()).toEqual(["dest"]);
+    }
+  },
+);
+
+it.runIf(windows)("Windows: refuses names Windows can't hold as unsafe entries", async () => {
+  for (const name of ["CON", "nul.txt", "trailing.", "trailing ", "a?b"]) {
+    const t = await refuses([{ name, content: "x" }]);
+    expect(await readdir(t.destination)).toEqual([]);
+  }
+});
+
+it.runIf(windows)(
+  "Windows: refuses a second member whose name differs only in case, keeping the first",
+  async () => {
+    const t = await refuses([
+      { name: "Same.txt", content: "first" },
+      { name: "same.TXT", content: "second" },
+    ]);
+    expect(await readdir(t.destination)).toEqual(["Same.txt"]);
+    expect(await readFile(join(t.destination, "Same.txt"), "utf8")).toBe("first");
+  },
+);
+
+it.runIf(windows)("Windows: checks links inside the folder and then leaves them out", async () => {
+  const t = await temp();
+  await craft(t.archive, [
+    { name: "a.txt", content: "a" },
+    { name: "d", type: "directory" },
+    { name: "d/back", type: "symlink", linkname: "../a.txt" },
+  ]);
+  expect(await unpackArchive(t.archive, t.destination)).toEqual({ entries: 2 });
+  expect((await readdir(t.destination)).toSorted()).toEqual(["a.txt", "d"]);
+  expect(await readdir(join(t.destination, "d"))).toEqual([]);
+});

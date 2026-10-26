@@ -471,9 +471,13 @@ test.runIf(process.platform === "win32")(
       { mentions: [{ path: "binary.dat" }], attachments: [] },
       caps,
     );
-    expect(JSON.stringify(binary.projection.input)).toContain(
-      JSON.stringify(join(f.root, "binary.dat")).slice(1, -1),
-    );
+    // The message quotes the full path the way JSON does, so its backslashes are escaped.
+    expect(binary.projection.input).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining(JSON.stringify(join(f.root, "binary.dat"))),
+      },
+    ]);
     const image = await f.service.compose(
       "device",
       thread,
