@@ -16,10 +16,24 @@ function running(pid: number): boolean {
 }
 
 /** PIDs a fixture published, once the file exists. */
-async function published(path: string): Promise<number[]> {
+async function published(path: string, output: () => string): Promise<number[]> {
   let text = "";
-  await expect.poll(async () => (text = await readFile(path, "utf8").catch(() => ""))).not.toBe("");
+  await expect
+    .poll(async () => (text = await readFile(path, "utf8").catch(() => "")), {
+      timeout: 20_000,
+      message: `nothing published; terminal output: ${JSON.stringify(output())}`,
+    })
+    .not.toBe("");
   return text.split(",").map(Number);
+}
+
+/** Everything the terminal prints, for failure messages. */
+function transcript(terminal: { attach(): AsyncIterable<{ type: string; data?: string }> }) {
+  let text = "";
+  void (async () => {
+    for await (const event of terminal.attach()) if (event.type === "data") text += event.data;
+  })().catch(() => {});
+  return () => text;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -113,11 +127,12 @@ describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
       await manager.closeAll();
       await rm(home, { recursive: true, force: true });
     });
+    const output = transcript(terminal);
     const pwsh = /pwsh|powershell/i.test(terminal.snapshot().shell);
     terminal.write(
       `${pwsh ? "& " : ""}${JSON.stringify(process.execPath)} -e "require('node:fs').writeFileSync(process.env.ACE_PIDS, String(process.pid)); setInterval(() => {}, 1000)"\r`,
     );
-    const [child = 0] = await published(pids);
+    const [child = 0] = await published(pids, output);
     expect(running(child)).toBe(true);
     await manager.closeAll();
     // Checked at once: ownership may only end after the child is gone.
@@ -144,11 +159,12 @@ describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
       name: "conpty-startup",
       env: { ACE_PIDS: pids },
     });
+    const output = transcript(terminal);
     cleanups.push(async () => {
       await manager.closeAll();
       await rm(home, { recursive: true, force: true });
     });
-    const members = await published(pids);
+    const members = await published(pids, output);
     expect(members.filter(running)).toEqual(members);
     expect(terminal.ownsProcesses).toBe(true);
     await manager.closeAll();
