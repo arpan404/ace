@@ -74,7 +74,8 @@ export function initialChunk(entry: string): NonNullable<ChunkGroup>[number] {
  * which waits on it in turn: the page never gets past "Starting ace…".
  */
 export function windowsModuleKey(id: string, realpath: (path: string) => string): string {
-  const path = id.replace(/[?#].*$/, "").replace(/^(?:\\\\|\/\/)\?[\\/]/, "");
+  // The long-path prefix first: its `?` is not a query.
+  const path = id.replace(/^(?:\\\\|\/\/)\?[\\/]/, "").replace(/[?#].*$/, "");
   let real = path;
   try {
     real = realpath(path);
