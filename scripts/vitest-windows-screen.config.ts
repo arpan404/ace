@@ -12,6 +12,8 @@ export default defineConfig({
       "packages/screen/src/semantic.native.process.test.ts",
       // The --computer engine behind the agent tools, against the Rust fixture window.
       "packages/screen/src/computer/uia-engine.native.process.test.ts",
+      "packages/screen/src/computer/policy-hosts.test.ts",
+      "apps/daemon/src/services/computer-wiring.process.test.ts",
       // Windows open-app policy over the fake helper; its cases are the file's "Windows" ones.
       "packages/screen/src/mcp.process.test.ts",
     ],

@@ -187,9 +187,14 @@ impl AppSession {
         if Some(known.window) != self.window.map(|w| w.0 as isize) {
             return Err(stale("is from another window".into()));
         }
-        let fresh = uia
-            .refresh(&known.element)
-            .map_err(|_| stale(format!("is gone from {}'s window", self.name)))?;
+        let fresh = uia.refresh(&known.element).map_err(|error| {
+            // An app that does not answer is busy, not changed.
+            if error.code == "app_busy" {
+                error
+            } else {
+                stale(format!("is gone from {}'s window", self.name))
+            }
+        })?;
         let facts = super::uia::facts(&fresh);
         let row = super::uia::row_of(uia, &known.element);
         if outline::identity(&facts, row.as_deref()) != known.identity {

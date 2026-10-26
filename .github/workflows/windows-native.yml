@@ -29,6 +29,9 @@ on:
       - packages/preview/**
       - native/screen-helper-windows/**
       - packages/screen/**
+      - apps/daemon/src/services/screen.ts
+      - apps/daemon/src/services/mcp.ts
+      - apps/daemon/src/services/computer-wiring.process.test.ts
       - packages/browser/**
       - packages/browser-extension/**
       - packages/provider-kit/src/process*

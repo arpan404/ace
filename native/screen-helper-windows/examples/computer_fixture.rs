@@ -14,13 +14,16 @@
 mod fixture {
     use std::io::{BufRead, Write};
     use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+    use std::sync::Mutex;
     use windows::core::{w, PCWSTR};
     use windows::Win32::{
         Foundation::*,
         Graphics::Gdi::*,
         System::LibraryLoader::GetModuleHandleW,
+        System::{DataExchange::*, Memory::*, Threading::*},
         UI::{
             HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
+            Input::KeyboardAndMouse::*,
             WindowsAndMessaging::*,
         },
     };
@@ -36,11 +39,102 @@ mod fixture {
     const NEW: u32 = 101;
     const SAVE: u32 = 102;
     const CLEAR: u32 = 104;
+    const GRAB: i32 = 209;
     const FRONT: u32 = WM_APP + 1;
     const VALUES: u32 = WM_APP + 2;
+    const RENAME: u32 = WM_APP + 3;
+    const MODAL: u32 = WM_APP + 4;
+    const CLOSE_MODAL: u32 = WM_APP + 5;
+    const NUDGE: u32 = WM_APP + 6;
+    const CLIP: u32 = WM_APP + 7;
+    const PASTE_MODE: u32 = WM_APP + 8;
+    const HANG: u32 = WM_APP + 9;
+    const SECOND: u32 = WM_APP + 10;
 
     static PRESSES: AtomicU32 = AtomicU32::new(0);
     static MAIN: AtomicIsize = AtomicIsize::new(0);
+    static MODAL_WINDOW: AtomicIsize = AtomicIsize::new(0);
+    static SECOND_EDIT: AtomicIsize = AtomicIsize::new(0);
+    static NOTES_PROC: AtomicIsize = AtomicIsize::new(0);
+    /// How the notes field pastes: 0 as usual, 1 then copies text of its own, 2 slowly.
+    static PASTE: AtomicU32 = AtomicU32::new(0);
+    /// The argument of the last stdin command that takes one.
+    static ARGUMENT: Mutex<String> = Mutex::new(String::new());
+
+    fn argument() -> String {
+        ARGUMENT.lock().map(|a| a.clone()).unwrap_or_default()
+    }
+
+    unsafe fn set_clipboard(owner: HWND, text: &str) {
+        if OpenClipboard(owner).is_err() {
+            return;
+        }
+        let _ = EmptyClipboard();
+        let units: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        if let Ok(memory) = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2) {
+            let target = GlobalLock(memory);
+            if !target.is_null() {
+                std::ptr::copy_nonoverlapping(units.as_ptr(), target.cast(), units.len());
+                let _ = GlobalUnlock(memory);
+                let _ = SetClipboardData(13, HANDLE(memory.0));
+            }
+        }
+        let _ = CloseClipboard();
+    }
+
+    unsafe fn clipboard_text(owner: HWND) -> String {
+        if OpenClipboard(owner).is_err() {
+            return String::new();
+        }
+        let mut text = String::new();
+        if let Ok(handle) = GetClipboardData(13) {
+            let memory = HGLOBAL(handle.0);
+            let source = GlobalLock(memory) as *const u16;
+            if !source.is_null() {
+                let mut length = 0;
+                while *source.add(length) != 0 && length < 4096 {
+                    length += 1;
+                }
+                text = String::from_utf16_lossy(std::slice::from_raw_parts(source, length));
+                let _ = GlobalUnlock(memory);
+            }
+        }
+        let _ = CloseClipboard();
+        text
+    }
+
+    /// The notes field's paste, slowed down or followed by a copy of the fixture's own.
+    unsafe extern "system" fn notes(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        let previous: WNDPROC = std::mem::transmute(NOTES_PROC.load(Ordering::Relaxed));
+        if message == WM_PASTE && PASTE.load(Ordering::Relaxed) == 2 {
+            std::thread::sleep(std::time::Duration::from_millis(3_000));
+        }
+        let result = CallWindowProcW(previous, hwnd, message, wparam, lparam);
+        if message == WM_PASTE && PASTE.load(Ordering::Relaxed) == 1 {
+            set_clipboard(hwnd, "fixture copy");
+        }
+        result
+    }
+
+    /// Takes the foreground the way some apps do on their own.
+    unsafe fn grab(hwnd: HWND) {
+        let front = GetForegroundWindow();
+        let theirs = GetWindowThreadProcessId(front, None);
+        let ours = GetCurrentThreadId();
+        let joined =
+            theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        if joined {
+            let _ = AttachThreadInput(ours, theirs, false);
+        }
+        say(serde_json::json!({"event": "grabbed", "front": GetForegroundWindow() == hwnd}));
+    }
 
     fn say(line: serde_json::Value) {
         let mut out = std::io::stdout().lock();
@@ -121,6 +215,13 @@ mod fixture {
                 "status": text_of(item(hwnd, STATUS)),
                 "pressed": PRESSES.load(Ordering::Relaxed),
                 "front": GetForegroundWindow() == hwnd,
+                "clip": clipboard_text(hwnd),
+                "second": text_of(HWND(SECOND_EDIT.load(Ordering::Relaxed) as *mut _)),
+                "rows": (0..SendMessageW(item(hwnd, ITEMS), LB_GETCOUNT, WPARAM(0), LPARAM(0)).0).map(|i| {
+                    let mut row = vec![0u16; 64];
+                    let n = SendMessageW(item(hwnd, ITEMS), LB_GETTEXT, WPARAM(i as usize), LPARAM(row.as_mut_ptr() as isize)).0;
+                    String::from_utf16_lossy(&row[..n.max(0) as usize])
+                }).collect::<Vec<_>>(),
             }
         })
     }
@@ -147,6 +248,9 @@ mod fixture {
                                 == 1;
                         say(serde_json::json!({"event": "feature", "on": on}));
                     }
+                    i if i == GRAB as u32 && code == BN_CLICKED => {
+                        SetTimer(hwnd, 1, 300, None);
+                    }
                     NEW => {
                         set_text(item(hwnd, STATUS), "New document");
                         say(serde_json::json!({"event": "command", "name": "new"}));
@@ -170,6 +274,122 @@ mod fixture {
             }
             VALUES => {
                 say(values(hwnd));
+                LRESULT(0)
+            }
+            WM_TIMER => {
+                let _ = KillTimer(hwnd, 1);
+                grab(hwnd);
+                LRESULT(0)
+            }
+            RENAME => {
+                // The second row now shows other content, as a recycled virtual row would.
+                let list = item(hwnd, ITEMS);
+                SendMessageW(list, LB_DELETESTRING, WPARAM(1), LPARAM(0));
+                let text = wide("Zwei");
+                SendMessageW(
+                    list,
+                    LB_INSERTSTRING,
+                    WPARAM(1),
+                    LPARAM(text.as_ptr() as isize),
+                );
+                say(serde_json::json!({"event": "renamed"}));
+                LRESULT(0)
+            }
+            MODAL => {
+                let modal = CreateWindowExW(
+                    WS_EX_DLGMODALFRAME,
+                    w!("STATIC"),
+                    w!("Ace Modal"),
+                    WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                    200,
+                    200,
+                    300,
+                    120,
+                    hwnd,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap_or_default();
+                let _ = ShowWindow(modal, SW_SHOWNOACTIVATE);
+                let _ = EnableWindow(hwnd, false);
+                MODAL_WINDOW.store(modal.0 as isize, Ordering::Relaxed);
+                say(serde_json::json!({"event": "modal"}));
+                LRESULT(0)
+            }
+            CLOSE_MODAL => {
+                let _ = EnableWindow(hwnd, true);
+                let _ = DestroyWindow(HWND(MODAL_WINDOW.swap(0, Ordering::Relaxed) as *mut _));
+                say(serde_json::json!({"event": "modal-closed"}));
+                LRESULT(0)
+            }
+            NUDGE => {
+                // Input another program synthesizes, standing in for the person in tests.
+                let key = |up: bool| INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_SHIFT,
+                            dwFlags: if up {
+                                KEYEVENTF_KEYUP
+                            } else {
+                                KEYBD_EVENT_FLAGS(0)
+                            },
+                            ..Default::default()
+                        },
+                    },
+                };
+                SendInput(
+                    &[key(false), key(true)],
+                    std::mem::size_of::<INPUT>() as i32,
+                );
+                say(serde_json::json!({"event": "nudged"}));
+                LRESULT(0)
+            }
+            CLIP => {
+                set_clipboard(hwnd, &argument());
+                say(serde_json::json!({"event": "clip"}));
+                LRESULT(0)
+            }
+            PASTE_MODE => {
+                PASTE.store(
+                    match argument().as_str() {
+                        "copy" => 1,
+                        "slow" => 2,
+                        _ => 0,
+                    },
+                    Ordering::Relaxed,
+                );
+                say(serde_json::json!({"event": "paste-mode"}));
+                LRESULT(0)
+            }
+            HANG => {
+                say(serde_json::json!({"event": "hanging"}));
+                let ms = argument().parse::<u64>().unwrap_or(6_000);
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+                LRESULT(0)
+            }
+            SECOND => {
+                let second = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!("Ace Second"),
+                    WS_OVERLAPPEDWINDOW,
+                    760,
+                    120,
+                    360,
+                    160,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap_or_default();
+                let edit = child(second, w!("EDIT"), "", WS_BORDER.0, 400, (10, 10, 300, 24));
+                let _ = ShowWindow(second, SW_SHOWNOACTIVATE);
+                let _ = SetFocus(edit);
+                SECOND_EDIT.store(edit.0 as isize, Ordering::Relaxed);
+                say(serde_json::json!({"event": "second"}));
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -330,6 +550,19 @@ mod fixture {
                 );
             }
             child(hwnd, w!("STATIC"), "Ready", 0, STATUS, (80, 270, 300, 20));
+            child(
+                hwnd,
+                w!("BUTTON"),
+                "Grab focus",
+                WS_TABSTOP.0 | BS_PUSHBUTTON as u32,
+                GRAB,
+                (430, 132, 160, 28),
+            );
+            let notes_edit = item(hwnd, NOTES);
+            NOTES_PROC.store(
+                SetWindowLongPtrW(notes_edit, GWLP_WNDPROC, notes as *const () as isize),
+                Ordering::Relaxed,
+            );
             let _ = ShowWindow(
                 hwnd,
                 if front {
@@ -351,9 +584,21 @@ mod fixture {
             std::thread::spawn(|| {
                 for line in std::io::stdin().lock().lines() {
                     let Ok(line) = line else { break };
-                    let message = match line.trim() {
+                    let (command, rest) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
+                    if let Ok(mut argument) = ARGUMENT.lock() {
+                        *argument = rest.to_owned();
+                    }
+                    let message = match command {
                         "front" => FRONT,
                         "values" => VALUES,
+                        "rename" => RENAME,
+                        "modal" => MODAL,
+                        "close-modal" => CLOSE_MODAL,
+                        "nudge" => NUDGE,
+                        "clip" => CLIP,
+                        "paste-mode" => PASTE_MODE,
+                        "hang" => HANG,
+                        "second" => SECOND,
                         "quit" => WM_CLOSE,
                         _ => continue,
                     };

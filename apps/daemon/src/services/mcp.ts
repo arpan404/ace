@@ -15,7 +15,7 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { computerToolkit, screenToolkit } from "@ace/screen";
+import { computerToolkit, screenToolkit, type ComputerPlatform } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { toolFailureReporter } from "../tool-failure-log.ts";
@@ -161,12 +161,11 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(help ? [browserHelpToolkit(help)] : []),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices ? [devicesToolkit(() => devices.load())] : []),
-      // Agents use the background engine on macOS and Linux; Windows keeps the session tools.
+      // Agents use the background engine on macOS, Linux and Windows.
       ...(services.computer
         ? [
             computerToolkit(services.computer, {
-              platform: process.platform === "linux" ? "linux" : "macos",
-              ...(process.platform === "win32" ? { platform: "windows" as const } : {}),
+              platform: computerPlatform(process.platform),
               // Read on every call, so a change in Settings applies to the next one.
               blockedApps: async () =>
                 (await services.settings?.get("computer.blockedApps"))?.value ?? [],
@@ -387,4 +386,10 @@ function userBrowserTools(
   const sessions = services.userBrowserSessions;
   if (!user || !sessions) return undefined;
   return { sessions, available: () => user.backend.available() };
+}
+
+/** The computer-use tools' wording for the daemon's platform. */
+export function computerPlatform(platform: NodeJS.Platform): ComputerPlatform {
+  if (platform === "win32") return "windows";
+  return platform === "linux" ? "linux" : "macos";
 }
