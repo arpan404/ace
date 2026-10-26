@@ -6,6 +6,7 @@ import { access, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromiumArtifact } from "./chromium-manifest.ts";
+import { detectChromium } from "./discovery.ts";
 import {
   chromeLaunchFacts,
   linuxMachine,
@@ -72,6 +73,8 @@ interface Run {
   timedOut: boolean;
   /** Over the debugging pipe: Chrome opened a page. */
   pageOpened: boolean;
+  /** Windows: the browser's name and version from `Browser.getVersion`. */
+  product?: string;
 }
 type Child = ReturnType<typeof spawn>;
 /** Collects stderr and settles when Chrome exits, killing its process group at the bound. */
@@ -158,6 +161,9 @@ function startHeadless(
       pending = messages.pop() ?? "";
       for (const message of messages) {
         const reply = PipeReply.safeParse(parseJson(message));
+        // Windows Chrome prints no `--version`: its name comes over the pipe instead.
+        if (process.platform === "win32" && reply.success && reply.data.id === 1)
+          run.product = Product.safeParse(reply.data.result).data?.product;
         if (!reply.success || reply.data.id !== 2) continue;
         run.pageOpened = reply.data.result !== undefined;
         send(3, "Browser.close");
@@ -176,6 +182,7 @@ function parseJson(text: string): unknown {
   }
 }
 const PipeReply = z.object({ id: z.number().optional(), result: z.unknown().optional() });
+const Product = z.object({ product: z.string().max(200) });
 
 /**
  * Report text points at `ace doctor --fix` instead of carrying the commands: the shared report is
@@ -243,8 +250,22 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
   const timeoutMs = options.timeoutMs ?? 10_000;
   const machine = options.machine ?? linuxMachine;
   let engine: { path: string; pinned?: string };
+  // Chrome for Testing has no Windows ARM64 build: ace runs the installed Chrome or Edge there.
+  const windowsArm =
+    platform === "win32" && arch === "arm64" && !options.env.ACE_CHROMIUM_PATH
+      ? await detectChromium({ platform, env: options.env, dataDir: options.dataDir })
+      : undefined;
+  if (platform === "win32" && arch === "arm64" && !options.env.ACE_CHROMIUM_PATH && !windowsArm)
+    return {
+      status: "fail",
+      message:
+        "ace's browser on Windows ARM64 runs the installed Chrome or Microsoft Edge, and neither is installed",
+      fix: "Install Google Chrome or Microsoft Edge, or set ACE_CHROMIUM_PATH to a Chromium for this machine.",
+    };
   try {
-    engine = engineExecutable({ dataDir: options.dataDir, env: options.env, platform, arch });
+    engine = windowsArm
+      ? { path: windowsArm }
+      : engineExecutable({ dataDir: options.dataDir, env: options.env, platform, arch });
   } catch {
     return {
       status: "fail",
@@ -273,9 +294,13 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
       classifyChromeLaunch(await chromeLaunchFacts(engine.path, stderr, machine)),
       stderr,
     );
-  const printed = await version(engine.path, timeoutMs, options.signal);
+  // Windows Chrome ignores `--version` and opens a normal window: the pipe names it instead.
+  const printed =
+    platform === "win32"
+      ? { ...emptyRun(), code: 0 }
+      : await version(engine.path, timeoutMs, options.signal);
   if (printed.code !== 0) return diagnose(printed.stderr);
-  const name = printed.stdout.trim().split("\n")[0]?.slice(0, 200) ?? "Chromium";
+  let name = printed.stdout.trim().split("\n")[0]?.slice(0, 200) ?? "Chromium";
   const profile = await mkdtemp(join(tmpdir(), "ace-doctor-chrome-"));
   try {
     const started = await startHeadless(
@@ -300,6 +325,7 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
         fix: "The machine may be busy; run ace doctor again. If it persists, check the daemon log when an agent opens the browser.",
       };
     if (!started.pageOpened) return diagnose(started.stderr);
+    if (platform === "win32") name = started.product ?? "Chromium";
     if (sandbox)
       return {
         status: "ok",

@@ -153,3 +153,30 @@ test("an old launch handle cannot stop a replacement with the same name", async 
     await manager.close();
   }
 });
+
+// Windows has no signals: the tree stop ends the launch with TerminateProcess, reported as a
+// nonzero exit code instead of SIGKILL. A launch that wrote its line and exited cleanly would be 0.
+test.runIf(process.platform === "win32").each(["stdout", "stderr"])(
+  "Windows: an oversized %s line terminates its owned launch before it exits on its own",
+  async (stream) => {
+    const manager = createLaunchManager({ root: process.cwd() });
+    try {
+      const handle = await manager.start(
+        PreviewLaunch.parse({
+          name: "noisy",
+          command: process.execPath,
+          args: [
+            "-e",
+            `process.${stream}.write('x'.repeat(4 * 1024 * 1024), () => process.exit(0))`,
+          ],
+        }),
+      );
+      const exited = await handle.process?.exited;
+      expect(exited?.code).not.toBe(0);
+      expect(exited?.code ?? exited?.signal).toBeDefined();
+      expect(manager.list()).toEqual([]);
+    } finally {
+      await manager.close();
+    }
+  },
+);

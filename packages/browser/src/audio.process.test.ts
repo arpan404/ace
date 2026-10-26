@@ -181,3 +181,41 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     muted.bridge.close();
   }, 90_000);
 });
+
+// Windows captures a tab at the audio engine's mix rate (48 kHz with ace's fake output device)
+// while the page's AudioContext may run at 44.1 kHz, so the rate is checked by ear: decoded at
+// the reported rate, the tone must still be 440 Hz.
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: an unmuted viewer hears the page's 440 Hz tone at the capture's reported rate; a muted one gets no audio bytes",
+  async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.evaluate(tone);
+    await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+    await until(async () => (await f.evaluate("window.audioContext?.state")) === "running");
+    const listener = viewer(f, "listener", true);
+    const muted = viewer(f, "muted", false);
+    await listener.subscribe();
+    await muted.subscribe();
+    await until(() => listener.audio().length >= 50);
+    const chunks = listener.audio();
+    expect(chunks[0]?.codec).toBe("opus");
+    expect([44_100, 48_000]).toContain(chunks[0]?.sampleRate);
+    const heard = await hear(f, chunks);
+    expect(heard.errors).toEqual([]);
+    expect(heard.peak).toBeGreaterThan(0.1);
+    expect(heard.pitch).toBeGreaterThan(400);
+    expect(heard.pitch).toBeLessThan(480);
+    expect(muted.video().length).toBeGreaterThan(0);
+    expect(muted.audioBytes()).toBe(0);
+    await listener.speaker(false);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const after = listener.audio().length;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(listener.audio().length).toBe(after);
+    await f.evaluate("window.animating = false");
+    listener.bridge.close();
+    muted.bridge.close();
+  },
+  90_000,
+);
