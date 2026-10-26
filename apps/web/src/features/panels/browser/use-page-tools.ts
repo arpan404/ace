@@ -51,16 +51,24 @@ export function usePageTools(input: {
   // A device set elsewhere (an agent, or the person on another screen): show it, at its size.
   const emulation = tab?.emulation;
   const adopted = useRef<string>(undefined);
-  // What this screen asked for lately: one landing after the person moved on (a drag) is ours.
-  const asked = useRef<DeviceEmulation[]>([]);
+  // What this screen asked each tab for and hasn't seen land yet, oldest first. One landing
+  // after the person moved on (a drag) is ours; any other device that arrives is someone else's.
+  const inFlight = useRef(new Map<string, DeviceEmulation[]>());
   useEffect(() => {
     if (!emulation || !tabId) return;
     const key = emulationKey(tabId, emulation);
     if (adopted.current === key) return;
     adopted.current = key;
-    // This screen's own device coming back.
+    const asked = inFlight.current.get(tabId) ?? [];
+    const landed = asked.findIndex((each) => emulationMatches(emulation, each));
+    // This screen's own ask landed: it and the ones before it are done.
+    if (landed >= 0) {
+      inFlight.current.set(tabId, asked.slice(landed + 1));
+      return;
+    }
+    inFlight.current.delete(tabId);
+    // The device this screen shows already.
     if (wanted && emulationMatches(emulation, wanted)) return;
-    if (asked.current.some((each) => emulationMatches(emulation, each))) return;
     update({ toolbar: true, size: sizeForEmulation(emulation) });
   }, [emulation, tabId, wanted, update]);
 
@@ -81,7 +89,7 @@ export function usePageTools(input: {
       if (sent.current === key) return;
       const timer = setTimeout(() => {
         sent.current = key;
-        asked.current = [...asked.current.slice(-7), wanted];
+        inFlight.current.set(tabId, [...(inFlight.current.get(tabId) ?? []).slice(-7), wanted]);
         source
           .emulate(threadId, wanted, tabId)
           .catch((error: unknown) =>
