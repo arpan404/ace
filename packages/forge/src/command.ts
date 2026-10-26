@@ -61,7 +61,13 @@ export function createCommandRunner(options: {
     let createJob: (() => WindowsJob | undefined) | undefined;
     if (process.platform === "win32") {
       const windows = await windowsLaunch(request.command, env);
-      request = { ...request, command: windows.command };
+      // A gate starts in gh's place and joins the job before it starts gh (see `gate`).
+      request = {
+        ...request,
+        command: process.execPath,
+        args: ["-e", gate, windows.command, ...request.args],
+      };
+      if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
       createJob = windows.createJob;
     }
     request.dispatch?.prepare?.();
@@ -83,6 +89,8 @@ export function createCommandRunner(options: {
       // gh starts git and credential helpers; a job ends that whole tree with gh.
       job = createJob?.();
       job?.assign(child.pid);
+      // The gate is in the job: let it start gh, whose input follows this byte.
+      child.stdin.write(Buffer.of(0));
     }
     let failure: ForgeError | undefined;
     const stop = () => {
@@ -157,6 +165,26 @@ export function createCommandRunner(options: {
     }
   };
 }
+
+/**
+ * Windows: started in gh's place, so ace can put it in a job before anything else starts. It
+ * reads one byte (the go-ahead, sent once it is contained), then runs gh on the same pipes; gh
+ * and every process it starts are created inside the job. Exit codes pass through.
+ */
+const gate = `
+const { readSync } = require("node:fs");
+const { spawn } = require("node:child_process");
+const byte = Buffer.alloc(1);
+for (;;) {
+  try { if (readSync(0, byte, 0, 1, null) === 1) break; process.exit(125); }
+  catch (error) { if (error.code !== "EAGAIN") process.exit(125); }
+}
+const [command, ...args] = process.argv.slice(1);
+delete process.env.ELECTRON_RUN_AS_NODE;
+const child = spawn(command, args, { stdio: "inherit", windowsHide: true });
+child.once("error", () => process.exit(127));
+child.once("exit", (code) => process.exit(code ?? 1));
+`;
 
 /**
  * Windows: the absolute `.exe` a bare command names on PATH. Node's own search of a bare name
