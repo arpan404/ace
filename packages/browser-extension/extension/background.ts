@@ -23,16 +23,21 @@ const post = (message: UserBrowserExtensionMessage) => {
 };
 const controller = new Controller(chrome, post);
 
+/**
+ * A new profile's id is used at once and saved meanwhile: the first write to a new profile's
+ * storage can wait seconds on the disk. Should it never land, the browser closed with it and the
+ * next start registers a new id; ace keeps nothing under the old one.
+ */
 async function profileId(): Promise<string> {
   const stored = (await chrome.storage.local.get("profileId")).profileId;
   if (typeof stored === "string" && stored) return stored;
   const created = crypto.randomUUID();
-  await chrome.storage.local.set({ profileId: created });
+  void chrome.storage.local.set({ profileId: created }).catch(() => {});
   return created;
 }
 /**
- * Read once, starting as the worker starts: a new profile's first storage access can take
- * seconds, and this way it overlaps starting the host and reaching ace instead of following it.
+ * Read once, starting as the worker starts, so it overlaps starting the host and reaching ace
+ * instead of following them; the worker keeps the one id for its lifetime.
  */
 let profile: Promise<string> | undefined;
 const ownProfile = (): Promise<string> =>
