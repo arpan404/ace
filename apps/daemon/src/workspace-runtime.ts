@@ -19,7 +19,7 @@ import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
-import { sameOriginProject } from "./project-origin.ts";
+import { OriginCache, sameOriginProject } from "./project-origin.ts";
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import type { CreationProgress } from "./creation-progress.ts";
 import { CreationDrafts } from "./creation-drafts.ts";
@@ -130,6 +130,8 @@ export class WorkspaceRuntime {
   private store: Store;
   private roots: WorkspaceRoots;
   private now: () => number;
+  /** Checkouts' `origin`, read once for a while: New thread asks on every machine move. */
+  private origins: OriginCache;
   private options: WorkspaceRuntimeOptions;
   private prLifetime = new AbortController();
   private manager: TerminalManager;
@@ -153,6 +155,7 @@ export class WorkspaceRuntime {
     this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
+    this.origins = new OriginCache(this.git.transfer, now);
     this.defaultBranches = new DefaultBranches(now);
     this.media = lazyMedia(
       options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
@@ -579,7 +582,7 @@ export class WorkspaceRuntime {
     if (op.op === "workspace.origin") {
       const root = this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
-      const origin = await this.git.transfer.transferOrigin(root).catch(() => undefined);
+      const origin = await this.origins.transferOrigin(root).catch(() => undefined);
       return wrap({ kind: "origin", url: origin?.url ?? null });
     }
     if (op.op === "workspaces.match") {
@@ -593,11 +596,7 @@ export class WorkspaceRuntime {
           .filter((project) => project.kind !== "chat")
           .map((project) => ({ workspaceId: project.id, path: project.path })),
       );
-      const match = await sameOriginProject(
-        this.git.transfer,
-        projects,
-        normalizeRemoteUrl(op.url),
-      );
+      const match = await sameOriginProject(this.origins, projects, normalizeRemoteUrl(op.url));
       return wrap({ kind: "match", workspaceId: match ?? null });
     }
     if (op.op === "branches.list") {
