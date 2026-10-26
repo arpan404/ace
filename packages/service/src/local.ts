@@ -97,7 +97,8 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
       "-EncodedCommand",
       Buffer.from(script, "utf16le").toString("base64"),
     ],
-    { detached: true, stdio: "ignore", windowsHide: true },
+    // Not detached: PowerShell started without a console exits before running anything.
+    { stdio: "ignore", windowsHide: true },
   ).unref();
   return result;
 }
