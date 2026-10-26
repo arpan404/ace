@@ -2,6 +2,7 @@
 //! bar, and optionally a screenshot tagged with ids, taken through the ScreenCast portal.
 use crate::computer::bus::Bus;
 use crate::computer::element::{self, COORD_WINDOW};
+use crate::computer::guard::SessionStatus;
 use crate::computer::error::{CuError, CuResult, clip};
 use crate::computer::image::{self, Rgb};
 use crate::computer::outline::{Node, Rect, content_offset};
@@ -13,10 +14,34 @@ use std::time::Duration;
 
 pub const NO_SCREENSHOT: &str = "Screenshots are not available in this session: the desktop offers no screen-sharing portal (xdg-desktop-portal with ScreenCast). Work from the outline; it lists every element with its text and id.";
 
+#[derive(Clone, Copy)]
 pub struct Options {
     pub screenshot: bool,
     pub outline: bool,
     pub marks: bool,
+}
+
+impl Options {
+    /// No screenshot while the screen is locked or the session is away: the portal would show
+    /// the lock screen, or nothing.
+    pub fn for_status(&self, status: SessionStatus) -> Options {
+        Options {
+            screenshot: self.screenshot && status == SessionStatus::Active,
+            ..*self
+        }
+    }
+}
+
+/// The session state every observation carries, and why a screenshot it asked for is missing.
+pub fn mark_status(result: &mut Value, status: SessionStatus, asked: &Options) {
+    result["sessionState"] = json!(status.as_str());
+    result["screenLocked"] = json!(status == SessionStatus::Locked);
+    if asked.screenshot && status != SessionStatus::Active {
+        result["screenshotError"] = json!(match status {
+            SessionStatus::Locked => "The screen is locked, so there is no screenshot. Work from the outline; observe again after the person unlocks it.",
+            _ => "The desktop session is not in front, so there is no screenshot.",
+        });
+    }
 }
 
 pub async fn observation(

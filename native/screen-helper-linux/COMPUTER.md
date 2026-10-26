@@ -138,6 +138,41 @@ RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input _out of_ the deskto
 - XDPH 1.3 marks its shared-memory buffers mappable but not readable, so PipeWire's own mapping
   can't be read; the helper maps such a buffer read-only itself, after checking its size.
 
+## The person
+
+The person always wins over the agent, as on macOS (`guard.rs`, the facts in `presence.rs`):
+
+- **Stop.** While an agent acts in an app, a desktop notification says "ace is using <app>"
+  with a **Stop** button (`notice.rs`). Pressing it ends the running batch at its next step or
+  wait, or the next batch when pressed between calls, with `stopped_by_person`: the agent is
+  told to stop and ask the person how to continue. The press is then used up and the
+  notification withdrawn; it comes back with the next batch, and leaves when the keep-awake
+  lease ends. Only signals from the notification server that showed it count. This stands in
+  for two macOS affordances Wayland doesn't allow: Esc (GNOME's keyboard monitor,
+  `org.freedesktop.a11y.KeyboardMonitor`, serves only the bus name
+  `org.gnome.Orca.KeyboardMonitor`, and AT-SPI keystroke listeners go through it) and the marker
+  drawn where the agent acts (no program may place a window over another app's, and Wayland
+  gives no window positions to place one by).
+- **The person using the app.** Before each step: when one of the app's windows is active and
+  the person gave input within 1.5 s, a step in their window that names no element (keys, typing,
+  menus) or acts on their focused control is refused with `person_active`; another element or
+  window is independent. Input times come from GNOME's `org.gnome.Mutter.IdleMonitor`, else the
+  compositor's `ext-idle-notify-v1` (KWin, Hyprland), else
+  `org.freedesktop.ScreenSaver.GetSessionIdleTime`; where none answers, nothing is refused.
+- **Locked or away.** Every look carries `sessionState` (`active`, `locked`, `unavailable`) and
+  `screenLocked`. Locked comes from logind's `LockedHint` for the user's graphical session, the
+  desktop's screensaver (`org.gnome.ScreenSaver` / `org.freedesktop.ScreenSaver` `GetActive`) or
+  a running session-lock client (hyprlock, swaylock). While locked, accessibility steps still
+  work and no screenshot is taken. When logind says the session isn't the active one (another
+  user's is in front), actions fail with `session_unavailable`.
+- **Kept awake** (`awake.rs`). During a look or batch the session doesn't go idle
+  (`org.freedesktop.ScreenSaver.Inhibit`: GNOME through gsd-screensaver-proxy, KDE, hypridle).
+  Between calls, for a five-minute lease the next call renews, only automatic suspend is held off
+  (`org.gnome.SessionManager` with the suspend flag, else `org.freedesktop.PowerManagement`), so
+  the screen may blank and lock. A failed, cancelled or stopped batch ends the lease. Nothing
+  stops the person from locking, suspending or logging out, and inhibitors end with the helper.
+  `--lease-seconds` shortens the lease for tests.
+
 ## Testing
 
 `cargo test` covers the pure parts: wire framing and limits, cancellation, desktop-file parsing and
@@ -161,6 +196,11 @@ Mousepad, which a person closes the shell's overview over first:
     silent restore after a helper restart, and a revoked grant asking again.
 - `tests/computer/run-kde.sh`: the same on KDE Plasma 6 (KCalc, KWrite, Kate), with KDE's
   chooser answered through its accessibility tree.
+- `tests/computer/run-person.sh`: the notice in GNOME Shell and a click on its Stop (with
+  Mutter's remote-desktop pointer at the place the shell's accessibility tree gives), the
+  session state and a lock (a stand-in hyprlock), and the inhibitors (stand-ins for GNOME's
+  inhibit services, which a headless shell lacks). The person-active refusal is covered by unit
+  tests only: no window of a headless shell is active.
 
   The approval itself is test scaffolding, because a headless GNOME Shell gives a test no way to
   click the dialog's window list. `seed_portal.py` records the grant as the dialog would: a

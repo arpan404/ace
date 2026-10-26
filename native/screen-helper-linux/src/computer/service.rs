@@ -8,6 +8,7 @@ use crate::computer::desktop::DesktopApp;
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::events::Activity;
 use crate::computer::observe::{self, Options};
+use crate::computer::person::{Outcome, Person};
 use crate::computer::screencast::ScreenCast;
 use crate::computer::session::AppSession;
 use serde_json::{Map, Value, json};
@@ -49,6 +50,10 @@ pub struct Service {
     cast: Option<ScreenCast>,
     /// Where restore tokens are kept (`--data-dir`); without it they last for this process.
     data_dir: Option<PathBuf>,
+    /// Keep-awake, the "ace is using" notice and the guard; connected on the first look.
+    person: Option<Person>,
+    /// `--lease-seconds`: the keep-awake lease, for tests.
+    lease: Option<Duration>,
 }
 
 fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -56,7 +61,7 @@ fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
 }
 
 impl Service {
-    pub fn new(cancellations: Cancellations, data_dir: Option<PathBuf>) -> Self {
+    pub fn new(cancellations: Cancellations, data_dir: Option<PathBuf>, lease: Option<Duration>) -> Self {
         Self {
             cancellations,
             bus: None,
@@ -66,7 +71,16 @@ impl Service {
             resolved: HashMap::new(),
             cast: None,
             data_dir,
+            person: None,
+            lease,
         }
+    }
+
+    async fn person(&mut self) -> &mut Person {
+        if self.person.is_none() {
+            self.person = Some(Person::connect(self.cancellations.stop.clone(), self.lease).await);
+        }
+        self.person.as_mut().expect("connected above")
     }
 
     async fn bus(&mut self) -> CuResult<Bus> {
@@ -106,8 +120,28 @@ impl Service {
                 )?;
                 Ok(json!({"bundleId": found.id, "name": found.name, "running": found.running}))
             }
-            "state" => self.state(body, check).await,
-            "act" => self.act(body, check).await,
+            op @ ("state" | "act") => {
+                self.person().await;
+                let result = if op == "act" {
+                    self.act(body, check).await
+                } else {
+                    self.state(body, check).await
+                };
+                let code = match &result {
+                    Err(error) => Some(error.code),
+                    Ok(value) => value.pointer("/error/code").and_then(Value::as_str).map(|code| {
+                        if code == "stopped_by_person" { "stopped_by_person" } else { "failed" }
+                    }),
+                };
+                let outcome = match code {
+                    Some("stopped_by_person") => Outcome::Stopped,
+                    Some(_) => Outcome::Ended,
+                    None if check.check().is_err() => Outcome::Ended,
+                    None => Outcome::Continues,
+                };
+                self.person().await.end(outcome).await;
+                result
+            }
             _ => Err(CuError::new("bad_request", "Unknown op.")),
         }
     }
@@ -223,6 +257,10 @@ impl Service {
                 check,
             )
             .await?;
+        let name = self.sessions.get(&pid).map(|s| s.name.clone()).unwrap_or_default();
+        let person = self.person().await;
+        person.begin(&name, false).await;
+        let status = person.status().await;
         let session = self
             .sessions
             .get_mut(&pid)
@@ -246,7 +284,8 @@ impl Service {
             outline: flag(body, "outline", true),
             marks: flag(body, "marks", true),
         };
-        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options).await;
+        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options.for_status(status)).await;
+        observe::mark_status(&mut result, status, &options);
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -266,12 +305,16 @@ impl Service {
                 check,
             )
             .await?;
+        let name = self.sessions.get(&pid).map(|s| s.name.clone()).unwrap_or_default();
+        self.person().await.begin(&name, true).await;
         let Self {
             sessions,
             activity,
             cast,
+            person,
             ..
         } = self;
+        let person = person.as_mut().ok_or_else(|| CuError::new("internal", "No person watch."))?;
         let session = sessions
             .get_mut(&pid)
             .ok_or_else(|| CuError::new("app_not_found", "The app went away."))?;
@@ -304,7 +347,10 @@ impl Service {
             };
             for (index, step) in steps.iter().enumerate() {
                 let outcome = match check.check() {
-                    Ok(()) => actor.run(step).await,
+                    Ok(()) => match person.check_step(&bus, actor.session, step).await {
+                        Ok(()) => actor.run(step).await,
+                        Err(error) => Err(error),
+                    },
                     Err(error) => Err(error),
                 };
                 match outcome {
@@ -361,7 +407,10 @@ impl Service {
                 outline: flag(body, "outline", true),
                 marks: flag(body, "marks", true),
             };
-            result["state"] = observe::observation(&bus, session, &windows, cast.as_mut(), &options).await;
+            let status = person.status().await;
+            let mut state = observe::observation(&bus, session, &windows, cast.as_mut(), &options.for_status(status)).await;
+            observe::mark_status(&mut state, status, &options);
+            result["state"] = state;
         }
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)

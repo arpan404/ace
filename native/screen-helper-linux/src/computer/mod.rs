@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod conditions;
 pub mod desktop;
 pub mod error;
+pub mod guard;
 pub mod identity;
 pub mod ids;
 pub mod image;
@@ -25,13 +26,21 @@ mod act_window;
 #[cfg(target_os = "linux")]
 pub(crate) mod apps;
 #[cfg(target_os = "linux")]
+mod awake;
+#[cfg(target_os = "linux")]
 mod bus;
 #[cfg(target_os = "linux")]
 mod element;
 #[cfg(target_os = "linux")]
 mod events;
 #[cfg(target_os = "linux")]
+mod notice;
+#[cfg(target_os = "linux")]
 mod observe;
+#[cfg(target_os = "linux")]
+mod person;
+#[cfg(target_os = "linux")]
+mod presence;
 #[cfg(target_os = "linux")]
 mod pw_frame;
 #[cfg(target_os = "linux")]
@@ -44,6 +53,8 @@ mod service;
 mod session;
 #[cfg(target_os = "linux")]
 mod walk;
+#[cfg(target_os = "linux")]
+mod wl_idle;
 
 #[cfg(target_os = "linux")]
 pub use run::run;
