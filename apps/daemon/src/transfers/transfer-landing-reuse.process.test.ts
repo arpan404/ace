@@ -2,7 +2,6 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import type { WorkspaceId } from "@ace/protocol";
-import type { TransferTransport } from "./client.ts";
 import {
   git,
   registered,
@@ -17,38 +16,10 @@ const folders = async (root: string) =>
 
 const status = (path: string) => git(path, "status", "--porcelain", "--untracked-files=all");
 
-/**
- * Names the source project on each begin, as a sender does, so the target can find the copy
- * an earlier transfer of it made.
- */
-function namingSource(project: () => string | undefined) {
-  return (inner: TransferTransport): TransferTransport =>
-    (profile, route, options) => {
-      const id = project();
-      if (id && route.path === "/v1/transfers" && typeof route.body === "string") {
-        const call: unknown = JSON.parse(route.body);
-        if (call && typeof call === "object" && "op" in call && call.op === "begin")
-          return inner(
-            profile,
-            { ...route, body: JSON.stringify({ ...call, sourceWorkspaceId: id }) },
-            options,
-          );
-      }
-      return inner(profile, route, options);
-    };
-}
-
-/** Two machines whose sender names the project it sends. */
+/** Two machines, and a way to add a project on the sending one. */
 async function namedMachines() {
-  let project: WorkspaceId | undefined;
-  const m = await transferMachines({ transport: namingSource(() => project) });
-  return {
-    m,
-    add: async (path: string) => {
-      project = await m.addProject(m.source, path);
-      return project;
-    },
-  };
+  const m = await transferMachines({});
+  return { m, add: (path: string) => m.addProject(m.source, path) };
 }
 
 /** Sends the project and waits for that transfer to settle. */

@@ -78,7 +78,12 @@ import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts"
 import { discardPreparation } from "./discard-preparation.ts";
 import { takeCarriedDraft } from "./carried-draft.ts";
 import { copiedTo } from "./copied-projects.ts";
-import { useProjectCopy, useSourceProjectName, useSourceRepository } from "./use-project-copy.ts";
+import {
+  type Landed,
+  useProjectCopy,
+  useSourceProjectName,
+  useSourceRepository,
+} from "./use-project-copy.ts";
 import { TransferLine } from "@/features/transfers/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
@@ -261,7 +266,7 @@ function PreparationPage(props: {
   const name = (id: string) => (id === props.project && sourceName) || nameHere(id);
   const copy = useProjectCopy(props.copyFrom, props.project, props.host);
   // Where the project landed when it was copied here, and which send key sent the message.
-  const [landed, setLanded] = useState<{ project: string; opposite: boolean }>();
+  const [landed, setLanded] = useState<Landed & { opposite: boolean }>();
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
@@ -671,8 +676,8 @@ function PreparationPage(props: {
     const copied = props.copyFrom && copiedTo(storage, props.copyFrom, project, props.host);
     const reused = copied && projects.includes(copied) ? copied : undefined;
     if (props.copyFrom && !landed && !reused) {
-      void copy.run().then((id) => {
-        if (id) setLanded({ project: id, opposite: draft.opposite });
+      void copy.run().then((where) => {
+        if (where) setLanded({ ...where, opposite: draft.opposite });
       });
       return false;
     }
@@ -713,8 +718,10 @@ function PreparationPage(props: {
         issue: issueSource.ref,
         scope: launchModel.scope,
         model: launchModel.model,
-        mode: resolved.mode,
-        base: props.copyFrom ? undefined : base,
+        // Work that landed only on a branch (the checkout there was busy) starts in a worktree
+        // from that branch: a local thread would run in that checkout, without the work.
+        mode: landed?.branch ? "worktree" : resolved.mode,
+        base: landed?.branch ? { ref: landed.branch } : props.copyFrom ? undefined : base,
         effort: launchModel.effort,
         serviceTier: launchModel.serviceTier,
         // Before the provider's modes are read, only a mode picked here is sent; otherwise the

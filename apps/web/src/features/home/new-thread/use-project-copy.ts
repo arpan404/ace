@@ -50,9 +50,17 @@ export function useSourceProjectName(from: string | undefined, project: string) 
 }
 
 /**
+ * Where a copied project's work is here: the project, and with `branch` the branch its work is
+ * on when the checkout there was busy, so the thread starts in a worktree from that branch.
+ */
+export interface Landed {
+  project: string;
+  branch?: string | undefined;
+}
+
+/**
  * Carry `project` from machine `from` to this page's machine (host id `to`). `run` resolves
- * with the project's id here once it has landed, or undefined when it failed or was cancelled
- * (the state says why).
+ * with where it landed here, or undefined when it failed or was cancelled (the state says why).
  */
 export function useProjectCopy(from: string | undefined, project: string, to: string) {
   const machines = useMachines();
@@ -64,13 +72,13 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
   const identity = useMachineIdentity();
   const here = scoped?.name ?? identity.name;
   const [copy, setCopy] = useState<ProjectCopy>({ state: "idle" });
-  const flight = useRef<{ stop(): void; settle(id: string | undefined): void } | undefined>(
+  const flight = useRef<{ stop(): void; settle(landed: Landed | undefined): void } | undefined>(
     undefined,
   );
   // Leaving the page hands the message back; the copy itself carries on over there.
   useEffect(() => () => flight.current?.settle(undefined), []);
 
-  const run = (): Promise<string | undefined> => {
+  const run = (): Promise<Landed | undefined> => {
     const client = source?.client;
     if (!from || flight.current) return Promise.resolve(undefined);
     if (!client) {
@@ -88,7 +96,7 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
         : refusalWords({ code, detail }, here);
     return new Promise((resolve) => {
       let latest: Transfer | undefined;
-      const settle = (landed: string | undefined, next: ProjectCopy) => {
+      const settle = (landed: Landed | undefined, next: ProjectCopy) => {
         if (flight.current !== current) return;
         flight.current = undefined;
         stop();
@@ -113,7 +121,13 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
             });
             rememberCopy(storage, { from, project, to, landed: landed.workspaceId });
           }
-          settle(landed?.workspaceId, { state: "idle" });
+          settle(
+            landed && {
+              project: landed.workspaceId,
+              ...(landed.branchOnly && landed.branch ? { branch: landed.branch } : {}),
+            },
+            { state: "idle" },
+          );
         } else if (transfer.phase === "cancelled") settle(undefined, { state: "idle" });
         else if (transfer.phase === "failed")
           settle(undefined, {
@@ -129,7 +143,7 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
       });
       const current = {
         stop,
-        settle: (landed: string | undefined) => settle(landed, { state: "idle" }),
+        settle: (landed: Landed | undefined) => settle(landed, { state: "idle" }),
       };
       flight.current = current;
       setCopy({ state: "copying", words: `Getting ready to send to ${here}`, cancel: undefined });
