@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
-import { findExecutable } from "@ace/provider-kit/discovery";
 
 function executable(path: string): Promise<boolean> {
   return access(path, constants.X_OK).then(
@@ -50,7 +49,8 @@ export async function developerToolsGit(
  * directory (a checkout, maybe someone else's PR) before PATH; `.cmd` shims can't start without
  * a shell.
  */
-function windowsPathGit(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+async function windowsPathGit(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const { findExecutable } = await import("@ace/provider-kit/discovery");
   const searched = Object.fromEntries(
     Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
   );
