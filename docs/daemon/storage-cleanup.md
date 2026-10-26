@@ -236,6 +236,42 @@ unused attachments and rotated logs older than the window, through `StorageServi
 with the reviewer `storage:retention`. It uses the same protections and executor as reviewed
 cleanup. See ADR 0076.
 
+### Settled worktrees
+
+Worktrees have their own per-daemon preferences in Settings → Storage. They are
+independent of daily cleanup for other storage:
+
+- `storage.worktreeRetentionDays`: null by default, disabling automatic deletion.
+  A number from 1 to 3650 enables deletion after that many days since the latest
+  owning thread settled. Recent checkout files do not restart this window.
+- `storage.backupWorktrees`: false by default. When enabled, settled topic branches
+  outside `origin/main` are backed up to the repository's `origin` remote. This
+  works with any supported Git host. Tracked and untracked changes are committed
+  using the user's Git identity; ignored files are excluded. Pushes never force,
+  and use the user's existing Git credential helpers. Hooks and repository filters
+  do not execute during this unattended operation.
+
+Automatic removal requires every owner to be settled, no live work or pins, and
+a clean checkout. The branch must be contained in the locally recorded
+`origin/main`, or have the same tracked tree as that ref. A published topic branch
+with unmerged changes stays, even after a successful backup. Missing `origin/main`
+cannot prove eligibility. Cleanup does not fetch. Main checkouts, unmanaged
+worktrees and unknown Git state remain protected. A failed backup is reported
+in usage and keeps the worktree; the local backup commit survives a failed push
+for a later retry.
+
+Maintenance first runs 30 seconds after daemon startup, two seconds after a
+preference changes, and hourly thereafter. Worktree inspection, filesystem sizing,
+backup commits, pushes and removal run on a dedicated idle worker. The daemon
+retains ownership and admission fences, and the worker asks it to recheck
+permission immediately before mutations. Shutdown drains accepted operations.
+
+"Delete all settled worktrees" creates a worktree-only preview that ignores age.
+It requires the existing explicit confirmation before applying. It preserves
+threads and other storage. Dirty or unpublished work still requires selecting
+the individual worktree's force option and reviewing a new preview. Active,
+pinned, locked and unmanaged worktrees cannot be forced.
+
 Behavior tests are written for real temporary SQLite, files, Git repositories
 and a daemon process killed after its first deletion. Additional UI tests guard
 preview, protected explanations and confirmation. Tests, mutation runs and

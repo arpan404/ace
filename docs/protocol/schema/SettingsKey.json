@@ -4,6 +4,8 @@
   "enum": [
     "storage.retention",
     "storage.scheduledCleanup",
+    "storage.worktreeRetentionDays",
+    "storage.backupWorktrees",
     "storage.retentionDays",
     "logs.maxBytes",
     "sourceControl.preferences",

@@ -322,6 +322,9 @@
         "sourceControl.preferences": {
           "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
         },
+        "storage.backupWorktrees": {
+          "type": "boolean"
+        },
         "storage.retention": {
           "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
         },
@@ -330,6 +333,16 @@
         },
         "storage.scheduledCleanup": {
           "type": "boolean"
+        },
+        "storage.worktreeRetentionDays": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/RetentionDays.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "threads.autoSettleAfter": {
           "enum": [

@@ -21,17 +21,22 @@ export async function executeWorktreeCleanup(
   // Closing a retained actor is permitted only after fresh owners prove it has no live session/work.
   for (const id of current.ids) await owner.services.engine?.stopForDeletion(id);
   const trees = await workspace.git.nonExecuting(() => workspace.git.listWorktrees(target.repo));
+  const expectedOwners = new Set(entry.item.threadIds);
   const check = () => {
+    const currentOwners = inventory.worktreeOwnership(target.path);
     if (
       !allowed() ||
-      inventory.worktreeOwnership(target.path).protections.length ||
+      currentOwners.protections.length ||
+      currentOwners.settledAt !== target.settledAt ||
+      currentOwners.ids.length !== entry.item.threadIds.length ||
+      currentOwners.ids.some((id) => !expectedOwners.has(id)) ||
       !inventory.managed.verify(target.repo, target.path)
     )
       throw new WorktreeRemovalRefused("head_moved", "Cleanup ownership changed before removal");
   };
   if (trees.some((tree) => tree.path === target.path)) {
     check();
-    await workspace.git.cleanupWorktree(
+    await (owner.worktrees ?? workspace.git).cleanupWorktree(
       {
         repo: target.repo,
         path: target.path,
@@ -56,6 +61,7 @@ export async function executeWorktreeCleanup(
   }
   owner.store.atomic(() => {
     inventory.managed.removed(target.path);
+    owner.store.statement("DELETE FROM storage_worktree_backups WHERE path=?").run(target.path);
     owner.store
       .statement("INSERT OR REPLACE INTO storage_removed_roots VALUES (?,?)")
       .run(target.path, owner.now());

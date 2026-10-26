@@ -95,14 +95,14 @@ export class StorageInventory {
     const workspace = services.workspaceActions;
     if (!workspace) throw new Error("storage_git_unavailable");
     if (!this.managed.verify(repo, path)) return undefined;
-    const state = await workspace.git.inspectWorktreeCleanup(repo, path);
+    const state = await (this.owner.worktrees ?? workspace.git).inspectWorktreeCleanup(repo, path);
     // Git inspection awaits I/O. Ownership is read afterwards, and apply holds root admission.
     if (!this.managed.verify(repo, path)) return undefined;
-    const { ids, protections, threads } = this.worktreeOwnership(path);
+    const { ids, protections, threads, settledAt } = this.worktreeOwnership(path);
     if (state.main) protections.push("main_worktree");
     if (state.locked) protections.push("locked_worktree");
     if (state.dirty) protections.push("uncommitted");
-    if (state.unpushed) protections.push("unpushed");
+    if (state.unpushed && !state.mergedIntoMain) protections.push("unpushed");
     const prs = threads.flatMap((thread) => thread.details?.linkedPrs ?? []);
     const merged =
       prs.length > 0 && prs.every((pr) => pr.state === "merged" && !pr.unverified && !pr.deleted);
@@ -128,7 +128,9 @@ export class StorageInventory {
         ...threads.map((thread) => thread.activityAt ?? thread.updatedAt),
       ),
       threadIds: ids,
-      fingerprint: fingerprint({ state, owners: ids, prs }),
+      ...(settledAt === undefined ? {} : { settledAt }),
+      mergedIntoMain: state.mergedIntoMain,
+      fingerprint: fingerprint({ state, owners: ids, prs, settledAt }),
       protections,
       branch: state.branch,
       removeBranch: merged,
@@ -140,6 +142,7 @@ export class StorageInventory {
         gitFingerprint: state.fingerprint,
         head: state.head,
         branch: state.branch,
+        ...(settledAt === undefined ? {} : { settledAt }),
       },
     };
   }
@@ -161,7 +164,12 @@ export class StorageInventory {
       return thread ? [thread] : [];
     });
     if (
-      threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined) ||
+      threads.some(
+        (thread) =>
+          thread.deletedAt === undefined &&
+          thread.archivedAt === undefined &&
+          thread.settledAt === undefined,
+      ) ||
       store
         .statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
         (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`)
@@ -172,7 +180,13 @@ export class StorageInventory {
       .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
     if (reservation) protections.push("cleanup_in_progress");
-    return { ids, protections, threads };
+    const settledAt =
+      threads.length && threads.every((thread) => thread.settledAt !== undefined)
+        ? Math.max(
+            ...threads.map((thread) => Math.max(thread.settledAt ?? 0, thread.activityAt ?? 0)),
+          )
+        : undefined;
+    return { ids, protections, threads, settledAt };
   }
   async inspect(
     target: StorageTarget,

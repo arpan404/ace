@@ -35,6 +35,7 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
   const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
@@ -67,6 +68,7 @@ export async function commitChanges(
     // name, a staged deletion) is in no worktree and `git add` would refuse it.
     const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
     const staging = paths ? named.filter((path) => changed.has(path)) : named;
+    options.beforeCommit?.();
     if (staging.length)
       await repository.cli.call(root, ["add", "--all", "--", ...staging], {
         write: true,
@@ -74,6 +76,7 @@ export async function commitChanges(
         captureBytes: 65536,
         env: literal,
       });
+    options.beforeCommit?.();
     await repository.cli.call(
       root,
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],

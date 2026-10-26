@@ -20,6 +20,7 @@ import { planStorageItem } from "./planner.ts";
 import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
+import { WorktreeBackups } from "./worktree-backups.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -33,12 +34,14 @@ export class StorageService {
   private closed = false;
   private closing: Promise<void> | undefined;
   private limits: CompactionLimits;
+  private backups: WorktreeBackups;
   constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
+    this.backups = new WorktreeBackups(owner);
   }
   private serial<T>(run: () => Promise<T>): Promise<T> {
     if (this.closed || this.queued >= 8) return Promise.reject(new Error("storage_busy"));
@@ -72,6 +75,7 @@ export class StorageService {
         ...(await this.database()),
         measuredAt: this.owner.now(),
         complete,
+        backups: this.backups.results(),
       };
     });
   }
@@ -255,6 +259,39 @@ export class StorageService {
   status(device: string, planId: string): StorageApply {
     return this.journal.result(this.owned(device, planId));
   }
+  /** One bounded, host-authorized pass. Backup failures never authorize a removal. */
+  maintainWorktrees(days: number | null, backup: boolean, allowed: () => boolean): Promise<void> {
+    return this.serial(async () => {
+      if (backup) await this.backups.run(this.inventory, () => !this.closed && allowed());
+      if (days === null || !allowed() || this.closed) return;
+      for (const id of this.journal.pending()) {
+        const pending = this.journal.get(id);
+        if (pending?.owner === "storage:worktrees") {
+          const result = await this.run(pending, allowed);
+          if (result.state === "pending") return;
+          this.journal.discard(id);
+        }
+      }
+      const draft = await this.draft(
+        "storage:worktrees",
+        {
+          op: "cleanup.plan",
+          kinds: ["worktrees"],
+          forceItems: [],
+          retention: StorageRetention.parse({ worktrees: days, worktreeMode: "settled" }),
+        },
+        allowed,
+      );
+      draft.entries = draft.entries.filter(
+        (entry) => entry.item.disposition === "remove" && !this.backups.failed(entry.item.label),
+      );
+      if (!draft.entries.length || !allowed() || this.closed) return;
+      draft.state = "applying";
+      this.journal.admit(draft, draft.plan.createdAt);
+      const result = await this.run(draft, allowed);
+      if (result.state !== "pending") this.journal.discard(draft.plan.id);
+    });
+  }
   private owned(device: string, planId: string): CleanupJournal {
     const journal = this.journal.get(planId);
     if (!journal || journal.owner !== device) throw new Error("storage_plan_not_found");
@@ -311,24 +348,42 @@ export class StorageService {
       return this.run(journal, allowed);
     });
   }
-  private run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
+  private async run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
+    const configured =
+      journal.owner === "storage:worktrees" && this.owner.services.settings
+        ? (await this.owner.services.settings.get("storage.worktreeRetentionDays")).value
+        : undefined;
+    const retention =
+      configured === undefined
+        ? journal.plan.retention
+        : { ...journal.plan.retention, worktrees: configured };
     return applyStorageItems(
       this.owner,
       this.inventory,
       this.journal,
       journal,
-      () => !this.closed && allowed(),
+      () => !this.closed && configured !== null && allowed(),
+      retention,
     );
   }
   /** Automation hook. Host opt-in preauthorizes only the ordinary, non-forced retention policy. */
   async scheduledCleanup(allowed = () => true): Promise<StorageApply> {
-    await this.resume(() => allowed());
+    const worktreeDays = (await this.owner.services.settings?.get("storage.worktreeRetentionDays"))
+      ?.value;
+    await this.resume(
+      (reviewer) =>
+        allowed() && (reviewer !== "storage:worktrees" || typeof worktreeDays === "number"),
+    );
     const pending = this.journal.pending()[0];
     if (pending) {
       const journal = this.journal.get(pending);
       if (journal) return this.journal.result(journal);
     }
-    const plan = await this.plan("storage:scheduler");
+    const plan = await this.plan("storage:scheduler", {
+      op: "cleanup.plan",
+      forceItems: [],
+      kinds: StorageKind.options.filter((kind) => kind !== "worktrees"),
+    });
     return this.apply("storage:scheduler", plan.id, plan.revision, allowed);
   }
   async resume(allowed: (reviewer: string) => boolean = () => true): Promise<void> {
