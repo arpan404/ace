@@ -30,6 +30,7 @@ export {
   type CheckResult,
 } from "./doctor.ts";
 export { createSystemProbes, portAvailable, type SystemProbeRuntime } from "./probes.ts";
+export { linuxHost, linuxHostChecks, type LinuxHost } from "./linux-host.ts";
 export { checkIntegrity, sqliteSizes } from "./sqlite.ts";
 export { readSqlitePageSpace, type SqliteSpace } from "./sqlite-space.ts";
 export { writeSupportBundle, type BundleOptions } from "./bundle.ts";

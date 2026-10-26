@@ -41,20 +41,30 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
       return { client, deviceId: paired.device.id };
     };
     const { client: phone } = await connect(["read"]);
-    const frame = phone.next((message) => message.type === "browser.frame");
     expect(
-      await phone.request({ type: "browser.subscribe", requestId: "watch", threadId: f.thread.id }),
+      await phone.request({
+        type: "browser.subscribe",
+        requestId: "watch",
+        threadId: f.thread.id,
+        binaryFrames: true,
+        viewport: { width: 390, height: 600, devicePixelRatio: 3 },
+        video: { codecs: ["avc1.42E033", "vp8"] },
+      }),
     ).toMatchObject({ ok: true });
-    const delivered = await frame;
-    if (delivered.type !== "browser.frame") throw new Error("No remote JPEG");
-    expect(Buffer.from(delivered.frame.data, "base64").subarray(0, 2)).toEqual(
-      Buffer.from([255, 216]),
+    // The phone watches the live view as video, starting at a keyframe.
+    const delivered = await phone.nextStream((message) =>
+      message.kind === "browser.video" && message.threadId === f.thread.id
+        ? message.chunk
+        : undefined,
     );
+    expect(delivered.key).toBe(true);
+    expect(delivered.bytes.length).toBeGreaterThan(0);
     phone.send({
       type: "browser.ack",
       requestId: "ack",
       threadId: f.thread.id,
-      sequence: delivered.frame.sequence,
+      sequence: delivered.sequence,
+      video: true,
     });
     expect(
       await phone.request({

@@ -57,6 +57,67 @@ export function renderCliShim(target: CliShimTarget, platform: NodeJS.Platform):
   ].join("\n");
 }
 
+/** The running AppImage: its file, and the temporary mount the app runs from (`APPDIR`). */
+export interface AppImageRun {
+  image: string;
+  mount: string;
+}
+
+/** The AppImage the app runs from, from the variables its runtime sets, or undefined. */
+export function runningAppImage(env: NodeJS.ProcessEnv): AppImageRun | undefined {
+  const image = env.APPIMAGE;
+  const mount = env.APPDIR;
+  if (!image || !mount || !posix.isAbsolute(image) || !posix.isAbsolute(mount)) return undefined;
+  return { image, mount };
+}
+
+/**
+ * The shim for an app run from an AppImage. The app's files live in a mount (`/tmp/.mount_*`)
+ * that vanishes when the app quits, so the shim names the stable `.AppImage` file instead:
+ * each `ace` command mounts the image (`--appimage-mount`), runs the bundled CLI from the
+ * same place inside it, and unmounts it on exit. If the image has moved or been deleted, the
+ * command says so instead of failing somewhere inside.
+ */
+export function renderAppImageShim(run: AppImageRun, target: CliShimTarget): string {
+  const inside = (path: string) => {
+    const relative = posix.relative(run.mount, path);
+    if (!relative || relative.startsWith("..") || posix.isAbsolute(relative))
+      throw new Error(`The bundled CLI is not inside the AppImage: ${path}`);
+    return relative;
+  };
+  const node = inside(target.node);
+  const entry = inside(target.entry);
+  for (const path of [run.image, node, entry])
+    if (/[\r\n\0]/.test(path)) throw new Error(`Unsupported path for the ace command: ${path}`);
+  return [
+    "#!/bin/sh",
+    `# ${cliShimMarker}`,
+    `image=${sh(run.image)}`,
+    'if [ ! -x "$image" ]; then',
+    '  echo "ace: the ace app is no longer at $image. Open ace again to repair this command." >&2',
+    "  exit 127",
+    "fi",
+    'scratch=$(mktemp -d "${TMPDIR:-/tmp}/ace-cli.XXXXXX") || exit 1',
+    '"$image" --appimage-mount >"$scratch/mount" 2>"$scratch/error" &',
+    "mounter=$!",
+    'cleanup() { kill "$mounter" 2>/dev/null; wait "$mounter" 2>/dev/null; rm -rf "$scratch"; }',
+    "trap cleanup EXIT",
+    "trap 'exit 130' INT",
+    "trap 'exit 143' TERM",
+    "tries=0",
+    'until root=$(head -n 1 "$scratch/mount") && [ -n "$root" ] && [ -d "$root" ]; do',
+    '  if ! kill -0 "$mounter" 2>/dev/null || [ "$tries" -ge 400 ]; then',
+    '    echo "ace: could not open $image: $(cat "$scratch/error")" >&2',
+    "    exit 1",
+    "  fi",
+    "  tries=$((tries + 1))",
+    "  sleep 0.05",
+    "done",
+    `"$root"/${sh(node)} --disable-warning=ExperimentalWarning "$root"/${sh(entry)} "$@"`,
+    "",
+  ].join("\n");
+}
+
 /**
  * What is at the shim's path now. `kind: "other"` is anything ace never writes there: a
  * directory, a symlink, a device or a file too large to be a shim.

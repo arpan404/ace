@@ -173,7 +173,18 @@ any staged binary is built for another architecture.
   `bun run desktop:package --full`.
 - **Windows:** NSIS, with an "Open in ace" folder entry in Explorer. Windows runs no local daemon
   yet; it connects to a remote one.
-- **Linux:** AppImage and deb. Launch at login is not available on Linux yet.
+- **Linux:** AppImage, deb and tar.gz ([ADR 0093](docs/adr/0093-linux-release.md)). Launch at
+  login writes `~/.config/autostart/dev.ace.app.desktop`. An AppImage or extracted tar.gz
+  installs nothing, so its first launch adds `dev.ace.app.desktop` and the app icon under
+  `~/.local/share` (the app list and `ace://` links), and the sandbox setup it offers installs
+  `/etc/apparmor.d/ace-desktop-user-<uid>` and `ace-chromium`. Deleting the AppImage or the
+  folder removes none of these, nor the `ace` command in `~/.ace/bin` or ace's data in
+  `~/.ace`. To remove them: turn off Launch at login first (or delete the autostart entry),
+  delete `~/.local/share/applications/dev.ace.app.desktop` and
+  `~/.local/share/icons/hicolor/*/apps/ace-desktop.png`, and unload each profile with
+  `sudo apparmor_parser -R /etc/apparmor.d/<name>` before deleting its file (keep
+  `ace-chromium` while a standalone daemon or the deb uses ace's Chrome). Delete `~/.ace` only
+  to erase ace's data.
 
 Each package carries the daemon bundle from `tools/release` (`Resources/daemon`), the pinned Node
 runtime it runs on (`Resources/runtime`, the same one as the standalone archive), node-pty, koffi

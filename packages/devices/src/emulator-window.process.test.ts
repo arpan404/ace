@@ -67,7 +67,7 @@ it("ace boots an emulator without its window unless the person asked to see it",
       ...(emulatorWindow ? { emulatorWindow } : {}),
     });
     expect(started).toEqual([
-      ["-avd", "Pixel_API_35", "-port", "5554", "-no-window", "-no-boot-anim"],
+      ["-avd", "Pixel_API_35", "-port", "5554", "-no-window", "-no-boot-anim", "-gpu", "auto"],
     ]);
   }
 });
@@ -106,6 +106,6 @@ it("an unreadable window setting boots the emulator without its window", async (
     },
   });
   expect(started).toEqual([
-    ["-avd", "Pixel_API_35", "-port", "5554", "-no-window", "-no-boot-anim"],
+    ["-avd", "Pixel_API_35", "-port", "5554", "-no-window", "-no-boot-anim", "-gpu", "auto"],
   ]);
 });

@@ -96,7 +96,7 @@ export async function runAccountsCommand(
         `${JSON.stringify(registry.summaries(now()).find((a) => a.id === account.instance.id))}\n`,
       );
     } else if (command === "discover") {
-      for (const instance of await discoverHomes(env.HOME ?? homedir()))
+      for (const instance of await discoverHomes(env.HOME ?? homedir(), env))
         write(`${JSON.stringify(instance)}\n`);
     } else write(`${JSON.stringify(registry.summaries(now()))}\n`);
   } finally {

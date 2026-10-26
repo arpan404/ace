@@ -11,6 +11,9 @@
           "const": "hello",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
           "type": "number"
@@ -32,6 +35,9 @@
           "const": "permissions",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
           "type": "number"
@@ -52,6 +58,9 @@
         "op": {
           "const": "targets",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "version": {
           "const": 2,
@@ -83,6 +92,9 @@
         "op": {
           "const": "open.url",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "url": {
           "maxLength": 8192,
@@ -130,6 +142,9 @@
           "minItems": 1,
           "type": "array"
         },
+        "person": {
+          "type": "boolean"
+        },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
         },
@@ -154,6 +169,9 @@
         "op": {
           "const": "stop",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "version": {
           "const": 2,
@@ -195,6 +213,9 @@
           "const": "start",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "sessionId": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -229,6 +250,9 @@
           "const": "action",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
           "type": "number"
@@ -258,6 +282,9 @@
         "op": {
           "const": "watch",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "version": {
           "const": 2,
@@ -300,6 +327,9 @@
           "const": "ui.tree",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
         },
@@ -337,6 +367,9 @@
         "op": {
           "const": "ui.find",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "query": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
@@ -380,6 +413,9 @@
         "op": {
           "const": "ui.act",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "range": {
           "properties": {
@@ -457,6 +493,9 @@
           "const": "pointer.move",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
           "type": "number"
@@ -495,6 +534,9 @@
         "op": {
           "const": "pointer.click",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "version": {
           "const": 2,
@@ -539,6 +581,9 @@
         "op": {
           "const": "pointer.drag",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "toX": {
           "minimum": 0,
@@ -589,6 +634,9 @@
           "const": "key.press",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
           "type": "number"
@@ -610,6 +658,9 @@
         "op": {
           "const": "text.type",
           "type": "string"
+        },
+        "person": {
+          "type": "boolean"
         },
         "text": {
           "maxLength": 4096,
@@ -647,8 +698,19 @@
           "const": "scroll",
           "type": "string"
         },
+        "person": {
+          "type": "boolean"
+        },
         "version": {
           "const": 2,
+          "type": "number"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
           "type": "number"
         }
       },

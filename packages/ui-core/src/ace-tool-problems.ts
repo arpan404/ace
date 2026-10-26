@@ -179,6 +179,14 @@ const browser: Record<string, Wording> = {
     hint: readAgain("page"),
   }),
   browser_unavailable: () => ({ title: "ace's browser couldn't start" }),
+  browser_missing_libraries: () => ({
+    title: "ace's browser is missing system libraries",
+    hint: "Run ace doctor on the daemon's machine for the install command.",
+  }),
+  browser_sandbox_blocked: () => ({
+    title: "ace's browser couldn't start its sandbox",
+    hint: "Run ace doctor on the daemon's machine for the one-time fix.",
+  }),
   evaluate_failed: () => ({ title: "The page script failed" }),
   recording_active: () => ({ title: "The browser is already recording" }),
   recording_inactive: () => ({ title: "The browser wasn't recording" }),
@@ -293,6 +301,10 @@ const shared: Record<string, Wording> = {
   machine_forbidden: () => ({
     title: "Agents can't do that on that machine",
     hint: "Its agent access or pairing is read-only.",
+  }),
+  transfers_off: () => ({
+    title: "Agents can't move work to other machines",
+    hint: "Turn it on in Settings › Fleet.",
   }),
   machine_disconnected: () => ({
     title: "Lost the connection to that machine",

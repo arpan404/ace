@@ -41,6 +41,8 @@ pub struct Target {
     pub bundle_id: Option<String>,
     #[serde(default)]
     pub bundle_ids: Vec<String>,
+    /// A `chooser` target: reuse the person's last pick in the sharing dialog (default yes).
+    pub restore: Option<bool>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +77,10 @@ pub struct Request {
     pub text: Option<String>,
     pub dx: Option<f64>,
     pub dy: Option<f64>,
+    pub duration_ms: Option<u64>,
+    /// The person at a live view sent this input, not an agent.
+    #[serde(default)]
+    pub person: bool,
 }
 #[derive(Debug, Deserialize, Default)]
 pub struct Query {

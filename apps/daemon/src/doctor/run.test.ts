@@ -37,7 +37,7 @@ it("a chosen repair runs in the feature that offered it, and a throwing repair r
       },
     },
   ];
-  expect(planAllRepairs(empty, context, features).map((repair) => repair.id)).toEqual([
+  expect((await planAllRepairs(empty, context, features)).map((repair) => repair.id)).toEqual([
     "storage.backup",
   ]);
   const results = await applyFeatureRepairs(

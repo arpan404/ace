@@ -3,16 +3,18 @@ import { AndroidInputShell } from "./android-input-shell.ts";
 import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
+import { armEmulatorNote, DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
 import { emulatorBootArgs } from "./emulator-args.ts";
 import {
-  adbDevices,
-  avdNames,
-  avdNameOrUndefined,
-  nativeId,
-  adbShell,
-  androidDimensions,
-} from "./commands.ts";
+  adbTransports,
+  blockedError,
+  hardwareSerial,
+  physicalIdPart,
+  transportKind,
+  type AdbTransport,
+} from "./adb-transports.ts";
+import { androidInventory, type DeviceHardware } from "./android-inventory.ts";
+import { avdNames, avdNameOrUndefined, nativeId, adbShell, androidDimensions } from "./commands.ts";
 export type DeviceCommand = (
   command: string,
   args: readonly string[],
@@ -45,16 +47,26 @@ export class AndroidPlatform {
   private readonly pendingBoots = new Set<string>();
   private readonly ports = new Set<number>();
   private duplicate = false;
+  /** How each listed device is reached, and why it can't be used yet when it can't. */
+  private readonly transports = new Map<string, Pick<AdbTransport, "kind" | "block">>();
+  /** `ro.serialno` and the Android release of each phone or network device, by adb serial. */
+  private readonly hardware = new Map<string, DeviceHardware>();
+  private blocked: DeviceError[] = [];
+  private noEmulator = false;
   diagnostics() {
-    return this.duplicate
-      ? [
-          new DeviceError(
-            "busy",
-            "An Android emulator has duplicate instances",
-            "Close duplicate emulator windows before controlling that device.",
-          ),
-        ]
-      : [];
+    return [
+      ...(this.duplicate
+        ? [
+            new DeviceError(
+              "busy",
+              "An Android emulator has duplicate instances",
+              "Close duplicate emulator windows before controlling that device.",
+            ),
+          ]
+        : []),
+      ...this.blocked,
+      ...(this.noEmulator ? [armEmulatorNote()] : []),
+    ];
   }
   private closed = false;
   private readonly inputs = new Map<string, AndroidInputShell>();
@@ -89,53 +101,67 @@ export class AndroidPlatform {
   async list(): Promise<Device[]> {
     const { adb, emulator } = await this.resolve();
     const [installed, connected] = await Promise.all([
-      this.run(emulator, ["-list-avds"], 256 * 1024),
+      emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
       this.run(adb, ["devices", "-l"], 128 * 1024),
     ]);
-    const devices = new Map<string, Device>(
-      avdNames(installed.stdout).map((name) => [
-        name,
-        { id: `android:${name}`, platform: "android", name, state: "shutdown" },
-      ]),
-    );
-    const transports = adbDevices(connected.stdout);
+    this.noEmulator =
+      !emulator && this.options.platform === "linux" && this.options.arch === "arm64";
+    const transports = adbTransports(connected.stdout);
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
-    const named = await Promise.all(
-      transports.map(async ({ serial, state }) => {
-        let name = this.serialNames.get(serial);
-        if (!name && state === "booted") {
-          name = await this.emulatorName(adb, serial);
-          if (name) this.serialNames.set(serial, name);
-        }
-        return { serial, state, name: name ?? serial };
-      }),
-    );
-    this.duplicate = false;
+    for (const serial of this.hardware.keys())
+      if (!connectedSerials.has(serial)) this.hardware.delete(serial);
+    const physical = transports.filter((transport) => transport.kind !== "emulator");
+    const [named] = await Promise.all([
+      Promise.all(
+        transports
+          .filter((transport) => transport.kind === "emulator")
+          .map(async ({ serial, state }) => {
+            let name = this.serialNames.get(serial);
+            if (!name && state === "booted") {
+              name = await this.emulatorName(adb, serial);
+              if (name) this.serialNames.set(serial, name);
+            }
+            return { serial, state, name: name ?? serial };
+          }),
+      ),
+      Promise.all(
+        physical.map(async ({ serial, state }) => {
+          if (state !== "booted" || this.hardware.has(serial)) return;
+          const found = await this.hardwareOf(adb, serial);
+          if (found) this.hardware.set(serial, found);
+        }),
+      ),
+    ]);
     const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
-    for (const { serial, state, name } of named) {
-      if (state === "offline" && bootingSerials.has(serial)) continue;
-      const existing = devices.get(name);
-      if (existing?.serial && existing.serial !== serial) {
-        this.duplicate = true;
-        devices.set(name, { ...existing, state: "offline" });
-        continue;
-      }
-      devices.set(name, { id: `android:${name}`, platform: "android", name, state, serial });
-    }
+    const listed = androidInventory({
+      avds: avdNames(installed?.stdout ?? ""),
+      // An emulator ace is booting shows as the AVD it is, not as an offline transport.
+      emulators: named.filter(
+        ({ serial, state }) => !(state === "offline" && bootingSerials.has(serial)),
+      ),
+      physical,
+      hardware: this.hardware,
+      platform: this.options.platform,
+    });
+    this.duplicate = listed.duplicate;
+    this.blocked = listed.blocked;
+    this.transports.clear();
+    for (const [id, kind] of listed.transports) this.transports.set(id, kind);
+    const devices = listed.devices;
     for (const [id, shell] of this.inputs) {
-      const current = [...devices.values()].find((device) => device.id === id);
+      const current = devices.find((device) => device.id === id);
       if (current?.state !== "booted" || current.serial !== shell.serial) {
         this.inputs.delete(id);
         void shell.close();
       }
     }
     this.uiHelpers?.prune((id) => {
-      const current = [...devices.values()].find((device) => device.id === id);
+      const current = devices.find((device) => device.id === id);
       return current?.state === "booted" ? current.serial : undefined;
     });
-    const result = [...devices.values()].map((device) =>
+    const result = devices.map((device) =>
       DeviceSchema.parse({
         ...device,
         name: /^emulator-\d+$/.test(device.name) ? "Android emulator" : device.name,
@@ -167,18 +193,12 @@ export class AndroidPlatform {
     nativeId(device);
     const cached = this.inventory.get(device.id);
     const current = cached?.state === "booted" ? cached : await this.current(device);
-    if (current.state !== "booted" || !current.serial)
-      throw new DeviceError(
-        current.state === "unauthorized" ? "permission_denied" : "not_booted",
-        "Android emulator is not available for input",
-        "Boot the emulator and authorize adb before retrying.",
-      );
+    if (current.state !== "booted" || !current.serial) throw this.unavailable(current);
     const { adb } = await this.resolve();
-    const name = await this.emulatorName(adb, current.serial);
-    if (name !== nativeId(device))
+    if ((await this.identity(adb, current.serial)) !== nativeId(device))
       throw new DeviceError(
         "not_found",
-        "Emulator transport now belongs to another AVD",
+        "This adb transport now belongs to another device",
         "Refresh the device list before retrying.",
       );
     return current.serial;
@@ -245,6 +265,53 @@ export class AndroidPlatform {
       this.openingInputs.delete(device.id);
     }
   }
+  /** Why a listed device that isn't booted can't be driven, and what the person does about it. */
+  private unavailable(device: Device): DeviceError {
+    const transport = this.transports.get(device.id);
+    if (transport?.block) return blockedError(transport, device.name, this.options.platform);
+    if (transport && transport.kind !== "emulator")
+      return new DeviceError(
+        "not_booted",
+        `${device.name} is offline`,
+        transport.kind === "network"
+          ? "Check the device is on the same network with debugging on, then run adb connect HOST:PORT again."
+          : "Unlock the device and check its USB cable, then refresh the device list.",
+      );
+    return new DeviceError(
+      device.state === "unauthorized" ? "permission_denied" : "not_booted",
+      "Android emulator is not available for input",
+      "Boot the emulator and authorize adb before retrying.",
+    );
+  }
+  /** Whether `id` is a phone or network device rather than an emulator. */
+  physical(id: string): boolean {
+    const kind = this.transports.get(id)?.kind;
+    return kind === "usb" || kind === "network";
+  }
+  /** The device behind an adb serial, as its id names it: the AVD, or the hardware serial. */
+  private async identity(adb: string, serial: string): Promise<string | undefined> {
+    const kind = transportKind(serial);
+    if (kind === "emulator") return this.emulatorName(adb, serial);
+    const found = await this.hardwareOf(adb, serial);
+    return physicalIdPart({ serial }, found?.serialno);
+  }
+  private async hardwareOf(adb: string, serial: string): Promise<DeviceHardware | undefined> {
+    try {
+      const { stdout } = await this.run(
+        adb,
+        ["-s", serial, "shell", "getprop ro.serialno; getprop ro.build.version.release"],
+        4096,
+        5000,
+      );
+      const [serialLine = "", releaseLine = ""] = stdout.split("\n");
+      const serialno = hardwareSerial(serialLine);
+      const release = /^[\w.]{1,16}$/.exec(releaseLine.trim())?.[0];
+      return serialno ? { serialno, ...(release ? { release } : {}) } : undefined;
+    } catch {
+      // Listed under its adb serial until the property reads.
+      return undefined;
+    }
+  }
   private identityError() {
     return new DeviceError(
       "not_found",
@@ -279,8 +346,7 @@ export class AndroidPlatform {
     return undefined;
   }
   private async verifyTransport(adb: string, device: Device, serial: string) {
-    const name = await this.emulatorName(adb, serial);
-    if (name !== nativeId(device)) throw this.identityError();
+    if ((await this.identity(adb, serial)) !== nativeId(device)) throw this.identityError();
   }
   async captureTransport(device: Device, expectedSerial?: string) {
     const serial = await this.serial(device);
@@ -383,6 +449,7 @@ export class AndroidPlatform {
   async boot(input: Device, authorize?: () => void): Promise<void> {
     const device = await this.current(input);
     if (device.state === "booted") return;
+    if (this.physical(device.id)) throw this.unavailable(device);
     if (device.state !== "shutdown")
       throw new DeviceError(
         "not_booted",
@@ -402,9 +469,17 @@ export class AndroidPlatform {
     this.pendingBoots.add(device.id);
     try {
       const { adb, emulator } = await this.resolve();
+      if (!emulator)
+        throw this.options.platform === "linux" && this.options.arch === "arm64"
+          ? armEmulatorNote()
+          : new DeviceError(
+              "sdk_missing",
+              "The Android Emulator was not found",
+              "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory.",
+            );
       const window = await this.emulatorWindow();
       const used = new Set(
-        adbDevices((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
+        adbTransports((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
           ({ serial }) => serial,
         ),
       );
@@ -433,6 +508,7 @@ export class AndroidPlatform {
             port,
             window,
             platform: this.options.platform,
+            gpu: this.options.env["ACE_ANDROID_EMULATOR_GPU"],
           }),
           env: this.options.env,
           name: "device-emulator",
@@ -493,6 +569,12 @@ export class AndroidPlatform {
     }
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
+    if (this.physical(device.id))
+      throw new DeviceError(
+        "not_supported",
+        `ace doesn't power off ${device.name}`,
+        "Use the device's own power button, or disconnect it.",
+      );
     // Retain this process identity: another boot may replace the map entry while adb waits.
     const emulator = this.emulators.get(device.id);
     const serial = await this.serial(device);
@@ -611,6 +693,8 @@ export class AndroidPlatform {
     this.emulators.clear();
     this.ownedSerials.clear();
     this.serialNames.clear();
+    this.hardware.clear();
+    this.transports.clear();
     this.inventory.clear();
     this.transportWatchers.clear();
     this.ports.clear();

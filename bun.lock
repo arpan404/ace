@@ -12,6 +12,7 @@
         "@types/node": "^26.6.4",
         "dependency-cruiser": "^18.5.0",
         "eslint-plugin-react-hooks": "^7.1.1",
+        "node-gyp": "11.5.0",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
         "tsc-rs": "0.7.0",
@@ -109,6 +110,7 @@
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/terminal": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@ace/usage": "workspace:*",
         "@ace/workspace": "workspace:*",
         "@clack/prompts": "^1.8.1",
@@ -440,6 +442,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/design-tokens": "workspace:*",
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
         "esbuild": "0.25.12",
@@ -482,6 +485,7 @@
       },
       "devDependencies": {
         "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/daemon": "workspace:*",
@@ -581,6 +585,7 @@
     "packages/diagnostics": {
       "name": "@ace/diagnostics",
       "dependencies": {
+        "@ace/devices": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",

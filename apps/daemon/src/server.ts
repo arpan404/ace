@@ -386,13 +386,14 @@ export async function startServer(options: ServerOptions): Promise<{
           connections.set(socket, send);
         }
         try {
-          for (const service of sessions) service.authenticated?.(message.channel);
+          for (const service of sessions) await service.authenticated?.(message.channel);
         } catch (error) {
           const limit = error instanceof Error && "code" in error && error.code === "limit";
           const code = limit ? "connection_limit" : "service_unavailable";
           socket.close(limit ? 4013 : 1011, code);
           return;
         }
+        if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         welcomed = true;
         send({
           type: "welcome",

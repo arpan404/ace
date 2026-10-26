@@ -23,6 +23,7 @@ test("workspace reads expose declared scripts and installed editors and receipts
   const runtime = new WorkspaceRuntime(store, root, () => 1000, {
     editorPath: root,
     platform: "linux",
+    editorLocations: [],
   });
   try {
     await writeFile(
@@ -209,7 +210,7 @@ test("editor discovery finds a macOS app without a PATH launcher", async () => {
   const runtime = new WorkspaceRuntime(store, root, () => 1000, {
     editorPath: "",
     platform: "darwin",
-    editorApplications: [root],
+    editorLocations: [root],
   });
   try {
     expect(

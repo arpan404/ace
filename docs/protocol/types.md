@@ -24748,6 +24748,7 @@ Example:
 | semanticActions | yes | array | {"maxItems":8,"items":{"type":"string","enum":["press","focus","setValue","scroll","expand","select","performSecondaryAction","selectText"]}} |
 | codecs | yes | array | {"minItems":1,"maxItems":2,"items":{"type":"string","enum":["jpeg","h264"]}} |
 | permissions | yes | object | {"properties":{"screen":{"type":"string","enum":["granted","denied","prompt","n/a"]},"input":{"type":"string","enum":["granted","denied","prompt","n/a"]}},"required":["screen","input"]} |
+| watchOnly | no | string | {"minLength":1,"maxLength":500} |
 
 Example:
 
@@ -24777,6 +24778,25 @@ Example:
   "semanticActions": [],
   "uiTree": false,
   "version": 2
+}
+```
+
+## ScreenChooserPick
+
+[JSON Schema](schema/ScreenChooserPick.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | ["window","display"] |  |
+| bundleId | no | [ScreenBundle.json](schema/ScreenBundle.json) |  |
+| title | no | string | {"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "source": "window",
+  "title": "example"
 }
 ```
 
@@ -24963,6 +24983,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | ok | yes | boolean |  |
 | data | no | any JSON value |  |
 | error | no | [ScreenError.json](schema/ScreenError.json) |  |
@@ -24971,6 +24992,10 @@ Example:
 
 ```json
 {
+  "error": {
+    "code": "forbidden",
+    "message": "example"
+  },
   "id": "5jM9xPDwv7g5EJ3UJl_-vkUstXld8905PG6eMgACtEXIv04MZck3sD",
   "ok": true,
   "version": 2
@@ -24991,6 +25016,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"hello"` |  |
 
 Example:
@@ -25015,6 +25041,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"metrics"` |  |
 
 Example:
@@ -25038,6 +25065,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"measure_interaction"` |  |
 | observeMs | no | integer | {"default":2000,"minimum":1,"maximum":10000} |
 | filmstrip | no | boolean | {"default":true} |
@@ -25049,16 +25077,18 @@ Example:
 ```json
 {
   "action": {
-    "durationMs": 4,
+    "button": "right",
+    "durationMs": 10,
     "kind": "pointer.drag",
-    "toX": 9,
+    "toX": 5,
     "toY": 9,
-    "x": 2,
+    "x": 9,
     "y": 9
   },
-  "filmstrip": false,
+  "filmstrip": true,
   "humanDeviceInput": false,
   "id": "_hHSFN9OFoz0qI8J1rdY4929VFY8nHQ",
+  "observeMs": 10,
   "op": "measure_interaction",
   "secureInputAllowed": false,
   "version": 2
@@ -25075,6 +25105,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"open.app"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25102,6 +25133,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.configure"` |  |
 | settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
 
@@ -25113,11 +25145,11 @@ Example:
   "mode": "foreground",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128001,
-    "codec": "jpeg",
-    "fps": 10,
-    "maxHeight": 64,
-    "maxWidth": 72
+    "bitrate": 128003,
+    "codec": "h264",
+    "fps": 2,
+    "maxHeight": 73,
+    "maxWidth": 64
   },
   "version": 1
 }
@@ -25133,6 +25165,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.keyframe"` |  |
 
 Example:
@@ -25157,6 +25190,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stream.image"` |  |
 
 Example:
@@ -25181,6 +25215,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"capture"` |  |
 | enabled | yes | boolean |  |
 
@@ -25205,6 +25240,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"input"` |  |
 | input | yes | [ScreenInput.json](schema/ScreenInput.json) |  |
 
@@ -25215,11 +25251,14 @@ Example:
   "humanDeviceInput": true,
   "id": "2o0z3L1bjnApc",
   "input": {
-    "kind": "pointer.move",
-    "x": 3,
-    "y": 2
+    "kind": "pointer.drag",
+    "toX": 0,
+    "toY": 1,
+    "x": 4,
+    "y": 8
   },
   "op": "input",
+  "person": true,
   "secureInputAllowed": false,
   "version": 2
 }
@@ -25235,6 +25274,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | maxDepth | no | integer | {"default":8,"minimum":0,"maximum":16} |
 | maxNodes | no | integer | {"default":128,"minimum":1,"maximum":512} |
 | op | yes | `"ui.tree"` |  |
@@ -25253,7 +25293,7 @@ Example:
     "bundleIds": [
       "example"
     ],
-    "displayId": 6,
+    "displayId": 9,
     "kind": "display"
   },
   "version": 1
@@ -25270,6 +25310,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | query | yes | [ScreenUIQuery.json](schema/ScreenUIQuery.json) |  |
 | limit | no | integer | {"default":16,"minimum":1,"maximum":64} |
 | op | yes | `"ui.find"` |  |
@@ -25285,8 +25326,10 @@ Example:
   "id": "j_6K-6Ndnf7ETcydogitRE4Y5jBj0BB0k_cUepQ2vZVr8cCFCdXSd_pDKZrj",
   "limit": 9,
   "op": "ui.find",
+  "person": false,
   "query": {
-    "role": "example"
+    "role": "example",
+    "text": "example"
   },
   "secureInputAllowed": false,
   "target": {
@@ -25307,6 +25350,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | ref | yes | [ScreenUIRef.json](schema/ScreenUIRef.json) |  |
 | action | yes | [ScreenUIAction.json](schema/ScreenUIAction.json) |  |
 | name | no | string | {"minLength":1,"maxLength":256} |
@@ -25320,20 +25364,17 @@ Example:
 
 ```json
 {
-  "action": "selectText",
+  "action": "press",
   "allowlist": [],
   "id": "QD3Nfpt-r",
   "op": "ui.act",
-  "range": {
-    "length": 0,
-    "location": 0
-  },
-  "ref": "zfysqfBWh",
+  "person": true,
+  "ref": "ysqfBW",
   "target": {
     "bundleId": "example",
-    "kind": "window",
-    "windowId": 2
+    "kind": "app"
   },
+  "value": "example",
   "version": 2
 }
 ```
@@ -25348,6 +25389,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"permissions"` |  |
 
 Example:
@@ -25372,6 +25414,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"permissions.request"` |  |
 | permission | yes | ["screenRecording","accessibility"] |  |
 
@@ -25383,6 +25426,7 @@ Example:
   "id": "OF9H4K7hjAqcQ8wad6aG7nPT6e1rVAQs7c_pgKschu3sCr",
   "op": "permissions.request",
   "permission": "screenRecording",
+  "person": true,
   "version": 1
 }
 ```
@@ -25397,6 +25441,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"button.press"` |  |
 | name | yes | string | {"minLength":1,"maxLength":64} |
 
@@ -25422,6 +25467,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"targets"` |  |
 
 Example:
@@ -25431,6 +25477,7 @@ Example:
   "id": "VzQ0GMdVGCpN4FFobdVqA3en1GEHmHqGrPwl6NI3BpgnE0PcOl_dj1lQ8-Q5SGwI",
   "mode": "foreground",
   "op": "targets",
+  "person": false,
   "secureInputAllowed": true,
   "version": 1
 }
@@ -25446,6 +25493,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"windows.list"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25473,6 +25521,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"window.select"` |  |
 | windowId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 
@@ -25485,7 +25534,7 @@ Example:
   "secureInputAllowed": false,
   "sessionId": "q-rxpDt_09Igh6SzLYhTzGsNQJcA8Sm3YdHxCZjq1bSCDlgP8LE",
   "version": 1,
-  "windowId": 5
+  "windowId": 3
 }
 ```
 
@@ -25499,6 +25548,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"open.url"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | url | yes | [ScreenAppURL.json](schema/ScreenAppURL.json) |  |
@@ -25530,6 +25580,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"menu.press"` |  |
 | path | yes | array | {"minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
@@ -25557,6 +25608,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"stop"` |  |
 
 Example:
@@ -25581,6 +25633,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"action"` |  |
 | action | yes | [ScreenAction.json](schema/ScreenAction.json) |  |
 
@@ -25589,8 +25642,8 @@ Example:
 ```json
 {
   "action": {
-    "kind": "type",
-    "text": "example"
+    "keyCode": 5,
+    "kind": "key"
   },
   "id": "wRAR4bwgb842Via62X2CKCN",
   "op": "action",
@@ -25608,6 +25661,7 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | secureInputAllowed | no | boolean |  |
 | humanDeviceInput | no | boolean |  |
+| person | no | boolean |  |
 | op | yes | `"start"` |  |
 | target | yes | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25625,10 +25679,8 @@ Example:
   "secureInputAllowed": false,
   "sessionId": "ATc-3RLUP0kx6a",
   "target": {
-    "bundleId": "example",
-    "content": false,
-    "kind": "window",
-    "windowId": 9
+    "kind": "chooser",
+    "restore": false
   },
   "version": 2
 }
@@ -25644,6 +25696,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"hello"` |  |
 
 Example:
@@ -25662,6 +25715,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"permissions"` |  |
 
 Example:
@@ -25680,6 +25734,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"targets"` |  |
 
 Example:
@@ -25698,6 +25753,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"open.url"` |  |
 | bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25722,6 +25778,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"menu.press"` |  |
 | path | yes | array | {"minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
@@ -25731,12 +25788,18 @@ Example:
 
 ```json
 {
-  "allowlist": [],
   "id": "I2d8Y7kLJ85S4oMfiUi0PpZQnQWS7SPCrI",
   "op": "menu.press",
   "path": [
     "example"
   ],
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 3,
+    "kind": "display"
+  },
   "version": 2
 }
 ```
@@ -25747,6 +25810,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"stop"` |  |
 
 Example:
@@ -25765,6 +25829,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"start"` |  |
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | captureGeneration | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
@@ -25777,14 +25842,15 @@ Example:
 ```json
 {
   "allowlist": [],
-  "fps": 3,
+  "captureGeneration": 6,
+  "fps": 1,
   "id": "g0fdSUFn",
   "op": "start",
-  "sessionId": "0JxbjBceAWLdVqmcRNElJN6nfUcRsEOdNqc29CoGuaJH",
+  "sessionId": "JxbjBceAWLdVqmcRNElJN6nfUcRsEOdNqc29CoGuaJHWahdnGjpy_",
   "target": {
     "bundleId": "example",
-    "displayId": 1,
-    "kind": "app"
+    "kind": "window",
+    "windowId": 2
   },
   "version": 2
 }
@@ -25796,6 +25862,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"action"` |  |
 | action | yes | [ScreenAction.json](schema/ScreenAction.json) |  |
 
@@ -25804,12 +25871,12 @@ Example:
 ```json
 {
   "action": {
-    "kind": "click",
-    "x": 6,
-    "y": 4
+    "kind": "type",
+    "text": "example"
   },
   "id": "5tMgOOjHVX4SMhvbcpJDr-_88SI3tELjQ3Y_muZqqzXk3CRzzElhciBUbi",
   "op": "action",
+  "person": false,
   "version": 2
 }
 ```
@@ -25820,6 +25887,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"watch"` |  |
 | active | yes | boolean |  |
 | captureGeneration | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
@@ -25841,6 +25909,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.tree"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25864,6 +25933,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.find"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25874,6 +25944,7 @@ Example:
 
 ```json
 {
+  "allowlist": [],
   "id": "Qk1GZ242qhmi7tYAInOT10pS_Y4o3u9g0VFeUmRQZ66OIh4fp",
   "op": "ui.find",
   "query": {
@@ -25889,6 +25960,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"ui.act"` |  |
 | target | no | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | allowlist | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
@@ -25902,16 +25974,26 @@ Example:
 
 ```json
 {
-  "action": "press",
+  "action": "focus",
   "allowlist": [],
   "id": "4RuD39oIml3Yww4BKx01OKH7eY91Vz_3w9BinkwcNizFINO6wGpY6A_1vMt79D",
-  "name": "example",
   "op": "ui.act",
   "range": {
-    "length": 4,
+    "length": 7,
     "location": 7
   },
-  "ref": "jpoBkJGUd66iA23B81j1tTWuTmlk4tE4TD6TFgfZ6DV",
+  "ref": "BkJGUd66iA23B81",
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 2,
+    "kind": "display"
+  },
+  "value": {
+    "dx": 1,
+    "dy": 8
+  },
   "version": 2
 }
 ```
@@ -25922,6 +26004,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.move"` |  |
 | x | yes | number | {"minimum":0} |
 | y | yes | number | {"minimum":0} |
@@ -25933,8 +26016,8 @@ Example:
   "id": "pi3NTPnEya3ZepNxE4qDpv",
   "op": "pointer.move",
   "version": 2,
-  "x": 6,
-  "y": 2
+  "x": 2,
+  "y": 8
 }
 ```
 
@@ -25944,6 +26027,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.click"` |  |
 | x | yes | number | {"minimum":0} |
 | y | yes | number | {"minimum":0} |
@@ -25953,11 +26037,12 @@ Example:
 
 ```json
 {
-  "button": "left",
+  "button": "right",
   "id": "CPwJWWIkudIDFrSyGdCLcf9D5ZZN-p8vsHKa",
   "op": "pointer.click",
+  "person": true,
   "version": 2,
-  "x": 2,
+  "x": 0,
   "y": 2
 }
 ```
@@ -25968,6 +26053,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"pointer.drag"` |  |
 | durationMs | no | integer | {"minimum":1,"maximum":10000} |
 | x | yes | number | {"minimum":0} |
@@ -25980,14 +26066,15 @@ Example:
 
 ```json
 {
-  "button": "left",
+  "button": "right",
+  "durationMs": 1,
   "id": "HpXtaqpMaw4YPCjFR2yma0wPuVlQxNck9OouRe",
   "op": "pointer.drag",
-  "toX": 7,
-  "toY": 8,
+  "toX": 1,
+  "toY": 4,
   "version": 2,
-  "x": 1,
-  "y": 0
+  "x": 7,
+  "y": 8
 }
 ```
 
@@ -25997,6 +26084,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"key.press"` |  |
 | key | yes | string | {"minLength":1,"maxLength":64} |
 | modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
@@ -26018,6 +26106,7 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"text.type"` |  |
 | text | yes | string | {"maxLength":4096} |
 
@@ -26038,7 +26127,10 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"scroll"` |  |
+| x | no | number | {"minimum":0} |
+| y | no | number | {"minimum":0} |
 | dx | yes | integer | {"minimum":-1000,"maximum":1000} |
 | dy | yes | integer | {"minimum":-1000,"maximum":1000} |
 
@@ -26046,11 +26138,12 @@ Example:
 
 ```json
 {
-  "dx": 7,
-  "dy": 1,
+  "dx": 5,
+  "dy": 0,
   "id": "tUsw9k56esnhnAeEPSmeneeAp",
   "op": "scroll",
-  "version": 2
+  "version": 2,
+  "x": 0
 }
 ```
 
@@ -26259,6 +26352,7 @@ Example:
 | --- | --- | --- | --- |
 | displays | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"displayId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"width":{"type":"number"},"height":{"type":"number"},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":0},"height":{"type":"number","minimum":0}},"required":["x","y","width","height"]}},"required":["displayId","width","height"]}} |
 | windows | yes | array | {"maxItems":2048,"items":{"type":"object","properties":{"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"bundleId":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"},"title":{"type":"string","maxLength":1024},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":0},"height":{"type":"number","minimum":0}},"required":["x","y","width","height"]}},"required":["windowId","bundleId","title"]}} |
+| chooser | no | object | {"properties":{"windows":{"type":"boolean"},"displays":{"type":"boolean"}},"required":["windows","displays"]} |
 
 Example:
 
@@ -27056,7 +27150,33 @@ Example:
 ```json
 {
   "state": {
+    "capabilities": {
+      "capture": {
+        "changeDriven": true,
+        "displays": false,
+        "windows": true
+      },
+      "codecs": [
+        "jpeg"
+      ],
+      "input": {
+        "keyboard": false,
+        "pointer": true,
+        "scroll": false,
+        "text": false
+      },
+      "permissions": {
+        "input": "prompt",
+        "screen": "prompt"
+      },
+      "platform": "windows",
+      "semanticActions": [],
+      "uiTree": true,
+      "version": 2,
+      "watchOnly": "example"
+    },
     "controller": "none",
+    "error": "example",
     "holder": {
       "agentId": "example",
       "threadId": "example"
@@ -27070,10 +27190,11 @@ Example:
     "secureInputAllowed": true,
     "sessionId": "oGeloPrbWIh2jz5eA1wQi1D25MP",
     "target": {
-      "bundleId": "example",
-      "content": true,
-      "kind": "window",
-      "windowId": 8
+      "bundleIds": [
+        "example"
+      ],
+      "displayId": 8,
+      "kind": "display"
     }
   },
   "type": "screen.state"
@@ -27126,20 +27247,15 @@ Example:
 ```json
 {
   "controller": "human",
-  "error": "example",
   "indicator": false,
   "lifecycle": "stopping",
   "permissions": {
     "accessibility": true,
-    "screenRecording": false
+    "screenRecording": true
   },
   "sessionId": "lN-AX-yPMIlcQCKUkHnDmFF",
   "target": {
-    "bundleIds": [
-      "example"
-    ],
-    "displayId": 6,
-    "kind": "display"
+    "kind": "chooser"
   }
 }
 ```
@@ -27249,6 +27365,26 @@ Example:
   ],
   "displayId": 6,
   "kind": "display"
+}
+```
+
+### chooser
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"chooser"` |  |
+| restore | no | boolean |  |
+| picked | no | [ScreenChooserPick.json](schema/ScreenChooserPick.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "chooser",
+  "picked": {
+    "source": "window",
+    "title": "example"
+  }
 }
 ```
 

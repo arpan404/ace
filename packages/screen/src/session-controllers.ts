@@ -74,6 +74,10 @@ export class SessionControllers {
     const session = this.live(id);
     delete session.frameEpoch;
     if (controller === "agent" && session.humanView) throw new ScreenDelegationError();
+    // The desktop shares this view without input (KDE, portals without RemoteDesktop).
+    const watchOnly = session.state.capabilities?.watchOnly;
+    if (controller === "human" && watchOnly)
+      throw new HelperCommandError("not_supported", watchOnly);
     if (controller === "agent" && session.state.controller === "agent" && session.owner !== owner)
       throw new TargetBusyError(
         bundles(session.state.target).join(","),

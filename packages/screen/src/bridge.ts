@@ -85,7 +85,21 @@ export function screenConnection(
   });
   return {
     async request(input) {
-      const { requestId, operation } = ScreenClientMessage.parse(input);
+      const parsed = ScreenClientMessage.safeParse(input);
+      if (!parsed.success) {
+        // A request it can't read still gets an answer, so its sender doesn't wait it out.
+        const id = ScreenClientMessage.pick({ requestId: true }).safeParse(input);
+        if (id.success && !closed)
+          peer.send({
+            type: "screen.result",
+            requestId: id.data.requestId,
+            ok: false,
+            error: "Invalid screen request",
+            errorCode: "bounds",
+          });
+        throw parsed.error;
+      }
+      const { requestId, operation } = parsed.data;
       const respond = (
         result: Omit<Extract<ScreenServerMessage, { type: "screen.result" }>, "type" | "requestId">,
       ) => {

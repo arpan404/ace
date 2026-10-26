@@ -4,7 +4,7 @@ import {
   useState,
   type PointerEvent,
   type ReactNode,
-  type RefObject,
+  type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
 import { draggedSize, drawnScale, responsive, stageInset, type ResizeHandle } from "./devices.ts";
@@ -39,7 +39,8 @@ const handles: { handle: ResizeHandle; label: string; className: string; grip: s
  */
 export function DeviceStage(props: {
   tools: PageTools;
-  frame: RefObject<HTMLDivElement | null>;
+  /** Receives the viewport element (a callback ref, so its owner knows when it mounts). */
+  frame: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
   const { tools, frame, children } = props;

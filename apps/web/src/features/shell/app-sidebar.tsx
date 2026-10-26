@@ -3,7 +3,6 @@ import { ArrowLeftIcon, GearSixIcon, MagnifyingGlassIcon } from "@phosphor-icons
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useProjectDirectory } from "@/lib/projects.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
@@ -16,15 +15,6 @@ const quick =
 /** Back to app spans the sidebar's foot, the profile row's place on the app's own screens. */
 const backRow =
   "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-ui text-sidebar-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
-/**
- * Whether the person has no project yet, once the daemon's list is in: then the way forward
- * is adding one, not a new thread.
- */
-export function useNoProjects(): boolean {
-  const directory = useProjectDirectory();
-  return directory.loaded && directory.projects.length === 0;
-}
-
 /**
  * Where Back to app goes: the app screen the person left for Settings, Automations or Skills
  * (the thread, with its search), or New thread when they came straight to one of them.

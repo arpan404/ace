@@ -63,15 +63,15 @@ export async function collectFullReport(
 }
 
 /** Built-in repairs first, then each feature's, in feature order. */
-export function planAllRepairs(
+export async function planAllRepairs(
   report: DiagnosticReport,
   context: DoctorContext,
   features: readonly DoctorFeature[] = doctorFeatures,
-): PlannedRepair[] {
-  return [
-    ...planDoctorRepairs(report, context.daemonState),
-    ...features.flatMap((feature) => feature.repairs?.(report, context) ?? []),
-  ];
+): Promise<PlannedRepair[]> {
+  const offered = await Promise.all(
+    features.map(async (feature) => (await feature.repairs?.(report, context)) ?? []),
+  );
+  return [...planDoctorRepairs(report, context.daemonState), ...offered.flat()];
 }
 
 /** Runs the chosen feature repairs; ids are `<feature id>.<repair>`. Built-ins are handled by the caller. */

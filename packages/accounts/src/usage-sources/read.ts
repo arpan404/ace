@@ -90,6 +90,18 @@ function inHome(home: string, file: string): string | undefined {
   const path = normalize(join(home, file));
   return path.startsWith(normalize(home) + sep) ? path : undefined;
 }
+/** XDG's config home in the user's own environment: `$XDG_CONFIG_HOME` if absolute, else `~/.config`. */
+function configHome(account: UsageAccount): string {
+  const configured = account.baseEnv.XDG_CONFIG_HOME;
+  return configured && isAbsolute(configured) ? configured : join(account.userHome, ".config");
+}
+/** A declared credential file: under the user's home (`~/`), XDG config home, or the CLI home. */
+function homeFile(account: UsageAccount, file: string): string | undefined {
+  if (file.startsWith("~/")) return inHome(account.userHome, file.slice(2));
+  if (file.startsWith(xdgConfig)) return inHome(configHome(account), file.slice(xdgConfig.length));
+  return inHome(account.homeDir, file);
+}
+const xdgConfig = "$XDG_CONFIG_HOME/";
 /** `{captured}` in the body's string values, for a prelude's answer; nothing else. */
 function fill(value: unknown, captured: string | undefined): unknown {
   if (typeof value === "string")
@@ -142,9 +154,7 @@ async function fromStore(
 ): Promise<Stored> {
   if (store.from === "keychain") return fromKeychain(store, account, ports, signal);
   for (const file of store.files) {
-    const path = file.startsWith("~/")
-      ? inHome(account.userHome, file.slice(2))
-      : inHome(account.homeDir, file);
+    const path = homeFile(account, file);
     if (!path) return { failure: "unavailable" };
     let value: unknown;
     try {

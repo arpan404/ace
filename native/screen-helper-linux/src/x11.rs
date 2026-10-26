@@ -1,7 +1,6 @@
 //! X11 control uses EWMH identity. Capture connects once per active session.
 use crate::{
     accessibility::Bounds,
-    policy::point,
     protocol::{Fault, Result, Target, internal},
 };
 use serde_json::{Value, json};
@@ -13,13 +12,24 @@ use x11rb::{connection::Connection, protocol::xproto::*, rust_connection::RustCo
 pub struct X11 {
     pub conn: RustConnection,
     pub root: u32,
+    /// The computer engine's view of the display, which names windows' apps.
+    apps: Option<crate::computer::xdisplay::XDisplay>,
 }
 #[derive(Clone)]
 pub struct Window {
     pub id: u32,
     pub pid: u32,
+    /// The app's desktop-file id (`org.gnome.Calculator`), as computer use names it.
     pub identity: String,
+    /// The window's own WM_CLASS class, which must not change while it is shared.
+    pub class: String,
     pub bounds: Bounds,
+}
+impl Window {
+    /// Whether `live` is still this window: same id, process and class.
+    pub fn same_as(&self, live: &Window) -> bool {
+        live.id == self.id && live.pid == self.pid && live.class == self.class
+    }
 }
 impl X11 {
     pub fn connect() -> Result<Self> {
@@ -38,7 +48,21 @@ impl X11 {
             .map_err(internal)?
             .reply()
             .map_err(internal)?;
-        Ok(Self { conn, root })
+        Ok(Self {
+            conn,
+            root,
+            apps: crate::computer::xdisplay::XDisplay::connect(),
+        })
+    }
+    /// Names a window's app the way computer use does; its WM_CLASS when that finds nothing.
+    pub fn named(&self, mut window: Window, installed: &[crate::computer::desktop::DesktopApp]) -> Window {
+        if let Some(x) = &self.apps {
+            let id = crate::computer::apps::x_window_app_id(x, window.id, window.pid, installed);
+            if !id.is_empty() {
+                window.identity = id;
+            }
+        }
+        window
     }
     fn atom(&self, name: &str) -> Result<u32> {
         Ok(self
@@ -81,13 +105,13 @@ impl X11 {
             .and_then(|mut i| i.next())
             .ok_or_else(|| Fault::new("not_supported", "Window has no EWMH process id"))?;
         let class = self.property(id, "WM_CLASS", AtomEnum::STRING, 256)?.value;
-        let identity = String::from_utf8_lossy(&class)
+        let class = String::from_utf8_lossy(&class)
             .split('\0')
             .filter(|s| !s.is_empty())
             .next_back()
             .unwrap_or("")
             .to_owned();
-        if identity.is_empty() {
+        if class.is_empty() {
             return Err(Fault::new(
                 "not_supported",
                 "Window has no WM_CLASS identity",
@@ -108,7 +132,8 @@ impl X11 {
         Ok(Window {
             id,
             pid,
-            identity,
+            identity: class.clone(),
+            class,
             bounds: Bounds {
                 x: t.dst_x.into(),
                 y: t.dst_y.into(),
@@ -124,7 +149,8 @@ impl X11 {
             .map_err(internal)?
             .reply()
             .map_err(internal)?;
-        let windows = self.windows()?.into_iter().map(|w| {
+        let installed = crate::computer::apps::installed();
+        let windows = self.windows()?.into_iter().map(|w| self.named(w, &installed)).map(|w| {
             let title = self.property(w.id,"_NET_WM_NAME",AtomEnum::ANY,256).ok().map(|p| String::from_utf8_lossy(&p.value).into_owned()).unwrap_or_default();
             json!({"windowId":w.id,"bundleId":w.identity,"title":title,"bounds":{"x":w.bounds.x,"y":w.bounds.y,"width":w.bounds.w,"height":w.bounds.h}})
         }).collect::<Vec<_>>();
@@ -149,16 +175,21 @@ impl X11 {
                 "Application approval required",
             ));
         }
+        let installed = crate::computer::apps::installed();
         let window = match target.kind.as_str() {
-            "window" => self.window(
-                target
-                    .window_id
-                    .ok_or_else(|| Fault::new("bounds", "Missing window id"))?,
-            )?,
+            "window" => self.named(
+                self.window(
+                    target
+                        .window_id
+                        .ok_or_else(|| Fault::new("bounds", "Missing window id"))?,
+                )?,
+                &installed,
+            ),
             "app" => {
                 let mut matches = self
                     .windows()?
                     .into_iter()
+                    .map(|w| self.named(w, &installed))
                     .filter(|w| &w.identity == identity);
                 let w = matches
                     .next()
@@ -183,7 +214,7 @@ impl X11 {
     }
     pub fn check(&self, w: &Window) -> Result<Window> {
         let live = self.window(w.id)?;
-        if live.pid != w.pid || live.identity != w.identity {
+        if !w.same_as(&live) {
             return Err(Fault::new("target_gone", "Window was replaced"));
         }
         let active = self
@@ -213,32 +244,13 @@ impl X11 {
             .map_err(internal)?;
         self.conn.flush().map_err(internal)
     }
-    fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
+    pub(crate) fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
         self.conn
             .xtest_fake_input(kind, detail, 0, self.root, x, y, 0)
             .map_err(internal)?
             .check()
             .map_err(internal)?;
         self.conn.flush().map_err(internal)
-    }
-    pub fn motion(&self, w: &Window, x: f64, y: f64) -> Result<()> {
-        let live = self.check(w)?;
-        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
-        Err(pointer_delivery_unavailable())
-    }
-    pub fn click(&self, w: &Window, x: f64, y: f64, button: &str) -> Result<()> {
-        if !matches!(button, "left" | "middle" | "right") {
-            return Err(Fault::new("bounds", "Unknown button"));
-        }
-        let live = self.check(w)?;
-        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
-        Err(pointer_delivery_unavailable())
-    }
-    pub fn drag(&self, w: &Window, x: f64, y: f64, to_x: f64, to_y: f64) -> Result<()> {
-        let live = self.check(w)?;
-        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
-        point(to_x, to_y, live.bounds.w as u32, live.bounds.h as u32)?;
-        Err(pointer_delivery_unavailable())
     }
     fn keycode(&self, symbol: u32) -> Result<u8> {
         let setup = self.conn.setup();
@@ -261,6 +273,36 @@ impl X11 {
             "not_supported",
             "Key is not in the X11 keyboard map",
         ))
+    }
+    /// Types text key by key into the shared window while it is active, for apps whose text
+    /// fields accessibility can't reach. Characters missing from the keyboard map borrow a
+    /// spare key, given back afterwards.
+    pub fn type_text(&self, w: &Window, text: &str) -> Result<()> {
+        self.check(w)?;
+        let x = self
+            .apps
+            .as_ref()
+            .ok_or_else(|| Fault::new("not_supported", "Typing needs the X keyboard map"))?;
+        let failed = |e: crate::computer::error::CuError| Fault::new("not_supported", e.to_string());
+        let typed = (|| {
+            let (shift, _) = x.keycode(0xffe1).map_err(failed)?;
+            for c in text.chars() {
+                let (code, shifted) = x
+                    .keycode(crate::runtime_input::unicode_keysym(c))
+                    .map_err(failed)?;
+                if shifted {
+                    x.key(shift, true).map_err(failed)?;
+                }
+                let pressed = x.key(code, true).and(x.key(code, false)).map_err(failed);
+                if shifted {
+                    x.key(shift, false).map_err(failed)?;
+                }
+                pressed?;
+            }
+            x.flush().map_err(failed)
+        })();
+        x.restore_keymap();
+        typed
     }
     pub fn key(&self, w: &Window, key: &str, modifiers: &[String]) -> Result<()> {
         self.check(w)?;
@@ -301,24 +343,6 @@ impl X11 {
         }
         sent
     }
-    pub fn scroll(&self, w: &Window, dx: f64, dy: f64) -> Result<()> {
-        self.check(w)?;
-        if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
-            return Err(Fault::new("bounds", "Scroll exceeds limit"));
-        }
-        if dx == 0. && dy == 0. {
-            return Ok(());
-        }
-        Err(pointer_delivery_unavailable())
-    }
-}
-// XTest button input has no recipient address. Passive grabs and pointer/window
-// changes can redirect it after any hit test. Refuse rather than cross approval.
-fn pointer_delivery_unavailable() -> Fault {
-    Fault::new(
-        "not_supported",
-        "X11 cannot guarantee pointer delivery to the approved window; use a direct accessibility action",
-    ).phase("rejected-before-dispatch")
 }
 pub fn keysym(key: &str) -> Result<u32> {
     let symbol = match key.to_ascii_lowercase().as_str() {

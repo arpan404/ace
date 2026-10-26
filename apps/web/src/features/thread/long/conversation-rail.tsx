@@ -92,6 +92,8 @@ export function ConversationRail(props: {
       sendHover({ type: "dismiss" });
       return;
     }
+    // A modified arrow is an app shortcut (next or previous turn): leave it to the app.
+    if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const target = targets[event.key];
     if (target === undefined) return;
     event.preventDefault();

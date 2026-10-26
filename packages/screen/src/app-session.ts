@@ -9,7 +9,7 @@ function appTarget(session: Session) {
       "rejected-before-dispatch",
     );
   const target = session.state.target;
-  if (target.kind === "display")
+  if (target.kind === "display" || target.kind === "chooser")
     throw new HelperCommandError(
       "not_supported",
       "Select an app session first",

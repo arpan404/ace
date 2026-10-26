@@ -36,7 +36,7 @@ test("detached churn passes but mounting 1000 extra hidden nodes fails the DOM g
         Object.assign(globalThis, { aceDetachedFixture: churn });
       });
       const sample = await pageMemory(cdp);
-      expect(sample.nodes).toBe(705);
+      expect(sample.nodes).toBe(702);
       expect(sample.chromeNodes).toBeGreaterThan(5_000);
       expect(reportDOM(sample, 1_500)).toBe(true);
     }
@@ -46,7 +46,7 @@ test("detached churn passes but mounting 1000 extra hidden nodes fails the DOM g
       for (let i = 0; i < 1_000; i++) main.append(document.createElement("div"));
     });
     const regression = await pageMemory(cdp);
-    expect(regression.nodes).toBe(1_705);
+    expect(regression.nodes).toBe(1_702);
     expect(reportDOM(regression, 1_500)).toBe(false);
     await page.evaluate(() => document.querySelector("main")?.replaceChildren());
     expect(reportDOM(await pageMemory(cdp), 1_500)).toBe(true);
@@ -63,7 +63,7 @@ test("text, comments and open shadow trees contribute to the live DOM budget", a
       for (let i = 0; i < 1_500; i++) shadow.append(document.createTextNode("shadow text"));
     });
     const sample = await pageMemory(cdp);
-    expect(sample.nodes).toBe(1_508);
+    expect(sample.nodes).toBe(1_505);
     expect(reportDOM(sample, 1_500)).toBe(false);
   });
 });
@@ -73,12 +73,31 @@ test("1500 attached nodes pass and one more mounted node fails", async () => {
     await page.evaluate(() => {
       const main = document.querySelector("main");
       if (!main) throw new Error("missing fixture root");
-      for (let i = 0; i < 1_495; i++) main.append(document.createElement("div"));
+      for (let i = 0; i < 1_498; i++) main.append(document.createElement("div"));
     });
     const boundary = await pageMemory(cdp);
     expect(boundary.nodes).toBe(1_500);
     expect(reportDOM(boundary, 1_500)).toBe(true);
     await page.evaluate(() => document.body.append(document.createElement("div")));
     expect(reportDOM(await pageMemory(cdp), 1_500)).toBe(false);
+  });
+});
+
+test("module preload links in the head do not count against the rendered DOM", async () => {
+  await withDOM(async (page, cdp) => {
+    await page.evaluate(() => {
+      const main = document.querySelector("main");
+      if (!main) throw new Error("missing fixture root");
+      for (let i = 0; i < 1_498; i++) main.append(document.createElement("div"));
+      for (let i = 0; i < 500; i++) {
+        const link = document.createElement("link");
+        link.rel = "modulepreload";
+        link.href = `/assets/chunk-${i}.js`;
+        document.head.append(link);
+      }
+    });
+    const sample = await pageMemory(cdp);
+    expect(sample.nodes).toBe(1_500);
+    expect(reportDOM(sample, 1_500)).toBe(true);
   });
 });

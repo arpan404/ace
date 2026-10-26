@@ -26,8 +26,12 @@ function host(remote = false) {
   ]);
   return made;
 }
+/** The projects the person can see: a chat's hidden project (ADR 0099) is not one they added. */
 const registered = (made: ReturnType<typeof harness>) =>
-  made.daemon.projects.list().workspaces.map((project) => project.path);
+  made.daemon.projects
+    .list()
+    .workspaces.filter((project) => project.kind !== "chat")
+    .map((project) => project.path);
 
 /** The desktop app's preload bridge, as far as folders go. */
 function desktopBridge(paths: { chosen?: string | null; dropped?: string }) {
@@ -130,7 +134,7 @@ test("in a browser a dropped folder opens Add project, since the page can't know
 test("the desktop app's folder picker adds the chosen folder", async () => {
   desktopBridge({ chosen: `${home}/code/weather` });
   const made = host();
-  await made.open("/new");
+  await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));
@@ -153,7 +157,7 @@ test("a refused native folder pick shows its exact path, and one action allows a
     value: [home],
     layer: { kind: "global" },
   });
-  await made.open("/new");
+  await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));

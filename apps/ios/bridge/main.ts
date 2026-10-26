@@ -204,9 +204,13 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
     agent: (holder) => deviceAgent(holder.threadId, holder.agentId),
   });
+  let machineName: string | undefined;
   screen = new NativeScreen(
     featureConfig,
     (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
+    async () =>
+      (machineName ??= (await owner.request({ type: "host.identity", requestId: host.uuid() }))
+        .identity.displayName),
   );
   const search = compose.search;
   const files = new CheckoutFiles(client, (workspaceId, query, limit) =>

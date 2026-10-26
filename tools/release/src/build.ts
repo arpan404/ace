@@ -11,6 +11,9 @@ import { z } from "zod";
 import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
 import { hashFile } from "@ace/service";
 import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
+import { mismatchedBinaries } from "./native-arch.ts";
+import { assertLinuxRuntimeFloor } from "./glibc.ts";
+import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
 const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
@@ -51,6 +54,12 @@ async function main() {
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
+  if (target === "linux-x64" || target === "linux-arm64") {
+    if (target !== `${process.platform}-${process.arch}`)
+      throw new Error(`Build the ${target} release on a ${target} host`);
+    await stageLinuxScreenHelper(repo, join(root, linuxScreenHelperPath));
+  }
+  await assertTargetNatives(root, target);
   await writeFile(
     join(root, "release.json"),
     JSON.stringify({ version, target, channel: version.includes("-") ? "preview" : "stable" }) +
@@ -85,6 +94,25 @@ async function main() {
   };
   await writeFile(join(output, `${target}.json`), JSON.stringify(manifest) + "\n");
   process.stdout.write(JSON.stringify(manifest) + "\n");
+}
+/**
+ * Every native file in the release must run on the target: the right architecture (a host
+ * `descriptor.node` or guardian copied into another target fails only on the user's machine)
+ * and, on Linux, nothing newer than the glibc 2.31 floor.
+ */
+async function assertTargetNatives(root: string, target: string) {
+  const [platform, arch] = target.split("-");
+  if ((platform !== "linux" && platform !== "darwin") || (arch !== "arm64" && arch !== "x64"))
+    throw new Error(`Unsupported release target ${target}`);
+  const mismatched = await mismatchedBinaries([root], platform, arch);
+  if (mismatched.length)
+    throw new Error(
+      `Native files built for another architecture than ${target}:\n  ` +
+        mismatched.map((found) => `${found.path} (${found.arches.join("+")})`).join("\n  "),
+    );
+  if (platform === "linux")
+    for (const known of await assertLinuxRuntimeFloor([root]))
+      console.warn(`Above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
 }
 await main().catch((error) => {
   console.error(error);
