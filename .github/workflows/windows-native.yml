@@ -16,6 +16,7 @@ on:
       - .github/workflows/windows-native.yml
       - scripts/vitest-windows-native.config.ts
       - scripts/vitest-windows-screen.config.ts
+      - scripts/vitest-windows-browser.config.ts
       - scripts/prepare-windows-screen.ps1
       - scripts/test-home-global-setup.ts
       - scripts/test-home-setup.ts
@@ -42,6 +43,12 @@ on:
       - package.json
       - bun.lock
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "full: every native check; browser: only the browser workflows and video profile"
+        type: choice
+        options: [full, browser]
+        default: full
 
 permissions:
   contents: read
@@ -222,6 +229,7 @@ jobs:
       # step captures no screenshots and moves no user pointer.
       - name: Build + test native screen helper (Rust)
         id: screen-build
+        if: ${{ inputs.scope != 'browser' }}
         timeout-minutes: 15
         shell: cmd
         env:
@@ -245,9 +253,11 @@ jobs:
           popd
 
       - name: Clear runner shell overlays before owned screen tests
+        if: ${{ inputs.scope != 'browser' }}
         run: ./scripts/prepare-windows-screen.ps1
 
       - name: Verify real screen helper pipe, owned capture, UIA and input
+        if: ${{ inputs.scope != 'browser' }}
         timeout-minutes: 3
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
@@ -258,12 +268,12 @@ jobs:
 
       - name: Prepare real Windows browser for streaming checks
         id: browser-prepare
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.screen-build.outcome == 'success' || inputs.scope == 'browser') }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && inputs.scope != 'browser' }}
         timeout-minutes: 25
         env:
           TEMP: ${{ runner.temp }}
@@ -273,6 +283,20 @@ jobs:
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
+
+      - name: Run every browser workflow's tests
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 30
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-browser.config.ts
+
+      - name: Profile Windows browser video (report only)
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 8
+        run: node packages/browser/bench/video-profile.ts
 
       # Collect native Windows throughput after the serial functional checks.
       # The existing check:perf thresholds remain the acceptance gate.
