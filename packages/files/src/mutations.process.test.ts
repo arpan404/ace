@@ -9,6 +9,8 @@ import { fixture, type Client } from "./test-support.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { decodeFileFrame } from "./index.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -315,6 +317,7 @@ it("preserves executable permissions when replacing a file through edits or uplo
 });
 
 const windows = process.platform === "win32";
+const run = promisify(execFile);
 async function windowsUpload(client: Client, path: string, expected: string | null, text: string) {
   const bytes = Buffer.from(text);
   const upload = Upload.parse(
@@ -416,15 +419,6 @@ it.runIf(windows)(
     expect(
       await client.request({ op: "upload.begin", path: "FOO.TXT", expected: null, size: 1 }),
     ).toMatchObject({ type: "files.error", code: "CONFLICT" });
-    expect(
-      await client.request({
-        op: "rename",
-        path: "Foo.txt",
-        expected: await version(client, "Foo.txt"),
-        destination: "fOO.txt",
-        destinationExpected: null,
-      }),
-    ).toMatchObject({ type: "files.error" });
     expect(await readdir(f.root)).toEqual(["Foo.txt"]);
     expect(await readFile(join(f.root, "Foo.txt"), "utf8")).toBe("mine");
     for (const path of ["CON", "nul.txt", "com1", "trailing.", "trailing ", "a:b", "x?y"])
@@ -470,3 +464,38 @@ it.runIf(windows)(
     expect(await windowsDownload(client, path)).toBe("second");
   },
 );
+
+it.runIf(windows)("Windows renames a file to a case-only variant of its own name", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await writeFile(join(f.root, "Foo.txt"), "mine");
+  expect(
+    await client.request({
+      op: "rename",
+      path: "Foo.txt",
+      expected: await version(client, "Foo.txt"),
+      destination: "foo.txt",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { destination: "foo.txt" } });
+  expect(await readdir(f.root)).toEqual(["foo.txt"]);
+  expect(await readFile(join(f.root, "foo.txt"), "utf8")).toBe("mine");
+  // A different file under the other case still conflicts; a case-sensitive folder holds both.
+  const folder = join(f.root, "sensitive");
+  await mkdir(folder);
+  await run("fsutil.exe", ["file", "setCaseSensitiveInfo", folder, "enable"]);
+  await writeFile(join(folder, "Bar.txt"), "one");
+  await writeFile(join(folder, "bar.txt"), "two");
+  expect(
+    await client.request({
+      op: "rename",
+      path: "sensitive/Bar.txt",
+      expected: await version(client, "sensitive/Bar.txt"),
+      destination: "sensitive/bar.txt",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.error", code: "CONFLICT" });
+  expect((await readdir(folder)).toSorted()).toEqual(["Bar.txt", "bar.txt"]);
+  expect(await readFile(join(folder, "Bar.txt"), "utf8")).toBe("one");
+  expect(await readFile(join(folder, "bar.txt"), "utf8")).toBe("two");
+});
