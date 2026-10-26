@@ -61,7 +61,7 @@ export function HomeSidebar() {
   const { only } = entry;
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
+      <div className="@container/thread-filters flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
         <span className="flex-1" />
         <Tip label="New thread" shortcut="newThread">

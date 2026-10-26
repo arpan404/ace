@@ -9,6 +9,7 @@ import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -27,6 +28,7 @@ import {
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { DeviceFilter } from "./device-filter.tsx";
+import { useSidebarDevice } from "./device-filter-state.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import {
@@ -72,6 +74,11 @@ const all = "\u0000all";
 export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
+  const deviceId = useSidebarDevice();
+  const device = useMachines().find((machine) => machine.id === deviceId);
+  const characters = Array.from(device?.name ?? "");
+  const deviceName =
+    characters.length > 15 ? `${characters.slice(0, 15).join("").trimEnd()}…` : device?.name;
   const withThreads = useProjects();
   const directory = useProjectDirectory();
   const { name } = directory;
@@ -89,14 +96,31 @@ export function ProjectFilter() {
 
   return (
     <Menu>
-      <MenuTrigger
-        aria-label={`Project filter: ${label}`}
-        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-sm pr-2 pl-[9px] text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
-      >
-        <span className="truncate">{label}</span>
-        <CaretDownIcon aria-hidden size={14} className="shrink-0" />
-      </MenuTrigger>
-      <MenuContent align="end" className="max-h-[60vh] min-w-[220px] overflow-y-auto">
+      <Tip label={device?.name ?? label} disabled={!device}>
+        <MenuTrigger
+          aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
+          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent"
+        >
+          <span className="max-w-35 truncate font-medium text-foreground">{label}</span>
+          {device && (
+            <span
+              aria-hidden
+              className="ml-1 inline-flex shrink-0 items-center gap-1.5 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
+            >
+              <MachineMark icon={device.icon} primary={device.primary} />
+              <span data-selected-device-name className="hidden @min-[18rem]/thread-filters:inline">
+                {deviceName}
+              </span>
+            </span>
+          )}
+          <CaretDownIcon
+            aria-hidden
+            size={12}
+            className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
+          />
+        </MenuTrigger>
+      </Tip>
+      <MenuContent align="start" className="max-h-[60vh] min-w-64 overflow-y-auto">
         <DeviceFilter />
         <MenuRadioGroup
           value={project ?? all}
