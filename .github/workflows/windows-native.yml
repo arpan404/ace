@@ -27,14 +27,13 @@ on:
       - packages/screen/**
       - packages/browser/**
       - packages/browser-extension/**
-      - packages/provider-kit/src/windows*
-      - packages/provider-kit/src/process-windows*
+      - packages/provider-kit/src/process*
+      - packages/provider-kit/src/sqlite*
       - packages/terminal/**
       - tools/release/src/pty-assets.ts
       - tools/release/src/archive*.ts
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
-      - packages/terminal/src/shell*
       - package.json
       - bun.lock
   workflow_dispatch:

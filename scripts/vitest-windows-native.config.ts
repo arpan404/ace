@@ -6,9 +6,9 @@ import { FailureDetailsReporter } from "./test-failure-reporter.ts";
  * Bounded Windows-native foundation suite (first native-verification cut).
  *
  * Scope: Windows handle-core read fixtures, stat/metadata fixtures, real
- * SID / Windows-job / ConPTY fixtures, plus pure Windows units (shell
- * selection, path policy, batch command, job/identity contracts, ConPTY gate
- * units, Windows process supervision). No root POSIX process suite, no
+ * SID / job-object / ConPTY fixtures, plus pure Windows units (shell
+ * selection, path policy, batch command, job/identity contracts, ConPTY
+ * backend units, process-tree supervision). No root POSIX process suite, no
  * recorder, no provider CLIs.
  *
  * Isolation: reuses the repo's test-home global setup and per-file setup so
@@ -55,17 +55,17 @@ export default defineConfig({
       "packages/plugins/src/windows-ownership.process.test.ts",
       "packages/workspace/src/command-stdin.process.test.ts",
       "packages/workspace/src/rg-stdin.process.test.ts",
-      "packages/provider-kit/src/windows-job.process.test.ts",
-      "packages/provider-kit/src/windows-sqlite.process.test.ts",
-      "packages/provider-kit/src/windows-process-identity.process.test.ts",
-      "packages/terminal/src/win32.process.test.ts",
+      "packages/provider-kit/src/process-containment.process.test.ts",
+      "packages/provider-kit/src/sqlite.process.test.ts",
+      "packages/provider-kit/src/process-identity.process.test.ts",
+      "packages/terminal/src/terminal.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
-      "packages/terminal/src/win32.test.ts",
-      "packages/provider-kit/src/windows-job.test.ts",
-      "packages/provider-kit/src/windows-process-identity.test.ts",
-      "packages/provider-kit/src/windows-command.test.ts",
-      "packages/provider-kit/src/process-windows-native.process.test.ts",
+      "packages/terminal/src/lifecycle.test.ts",
+      "packages/provider-kit/src/process-containment.test.ts",
+      "packages/provider-kit/src/process-identity.test.ts",
+      "packages/provider-kit/src/process-tree.test.ts",
+      "packages/provider-kit/src/process-tree.process.test.ts",
       "tools/release/src/pty-assets.test.ts",
       "tools/release/src/archive-paths.process.test.ts",
     ],
