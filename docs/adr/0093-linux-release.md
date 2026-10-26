@@ -113,6 +113,13 @@ and registers the same three tools as on macOS.
 - **Screenshots** use the ScreenCast portal with a persisted restore token, scaled to the
   engine's 1568 px / 1.15 MP limit with id marks. Until the person has granted it, `state`
   returns the outline with a `screenshotError` explaining how to grant it.
+- **The person wins (revised 2026-10-25).** As on macOS, an action is refused while the person
+  is using that control or window (`person_active`), looks report a locked or absent session,
+  and the desktop is kept awake during a batch and kept from suspending for a five-minute
+  lease. Wayland allows neither the macOS Esc (GNOME's keyboard monitor serves only Orca's bus
+  name) nor a marker over the target window, so both become one desktop notification, "ace is
+  using <app>", whose Stop ends the agent's work (`stopped_by_person`). See the helper's
+  COMPUTER.md, "The person".
 - **Policy.** The built-in block list gains Linux terminals, password managers, polkit and
   pinentry prompts, and ace's own desktop app.
 
