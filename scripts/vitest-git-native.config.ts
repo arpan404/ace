@@ -7,7 +7,7 @@ import { FailureDetailsReporter } from "./test-failure-reporter.ts";
  * and its system configuration (core.autocrlf=true). Same isolated test homes as the
  * bounded native suite.
  *
- * Run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-git.config.ts
+ * Run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-git-native.config.ts
  */
 export default defineConfig({
   test: {
@@ -20,7 +20,7 @@ export default defineConfig({
     exclude: ["**/node_modules/**"],
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/git-template-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });

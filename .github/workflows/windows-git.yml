@@ -8,7 +8,8 @@ on:
     branches: [ace/win-git]
     paths:
       - .github/workflows/windows-git.yml
-      - scripts/vitest-windows-git.config.ts
+      - scripts/vitest-git-native.config.ts
+      - scripts/git-template-setup.ts
       - packages/git/**
       - packages/forge/**
       - packages/review/**
@@ -72,4 +73,4 @@ jobs:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
           TMPDIR: ${{ runner.temp }}
-        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-git.config.ts
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-git-native.config.ts
