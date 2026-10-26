@@ -293,6 +293,23 @@ export class TargetThreads {
       .update(JSON.stringify([device.id, call.threadId, call.requestId]))
       .digest("hex")
       .slice(0, 32);
+    try {
+      return this.deliver(device, call, engine, key);
+    } catch (error) {
+      // Each refusal from here follows a step recorded under the request (the restart's stop, the
+      // send, the queue move, the message's own fate), so every copy of the request gets the same
+      // answer and none runs anew: the caller can stop sending it.
+      if (error instanceof TargetRefusal) throw new TargetRefusal(error.code, error.message, true);
+      throw error;
+    }
+  }
+  /** The message itself: each step is recorded under the request, so a retry repeats its answer. */
+  private deliver(
+    device: Device,
+    call: Extract<MachineCall, { op: "message" }>,
+    engine: Engine,
+    key: string,
+  ) {
     const run = (id: string, payload: unknown): CommandResult => {
       const command = Command.parse({ id, deviceId: device.id, payload });
       return this.deps.store.recordCommand(command.id, command.deviceId, () =>

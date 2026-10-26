@@ -16204,6 +16204,7 @@ Example:
 | --- | --- | --- | --- |
 | error | yes | ["machine_opted_out","machine_forbidden","unauthorized","not_found","invalid","unavailable","too_late"] |  |
 | message | no | string | {"maxLength":512} |
+| final | no | boolean |  |
 
 Example:
 

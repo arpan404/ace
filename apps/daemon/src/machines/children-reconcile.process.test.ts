@@ -97,7 +97,7 @@ function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
       },
     };
   };
-  const answers = { resend: async (): Promise<"taken" | "refused"> => "taken" };
+  const answers = { resend: async (): Promise<"taken" | "decided"> => "taken" };
   const children = new MachineChildren({
     store,
     engine: () => undefined,

@@ -146,15 +146,21 @@ it("a remote child stopped while waiting and then given work by the person on it
  * the caller hear a dropped connection while its request is still on its way.
  */
 function gatedTransport() {
-  const gate = { closed: false, failCaller: false, release: () => {} };
+  const gate = { closed: false, failCaller: false, onlyFirst: false, release: () => {} };
   let opened = Promise.resolve();
+  let arrived: Promise<void> = Promise.resolve();
   let held = 0;
   let statusCalls = 0;
   const transport: MachineTransport = async (profile, body, options) => {
     if (body.call.op === "status") statusCalls++;
-    if (body.call.op !== "message" || !gate.closed) return machineRequest(profile, body, options);
+    if (body.call.op !== "message" || !gate.closed || (gate.onlyFirst && held > 0))
+      return machineRequest(profile, body, options);
     held++;
     const arrives = opened.then(() => machineRequest(profile, body, options));
+    arrived = arrives.then(
+      () => undefined,
+      () => undefined,
+    );
     if (!gate.failCaller) return arrives;
     arrives.catch(() => undefined);
     throw new MachineFailure("disconnected");
@@ -163,6 +169,8 @@ function gatedTransport() {
     transport,
     gate,
     held: () => held,
+    /** Settles once the held copies have reached the target and it answered. */
+    arrived: () => arrived,
     statusCalls: () => statusCalls,
     close() {
       gate.closed = true;
@@ -228,4 +236,80 @@ it("a follow-up still on its way when the caller restarts never lets the child r
 
 it("a follow-up whose call timed out while it was still on its way never lets the child read done before its new result", async () => {
   await heldFollowUp(async () => {}, true);
+}, 120_000);
+
+/**
+ * A child that finished, then a follow-up whose first copy is held on its way to the target while
+ * the caller hears its call dropped; later copies (the caller's retries) go straight through.
+ */
+async function droppedFollowUp(before: (pair: Pair) => Promise<void>) {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("first-pass"))).data).threadId;
+  await pair.finishTask(child, "Do the first-pass part", "First pass done.");
+  expect(await waitFor(pair, child)).toMatchObject({ state: "done", result: "First pass done." });
+  await before(pair);
+  gated.gate.failCaller = true;
+  gated.gate.onlyFirst = true;
+  gated.close();
+  void pair.source
+    .call({ op: "thread.message", threadId: child, requestId: "second", text: "Do a second pass" })
+    .catch(() => undefined);
+  await vi.waitFor(() => expect(gated.held()).toBe(1), { timeout: 15_000 });
+  return { pair, gated, child };
+}
+
+it("a retry refused only at the target's access check never lets the child read done before the delayed original runs", async () => {
+  // Agents from the caller may only read there for now: its retries are refused at the access
+  // check, which says nothing about the copy still on its way.
+  const { pair, gated, child } = await droppedFollowUp((paired) => paired.access("read"));
+  const after = gated.statusCalls();
+  await vi.waitFor(() => expect(gated.statusCalls()).toBeGreaterThan(after + 1), {
+    timeout: 15_000,
+  });
+  expect(await stateHere(pair, child)).toBe("working");
+  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
+    "done",
+  );
+
+  // Agents may act there again, and the delayed original lands and runs.
+  await pair.access("operate");
+  gated.open();
+  await gated.arrived();
+  await pair.finishTask(child, "Do a second pass", "Second pass done.");
+  await vi.waitFor(
+    async () =>
+      expect(await waitFor(pair, child)).toMatchObject({
+        state: "done",
+        result: "Second pass done.",
+      }),
+    { timeout: 15_000 },
+  );
+  expect(
+    (pair.target.h.inputs.get(child) ?? []).filter((text) => text === "Do a second pass"),
+  ).toHaveLength(1);
+}, 120_000);
+
+it("a message the target refused for that request never runs, not even a copy that was still on its way", async () => {
+  // Its provider is off there: a retry reaches the message itself and is refused, an answer
+  // recorded for this request, so the child settles back to the result its parent already has.
+  const { pair, gated, child } = await droppedFollowUp((paired) =>
+    paired.target.daemon.settings.set(
+      "providers.configuration",
+      [{ provider: "claude", enabled: false }],
+      { kind: "global" },
+    ),
+  );
+  await vi.waitFor(async () => expect(await stateHere(pair, child)).toBe("done"), {
+    timeout: 15_000,
+  });
+
+  // The provider comes back and the delayed copy lands: it is refused like its retry.
+  await pair.target.daemon.settings.set("providers.configuration", [], { kind: "global" });
+  gated.open();
+  await gated.arrived();
+  await pair.target.daemon.engine?.flush();
+  expect(pair.target.h.inputs.get(child) ?? []).not.toContain("Do a second pass");
+  expect(await stateHere(pair, child)).toBe("done");
 }, 120_000);

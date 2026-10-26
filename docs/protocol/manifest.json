@@ -2005,8 +2005,8 @@
       "sha256": "e2d7e6347ecf5918ac53496c268c794c5f8e452127ef23b630ed5d76fd05ad98"
     },
     "schema/MachineRefusal.json": {
-      "bytes": 506,
-      "sha256": "1c7452e348f005ade78369b0ea0b6becf5bde1eb2e37607f2af3b229e8b5bcb7"
+      "bytes": 552,
+      "sha256": "42fdb1c7bb1c60f2a7618c15547cf7ac3c6169538cc81cf94ae873546f2d682b"
     },
     "schema/MachineSessionResult.json": {
       "bytes": 295,
@@ -4441,10 +4441,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 912347,
-      "sha256": "6ff2c4145c38495c3ae125258c83627c40c58f0dbb3d3e3eb1db56c9ebc69561"
+      "bytes": 912375,
+      "sha256": "2cfabeffcb277feae7b0bff3124a1ccc0413b3e407833edfbd2b6a5b0bfcb2a7"
     }
   },
-  "input": "1b529446130f9bebb2c147029eae62f21d3d16f1caf8605d4751574b1cc6f330",
+  "input": "679b728013bc629154bdce20ebc1e9e9c3f376d5215eb1401d5b939e0de4978c",
   "version": 1
 }

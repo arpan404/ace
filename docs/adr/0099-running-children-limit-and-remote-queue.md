@@ -68,13 +68,25 @@ settle, and the caller must notice so the parent never reads done while it runs.
 
 - _Work the parent sends._ Before the message leaves, the caller saves the child as reopened
   (the parent's row shows it running again), advances its generation, and keeps the message
-  itself with its request id until the target answers for it: it took it, refused it, or was
-  never reached. While a message is unanswered no status reply settles the child, because an idle
-  reply can't prove an earlier request will never run (it may still be in the target's access
-  check, or behind a timeout). Each poll sends unanswered messages again under the same request
-  id, which the target runs at most once (its command receipts), alongside the poll so a slow
-  target never stops the watching. A restart keeps the record, so the restarted caller does the
-  same; a record whose answer could not be saved is sent again and answered the same way.
+  itself with its request id until the target answers for it. While a message is unanswered no
+  status reply settles the child, because an idle reply can't prove an earlier request will never
+  run (it may still be in the target's access check, or behind a timeout). Each poll sends
+  unanswered messages again under the same request id, which the target runs at most once (its
+  command receipts), alongside the poll so a slow target never stops the watching. What answers
+  for a message:
+  - the target took it;
+  - the target refused it with `final`: the refusal follows a step recorded under the request id
+    (the restart's stop, the send, the queue move, the message's own fate), so every copy, a
+    retry or one still on its way, gets the same answer and none runs anew;
+  - for the first attempt only, a target never reached or refused at its gate, as no other copy
+    exists.
+
+  A refusal of one attempt alone (the access check, a machine still starting) answers nothing
+  and the message is sent again. A take or a final refusal drops the record in the same
+  transaction that advances the generation (a final refusal may leave the message queued there),
+  so a reply read before it can't settle the child once nothing guards it; if that transaction
+  fails the record stays. A restart keeps the record, so the restarted caller does the same.
+
 - _Work started on that machine_ (the person there messages the thread). Pairing is one-way:
   the caller holds a device token for the target, the target has no route or credential back
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently

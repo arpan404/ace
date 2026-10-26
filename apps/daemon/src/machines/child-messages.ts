@@ -2,8 +2,13 @@ import type { MachineMessage, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { ChildLedger, ChildRow } from "./child-ledger.ts";
 
-/** How a machine answered for a message: it holds it, or it will never run it. */
-export type Answer = "taken" | "refused";
+/**
+ * How a machine answered for a message. "taken": it holds it. "decided": it recorded a final
+ * answer that every copy gets (the message may still be queued there, so this counts as new work
+ * like a take). "refused": a first attempt that never reached it or was refused at its gate, so
+ * no copy is anywhere and nothing will run.
+ */
+export type Answer = "taken" | "decided" | "refused";
 
 export interface ChildMessagesDeps {
   store: Store;
@@ -11,14 +16,15 @@ export interface ChildMessagesDeps {
   now(): number;
   /**
    * Sends a message again under its own request id, which the machine runs at most once.
-   * "taken" or "refused" answers for it; a machine that can't be reached throws.
+   * "taken" or "decided" answers for it; anything else (a machine that can't be reached, a
+   * refusal of this attempt alone) throws, and the message is sent again later.
    */
   resend(
     machine: string,
     parentThreadId: ThreadId,
     child: ThreadId,
     message: MachineMessage,
-  ): Promise<"taken" | "refused">;
+  ): Promise<"taken" | "decided">;
   /** A settled child given new work: open again, in the transaction that records the work. */
   reopenSettled(row: ChildRow): void;
   /** Its machine took the work: replies read before now no longer apply. */
@@ -44,8 +50,8 @@ export class ChildMessages {
    * New work is on its way to the child. It is saved first, with the child reopened, so a caller
    * that stops before the reply finds it open and the message unanswered. Until its machine
    * answers for the message no status reply settles the child, and replies read before now never
-   * will. The returned release takes the machine's answer for it: "taken", "refused" (it never
-   * runs, or was never reached), or none; an unanswered message is sent again on the next poll.
+   * will. The returned release takes the machine's answer for it (see Answer), or none; an
+   * unanswered message is sent again on the next poll.
    */
   send(id: ThreadId, message: MachineMessage): (answer: Answer | undefined) => void {
     const { ledger } = this.deps;
@@ -66,8 +72,8 @@ export class ChildMessages {
     };
   }
   /**
-   * The machine answered for a message. A message taken advances the child's generation in the
-   * same transaction that drops the record, so a status reply read before it can never settle
+   * The machine answered for a message. A message taken, or one it recorded a final answer for,
+   * advances the child's generation in the same transaction that drops the record, so a status reply read before it can never settle
    * the child once nothing guards it. Should saving fail (a busy store), the record stays and the
    * next poll sends the message again, which its machine answers without running it twice.
    */
@@ -75,7 +81,7 @@ export class ChildMessages {
     try {
       this.deps.store.atomic(() => {
         this.deps.ledger.resolveMessage(id, requestId);
-        if (answer === "taken") this.deps.reopen(id);
+        if (answer !== "refused") this.deps.reopen(id);
       });
     } catch (error) {
       this.deps.log("Machine message answer not saved yet", { id, error: String(error) });

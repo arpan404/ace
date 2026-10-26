@@ -20,6 +20,7 @@ import { AgentControlError } from "../agent-control/failure.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import type { MachineDirectory } from "./directory.ts";
 import type { MachineChildren } from "./children.ts";
+import type { Answer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -138,7 +139,7 @@ export class MachineCaller {
     // Saved before it leaves: until the machine answers for it, no status reply settles the
     // child, and after a restart or a lost reply it is sent again under the same request id.
     const release = this.deps.children.send(id, message);
-    const outcome: { answer?: "taken" | "refused" } = {};
+    const outcome: { answer?: Answer } = {};
     try {
       return await this.sendMessage(id, child.machine, origin, message, outcome);
     } finally {
@@ -147,14 +148,16 @@ export class MachineCaller {
   }
   /**
    * The same message again, after a restart or a lost reply: the target runs a request id at most
-   * once and answers for it. A refusal answers too; a machine that can't be reached throws.
+   * once and answers for it. Only a refusal the target recorded for the request id (final) also
+   * answers for it: a refusal of this attempt alone (its access check, an engine still starting)
+   * says nothing about a copy still on its way, so it throws like a machine that can't be reached.
    */
   async resend(
     machine: string,
     parentThreadId: ThreadId,
     id: ThreadId,
     message: MachineMessage,
-  ): Promise<"taken" | "refused"> {
+  ): Promise<"taken" | "decided"> {
     try {
       MachineMessageResult.parse(
         await this.deps.directory.call(
@@ -166,7 +169,8 @@ export class MachineCaller {
       );
       return "taken";
     } catch (error) {
-      if (error instanceof MachineFailure && error.kind === "refused") return "refused";
+      if (error instanceof MachineFailure && error.kind === "refused" && error.final)
+        return "decided";
       throw error;
     }
   }
@@ -175,7 +179,7 @@ export class MachineCaller {
     machine: string,
     origin: MachineCallOrigin,
     message: MachineMessage,
-    outcome: { answer?: "taken" | "refused" },
+    outcome: { answer?: Answer },
   ): Promise<AgentControlResult> {
     let lost: MachineFailure | undefined;
     for (let attempt = 0; ; attempt++)
@@ -199,8 +203,11 @@ export class MachineCaller {
         // Only a machine that never took the call or refused it outright proves nothing ran. A
         // lost reply may follow a message the child is already working on: it stays watched,
         // and if nothing changed there, the next poll settles it again under the same result.
-        if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
-        // A machine never reached, or one that refused, answered for the message: it never runs.
+        // A refusal the target recorded for the request id answers for it whatever came before:
+        // every copy of it gets the same answer.
+        if (error instanceof MachineFailure && error.final) outcome.answer = "decided";
+        else if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
+        // A first attempt never reached, or refused, answered for the message: it never runs.
         else outcome.answer = "refused";
         // The parent hears the call was lost, not that the machine never had it.
         throw this.deps.directory.controlError(machine, lost ?? error);

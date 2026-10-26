@@ -167,5 +167,11 @@ export const MachineRefusal = z.object({
     "too_late",
   ]),
   message: z.string().max(512).optional(),
+  /**
+   * The target's answer for the request id is recorded: every copy of that request, a retry or
+   * one still on its way, gets this same answer and none runs anew. Without it a refusal answers
+   * only this attempt (an access check, a machine still starting).
+   */
+  final: z.boolean().optional(),
 });
 export type MachineRefusal = z.infer<typeof MachineRefusal>;
