@@ -24,6 +24,8 @@ export const lockedUseBundlePath =
 export const lockedUseBundleId = "dev.ace.locked-use.authorization-plugin";
 export const lockedUseMechanism = "AceLockedUseAuthorization:permit";
 export const lockedUseRight = "system.login.screensaver";
+/** ace's evaluate-mechanisms right, named as one alternative in `lockedUseRight`'s rule. */
+export const lockedUsePermitRight = "dev.ace.locked-use.permit";
 /** The root broker behind the plug-in's Mach service. */
 export const lockedUseBrokerLabel = "dev.ace.locked-use.authorization";
 /** The independent relock guardian. */
