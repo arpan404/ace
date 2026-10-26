@@ -179,10 +179,29 @@ async function go(launched: Launched, link: string): Promise<void> {
   }, link);
 }
 
+/**
+ * The OS's light or dark mode. On a disposable CI runner, Windows' own setting, which is what a
+ * person changes (the page keeps Electron's theme source on "system", so overriding that alone
+ * would be undone). Elsewhere (a shared test machine), Electron's override.
+ */
 async function scheme(launched: Launched, dark: boolean): Promise<void> {
-  await launched.app.evaluate(({ nativeTheme }, next) => {
-    nativeTheme.themeSource = next ? "dark" : "light";
-  }, dark);
+  if (process.env.GITHUB_ACTIONS === "true")
+    for (const value of ["AppsUseLightTheme", "SystemUsesLightTheme"])
+      execFileSync("reg.exe", [
+        "add",
+        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        "/v",
+        value,
+        "/t",
+        "REG_DWORD",
+        "/d",
+        dark ? "0" : "1",
+        "/f",
+      ]);
+  else
+    await launched.app.evaluate(({ nativeTheme }, next) => {
+      nativeTheme.themeSource = next ? "dark" : "light";
+    }, dark);
   // The page follows the OS ("system" appearance) with a short cross-fade.
   await launched.page
     .waitForFunction(
