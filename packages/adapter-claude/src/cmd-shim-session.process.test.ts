@@ -22,10 +22,6 @@ test.runIf(windowsHost)(
   async () => {
     const h = await harness();
     try {
-      await h.session.send([{ type: "text", text: "hello" }], "queue");
-      const input = fakeInput(await h.wait(subtype("fake_input")));
-      expect(input["session_id"]).toBe(h.session.nativeSessionId);
-      expect(object(input["message"])["content"]).toEqual([{ type: "text", text: "hello" }]);
       await h.session.send([{ type: "text", text: "stream-probe" }], "queue");
       await h.wait((f) => object(f.data)["type"] === "result");
       const translator = createTranslator({ rootKey: "root" });
@@ -42,6 +38,16 @@ test.runIf(windowsHost)(
           .filter((i) => i.type === "message")
           .map((i) => i.parts),
       ).toContainEqual([{ type: "text", text: "partial answer" }]);
+      await h.session.send([{ type: "text", text: "hello" }], "queue");
+      const input = fakeInput(
+        await h.wait(
+          (f) =>
+            subtype("fake_input")(f) &&
+            JSON.stringify(object(fakeInput(f)["message"])["content"]).includes("hello"),
+        ),
+      );
+      expect(input["session_id"]).toBe(h.session.nativeSessionId);
+      expect(object(input["message"])["content"]).toEqual([{ type: "text", text: "hello" }]);
     } finally {
       await h.session.close("user");
     }

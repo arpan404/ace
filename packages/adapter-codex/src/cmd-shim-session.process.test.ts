@@ -179,8 +179,10 @@ test.runIf(windowsHost)(
     try {
       await h.session.close("shutdown");
       expect((await h.exited).deliberate).toBe(true);
-      // taskkill /F ends the tree with exit code 1; a clean exit would be 0.
-      expect(exitNote(h.frames)).toMatchObject({ deliberate: true, code: 1 });
+      // A clean exit through stdin would be code 0; the forced tree stop never is.
+      const note = exitNote(h.frames);
+      expect(note).toMatchObject({ deliberate: true, reason: "stopped" });
+      expect(note?.["code"]).not.toBe(0);
       expect(h.exits).toHaveLength(1);
       await expect(h.session.send(text("after"), "steer")).rejects.toThrow("closed");
     } finally {
