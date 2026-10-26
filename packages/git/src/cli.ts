@@ -367,6 +367,11 @@ export class GitCli {
   }
 
   /** The executable each Git call starts. */
+  /** The platform Git runs on, for Windows-only repository settings. */
+  get platform(): NodeJS.Platform {
+    return this.runtime.platform;
+  }
+
   get binary(): string {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
   }
@@ -587,6 +592,8 @@ export class GitCli {
     if (this.runtime.platform === "win32") {
       args = windowsHooklessArgs(args);
       windowsHooklessEnv(env);
+      // Deep checkout paths past MAX_PATH; Git for Windows refuses them by default.
+      args = ["-c", "core.longpaths=true", ...args];
     }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.

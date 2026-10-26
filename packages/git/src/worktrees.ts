@@ -81,6 +81,7 @@ export async function createWorktree(
           ...(options.stderr ? { stderr: options.stderr } : {}),
         },
       );
+      if (cli.platform === "win32") await enableLongPaths(repository, root);
       if (staged) await checkoutFiles(repository, path, options);
       checkCancellation(options.signal);
       const canonical = await realpath(path);
@@ -202,6 +203,20 @@ export async function removeWorktree(
 
 function checkCancellation(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new GitError("git_cancelled", "Worktree creation cancelled");
+}
+
+/**
+ * Windows: an ace-created worktree keeps deep paths usable for the person's and agents' own Git,
+ * not just ace's. An explicit setting in the repository stays as it is.
+ */
+async function enableLongPaths(repository: Repository, root: string) {
+  const set = await repository.cli.call(root, ["config", "--local", "--get", "core.longpaths"], {
+    allowFailure: true,
+  });
+  if (set.exitCode === 1)
+    await repository.cli.call(root, ["config", "--local", "core.longpaths", "true"], {
+      write: true,
+    });
 }
 
 async function checkoutFiles(repository: Repository, path: string, options: CreateWorktreeOptions) {
