@@ -342,9 +342,16 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = undefined;
     this.#config.onRetired();
-    // Windows has no graceful signal for a windowless console child, so the tree stop below
-    // can only force it after the grace. Closing stdin is app-server's own clean shutdown.
-    if ((this.#config.platform ?? process.platform) === "win32") this.#proc.stdin.end();
+    // Windows has no graceful signal for a windowless console child: closing stdin is
+    // app-server's own clean shutdown, and its recorded tree is ended before retiring resolves.
+    if ((this.#config.platform ?? process.platform) === "win32") {
+      const proc = this.#proc;
+      const graceMs = this.#config.graceMs;
+      this.#retiring = import("@ace/provider-kit/tree-stop")
+        .then(({ stopTreeAfterEof }) => stopTreeAfterEof(proc, graceMs))
+        .then(() => {});
+      return this.#retiring;
+    }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});
     return this.#retiring;
   }

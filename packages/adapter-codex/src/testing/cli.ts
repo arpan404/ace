@@ -14,6 +14,15 @@ if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "wi
   // The test checks that this survivor is really gone, not just detached from.
   writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex.pid"), String(process.pid));
 }
+// Windows: a descendant outside any job that would outlive this fake's own exit on EOF.
+if (process.env["ACE_FAKE_RESUME"] === "orphan-child" && process.platform === "win32") {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex-child.pid"), String(child.pid));
+}
 const args: string[] = [];
 const overrides = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index++) {

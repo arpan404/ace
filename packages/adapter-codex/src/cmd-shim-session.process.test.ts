@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { Frame } from "@ace/engine-api";
 import { sessionHarness } from "./session.test-helper.ts";
 import { obj, str } from "./native.ts";
+import { spawnSupervised } from "@ace/provider-kit/process";
+import { aliveNow, withoutJob } from "@ace/provider-kit/testing/cmd-shim";
 
 /*
  * Codex installed the way npm installs it on Windows: a `.cmd` shim that cmd.exe runs. The
@@ -259,6 +261,41 @@ test.runIf(windowsHost)(
       expect(h.exits).toHaveLength(1);
     } finally {
       if (helper !== undefined && alive(helper)) process.kill(helper);
+      await h.dispose();
+    }
+  },
+);
+
+test.runIf(windowsHost)(
+  "closing a Windows Codex that ends on EOF leaves none of its tree alive, even with no job",
+  async () => {
+    const h = await sessionHarness(
+      false,
+      "orphan-child",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        ...realTimers,
+        stopGraceMs: 30_000,
+        spawn: (options) => spawnSupervised(withoutJob(options)),
+      },
+    );
+    try {
+      const child = z
+        .number()
+        .int()
+        .positive()
+        .parse(Number(await readFile(join(h.cwd, "fake-codex-child.pid"), "utf8")));
+      expect(aliveNow(child)).toBe(true);
+      await h.session.close("shutdown");
+      // Checked the moment close returns, not polled afterwards.
+      expect(aliveNow(child)).toBe(false);
+      expect((await h.exited).deliberate).toBe(true);
+    } finally {
       await h.dispose();
     }
   },

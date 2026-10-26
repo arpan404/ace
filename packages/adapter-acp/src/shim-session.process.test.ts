@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
+import { z } from "zod";
 import type { Frame, ProviderSession } from "@ace/engine-api";
 import { InputRejected } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
@@ -10,7 +11,15 @@ import { createAcpAdapter, openAcpSession } from "./index.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import { extensionQuirks } from "./testing/extension-quirks.ts";
-import { ended, stubbornTree, writeCmdShim } from "@ace/provider-kit/testing/cmd-shim";
+import {
+  aliveNow,
+  ended,
+  orphaningTree,
+  stubbornTree,
+  withoutJob,
+  writeCmdShim,
+} from "@ace/provider-kit/testing/cmd-shim";
+import { spawnSupervised } from "@ace/provider-kit/process";
 import { interactionKey } from "./interactions.ts";
 import { nativeAgentKey } from "./keys.ts";
 import { object } from "./data.ts";
@@ -32,6 +41,8 @@ async function setup(
     script?: string;
     env?: Record<string, string>;
     preload?: (dir: string) => Promise<string>;
+    /** Spawn with no Windows job, as when the kernel refuses containment. */
+    noJob?: boolean;
   } = {},
 ) {
   const quirks = options.quirks ?? extensionQuirks;
@@ -64,12 +75,22 @@ async function setup(
   const session: ProviderSession =
     quirks === genericQuirks
       ? await createAcpAdapter(quirks, { command: shim, args: [] }).openSession(ctx)
-      : await openAcpSession(ctx, quirks, {
-          command: shim,
-          args: [],
-          env: ctx.env,
-          version: "1.2.1",
-        });
+      : await openAcpSession(
+          ctx,
+          quirks,
+          {
+            command: shim,
+            args: [],
+            env: ctx.env,
+            version: "1.2.1",
+          },
+          options.noJob
+            ? {
+                spawn: (spawnOptions) => spawnSupervised(withoutJob(spawnOptions)),
+                now: () => performance.now(),
+              }
+            : undefined,
+        );
   const wait = (predicate: (f: Frame) => boolean) =>
     new Promise<Frame>((resolve) => {
       const check = () => {
@@ -198,5 +219,25 @@ test.runIf(windows)(
     expect((await h.exited).deliberate).toBe(true);
     expect(await ended(Number(tree["agent"]))).toBe(true);
     expect(await ended(Number(tree["child"]))).toBe(true);
+  },
+);
+
+test.runIf(windows)(
+  "Windows ACP close leaves no child of an agent that ends on EOF alive, even with no job",
+  async () => {
+    const pids = join(await mkdtemp(join(tmpdir(), "ace-acp-orphan-")), "pids.json");
+    dirs.push(join(pids, ".."));
+    const h = await setup({
+      env: { ACE_TEST_TREE_PIDS: pids },
+      preload: orphaningTree,
+      noJob: true,
+    });
+    const tree = object(JSON.parse(await readFile(pids, "utf8")));
+    const child = z.number().int().positive().parse(tree["child"]);
+    expect(aliveNow(child)).toBe(true);
+    await h.session.close("user");
+    // Checked the moment close returns, not polled afterwards.
+    expect(aliveNow(child)).toBe(false);
+    expect((await h.exited).deliberate).toBe(true);
   },
 );

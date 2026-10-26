@@ -51,6 +51,43 @@ export async function stubbornTree(directory: string): Promise<string> {
   return path;
 }
 
+/**
+ * A preload for a fake that ends itself when its stdin closes but leaves a child running, as a
+ * CLI whose helper outlives it would. Both pids are written to `ACE_TEST_TREE_PIDS`.
+ */
+export async function orphaningTree(directory: string): Promise<string> {
+  const path = join(directory, "orphaning-tree.mjs");
+  await writeFile(
+    path,
+    [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
+      '  stdio: "ignore",',
+      "  windowsHide: true,",
+      "});",
+      "child.unref();",
+      "writeFileSync(process.env.ACE_TEST_TREE_PIDS, JSON.stringify({ agent: process.pid, child: child.pid }));",
+      'process.stdin.on("end", () => process.exit(0));',
+      "",
+    ].join("\n"),
+  );
+  return path;
+}
+
+/** Whether `pid` is alive right now, with no waiting. */
+export function aliveNow(pid: number): boolean {
+  return alive(pid);
+}
+
+/** Spawn options that skip the Windows job, as when the kernel refuses containment. */
+export const withoutJob = <T extends object>(
+  options: T,
+): T & { windowsJobFactory: () => undefined } => ({
+  ...options,
+  windowsJobFactory: () => undefined,
+});
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);

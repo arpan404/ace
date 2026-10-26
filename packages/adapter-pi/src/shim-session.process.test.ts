@@ -3,11 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
+import { z } from "zod";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { piNative } from "@ace/provider-kit/access-modes";
 import { sessionHarness } from "./testing/harness.ts";
-import { ended, stubbornTree, writeCmdShim } from "@ace/provider-kit/testing/cmd-shim";
+import {
+  aliveNow,
+  ended,
+  orphaningTree,
+  stubbornTree,
+  withoutJob,
+  writeCmdShim,
+} from "@ace/provider-kit/testing/cmd-shim";
 import { obj, str } from "./native.ts";
 
 // npm installs Pi on Windows as `pi.cmd`, so every case launches the fake through cmd.exe.
@@ -31,6 +39,8 @@ async function shimmed(
     permissionMode?: SessionContext["permissionMode"];
     builtinSkills?: SessionContext["builtinSkills"];
     preload?: (dir: string) => Promise<string>;
+    /** Spawn with no Windows job, as when the kernel refuses containment. */
+    noJob?: boolean;
   } = {},
 ) {
   const dir = await temporary("ace-pi-shim-");
@@ -39,7 +49,12 @@ async function shimmed(
   const h = await sessionHarness(
     {
       runtime: {
-        spawn: (spawnOptions) => spawnTextSupervised({ ...spawnOptions, command: shim }),
+        spawn: (spawnOptions) =>
+          spawnTextSupervised(
+            options.noJob
+              ? withoutJob({ ...spawnOptions, command: shim })
+              : { ...spawnOptions, command: shim },
+          ),
       },
     },
     options.resume ?? false,
@@ -173,5 +188,24 @@ test.runIf(windows)(
     await h.dispose();
     expect(await ended(Number(tree.agent))).toBe(true);
     expect(await ended(Number(tree.child))).toBe(true);
+  },
+);
+
+test.runIf(windows)(
+  "Windows Pi close leaves no child of a Pi that ends on EOF alive, even with no job",
+  async () => {
+    const pids = join(await temporary("ace-pi-orphan-"), "pids.json");
+    const h = await shimmed({
+      env: { ACE_TEST_TREE_PIDS: pids },
+      preload: orphaningTree,
+      noJob: true,
+    });
+    const tree = obj(JSON.parse(await readFile(pids, "utf8")));
+    const child = z.number().int().positive().parse(tree.child);
+    expect(aliveNow(child)).toBe(true);
+    await h.session.close("user");
+    // Checked the moment close returns, not polled afterwards.
+    expect(aliveNow(child)).toBe(false);
+    await h.dispose();
   },
 );

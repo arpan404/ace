@@ -1,8 +1,11 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cursorMode } from "@ace/provider-kit/permission-modes";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { z } from "zod";
+import { spawnSupervised } from "@ace/provider-kit/process";
+import { aliveNow, withoutJob } from "@ace/provider-kit/testing/cmd-shim";
 import { createCursorAccountDriver } from "./auth.ts";
 import { CursorHost } from "./host.ts";
 import { cursorSdkEnvironment } from "./instance.ts";
@@ -159,5 +162,55 @@ test.runIf(process.platform === "win32")(
     const { instanceAccessModes } = await import("@ace/provider-kit/access-modes");
     expect(offered(cursorCapabilitiesForSandbox(true).accessModes)).toEqual(["full-access"]);
     expect(offered(instanceAccessModes({ provider: "cursor" }, []))).toEqual(["full-access"]);
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "stopping a Windows Cursor host that ends on EOF leaves no child alive, even with no job",
+  async () => {
+    const home = await privateHome();
+    const pids = join(home, "pids.json");
+    const entry = join(home, "host.mjs");
+    await writeFile(
+      entry,
+      [
+        'import { spawn } from "node:child_process";',
+        'import { writeFileSync } from "node:fs";',
+        'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {',
+        '  stdio: "ignore",',
+        "  windowsHide: true,",
+        "});",
+        "child.unref();",
+        `writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ child: child.pid }));`,
+        "process.stdin.resume();",
+        'process.stdin.on("end", () => process.exit(0));',
+        "",
+      ].join("\n"),
+    );
+    const host = new CursorHost(
+      {
+        env: { ...launch() },
+        entry,
+        spawn: (options) => spawnSupervised(withoutJob(options)),
+        limits: { graceMs: 30_000 },
+      },
+      () => {},
+    );
+    try {
+      const child = await vi.waitFor(
+        async () =>
+          z
+            .object({ child: z.number().int().positive() })
+            .parse(JSON.parse(await readFile(pids, "utf8"))).child,
+        { timeout: 10_000 },
+      );
+      expect(aliveNow(child)).toBe(true);
+      await host.stop();
+      // Checked the moment the stop returns, not polled afterwards.
+      expect(aliveNow(child)).toBe(false);
+    } finally {
+      await host.stop();
+      await rm(home, { recursive: true, force: true });
+    }
   },
 );

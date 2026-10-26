@@ -31,11 +31,16 @@ const graceMs = z.coerce
   .max(30000)
   .parse(process.argv[2] ?? 5000);
 if (process.platform === "win32") {
-  // Windows has no process groups, so `stop` below can't kill its own group. Exiting is
-  // enough: the parent's kill-on-close Job Object and taskkill tree stop end the SDK's
-  // children once this host is gone.
+  // Windows has no process groups, so `stop` below can't kill its own group. Its stand-in ends
+  // this host's own verified descendants first, so none outlives it even when the parent's job
+  // could not contain the tree, then exits.
+  const { endDescendantsSync } = await import("@ace/provider-kit/tree-stop");
   const kill = process.kill.bind(process);
-  process.kill = (pid, signal) => (pid === -process.pid ? process.exit(0) : kill(pid, signal));
+  process.kill = (pid, signal) => {
+    if (pid !== -process.pid) return kill(pid, signal);
+    endDescendantsSync();
+    return process.exit(0);
+  };
 }
 const stop = () => {
   if (ending) return;

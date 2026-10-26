@@ -209,8 +209,13 @@ export class CursorHost {
   stop(): Promise<void> {
     this.stopped ??= (async () => {
       this.rpc.close();
-      // A hidden Windows console ignores taskkill without /F; EOF lets the host end itself.
-      if (process.platform === "win32") this.process.stdin.end();
+      // A hidden Windows console ignores taskkill without /F; EOF lets the host end itself,
+      // and its recorded tree is gone before the stop resolves.
+      if (process.platform === "win32") {
+        const { stopTreeAfterEof } = await import("@ace/provider-kit/tree-stop");
+        await stopTreeAfterEof(this.process, this.limits.graceMs);
+        return;
+      }
       await this.process.stop({ graceMs: this.limits.graceMs });
     })();
     return this.stopped;

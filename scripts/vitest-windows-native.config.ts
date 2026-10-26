@@ -82,6 +82,8 @@ export default defineConfig({
       "packages/adapter-opencode/src/shim-launch.process.test.ts",
       "packages/adapter-acp/src/shim-session.process.test.ts",
       "packages/adapter-pi/src/shim-session.process.test.ts",
+      // Providers: no descendant outlives a stop, even without a job
+      "packages/provider-kit/src/tree-stop.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
