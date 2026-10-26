@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { fixtureFiles } from "./fixture-files.ts";
 
 /** The local pages every engine is driven against. Nothing here knows which engine loads it. */
@@ -145,18 +145,54 @@ function serve(request: IncomingMessage, response: ServerResponse): void {
   response.end(page(request.headers.host ?? ""));
 }
 
+/**
+ * Listens on both loopback addresses at one port, so `localhost` reaches the site whether it
+ * resolves to IPv4 or IPv6. Each address is bound on its own: on macOS a wildcard listener's
+ * port can still be bound on 127.0.0.1 by another process, which then takes its connections.
+ */
+async function listenOnLoopback(serve: Parameters<typeof createServer>[1]) {
+  for (let attempt = 0; ; attempt++) {
+    const v4 = createServer(serve);
+    await listen(v4, 0, "127.0.0.1");
+    const address = v4.address();
+    if (!address || typeof address === "string") throw new Error("Fixture site has no port");
+    const v6 = createServer(serve);
+    try {
+      await listen(v6, address.port, "::1");
+      return { port: address.port, servers: [v4, v6] };
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      // No IPv6 loopback here: `localhost` resolves to 127.0.0.1 only.
+      if (code === "EADDRNOTAVAIL" || code === "EAFNOSUPPORT")
+        return { port: address.port, servers: [v4] };
+      await close(v4);
+      if (code !== "EADDRINUSE" || attempt >= 20) throw error;
+    }
+  }
+}
+
+function listen(server: Server, port: number, host: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  server.closeAllConnections();
+  return new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
 export async function startFixtureSite(): Promise<FixtureSite> {
-  const server = createServer(serve);
-  // Every interface, so `localhost` reaches it whether it resolves to IPv4 or IPv6.
-  await new Promise<void>((resolve) => server.listen(0, resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Fixture site has no port");
+  const { port, servers } = await listenOnLoopback(serve);
   return {
-    origin: `http://127.0.0.1:${address.port}`,
-    crossSite: `http://localhost:${address.port}`,
+    origin: `http://127.0.0.1:${port}`,
+    crossSite: `http://localhost:${port}`,
     close: async () => {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await Promise.all(servers.map(close));
     },
   };
 }
