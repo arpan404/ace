@@ -60,6 +60,10 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Providers: Cursor
+      "packages/adapter-cursor/src/sdk-admission.process.test.ts",
+      "packages/adapter-cursor/src/host-stop.process.test.ts",
+      "packages/accounts/src/usage-sources/cursor-login.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
