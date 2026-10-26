@@ -6,6 +6,7 @@ import { DeviceScope } from "@ace/protocol";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { SettingsService } from "@ace/settings";
 import { systemNetwork, type NetworkRuntime } from "../network.ts";
+import { findWindowsTailscale } from "../network.ts";
 import type { RemotePreferences } from "../remote-policy.ts";
 import type { DoctorContext } from "./feature.ts";
 
@@ -41,6 +42,9 @@ export const remoteAccessPorts: RemoteAccessPorts = {
   network: systemNetwork,
   pairedDevices: (context) => countPairedDevices(join(context.config.dataDir, "events.sqlite")),
 };
+// Windows also looks in Tailscale's install folder, as the daemon does.
+if (process.platform === "win32")
+  remoteAccessPorts.tailscale = (context) => findWindowsTailscale(context.env);
 
 const DeviceRow = z.object({ scopes: z.string() });
 const Scopes = z.array(DeviceScope);
