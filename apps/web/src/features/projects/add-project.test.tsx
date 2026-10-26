@@ -77,7 +77,7 @@ test("⇧⌘O opens Add project in the palette on its four sources, the field fo
 test("the first run's Add a project leads to the folder field, and ⌘Enter adds the highlighted folder", async () => {
   const made = firstRun();
   await made.open("/");
-  await screen.findByRole("heading", { level: 1, name: "Add your first project" });
+  await screen.findByRole("heading", { level: 1, name: "No threads yet" });
   await userEvent.click(
     within(screen.getByRole("main")).getByRole("button", { name: "Add a project" }),
   );

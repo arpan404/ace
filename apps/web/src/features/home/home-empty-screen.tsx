@@ -10,15 +10,15 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useStartupHold } from "@/lib/startup/startup.tsx";
 import { useOnboarding } from "@/lib/provider-readiness.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { ProjectsEmptyState } from "@/features/projects/index.ts";
+import { useProjectDialogs } from "@/features/projects/index.ts";
 import { lastThread } from "./last-thread.ts";
 import { topThread, useHomeList } from "./use-home-threads.ts";
 
 /**
  * Home never rests on an empty pane: it reopens the last thread if the list still shows it, else
  * the top of the list. A genuinely empty list on a device that hasn't been through setup (the
- * first run) opens provider setup; after that, a daemon with no projects shows how to add one,
- * and an empty list the hint.
+ * first run) opens provider setup; after that an empty list shows the hint, with Add a project
+ * while there is none.
  */
 export function HomeEmptyScreen() {
   const { storage } = useLayout();
@@ -26,6 +26,7 @@ export function HomeEmptyScreen() {
   const loaded = useSidebarLoaded();
   const list = useHomeList();
   const directory = useProjectDirectory();
+  const projects = useProjectDialogs();
   // The last thread only while Home still lists it (not archived, inside the project filter).
   const listed =
     last !== null &&
@@ -53,21 +54,32 @@ export function HomeEmptyScreen() {
         </LoadingRegion>
       </Screen>
     );
-  if (loaded && directory.loaded && directory.projects.length === 0)
-    return (
-      <Screen title="Home">
-        <ProjectsEmptyState heading />
-      </Screen>
-    );
+  // A chat needs no project (ADR 0099), so no project yet is just an empty list with a way to
+  // add one for work in a folder.
+  const noProjects = loaded && directory.loaded && directory.projects.length === 0;
   return (
     <Screen title="Home">
       <EmptyState
         icon={ChatsIcon}
+        heading
         title="No threads yet"
         description={
           <>
             Start one with <Kbd shortcut="newThread" />, or search with <Kbd shortcut="palette" />.
           </>
+        }
+        action={
+          noProjects ? (
+            <button
+              type="button"
+              className="rounded-sm text-ui font-medium text-foreground underline-offset-4 focus-ring hover:underline"
+              onClick={() => projects.open({ kind: "add", tab: "sources" })}
+              onPointerEnter={projects.preload}
+              onFocus={projects.preload}
+            >
+              Add a project
+            </button>
+          ) : undefined
         }
       />
     </Screen>

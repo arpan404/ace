@@ -6,15 +6,12 @@ import { useKeybindingsSync } from "@/lib/keybindings.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useNoProjects } from "./app-sidebar.tsx";
 
 /**
  * App-wide shortcuts. Panel tab shortcuts are bound by the screens that have those panels.
  * Also keeps every binding in step with the user's rebindings (Settings › Keyboard).
  */
 export function GlobalHotkeys(props: {
-  /** Opens Add project; composed in by the app layer. New thread does this while there is none. */
-  onAddProject?(): void;
   /** ⌘N, composed in by the app layer: asks which project when there are several. */
   onNewThread?(): void;
   /** ⇧⌘N: a new thread in the current project, without asking. */
@@ -24,16 +21,11 @@ export function GlobalHotkeys(props: {
   const navigate = useNavigate();
   const nav = useHistoryNav();
   const layout = useLayout();
-  const noProjects = useNoProjects() && props.onAddProject !== undefined;
   useHotkey(keymap.shortcuts.keys, () => layout.setShortcutsOpen(!layout.shortcutsOpen));
   // ⌘K and ⇧⌘K: the one launcher (search, threads and commands).
   useHotkey(keymap.palette.keys, () => layout.setPaletteOpen(!layout.paletteOpen));
   useHotkey(keymap.newThread.keys, () =>
-    props.onNewThread
-      ? props.onNewThread()
-      : noProjects
-        ? props.onAddProject?.()
-        : void navigate({ to: "/new" }),
+    props.onNewThread ? props.onNewThread() : void navigate({ to: "/new" }),
   );
   useHotkey(keymap.newThreadHere.keys, () =>
     props.onNewThreadHere ? props.onNewThreadHere() : void navigate({ to: "/new" }),
