@@ -1,4 +1,4 @@
-import type { AccountView, HomeSort } from "@ace/ui-core";
+import { listOrderOf, type AccountView, type HomeSort } from "@ace/ui-core";
 import {
   inboxGroupRank,
   inboxSections,
@@ -44,6 +44,10 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     account: rowAccount(context.accounts, entry),
     activityAt: entry.activityAt ?? entry.updatedAt,
     archivedAt: entry.archivedAt ?? null,
+    pinned: entry.pinned === true,
+    /** Places a move is worked out from (`inbox-place.ts`): among pinned, and sorted by hand. */
+    pinOrder: entry.pinned === true ? (entry.pinOrder ?? null) : null,
+    listOrder: listOrderOf(entry),
   };
 }
 
