@@ -1,82 +1,67 @@
-import { execFile } from "node:child_process";
-import { closeSync, openSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { test } from "vitest";
-import { GitService } from "./index.ts";
-import { git, repository, scratch } from "./test-repo.ts";
+import { git, scratch } from "./test-repo.ts";
 
-const run = promisify(execFile);
-const show = (step: string) => (error: unknown) => {
-  const details = error && typeof error === "object" && "details" in error ? error.details : {};
-  throw new Error(`${step}: ${String(error)} ${JSON.stringify(details)}`);
-};
+function probe(cwd: string, args: string[], env: Record<string, string> = {}) {
+  return new Promise<string>((resolve) => {
+    const child = spawn("git", args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, GIT_TRACE: "1", GIT_TERMINAL_PROMPT: "0", ...env },
+    });
+    child.stdin.end();
+    let out = "";
+    child.stdout.on("data", (data: Buffer) => (out += data.toString()));
+    child.stderr.on("data", (data: Buffer) => (out += data.toString()));
+    const timer = setTimeout(() => {
+      out += "\nTIMEOUT";
+      try {
+        execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"]);
+      } catch {
+        /* gone */
+      }
+    }, 12_000);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(`exit ${code}\n${out.slice(0, 4000)}`);
+    });
+  });
+}
 
-test.runIf(process.platform === "win32")("diag crlf", async () => {
-  const repo = await repository({ "lines.txt": "one\ntwo\n", "keep.txt": "keep\n" });
-  await git(repo, "config", "core.autocrlf", "true");
-  const worktree = join(await scratch(), "crlf");
-  const service = new GitService();
-  await service
-    .createWorktree({ repo, path: worktree, baseRef: "HEAD", branch: "crlf" })
-    .catch(show("create"));
-  await service
-    .diff({ worktree, from: { kind: "commit", ref: "HEAD" }, to: { kind: "working-tree" } })
-    .catch(show("diff1"));
-  await writeFile(join(worktree, "lines.txt"), "one\r\nchanged\r\n");
-  const checkpoint = await service
-    .createCheckpoint({ worktree, threadId: "crlf", label: "turn" })
-    .catch(show("checkpoint"));
-  await writeFile(join(worktree, "lines.txt"), "later\r\n");
-  await service.restoreCheckpoint({ worktree, checkpoint: checkpoint.id }).catch(show("restore"));
-  await service.close();
-});
-
-test.runIf(process.platform === "win32")("diag clone", async () => {
+test.runIf(process.platform === "win32")("diag clone cwd forms", async () => {
   const base = await scratch();
   const source = join(base, "source");
   await mkdir(source);
   await git(source, "init", "--initial-branch=trunk");
-  await writeFile(join(source, "README.md"), "x\n");
-  await git(source, "add", "README.md");
-  await git(
-    source,
+  await writeFile(join(source, "a.txt"), "x\n");
+  await git(source, "add", "a.txt");
+  await git(source, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-m", "one");
+  const url = `file:///${source.replaceAll("\\", "/")}`;
+  const volume = execFileSync("mountvol", [`${base.slice(0, 2)}\\`, "/L"])
+    .toString()
+    .trim();
+  const clone = [
     "-c",
-    "user.name=ace",
+    "protocol.allow=never",
     "-c",
-    "user.email=ace@localhost",
-    "commit",
-    "-m",
-    "first",
-  );
-  const target = join(base, "Target Folder");
-  await mkdir(target);
-  // Plain Git from the volume path, outside ace, for comparison.
-  const probe = join(base, "probe");
-  await mkdir(probe);
-  const guid = (
-    await run("powershell", ["-NoProfile", "-Command", `(Get-Item '${probe}').FullName`])
-  ).stdout.trim();
-  console.log("probe", guid);
-  const service = new GitService({ transportProtocols: ["file"] });
-  const fd = openSync(target, "r");
-  try {
-    await service
-      .clone(
-        {
-          parent: base,
-          path: target,
-          url: `file:///${source.replaceAll("\\", "/")}`,
-          directoryFd: fd,
-          signal: AbortSignal.timeout(20_000),
-          progress: (value) => console.log("progress", value),
-        },
-        { validateUrl: () => undefined, protocols: ["file"] },
-      )
-      .catch(show("clone"));
-  } finally {
-    closeSync(fd);
-    await service.close();
+    "protocol.file.allow=always",
+    "clone",
+    "--progress",
+    "--",
+    url,
+    ".",
+  ];
+  for (const [name, cwd] of [
+    ["dos", join(base, "t1")],
+    ["guid", `${volume}${join(base, "t2").slice(3)}`],
+  ] as const) {
+    await mkdir(name === "dos" ? cwd : join(base, "t2"));
+    console.log(`=== ${name} ${cwd}\n${await probe(cwd, clone)}`);
   }
+  await mkdir(join(base, "t3"));
+  console.log(
+    `=== guid status\n${await probe(`${volume}${join(base, "source").slice(3)}`, ["status"])}`,
+  );
 });
