@@ -1,5 +1,9 @@
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
-import { createRetainedJob, type RetainedJob } from "@ace/provider-kit/process-containment";
+import {
+  createRetainedJob,
+  sharedWindowsJobApi,
+  type RetainedJob,
+} from "@ace/provider-kit/process-containment";
 import {
   processIdentity,
   windowsTreeRuntime,
@@ -38,7 +42,7 @@ export interface GitJobPorts {
 }
 
 const defaultPorts: GitJobPorts = {
-  createJob: () => createRetainedJob(),
+  createJob: () => createRetainedJob(sharedWindowsJobApi),
   tree: windowsTreeRuntime,
   identify(pid) {
     const found = processIdentity(pid);

@@ -92,6 +92,16 @@ function loadWindowsJobApi(): WindowsJobApi {
   }
 }
 
+let sharedApi: WindowsJobApi | undefined;
+/**
+ * kernel32 bound once and kept for the process, for callers that create a job per short-lived
+ * child (each Git call): `createRetainedJob(sharedWindowsJobApi)`.
+ */
+export function sharedWindowsJobApi(): WindowsJobApi {
+  sharedApi ??= { ...loadWindowsJobApi(), unload: () => {} };
+  return sharedApi;
+}
+
 /** Retains the kernel job independently of its original shell's lifetime. */
 export interface RetainedJob {
   assign(pid: number): void;
