@@ -2,7 +2,8 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findExecutable, findWindowsExecutableSync } from "./executable.ts";
+import { findExecutable } from "./executable.ts";
+import { findWindowsExecutableSync } from "./executable.ts";
 
 const directories: string[] = [];
 async function directory() {
@@ -138,7 +139,7 @@ function withCwd<T>(cwd: string, run: () => T): T {
   }
 }
 
-describe("Windows sync executable lookup", () => {
+describe.runIf(process.platform === "win32")("Windows sync executable lookup", () => {
   it("resolves a bare command to its PATHEXT match without async", async () => {
     const root = await directory();
     const expected = await file(root, "pwsh.exe");

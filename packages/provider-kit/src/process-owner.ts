@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
+import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -157,25 +158,45 @@ export function killWindowsTree(pid: number, force: boolean): void {
   }
 }
 
-/** Graceful tree stop that escalates after the grace, mirroring stopRetainedGroup. */
+/** How long a forced Windows tree stop may take before the stop fails instead of completing. */
+const forcedTreeStopMs = 5_000;
+
+function leaderRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+/**
+ * Graceful tree stop that escalates after the grace, mirroring stopRetainedGroup. A joined job
+ * is the liveness source, so members that outlive the leader keep the stop open. It completes
+ * only once the tree is gone; a tree that survives the forced stop fails it.
+ */
 export async function stopRetainedWindowsTree(
   pid: number,
   graceMs: number,
   killTree: WindowsKillTree = killWindowsTree,
+  job?: Pick<WindowsJob, "running" | "terminate">,
 ): Promise<void> {
+  const running = () => job?.running?.() ?? leaderRunning(pid);
   killTree(pid, false);
   const deadline = performance.now() + graceMs;
-  while (true) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
-      throw error;
-    }
-    if (performance.now() >= deadline) {
-      killTree(pid, true);
-      return;
-    }
+  while (running()) {
+    if (performance.now() >= deadline) break;
+    await delay(25);
+  }
+  if (!running()) return;
+  // taskkill runs asynchronously, so the stop waits until the tree is really gone.
+  killTree(pid, true);
+  job?.terminate?.();
+  const forcedBy = performance.now() + forcedTreeStopMs;
+  while (running()) {
+    if (performance.now() >= forcedBy)
+      throw new Error("Windows process tree survived its forced stop");
     await delay(25);
   }
 }

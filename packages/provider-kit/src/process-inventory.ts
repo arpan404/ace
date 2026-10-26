@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
+import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
 import {
-  ProcessIdentity as ProcessIdentitySchema,
-  processIdentity,
-  processGroupIsGone,
-  type ProcessIdentity,
+  WindowsProcessIdentity,
+  windowsTreeRuntime,
+  type WindowsTreeRuntime,
 } from "./process-identity.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
@@ -13,7 +13,7 @@ export interface ProcessJournal {
 const Entry = z.object({
   pid: z.number().int().positive(),
   start: z.string(),
-  uid: ProcessIdentitySchema.shape.uid,
+  uid: z.number().int().nonnegative(),
   group: z.number().int().positive(),
   ownerPid: z.number().int().positive(),
   ownerStart: z.string(),
@@ -21,13 +21,17 @@ const Entry = z.object({
   cwd: z.string().optional(),
   createdAt: z.number(),
 });
-export type ProcessEntry = z.infer<typeof Entry>;
+/** Windows owners are SID strings. */
+const WindowsEntry = Entry.extend({ uid: WindowsProcessIdentity.shape.uid });
+export type ProcessEntry = z.infer<typeof Entry> | z.infer<typeof WindowsEntry>;
 export interface InventoryRuntime {
   identity(pid: number): ProcessIdentity | undefined;
   alive(group: number): boolean;
   kill(group: number): void;
   ownerPid: number;
   now(): number;
+  /** Windows only: a recorded tree is its leader plus live descendants, not a group. */
+  windowsTree?: WindowsTreeRuntime;
 }
 export const inventoryRuntime: InventoryRuntime = {
   identity: processIdentity,
@@ -37,8 +41,6 @@ export const inventoryRuntime: InventoryRuntime = {
     return !processGroupIsGone(group);
   },
   kill(group) {
-    if (process.platform === "win32")
-      throw new Error("Process-group kill is unavailable on Windows");
     try {
       process.kill(-group, "SIGKILL");
     } catch (error) {
@@ -62,12 +64,14 @@ export class ProcessInventory implements ProcessJournal {
     );
   }
   list(): ProcessEntry[] {
+    if (process.platform === "win32") return this.windowsList();
     return this.db
       .prepare("SELECT entry FROM processes ORDER BY pid")
       .all()
       .map((row) => Entry.parse(JSON.parse(String(row.entry))));
   }
   add(pid: number, metadata: { name: string; cwd?: string }): void {
+    if (process.platform === "win32") return this.windowsAdd(pid, metadata);
     const identity = this.runtime.identity(pid);
     const owner = this.runtime.identity(this.runtime.ownerPid);
     if (!identity && !this.runtime.alive(pid)) return;
@@ -100,6 +104,7 @@ export class ProcessInventory implements ProcessJournal {
     this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
   }
   recover(): { removed: number; killed: number } {
+    if (process.platform === "win32") return this.windowsRecover();
     let removed = 0;
     let killed = 0;
     for (const entry of this.list()) {
@@ -132,5 +137,72 @@ export class ProcessInventory implements ProcessJournal {
   }
   close(): void {
     this.db.close();
+  }
+
+  // Windows: no process groups exist. A Job Object usually ends the tree with the daemon, so
+  // recovery proves each recorded tree is gone, or ends the members that escaped it.
+
+  private windowsList(): ProcessEntry[] {
+    return this.db
+      .prepare("SELECT entry FROM processes ORDER BY pid")
+      .all()
+      .map((row) => WindowsEntry.parse(JSON.parse(String(row.entry))));
+  }
+  private windowsAdd(pid: number, metadata: { name: string; cwd?: string }): void {
+    const identity = this.runtime.identity(pid);
+    const owner = this.runtime.identity(this.runtime.ownerPid);
+    // processIdentity proves absence before it reports none.
+    if (!identity) return;
+    if (
+      !owner ||
+      identity.pid !== pid ||
+      owner.pid !== this.runtime.ownerPid ||
+      identity.uid !== owner.uid
+    )
+      throw new Error("Cannot record owned process identity");
+    if (Number(this.db.prepare("SELECT COUNT(*) AS n FROM processes").get()?.n) >= 4096)
+      throw new Error("Process inventory capacity");
+    const entry = WindowsEntry.parse({
+      ...identity,
+      group: pid,
+      ownerPid: this.runtime.ownerPid,
+      ownerStart: owner.start,
+      name: metadata.name,
+      cwd: metadata.cwd,
+      createdAt: this.runtime.now(),
+    });
+    this.db
+      .prepare(
+        "INSERT INTO processes VALUES (?,?) ON CONFLICT(pid) DO UPDATE SET entry=excluded.entry",
+      )
+      .run(pid, JSON.stringify(entry));
+  }
+  private windowsRecover(): { removed: number; killed: number } {
+    const tree = this.runtime.windowsTree ?? windowsTreeRuntime;
+    let removed = 0;
+    let killed = 0;
+    for (const entry of this.windowsList()) {
+      const owner = this.runtime.identity(entry.ownerPid);
+      if (
+        owner?.pid === entry.ownerPid &&
+        owner.start === entry.ownerStart &&
+        owner.uid === entry.uid
+      )
+        continue;
+      const members = tree.members({
+        pid: entry.pid,
+        start: entry.start,
+        uid: WindowsProcessIdentity.shape.uid.parse(entry.uid),
+      });
+      if (members.length === 0) {
+        this.remove(entry.pid);
+        removed++;
+        continue;
+      }
+      for (const member of members) tree.terminate(member);
+      // Keep evidence until a later recovery proves the tree has disappeared.
+      killed++;
+    }
+    return { removed, killed };
   }
 }

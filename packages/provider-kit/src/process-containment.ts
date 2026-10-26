@@ -10,6 +10,10 @@ import { z } from "zod";
 export type WindowsJob = {
   /** A failing join never throws; the tree stop remains the owner. */
   assign(pid: number): void;
+  /** Whether a joined tree still has members; undefined when nothing joined the job. */
+  running?(): boolean | undefined;
+  /** Ends every joined member now; never throws. */
+  terminate?(): void;
   dispose(): void;
 };
 export type WindowsJobFactory = () => WindowsJob | undefined;
@@ -153,12 +157,31 @@ export function createKillOnCloseJob(
   } catch {
     return undefined;
   }
+  let joined = false;
   return {
     assign(pid) {
       try {
         job.assign(pid);
+        joined = true;
       } catch {
         /* The tree stop remains responsible. */
+      }
+    },
+    running() {
+      if (!joined) return undefined;
+      try {
+        return job.activeCount() > 0;
+      } catch {
+        // An unreadable job cannot prove the tree is gone; fall back to the leader.
+        return undefined;
+      }
+    },
+    terminate() {
+      if (!joined) return;
+      try {
+        job.terminate();
+      } catch {
+        /* An emptied job cannot be terminated; the poll proves the tree is gone. */
       }
     },
     dispose() {
