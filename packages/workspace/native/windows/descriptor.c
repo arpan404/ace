@@ -315,9 +315,10 @@ static napi_value stat_fd(napi_env env, napi_callback_info info) {
   const char *code = borrow(fd, &handle);
   return code ? fail(env, code) : describe(env, handle);
 }
-// Lists at most `cap` names; one more is E2BIG. Every entry is bounds-checked.
-static napi_value names(napi_env env, napi_callback_info info) {
-  napi_value args[2], result, value;
+// Lists at most `cap` names; one more is E2BIG. Every entry is bounds-checked. With `facts`,
+// also returns each entry's attributes, size and write time from the same enumeration.
+static napi_value list_names(napi_env env, napi_callback_info info, int facts) {
+  napi_value args[2], result, value, attributes = NULL, sizes = NULL, times = NULL;
   size_t count = 2;
   int32_t fd, cap;
   HANDLE handle;
@@ -332,6 +333,11 @@ static napi_value names(napi_env env, napi_callback_info info) {
   size_t header = offsetof(FILE_ID_EXTD_DIR_INFO, FileName);
   uint32_t accepted = 0;
   napi_create_array(env, &result);
+  if (facts) {
+    napi_create_array(env, &attributes);
+    napi_create_array(env, &sizes);
+    napi_create_array(env, &times);
+  }
   for (FILE_INFO_BY_HANDLE_CLASS kind = FileIdExtdDirectoryRestartInfo; !code;
        kind = FileIdExtdDirectoryInfo) {
     if (!GetFileInformationByHandleEx(handle, kind, batch, 65536)) {
@@ -355,6 +361,15 @@ static napi_value names(napi_env env, napi_callback_info info) {
         else if (size <= 0 || memchr(utf8, '\0', (size_t)size)) code = "EIO";
         else {
           napi_create_string_utf8(env, utf8, (size_t)size, &value);
+          if (facts) {
+            napi_value fact;
+            napi_create_uint32(env, item->FileAttributes, &fact);
+            napi_set_element(env, attributes, accepted, fact);
+            napi_create_double(env, (double)item->EndOfFile.QuadPart, &fact);
+            napi_set_element(env, sizes, accepted, fact);
+            napi_create_bigint_int64(env, item->LastWriteTime.QuadPart, &fact);
+            napi_set_element(env, times, accepted, fact);
+          }
           napi_set_element(env, result, accepted++, value);
         }
       }
@@ -363,7 +378,21 @@ static napi_value names(napi_env env, napi_callback_info info) {
     }
   }
   free(batch);
-  return code ? fail(env, code) : result;
+  if (code) return fail(env, code);
+  if (!facts) return result;
+  napi_value listing;
+  napi_create_object(env, &listing);
+  napi_set_named_property(env, listing, "names", result);
+  napi_set_named_property(env, listing, "attributes", attributes);
+  napi_set_named_property(env, listing, "sizes", sizes);
+  napi_set_named_property(env, listing, "writeTimes", times);
+  return listing;
+}
+static napi_value names(napi_env env, napi_callback_info info) {
+  return list_names(env, info, 0);
+}
+static napi_value names_with_facts(napi_env env, napi_callback_info info) {
+  return list_names(env, info, 1);
 }
 static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
@@ -377,6 +406,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL},
     {"statFd", NULL, stat_fd, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
+    {"namesWithFacts", NULL, names_with_facts, NULL, NULL, NULL, napi_default, NULL},
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
   return exports;
