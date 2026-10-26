@@ -1,8 +1,17 @@
-import { createDoctorChecks, createSystemProbes, runDoctor, type Check } from "@ace/diagnostics";
+import {
+  createDoctorChecks,
+  createSystemProbes,
+  linuxHost,
+  linuxHostChecks,
+  runDoctor,
+  type Check,
+} from "@ace/diagnostics";
+import { checkBrowserEngine } from "@ace/browser/engine-check";
 import { isSecretKey } from "@ace/redaction";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { DiagnosticReport, type DiagnosticRepair } from "@ace/protocol";
 import { homedir } from "node:os";
+import { cursorSandboxChecks } from "./cursor-sandbox-check.ts";
 import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
 import { localDoctorChecks, repairDoctor } from "./doctor-repairs.ts";
@@ -14,7 +23,7 @@ export async function collectDoctorReport(
   now: () => number,
   /** The CLI adds its doctor features' checks here; the app runs the base set. */
   extra: readonly Check[] = [],
-) {
+): Promise<DiagnosticReport> {
   const report = await runDoctor(
     [
       ...createDoctorChecks(
@@ -23,22 +32,44 @@ export async function collectDoctorReport(
           dataDir: config.dataDir,
           port: config.port,
           env,
+          browserEngine: (signal) => checkBrowserEngine({ dataDir: config.dataDir, env, signal }),
         }),
       ),
+      ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env, process.arch)) : []),
+      ...(process.platform === "linux"
+        ? cursorSandboxChecks({ dataDir: config.dataDir, home: homedir() })
+        : []),
       ...remoteDoctorChecks(config, env),
       ...localDoctorChecks(config.dataDir, process.getuid?.()),
       ...extra,
     ],
     { now },
   );
-  return DiagnosticReport.parse(
+  return redactDoctorReport(report, env);
+}
+
+/**
+ * The report as the app, the CLI and support bundles show it. Only secret-looking variables
+ * are redacted, so versions, paths and desktop session words (`user`, `wayland`, `GNOME`)
+ * stay readable. Check ids are ace's own and stay as written. Fixes never carry commands with
+ * this machine's paths: those are repairs, shown exactly by `ace doctor --dry-run`.
+ */
+export function redactDoctorReport(
+  raw: DiagnosticReport,
+  env: NodeJS.ProcessEnv,
+  home: string = homedir(),
+): DiagnosticReport {
+  const redacted = DiagnosticReport.parse(
     JSON.parse(
-      // Secret-looking variables only: redacting every value hid versions and paths too.
-      createDiagnosticRedactor({ home: homedir(), env: secretEnvironment(env) })(
-        JSON.stringify(report),
-      ),
+      createDiagnosticRedactor({ home, env: secretEnvironment(env) })(JSON.stringify(raw)),
     ),
   );
+  // The parsed copy is this function's own, so its ids are restored in place.
+  for (const [index, check] of redacted.checks.entries()) {
+    const original = raw.checks[index];
+    if (original) check.id = original.id;
+  }
+  return redacted;
 }
 
 export async function fixDoctorReport(

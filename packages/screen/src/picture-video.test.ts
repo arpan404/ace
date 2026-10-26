@@ -35,7 +35,9 @@ function encoder() {
   const keyframes: string[] = [];
   let events: CaptureEvents | undefined;
   const host: VideoHost = {
-    supported: async (codecs) => codecs.filter((codec) => codec === "avc1.42E033"),
+    // Like H.264 encoders, it can't encode an odd width or height.
+    supported: async (codecs, width, height) =>
+      width % 2 || height % 2 ? [] : codecs.filter((codec) => codec === "avc1.42E033"),
     open: async () => {
       throw new Error("no tabs here");
     },
@@ -108,6 +110,59 @@ test("a JPEG-only session reaches its viewer as H.264 in Annex B, sized to the v
   // The keyframe leads with its parameter sets; every NAL unit has a start code.
   expect(frames[0]?.payload.subarray(0, 5)).toEqual(Buffer.from([0, 0, 0, 1, 0x27]));
   expect(frames[1]?.payload).toEqual(Buffer.from([0, 0, 0, 1, 0x21, 0x9a]));
+});
+
+test("a viewer of a still window gets video of its last picture without waiting for a change", async () => {
+  const fake = encoder();
+  const frames: Frame[] = [];
+  const video = new PicturesToVideo({
+    host: () => fake.host,
+    sessionId: "session-1",
+    now: () => 5,
+    frame: (frame) => frames.push(frame),
+  });
+  // The window painted once, as the viewer subscribed, and then stayed still.
+  video.push(jpeg(1));
+  await settle();
+  expect(video.want(settings)).toBe(true);
+  await settle();
+  expect(fake.pushed).toEqual([Buffer.from("jpeg-1").toString("base64")]);
+  fake.emit(true);
+  expect(frames.map((frame) => frame.header)).toMatchObject([{ codec: "h264", keyframe: true }]);
+});
+
+test("a window of odd width reaches its viewer as video a pixel narrower", async () => {
+  const fake = encoder();
+  const frames: Frame[] = [];
+  const video = new PicturesToVideo({
+    host: () => fake.host,
+    sessionId: "session-1",
+    now: () => 5,
+    frame: (frame) => frames.push(frame),
+  });
+  expect(video.want({ ...settings, maxWidth: 1920, maxHeight: 1200 })).toBe(true);
+  video.push(jpeg(1, 773, 458));
+  await settle();
+  expect(fake.encodes.at(-1)).toMatchObject([{ width: 772, height: 458 }]);
+  fake.emit(true);
+  expect(frames.map((frame) => frame.header)).toMatchObject([
+    { codec: "h264", keyframe: true, width: 772, height: 458 },
+  ]);
+});
+
+test("the encode starts from the newest picture when the window changed while it opened", async () => {
+  const fake = encoder();
+  const video = new PicturesToVideo({
+    host: () => fake.host,
+    sessionId: "session-1",
+    now: () => 5,
+    frame: () => {},
+  });
+  video.want(settings);
+  video.push(jpeg(1));
+  video.push(jpeg(2));
+  await settle();
+  expect(fake.pushed).toEqual([Buffer.from("jpeg-2").toString("base64")]);
 });
 
 test("a viewer's new bit rate and keyframe requests reach the encode; stopping ends it", async () => {

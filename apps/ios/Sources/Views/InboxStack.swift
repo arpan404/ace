@@ -23,6 +23,8 @@ struct InboxStack<Destination: View>: View {
     @Binding var machine: String
     @Binding var project: String
     @Binding var shelves: InboxShelves
+    /// A row to scroll to once it is in the list (`InboxList.reveal`).
+    @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     let header: InboxHeaderActions
     @ViewBuilder let destination: (InboxKey) -> Destination
@@ -68,7 +70,7 @@ struct InboxStack<Destination: View>: View {
                 // person searches and is back where it was when they cancel.
                 ZStack {
                     let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, actions: actions, compose: nil)
+                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: actions, compose: nil)
                         .refreshable { await refresh() }
                         .opacity(results ? 0 : 1)
                         .allowsHitTesting(!results)

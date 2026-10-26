@@ -205,9 +205,6 @@ export class DevicePlatform {
         this.run(command, args, options?.maxBytes, options?.timeoutMs, options?.signal),
     });
   }
-  resolveAndroid() {
-    return this.android.resolve();
-  }
   async simulatorDevice(input: Device): Promise<Device> {
     return simulatorDevice(input, await this.simulators.list());
   }
@@ -576,6 +573,12 @@ export class DevicePlatform {
           adbShell(["cmd", "uimode", "night", settings.appearance === "dark" ? "yes" : "no"]),
           undefined,
           authorize,
+        );
+      if (settings.location && this.android.physical(device.id))
+        throw new DeviceError(
+          "not_supported",
+          "Only an emulator's location can be set",
+          "Use a mock location app on the device, or set the location on an emulator.",
         );
       if (settings.location)
         await this.android.adb(

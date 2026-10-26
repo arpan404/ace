@@ -31,6 +31,7 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
   return new DevicesService({
     platform: new DevicePlatform({
       platform: process.platform,
+      arch: process.arch,
       home: homedir(),
       env: process.env,
       toolsDirectory: join(config.dataDir, "tools"),

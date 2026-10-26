@@ -56,7 +56,7 @@ const names: Record<VersionSide["kind"], string> = {
 function describe(side: VersionSide): string {
   const version = ReleaseVersion.safeParse(side.version).success
     ? side.version
-    : "a development build";
+    : "(a development build)";
   return `${names[side.kind]} ${version}${side.where ? ` (${side.where})` : ""}`;
 }
 

@@ -1,5 +1,5 @@
 import type { ScreenState } from "@ace/protocol";
-import { screenSession, visibleSessions } from "@ace/ui-core/computer-use";
+import { chooserWaitingCopy, screenSession, visibleSessions } from "@ace/ui-core/computer-use";
 
 /*
  * Computer use's apps as the phone lists them, worded by the web's own rules
@@ -12,15 +12,30 @@ export type ScreenAgentLabel = (holder: {
   agentId: string;
 }) => string | undefined;
 
-/** The sessions as the phone lists them: the shared words, plus who held each last. */
-export function phoneScreenSessions(states: readonly ScreenState[], label: ScreenAgentLabel) {
+/**
+ * The sessions as the phone lists them: the shared words, plus who held each last. `machine`
+ * names the computer whose sharing dialog a waiting session needs the person at.
+ */
+export function phoneScreenSessions(
+  states: readonly ScreenState[],
+  label: ScreenAgentLabel,
+  machine?: string,
+) {
   return visibleSessions(states).map((state) => {
     const view = screenSession(state, (holder) => label(holder) ?? "An agent");
     return {
       sessionId: view.sessionId,
       app: view.app,
       detail: view.detail ?? "",
-      status: view.status,
+      status: view.awaitingChoice ? `${chooserWaitingCopy(machine)}.` : view.status,
+      /** The machine's sharing dialog is waiting for the person there: Cancel is all there is. */
+      awaitingChoice: view.awaitingChoice,
+      /** Watch only: a whole display captured without a sharing dialog, or a desktop that shares without input. */
+      viewOnly: view.viewOnly,
+      /** Why that desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway). */
+      watchOnlyReason: view.watchOnlyReason ?? "",
+      /** A screen shared in the machine's dialog: the person's to control, never an agent's. */
+      personOnly: view.personOnly,
       tone: view.tone,
       mode: view.mode,
       foreground: view.foreground,

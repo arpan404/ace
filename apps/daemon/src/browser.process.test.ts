@@ -49,7 +49,8 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
-      // Viewers get the live view as encoded video, starting at a keyframe of the page.
+      // Viewers watch as the apps do (ADR 0088): binary video in a codec this machine's Chrome
+      // encodes (H.264 where it can, else VP8), sized for the pane they show.
       await Promise.all(
         clients.map((client, index) =>
           client.request({
@@ -57,23 +58,28 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
             requestId: `subscribe-${index}`,
             threadId: thread.id,
             binaryFrames: true,
-            viewport: { width: 640, height: 400, devicePixelRatio: 1 },
+            viewport: { width: 640, height: 400, devicePixelRatio: 2 },
             video: { codecs: ["avc1.42E033", "vp8"] },
           }),
         ),
       );
-      const keyframes = await Promise.all(
+      for (const found of await Promise.all(
         clients.map((client) =>
           client.nextStream((message) =>
-            message.kind === "browser.video" && message.threadId === thread.id
-              ? message.chunk
+            message.kind === "browser.video" &&
+            message.threadId === thread.id &&
+            message.chunk.key &&
+            message.chunk.bytes.length > 0
+              ? message
               : undefined,
           ),
         ),
-      );
-      for (const chunk of keyframes) {
-        expect(chunk.key).toBe(true);
-        expect(chunk.bytes.length).toBeGreaterThan(0);
+      )) {
+        if (found.kind !== "browser.video") throw new Error("Expected a keyframe");
+        const key = found.chunk;
+        expect(["avc1.42E033", "vp8"]).toContain(key.codec);
+        // Sized as the picture is (one scale on both axes), not as an encoder pads it.
+        expect(key.codedHeight / key.height).toBeCloseTo(key.codedWidth / key.width, 2);
       }
       // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(

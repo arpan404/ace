@@ -1,7 +1,17 @@
 /* Fresh ABI shell around the installed PipeWire library; no executable subprocesses. */
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
+/* PipeWire 0.3.19 (Debian 11, the release build's floor) keeps the buffers params in param.h. */
+#if __has_include(<spa/param/buffers.h>)
+#include <spa/param/buffers.h>
+#else
+#include <spa/param/param.h>
+#endif
+#include <spa/buffer/meta.h>
 #include <dlfcn.h>
+#include <stdint.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -15,6 +25,11 @@ struct capture {
     struct spa_hook listener;
     struct spa_source *wakeup;
     struct spa_video_info_raw video;
+    /* The valid region of the last buffer (VideoCrop meta), when the producer sent one. */
+    int has_crop;
+    int crop_x, crop_y;
+    unsigned crop_w, crop_h;
+    int (*update_params)(struct pw_stream *, const struct spa_pod **, unsigned);
     void (*frame)(void *, const unsigned char *, unsigned, unsigned, int, unsigned);
     void *user;
     int failed;
@@ -37,24 +52,58 @@ static void format_changed(void *user, unsigned id, const struct spa_pod *pod) {
     if (id != SPA_PARAM_Format || !pod) return;
     if (spa_format_video_raw_parse(pod, &c->video) < 0 ||
         c->video.size.width > 8192 || c->video.size.height > 8192 ||
-        (uint64_t)c->video.size.width*c->video.size.height > 16777216) c->failed = 1;
+        (uint64_t)c->video.size.width*c->video.size.height > 16777216) { c->failed = 1; return; }
+    /* Ask for crop metadata: window streams mark the window's region inside a larger buffer. */
+    unsigned char buffer[256];
+    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    const struct spa_pod *meta = spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+        SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoCrop),
+        SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_region)));
+    if (c->update_params) c->update_params(c->stream, &meta, 1);
 }
 static void state_changed(void *user, enum pw_stream_state old, enum pw_stream_state state, const char *error) {
     (void)old; (void)error;
     if (state == PW_STREAM_STATE_ERROR) ((struct capture *)user)->failed = 1;
+}
+/* The buffer's pixels, readable. PipeWire maps a buffer with the access its producer flagged,
+ * and xdg-desktop-portal-hyprland flags its shared-memory buffers mappable but not readable,
+ * so that mapping can't be read. Such a buffer is mapped read-only here instead (*mapped is
+ * then the length to unmap), once the file is known to hold everything the producer claims. */
+static unsigned char *readable(struct spa_data *d, size_t *mapped) {
+    *mapped = 0;
+    if (d->data && ((d->flags & SPA_DATA_FLAG_READABLE) || d->type == SPA_DATA_MemPtr))
+        return d->data;
+    if (d->type != SPA_DATA_MemFd || d->fd < 0 || !d->maxsize) return NULL;
+    struct stat st;
+    uint64_t length = (uint64_t)d->mapoffset + d->maxsize;
+    if (fstat((int)d->fd, &st) != 0 || st.st_size < 0 || (uint64_t)st.st_size < length ||
+        length > SIZE_MAX) return NULL;
+    void *pixels = mmap(NULL, (size_t)length, PROT_READ, MAP_SHARED, (int)d->fd, 0);
+    if (pixels == MAP_FAILED) return NULL;
+    *mapped = (size_t)length;
+    return (unsigned char *)pixels + d->mapoffset;
 }
 static void process(void *user) {
     struct capture *c = user;
     struct pw_buffer *b = c->dequeue(c->stream);
     if (!b) return;
     if (!c->failed && b->buffer && b->buffer->n_datas > 0) {
+        struct spa_meta_region *crop = spa_buffer_find_meta_data(b->buffer, SPA_META_VideoCrop, sizeof(*crop));
+        c->has_crop = crop && spa_meta_region_is_valid(crop);
+        if (c->has_crop) {
+            c->crop_x = crop->region.position.x; c->crop_y = crop->region.position.y;
+            c->crop_w = crop->region.size.width; c->crop_h = crop->region.size.height;
+        }
         struct spa_data *d = &b->buffer->datas[0];
         unsigned w = c->video.size.width, h = c->video.size.height;
-        if (d->data && d->chunk && w && h && d->chunk->stride >= (int)(w*4) &&
+        size_t mapped = 0;
+        unsigned char *base = readable(d, &mapped);
+        if (base && d->chunk && w && h && d->chunk->stride >= (int)(w*4) &&
             d->chunk->offset <= d->maxsize && (uint64_t)d->chunk->stride*h <= d->maxsize-d->chunk->offset &&
             d->chunk->size >= (uint64_t)d->chunk->stride*(h-1)+w*4 && !(d->chunk->flags & SPA_CHUNK_FLAG_CORRUPTED)) {
-            c->frame(c->user, (unsigned char *)d->data+d->chunk->offset,w,h,d->chunk->stride,c->video.format);
+            c->frame(c->user, base+d->chunk->offset,w,h,d->chunk->stride,c->video.format);
         }
+        if (mapped) munmap(base - d->mapoffset, mapped);
     }
     c->queue(c->stream,b);
 }
@@ -93,6 +142,7 @@ struct capture *ace_pw_open(int fd, unsigned node, int stop_fd, void (*frame)(vo
     LOAD(c->dequeue,"pw_stream_dequeue_buffer"); LOAD(c->queue,"pw_stream_queue_buffer");
     LOAD(c->stream_destroy,"pw_stream_destroy"); LOAD(c->disconnect,"pw_core_disconnect");
     LOAD(c->context_destroy,"pw_context_destroy"); LOAD(c->loop_destroy,"pw_main_loop_destroy");
+    *(void **)(&c->update_params) = dlsym(c->library,"pw_stream_update_params");
     init(NULL,NULL);
     c->loop=loop_new(NULL); if (!c->loop) goto fail;
     c->wakeup=pw_loop_add_io(c->get_loop(c->loop),stop_fd,SPA_IO_IN,false,stop_ready,c);
@@ -112,6 +162,12 @@ struct capture *ace_pw_open(int fd, unsigned node, int stop_fd, void (*frame)(vo
 fail:
     if (remote>=0) close(remote);
     ace_pw_destroy(c); return NULL;
+}
+/* The valid region of the frame being delivered; 0 when the producer sent none. */
+int ace_pw_crop(struct capture *c, int *x, int *y, unsigned *w, unsigned *h) {
+    if (!c || !c->has_crop) return 0;
+    *x = c->crop_x; *y = c->crop_y; *w = c->crop_w; *h = c->crop_h;
+    return 1;
 }
 int ace_pw_step(struct capture *c, int timeout) {
     if (c->failed) return -1;

@@ -112,7 +112,7 @@ export function Permissions(props: { use: ComputerUse }) {
         variant="inline"
         icon={MonitorIcon}
         title="No screen helper on ace on this machine."
-        description="Computer use runs on a Mac with the ace desktop app installed."
+        description="Computer use needs ace's screen helper, which comes with the ace desktop app and ace's macOS and Linux releases."
       />
     );
   const reading = permissionsReading({

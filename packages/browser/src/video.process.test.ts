@@ -107,7 +107,8 @@ async function decode(f: Fixture, chunks: readonly BrowserVideoChunk[]) {
     const pictures = [];
     const errors = [];
     const decoder = new VideoDecoder({
-      output: (frame) => { pictures.push([frame.codedWidth, frame.codedHeight]); frame.close(); },
+      // The visible picture: a decoder's coded size may include padding rows (Linux, software).
+      output: (frame) => { pictures.push([frame.displayWidth, frame.displayHeight]); frame.close(); },
       error: (error) => errors.push(String(error)),
     });
     decoder.configure({ ...config, ...(config.description ? { description: bytes(config.description) } : {}) });

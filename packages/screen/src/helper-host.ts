@@ -21,16 +21,21 @@ export class HelperHost {
     if (this.closing) return this.closing.then(() => this.open());
     if (!this.opening) {
       const epoch = this.epoch;
-      this.opening = Helper.open({
-        ...this.options,
-        onFailure: (error) => {
-          if (epoch === this.epoch) {
-            // Keep the owned process reachable until close confirms its death.
-            void this.close();
-            this.options.onFailure(error);
-          }
-        },
-      })
+      const launch = this.options.launch;
+      this.opening = (launch ? launch() : Promise.resolve({}))
+        .then((resolved) =>
+          Helper.open({
+            ...this.options,
+            ...resolved,
+            onFailure: (error) => {
+              if (epoch === this.epoch) {
+                // Keep the owned process reachable until close confirms its death.
+                void this.close();
+                this.options.onFailure(error);
+              }
+            },
+          }),
+        )
         .then(async (helper) => {
           try {
             await helper.negotiate();

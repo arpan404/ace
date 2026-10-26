@@ -35,15 +35,51 @@ pub struct Accessibility {
     pub(crate) refs: crate::references::References<Object>,
     pub(crate) scope: Option<Object>,
 }
+/// Which of an app's accessible windows is the X window at `bounds` (`None` where a window's
+/// extents couldn't be read). By screen position first: the window, or its frame with the
+/// decorations around it. GTK 4 doesn't know where its window is on X11 and puts every window
+/// at 0,0, so failing that, the one window of its size (within 2 pixels of rounding), or the
+/// app's only window when none is that size.
+pub fn window_for_bounds(windows: &[Option<Bounds>], bounds: &Bounds) -> Option<usize> {
+    let placed = windows.iter().position(|w| {
+        w.as_ref().is_some_and(|w| {
+            w.x <= bounds.x
+                && w.y <= bounds.y
+                && w.x + w.w >= bounds.x + bounds.w
+                && w.y + w.h >= bounds.y + bounds.h
+                && (w.x - bounds.x).abs() < 128
+                && (w.y - bounds.y).abs() < 128
+        })
+    });
+    if placed.is_some() {
+        return placed;
+    }
+    let sized: Vec<usize> = (0..windows.len())
+        .filter(|&i| {
+            windows[i]
+                .as_ref()
+                .is_some_and(|w| (w.w - bounds.w).abs() <= 2 && (w.h - bounds.h).abs() <= 2)
+        })
+        .collect();
+    match (sized.as_slice(), windows.len()) {
+        ([only], _) => Some(*only),
+        ([], 1) => Some(0),
+        _ => None,
+    }
+}
 impl Accessibility {
     pub async fn connect() -> Result<Self> {
         let session = Connection::session().await.map_err(internal)?;
+        // As a screen reader does: Qt apps (all of KDE) expose nothing until this is on.
+        let was_enabled = crate::a11y_status::enable(&session).await;
         let bus = Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus")
             .await
             .map_err(internal)?;
         let address: String = bus.call("GetAddress", &()).await.map_err(internal)?;
+        // A hung or busy app costs one bounded call, never the whole command.
         let conn = zbus::connection::Builder::address(address.as_str())
             .map_err(internal)?
+            .method_timeout(std::time::Duration::from_millis(1200))
             .build()
             .await
             .map_err(internal)?;
@@ -51,6 +87,14 @@ impl Accessibility {
         let registry = Proxy::new(&result.conn, "org.a11y.atspi.Registry", "/org/a11y/atspi/registry", "org.a11y.atspi.Registry").await.map_err(internal)?;
         for event in ["object:children-changed", "object:state-changed:defunct"] {
             registry.call::<_, _, ()>("RegisterEvent", &(event,)).await.map_err(internal)?;
+        }
+        if !was_enabled {
+            let root = Proxy::new(&result.conn, "org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root", "org.a11y.atspi.Accessible").await.map_err(internal)?;
+            crate::a11y_status::await_registrations(|| async {
+                // Read fresh each poll: the proxy would otherwise answer from its cache.
+                root.call::<_, _, Vec<(String, OwnedObjectPath)>>("GetChildren", &()).await.map(|apps| apps.len()).unwrap_or(0)
+            })
+            .await;
         }
         Ok(result)
     }
@@ -87,6 +131,7 @@ impl Accessibility {
             .await
             .map_err(internal)?;
         let mut selected = None;
+        let mut installed = None;
         for index in 0..count.clamp(0, 256) {
             let app: Object = root
                 .call("GetChildAtIndex", &(index,))
@@ -101,10 +146,15 @@ impl Accessibility {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            if executable.file_name().and_then(|s| s.to_str()) != Some(identity) {
-                continue;
-            }
             let a = self.proxy(&app, "Accessible").await?;
+            // An executable name, or the desktop id computer use and the sharing dialog use.
+            if executable.file_name().and_then(|s| s.to_str()) != Some(identity) {
+                let name: Option<String> = a.get_property("Name").await.ok();
+                let installed = installed.get_or_insert_with(crate::computer::apps::installed);
+                if crate::computer::apps::process_app_id(pid, name, installed) != identity {
+                    continue;
+                }
+            }
             let n: i32 = a.get_property("ChildCount").await.map_err(internal)?;
             if n != 1 || selected.is_some() {
                 return Err(Fault::new(
@@ -132,14 +182,20 @@ impl Accessibility {
         object: &Object,
         interface: &str,
     ) -> Result<Proxy<'static>> {
-        Proxy::new_owned(
-            self.conn.clone(),
-            object.0.clone(),
-            object.1.clone(),
-            format!("org.a11y.atspi.{interface}"),
-        )
-        .await
-        .map_err(|e| Fault::new("target_gone", e.to_string()))
+        let target = |e: zbus::Error| Fault::new("target_gone", e.to_string());
+        // Properties are read fresh: Qt's AT-SPI bridge (all of KDE) answers GetAll with an
+        // empty body, which a property cache would take for an error on every read.
+        zbus::proxy::Builder::new(&self.conn)
+            .destination(object.0.clone())
+            .map_err(target)?
+            .path(object.1.clone())
+            .map_err(target)?
+            .interface(format!("org.a11y.atspi.{interface}"))
+            .map_err(target)?
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .map_err(target)
     }
     pub async fn scope(&mut self, pid: u32, bounds: &Bounds) -> Result<()> {
         self.clear();
@@ -168,6 +224,7 @@ impl Accessibility {
                 .get_property("ChildCount")
                 .await
                 .map_err(internal)?;
+            let mut found = Vec::new();
             for i in 0..windows.clamp(0, 256) {
                 let window: Object = accessible
                     .call("GetChildAtIndex", &(i,))
@@ -178,18 +235,15 @@ impl Accessibility {
                     .call::<_, _, (i32, i32, i32, i32)>("GetExtents", &(0u32,))
                     .await
                 {
-                    // WM frame decorations may surround the content window.
-                    if x <= bounds.x
-                        && y <= bounds.y
-                        && x + w >= bounds.x + bounds.w
-                        && y + h >= bounds.y + bounds.h
-                        && (x - bounds.x).abs() < 128
-                        && (y - bounds.y).abs() < 128
-                    {
-                        self.scope = Some(window);
-                        return Ok(());
-                    }
+                    found.push((window, Some(Bounds { x, y, w, h })));
+                } else {
+                    found.push((window, None));
                 }
+            }
+            let extents: Vec<Option<Bounds>> = found.iter().map(|(_, b)| b.clone()).collect();
+            if let Some(index) = window_for_bounds(&extents, bounds) {
+                self.scope = Some(found.swap_remove(index).0);
+                return Ok(());
             }
             return Err(Fault::new(
                 "target_gone",

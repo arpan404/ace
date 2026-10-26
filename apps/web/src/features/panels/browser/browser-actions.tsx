@@ -1,3 +1,4 @@
+import { revealWords } from "@/lib/folder-actions.ts";
 import {
   ArrowSquareOutIcon,
   BroomIcon,
@@ -119,7 +120,7 @@ export function BrowserActions(props: {
       ...(reveal
         ? {
             actionProps: {
-              children: "Show in Finder",
+              children: revealWords().show,
               onClick: () => void reveal(artifact.path).catch(() => {}),
             },
           }

@@ -68,6 +68,20 @@ function bridgeOf(scope: object): Bridge | undefined {
   return settings as Bridge;
 }
 
+/**
+ * What the quick-thread shortcut still needs from the person on this desktop (Hyprland: the
+ * hyprland.conf line that gives it keys), or undefined: none, or an app without the call.
+ */
+export async function desktopShortcutHint(scope: object = globalThis): Promise<string | undefined> {
+  const settings = bridgeOf(scope);
+  const call: unknown = settings ? Reflect.get(settings, "shortcutHint") : undefined;
+  if (!settings || typeof call !== "function") return undefined;
+  const hint: unknown = await Promise.resolve()
+    .then(() => Reflect.apply(call, settings, []))
+    .catch(() => null);
+  return typeof hint === "string" && hint.length > 0 && hint.length <= 500 ? hint : undefined;
+}
+
 /** Whether this window can edit the desktop's preferences. */
 export function hasDesktopPreferences(scope: object = globalThis): boolean {
   return bridgeOf(scope) !== undefined;

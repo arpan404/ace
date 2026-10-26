@@ -44,7 +44,8 @@ test("a failed native save keeps its snapshot and retries without another event 
     runtime: {
       clock: time.clock,
       watch(root, options, listener) {
-        if (options.recursive) notify = listener;
+        // The workspace root is subscribed first, recursively or (Linux) one directory deep.
+        notify ??= listener;
         // A real disposable watch handle with deterministic notification delivery.
         return nativeWatch(root, options, () => {});
       },

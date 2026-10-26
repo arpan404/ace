@@ -44,14 +44,19 @@ import XCTest
         open("ios-agents", in: app)
         let worked = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(worked.waitForExistence(timeout: 25))
-        app.scrollViews["transcript"].swipeDown(velocity: .fast)
+        // Dragged, never flung: a tap made while the transcript coasts lands on whatever slid
+        // under it. Each row is brought clear of the header and the floating composer first.
+        app.bringToMiddle(worked)
         worked.tap()
         // The turn's steps open grouped, as on the web: sentence rows on a rail.
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
-        app.buttons["subagents.rollup"].firstMatch.tap()
+        let rollup = app.buttons["subagents.rollup"].firstMatch
+        app.bringToMiddle(rollup)
+        rollup.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
+        app.bringToMiddle(review)
         review.tap()
         XCTAssertTrue(app.staticTexts["Review the kill-all change for PID-reuse safety."].waitForExistence(timeout: 25))
         app.navigationBars.buttons.firstMatch.tap()
@@ -60,6 +65,7 @@ import XCTest
         screenshot("back-from-child")
         let explore = app.buttons["subagent.Explore process groups"]
         XCTAssertTrue(explore.waitForExistence(timeout: 25))
+        app.bringToMiddle(explore)
         explore.tap()
         XCTAssertTrue(app.collectionViews["lane.transcript"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Process groups are created per thread."].waitForExistence(timeout: 10))

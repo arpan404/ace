@@ -182,7 +182,7 @@ test("a missing macOS permission offers Request, which asks the daemon's Mac", a
   app.daemon.screen.enabled = true;
   await app.open("/settings/computer-use");
 
-  const permissions = await screen.findByRole("region", { name: "macOS permissions" });
+  const permissions = await screen.findByRole("region", { name: "Permissions" });
   await userEvent.click(within(permissions).getByRole("button", { name: "Grant access" }));
 
   await waitFor(() => expect(app.daemon.screen.requested).toEqual(["accessibility"]));
@@ -264,7 +264,7 @@ test("enabling computer use replaces cached disabled permissions with the helper
   const { app } = await openSettings();
   await app.open("/settings/computer-use");
   await page();
-  const permissions = await screen.findByRole("region", { name: "macOS permissions" });
+  const permissions = await screen.findByRole("region", { name: "Permissions" });
   await waitFor(() =>
     expect(within(permissions).getAllByRole("button", { name: "Grant access" })).toHaveLength(2),
   );

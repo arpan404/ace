@@ -158,6 +158,10 @@ export function daemonHandle({
     get devices() {
       return services.devices;
     },
+    /** Computer use: the person's switch and live view; absent without a screen helper. */
+    get screen() {
+      return services.screen;
+    },
     get projects() {
       return requireService(services.projects, "projects");
     },

@@ -45,6 +45,40 @@ test.each(["\n", "\r", "\r\n"])(
   },
 );
 
+test("JSON lines carrying U+2028, U+2029 and U+FDD0 inside strings arrive whole and unchanged", async () => {
+  const input = new PassThrough();
+  const lines = lineReader(input, 1024, (error) => {
+    throw error;
+  });
+  const received: string[] = [];
+  lines.on("line", (line) => received.push(line));
+  const closed = once(lines, "close");
+  const records = [
+    JSON.stringify({ value: "7×6=42\u20297×6=42" }),
+    JSON.stringify({ text: "a\u2028b", kept: "\uFDD01" }),
+  ];
+  input.end(records.join("\n") + "\n");
+  await closed;
+  expect(received).toEqual(records);
+  expect(received.map((line) => JSON.parse(line) as unknown)).toEqual([
+    { value: "7×6=42\u20297×6=42" },
+    { text: "a\u2028b", kept: "\uFDD01" },
+  ]);
+});
+
+test("async iteration gets the same whole lines", async () => {
+  const input = new PassThrough();
+  const lines = lineReader(input, 1024, (error) => {
+    throw error;
+  });
+  const iterator = lines[Symbol.asyncIterator]();
+  input.end('{"a":"x\u2029y"}\n');
+  const received: string[] = [];
+  for (let next = await iterator.next(); !next.done; next = await iterator.next())
+    received.push(String(next.value));
+  expect(received).toEqual(['{"a":"x\u2029y"}']);
+});
+
 test("a CRLF split across reads terminates one line and preserves the next record", async () => {
   const input = new PassThrough();
   const lines = lineReader(input, 64, (error) => {
