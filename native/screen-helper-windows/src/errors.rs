@@ -9,11 +9,8 @@ pub enum Code {
     Busy,
     Timeout,
     Internal,
-    WindowAmbiguous,
     KeyUnsupported,
     ModifierUnsupported,
-    NoKeyWindow,
-    DeliveryUnconfirmed,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Error {

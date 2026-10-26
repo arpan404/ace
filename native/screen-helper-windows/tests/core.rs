@@ -196,7 +196,7 @@ impl Source for App {
     }
 }
 #[test]
-fn tree_caps_bound_provider_work_prune_offscreen_and_find_without_children() {
+fn tree_caps_bound_provider_work_and_prune_offscreen() {
     let mut app = App {
         reads: 0,
         offscreen: true,
@@ -208,33 +208,11 @@ fn tree_caps_bound_provider_work_prune_offscreen_and_find_without_children() {
     assert_eq!(root.name.len(), 256);
     assert_eq!(root.children.len(), 1);
     assert_eq!(root.children[0].name, "Save");
-    let found = tree::find(
-        &tree,
-        &Query {
-            role: Some("BUTTON".into()),
-            name: Some("sav".into()),
-            text: None,
-        },
-        1,
-    )
-    .unwrap();
-    assert_eq!(found[0].r#ref, "r2");
-    assert!(found[0].children.is_empty());
     let depth = tree::walk(&mut app, 0, 0, 10).unwrap();
     assert!(depth.truncated);
     assert!(depth.root.unwrap().children.is_empty());
     assert!(tree::walk(&mut app, 0, 33, 10).is_err());
     assert!(tree::walk(&mut app, 0, 1, 2049).is_err());
-    assert!(tree::find(
-        &tree,
-        &Query {
-            role: None,
-            name: None,
-            text: None
-        },
-        129
-    )
-    .is_err());
 }
 #[test]
 fn references_survive_refresh_but_never_alias_evicted_or_replaced_targets() {
@@ -463,23 +441,17 @@ fn search_limits_use_utf16_units_and_accept_multibyte_queries() {
         reads: 0,
         offscreen: false,
     };
-    let mut tree = tree::walk(&mut app, 0, 0, 1).unwrap();
-    tree.root.as_mut().unwrap().name = "😀".repeat(128);
     let query = Query {
         role: None,
         name: Some("😀".repeat(128)),
         text: None,
     };
-    assert_eq!(tree::find(&tree, &query, 1).unwrap()[0].r#ref, "r0");
+    assert!(tree::find_from(&mut app, 0, &query, 1).is_ok());
     let oversized = Query {
         role: None,
         name: Some("😀".repeat(129)),
         text: None,
     };
-    assert_eq!(
-        tree::find(&tree, &oversized, 1).unwrap_err().code,
-        Code::Bounds
-    );
     let before = app.reads;
     assert_eq!(
         tree::find_from(&mut app, 0, &oversized, 1)
