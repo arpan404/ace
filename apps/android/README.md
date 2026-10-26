@@ -7,12 +7,19 @@ opening SQLite or creating a transport.
 
 The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
 and the future native pairing flow for Android and iOS.
+The [full iOS parity plan](../../docs/plans/android-ios-parity.md) breaks the work
+from this prototype through production Android release into milestones and bounded tasks.
+The [capability matrix](../../docs/mobile/android-ios-capabilities.md) maps iOS behavior
+to Android status and plan tasks; navigation equivalences are specified in
+[the navigation spec](../../docs/mobile/android-navigation-spec.md) (A00.02).
+Validation scope is audited in [the validation lane](../../docs/mobile/android-validation-lane.md).
 
 ## Run
 
 From `apps/android`, run `bun run fixture` and `bun run start` in separate terminals.
-Metro uses port 8083 and the fake daemon binds only to 127.0.0.1:4345. Use a dedicated
-AVD and at most one emulator. The shared Mac allows one Gradle build with four workers.
+Metro uses port 8083 and the fake daemon binds only to 127.0.0.1:4345. Use only the
+shared `Ace_Android` and `Ace_Tablet` AVDs, at most one emulator and one Gradle
+build at a time. The shared Mac allows one Gradle build with four workers.
 
 ```sh
 export ANDROID_HOME="$HOME/Library/Android/sdk"
@@ -89,6 +96,9 @@ geometry profile on a stock Android system image is not an actual One UI runtime
 Physical Samsung, Xiaomi, OnePlus and Pixel checks remain release requirements.
 
 See [the measurement report](../../docs/verification/android-phase0/README.md).
-The gate remains pending until all measurements pass. Static
-checks are scoped format/lint and `bun run typecheck` here. Run no Vitest or root
-checks on the shared machine. See [ADR 0073](../../docs/adr/0073-native-mobile-clients.md).
+The gate remains pending until all measurements pass. Local static scope here is
+format/lint and `bun run typecheck`; run no Vitest or root checks on the shared
+machine. The full `AGENTS.md` completion gate (`bun run check`) runs serialized
+at integration/CI per [the validation lane](../../docs/mobile/android-validation-lane.md),
+never as an unbounded run here; existing CI is not cited as full-gate evidence.
+See [ADR 0073](../../docs/adr/0073-native-mobile-clients.md).

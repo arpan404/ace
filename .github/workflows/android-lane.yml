@@ -1,0 +1,373 @@
+# Focused Android CI lane (A00.06).
+#
+# Pipeline: frozen install -> Android typecheck -> check:deps -> focused
+# Android Vitest -> no-install prebuild -> Gradle debug + AndroidTest APKs
+# (x86_64, one executor) -> owned fixture (127.0.0.1:4345) + Metro
+# (127.0.0.1:8083) -> fixture-send positive (exit 0) then negative control
+# (exit 1 + NEGATIVE_CONTROL_OK).
+#
+# This lane is NOT the full `bun run check` gate. The full gate runs
+# serialized at the integration point and stays open; never cite this lane
+# as full-gate evidence (see docs/mobile/android-validation-lane.md).
+#
+# Isolation: disposable ubuntu-latest runner, single job, no matrix, one
+# Gradle executor (--max-workers=4), JDK 17 scoped to this job (avoids the
+# AGP prefab/JNA warning seen on host JDK 24; Gradle 9.3.1 runs on 17),
+# disposable CI AVD only (never the shared Mac Ace_Android/Ace_Tablet AVDs),
+# explicit serial emulator-5554 everywhere. Cleanup signals only recorded own
+# process groups / the owned emulator and removes only own reverse mappings (no pkill, no adb
+# kill-server, no wipe). Artifacts: fixture lane logs only, 7-day retention;
+# no screenshots, no dumpsys, no APK uploads.
+
+name: Android lane
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-lane:
+    name: Focused Android lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read required Node major
+        id: node
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const major = engines.node.match(/\d+/)[0];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
+          NODE
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          package-manager-cache: false
+
+      - name: Install Bun
+        id: bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      # Global bootstrap is confined to this disposable hosted runner.
+      - name: Bootstrap node-gyp for dependency install
+        shell: bash
+        run: |
+          npm install --global node-gyp@11.5.0
+          command -v node-gyp
+          node-gyp --version
+
+      - name: Install dependencies
+        shell: bash
+        run: bun install --frozen-lockfile
+
+      # NEW action in this repo (verified against the official
+      # actions/setup-java README: actions/setup-java@v6 is the latest stable
+      # major, whose examples pin actions/checkout@v7 alongside it, matching
+      # this repo). Temurin JDK 17 scoped to this job only.
+      - name: Install JDK 17 (Temurin, this job only)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Lane scope (not the full gate)
+        shell: bash
+        run: |
+          echo 'Focused Android lane only. The full `bun run check` gate runs serialized at the integration point and stays open; this lane is never full-gate evidence.'
+
+      - name: Provision Android SDK and disposable CI AVD
+        shell: bash
+        run: |
+          set -u -o pipefail
+          java -version 2>&1
+          if ! java -version 2>&1 | head -n 1 | grep -q '"17\.'; then
+            echo 'lane requires JDK 17 from setup-java; refusing' >&2
+            exit 2
+          fi
+          ls -l /dev/kvm || true
+          if [ -c /dev/kvm ]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
+          if [ ! -c /dev/kvm ] || [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo 'KVM (/dev/kvm) is not accessible on this runner; refusing' >&2
+            exit 1
+          fi
+          CANDIDATE_SDK="$HOME/Android/Sdk"
+          for cand in "${ANDROID_SDK_ROOT:-}" "${ANDROID_HOME:-}" /usr/local/lib/android/sdk; do
+            if [ -n "$cand" ] && [ -x "$cand/cmdline-tools/latest/bin/sdkmanager" ]; then
+              CANDIDATE_SDK="$cand"
+              break
+            fi
+          done
+          ANDROID_HOME="$CANDIDATE_SDK"
+          export ANDROID_HOME
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            curl -fsSL 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip' -o /tmp/ci-cmdtools.zip
+            unzip -q /tmp/ci-cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            rm -f /tmp/ci-cmdtools.zip
+          fi
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          (yes || true) | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "platforms;android-35" "build-tools;36.0.0" "build-tools;35.0.0" "ndk;27.1.12297006" "cmake;3.30.5" "cmake;3.22.1" "emulator" "system-images;android-36;google_apis;x86_64"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          # Disposable CI AVD only; never the shared Mac AVDs.
+          export ANDROID_USER_HOME="$RUNNER_TEMP/ace-android"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          {
+            echo "ANDROID_USER_HOME=$ANDROID_USER_HOME"
+            echo "ANDROID_EMULATOR_HOME=$ANDROID_EMULATOR_HOME"
+            echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
+          } >> "$GITHUB_ENV"
+          AVD_PATH="$ANDROID_AVD_HOME/ci-ace-android.avd"
+          LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
+          mkdir -p "$ANDROID_AVD_HOME" "$LANE_LOGS"
+          echo no | avdmanager create avd -n ci-ace-android -k 'system-images;android-36;google_apis;x86_64' --device 'pixel' --force -p "$AVD_PATH"
+          avdmanager list avd 2>&1 | tee "$LANE_LOGS/avdmanager-list.log"
+          emulator -list-avds 2>&1 | tee "$LANE_LOGS/emulator-list.log"
+          if [ ! -s "$ANDROID_AVD_HOME/ci-ace-android.ini" ] || [ ! -s "$AVD_PATH/config.ini" ]; then
+            echo 'avdmanager did not create the required AVD registration and config files; refusing' >&2
+            exit 2
+          fi
+          if ! grep -Fxq "path=$AVD_PATH" "$ANDROID_AVD_HOME/ci-ace-android.ini"; then
+            echo 'AVD registration does not point to the disposable CI AVD directory; refusing' >&2
+            exit 2
+          fi
+          if [ "$(grep -Fxc 'ci-ace-android' "$LANE_LOGS/emulator-list.log")" -ne 1 ]; then
+            echo 'disposable CI AVD ci-ace-android is not discoverable after creation; refusing' >&2
+            exit 2
+          fi
+
+      - name: Android typecheck
+        working-directory: apps/android
+        shell: bash
+        run: bun run typecheck
+
+      - name: Dependency boundaries
+        shell: bash
+        run: bun run check:deps
+
+      - name: Focused Android Vitest
+        shell: bash
+        run: bun run test -- apps/android
+
+      - name: Expo prebuild without install
+        working-directory: apps/android
+        shell: bash
+        run: bunx expo prebuild --platform android --no-install
+
+      # CI pins x86_64 for the hosted emulator. This differs from the
+      # Mac-local arm64-v8a README value and is never inherited silently.
+      - name: Gradle debug APKs (single executor, x86_64)
+        working-directory: apps/android/android
+        shell: bash
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --max-workers=4 --no-daemon -PreactNativeArchitectures=x86_64
+
+      - name: Boot disposable CI emulator (explicit deadline)
+        shell: bash
+        run: |
+          set -u -o pipefail
+          SERIAL='emulator-5554'
+          LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
+          mkdir -p "$LANE_LOGS"
+          emulator -list-avds 2>&1 | tee "$LANE_LOGS/boot-avd-list.log"
+          if [ "$(grep -Fxc 'ci-ace-android' "$LANE_LOGS/boot-avd-list.log")" -ne 1 ]; then
+            echo 'disposable CI AVD ci-ace-android is missing; refusing to use any other AVD' >&2
+            exit 2
+          fi
+          setsid nohup emulator -avd ci-ace-android -port 5554 -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -read-only >"$LANE_LOGS/emulator.log" 2>&1 &
+          echo "$!" > "$LANE_LOGS/emulator.pid"
+          BOOT_DEADLINE_SEC=600
+          START_SEC=$(date +%s)
+          BOOTED=0
+          while true; do
+            REM=$((BOOT_DEADLINE_SEC - ($(date +%s) - START_SEC)))
+            if [ "$REM" -le 0 ]; then break; fi
+            PT=5; if [ "$REM" -lt 5 ]; then PT="$REM"; fi
+            if [ "$(timeout "$PT" adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r[:space:]')" = "1" ]; then
+              BOOTED=1
+              break
+            fi
+            REM2=$((BOOT_DEADLINE_SEC - ($(date +%s) - START_SEC)))
+            if [ "$REM2" -le 0 ]; then break; fi
+            if [ "$REM2" -gt 2 ]; then sleep 2; else sleep "$REM2"; fi
+          done
+          if [ "$BOOTED" -ne 1 ]; then
+            echo "CI emulator $SERIAL failed to boot within ${BOOT_DEADLINE_SEC}s; failing" >&2
+            exit 1
+          fi
+          echo "CI emulator $SERIAL booted"
+          adb -s "$SERIAL" shell wm dismiss-keyguard >/dev/null 2>&1 || true
+          adb -s "$SERIAL" get-state
+
+      # Driver contract (apps/android/scripts/fixture-send.ts): requires
+      # prebuilt APKs and already-running fixture + Metro; never starts or
+      # builds them. The native helper (benchmark/FixtureDevServer.kt)
+      # writes then restores the ordinary debug SharedPreferences
+      # debug_http_host around the run.
+      - name: Fixture-send positive then negative control
+        working-directory: apps/android
+        shell: bash
+        run: |
+          set -u -o pipefail
+          SERIAL='emulator-5554'
+          LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
+          mkdir -p "$LANE_LOGS"
+          FIXTURE_PID=''
+          METRO_PID=''
+          cleanup_owned() {
+            if [ -n "$METRO_PID" ]; then
+              kill -TERM -- "-$METRO_PID" 2>/dev/null || true
+              sleep 2
+              kill -KILL -- "-$METRO_PID" 2>/dev/null || true
+            fi
+            if [ -n "$FIXTURE_PID" ]; then
+              kill -TERM -- "-$FIXTURE_PID" 2>/dev/null || true
+              sleep 2
+              kill -KILL -- "-$FIXTURE_PID" 2>/dev/null || true
+            fi
+            adb -s "$SERIAL" reverse --remove tcp:4345 >/dev/null 2>&1 || true
+            adb -s "$SERIAL" reverse --remove tcp:8083 >/dev/null 2>&1 || true
+          }
+          trap cleanup_owned EXIT INT TERM
+          if [ "$(timeout 5 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r[:space:]')" != "1" ]; then
+            echo "CI emulator $SERIAL is not booted; refusing" >&2
+            exit 2
+          fi
+          setsid bash -c 'CI=1 exec bun run fixture' >"$LANE_LOGS/fixture-4345.log" 2>&1 &
+          FIXTURE_PID="$!"
+          setsid bash -c 'CI=1 REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 exec bunx expo start --port 8083 --host lan' >"$LANE_LOGS/metro-8083.log" 2>&1 &
+          METRO_PID="$!"
+          FIXTURE_DEADLINE_SEC=120
+          FIXTURE_START=$(date +%s)
+          while true; do
+            REM=$((FIXTURE_DEADLINE_SEC - ($(date +%s) - FIXTURE_START)))
+            if [ "$REM" -le 0 ]; then
+              echo "fixture 4345 failed its ${FIXTURE_DEADLINE_SEC}s health deadline; failing" >&2
+              exit 1
+            fi
+            MT=5; if [ "$REM" -lt 5 ]; then MT="$REM"; fi
+            if curl -fsS --max-time "$MT" http://127.0.0.1:4345/metrics >/dev/null 2>&1; then
+              break
+            fi
+            REM2=$((FIXTURE_DEADLINE_SEC - ($(date +%s) - FIXTURE_START)))
+            if [ "$REM2" -le 0 ]; then
+              echo "fixture 4345 failed its ${FIXTURE_DEADLINE_SEC}s health deadline; failing" >&2
+              exit 1
+            fi
+            if [ "$REM2" -gt 1 ]; then sleep 1; else sleep "$REM2"; fi
+          done
+          METRO_DEADLINE_SEC=240
+          METRO_START=$(date +%s)
+          while true; do
+            REM=$((METRO_DEADLINE_SEC - ($(date +%s) - METRO_START)))
+            if [ "$REM" -le 0 ]; then
+              echo "metro 8083 failed its ${METRO_DEADLINE_SEC}s health deadline; failing" >&2
+              exit 1
+            fi
+            MT=5; if [ "$REM" -lt 5 ]; then MT="$REM"; fi
+            if curl -fsS --max-time "$MT" http://127.0.0.1:8083/status 2>/dev/null | grep -q 'packager-status:running'; then
+              break
+            fi
+            REM2=$((METRO_DEADLINE_SEC - ($(date +%s) - METRO_START)))
+            if [ "$REM2" -le 0 ]; then
+              echo "metro 8083 failed its ${METRO_DEADLINE_SEC}s health deadline; failing" >&2
+              exit 1
+            fi
+            if [ "$REM2" -gt 1 ]; then sleep 1; else sleep "$REM2"; fi
+          done
+          APP_APK='android/app/build/outputs/apk/debug/app-debug.apk'
+          TEST_APK='android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
+          P1="fs-$GITHUB_RUN_ID-p1"
+          set +e
+          node scripts/fixture-send.ts --serial "$SERIAL" --app-apk "$APP_APK" --test-apk "$TEST_APK" --probe "$P1" >"$LANE_LOGS/driver-positive.log" 2>&1
+          POS_CODE=$?
+          set -e
+          if [ "$POS_CODE" -ne 0 ]; then
+            echo "positive run failed (exit $POS_CODE); see driver-positive.log" >&2
+            exit 1
+          fi
+          P2="fs-$GITHUB_RUN_ID-p2"
+          N2="fs-$GITHUB_RUN_ID-n1"
+          set +e
+          node scripts/fixture-send.ts --serial "$SERIAL" --app-apk "$APP_APK" --test-apk "$TEST_APK" --probe "$P2" --negative-probe "$N2" >"$LANE_LOGS/driver-negative.log" 2>&1
+          NEG_CODE=$?
+          set -e
+          if [ "$NEG_CODE" -eq 0 ]; then
+            echo 'unexpected negative green (N admitted); lane must fail' >&2
+            exit 1
+          fi
+          if [ "$NEG_CODE" -ne 1 ]; then
+            echo "negative run failed unexpectedly (exit $NEG_CODE); see driver-negative.log" >&2
+            exit 1
+          fi
+          if ! grep -q 'NEGATIVE_CONTROL_OK' "$LANE_LOGS/driver-negative.log"; then
+            echo 'negative run exited 1 without the NEGATIVE_CONTROL_OK marker; failing' >&2
+            exit 1
+          fi
+          echo 'lane PASS: positive exit 0, negative control exit 1 with NEGATIVE_CONTROL_OK'
+
+      # Owned-emulator cleanup only: recorded own process group, own reverse mappings, own
+      # AVD serial. No pkill, no adb kill-server, no data wipe.
+      - name: Stop disposable CI emulator (owned only)
+        if: always()
+        shell: bash
+        run: |
+          set -u -o pipefail
+          SERIAL='emulator-5554'
+          LANE_LOGS="$GITHUB_WORKSPACE/lane-logs"
+          if [ -f "$LANE_LOGS/emulator.pid" ]; then
+            EMU_PID="$(cat "$LANE_LOGS/emulator.pid")"
+            if [ -n "$EMU_PID" ]; then
+              kill -TERM -- "-$EMU_PID" 2>/dev/null || true
+              sleep 5
+              kill -KILL -- "-$EMU_PID" 2>/dev/null || true
+            fi
+          fi
+          adb -s "$SERIAL" reverse --remove tcp:4345 >/dev/null 2>&1 || true
+          adb -s "$SERIAL" reverse --remove tcp:8083 >/dev/null 2>&1 || true
+          adb -s "$SERIAL" emu kill >/dev/null 2>&1 || true
+          echo 'disposable CI emulator cleanup done (owned serial only)'
+
+      - name: Upload fixture lane logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-lane-logs
+          path: lane-logs/
+          if-no-files-found: warn
+          retention-days: 7
