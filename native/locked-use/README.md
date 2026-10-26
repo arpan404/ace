@@ -1,10 +1,18 @@
 # Locked Use components
 
-This package contains an uninstalled authorization component, reusable native policy/UI
-libraries, and the production service, guardian and broker pieces that will host them.
-**It does not enable locked computer use in ace.** The screen helper's `--locked-use` mode
-hosts the service, but no launch daemon or authorization rule is registered, the daemon does
-not talk to it yet, and the current computer-use engine retains its locked-input refusals.
+This package contains the native half of ace's opt-in locked computer use on macOS: the
+authorization plug-in, the policy/UI libraries, and the GUI-session service, relock guardian
+and root broker that host them. The daemon side (the `computer.lockedUse` setting, the
+`lockedUse.*` status requests, read-only install detection and install/remove/repair) lives
+in `packages/screen` and `apps/daemon`; see the
+[ADR 0087 amendment of 2026-10-26](../../docs/adr/0087-background-computer-use-engine.md#amendment-2026-10-26-locked-computer-use).
+
+**Whether the unlock works is unverified.** No Apple-supported API is known to guarantee
+that a logged-in, locked session unlocks on command. Requesting `system.login.screensaver`
+through this plug-in is a plausible route, but only installing on a real Mac and testing it
+can show whether loginwindow actually dismisses the lock. Everything here fails closed: if
+the unlock does not happen, the Mac stays locked and the agent gets an error. None of this
+bypasses the lock screen.
 
 The clean-room design is based on [the interface investigation](../../docs/research/macos-codex-locked-use.md)
 and [Apple's authorization API boundaries](../../docs/research/macos-authorization-plugin-locked-use.md).
@@ -35,8 +43,8 @@ or disabled setting does not clear a local-takeover latch.
 The pure authority bounds work to sixty seconds per protected interval. The authorization
 window is one second and protection must have a heartbeat less than 500 ms old. An attempt
 id is never reusable within an authority instance; its ledger fails closed at 4096 attempts
-and requires an owner restart. These limits are explicit prototype behavior, not a substitute
-for wiring turn completion and an independent watchdog into the real daemon.
+and requires an owner restart. These limits sit beneath turn completion from the daemon and the
+independent guardian; they do not replace either.
 
 ## Runtime integration
 
@@ -69,7 +77,8 @@ fails the named completion test.
 
 ## Production pieces
 
-Process layout once installed (nothing here installs it):
+Process layout once installed (this package does not install itself; the daemon's installer
+does, after the person's administrator approval):
 
 | Process                          | Runs as         | Owns                                                                                 |
 | -------------------------------- | --------------- | ------------------------------------------------------------------------------------ |
@@ -229,25 +238,30 @@ To render the native status view offscreen without opening covers or installing 
 swift run --package-path native/locked-use LockedUsePreview /tmp/ace-locked-use-cover.png
 ```
 
-## Required before integration or installation
+## Done, and what still needs the person
 
-1. Verify on an isolated Mac that the `system.login.screensaver` request actually drives
-   loginwindow to unlock through the plug-in, that the environment item reaches it as the
-   immutable hint, and that display-sleep relock is observed as locked. The driver is
-   implemented; these OS behaviors are not established.
-2. Confirm the guardian relocks on a real Mac when the helper, covers or agent process die,
-   and test display changes and sleep/wake. Crash independence is tested only with
-   substitute lock sinks and an in-process XPC link.
-3. Connect the TypeScript daemon to the transport above, with turn approval and
-   cancellation. Agent tool arguments must never assert protection readiness, authorization
-   identity or manual unlock. Add the module to `screen-helper/build.sh` so release builds
-   include `--locked-use`.
-4. Add explicit user opt-in and an authorized installation/removal transaction that preserves
-   normal manual authentication and other installed authorization providers.
-5. Package, sign, notarize and validate all components on isolated macOS fixtures, then obtain
-   approval before changing this Mac's security policy.
+Implemented: the session driver and observer, the independent relock guardian, the root
+authorization broker, the GUI-session service (`ace-screen-helper --locked-use`), the daemon
+transport, the trusted-turn bridge from the daemon, read-only install detection,
+install/remove/repair orchestration and the opt-in setting with its live status in Settings.
+The privileged install step is additive (it adds ace's alternative to the
+`system.login.screensaver` rule without replacing Apple's mechanisms) and runs under one
+macOS administrator authorization. ace never asks for or stores the login password.
 
-There is deliberately no user-facing enable switch, privileged installer, default allow
-path, daemon-facing unlock command, or automatic change to `system.login.screensaver` in this
-package. The unlock candidate request is reachable only from the coordinator, after covers,
-input guard and guardian are ready for an approved, locked session.
+Still needs the person:
+
+1. **Run and verify the privileged install on a real Mac.** It changes the Mac's
+   authorization policy, so it runs only with the person's explicit approval and after
+   review; until then the daemon's privileged runner refuses every change. Release builds
+   must also be packaged, signed and notarized.
+2. **Run a live locked test.** Only this can confirm whether the `system.login.screensaver`
+   request actually unlocks the session through the plug-in, whether the environment item
+   reaches it as the immutable hint, whether display-sleep relock is observed as locked,
+   whether covers order above everything but loginwindow, and whether the guardian relocks
+   after the helper, covers or agent process die, across display changes and sleep/wake.
+   Today these are tested only with substitute OS boundaries, substitute lock sinks and an
+   in-process XPC link.
+
+There is no default allow path and no daemon-facing unlock command. The unlock candidate
+request is reachable only from the coordinator, after covers, input guard and guardian are
+ready for an approved turn in a locked session.

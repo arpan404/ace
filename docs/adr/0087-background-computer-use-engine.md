@@ -272,3 +272,95 @@ guardian stays armed during that wait and stale callbacks cannot affect a later 
 Runtime tests substitute OS/guardian boundaries and do not establish that loginwindow can
 be driven. The production service, daemon transport, verified OS driver, independent guardian
 and installation remain required before enabling this feature.
+
+## Amendment 2026-10-26: locked computer use
+
+This amendment supersedes the "remain required" list at the end of _Uninstalled
+authorization component_ above. Items now implemented are listed below; what still needs the
+person is listed under _Still gated on the person_.
+
+**The unlock itself is unverified.** No Apple-supported API is known to guarantee that a
+logged-in, locked session unlocks on command. The plug-in is a plausible approval step
+inside loginwindow's policy, but whether requesting `system.login.screensaver` actually
+dismisses the lock is not established. Only installing the component on a real Mac and
+testing it can show that. The design fails closed: if the unlock doesn't happen, the Mac
+stays locked and the agent gets a clear error. Nothing here bypasses the lock screen, and
+nothing here proves a secure unlock.
+
+### Opt-in and live state
+
+Locked computer use is opt-in per machine: _Let agents work while this Mac is locked_ in
+Computer use > Access (`apps/web/src/features/computer-use/locked-use-row.tsx`). With it off,
+behaviour is unchanged from the 2026-10-23 amendment: locked input is refused with
+`screen_locked` or `session_unavailable`.
+
+- The `computer.lockedUse` setting records the person's intent. It is global-only,
+  admin-only and defaults to false.
+- The daemon reports what is actually installed through the `lockedUse.*` requests
+  (`subscribe`, `unsubscribe`, `install`, `remove`, `repair`) as a `LockedUseStatus`: `off`,
+  `installing`, `on`, `needsApproval`, `installFailed` (with a reason) or `driftRepairNeeded`
+  (with a reason). Each observation carries a revision so clients drop stale ones. The
+  Settings row shows this state, not the stored setting, and offers Repair on drift.
+- Status comes from a read-only detector (`packages/screen`). It reports `on` only when every
+  component is proven valid: the plug-in is present and signed by the pinned team at the
+  expected version, the `system.login.screensaver` rule contains ace's mechanism as an added
+  alternative, and both root daemons are loaded. Unreadable facts never count as valid.
+- Install, remove and repair are additive and reversible. The privileged step adds ace's
+  alternative to the rule without replacing Apple's mechanisms, and loads the two root
+  daemons. It runs under one macOS administrator authorization. Its result is never trusted:
+  the installer detects again afterwards, and anything short of `on` is a failed install.
+  Removal that leaves anything behind is reported as drift. ace never asks for or stores
+  the login password.
+
+Installing changes this Mac's authorization policy. It therefore requires the person's
+explicit admin approval. The privileged step is also reviewed before it first runs on a
+real Mac; until then the daemon's privileged runner refuses every change.
+
+### Process layout
+
+| Process                          | Runs as                 | Role                                                                                                                      |
+| -------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ace-screen-helper --locked-use` | the person, GUI session | Serialized coordinator, opaque covers, HID input guard, session driver and observer; serves the daemon over a Unix socket |
+| `ace-locked-use-authority`       | root launch daemon      | Owns the `dev.ace.locked-use.authorization` Mach service; forwards the plug-in's queries to the registered coordinator    |
+| `ace-locked-use-guardian`        | root launch daemon      | Independent relock guardian                                                                                               |
+| ace daemon                       | the person              | Decides which turn is approved; drives the service with `begin`, `finish`, `cancel`, `status`, `enable` and `disable`     |
+
+The daemon socket uses frames made of a 4-byte big-endian length followed by JSON. The
+service answers with `reply`, `state`, `completion` and `error` messages. Tools may act only
+while the service reports phase `working`. The full wire format is in the
+[component README](../../native/locked-use/README.md#daemon-transport).
+
+### Protected interval
+
+The engine opens a protected interval only when the setting is on, the component is
+installed and verified, and the session is locked. Inside it, an approved turn's
+`screen_state` and `screen_act` calls may run. The sequence is:
+
+1. Arm the guardian, raise opaque covers on every display, and start the input guard.
+2. The session driver requests `system.login.screensaver` as the unlock candidate. The
+   request's result is never treated as an unlock.
+3. Work starts only after a separate Quartz session observer reports the session unlocked.
+4. On completion, cancellation, any local input, protection loss or session loss, work
+   stops and the driver relocks. The relock path does not depend on the in-process event tap.
+5. Covers come down only after the observer confirms the session is locked again.
+
+The guarantees are:
+
+- **The person always wins.** Physical or unknown input ends the interval at once and
+  pauses automatic unlock until the person unlocks manually.
+- **Relock survives crashes.** The guardian runs as its own root daemon. It relocks when
+  heartbeats stop, the link drops or the owning process exits, so a crash of the helper,
+  daemon or broker still leads to a relock.
+- **Every failure stays locked.** A refused request, a missing or wrongly signed component,
+  a timeout, an unavailable session or an unconfirmed unlock all leave the Mac locked and
+  return a clear error to the agent.
+
+### Still gated on the person
+
+1. Approve and run the privileged install on a real Mac, then confirm the detector reports
+   `on`.
+2. Run a live locked test on that Mac. Only this test can show whether the
+   `system.login.screensaver` request unlocks the session, and whether relock after a
+   guardian-handled crash, display changes and sleep/wake behave as designed.
+
+Until both are done, locked computer use must not be described as working.
