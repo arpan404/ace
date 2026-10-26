@@ -5,12 +5,14 @@ test("a status from a newer daemon keeps fields this client doesn't know", () =>
   const message = ServerMessage.parse({
     type: "lockedUse.changed",
     subscriptionId: "mac",
+    revision: 3,
     status: { state: "installFailed", reason: "Signature mismatch", detail: { code: 7 } },
     extra: true,
   });
   expect(message).toEqual({
     type: "lockedUse.changed",
     subscriptionId: "mac",
+    revision: 3,
     status: { state: "installFailed", reason: "Signature mismatch", detail: { code: 7 } },
   });
 });
@@ -28,6 +30,16 @@ test("a failed state without its reason is rejected", () => {
       requestId: "repair",
       ok: false,
       status: { state: "driftRepairNeeded" },
+    }).success,
+  ).toBe(false);
+});
+
+test("a pushed change without its revision is rejected, so it can't be ordered wrongly", () => {
+  expect(
+    ServerMessage.safeParse({
+      type: "lockedUse.changed",
+      subscriptionId: "mac",
+      status: { state: "on" },
     }).success,
   ).toBe(false);
 });

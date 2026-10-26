@@ -41,6 +41,19 @@ export const LockedUseStatus = z.discriminatedUnion("state", [
 ]);
 export type LockedUseStatus = z.infer<typeof LockedUseStatus>;
 
+/**
+ * Orders observations of this Mac: a later observation always has a higher revision, and the
+ * same revision is the same observation. Revisions restart with the daemon, so a client
+ * compares them only within one connection.
+ */
+export const LockedUseRevision = z.number().int().nonnegative();
+/** One observation of this Mac's state, in the installer's order. */
+export const LockedUseObservation = z.object({
+  revision: LockedUseRevision,
+  status: LockedUseStatus,
+});
+export type LockedUseObservation = z.infer<typeof LockedUseObservation>;
+
 /** Follow the state: a `lockedUse.status` reply, then `lockedUse.changed` pushes. */
 export const LockedUseSubscribe = z.object({
   type: z.literal("lockedUse.subscribe"),
@@ -82,24 +95,28 @@ export const LockedUseStatusMessage = z.object({
   type: z.literal("lockedUse.status"),
   requestId: id,
   subscriptionId: id,
+  revision: LockedUseRevision,
   status: LockedUseStatus,
 });
-/** A later state for a subscription. */
+/** A later state for a subscription; its revision is always above any sent before it. */
 export const LockedUseChanged = z.object({
   type: z.literal("lockedUse.changed"),
   subscriptionId: id,
+  revision: LockedUseRevision,
   status: LockedUseStatus,
 });
 
 export const LockedUseErrorCode = z.enum(["forbidden", "busy", "unavailable", "failed"]);
 /**
- * The reply to install, remove, repair and unsubscribe. `status` is the state afterwards when
- * the daemon could read it; a refusal carries `code` and `reason`.
+ * The reply to install, remove, repair and unsubscribe. `status` is the newest state the daemon
+ * knows afterwards (never older than one already pushed), with its `revision`; a refusal
+ * carries `code` and `reason`.
  */
 export const LockedUseResult = z.object({
   type: z.literal("lockedUse.result"),
   requestId: id,
   ok: z.boolean(),
+  revision: LockedUseRevision.optional(),
   status: LockedUseStatus.optional(),
   code: z.union([LockedUseErrorCode, z.string().max(64)]).optional(),
   reason: reason.optional(),
