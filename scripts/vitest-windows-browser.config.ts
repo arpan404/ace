@@ -47,9 +47,11 @@ const posixOnly = [
   "an oversized stdout line terminates its owned launch",
   "an oversized stderr line terminates its owned launch",
 ];
-/** Windows ARM64 has no Chrome for Testing: ace runs the installed Chrome or Edge, never a download. */
+/**
+ * Windows ARM64 runs an installed Chrome or Edge when it has one, as CI's runner does; its
+ * first-use download is the x64 build ("Windows ARM64: with no browser ace can drive...").
+ */
 const x64Only = [
-  "says ace's Chrome downloads on first use before it has been downloaded",
   "an ace-owned first-use headless browser preserves the public policy, ref, screenshot and log contract",
 ];
 const escape = (name: string) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");

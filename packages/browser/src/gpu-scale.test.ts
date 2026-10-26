@@ -15,29 +15,41 @@ const adreno = {
   },
 };
 
-test("a Windows Chrome that composites in software draws at device scale 1", () => {
-  expect(windowsDeviceScale(basicRender, 2)).toBe(1);
-});
+test.runIf(process.platform === "win32")(
+  "a Windows Chrome that composites in software draws at device scale 1",
+  () => {
+    expect(windowsDeviceScale(basicRender, 2)).toBe(1);
+  },
+);
 
-test("a Windows Chrome on a real GPU keeps the preferred device scale", () => {
-  expect(windowsDeviceScale(adreno, 2)).toBe(2);
-});
+test.runIf(process.platform === "win32")(
+  "a Windows Chrome on a real GPU keeps the preferred device scale",
+  () => {
+    expect(windowsDeviceScale(adreno, 2)).toBe(2);
+  },
+);
 
-test("only Microsoft's software rasterizer counts as no GPU when compositing reports nothing", () => {
-  const warpOnly = { gpu: { devices: [{ vendorId: 0x1414, deviceId: 0x8c }] } };
-  const mixed = {
-    gpu: {
-      devices: [
-        { vendorId: 0x1414, deviceId: 0x8c },
-        { vendorId: 0x10de, deviceId: 1 },
-      ],
-    },
-  };
-  expect(softwareCompositing(warpOnly)).toBe(true);
-  expect(softwareCompositing(mixed)).toBe(false);
-});
+test.runIf(process.platform === "win32")(
+  "only Microsoft's software rasterizer counts as no GPU when compositing reports nothing",
+  () => {
+    const warpOnly = { gpu: { devices: [{ vendorId: 0x1414, deviceId: 0x8c }] } };
+    const mixed = {
+      gpu: {
+        devices: [
+          { vendorId: 0x1414, deviceId: 0x8c },
+          { vendorId: 0x10de, deviceId: 1 },
+        ],
+      },
+    };
+    expect(softwareCompositing(warpOnly)).toBe(true);
+    expect(softwareCompositing(mixed)).toBe(false);
+  },
+);
 
-test("a GPU report that is missing or unreadable keeps the preferred scale", () => {
-  expect(windowsDeviceScale(undefined, 2)).toBe(2);
-  expect(windowsDeviceScale({ gpu: "busy" }, 2)).toBe(2);
-});
+test.runIf(process.platform === "win32")(
+  "a GPU report that is missing or unreadable keeps the preferred scale",
+  () => {
+    expect(windowsDeviceScale(undefined, 2)).toBe(2);
+    expect(windowsDeviceScale({ gpu: "busy" }, 2)).toBe(2);
+  },
+);

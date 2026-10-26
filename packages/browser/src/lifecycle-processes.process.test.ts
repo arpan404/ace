@@ -1,9 +1,12 @@
 import { execFile, spawn } from "node:child_process";
+import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { createServer } from "node:http";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import type { BrowserArtifact } from "@ace/protocol";
 import { chromeProcesses } from "./chrome-test-process.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
@@ -64,8 +67,14 @@ describe.runIf(process.platform === "win32" && executablePath)("Windows browser 
     expect(await f.evaluate("localStorage.getItem('retained')")).toBe("yes");
   }, 120_000);
 
-  it("Windows: a recording saves a timestamped frame manifest beside its player", async () => {
-    const f = await fixture({ ffmpeg: "C:\\nonexistent\\ffmpeg.exe" });
+  it("Windows: a recording saves a timestamped frame manifest beside a player that plays, and reports the artifact", async () => {
+    const artifacts: BrowserArtifact[] = [];
+    const f = await fixture({
+      ffmpeg: "C:\\nonexistent\\ffmpeg.exe",
+      onArtifact: (_, artifact) => {
+        artifacts.push(artifact);
+      },
+    });
     await f.navigate();
     await f.service.startRecording("thread");
     const artifact = await f.service.stopRecording("thread");
@@ -79,6 +88,31 @@ describe.runIf(process.platform === "win32" && executablePath)("Windows browser 
     const first = manifest[0];
     if (!first) throw new Error("Empty manifest");
     expect((await readFile(join(dir, first.file))).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
+    expect(artifacts).toEqual([artifact]);
+    // The player plays its frames when served as a page.
+    const server = createServer((request, response) => {
+      const name = basename(new URL(request.url ?? "/", "http://localhost").pathname);
+      createReadStream(join(dir, name))
+        .on("error", () => {
+          response.statusCode = 404;
+          response.end();
+        })
+        .pipe(response);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("No player address");
+      await f.execute({ action: "navigate", url: `http://127.0.0.1:${address.port}/player.html` });
+      expect(
+        await f.evaluate(
+          `new Promise(resolve=>{const image=document.getElementById('frame');image.onload=()=>resolve(image.naturalWidth);document.getElementById('play').click()})`,
+        ),
+      ).toBeGreaterThan(0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   }, 60_000);
 
   it("Windows: a recording whose encoder process fails falls back to a playable frame sequence", async () => {
@@ -130,6 +164,7 @@ describe.runIf(process.platform === "win32" && executablePath)("Windows browser 
     const { browser, commandLine } = await chromeProcesses(f.home);
     expect(commandLine).toContain("--remote-debugging-pipe");
     expect(commandLine).not.toContain("--remote-debugging-port");
+    expect(existsSync(join(f.home, "browser", "profile", "DevToolsActivePort"))).toBe(false);
     const { stdout } = await exec("netstat", ["-a", "-n", "-o", "-p", "TCP"], {
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,

@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -112,4 +112,109 @@ test.runIf(process.platform === "win32" && executablePath)(
       await rm(home, { recursive: true, force: true }).catch(() => {});
     }
   },
+);
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A stand-in browser that starts a child in its first instant and reports the child's pid. */
+const spawnsAtOnce = `const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+process.stderr.write("child " + child.pid + "\\n");
+setInterval(() => {}, 1000);`;
+
+test.runIf(process.platform === "win32")(
+  "Windows: a child the browser starts at once is inside its job, even when joining the job is slow",
+  async () => {
+    const { chromeJobs } = await import("./chrome-job.ts");
+    const { createRetainedJob } = await import("@ace/provider-kit/process-containment");
+    const profile = await mkdtemp(join(tmpdir(), "ace-browser-gate-"));
+    const jobs = chromeJobs({
+      spawn,
+      // A slow join: without the gate the stand-in would start its child before it.
+      createJob: () => {
+        const job = createRetainedJob();
+        return {
+          ...job,
+          assign(pid) {
+            const until = performance.now() + 750;
+            while (performance.now() < until);
+            job.assign(pid);
+          },
+        };
+      },
+    });
+    const guard = await jobs.guard(profile);
+    const browser = jobs.spawn(
+      process.execPath,
+      ["-e", spawnsAtOnce, `--user-data-dir=${profile}`],
+      {
+        stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
+      },
+    );
+    try {
+      let text = "";
+      const pid = await new Promise<number>((resolve, reject) => {
+        browser.stderr?.on("data", (chunk: Buffer) => {
+          text += chunk.toString();
+          const found = /child (\d+)/.exec(text)?.[1];
+          if (found) resolve(Number(found));
+        });
+        browser.once("exit", () => reject(new Error(`The stand-in exited: ${text}`)));
+      });
+      expect(alive(pid)).toBe(true);
+      // Releasing the job ends every member, the child the stand-in started first included.
+      await guard.close();
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5_000 });
+    } finally {
+      browser.kill();
+      await rm(profile, { recursive: true, force: true }).catch(() => {});
+    }
+  },
+  60_000,
+);
+
+test.runIf(process.platform === "win32")(
+  "Windows: a browser that can't join its job never runs, and its launch fails",
+  async () => {
+    const { chromeJobs } = await import("./chrome-job.ts");
+    const { createRetainedJob } = await import("@ace/provider-kit/process-containment");
+    const profile = await mkdtemp(join(tmpdir(), "ace-browser-gate-"));
+    const marker = join(profile, "ran");
+    const jobs = chromeJobs({
+      spawn,
+      createJob: () => ({
+        ...createRetainedJob(),
+        assign: () => {
+          throw new Error("Windows job assignment failed");
+        },
+      }),
+    });
+    const guard = await jobs.guard(profile);
+    try {
+      expect(() =>
+        jobs.spawn(
+          process.execPath,
+          [
+            "-e",
+            `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran")`,
+            `--user-data-dir=${profile}`,
+          ],
+          { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
+        ),
+      ).toThrow("Windows job assignment failed");
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await expect(stat(marker)).rejects.toThrow();
+    } finally {
+      await guard.close().catch(() => {});
+      await rm(profile, { recursive: true, force: true }).catch(() => {});
+    }
+  },
+  60_000,
 );

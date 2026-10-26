@@ -189,18 +189,17 @@ it("large trace batches cross the real desktop socket without losing target fram
   });
 });
 
-// Windows timers fire at about 15.6 ms granularity, so deadlines shrink 50 times, not 1000.
-const windowsFastClock: RelayClock = {
-  now: () => performance.now(),
-  set(delayMs: number, work: () => void) {
-    const timer = setTimeout(work, delayMs / 50);
-    return () => clearTimeout(timer);
-  },
-};
-
 it.runIf(process.platform === "win32")(
   "Windows: a slow command fails alone without losing the page",
   async () => {
+    // Windows timers fire at about 15.6 ms granularity, so deadlines shrink 50 times, not 1000.
+    const windowsFastClock: RelayClock = {
+      now: () => performance.now(),
+      set(delayMs: number, work: () => void) {
+        const timer = setTimeout(work, delayMs / 50);
+        return () => clearTimeout(timer);
+      },
+    };
     const { session, page, lost } = await setup(windowsFastClock);
     page.hung.add("Runtime.evaluate");
     await expect(

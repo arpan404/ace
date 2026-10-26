@@ -237,8 +237,10 @@ it.runIf(process.platform === "win32" && process.arch === "arm64")(
       timeoutMs: 20_000,
     });
     expect(verdict).toMatchObject({ status: "ok" });
-    // Named by the browser itself (`HeadlessChrome/…`), not the stand-in "Chromium".
-    expect(verdict.message).toMatch(/^\S+\/\d[\d.]* starts headless with its sandbox$/);
+    // Named from its install folder ("chrome 156.0.4314.42"), never by opening a window.
+    expect(verdict.message).toMatch(
+      /^(chrome|msedge) \d+\.\d+\.\d+\.\d+ starts headless with its sandbox$/,
+    );
   },
   60_000,
 );

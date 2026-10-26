@@ -1,7 +1,6 @@
 import { constants } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { access, open, rm, stat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { access, stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 
 /** Throws a sentence for the person unless `path` is an existing folder this app can write. */
 export async function writableFolder(path: string): Promise<void> {
@@ -16,6 +15,9 @@ export async function writableFolder(path: string): Promise<void> {
 
 /** Windows `access` ignores a folder's ACLs: only creating a file there proves it is writable. */
 async function windowsWritable(path: string): Promise<void> {
+  const { randomUUID } = await import("node:crypto");
+  const { open, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
   const probe = join(path, `.ace-write-check-${randomUUID()}`);
   const file = await open(probe, "wx").catch(() => {
     throw new Error(`ace can't save files in ${path}`);

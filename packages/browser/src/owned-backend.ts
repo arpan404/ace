@@ -2,10 +2,7 @@ import { basename, dirname, join } from "node:path";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
 import { installedWindowsChromium } from "./discovery.ts";
-import { chromiumArtifact } from "./chromium-manifest.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
-import { chromeJobs } from "./chrome-job.ts";
-import { probeChromeGpu, windowsDeviceScale } from "./gpu-scale.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { ChromeBackend } from "./headless.ts";
@@ -32,6 +29,7 @@ export function chromeDefaults(
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
 } {
+  const jobs = platform === "win32" ? windowsJobs() : undefined;
   return {
     launch: {
       args: [
@@ -50,9 +48,37 @@ export function chromeDefaults(
           ? async () => ({ close: async () => {} })
           : (profile) => guardChromium(profile),
       // Windows: a kill-on-close job owns each profile's Chrome tree instead.
-      ...(platform === "win32" && chromeJobs(spawnProcess)),
+      ...(jobs && jobs.launch),
     },
-    cleanup: { timeoutMs: 5_000, schedule, kill: chromiumProcessKiller(platform) },
+    cleanup: {
+      timeoutMs: 5_000,
+      schedule,
+      kill: chromiumProcessKiller(platform),
+      ...(jobs && { kill: jobs.kill }),
+    },
+  };
+}
+
+/**
+ * Windows: the required job containment (`chrome-job.ts`), loaded with the first launch so
+ * other platforms never load it. Every launch's `guard` runs before its `spawn`.
+ */
+function windowsJobs() {
+  let jobs: ReturnType<typeof import("./chrome-job.ts").chromeJobs> | undefined;
+  const ready = () => {
+    if (!jobs) throw new Error("ace's Chrome containment is not loaded on Windows");
+    return jobs;
+  };
+  return {
+    launch: {
+      guard: async (profile: string) => {
+        jobs ??= (await import("./chrome-job.ts")).chromeJobs({ spawn: spawnProcess });
+        return jobs.guard(profile);
+      },
+      spawn: ((command, args, options) =>
+        ready().spawn(command, args, options)) satisfies ChromeLaunch["spawn"],
+    },
+    kill: (pid: number) => ready().kill(pid),
   };
 }
 
@@ -81,8 +107,6 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     return error;
   };
   let owned: ChromeBackend | undefined;
-  /** Windows: the device scale, settled once before the first tab. */
-  let scaled: Promise<void> | undefined;
   const backend =
     options.headlessBackend ??
     (owned = new ChromeBackend({
@@ -97,13 +121,15 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         )
           acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
             .catch(() =>
-              acquireChromium({
-                ...options.acquisition,
-                artifact: chromiumArtifact("win32", "x64"),
-                dataDir: options.dataDir,
-                signal,
-                progress,
-              }),
+              import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
+                acquireChromium({
+                  ...options.acquisition,
+                  artifact: chromiumArtifact("win32", "x64"),
+                  dataDir: options.dataDir,
+                  signal,
+                  progress,
+                }),
+              ),
             )
             .catch((error: unknown) => {
               acquiring = undefined;
@@ -134,14 +160,8 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       // unless the embedder chose a scale.
       ...(process.platform === "win32" &&
         options.chrome?.deviceScaleFactor === undefined && {
-          settleLaunch: (_signal, executable) =>
-            (scaled ??= executable()
-              .then((path) => probeChromeGpu(path))
-              .then((info) => {
-                launch.deviceScaleFactor = windowsDeviceScale(info, launch.deviceScaleFactor);
-              })
-              // The browser's own start reports a missing or broken executable.
-              .catch(() => {})),
+          windowsScale: async (gpu: unknown) =>
+            (await import("./gpu-scale.ts")).windowsDeviceScale(gpu, launch.deviceScaleFactor),
         }),
     }));
   return {

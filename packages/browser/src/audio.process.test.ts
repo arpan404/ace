@@ -206,7 +206,15 @@ it.runIf(process.platform === "win32" && executablePath)(
     expect(heard.peak).toBeGreaterThan(0.1);
     expect(heard.pitch).toBeGreaterThan(400);
     expect(heard.pitch).toBeLessThan(480);
+    // Stamped on the video's clock: the newest sound and the newest picture are moments apart.
+    await until(() => listener.video().length > 0);
+    const lastVideo = listener.video().at(-1)?.timestamp ?? 0;
+    const nearest = Math.min(
+      ...listener.audio().map((chunk) => Math.abs(chunk.timestamp - lastVideo)),
+    );
+    expect(nearest).toBeLessThan(250);
     expect(muted.video().length).toBeGreaterThan(0);
+    expect(muted.audio()).toEqual([]);
     expect(muted.audioBytes()).toBe(0);
     await listener.speaker(false);
     await new Promise((resolve) => setTimeout(resolve, 500));

@@ -1,12 +1,8 @@
-import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { expect, it, onTestFinished } from "vitest";
 import { writableFolder } from "./download-folder.ts";
-
-const run = promisify(execFile);
 
 it("the app's downloads folder must be a folder it can write on this computer", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-desktop-downloads-"));
@@ -24,12 +20,21 @@ it("the app's downloads folder must be a folder it can write on this computer", 
 });
 
 it.runIf(process.platform === "win32")(
-  "Windows: a downloads folder whose ACL denies this user writing is refused, and nothing is left in a writable one",
+  "Windows: the downloads folder must be one this user can write, whatever its ACL says",
   async () => {
+    const { execFile } = await import("node:child_process");
+    const { readdir } = await import("node:fs/promises");
+    const { promisify } = await import("node:util");
+    const run = promisify(execFile);
     const root = await mkdtemp(join(tmpdir(), "ace-desktop-downloads-"));
     onTestFinished(() => rm(root, { recursive: true, force: true }));
     await expect(writableFolder(root)).resolves.toBeUndefined();
+    // The write check leaves nothing behind.
     expect(await readdir(root)).toEqual([]);
+    await expect(writableFolder("Downloads")).rejects.toThrow(/folder picker/);
+    await expect(writableFolder(join(root, "missing"))).rejects.toThrow(/isn't a folder/);
+    await writeFile(join(root, "file"), "x");
+    await expect(writableFolder(join(root, "file"))).rejects.toThrow(/isn't a folder/);
     const locked = join(root, "locked");
     await mkdir(locked);
     const user = `${process.env.USERDOMAIN}\\${process.env.USERNAME}`;

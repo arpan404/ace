@@ -148,8 +148,27 @@ export async function connectedBrowser(
  * `%LOCALAPPDATA%` holding each browser's user data root, and unregistered afterwards.
  */
 async function registerWindowsHost(root: string, dataDir: string, cleanups: Cleanups) {
+  const { homedir } = await import("node:os");
+  const { holdNativeHostRegistry, hostRegistry } = await import("./install.ts");
+  // The keys are this user's, so the fixture holds the product's own per-user lock throughout.
+  const release = await holdNativeHostRegistry({
+    platform: "win32",
+    home: homedir(),
+    env: { LOCALAPPDATA: process.env.LOCALAPPDATA },
+  });
+  cleanups.push(release);
   const env = { LOCALAPPDATA: join(root, "local") };
-  for (const target of windowsHostKeys(root, env)) await mkdir(target.root, { recursive: true });
+  const targets = windowsHostKeys(root, env);
+  for (const target of targets) await mkdir(target.root, { recursive: true });
+  // Whatever this user had registered comes back afterwards.
+  const keys = targets.map((target) => target.key);
+  const prior = await hostRegistry.read(keys);
+  cleanups.push(async () => {
+    for (const [index, key] of keys.entries()) {
+      const value = prior[index];
+      if (value !== undefined) await hostRegistry.write([key], value);
+    }
+  });
   const options = { platform: "win32" as const, home: root, dataDir, env };
   cleanups.push(() => uninstallNativeHost(options));
   await installNativeHost({ ...options, node: process.execPath });
