@@ -49,6 +49,7 @@ export class SafeRoot {
     runtime: WorkspaceRuntime = workspaceRuntime(),
   ): Promise<SafeRoot> {
     try {
+      if (process.platform === "win32") windowsRootRequest(root);
       const fs = runtime.filesystem;
       const canonical = await fs.realpath(root);
       const descriptor = openRoot(canonical);
@@ -99,6 +100,8 @@ export class SafeRoot {
       }
       return resolved;
     } catch (error) {
+      if (process.platform === "win32" && errorCode(error) === "ENOENT")
+        await this.windowsFileParent(path);
       if (errorCode(error) === "EINVAL")
         throw new WorkspaceError(
           "PATH_CHANGED",
@@ -106,6 +109,25 @@ export class SafeRoot {
           error,
         );
       throw failure(error);
+    }
+  }
+  /**
+   * Win32 reports a file used as a folder ("a.txt/b") as missing, where POSIX says ENOTDIR.
+   * Throws NOT_DIRECTORY when an existing component before the leaf is not a directory.
+   */
+  private async windowsFileParent(path: string): Promise<void> {
+    const parts = path.split("/").filter(Boolean);
+    let prefix = this.root;
+    for (const part of parts.slice(0, -1)) {
+      prefix = join(prefix, part);
+      let info: Stats;
+      try {
+        info = await this.fs.stat(prefix);
+      } catch {
+        return;
+      }
+      if (!info.isDirectory())
+        throw new WorkspaceError("NOT_DIRECTORY", "A parent of the path is not a directory");
     }
   }
   async verify(input: string, resolved: string, expected: Stats): Promise<void> {
@@ -312,6 +334,16 @@ export class SafeRoot {
       await handle?.close();
     }
   }
+}
+/** Win32: projects open from a local drive; network shares and device paths are refused. */
+function windowsRootRequest(root: string): void {
+  if (/^[\\/]{2}[?.][\\/]|^\\\?\?\\/.test(root))
+    throw new WorkspaceError("INVALID_PATH", `Device paths can't be opened as projects: ${root}`);
+  if (/^[\\/]{2}/.test(root))
+    throw new WorkspaceError(
+      "INVALID_PATH",
+      `Network folders (\\\\server\\share) can't be opened as projects; clone or copy it to a local drive: ${root}`,
+    );
 }
 export function transferTemporary(path: string): boolean {
   if (process.platform === "win32") return windowsTransferTemporary(path);
