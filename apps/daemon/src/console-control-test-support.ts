@@ -38,7 +38,7 @@ const show = user.func("int __stdcall ShowWindow(void* window, int command)");
 const handler = kernel.func("int __stdcall SetConsoleCtrlHandler(void* routine, int add)");
 const generate = kernel.func("int __stdcall GenerateConsoleCtrlEvent(uint event, uint group)");
 const lastError = kernel.func("uint __stdcall GetLastError()");
-const step = (text) => process.stderr.write(text + "\n");
+const step = (text) => process.stderr.write(text + "\\n");
 if (!alloc()) report({ error: "AllocConsole failed " + lastError() });
 step("console allocated");
 show(consoleWindow(), 0);
