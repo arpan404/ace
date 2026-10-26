@@ -38,6 +38,14 @@ function deadline(operation: UserBrowserOperation): number {
   return 30_000;
 }
 
+/**
+ * Chrome refuses a tab's commands while its page moves between renderer processes (a fresh tab's
+ * first navigation, a cross-site one). A refused command never ran, so it is sent again once the
+ * tab reports progress (an event or a new tab state) or after a short wait, within a budget.
+ */
+const betweenProcesses = "Not attached to an active page";
+const refusedRetryMs = [50, 100, 200, 400, 800, 1_600, 3_200];
+
 interface Waiter {
   resolve(value: unknown): void;
   reject(error: Error): void;
@@ -47,7 +55,7 @@ interface Waiter {
 /**
  * One connected browser profile (ADR 0084): correlates commands with replies, routes CDP events
  * to the tab they belong to, and reports a tab's or the whole link's loss. Every command has a
- * deadline; the link never replays one.
+ * deadline; the link never replays one the browser may have run.
  */
 export class UserChromeLink {
   readonly connectionId: string;
@@ -198,18 +206,33 @@ export class UserChromeLink {
       frames.clear();
       detachedListeners.clear();
     };
+    const once = (
+      sessionId: string | undefined,
+      method: string,
+      params?: Record<string, unknown>,
+    ) =>
+      detached
+        ? Promise.reject(new Error("This tab is no longer shared with ace"))
+        : this.command({
+            op: "cdp",
+            tabId,
+            ...(sessionId === undefined ? {} : { sessionId }),
+            method,
+            ...(params ? { params } : {}),
+          });
     const send =
       (sessionId?: string): BrowserCdp["send"] =>
-      (method, params) =>
-        detached
-          ? Promise.reject(new Error("This tab is no longer shared with ace"))
-          : this.command({
-              op: "cdp",
-              tabId,
-              ...(sessionId === undefined ? {} : { sessionId }),
-              method,
-              ...(params ? { params } : {}),
-            });
+      async (method, params) => {
+        for (const wait of refusedRetryMs) {
+          try {
+            return await once(sessionId, method, params);
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== betweenProcesses) throw error;
+          }
+          await this.progress(tabId, wait);
+        }
+        return once(sessionId, method, params);
+      };
     return {
       tabId,
       ...surface(listeners, send()),
@@ -225,6 +248,19 @@ export class UserChromeLink {
       },
       dispose,
     };
+  }
+  /** Resolves on the tab's next event, a new tab list, its detach, the link closing, or `wait`. */
+  private progress(tabId: number, wait: number): Promise<void> {
+    return new Promise((resolve) => {
+      const names = [`cdp:${tabId}`, `detached:${tabId}`, "tabs", "closed"];
+      const done = () => {
+        stopTimer();
+        for (const name of names) this.events.off(name, done);
+        resolve();
+      };
+      const stopTimer = this.clock.set(wait, done);
+      for (const name of names) this.events.on(name, done);
+    });
   }
   /** The socket closed or the credential was revoked: every command and tab on it fails. */
   close(reason: string): void {

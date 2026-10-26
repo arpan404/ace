@@ -97,3 +97,68 @@ test("events reach only the tab they belong to, and a detach ends that tab alone
   expect(seen).toEqual(["two"]);
   expect(lost).toEqual(["one:closed"]);
 });
+
+/** Lets every pending promise reaction run. */
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+/** The id of the last command sent, after the link has had a turn to send it. */
+async function lastCommand(wire: ReturnType<typeof transport>): Promise<string> {
+  await settled();
+  const message = wire.sent.at(-1);
+  if (message?.type !== "user_browser.command") throw new Error("expected a command");
+  return message.id;
+}
+const refused = "Not attached to an active page";
+
+test("a tab command Chrome refuses while the page changes processes runs once the page arrives", async () => {
+  const clock = manualClock();
+  const hub = new UserChromeHub({ now: () => 1, clock });
+  const wire = transport();
+  const link = hub.register(browser("p"), wire);
+  const shot = link.tab(7).send("Page.captureScreenshot", { format: "png" });
+  link.handle({
+    type: "user_browser.reply",
+    id: await lastCommand(wire),
+    ok: false,
+    error: refused,
+  });
+  await settled();
+  const before = wire.sent.length;
+  // The new page commits: the extension reports the tab at its new address.
+  link.handle({ type: "user_browser.event", event: { kind: "tabs", tabs: [] } });
+  const retried = await lastCommand(wire);
+  expect(wire.sent.length).toBe(before + 1);
+  link.handle({ type: "user_browser.reply", id: retried, ok: true, result: { data: "png" } });
+  await expect(shot).resolves.toEqual({ data: "png" });
+});
+
+test("a tab command Chrome keeps refusing fails in the end, and other failures are never resent", async () => {
+  const clock = manualClock();
+  const hub = new UserChromeHub({ now: () => 1, clock });
+  const wire = transport();
+  const link = hub.register(browser("p"), wire);
+  const tab = link.tab(7);
+  const stuck = tab.send("Page.captureScreenshot");
+  let sends = 0;
+  for (;;) {
+    const id = await lastCommand(wire);
+    if (wire.sent.length === sends) break;
+    sends = wire.sent.length;
+    link.handle({ type: "user_browser.reply", id, ok: false, error: refused });
+    await settled();
+    clock.advance(5_000);
+  }
+  await expect(stuck).rejects.toThrow(refused);
+  expect(sends).toBeLessThan(12);
+
+  const denied = tab.send("Network.getAllCookies");
+  const before = wire.sent.length;
+  link.handle({
+    type: "user_browser.reply",
+    id: await lastCommand(wire),
+    ok: false,
+    error: "ace for Chrome does not allow Network.getAllCookies",
+  });
+  await expect(denied).rejects.toThrow(/does not allow/);
+  clock.advance(5_000);
+  expect(wire.sent.length).toBe(before);
+});
