@@ -115,7 +115,9 @@ export async function runProtectedAttempt<T>(
     throw refused(error);
   }
   const { attemptID, scheduler } = attempt;
-  let stage: "begin" | "starting" | "working" | "finishing" | "done" = "begin";
+  // stopping: the service ended the interval on its own and is relocking; its completion
+  // carries the reason.
+  let stage: "begin" | "starting" | "working" | "stopping" | "finishing" | "done" = "begin";
   let failure: LockedUseAttemptError | undefined;
   const working = Promise.withResolvers<void>();
   const completed = Promise.withResolvers<void>();
@@ -132,17 +134,22 @@ export async function runProtectedAttempt<T>(
     completed.reject(error);
     abort.abort(error);
   };
+  // States that arrive before the begin reply is read; replayed after it, in wire order.
+  const early: LockedUseServiceStatus[] = [];
   const observe = (next: LockedUseServiceStatus) => {
     const ours = next.attemptID === attemptID;
-    if (stage === "begin" || stage === "starting") {
+    if (stage === "begin") early.push(next);
+    else if (stage === "starting") {
       if (next.phase === "working" && ours) {
         stage = "working";
         working.resolve();
-      } else if (stage === "starting" && !(starting.has(next.phase) && ours))
-        fail(phaseFailure(next.phase));
+      } else if (!(starting.has(next.phase) && ours)) fail(phaseFailure(next.phase));
     } else if (stage === "working") {
-      if (next.phase !== "working" || !ours) fail(phaseFailure(next.phase));
-    } else if (stage === "finishing") {
+      if (next.phase === "relocking" && ours) {
+        stage = "stopping";
+        abort.abort();
+      } else if (next.phase !== "working" || !ours) fail(phaseFailure(next.phase));
+    } else if (stage === "stopping" || stage === "finishing") {
       if (next.phase === "faulted" || next.phase === "manualUnlockRequired")
         fail(phaseFailure(next.phase));
     }
@@ -195,8 +202,8 @@ export async function runProtectedAttempt<T>(
           },
           agentProcessIDs: attempt.agentProcessIDs,
         });
-        if (stage === "begin") stage = "starting";
-        if (begun) observe(begun);
+        stage = "starting";
+        for (const next of [...(begun ? [begun] : []), ...early.splice(0)]) observe(next);
       } catch (error) {
         fail(refused(error));
       }
@@ -217,6 +224,17 @@ export async function runProtectedAttempt<T>(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error }),
     );
+    if (stage === "stopping" && !failure) {
+      // Never a success: wait for the completion's reason (a takeover, an expiry).
+      deadline(
+        attempt.relockTimeoutMs ?? 30_000,
+        new LockedUseAttemptError(
+          "locked_use_relock_unconfirmed",
+          "Locked computer use stopped, and the Mac's relock was not confirmed. Stop computer actions and tell the person.",
+        ),
+      );
+      await completed.promise.catch(() => {});
+    }
     if (failure) {
       cancel();
       throw failure;
