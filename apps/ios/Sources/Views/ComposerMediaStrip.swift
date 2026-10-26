@@ -47,9 +47,10 @@ private struct ComposerMediaThumb: View {
     let open: () -> Void
     let remove: () -> Void
     static let side: CGFloat = 56
-    /// How far Remove's 44pt target reaches past the thumbnail's corner, its small X centred
-    /// where it is drawn.
-    static let reach: CGFloat = AceTheme.Dimensions.touchTarget / 2 - 11
+    /// Remove answers a 44pt square over the thumbnail's top-right corner that reaches `reach`
+    /// past it, so it never covers the middle, where a tap opens the picture.
+    static let target: CGFloat = 44
+    static let reach: CGFloat = 20
     @Environment(\.displayScale) private var scale
     @State private var image: UIImage?
     @State private var unreadable = false
@@ -86,7 +87,9 @@ private struct ComposerMediaThumb: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: 18, height: 18)
                     .background(AceTheme.Colours.background.opacity(0.8), in: Circle())
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                    // The X sits inside the thumbnail's corner, at the target's lower left.
+                    .padding(.leading, 5).padding(.bottom, 5)
+                    .frame(width: Self.target, height: Self.target, alignment: .bottomLeading)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
