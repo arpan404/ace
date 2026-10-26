@@ -12,8 +12,10 @@ import LockedUseTransport
 /// without a verified installation every begin request is refused.
 ///
 /// The spawning daemon writes its token line to stdin first and keeps stdin open. Only a
-/// connection whose hello carries that token is served. EOF on stdin, SIGTERM, SIGINT or
-/// SIGHUP stop any attempt, request relock, and exit once the lock is confirmed.
+/// connection from that same daemon process (the kernel-attested peer must be this
+/// process's parent) that completes the challenge handshake is served; the token itself
+/// never crosses the socket. EOF on stdin, SIGTERM, SIGINT or SIGHUP stop any attempt,
+/// request relock, and exit once the lock is confirmed.
 @MainActor public enum LockedUseServiceHost {
     public static func run(arguments: [String]) -> Never {
         guard let index = arguments.firstIndex(of: "--socket"), index + 1 < arguments.count else {
@@ -62,7 +64,7 @@ import LockedUseTransport
             coordinator: service.coordinator)
         var listener: LockedUseSocketServer?
         let server = LockedUseSocketServer(path: path, queue: queue) { fd in
-            // Nothing is served, and no state is sent, until the hello carries the token.
+            // Nothing is served, and no state is sent, until the daemon proves the token.
             LockedUseDaemonLink(fd: fd, queue: queue, token: token, onAuthenticated: { outbox.connection = $0 },
                 onRequest: { frame in
                     DispatchQueue.main.async { MainActor.assumeIsolated { service.handle(frame) } }

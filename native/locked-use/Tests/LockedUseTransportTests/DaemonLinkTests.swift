@@ -25,7 +25,7 @@ final class DaemonLinkTests: XCTestCase {
         var wait = timeval(tv_sec: 2, tv_usec: 0)
         setsockopt(fds[1], SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
         let recorder = recorder
-        link = LockedUseDaemonLink(fd: fds[0], queue: queue, token: LockedUseDaemonToken(hex: secret)!,
+        link = LockedUseDaemonLink(fd: fds[0], queue: queue, token: LockedUseDaemonToken(hex: secret)!, nonce: { serviceNonce },
             after: { [unowned self] _, queue, body in timeouts.append { queue.async(execute: body) } },
             onAuthenticated: onAuthenticated, onRequest: recorder.request, onClose: recorder.close)
         link?.start()
@@ -50,11 +50,18 @@ final class DaemonLinkTests: XCTestCase {
         return (frames, false)
     }
 
-    func testAPeerWithTheTokenIsServedAndItsCloseIsReportedAsTheDaemons() throws {
+    let hello = #"{"v":1,"id":"h1","type":"hello","nonce":"\#(daemonNonce)"}"#
+    let prove = #"{"v":1,"id":"h2","type":"prove","proof":"\#(daemonProof)"}"#
+
+    func testAPeerThatProvesTheTokenIsServedAndItsCloseIsReportedAsTheDaemons() throws {
         let fd = open(onAuthenticated: { $0.send(Data(#"{"type":"state"}"#.utf8)) })
-        try write(fd, #"{"v":1,"id":"h1","type":"hello","token":"\#(secret)"}"#)
+        try write(fd, hello)
+        let challenge = readAll(fd, frames: 1).frames
+        XCTAssertEqual(challenge.count, 1)
+        XCTAssertTrue(challenge[0].contains(#""proof":"\#(serviceProof)""#), "The service proves itself before the daemon does")
+        try write(fd, prove)
         try write(fd, #"{"v":1,"id":"r1","type":"status"}"#)
-        XCTAssertEqual(readAll(fd, frames: 2).frames, [#"{"id":"h1","ok":true,"type":"reply","v":1}"#, #"{"type":"state"}"#])
+        XCTAssertEqual(readAll(fd, frames: 2).frames, [#"{"id":"h2","ok":true,"type":"reply","v":1}"#, #"{"type":"state"}"#])
         queue.sync {}
         XCTAssertEqual(recorder.snapshot.0, [#"{"v":1,"id":"r1","type":"status"}"#])
         close(fd)
@@ -64,18 +71,18 @@ final class DaemonLinkTests: XCTestCase {
         XCTAssertEqual(recorder.snapshot.1, [true])
     }
 
-    func testAWrongTokenIsRefusedClosedAndNeverServed() throws {
+    func testAWrongProofIsRefusedClosedAndNeverServed() throws {
         let fd = open()
         defer { close(fd) }
-        let wrong = String(secret.dropLast()) + "0"
-        try write(fd, #"{"v":1,"id":"h1","type":"hello","token":"\#(wrong)"}"#)
-        // Even the right token afterwards gets no second chance on this connection.
-        try write(fd, #"{"v":1,"id":"h2","type":"hello","token":"\#(secret)"}"#)
+        try write(fd, hello)
+        try write(fd, #"{"v":1,"id":"h2","type":"prove","proof":"\#(serviceProof)"}"#)
+        // Even the right proof afterwards gets no second chance on this connection.
+        try write(fd, prove)
         try write(fd, #"{"v":1,"id":"r2","type":"enable","optIn":true}"#)
         let result = readAll(fd)
         XCTAssertTrue(result.closed)
-        XCTAssertEqual(result.frames.count, 1)
-        XCTAssertTrue(result.frames[0].contains(#""code":"unauthorized""#))
+        XCTAssertEqual(result.frames.count, 2)
+        XCTAssertTrue(result.frames[1].contains(#""code":"unauthorized""#))
         queue.sync {}
         XCTAssertEqual(recorder.snapshot.0, [])
         XCTAssertEqual(recorder.snapshot.1, [false], "A refused peer is not the daemon; its close stops nothing")
@@ -105,8 +112,9 @@ final class DaemonLinkTests: XCTestCase {
     func testTheDeadlineDoesNotDropAnAuthenticatedDaemon() throws {
         let fd = open()
         defer { close(fd) }
-        try write(fd, #"{"v":1,"id":"h1","type":"hello","token":"\#(secret)"}"#)
-        XCTAssertEqual(readAll(fd, frames: 1).frames.count, 1)
+        try write(fd, hello)
+        try write(fd, prove)
+        XCTAssertEqual(readAll(fd, frames: 2).frames.count, 2)
         timeouts.forEach { $0() }
         queue.sync {}
         try write(fd, #"{"v":1,"id":"r1","type":"status"}"#)

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Service → daemon messages, each `{"v":1,"type":…}`:
+/// Service → daemon messages, each `{"v":1,"type":…}` (the handshake's replies are in
+/// Handshake.swift):
 ///
 ///     {"v":1,"type":"reply","id":"r1","ok":true,"status":{…}}
 ///     {"v":1,"type":"reply","id":"r4","ok":false,"error":{"code":"not_locked","message":"…"}}
@@ -54,6 +55,8 @@ public struct LockedUseWireError: Codable, Equatable, Sendable {
 
 public enum LockedUseOutbound: Equatable, Sendable {
     case reply(id: String, status: LockedUseStatus?)
+    /// The service's answer to the hello: its nonce and its proof (see Handshake.swift).
+    case challenge(id: String, nonce: String, proof: String)
     case failure(id: String, LockedUseWireError)
     case state(LockedUseStatus)
     case completion(attemptID: String, threadID: String, turnID: String, reason: String, workError: String?)
@@ -70,7 +73,9 @@ private struct Wire: Encodable {
     let message: LockedUseOutbound
     init(_ message: LockedUseOutbound) { self.message = message }
 
-    enum Key: String, CodingKey { case v, type, id, ok, status, error, attemptID, threadID, turnID, reason, workError, code, message }
+    enum Key: String, CodingKey {
+        case v, type, id, ok, status, error, attemptID, threadID, turnID, reason, workError, code, message, nonce, proof
+    }
 
     func encode(to encoder: Encoder) throws {
         var out = encoder.container(keyedBy: Key.self)
@@ -81,6 +86,12 @@ private struct Wire: Encodable {
             try out.encode(id, forKey: .id)
             try out.encode(true, forKey: .ok)
             try out.encodeIfPresent(status, forKey: .status)
+        case .challenge(let id, let nonce, let proof):
+            try out.encode("reply", forKey: .type)
+            try out.encode(id, forKey: .id)
+            try out.encode(true, forKey: .ok)
+            try out.encode(nonce, forKey: .nonce)
+            try out.encode(proof, forKey: .proof)
         case .failure(let id, let error):
             try out.encode("reply", forKey: .type)
             try out.encode(id, forKey: .id)
