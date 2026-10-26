@@ -109,13 +109,13 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             .padding(.horizontal, big ? AceTheme.Spacing.lg : AceTheme.Spacing.xs)
     }
     private var action: some View {
-        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, size: ComposerControlRow.height + AceTheme.Spacing.xs) {
+        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, glyph: glyph, size: ComposerControlRow.height + AceTheme.Spacing.xs) {
             feedback += 1
             if stops { stop() } else { submit(alternate: false) }
         }
         .contextMenu {
             if !empty, let alternate = controls?.alternate {
-                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowElbowDownRight : .queue) { submit(alternate: true) }
+                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowBendUpRight : .queue) { submit(alternate: true) }
             }
         }
         // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
@@ -128,6 +128,11 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         if stops { return stopping ? "Stopping the agent tree" : "Stop whole agent tree" }
         if controls?.busy == true { return controls?.delivery == "steer" ? "Steer the running turn" : "Queue for after this turn" }
         return "Send message"
+    }
+    /// What a typed message does now, in the web's glyphs: Steer or Queue while the agent works.
+    private var glyph: AceIcon.Name {
+        guard controls?.busy == true, !empty else { return .arrowUp }
+        return controls?.delivery == "steer" ? .arrowBendUpRight : .queue
     }
     private func submit(alternate: Bool) {
         Task { await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in await send(text, delivery == "alternate") } }
