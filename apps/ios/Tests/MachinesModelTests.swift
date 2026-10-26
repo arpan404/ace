@@ -229,6 +229,45 @@ import Testing
         #expect(relaunch.sessions.started.allSatisfy { !$0.stopped })
     }
 
+    @Test func rowsWearAMachinesMarkOnlyBesideAnotherMachineAndEachProjectsLookFromItsOwnMachine() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let (studio, laptop) = (fixture.sessions.started[0], fixture.sessions.started[1])
+        studio.emit(#"[{"type":"machine.identity","glyph":"hard-drives"},{"type":"project.look","id":"relay","look":{"image":null,"glyph":"rocket"}}]"#)
+        laptop.emit(#"[{"type":"project.look","id":"site","look":{"image":null,"glyph":"no-such-icon"}}]"#)
+        let inbox = fixture.model.inbox
+        // Frames decode off the main thread: wait until both machines' have landed.
+        await settle { inbox.client("studio")?.projectLooks["relay"] != nil && inbox.client("laptop")?.projectLooks["site"] != nil }
+        #expect(inbox.mark("studio") == MachineMark(name: "Studio", glyph: .hardDrives))
+        // A machine that hasn't said wears a laptop.
+        #expect(inbox.mark("laptop")?.glyph == .laptop)
+        #expect(inbox.projectLook(InboxKey(machineId: "studio", id: "t1"), workspace: "relay")?.glyph == .rocket)
+        // The same project id on another machine is that machine's own project.
+        #expect(inbox.projectLook(InboxKey(machineId: "laptop", id: "t1"), workspace: "relay") == nil)
+        // A glyph this app can't draw falls back to the row's initials.
+        #expect(inbox.projectLook(InboxKey(machineId: "laptop", id: "t1"), workspace: "site")?.glyph == nil)
+        studio.emit(#"[{"type":"project.look","id":"relay","look":null}]"#)
+        await settle { inbox.client("studio")?.projectLooks["relay"] == nil }
+        #expect(inbox.projectLook(InboxKey(machineId: "studio", id: "t1"), workspace: "relay") == nil)
+
+        // The mark outlives the connection: the next launch draws it before the machine answers.
+        inbox.recordSeen()
+        let relaunched = MachineInbox(defaults: fixture.defaults, now: { 9_000 })
+        relaunched.attach("studio", name: "Studio", client: ClientModel(now: { 9_000 }))
+        relaunched.attach("laptop", name: "Laptop", client: ClientModel(now: { 9_000 }))
+        #expect(relaunched.mark("studio")?.glyph == .hardDrives)
+    }
+
+    @Test func aSingleMachinesRowsWearNoMachineMark() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        fixture.sessions.started[0].emit(#"[{"type":"machine.identity","glyph":"hard-drives"}]"#)
+        await settle { fixture.model.inbox.client("studio")?.machineGlyph != nil }
+        #expect(fixture.model.inbox.mark("studio") == nil)
+    }
+
     @Test func aMachineTheDirectoryNoLongerListsStopsAfterARelaunchAndANewOneConnects() async throws {
         let first = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { first.cleanUp() }
@@ -252,6 +291,10 @@ import Testing
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)
     }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
+    /// Waits, briefly, for frames decoded off the main thread to apply.
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(2)) }
+    }
     /// A runtime's connection, one inbox row with the shared status, and its section and rank.
     private func patches(connection: String, row: (id: String, section: String, label: String, token: String), rank: String,
                          problem: String = "null") -> String {
