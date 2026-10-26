@@ -255,3 +255,38 @@ test("a device type that sizes its screen nowhere has no look", async () => {
   });
   expect(await readSimulatorChrome(source(bundle), deviceType)).toBeUndefined();
 });
+
+test("a composite drawn for a screen of the same shape but another size is the body, its opening the screen", async () => {
+  const bundle = install();
+  const resources = join(root, "Chrome/testphone.devicechrome/Contents/Resources");
+  // 390 × 844 points shown, but drawn around a 360 × 779 opening with 22-unit margins (the
+  // shape is the same to within a tenth of a percent).
+  writeFileSync(join(resources, "Whole.pdf"), black(404, 823));
+  const file = join(resources, "chrome.json");
+  const json = JSON.parse(Buffer.from((await readSmallFile(file)) ?? []).toString("utf8"));
+  json.images.composite = "Whole";
+  writeFileSync(file, JSON.stringify(json));
+
+  const chrome = await readSimulatorChrome(source(bundle), deviceType);
+
+  expect(chrome?.body).toMatchObject({ width: 404, height: 823 });
+  expect(chrome?.screen).toEqual({ x: 22, y: 22, width: 360, height: 779 });
+  // The notch is drawn to the body's scale, still centred on the screen.
+  const notch = chrome?.cutout?.rect;
+  expect((notch?.x ?? 0) * 2 + (notch?.width ?? 0)).toBeCloseTo(22 * 2 + 360);
+  expect(notch?.width).toBeCloseTo((176 * 360) / 390);
+});
+
+test("a side button drawn across the edge it stands on is turned to lie along it", async () => {
+  const bundle = install();
+  // The volume button on the left edge, drawn 64 wide and 16 tall: for a body turned a quarter.
+  writeFileSync(
+    join(root, "Chrome/testphone.devicechrome/Contents/Resources/Vol.pdf"),
+    black(64, 16),
+  );
+
+  const chrome = await readSimulatorChrome(source(bundle), deviceType);
+
+  const volume = chrome?.buttons.find((button) => button.name === "volume-up");
+  expect(volume?.rect).toEqual({ x: -8, y: 221, width: 16, height: 64 });
+});

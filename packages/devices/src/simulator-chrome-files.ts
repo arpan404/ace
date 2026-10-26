@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { DeviceChrome, DevicePosture } from "@ace/protocol/devices";
 import { SimulatorChromeFile, simulatorChrome, type ArtReader } from "./simulator-chrome.ts";
+import type { BodyPainter } from "./simulator-body.ts";
 import { SimulatorProfile, shownPanel, simulatorPanels } from "./simulator-panels.ts";
 
 /*
@@ -20,6 +21,8 @@ export interface SimulatorChromeSource {
   readFile(path: string): Promise<Uint8Array | undefined>;
   /** Directories holding `*.devicechrome` bundles, searched in order. */
   chromeRoots: readonly string[];
+  /** Paints a body built from a chrome's pieces; SVG when absent. */
+  paintBody?: BodyPainter;
 }
 
 const DeviceTypes = z.object({
@@ -93,5 +96,5 @@ export async function readSimulatorChrome(
     const directory = from === "profile" ? resources : join(chrome.directory, "Contents/Resources");
     return source.readFile(join(directory, `${name}.pdf`));
   };
-  return simulatorChrome(panel, chrome.file, read);
+  return simulatorChrome(panel, chrome.file, read, source.paintBody);
 }
