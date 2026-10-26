@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { matchesChord } from "./hotkeys.ts";
 import {
   bindingsFor,
@@ -8,14 +8,7 @@ import {
   resolveKeymap,
   type KeyboardEnv,
 } from "./keybindings.ts";
-import {
-  describeKeys,
-  formatChordParts,
-  formatKeys,
-  keymapIds,
-  parseChord,
-  type KeymapId,
-} from "./keymap.ts";
+import { keymapIds, parseChord, type KeymapId } from "./keymap.ts";
 
 const platforms: [string, KeyboardEnv][] = [
   ["macOS app", { apple: true, web: false }],
@@ -136,13 +129,21 @@ test("rebindings of unknown or fixed shortcuts are ignored", () => {
   expect(resolved.palette).toBe("shift+mod+y");
 });
 
-test("Windows labels put Ctrl first, then Shift, then Alt, as its own menus do", () => {
-  expect(formatKeys("shift+mod+n", false, true)).toBe("Ctrl+Shift+N");
-  expect(formatKeys("alt+shift+mod+r", false, true)).toBe("Ctrl+Shift+Alt+R");
-  expect(formatKeys("mod++", false, true)).toBe("Ctrl++");
-  expect(formatKeys("g h", false, true)).toBe("G H");
-  expect(formatChordParts("shift+mod+k", false, true)).toEqual(["Ctrl", "Shift", "K"]);
-  expect(describeKeys("shift+mod+n", false, true)).toBe("Ctrl+Shift+N");
-  // Apple platforms keep their own glyph order whatever the flag says.
-  expect(formatKeys("shift+mod+n", true, true)).toBe("⇧⌘N");
+test("in a Windows app or browser, labels put Ctrl first, then Shift, then Alt", async () => {
+  vi.resetModules();
+  vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron" });
+  try {
+    const windows = await import("./keymap.ts");
+    expect(windows.formatKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+    expect(windows.formatKeys("alt+shift+mod+r")).toBe("Ctrl+Shift+Alt+R");
+    expect(windows.formatKeys("mod++")).toBe("Ctrl++");
+    expect(windows.formatKeys("g h")).toBe("G H");
+    expect(windows.formatChordParts("shift+mod+k")).toEqual(["Ctrl", "Shift", "K"]);
+    expect(windows.describeKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+    // Asked for Apple glyphs, the order stays Apple's.
+    expect(windows.formatKeys("shift+mod+n", true)).toBe("⇧⌘N");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
 });

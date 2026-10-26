@@ -10,7 +10,12 @@ import {
 import { installMainWindowDownloads } from "./downloads.ts";
 import { navigationDecision } from "./navigation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
+import {
+  macTitleBarCss,
+  titleBarSymbolColor,
+  windowOptions,
+  windowsTitleBarCss,
+} from "./options.ts";
 import { linuxShowGraceMs, showWhenReady } from "./show-when-ready.ts";
 import { timers } from "../os/timers.ts";
 
@@ -101,6 +106,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   contents.on("did-navigate", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("dom-ready", () => {
     if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss).catch(() => {});
+    if (process.platform === "win32") void contents.insertCSS(windowsTitleBarCss).catch(() => {});
   });
   // Light and dark can change while ace runs; the window behind the page follows.
   const themeChanged = () => {
