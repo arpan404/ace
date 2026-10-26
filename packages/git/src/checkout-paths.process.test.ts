@@ -11,11 +11,6 @@ async function exists(path: string): Promise<boolean> {
   );
 }
 
-const show = (step: string) => (error: unknown) => {
-  const details = error && typeof error === "object" && "details" in error ? error.details : {};
-  throw new Error(`${step}: ${String(error)} ${JSON.stringify(details)}`);
-};
-
 describe.runIf(process.platform === "win32")("Windows checkouts", () => {
   test("a git.exe committed inside the checkout never runs in place of the person's Git", async () => {
     const repo = await repository();
@@ -57,52 +52,40 @@ describe.runIf(process.platform === "win32")("Windows checkouts", () => {
     const worktree = join(await scratch(), "crlf");
     const service = new GitService();
     try {
-      await service
-        .createWorktree({ repo, path: worktree, baseRef: "HEAD", branch: "crlf" })
-        .catch(show("create"));
+      await service.createWorktree({ repo, path: worktree, baseRef: "HEAD", branch: "crlf" });
       expect(await readFile(join(worktree, "keep.txt"), "utf8")).toBe("keep\r\n");
       expect(
         (
-          await service
-            .diff({
-              worktree,
-              from: { kind: "commit", ref: "HEAD" },
-              to: { kind: "working-tree" },
-            })
-            .catch(show("diff1"))
+          await service.diff({
+            worktree,
+            from: { kind: "commit", ref: "HEAD" },
+            to: { kind: "working-tree" },
+          })
         ).entries,
       ).toEqual([]);
       await writeFile(join(worktree, "lines.txt"), "one\r\nchanged\r\n");
-      const checkpoint = await service
-        .createCheckpoint({
-          worktree,
-          threadId: "crlf",
-          label: "turn",
-        })
-        .catch(show("checkpoint"));
+      const checkpoint = await service.createCheckpoint({
+        worktree,
+        threadId: "crlf",
+        label: "turn",
+      });
       await writeFile(join(worktree, "lines.txt"), "later\r\n");
-      await service
-        .restoreCheckpoint({ worktree, checkpoint: checkpoint.id })
-        .catch(show("restore"));
+      await service.restoreCheckpoint({ worktree, checkpoint: checkpoint.id });
       expect(await readFile(join(worktree, "lines.txt"), "utf8")).toBe("one\r\nchanged\r\n");
       expect(await readFile(join(worktree, "keep.txt"), "utf8")).toBe("keep\r\n");
-      const changed = await service
-        .diff({
-          worktree,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
-        })
-        .catch(show("diff2"));
+      const changed = await service.diff({
+        worktree,
+        from: { kind: "commit", ref: "HEAD" },
+        to: { kind: "working-tree" },
+      });
       expect(changed.entries.map((entry) => entry.path)).toEqual(["lines.txt"]);
       expect(
         (
-          await service
-            .diff({
-              worktree,
-              from: { kind: "checkpoint", id: checkpoint.id },
-              to: { kind: "working-tree" },
-            })
-            .catch(show("diff3"))
+          await service.diff({
+            worktree,
+            from: { kind: "checkpoint", id: checkpoint.id },
+            to: { kind: "working-tree" },
+          })
         ).entries,
       ).toEqual([]);
     } finally {

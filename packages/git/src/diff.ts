@@ -49,6 +49,9 @@ export async function diff(
     "--dst-prefix=b/",
     "--line-prefix=",
   ];
+  // Node's `\\.\nul` reaches Git for Windows as an unreadable `//./nul`; its own open maps
+  // `/dev/null` to the null device.
+  if (repository.cli.platform === "win32") args[args.indexOf(`-O${devNull}`)] = "-O/dev/null";
   const metadata = await repository.cli.call(root, [
     ...args,
     "--raw",
