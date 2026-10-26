@@ -25,6 +25,9 @@ struct InboxView: View {
     @State private var tab = InboxTab.threads
     @State private var threadsPath: [InboxRoute] = []
     @State private var pullsPath: [InboxRoute] = []
+    /// Each tab's list as a drawer over its open page in a compact window (`ThreadDrawer`).
+    @State private var threadsDrawer = ThreadDrawer()
+    @State private var pullsDrawer = ThreadDrawer()
     /// The machine whose thread is open, and the tab it is open in: one open thread at a time.
     @State private var openMachine: String?
     @State private var openTab: InboxTab?
@@ -96,6 +99,8 @@ struct InboxView: View {
         }
         .tint(AceTheme.Colours.foreground)
         .onChange(of: tab) { old, new in
+            // Coming back to a tab shows its page, never the drawer left out when it was left.
+            if new != .compose { threadsDrawer.close(); pullsDrawer.close() }
             // The compose button opens the New thread sheet and leaves the tab where it was.
             guard new == .compose else { return }
             tab = old == .compose ? .threads : old
@@ -120,8 +125,9 @@ struct InboxView: View {
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
-        // Beside an open thread the toast sits under the list it acted on, clear of the composer.
-        .overlay(alignment: sizeClass == .regular ? .bottomLeading : .bottom) { toast }
+        // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
+        // on, clear of the composer and the list's foot.
+        .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
     }
 
     private var sheets: some View {
@@ -151,7 +157,7 @@ struct InboxView: View {
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
     private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab,
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab, drawer: tab == .pulls ? $pullsDrawer : $threadsDrawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { if !inbox.sessions.isEmpty { composing = true } }),
                    machine: $machineFilter, project: $projectFilter,
@@ -173,6 +179,7 @@ struct InboxView: View {
         let acted = { rowTaps.acted(at: ProcessInfo.processInfo.systemUptime) }
         return InboxRowActions(
             open: { key in if rowTaps.opens(at: ProcessInfo.processInfo.systemUptime) { openThread(key) } },
+            accepts: { rowTaps.opens(at: ProcessInfo.processInfo.systemUptime) },
             settle: { row, key in
                 acted()
                 settles += 1
@@ -197,8 +204,14 @@ struct InboxView: View {
         }
     }
 
+    /// The list showing beside a page (regular) or over it as the open drawer, with Threads and
+    /// Pull requests at its foot in place of the tab bar.
+    private var toastBesideList: Bool {
+        sizeClass == .regular || (tab == .pulls ? pullsDrawer : threadsDrawer).isOpen
+    }
+
     @ViewBuilder private var toast: some View {
-        if let undo, openTab == nil || sizeClass == .regular {
+        if let undo, openTab == nil || toastBesideList {
             HStack(spacing: AceTheme.Spacing.md) {
                 Text(undo.kind == .settled ? "Settled thread" : "Archived thread").lineLimit(1)
                 Button("Undo") {
@@ -218,8 +231,8 @@ struct InboxView: View {
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
             .aceGlass(in: AceShape.capsule)
             // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
-            .padding(.leading, sizeClass == .regular ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
-            .padding(.bottom, ThreadColumns.sidebarHoldsTabs(sizeClass) ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
+            .padding(.leading, toastBesideList ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
+            .padding(.bottom, toastBesideList ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 try? await Task.sleep(for: .seconds(5))
@@ -232,10 +245,14 @@ struct InboxView: View {
     /// asked (the Pulls tab keeps its page); a thread open on another machine is closed first.
     private func openThread(_ key: InboxKey) {
         guard let client = inbox.client(key.machineId), client.inbox[key.id] != nil else { return }
+        // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
+        // drawer in. Already showing, it is not opened again: that would restart its session.
+        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { threadsDrawer.close() }
+        tab = .threads
+        if threadsPath == [.thread(key)], openMachine == key.machineId { return }
         if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
         openMachine = key.machineId
         openTab = .threads
-        tab = .threads
         client.open(key.id)
         // Threads open on the Threads tab; the Pulls tab keeps its pull request or issue page.
         threadsPath = [.thread(key)]

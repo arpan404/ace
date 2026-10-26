@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// The Threads tab's list and open thread as one split view (`ThreadColumns`). A regular window
-/// (iPad, the unfolded iPhone Duo) keeps the list beside the thread; a compact one (iPhone, the
-/// folded Duo, a narrow iPad window) collapses it into a stack. The system moves the same views
-/// between the two, so a resize or a fold keeps the thread, its scroll place, the draft and any
-/// open sheet. Pages pushed from the thread open on the detail column's own stack.
+/// The Threads tab's list and open thread (`ThreadColumns`, `ThreadDrawer`). A regular window
+/// (iPad, the unfolded iPhone Duo) keeps the list beside the thread in the split view. A compact
+/// one (iPhone, the folded Duo, a narrow iPad window) gives the open thread the whole window and
+/// the list a drawer over it, or the whole window while nothing is open. The split view stays the
+/// thread's home in both, so a resize or a fold keeps the thread, its scroll place, the draft and
+/// any open sheet. Pages pushed from the thread open on the detail column's own stack.
 struct InboxSplit<Sidebar: View, Page: View>: View {
     @Binding var path: [InboxRoute]
+    @Binding var drawer: ThreadDrawer
     /// What the detail column says while nothing is open.
     let empty: String
     /// This tab is the one showing; only it places the window's tab bar.
@@ -14,62 +16,56 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visibility = NavigationSplitViewVisibility.all
     @State private var width: CGFloat = 0
     /// Counts the window's changes still settling; zero once the split view has settled.
     @State private var settling = 0
-    /// Whether the list coming back on top closes the open thread (`BackToList`).
-    @State private var back = BackToList()
     /// The width of the window's controls in its top-leading corner; zero without them.
     @State private var windowControls: CGFloat = 0
+    /// Where a finger holds the drawer. This view never reads it, so a drag never redraws the
+    /// thread or the list, only the modifiers that place them (`DrawerPlace`).
+    @State private var hold = DrawerHold()
+
+    private var layout: ThreadDrawer.Layout { ThreadDrawer.layout(sizeClass, path: path) }
+    /// The drawer settles with the system's spring; Reduce Motion fades it instead.
+    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var listWidth: CGFloat { ThreadDrawer.listWidth(window: width) }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
-            list()
-                // The thread's bar carries the sidebar button, where the list it hides was.
-                .toolbar(removing: .sidebarToggle)
-                // Room for the wordmark beside the window's controls and its three buttons.
-                .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
-                .environment(\.openThreadRow, ThreadColumns.selection(path))
-                .environment(\.openForgeRow, path.first?.forge)
-                .environment(\.onSidebarGlass, onSidebarGlass)
-                .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
-                // Going back to the list in a compact window closes the thread, as popping it did.
-                .onAppear { if back.listAppeared(sizeClass) { path = [] } }
-                .onDisappear { back.listDisappeared() }
-                // As a stack, the tab bar hides once a page is pushed; beside the list the
-                // sidebar's foot takes its place.
-                .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
-                .background { SidebarPlain().frame(width: 0, height: 0) }
-        } detail: {
-            NavigationStack(path: detail) {
-                Group {
-                    // A new thread is a new page: its feed, sheets and draft start fresh.
-                    if let first = path.first {
-                        page(first).id(first)
-                            .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
-                    }
-                    else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
-                }
-                .toolbar {
-                    if sizeClass == .regular {
-                        ToolbarItem(placement: .topBarLeading) { SidebarButton(visibility: $visibility) }
-                    }
-                }
-                .navigationDestination(for: InboxRoute.self) { page($0) }
-            }
+        ZStack(alignment: .topLeading) {
+            split
+                .modifier(DrawerPlace(part: .page, hold: hold, open: drawer.isOpen, window: width, reduceMotion: reduceMotion))
+                // Behind the drawer the page is one element, the closer over it.
+                .accessibilityHidden(layout == .list || (layout == .page && drawer.isOpen))
+            if layout != .beside { drawerLayer }
         }
-        .navigationSplitViewStyle(.balanced)
-        // Beside the list there is no tab bar at all, nor room kept for one.
-        .toolbarVisibility(ThreadColumns.sidebarHoldsTabs(sizeClass) ? .hidden : .automatic, for: .tabBar)
+        .gesture(DrawerEdgePan(enabled: ThreadDrawer.edgeOpens(layout, path: path) && !drawer.isOpen, follows: !reduceMotion,
+                               began: beginHold, moved: { [hold, listWidth] in hold.move($0, width: listWidth) },
+                               ended: { release(velocity: $1) }))
+        // As a stack, the tab bar hides once a page is open; beside the list the sidebar's foot
+        // takes its place and there is no tab bar at all, nor room kept for one.
+        .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
             if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
         }
+        // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onGeometryChange(for: CGFloat.self) { proxy in
             if #available(iOS 26, *) { proxy.containerCornerInsets.topLeading.width } else { 0 }
         } action: { windowControls = $0 }
+        .onChange(of: path) { old, new in
+            let wasOpen = drawer.isOpen
+            withAnimation(motion) { drawer.follow(layout: layout, old: old, new: new) }
+            if wasOpen && !drawer.isOpen { closed() }
+        }
+        // A thread opened from the full-width list slides in over it; archiving it slides it away.
+        .onChange(of: layout, initial: true) { old, now in
+            hold.drop()
+            withAnimation(old == now ? nil : motion) { hold.layout = now }
+            drawer.follow(layout: now, old: path, new: path)
+        }
         // The columns follow the window's shape when it changes, and leave the person's own
         // sidebar toggle alone in between. Expanding from a stack, the split view picks its own
         // columns just after the change: while it settles, the window's columns win.
@@ -89,6 +85,112 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         }
     }
 
+    private var split: some View {
+        // A compact window always shows the detail column: the list is the drawer's, never a
+        // page under the thread to go back to. The split view reports its sidebar on top each
+        // time a page pushed over the thread pops, so that report opens nothing. Back stays
+        // hidden at the root, which leaves the system's back swipe off there, and VoiceOver's
+        // escape at the root opens the drawer instead.
+        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: .constant(.detail)) {
+            Group {
+                if layout == .beside {
+                    listed(onGlass: onSidebarGlass)
+                        .background { SidebarPlain().frame(width: 0, height: 0) }
+                } else {
+                    Color.clear.accessibilityHidden(true)
+                }
+            }
+            // The thread's bar carries the sidebar button, where the list it hides was.
+            .toolbar(removing: .sidebarToggle)
+            // Room for the wordmark beside the window's controls and its three buttons.
+            .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
+        } detail: {
+            NavigationStack(path: detail) {
+                Group {
+                    // A new thread is a new page: its feed, sheets and draft start fresh.
+                    if let first = path.first {
+                        page(first).id(first)
+                            .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
+                    }
+                    else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
+                }
+                // Only the open page's root opens the list; pages pushed over it go back.
+                .navigationBarBackButtonHidden(sizeClass != .regular)
+                // VoiceOver's escape at the page's root goes back to the list, as the drawer.
+                .accessibilityAction(.escape) { if layout == .page { openDrawer() } }
+                .toolbar {
+                    if sizeClass == .regular {
+                        ToolbarItem(placement: .topBarLeading) { SidebarButton(visibility: $visibility) }
+                    } else if !path.isEmpty {
+                        ToolbarItem(placement: .topBarLeading) { DrawerButton(action: toggleDrawer) }
+                    }
+                }
+                .navigationDestination(for: InboxRoute.self) { page($0) }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The list over a compact window: the whole window while nothing is open, otherwise out
+    /// from the leading edge over the dimmed page. Open, it is a modal region VoiceOver leaves
+    /// with the escape gesture (Esc on a keyboard), the dimmed page one Close sidebar button.
+    private var drawerLayer: some View {
+        ZStack(alignment: .topLeading) {
+            DrawerCloser(hold: hold, layout: layout, open: drawer.isOpen, window: width, listWidth: listWidth, reduceMotion: reduceMotion,
+                         close: closeDrawer, ended: { release(velocity: $0) })
+            NavigationStack { listed(onGlass: false) }
+                .modifier(DrawerPlace(part: .list, hold: hold, open: drawer.isOpen, window: width, reduceMotion: reduceMotion))
+            if layout == .page && drawer.isOpen { Color.clear.frame(width: 0, height: 0).escapeCloses(closeDrawer) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(layout == .page && drawer.isOpen ? .isModal : [])
+        .accessibilityAction(.escape) { closeDrawer() }
+    }
+
+    /// The list with what it reads from the split: the open row, its header's place, and
+    /// whether it carries the tabs.
+    private func listed(onGlass: Bool) -> some View {
+        list()
+            .environment(\.openThreadRow, ThreadColumns.selection(path))
+            .environment(\.openForgeRow, path.first?.forge)
+            .environment(\.onSidebarGlass, onGlass)
+            .environment(\.listHoldsTabs, ThreadDrawer.listHoldsTabs(layout))
+            .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
+    }
+
+    private func openDrawer() {
+        dismissKeyboard()
+        hold.drop()
+        withAnimation(motion) { drawer.open(in: layout) }
+    }
+    private func closeDrawer() {
+        guard drawer.isOpen || hold.progress != nil else { return }
+        hold.drop()
+        withAnimation(motion) { drawer.close() }
+        closed()
+    }
+    private func toggleDrawer() { if drawer.isOpen { closeDrawer() } else { openDrawer() } }
+    private func beginHold() {
+        dismissKeyboard()
+        if reduceMotion { openDrawer() } else { hold.begin(from: false) }
+    }
+    private func release(velocity: CGFloat) {
+        let wasOpen = drawer.isOpen
+        withAnimation(motion) {
+            guard let open = hold.release(velocity: velocity) else { return }
+            if open { drawer.open(in: layout) } else { drawer.close() }
+        }
+        if wasOpen && !drawer.isOpen { closed() }
+    }
+    /// Once the list goes in, nothing of it keeps the keyboard, and VoiceOver moves to the page.
+    private func closed() {
+        dismissKeyboard()
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
+    }
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     /// Beside a page the iPadOS 26 sidebar is the system's glass panel: the list draws nothing
     /// behind its rows, so no page colour sits inside the panel's edge. A stack keeps the page.
     private var onSidebarGlass: Bool {
@@ -100,13 +202,6 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     }
     private var detail: Binding<[InboxRoute]> {
         Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })
-    }
-    /// The split view reports the list on top whenever a compact window pops a page, the
-    /// browser over a thread included: the report alone never closes the thread (`BackToList`).
-    private var compactColumn: Binding<NavigationSplitViewColumn> {
-        Binding(get: { ThreadColumns.compactColumn(path) }, set: { column in
-            if column == .sidebar, back.listReported(sizeClass) { path = [] }
-        })
     }
 }
 
@@ -125,14 +220,14 @@ extension EnvironmentValues {
     @Entry var openForgeRow: ForgeRoute?
     /// Closes the detail column's own thread; pages pushed over it go back instead.
     @Entry var closeOpenThread: CloseOpenThread?
+    /// The list carries Threads, Pull requests and New thread itself (`ThreadDrawer.listHoldsTabs`).
+    @Entry var listHoldsTabs = false
 }
 
 struct CloseOpenThread {
     let id: String
     let close: () -> Void
 }
-
-
 
 /// Hides and shows the list beside the thread, from the thread's bar: the iPhone's list slides
 /// away and the thread recentres in its reading column.

@@ -2,7 +2,7 @@ import XCTest
 
 /// The Threads tab's split layout against the spike fixture: on iPad the list stays beside the
 /// thread it opens; on a large iPhone, turning it between portrait (compact) and landscape
-/// (regular) collapses and restores the list live, as an iPad window resize or the iPhone Duo
+/// (regular) turns the list into a drawer over the thread and back live, as an iPad window resize or the iPhone Duo
 /// folding does, keeping the open thread and its draft. Run on a fresh fixture,
 /// `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selecting its port; `ACE_IOS_SHOTS` (a folder) also saves
 /// each screenshot there.
@@ -108,11 +108,12 @@ import XCTest
         XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
-        // Back to the list: the tab bar is there.
-        app.navigationBars.buttons["BackButton"].firstMatch.tap()
-        XCTAssertTrue(app.tabBars.buttons["Threads"].waitForHittable(timeout: 10))
+        // The list comes out over the thread as a drawer, carrying the places the tab bar would.
+        app.buttons["thread.sidebar"].tap()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
+        XCTAssertTrue(app.buttons["sidebar.threads"].reachable)
         screenshot("ipad-narrow-window")
-        open("thread.ios-approval", in: app)
+        app.buttons["drawer.close"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
@@ -134,7 +135,7 @@ import XCTest
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 20))
         // The first row, clear of the keyboard in landscape.
         let list = app.buttons["thread.ios-form"]
-        XCTAssertFalse(list.reachable, "a compact window stacks the list under the thread")
+        XCTAssertFalse(list.reachable, "a compact window gives the thread the whole window")
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         input.tap()
@@ -161,8 +162,8 @@ import XCTest
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
-        // Back from the thread is the list again, as on any phone.
-        app.navigationBars.buttons.firstMatch.tap()
+        // The thread's sidebar button brings the list out over it, as on any phone.
+        app.buttons["thread.sidebar"].tap()
         XCTAssertTrue(list.waitForHittable(timeout: 10))
     }
 
