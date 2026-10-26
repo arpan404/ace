@@ -64,11 +64,16 @@ export async function pairedMachines(
     target.daemon.settings.set("remote.agentAccess", value, { kind: "global" });
   if (options.access) await access(options.access);
 
-  /** Plays provider output into a thread the target runs. */
+  /** Plays provider output into a thread the target runs, once its provider took the task. */
   async function emit(threadId: ThreadId, ...facts: Fact[]) {
-    await vi.waitFor(() => {
-      if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
-    });
+    // The provider reports the turn's start when it accepts the input. Output played before
+    // then would end a turn that hasn't started, and the late start would reopen it.
+    await vi.waitFor(
+      () => {
+        if (!target.h.inputs.get(threadId)?.length) throw new Error("Task not sent yet");
+      },
+      { timeout: 10_000 },
+    );
     target.h.contexts.get(threadId)?.onFrame(target.h.frames.frame(...facts));
     await target.daemon.engine?.flush();
   }
