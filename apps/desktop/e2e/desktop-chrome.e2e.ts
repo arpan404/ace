@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
@@ -58,6 +58,13 @@ async function launch(scale: number): Promise<Launched> {
   app.process().stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
   app.process().stderr?.on("data", (chunk: Buffer) => process.stdout.write(`[main] ${chunk}`));
   const page = await app.firstWindow();
+  const pending = new Set<string>();
+  page.on("request", (request) => pending.add(request.url()));
+  page.on("requestfinished", (request) => pending.delete(request.url()));
+  page.on("requestfailed", (request) => {
+    pending.delete(request.url());
+    console.log(`[request failed] ${request.url()} ${request.failure()?.errorText ?? ""}`);
+  });
   page.on("console", (message) => console.log(`[page ${message.type()}] ${message.text()}`));
   page.on("pageerror", (error) => console.log(`[page error] ${error.message}`));
   page.on("worker", (worker) => {
@@ -100,6 +107,7 @@ async function launch(scale: number): Promise<Launched> {
       )
       .catch((reason: unknown) => String(reason));
     console.log(`[page visibility] ${visibility}`);
+    console.log(`[requests pending] ${[...pending].join(" ")}`);
     const state = await windowsReport(app);
     console.log(`[app state] ${state}`);
     console.log(`[page html] ${(await page.content()).slice(0, 3000)}`);
@@ -177,6 +185,9 @@ function underCaptionButtons(page: Page) {
 describe.skipIf(!enabled)("Windows window chrome and integration", () => {
   beforeAll(async () => {
     mkdirSync(screens, { recursive: true });
+    // ACE_E2E_REUSE_BUILD=1: a quick rerun against the last build (local Windows test loops).
+    if (process.env.ACE_E2E_REUSE_BUILD === "1" && existsSync(join(out, "renderer/index.html")))
+      return;
     await Promise.all(electronBundles(out, process.env).map((options) => build(options)));
     // Vite's own CLI on this Node: no `bun x` shim or cmd.exe in between on Windows.
     const vite = join(
