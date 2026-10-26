@@ -179,13 +179,21 @@ async function go(launched: Launched, link: string): Promise<void> {
   }, link);
 }
 
+/** WM_SETTINGCHANGE "ImmersiveColorSet" to every top-level window, as Settings sends it. */
+function broadcastColourChange(): void {
+  const script = `Add-Type 'using System; using System.Runtime.InteropServices; public static class AceColours { [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr w, uint m, UIntPtr p, string l, uint f, uint t, out UIntPtr r); }'; $r = [UIntPtr]::Zero; [void][AceColours]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "ImmersiveColorSet", 2, 3000, [ref]$r)`;
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    stdio: "inherit",
+  });
+}
+
 /**
  * The OS's light or dark mode. On a disposable CI runner, Windows' own setting, which is what a
  * person changes (the page keeps Electron's theme source on "system", so overriding that alone
  * would be undone). Elsewhere (a shared test machine), Electron's override.
  */
 async function scheme(launched: Launched, dark: boolean): Promise<void> {
-  if (process.env.GITHUB_ACTIONS === "true")
+  if (process.env.GITHUB_ACTIONS === "true") {
     for (const value of ["AppsUseLightTheme", "SystemUsesLightTheme"])
       execFileSync("reg.exe", [
         "add",
@@ -198,7 +206,9 @@ async function scheme(launched: Launched, dark: boolean): Promise<void> {
         dark ? "0" : "1",
         "/f",
       ]);
-  else
+    // What Settings does after writing them: tell every window the colour set changed.
+    broadcastColourChange();
+  } else
     await launched.app.evaluate(({ nativeTheme }, next) => {
       nativeTheme.themeSource = next ? "dark" : "light";
     }, dark);
