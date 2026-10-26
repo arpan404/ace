@@ -270,6 +270,7 @@ async function linux(): Promise<GitProcess[] | undefined> {
 
 /** The platform's process listing, without this daemon's own running Git children. */
 export function scanGitProcesses(platform: NodeJS.Platform): GitProcessScan {
+  if (platform === "win32") return scanWindowsGitProcesses();
   const list = platform === "darwin" ? darwin : platform === "linux" ? linux : undefined;
   return async () => {
     const found = await list?.();
@@ -278,5 +279,27 @@ export function scanGitProcesses(platform: NodeJS.Platform): GitProcessScan {
     for (const entry of others)
       if (entry.cwd !== undefined) entry.checkout = await checkoutOf(entry.cwd);
     return others;
+  };
+}
+
+/**
+ * Windows: every live Git for Windows process (`git.exe` and its `git-*.exe` helpers) from the
+ * system's own `tasklist`. Their working directories aren't listed, so each may be working
+ * anywhere and keeps any lease or lock it could hold in place.
+ */
+function scanWindowsGitProcesses(): GitProcessScan {
+  return async () => {
+    const tasklist = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tasklist.exe");
+    const output = await run(tasklist, ["/FI", "IMAGENAME eq git*", "/FO", "CSV", "/NH"]);
+    if (output === undefined) return;
+    const found: GitProcess[] = [];
+    for (const line of output.split(/\r?\n/)) {
+      // "git.exe","1234","Console","1","10,000 K"; with no match, an INFO line instead.
+      const match = /^"([^"]*)","(\d+)"/.exec(line);
+      if (!match?.[2] || !/^git[^\\/]*\.exe$/i.test(match[1] ?? "")) continue;
+      const pid = Number(match[2]);
+      if (!runningChildren.has(pid)) found.push({ pid });
+    }
+    return found;
   };
 }

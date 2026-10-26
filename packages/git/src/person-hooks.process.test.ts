@@ -182,3 +182,29 @@ test("in a pull request checkout, a configured hook command naming a file in it 
     await service.close();
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "in a pull request checkout on Windows, a hook command naming its file with backslashes or another case is skipped",
+  async () => {
+    const { repo, service, marker } = await protectedCheckout();
+    try {
+      await put(repo, "tracked.txt", "edited\n");
+      await hook(join(repo, "scripts"), "check.sh", marker);
+      await scalar(repo, "config", "hook.lint.event", "pre-commit");
+      for (const command of ["scripts\\check.sh", ".\\SCRIPTS\\check.sh"]) {
+        await scalar(repo, "config", "hook.lint.command", command);
+        expect(await service.reviewerHooks(repo)).toBe("skipped");
+      }
+      await scalar(repo, "config", "--unset", "hook.lint.command");
+      await scalar(repo, "config", "core.hooksPath", ".HUSKY");
+      expect(await service.reviewerHooks(repo)).toBe("skipped");
+      const expectedHead = await scalar(repo, "rev-parse", "HEAD");
+      await service.asReviewer(() =>
+        service.commit({ worktree: repo, expectedHead, message: "Reviewed" }),
+      );
+      expect(await exists(marker)).toBe(false);
+    } finally {
+      await service.close();
+    }
+  },
+);
