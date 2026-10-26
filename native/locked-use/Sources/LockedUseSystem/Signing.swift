@@ -24,13 +24,19 @@ public func lockedUseOwnTeam() throws -> String {
 }
 
 public func lockedUsePeerRequirement(identifier: String, team: String) throws -> String {
-    guard team.count == 10, team.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) else {
-        throw LockedUseSigningError.invalidTeam
-    }
     guard !identifier.isEmpty, identifier.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ".-".contains($0)) }) else {
         throw LockedUseSigningError.invalidTeam
     }
-    return "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\" and identifier \"\(identifier)\""
+    return try lockedUseTeamRequirement(team: team) + " and identifier \"\(identifier)\""
+}
+
+/// Any code signed with ace's Developer ID team. The broker requires it of the process that
+/// spawned the coordinator: the daemon's bundled runtime or the `ace` executable.
+public func lockedUseTeamRequirement(team: String) throws -> String {
+    guard team.count == 10, team.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) else {
+        throw LockedUseSigningError.invalidTeam
+    }
+    return "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
 }
 
 /// Mach service names and signing identifiers shared by the service, broker and guardian.

@@ -9,14 +9,26 @@ import LockedUseSystem
 // registers both names at install time. It never arms, enables or unlocks anything itself.
 setvbuf(stderr, nil, _IONBF, 0)
 let requirement: String
-do { requirement = try lockedUsePeerRequirement(identifier: LockedUseNames.serviceIdentifier) }
-catch {
+let daemonRequirement: String
+do {
+    requirement = try lockedUsePeerRequirement(identifier: LockedUseNames.serviceIdentifier)
+    daemonRequirement = try lockedUseTeamRequirement(team: lockedUseOwnTeam())
+} catch {
     FileHandle.standardError.write(Data("ace-locked-use-authority: refusing to start without a team-signed executable (\(error))\n".utf8))
     exit(78)
 }
 let now: () -> UInt64 = { clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) }
+// The coordinator must have been spawned by ace-signed code (the daemon's runtime), not by
+// whatever same-user process ran its own copy of the signed screen helper.
 let broker = LockedUseAuthorityBroker(listener: NSXPCListener(machServiceName: LockedUseNames.brokerService),
-    requirement: requirement, now: now)
+    requirement: requirement, now: now,
+    vetAncestry: { pid in
+        lockedUseVetAncestry(child: pid, read: lockedUseReadProcessFacts,
+            trusted: { lockedUseProcessSatisfies($0, requirement: daemonRequirement) })
+    },
+    refused: { refusal, pid in
+        FileHandle.standardError.write(Data("ace-locked-use-authority: refused coordinator pid \(pid): \(refusal)\n".utf8))
+    })
 let endpoint = LockedUseAuthorizationEndpoint(listener: NSXPCListener(machServiceName: LockedUseNames.authorizationService),
     now: now, verify: broker.forward)
 broker.start()

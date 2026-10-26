@@ -11,19 +11,35 @@ import LockedUseIPC
 /// Runs as root beside the privileged `dev.ace.locked-use.authorization` Mach service. It
 /// forwards each authenticated plug-in query to the single registered coordinator and
 /// denies whenever no coordinator is linked, the link fails or the deadline passes.
+///
+/// Who may be the coordinator (see `LockedUseCoordinatorSlot`): a process carrying the
+/// pinned signature, whose parent passes `vetAncestry`, while no other coordinator is
+/// linked and no granted attempt may still be live. The first to qualify holds the slot
+/// until its link drops; nothing replaces it.
 public final class LockedUseAuthorityBroker: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
+    public typealias Refused = (_ refusal: LockedUseRegistrationRefusal, _ pid: Int32) -> Void
+
     private let listener: NSXPCListener
     private let requirement: String?
     private let now: () -> UInt64
+    private let vetAncestry: (Int32) -> Bool
+    private let refused: Refused
     private let state = NSLock()
+    private var slot: LockedUseCoordinatorSlot<ObjectIdentifier>
     private var coordinator: NSXPCConnection?
 
     /// `requirement` pins the coordinator's signature; production passes the team-pinned
-    /// screen-helper requirement and only in-process tests pass nil.
-    public init(listener: NSXPCListener, requirement: String?, now: @escaping () -> UInt64) {
+    /// screen-helper requirement and only in-process tests pass nil. `vetAncestry` gets the
+    /// registering process id and says whether a trusted ace daemon spawned it.
+    public init(listener: NSXPCListener, requirement: String?, now: @escaping () -> UInt64,
+                attemptWindow: UInt64 = LockedUseCoordinatorSlot<ObjectIdentifier>.defaultAttemptWindow,
+                vetAncestry: @escaping (Int32) -> Bool, refused: @escaping Refused = { _, _ in }) {
         self.listener = listener
         self.requirement = requirement
         self.now = now
+        self.vetAncestry = vetAncestry
+        self.refused = refused
+        slot = LockedUseCoordinatorSlot(attemptWindow: attemptWindow)
         super.init()
         listener.delegate = self
     }
@@ -33,6 +49,7 @@ public final class LockedUseAuthorityBroker: NSObject, NSXPCListenerDelegate, @u
         listener.invalidate()
         state.lock()
         let current = coordinator
+        if let current { slot.dropped(ObjectIdentifier(current)) }
         coordinator = nil
         state.unlock()
         current?.invalidate()
@@ -69,20 +86,30 @@ public final class LockedUseAuthorityBroker: NSObject, NSXPCListenerDelegate, @u
         coordinator.authorize(attempt: request.attempt, transaction: request.transaction,
             request: request.requestID.uuidString, deadline: request.deadline) { decision.finish($0) }
         guard decision.wait(nanoseconds: request.deadline - start) else { return false }
-        return decision.allowed && now() < request.deadline
+        let at = now()
+        guard decision.allowed, at < request.deadline else { return false }
+        state.lock()
+        slot.granted(by: ObjectIdentifier(link), now: at)
+        state.unlock()
+        return true
     }
 
-    fileprivate func register(_ connection: NSXPCConnection) {
+    fileprivate func register(_ connection: NSXPCConnection) -> Bool {
+        let pid = connection.processIdentifier
+        // Signature checks can be slow; run them before taking the lock.
+        let trusted = vetAncestry(pid)
         state.lock()
-        let previous = coordinator
-        coordinator = connection
+        let refusal = slot.register(ObjectIdentifier(connection), trusted: trusted, now: now())
+        if refusal == nil { coordinator = connection }
         state.unlock()
-        // Newest registration wins; the old link can no longer answer, so its attempt expires.
-        if previous !== connection { previous?.invalidate() }
+        if let refusal { refused(refusal, pid) }
+        return refusal == nil
     }
 
     private func drop(_ connection: NSXPCConnection?) {
+        guard let connection else { return }
         state.lock()
+        slot.dropped(ObjectIdentifier(connection))
         if coordinator === connection { coordinator = nil }
         state.unlock()
     }
@@ -99,8 +126,7 @@ private final class Registration: NSObject, LockedUseBrokerRegistration {
 
     func register(reply: @escaping (Bool) -> Void) {
         guard let broker, let connection else { reply(false); return }
-        broker.register(connection)
-        reply(true)
+        reply(broker.register(connection))
     }
 }
 
