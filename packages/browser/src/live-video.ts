@@ -316,8 +316,10 @@ export class LiveVideo {
           this.capture = { handle, ...size };
           this.encodes = "";
           this.soundOn = false;
+          console.error("DEBUG opened");
         },
-        () => {
+        (error: unknown) => {
+          console.error("DEBUG open failed", String(error).slice(0, 600));
           if (generation === this.generation) this.retryAt = this.now() + retryMs;
         },
       )
