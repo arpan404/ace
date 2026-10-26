@@ -22,6 +22,12 @@
 #define NT_IS_DIRECTORY 0xC00000BAUL
 #define NT_NOT_DIRECTORY 0xC0000103UL
 
+// FILE_DISPOSITION_INFO_EX (Windows 10 1809+), declared here so older SDK headers still build.
+typedef struct { DWORD Flags; } DISPOSITION_EX_T;
+#define DISPOSITION_EX_CLASS ((FILE_INFO_BY_HANDLE_CLASS)21)
+#define DISPOSITION_DELETE 0x00000001UL
+#define DISPOSITION_IGNORE_READONLY 0x00000010UL
+
 typedef LONG NTSTATUS_T;
 typedef struct { USHORT Length, MaximumLength; PWSTR Buffer; } UNICODE_STRING_T;
 typedef struct {
@@ -208,9 +214,18 @@ static napi_value delete_at(napi_env env, napi_callback_info info, DWORD directo
   code = attributes_of(child, &attributes);
   if (!code && (attributes & FILE_ATTRIBUTE_DIRECTORY) != directory)
     code = directory ? "ENOTDIR" : "EISDIR";
+  // Delete even a read-only entry (Git's object files are read-only); a file system without the
+  // extended class (Windows 10 before 1809, FAT) keeps the plain disposition.
+  DISPOSITION_EX_T extended = {DISPOSITION_DELETE | DISPOSITION_IGNORE_READONLY};
   FILE_DISPOSITION_INFO disposition = {TRUE};
-  if (!code && !SetFileInformationByHandle(child, FileDispositionInfo, &disposition, sizeof(disposition)))
-    code = last_error();
+  if (!code && !SetFileInformationByHandle(child, DISPOSITION_EX_CLASS, &extended, sizeof(extended))) {
+    DWORD error = GetLastError();
+    if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED &&
+        error != ERROR_INVALID_FUNCTION)
+      code = code_of(error);
+    else if (!SetFileInformationByHandle(child, FileDispositionInfo, &disposition, sizeof(disposition)))
+      code = last_error();
+  }
   if (!CloseHandle(child) && !code) code = last_error();
   return done(env, code);
 }

@@ -13,6 +13,7 @@ import {
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import type { TestContext } from "vitest";
@@ -418,5 +419,25 @@ windowsOnly(
     }
     expect(await readdir(root)).toEqual(["file.txt"]);
     expect(await readFile(join(root, "file.txt"), "utf8")).toBe("intact");
+  },
+);
+
+windowsOnly(
+  "Windows deletes read-only files and read-only folders, as Git's object files are",
+  async ({ onTestFinished }) => {
+    const root = await scratch(onTestFinished);
+    await writeFile(join(root, "object"), "packed");
+    await mkdir(join(root, "folder"));
+    // `attrib +r` is how Git for Windows leaves its object files.
+    await chmod(join(root, "object"), 0o444);
+    await chmod(join(root, "folder"), 0o555);
+    const directory = PinnedDirectory.open(root);
+    try {
+      directory.unlink("object");
+      directory.removeDirectory("folder");
+    } finally {
+      directory.closeSync();
+    }
+    expect(await readdir(root)).toEqual([]);
   },
 );
