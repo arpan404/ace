@@ -1,4 +1,5 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
+import { seedFakeSkills } from "./fake-skills.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -92,6 +93,7 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedFakeSkills(daemon, Date.now());
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
     // with its lines moved, for trying what survives a push.
     (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (

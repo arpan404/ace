@@ -39,6 +39,7 @@ import { Route as SettingsSourceControlRouteImport } from "./routes/settings.sou
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
+import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -202,6 +203,11 @@ const SkillsSkillIdRoute = SkillsSkillIdRouteImport.update({
   path: "/$skillId",
   getParentRoute: () => SkillsRoute,
 } as any)
+const SkillsNewRoute = SkillsNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => SkillsRoute,
+} as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
   path: "/t/$threadId",
@@ -299,6 +305,7 @@ export interface FileRoutesByFullPath {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -339,6 +346,7 @@ export interface FileRoutesByTo {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
@@ -385,6 +393,7 @@ export interface FileRoutesById {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/skills/new": typeof SkillsNewRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
@@ -432,6 +441,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -472,6 +482,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/"
     | "/automations"
     | "/settings"
@@ -517,6 +528,7 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/skills/new"
     | "/_home/"
     | "/automations/"
     | "/settings/"
@@ -758,6 +770,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SkillsSkillIdRouteImport
       parentRoute: typeof SkillsRoute
     }
+    "/skills/new": {
+      id: "/skills/new"
+      path: "/new"
+      fullPath: "/skills/new"
+      preLoaderRoute: typeof SkillsNewRouteImport
+      parentRoute: typeof SkillsRoute
+    }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
       path: "/t/$threadId"
@@ -950,11 +969,13 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 interface SkillsRouteChildren {
   SkillsSkillIdRoute: typeof SkillsSkillIdRoute
+  SkillsNewRoute: typeof SkillsNewRoute
   SkillsIndexRoute: typeof SkillsIndexRoute
 }
 
 const SkillsRouteChildren: SkillsRouteChildren = {
   SkillsSkillIdRoute: SkillsSkillIdRoute,
+  SkillsNewRoute: SkillsNewRoute,
   SkillsIndexRoute: SkillsIndexRoute,
 }
 

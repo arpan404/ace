@@ -27,7 +27,7 @@ export async function captureDialogExtras({ page, width, go, capture }: Componen
   });
   await capture("skills-detail", async () => {
     await go("/skills/engineering~skill~code-review");
-    await expectReady(page.getByRole("heading", { level: 1, name: "Code Review" })).toBeVisible();
+    await expectReady(page.getByRole("heading", { level: 1, name: "Code review" })).toBeVisible();
   });
   if (width === 1440)
     await capture("skills-filters", async () => {

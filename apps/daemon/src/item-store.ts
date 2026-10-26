@@ -1,4 +1,5 @@
 import { ItemTextStore } from "./item-text-store.ts";
+import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
 import { z } from "zod";
@@ -100,6 +101,7 @@ export class ItemStore {
       item.agentId ?? "",
     );
     this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
+    recordSkillUsage((sql) => this.statement(sql), event.threadId, item);
     this.texts.seed(item, event.seq);
   }
   append(event: Event, delta: Extract<EventPayload, { type: "item.delta" }>): void {

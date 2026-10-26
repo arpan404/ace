@@ -1,4 +1,5 @@
 export * from "./extension-catalog.ts";
+export * from "./skill-library.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
