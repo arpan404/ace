@@ -8,6 +8,9 @@ import { decodeProcesses, decodeSessionColumns, decodeNativeSessions } from "./d
 const sessionScript =
   'ObjC.import("stdlib"); ObjC.bindFunction("getsid", ["int", ["int"]]); function run(argv) { return JSON.stringify(JSON.parse(argv[0]).map(function(pid) { return {pid: pid, session: $.getsid(pid)}; })); }';
 
+// macOS `comm` is the executable path, which ps copies out of every process's memory; under
+// memory pressure that took longer than the inventory's deadline and failed shutdowns. `ucomm`
+// is the kernel's own short name, and no caller reads the column anyway.
 export function createProcessTable() {
   const run = promisify(execFile);
   async function read() {
@@ -17,7 +20,7 @@ export function createProcessTable() {
       [
         "-e",
         "-o",
-        darwin ? "pid=,pgid=,stat=,comm=" : "pid=,pgid=,stat=,sid=",
+        darwin ? "pid=,pgid=,stat=,ucomm=" : "pid=,pgid=,stat=,sid=",
         "-U",
         String(process.getuid?.()),
       ],
