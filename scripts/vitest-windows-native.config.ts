@@ -79,8 +79,12 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    // The skills-lock cases check POSIX mode bits and a chmod-refused folder; "Windows update
+    // apply puts the original back when the lock can't be written" runs instead. The command
+    // rename case renames a folder while a native watcher holds a handle inside it, which Windows
+    // refuses (a known gap in per-directory watching).
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$)/,
+      /^(?!bounded regular-file reads refuse links, directories and oversized files$|keeps credentials in private session storage outside the workspace and removes them on release$|when the lock can't be written the original folder is put back and the lock is unchanged$|the skills lock makes ~\/\.agents itself when it's missing$|discovers missing roots on creation and removes all commands after a directory rename$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
     globalSetup: ["./scripts/test-home-global-setup.ts"],
