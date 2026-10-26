@@ -138,7 +138,7 @@ test("a tab command Chrome keeps refusing fails in the end, and other failures a
   const wire = transport();
   const link = hub.register(browser("p"), wire);
   const tab = link.tab(7);
-  const stuck = tab.send("Page.captureScreenshot");
+  const stuck = expect(tab.send("Page.captureScreenshot")).rejects.toThrow(refused);
   let sends = 0;
   for (;;) {
     const id = await lastCommand(wire);
@@ -148,7 +148,7 @@ test("a tab command Chrome keeps refusing fails in the end, and other failures a
     await settled();
     clock.advance(5_000);
   }
-  await expect(stuck).rejects.toThrow(refused);
+  await stuck;
   expect(sends).toBeLessThan(12);
 
   const denied = tab.send("Network.getAllCookies");
