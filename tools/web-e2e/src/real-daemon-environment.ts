@@ -12,7 +12,12 @@ export function realDaemonEnvironment(
   home: string,
   realHome: string,
 ): NodeJS.ProcessEnv {
-  const env = isolatedTestEnvironment({ ...ambient, ACE_DEVICE_LIVE: undefined }, home, realHome);
+  const env = isolatedTestEnvironment(
+    { ...ambient, ACE_DEVICE_LIVE: undefined },
+    home,
+    realHome,
+    process.platform,
+  );
   for (const [key, value] of Object.entries(ambient))
     if (
       /^ACE_E2E_(?:DAEMON_PORT|WEB_PORT|FAKE_PORT|TURN_DELAY_MS|LIMIT_AFTER_TURNS|LIMIT_RESET_MS|LONG_TURNS)$/.test(

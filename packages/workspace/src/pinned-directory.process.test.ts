@@ -46,7 +46,7 @@ test("bounded regular-file reads refuse links, directories and oversized files",
   await mkdir(join(root, "directory"));
   const directory = PinnedDirectory.atBoundary(root);
   try {
-    expect(directory.readText("regular", 16, directory.stat().uid)).toBe("safe");
+    expect(directory.readPrivateText("regular", 16)).toBe("safe");
     for (const name of ["link", "directory", "large"])
       expect(() => directory.readText(name, 16)).toThrow();
     expect(directory.empty()).toBe(false);

@@ -1,88 +1,130 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
-import type { BrowserCdp } from "./backend.ts";
+import { runInNewContext } from "node:vm";
+import { expect, test } from "vitest";
 import { ChromeVideo } from "./chrome-video.ts";
+import { CdpConnection } from "./cdp-connection.ts";
 import { videoExtensionId } from "./video-extension.ts";
 
-const directories: string[] = [];
-afterEach(async () => {
-  for (const directory of directories.splice(0))
-    await rm(directory, { recursive: true, force: true });
-});
+const workerUrl = `chrome-extension://${videoExtensionId}/worker.js`;
+const offscreenUrl = `chrome-extension://${videoExtensionId}/offscreen.html`;
 
-const origin = `chrome-extension://${videoExtensionId}/`;
+type Globals = Record<string, unknown>;
 
-/**
- * Chrome as the encoder sees it over CDP: loading the extension lists its service worker and
- * offscreen document at once, but each one's script defines `aceVideo` only after
- * `startsAfter` evaluations in it, as a target listed before its script ran.
- */
-function chrome(startsAfter: number) {
-  const evaluations = new Map<string, number>();
-  const target = (sessionId: string): BrowserCdp => ({
-    on: () => {},
-    off: () => {},
-    send: async (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
-      const seen = (evaluations.get(sessionId) ?? 0) + 1;
-      evaluations.set(sessionId, seen);
-      const started = seen > startsAfter;
-      const expression = String(params?.expression);
-      if (expression === "typeof aceVideo")
-        return { result: { value: started ? "object" : "undefined" } };
-      if (!started)
-        return {
-          exceptionDetails: {
-            text: "Uncaught",
-            exception: { description: "ReferenceError: aceVideo is not defined" },
-          },
-        };
-      if (expression.startsWith("aceVideo.supported"))
-        return { result: { value: ["avc1.42E033"] } };
-      return { result: {} };
+function driver(options: { workerGlobals: Globals; offscreenGlobals: Globals }) {
+  const workerTargetId = "worker-target";
+  const offscreenTargetId = "offscreen-target";
+  const workerSessionId = "worker-session";
+  const offscreenSessionId = "offscreen-session";
+  const connection = new CdpConnection({
+    write: () => {},
+    schedule: (work, milliseconds) => {
+      const timer = setTimeout(work, milliseconds);
+      return () => clearTimeout(timer);
     },
-  });
-  return {
-    connection: {
-      send: async (method: string, params?: Record<string, unknown>) => {
+    hung: () => {},
+    intercept: {
+      send: () => async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
         if (method === "Extensions.loadUnpacked") return { id: videoExtensionId };
         if (method === "Target.getTargets")
           return {
             targetInfos: [
-              { targetId: "worker", type: "service_worker", url: `${origin}worker.js` },
-              { targetId: "document", type: "other", url: `${origin}offscreen.html` },
+              { targetId: workerTargetId, type: "service_worker", url: workerUrl },
+              { targetId: offscreenTargetId, type: "page", url: offscreenUrl },
             ],
           };
-        if (method === "Target.attachToTarget") return { sessionId: String(params?.targetId) };
+        if (method === "Target.attachToTarget") {
+          if (params?.["targetId"] === workerTargetId) return { sessionId: workerSessionId };
+          if (params?.["targetId"] === offscreenTargetId) return { sessionId: offscreenSessionId };
+          throw new Error("Unknown target");
+        }
+        if (method === "Runtime.runIfWaitingForDebugger") return {};
+        if (method === "Runtime.addBinding") return {};
+        if (method === "Runtime.evaluate") {
+          const globals =
+            sessionId === workerSessionId
+              ? options.workerGlobals
+              : sessionId === offscreenSessionId
+                ? options.offscreenGlobals
+                : undefined;
+          if (!globals) return {};
+          const expression = String(params?.["expression"]);
+          try {
+            let value: unknown = runInNewContext(expression, globals);
+            if (value instanceof Promise) value = await value;
+            return { result: { value } };
+          } catch (error) {
+            return {
+              exceptionDetails: {
+                text: "Uncaught",
+                exception: { description: String(error) },
+              },
+            };
+          }
+        }
         return {};
       },
-      session: (sessionId: string) => target(sessionId),
     },
-  };
-}
-
-async function video(startsAfter: number): Promise<ChromeVideo> {
-  const directory = await mkdtemp(join(tmpdir(), "ace-video-extension-"));
-  directories.push(directory);
-  return new ChromeVideo({
-    connection: chrome(startsAfter).connection,
-    targets: { keep: () => {} },
-    directory,
-    // Waits are real but short: a reply from the fake Chrome always comes first.
-    delay: () => new Promise((resolve) => setTimeout(resolve, 1)),
   });
+  return connection;
 }
 
-it("codec support is read once the extension's scripts run, though their targets are listed first", async () => {
-  const encoder = await video(3);
-  expect(await encoder.supported(["avc1.42E033"], 370, 616)).toEqual(["avc1.42E033"]);
+async function directory(): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const path = await mkdtemp(join(tmpdir(), "ace-chrome-video-"));
+  return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
+}
+
+test("supported waits for the extension scripts before calling their exports", async () => {
+  const dir = await directory();
+  try {
+    const workerGlobals: Globals = {};
+    const offscreenGlobals: Globals = {};
+    let delays = 0;
+    const connection = driver({ workerGlobals, offscreenGlobals });
+    const video = new ChromeVideo({
+      connection,
+      targets: { keep: () => {} },
+      directory: dir.path,
+      delay: async () => {
+        delays++;
+        if (delays === 2)
+          workerGlobals.aceVideo = {
+            ready: async () => {},
+            open: async () => ({ streamId: "stream-1" }),
+          };
+        if (delays === 4)
+          offscreenGlobals.aceVideo = {
+            supported: async (codecs: readonly string[]) =>
+              codecs.filter((codec) => codec === "vp8"),
+          };
+      },
+    });
+    await expect(video.supported(["vp8"], 320, 200)).resolves.toEqual(["vp8"]);
+  } finally {
+    await dir.cleanup();
+  }
 });
 
-it("an extension whose scripts never run fails to load instead of answering for them", async () => {
-  const encoder = await video(Infinity);
-  await expect(encoder.supported(["avc1.42E033"], 370, 616)).rejects.toThrow(
-    "The video extension did not start",
-  );
+test("supported rejects bounded when the extension scripts never define their exports", async () => {
+  const dir = await directory();
+  try {
+    const delays: number[] = [];
+    const connection = driver({ workerGlobals: {}, offscreenGlobals: {} });
+    const video = new ChromeVideo({
+      connection,
+      targets: { keep: () => {} },
+      directory: dir.path,
+      delay: async (milliseconds: number) => {
+        delays.push(milliseconds);
+      },
+    });
+    await expect(video.supported(["vp8"], 320, 200)).rejects.toThrow(
+      "The video extension did not start",
+    );
+    expect(delays.length).toBeLessThanOrEqual(50);
+    expect(delays.every((milliseconds) => milliseconds === 100)).toBe(true);
+  } finally {
+    await dir.cleanup();
+  }
 });

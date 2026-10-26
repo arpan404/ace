@@ -1,12 +1,17 @@
 import { expect, test } from "vitest";
-import { resolveShell, resolveSleep, type ShellHost } from "./pty.ts";
+import { resolveShell, resolveSleep, type ShellSelectionPorts } from "./pty.ts";
 
 function host(
   installed: readonly string[],
   account: string | null,
   env: NodeJS.ProcessEnv = {},
-): ShellHost {
-  return { accountShell: () => account, env, executable: (path) => installed.includes(path) };
+): ShellSelectionPorts {
+  return {
+    platform: "linux",
+    accountShell: () => account,
+    env,
+    exists: (path) => installed.includes(path),
+  };
 }
 
 test("a daemon started without SHELL opens the account's login shell", () => {

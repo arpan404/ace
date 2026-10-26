@@ -17,7 +17,7 @@ const prose = Array.from(
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /** A viewer on this machine that shows (acks) every chunk at once, as the desktop app does. */
-async function localViewer(f: Fixture) {
+async function localViewer(f: Fixture, requestedCodecs: readonly string[]) {
   const chunks: BrowserVideoChunk[] = [];
   const assembler = new StreamAssembler();
   const bridge = connectBrowser(f.service, {
@@ -51,7 +51,7 @@ async function localViewer(f: Fixture) {
     requestId: "subscribe",
     binaryFrames: true,
     viewport: { width: 659, height: 825, devicePixelRatio: 2 },
-    video: { codecs },
+    video: { codecs: [...requestedCodecs] },
   });
   return { bridge, chunks };
 }
@@ -119,39 +119,68 @@ async function shownVersusPage(f: Fixture, chunks: readonly BrowserVideoChunk[])
     const a = luma(last), b = luma(page);
     let error = 0;
     for (let i = 0; i < a.length; i++) error += (a[i] - b[i]) ** 2;
-    return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
+    return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, displayWidth: last.displayWidth, displayHeight: last.displayHeight, visibleWidth: last.visibleRect.width, visibleHeight: last.visibleRect.height, pageWidth: w, pageHeight: h, cssWidth: innerWidth, cssHeight: innerHeight, dpr: devicePixelRatio, codec: config.codec, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
   })()`);
   return z
-    .object({ width: z.number(), height: z.number(), psnr: z.number() })
+    .object({
+      width: z.number(),
+      height: z.number(),
+      displayWidth: z.number(),
+      displayHeight: z.number(),
+      visibleWidth: z.number(),
+      visibleHeight: z.number(),
+      pageWidth: z.number(),
+      pageHeight: z.number(),
+      cssWidth: z.number(),
+      cssHeight: z.number(),
+      dpr: z.number(),
+      codec: z.string(),
+      psnr: z.number(),
+    })
     .parse(JSON.parse(String(result)));
 }
 
 describe.skipIf(!executablePath)("how sharp the live video is", () => {
-  it("a Retina viewer on this machine sees a still page, after a scroll too, as sharp as the page", async () => {
-    const f = await fixture();
-    await f.navigate();
-    await f.execute({ action: "resize", width: 659, height: 825 });
-    await f.evaluate(
-      `document.body.style.cssText = "font: 13px sans-serif"; document.body.innerHTML = ${JSON.stringify(prose)}; 1`,
-    );
-    const viewer = await localViewer(f);
-    // A page that has drawn already sends nothing new: nudge it until the first picture.
-    for (let tries = 0; tries < 100 && !viewer.chunks.length; tries++) {
+  it.each([
+    { name: "preferred codecs", requestedCodecs: codecs },
+    { name: "VP9", requestedCodecs: ["vp09.00.41.08"] },
+  ])(
+    "a Retina viewer sees a still page, after a scroll too, as sharp as the page ($name)",
+    async ({ requestedCodecs }) => {
+      const f = await fixture();
+      await f.navigate();
+      await f.execute({ action: "resize", width: 659, height: 825 });
       await f.evaluate(
-        `document.body.style.background = document.body.style.background ? "" : "#fff"; 1`,
+        `document.body.style.cssText = "font: 13px sans-serif"; document.body.innerHTML = ${JSON.stringify(prose)}; 1`,
       );
-      await sleep(200);
-    }
-    await sleep(2_000);
-    const joined = await shownVersusPage(f, viewer.chunks);
-    // Full device pixels, not a smaller picture scaled up.
-    expect([joined.width, joined.height]).toEqual([1318, 1650]);
-    expect(joined.psnr).toBeGreaterThan(34);
-    await f.execute({ action: "scroll", x: 0, y: 400 });
-    await sleep(2_000);
-    // Motion is coded coarse; once the page is still it sharpens again (about 35 dB without
-    // the still page's sharp keyframe, about 38.5 with it).
-    expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(37);
-    viewer.bridge.close();
-  }, 120_000);
+      const viewer = await localViewer(f, requestedCodecs);
+      // A page that has drawn already sends nothing new: nudge it until the first picture.
+      for (let tries = 0; tries < 100 && !viewer.chunks.length; tries++) {
+        await f.evaluate(
+          `document.body.style.background = document.body.style.background ? "" : "#fff"; 1`,
+        );
+        await sleep(200);
+      }
+      await sleep(2_000);
+      const joined = await shownVersusPage(f, viewer.chunks);
+      // Codecs may pad their coded buffer. The visible and displayed picture must
+      // still contain every device pixel of the page, without scaling up.
+      expect([joined.visibleWidth, joined.visibleHeight], JSON.stringify(joined)).toEqual([
+        1318, 1650,
+      ]);
+      expect([joined.displayWidth, joined.displayHeight], JSON.stringify(joined)).toEqual([
+        1318, 1650,
+      ]);
+      expect([joined.pageWidth, joined.pageHeight], JSON.stringify(joined)).toEqual([1318, 1650]);
+      expect(joined.psnr, JSON.stringify(joined)).toBeGreaterThan(34);
+      await f.execute({ action: "scroll", x: 0, y: 400 });
+      await sleep(2_000);
+      // Motion is coded coarse; once the page is still it sharpens again (about 35 dB without
+      // the still page's sharp keyframe, about 38.5 with it).
+      const scrolled = await shownVersusPage(f, viewer.chunks);
+      expect(scrolled.psnr, JSON.stringify(scrolled)).toBeGreaterThan(37);
+      viewer.bridge.close();
+    },
+    120_000,
+  );
 });

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { PinnedDirectory } from "@ace/workspace";
+import { PinnedDirectory as Pinned, type FileIdentity } from "@ace/workspace/pinned-directory";
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, open, readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /** The SHA-256 of a whole file, streamed. */
 export async function fileDigest(path: string, signal?: AbortSignal): Promise<string> {
@@ -95,9 +97,25 @@ export async function freeFolder(
   throw new Error("No free folder name");
 }
 
-/** A folder's identity, `dev:ino`, recorded once a transfer made it. */
-export function folderIdentity(info: { dev: number | bigint; ino: number | bigint }): string {
-  return `${info.dev}:${info.ino}`;
+/**
+ * A folder's identity, recorded once a transfer made it: `dev:ino` on POSIX, the volume and
+ * file id on Windows. Always read through descriptors, so a recorded id matches a later check.
+ */
+export function folderIdentity(info: { identity: FileIdentity }): string {
+  const { identity } = info;
+  return identity.kind === "posix"
+    ? `${identity.dev}:${identity.ino}`
+    : `win32:${identity.vol}:${identity.id}`;
+}
+
+/** The identity of what is at `path` now, read through its held parent; throws when it's gone. */
+export function identityAt(path: string): string {
+  const parent = Pinned.open(realpathSync(dirname(path)));
+  try {
+    return folderIdentity(parent.metadata(basename(path)));
+  } finally {
+    parent.closeSync();
+  }
 }
 
 /**

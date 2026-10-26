@@ -111,7 +111,7 @@ export function ForgeText(props: {
             href={`https://${host}/${owner}/${name}/commit/${segment.sha}`}
             className="text-link hover:underline focus-ring"
           >
-            <code className="rounded-xs bg-code px-1 py-px font-mono text-[0.88em]">
+            <code className="rounded-xs bg-code px-1 py-px font-mono text-meta">
               {segment.text}
             </code>
           </WebLink>

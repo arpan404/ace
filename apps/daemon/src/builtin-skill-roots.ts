@@ -52,7 +52,7 @@ function discard(directory: PinnedDirectory, name: string): void {
 export function readSkillCursor(directory: PinnedDirectory, file: string): string | undefined {
   let text: string;
   try {
-    text = directory.readText(file, 64, process.getuid?.());
+    text = directory.readPrivateText(file, 64);
   } catch (error) {
     if (missingEntry(error)) return undefined;
     discard(directory, file);

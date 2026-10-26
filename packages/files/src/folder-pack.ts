@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
-import { close, fstat, read } from "node:fs";
-import { open, unlink, type FileHandle } from "node:fs/promises";
+import { close, read } from "node:fs";
+import { open, realpath, unlink, type FileHandle } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { promisify } from "node:util";
+import {
+  PinnedDirectory,
+  sameFile,
+  type FileIdentity,
+  type IdentifiedStats,
+} from "@ace/workspace/pinned-directory";
 import { checkAborted, FolderArchiveError } from "./folder-errors.ts";
 import { walkSelected } from "./folder-select.ts";
 import { walkFolder, type FolderMember, type FolderPrune, type FolderWalk } from "./folder-walk.ts";
@@ -30,7 +37,6 @@ export interface FolderMeasure {
 const BUFFER = 1024 * 1024;
 const END = 1024;
 const readAt = promisify(read);
-const statFd = promisify(fstat);
 const closeFd = promisify(close);
 
 function header(member: FolderMember) {
@@ -100,16 +106,16 @@ class Sink {
 
 async function copyFile(member: FolderMember, sink: Sink, scratch: Buffer, signal?: AbortSignal) {
   let fd: number;
+  let opened: IdentifiedStats;
   try {
-    fd = member.parent.openRead(member.name);
+    ({ fd, info: opened } = member.parent.openReadIdentified(member.name));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EACCES")
       throw new FolderArchiveError("UNREADABLE", "File can't be read", member.path);
     throw error;
   }
   try {
-    const opened = await statFd(fd);
-    if (!opened.isFile() || opened.ino !== member.ino || opened.dev !== member.dev)
+    if (!opened.isFile() || !sameFile(opened.identity, member.identity))
       throw new FolderArchiveError("CHANGED", "File was replaced", member.path);
     let position = 0;
     while (position < member.size) {
@@ -160,11 +166,21 @@ export async function packFiles(
   return packWalk(walk, file, options);
 }
 
+/** The identity of the output file just made, read the same way the walk reads members. */
+async function outputIdentity(file: string): Promise<FileIdentity> {
+  const parent = PinnedDirectory.open(await realpath(dirname(file)));
+  try {
+    return parent.fileMetadata(basename(file)).identity;
+  } finally {
+    parent.closeSync();
+  }
+}
+
 async function packWalk(walk: FolderWalk, file: string, options: PackOptions): Promise<PackResult> {
   const { signal } = options;
   const handle = await open(file, "wx", 0o600);
   try {
-    const output = await handle.stat();
+    const output = await outputIdentity(file);
     const sink = new Sink(handle, options.maxBytes ?? Number.POSITIVE_INFINITY);
     const scratch = Buffer.alloc(BUFFER);
     let entries = 0;
@@ -172,7 +188,7 @@ async function packWalk(walk: FolderWalk, file: string, options: PackOptions): P
     let own = 0;
     for await (const member of walk.members) {
       // An output file inside the folder must not copy itself.
-      if (member.dev === output.dev && member.ino === output.ino) {
+      if (sameFile(member.identity, output)) {
         own++;
         continue;
       }

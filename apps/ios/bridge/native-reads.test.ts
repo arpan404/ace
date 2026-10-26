@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import type { ConnectionState } from "@ace/client";
 import type { ServerMessage } from "@ace/protocol";

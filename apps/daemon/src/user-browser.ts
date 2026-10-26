@@ -23,7 +23,7 @@ export interface UserBrowserOptions {
   dataDir: string;
   platform: NodeJS.Platform;
   home: string;
-  env: { XDG_CONFIG_HOME?: string | undefined };
+  env: { XDG_CONFIG_HOME?: string | undefined; LOCALAPPDATA?: string | undefined };
   /** The Node that runs the native host; the daemon passes its own executable. */
   node: string;
   devices: Devices;

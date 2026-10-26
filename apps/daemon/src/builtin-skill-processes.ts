@@ -1,14 +1,3 @@
-import {
-  constants,
-  closeSync,
-  fstatSync,
-  fsyncSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
 import { z } from "zod";
 import {
   ProcessIdentity,
@@ -16,6 +5,7 @@ import {
   processGroupIsGone,
 } from "@ace/provider-kit/process-identity";
 import type { ProcessLease } from "@ace/provider-kit/process";
+import { PinnedDirectory } from "@ace/workspace";
 
 export const skillLeaseFilename = "skill-processes.json";
 export const skillLeaseLimit = 32768;
@@ -41,31 +31,23 @@ export const skillProcessRuntime: SkillProcessRuntime = {
 
 /** All inputs are validated before they can authorize deletion. Never follow a metadata symlink. */
 function readLease(root: string): LeaseRecord {
-  const file = openSync(join(root, skillLeaseFilename), constants.O_RDONLY | constants.O_NOFOLLOW);
+  const directory = PinnedDirectory.atBoundary(root);
   try {
-    const stat = fstatSync(file);
-    if (!stat.isFile() || stat.size > skillLeaseLimit)
-      throw new Error("Invalid skill process lease");
-    return LeaseRecord.parse(JSON.parse(readFileSync(file, "utf8")));
+    return LeaseRecord.parse(
+      JSON.parse(directory.readPrivateText(skillLeaseFilename, skillLeaseLimit)),
+    );
   } finally {
-    closeSync(file);
+    directory.closeSync();
   }
 }
 /** Synchronous and atomic: a spawn cannot overtake its durable pending marker. */
 function writeLease(root: string, record: LeaseRecord): void {
-  const temporary = join(root, `${skillLeaseFilename}.next`);
-  const file = openSync(
-    temporary,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    0o600,
-  );
+  const directory = PinnedDirectory.atBoundary(root);
   try {
-    writeFileSync(file, JSON.stringify(LeaseRecord.parse(record)));
-    fsyncSync(file);
+    directory.replace(skillLeaseFilename, JSON.stringify(LeaseRecord.parse(record)));
   } finally {
-    closeSync(file);
+    directory.closeSync();
   }
-  renameSync(temporary, join(root, skillLeaseFilename));
 }
 function sameProcess(saved: ProcessIdentity, current: ProcessIdentity | undefined): boolean {
   // A live process can change uid or group. Its unchanged kernel start still retains the lease.

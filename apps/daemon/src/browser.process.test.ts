@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { detectChromium } from "@ace/browser";
-import { startDaemon } from "./index.ts";
+import { startDaemon, stubHandler } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
@@ -23,6 +23,20 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     const daemon = await startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
+      handler: stubHandler({ development: true }),
+      history: { instances: [] },
+      modelInstances: [],
+      providerStatus: {
+        env: { PATH: "" },
+        versions: async () => ({}),
+        cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+        antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+      },
+      modelDiscovery: {
+        spawn: () => {
+          throw new Error("model discovery must stay idle");
+        },
+      },
     });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {
@@ -49,8 +63,8 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
-      // Viewers watch as the apps do (ADR 0088): binary H.264 (the codec the iOS viewer offers)
-      // sized for the pane they show, which video waits for.
+      // Viewers watch as the apps do (ADR 0088): binary video in a codec this machine's Chrome
+      // encodes (H.264 where it can, else VP8), sized for the pane they show.
       await Promise.all(
         clients.map((client, index) =>
           client.request({
@@ -59,23 +73,24 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
             threadId: thread.id,
             binaryFrames: true,
             viewport: { width: 640, height: 400, devicePixelRatio: 2 },
-            video: { codecs: ["avc1.42E033"] },
+            video: { codecs: ["avc1.42E033", "vp8"] },
           }),
         ),
       );
-      for (const key of await Promise.all(
+      for (const found of await Promise.all(
         clients.map((client) =>
-          client.nextStream((message) =>
-            message.kind === "browser.video" &&
-            message.threadId === thread.id &&
-            message.chunk.key &&
-            message.chunk.bytes.length > 0
-              ? message.chunk
-              : undefined,
+          client.nextStream(
+            (message) =>
+              message.kind === "browser.video" &&
+              message.threadId === thread.id &&
+              message.chunk.key &&
+              message.chunk.bytes.length > 0,
           ),
         ),
       )) {
-        expect(key.codec).toBe("avc1.42E033");
+        if (found.kind !== "browser.video") throw new Error("Expected a keyframe");
+        const key = found.chunk;
+        expect(["avc1.42E033", "vp8"]).toContain(key.codec);
         // Sized as the picture is (one scale on both axes), not as an encoder pads it.
         expect(key.codedHeight / key.height).toBeCloseTo(key.codedWidth / key.width, 2);
       }

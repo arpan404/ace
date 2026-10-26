@@ -1,10 +1,11 @@
-import { lstatSync, readFileSync, readlinkSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { isDesktopShim, renderLauncher } from "./launcher.ts";
 export { CLI_SHIM_MARKER, isDesktopShim, renderLauncher } from "./launcher.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
+import { readReleasePointerSync } from "./release-pointer.ts";
 
 export {
   HOME_FORMAT_FILE,
@@ -67,7 +68,7 @@ export function installedVersion(root: string): string {
   try {
     const home = PinnedDirectory.atBoundary(root);
     directories.push(home);
-    const target = ReleaseDirectory.parse(readlinkSync(join(root, "current")));
+    const target = ReleaseDirectory.parse(readReleasePointerSync(join(root, "current")));
     if (!home.matchesBoundary(root)) throw new Error("Home changed during validation");
     const releases = home.child("releases");
     directories.push(releases);
