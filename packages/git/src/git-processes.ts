@@ -287,6 +287,18 @@ export function scanGitProcesses(platform: NodeJS.Platform): GitProcessScan {
  * system's own `tasklist`. Their working directories aren't listed, so each may be working
  * anywhere and keeps any lease or lock it could hold in place.
  */
+/** Windows creation time (100 ns ticks since 1601) in epoch milliseconds, rounded down. */
+async function windowsStart(pid: number): Promise<number | undefined> {
+  try {
+    const { processIdentity } = await import("@ace/provider-kit/process-identity");
+    const start = processIdentity(pid)?.start;
+    if (start === undefined || !/^\d+$/.test(start)) return;
+    return Number(BigInt(start) / 10_000n - 11_644_473_600_000n);
+  } catch {
+    return undefined;
+  }
+}
+
 function scanWindowsGitProcesses(): GitProcessScan {
   return async () => {
     const tasklist = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tasklist.exe");
@@ -298,7 +310,7 @@ function scanWindowsGitProcesses(): GitProcessScan {
       const match = /^"([^"]*)","(\d+)"/.exec(line);
       if (!match?.[2] || !/^git[^\\/]*\.exe$/i.test(match[1] ?? "")) continue;
       const pid = Number(match[2]);
-      if (!runningChildren.has(pid)) found.push({ pid });
+      if (!runningChildren.has(pid)) found.push({ pid, startedAt: await windowsStart(pid) });
     }
     return found;
   };

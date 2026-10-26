@@ -41,6 +41,14 @@ export default defineConfig({
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
       "packages/git/src/disabled-hooks.process.test.ts",
+      // Git and forge workflows against the runner's Git for Windows and gh: confined startup
+      // in a held folder, long-path and CRLF worktrees/checkpoints, pull request hooks, and
+      // command lookup that never runs a git.exe or gh.exe planted in a checkout.
+      "packages/git/src/held-directory.process.test.ts",
+      "packages/git/src/checkout-paths.process.test.ts",
+      "packages/git/src/reviewer-hooks.process.test.ts",
+      "packages/forge/src/command-search.process.test.ts",
+      "packages/forge/src/command.process.test.ts",
       "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
@@ -68,7 +76,7 @@ export default defineConfig({
       /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/git-template-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });

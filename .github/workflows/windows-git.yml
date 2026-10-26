@@ -1,18 +1,11 @@
 name: Windows Git and forge
 
-# Git, forge and review workflows against the runner's own Git for Windows and gh,
-# on native x64 and ARM64. Fixtures need no MSVC build: install skips postinstall.
+# Git, forge and review suites against the runner's own Git for Windows and gh, on native
+# x64 and ARM64, for finding Windows gaps. Fixtures need no MSVC build: install skips postinstall.
 
+# Dispatch only: the broad default also runs shared suites whose fixtures assume POSIX
+# (shebang proxies, process groups, control characters in file names).
 on:
-  push:
-    branches: [ace/win-git]
-    paths:
-      - .github/workflows/windows-git.yml
-      - scripts/vitest-git-native.config.ts
-      - scripts/git-template-setup.ts
-      - packages/git/**
-      - packages/forge/**
-      - packages/review/**
   workflow_dispatch:
     inputs:
       tests:

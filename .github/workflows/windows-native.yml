@@ -23,6 +23,14 @@ on:
       - packages/workspace/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
+      - packages/git/src/directory-lease.ts
+      - packages/git/src/pinned-process.ts
+      - packages/git/src/git-binary.ts
+      - packages/git/src/reviewer-hooks*
+      - packages/git/src/held-directory*
+      - packages/git/src/checkout-paths*
+      - packages/forge/src/command*
+      - scripts/git-template-setup.ts
       - packages/files/src/upload*
       - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*
