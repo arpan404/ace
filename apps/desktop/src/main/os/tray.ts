@@ -1,3 +1,4 @@
+import { basename, dirname, join } from "node:path";
 import { Menu, Tray, nativeImage, type NativeImage } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import type { WorkSummary } from "../link/thread-watch.ts";
@@ -92,10 +93,25 @@ export class StatusTray {
  * gets the colour app tile, see `appPaths().trayIcon`).
  */
 function icon(path: string): NativeImage {
+  if (process.platform === "win32") return windowsIcon(path);
   const image = nativeImage.createFromPath(path);
   if (image.isEmpty()) return fallbackIcon();
   if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
+}
+
+/**
+ * Windows: the colour app tile beside the template image (both are packaged). The taskbar never
+ * tints tray icons and is dark by default, where the black template glyph would vanish.
+ */
+function windowsIcon(templatePath: string): NativeImage {
+  const image = nativeImage.createFromPath(
+    join(dirname(templatePath), basename(templatePath).replace("trayTemplate", "trayColor")),
+  );
+  // The notification area's slot is 16 px (more at higher scales, drawn from the 2x image).
+  return image.isEmpty()
+    ? fallbackIcon()
+    : image.resize({ width: 16, height: 16, quality: "best" });
 }
 
 /** An 18 pt ring drawn at 2x, so a missing image file never leaves the tray without an icon. */

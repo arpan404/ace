@@ -10,6 +10,15 @@ export interface NotifierPorts {
 }
 
 /**
+ * Windows: the AppUserModelID toasts are filed under. The installer's Start menu shortcut
+ * carries the app id (`appId` in scripts/package.ts); without a matching id Windows drops
+ * toasts or their buttons. An unpackaged run has no shortcut and goes by its executable.
+ */
+export function windowsAppUserModelId(app: { isPackaged: boolean }, execPath: string): string {
+  return app.isPackaged ? "dev.ace.app" : execPath;
+}
+
+/**
  * Shows routed notifications through the OS. One live notification per tag (one per thread),
  * so a newer alert replaces the older one instead of stacking. macOS and Windows get the
  * Allow once / Deny buttons and an inline reply field; Linux shows plain notifications.

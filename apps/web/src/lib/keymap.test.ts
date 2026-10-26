@@ -8,7 +8,14 @@ import {
   resolveKeymap,
   type KeyboardEnv,
 } from "./keybindings.ts";
-import { keymapIds, parseChord, type KeymapId } from "./keymap.ts";
+import {
+  describeKeys,
+  formatChordParts,
+  formatKeys,
+  keymapIds,
+  parseChord,
+  type KeymapId,
+} from "./keymap.ts";
 
 const platforms: [string, KeyboardEnv][] = [
   ["macOS app", { apple: true, web: false }],
@@ -127,4 +134,15 @@ test("rebindings of unknown or fixed shortcuts are ignored", () => {
   expect(resolved.contextMenu).toBe("shift+f10");
   expect(resolved.reorderQueued).toBe("alt+arrowup");
   expect(resolved.palette).toBe("shift+mod+y");
+});
+
+test("Windows labels put Ctrl first, then Shift, then Alt, as its own menus do", () => {
+  expect(formatKeys("shift+mod+n", false, true)).toBe("Ctrl+Shift+N");
+  expect(formatKeys("alt+shift+mod+r", false, true)).toBe("Ctrl+Shift+Alt+R");
+  expect(formatKeys("mod++", false, true)).toBe("Ctrl++");
+  expect(formatKeys("g h", false, true)).toBe("G H");
+  expect(formatChordParts("shift+mod+k", false, true)).toEqual(["Ctrl", "Shift", "K"]);
+  expect(describeKeys("shift+mod+n", false, true)).toBe("Ctrl+Shift+N");
+  // Apple platforms keep their own glyph order whatever the flag says.
+  expect(formatKeys("shift+mod+n", true, true)).toBe("⇧⌘N");
 });

@@ -219,6 +219,9 @@ export function keymapEntry(id: KeymapId): KeymapEntry {
 const apple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
 /** ⌘ is the command key here (Apple platforms); elsewhere "mod" is Ctrl. */
 export const applePlatform = apple;
+const windows = /Windows/.test(globalThis.navigator?.userAgent ?? "");
+/** Windows, where labels read modifiers in its own order: Ctrl+Shift+N. */
+export const windowsPlatform = windows;
 
 export interface Chord {
   key: string;
@@ -259,7 +262,19 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   arrowright: ["→", "→"],
 };
 
-function formatChord(chord: string, isApple: boolean): string {
+/** Windows: modifiers before the key in Ctrl, Shift, Alt order, as its own menus write them. */
+const windowsModifierOrder = ["mod", "ctrl", "shift", "alt"];
+function windowsRank(part: string): number {
+  const index = windowsModifierOrder.indexOf(part.toLowerCase());
+  return index === -1 ? windowsModifierOrder.length : index;
+}
+function windowsChordParts(parts: string[]): string[] {
+  return parts.toSorted((a, b) => windowsRank(a) - windowsRank(b));
+}
+
+function formatChord(chord: string, isApple: boolean, isWindows = windows): string {
+  if (isWindows && !isApple)
+    return formatChord(windowsChordParts(chord.split(/\+(?!$)/)).join("+"), false, false);
   return chord
     .split(/\+(?!$)/)
     .map((part) => {
@@ -274,23 +289,27 @@ function formatChord(chord: string, isApple: boolean): string {
  * A sequence renders as one chip per chord ("G then H").
  */
 /** The keys in one chord as individual platform labels, without joining punctuation. */
-export function formatChordParts(keys: string, isApple = apple): string[] {
-  return keys.split(/\+(?!$)/).map((part) => {
+export function formatChordParts(keys: string, isApple = apple, isWindows = windows): string[] {
+  const parts = keys.split(/\+(?!$)/);
+  return (isWindows && !isApple ? windowsChordParts(parts) : parts).map((part) => {
     const glyph = glyphs[part.toLowerCase()];
     return glyph ? glyph[isApple ? 0 : 1].replace(/\+$/, "") : part.toUpperCase();
   });
 }
 
-export function formatKeyParts(keys: string, isApple = apple): string[] {
-  return keys.split(" ").map((chord) => formatChord(chord, isApple));
+export function formatKeyParts(keys: string, isApple = apple, isWindows = windows): string[] {
+  return keys.split(" ").map((chord) => formatChord(chord, isApple, isWindows));
 }
 
-/** "shift+mod+n" → "⇧⌘N" on Apple platforms, "Shift+Ctrl+N" elsewhere; "g h" → "G H". */
-export function formatKeys(keys: string, isApple = apple): string {
-  return formatKeyParts(keys, isApple).join(" ");
+/**
+ * "shift+mod+n" → "⇧⌘N" on Apple platforms, "Ctrl+Shift+N" on Windows, "Shift+Ctrl+N"
+ * elsewhere; "g h" → "G H".
+ */
+export function formatKeys(keys: string, isApple = apple, isWindows = windows): string {
+  return formatKeyParts(keys, isApple, isWindows).join(" ");
 }
 
 /** Spoken form for an accessible name: "g h" → "G then H". */
-export function describeKeys(keys: string, isApple = apple): string {
-  return formatKeyParts(keys, isApple).join(" then ");
+export function describeKeys(keys: string, isApple = apple, isWindows = windows): string {
+  return formatKeyParts(keys, isApple, isWindows).join(" then ");
 }

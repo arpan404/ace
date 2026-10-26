@@ -11,6 +11,7 @@ import {
   globalShortcut,
   Menu,
   nativeTheme,
+  Notification,
   powerMonitor,
   shell,
   type WebContents,
@@ -27,6 +28,7 @@ import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
+import { windowsAppUserModelId } from "./notifications/native.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
@@ -89,6 +91,9 @@ if (unsafe) {
   app.exit(1);
 } else {
   app.setPath("userData", userData);
+  // Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
+  if (process.platform === "win32")
+    app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
   // Local crash dumps only (never uploaded), started before any helper process launches.
   const crashDumps = startLocalCrashReporter(userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
@@ -595,6 +600,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
       handlers,
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
+    // Windows keeps toasts in the notification centre after their objects are gone (and after
+    // a restart); clicking one of those brings ace forward. Live toasts also get their own
+    // events (`NativeNotifier`), which follow the thread's link and run the buttons.
+    if (process.platform === "win32")
+      Notification.handleActivation((details) => {
+        if (details.type === "click") open();
+      });
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
     powerMonitor.on("shutdown", () => {
