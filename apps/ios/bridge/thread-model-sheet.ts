@@ -73,6 +73,8 @@ export class ThreadModelSheet {
   /** A switch sent from here, and how the thread stood when it was sent. */
   #chosen: { choice: ModelChoice; stood: string } | undefined;
   #continued: ModelChoice | undefined;
+  /** What the rows were last worked out for: the thread's selection, switch and busyness. */
+  #shaped = "";
 
   constructor(
     client: ClientCore,
@@ -139,13 +141,18 @@ export class ThreadModelSheet {
     );
   }
 
-  /** The thread changed: a switch sent from here gives way once the daemon reports any move. */
+  /**
+   * The thread changed: a switch sent from here gives way once the daemon reports any move, and
+   * the rows are worked out again only when what they depend on moved.
+   */
   threadChanged(): void {
-    if (this.#chosen && this.#chosen.stood !== this.#stood()) {
+    const stood = this.#stood();
+    if (this.#chosen && this.#chosen.stood !== stood) {
       this.#chosen = undefined;
       this.#changed();
     }
-    if (this.#state === "ready") this.#publish();
+    const shaped = JSON.stringify([stood, this.#busy()]);
+    if (this.#state === "ready" && shaped !== this.#shaped) this.#publish();
   }
 
   async open(): Promise<void> {
@@ -278,6 +285,7 @@ export class ThreadModelSheet {
     }));
   }
   #publish(): void {
+    this.#shaped = JSON.stringify([this.#stood(), this.#busy()]);
     this.#put("models", () => {
       const scene = this.#scene();
       const read = this.#read;
