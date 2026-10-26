@@ -307,6 +307,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $electron = node -e "process.stdout.write(require(require('node:module').createRequire(require('node:path').resolve('apps/desktop/package.json')).resolve('electron')))"
+          # The first require downloads Electron and says so before the path.
+          $electron = ($electron -split "`r?`n" | Where-Object { $_ -match 'electron\.exe$' } | Select-Object -Last 1)
           $probe = Join-Path $env:RUNNER_TEMP "parking-probe.cjs"
           @'
           const { app, BaseWindow, WebContentsView, screen } = require("electron");

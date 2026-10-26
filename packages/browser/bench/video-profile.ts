@@ -101,7 +101,7 @@ async function evaluate(cdp: Cdp, sessionId: string, expression: string): Promis
 
 const rafRate = `new Promise((resolve) => {
   let frames = 0; const start = performance.now();
-  const tick = () => { frames++; performance.now() - start < 5000 ? requestAnimationFrame(tick) : resolve(Math.round(frames / ((performance.now() - start) / 100)) / 10); };
+  const tick = () => { frames++; performance.now() - start < 5000 ? requestAnimationFrame(tick) : resolve(Math.round(frames / ((performance.now() - start) / 10000)) / 10); };
   requestAnimationFrame(tick);
 })`;
 
