@@ -20,6 +20,9 @@ import {
   runProcess,
   TaskService,
   CMD_LAUNCHER,
+  formatName,
+  HOME_FORMAT_FILE,
+  HOME_FORMAT_VERSION,
   type TaskPlan,
 } from "./index.ts";
 import { assertCompatibleTask } from "./compatibility.ts";
@@ -548,6 +551,11 @@ windows("Windows standalone uninstall and PATH", () => {
     // The app's command replaced the launcher; the release it ran is still there.
     await writeFile(join(root, "bin", CMD_LAUNCHER), shim);
     await rm(join(root, "current"));
+    // The app made this home, so it carries the current format marker.
+    await writeFile(
+      join(root, HOME_FORMAT_FILE),
+      JSON.stringify({ format: formatName(HOME_FORMAT_VERSION), createdAt: "2026-01-01T00:00:00Z" }),
+    );
     const written = `${before.value ?? ""};${join(root, "bin")}`;
     try {
       await userPath({ value: written, kind: "ExpandString" });
