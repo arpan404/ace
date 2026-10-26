@@ -244,7 +244,7 @@ function ComposerBody({
     openAdd: () => addMenu.current?.open(),
     focus: () => input.current?.focus(),
     takeFiles: intake,
-    submit: () => submit(false),
+    submit: (opposite = false) => submit(opposite),
     preserveDraft: (key) => writeDraft(storage, key, current),
     discardIfSubmitted(sent) {
       if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))

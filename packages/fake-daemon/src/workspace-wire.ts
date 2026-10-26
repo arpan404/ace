@@ -429,7 +429,9 @@ export class FakeWorkspaceWire {
               scripts: this.scripts(this.context.thread(op.threadId)?.thread.workspaceId),
             }
           : op.op === "branches.list"
-            ? this.git.branches(op.workspaceId)
+            ? this.projects.isPlainCopy(op.workspaceId)
+              ? { kind: "error" as const, code: "git_not_a_repo" }
+              : this.git.branches(op.workspaceId)
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
               : op.op === "git.status"

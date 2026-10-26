@@ -158,10 +158,13 @@ test("a thread addressed by this window's own host id is the open row in the lis
   await waitFor(() => expect(row.className).toContain("bg-active"));
 });
 
-/** Registers a checkout on `daemon`, with its `origin` when given, and returns its id. */
-function addProject(daemon: FakeDaemon, path: string, remote?: string) {
+/**
+ * Registers a checkout on `daemon`, with its `origin` when given (`false`: a plain folder, not a
+ * repository), and returns its id.
+ */
+function addProject(daemon: FakeDaemon, path: string, remote?: string | false) {
   daemon.projects.seedFolders(path.slice(0, path.lastIndexOf("/")), [
-    { path, git: true, ...(remote ? { remote } : {}) },
+    { path, git: remote !== false, ...(remote ? { remote } : {}) },
   ]);
   const added = daemon.projects.command({ type: "workspace.add", path });
   if (!added?.workspace) throw new Error(`couldn't add ${path}`);
@@ -276,4 +279,43 @@ test("a same-named project holding another repository isn't taken for the one mo
   await chooseMachine("This Mac", "Build server");
   expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project: web" })).toBeTruthy();
+});
+
+test("a plain folder is copied on send, runs in its own folder, and is never copied twice", async () => {
+  const { made, build } = machines();
+  made.daemon.linkTo(build);
+  addProject(made.daemon, "/Users/dev/code/notes");
+  const here = addProject(made.daemon, "/Users/dev/code/scratch", false);
+  made.daemon.workspace.git.setRepository(here, "none");
+  expect(onlyHere(build, here)).toBe(true);
+  await made.open("/new");
+  await writeIn("scratch", "Tidy the notes");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
+  // Not a repository there either: no worktree to make.
+  await waitFor(() =>
+    expect(screen.getByRole("checkbox", { name: "Worktree" }).getAttribute("aria-checked")).toBe(
+      "false",
+    ),
+  );
+  await sendWhenReady("");
+  expect(await screen.findByRole("heading", { level: 1, name: "Tidy the notes" })).toBeTruthy();
+  await waitFor(() => expect(titles(build)).toContain("Tidy the notes"));
+  const copies = () => build.projects.list().workspaces.filter((each) => each.name === "scratch");
+  expect(copies()).toHaveLength(1);
+
+  // The next New thread there is in the copy; back on this Mac it is the original again, and
+  // returning to the build server takes the same copy, with nothing copied again.
+  await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
+  expect(await screen.findByRole("button", { name: "Project: scratch" })).toBeTruthy();
+  await chooseMachine("Build server", "This Mac");
+  expect(await screen.findByRole("button", { name: "Machine: This Mac" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Project: scratch" })).toBeTruthy();
+  expect(screen.queryByText(/^Copied from/)).toBeNull();
+  await chooseMachine("This Mac", "Build server");
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Project: scratch" })).toBeTruthy();
+  expect(screen.queryByText(/^Copied from/)).toBeNull();
+  expect(copies()).toHaveLength(1);
 });

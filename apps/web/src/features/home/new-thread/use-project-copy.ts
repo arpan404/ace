@@ -4,6 +4,8 @@ import { refusalWords, runningWords } from "@ace/ui-core/transfers";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { folderName } from "@ace/ui-core";
 import { rememberProject } from "@/lib/project-cache.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import { rememberCopy } from "./copied-projects.ts";
 import { useEffect, useRef, useState } from "react";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useMachines, useScopedMachine, type Machine } from "@/lib/machines.ts";
@@ -55,6 +57,7 @@ export function useSourceProjectName(from: string | undefined, project: string) 
 export function useProjectCopy(from: string | undefined, project: string, to: string) {
   const machines = useMachines();
   const queryClient = useQueryClient();
+  const { storage } = useLayout();
   const projectName = useSourceProjectName(from, project);
   const source = machineOf(machines, from);
   const scoped = useScopedMachine();
@@ -102,12 +105,14 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
         if (transfer.phase === "completed") {
           // This machine's list has the copy at once, so the new thread is named for it.
           const landed = transfer.result;
-          if (landed)
+          if (landed) {
             rememberProject(queryClient, {
               id: landed.workspaceId,
               name: projectName ?? folderName(landed.path),
               path: landed.path,
             });
+            rememberCopy(storage, { from, project, to, landed: landed.workspaceId });
+          }
           settle(landed?.workspaceId, { state: "idle" });
         } else if (transfer.phase === "cancelled") settle(undefined, { state: "idle" });
         else if (transfer.phase === "failed")
@@ -152,4 +157,42 @@ export function useProjectCopy(from: string | undefined, project: string, to: st
   };
   /** `from`'s name, for saying where the project comes from. */
   return { copy, run, source: source?.name };
+}
+
+/**
+ * Whether the project can have worktrees, read from the machine it comes from (its copy here
+ * will be the same kind): `not_a_repo` for a plain folder, `no_commits` for a repository with
+ * nothing to start from. `loaded` stays false until that machine has answered.
+ */
+export function useSourceRepository(
+  from: string | undefined,
+  project: string,
+): { loaded: boolean; noWorktree: "not_a_repo" | "no_commits" | undefined } {
+  const source = machineOf(useMachines(), from);
+  const client = source?.client;
+  const query = useQuery({
+    queryKey: ["new-thread-copy", "repository", from, project],
+    enabled: client !== undefined,
+    staleTime: 30_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      if (!client) return null;
+      const reply = await client.request(
+        {
+          type: "workspace.request",
+          operation: { op: "branches.list", workspaceId: WorkspaceId.parse(project) },
+        },
+        { signal },
+      );
+      const result = reply.result;
+      if (result.kind === "error" && result.code === "git_not_a_repo") return "not_a_repo";
+      if (result.kind === "branches" && result.unbornHead) return "no_commits";
+      return null;
+    },
+  });
+  // A machine that can't answer leaves the choice to the person: nothing is ruled out.
+  return {
+    loaded: !from || query.data !== undefined || query.isError || client === undefined,
+    noWorktree: query.data ?? undefined,
+  };
 }

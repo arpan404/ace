@@ -77,7 +77,8 @@ import { ReturnedStartNotice } from "./returned-start-notice.tsx";
 import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
 import { takeCarriedDraft } from "./carried-draft.ts";
-import { useProjectCopy, useSourceProjectName } from "./use-project-copy.ts";
+import { copiedTo } from "./copied-projects.ts";
+import { useProjectCopy, useSourceProjectName, useSourceRepository } from "./use-project-copy.ts";
 import { TransferLine } from "@/features/transfers/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
@@ -259,6 +260,8 @@ function PreparationPage(props: {
   const sourceName = useSourceProjectName(props.copyFrom, props.project);
   const name = (id: string) => (id === props.project && sourceName) || nameHere(id);
   const copy = useProjectCopy(props.copyFrom, props.project, props.host);
+  // Where the project landed when it was copied here, and which send key sent the message.
+  const [landed, setLanded] = useState<{ project: string; opposite: boolean }>();
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
@@ -335,13 +338,17 @@ function PreparationPage(props: {
   const defaultMode = useDefaultWorkMode();
   // A project still to be copied here has no branches here to read: it starts from its default.
   const branches = useBaseRefs(props.chat || props.copyFrom ? undefined : project);
+  // A project on its way here is the kind it is on the machine it comes from.
+  const sourceRepository = useSourceRepository(props.copyFrom, props.project);
   // A folder that isn't a Git repository, or one with no commit yet, can only run locally. A
   // chat's folder never is one.
   const noWorktree = props.pullRequest
     ? undefined
     : props.chat
       ? "not_a_repo"
-      : noWorktreeReason(branches);
+      : noWorktreeReason(
+          props.copyFrom ? { ...branches, noWorktree: sourceRepository.noWorktree } : branches,
+        );
   const selected = resolve(
     options,
     choices,
@@ -413,6 +420,7 @@ function PreparationPage(props: {
     const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
     const saved = savePreparation(storage, props.host, draftKey, {
       project,
+      from: props.copyFrom,
       owner: editorOwner,
       skill: props.skill,
       pullRequest: props.pullRequest,
@@ -571,6 +579,10 @@ function PreparationPage(props: {
   });
   const settledBase = branches.state === "ready" ? JSON.stringify(base) : undefined;
   // The carried message is this machine's draft now, listed with the others.
+  // The message goes as soon as its project is here, the way it was sent.
+  useEffect(() => {
+    if (landed) composer.current?.submit(landed.opposite);
+  }, [landed]);
   const keepCarried = useEffectEvent(() =>
     remember({ title: carried?.trim().split("\n")[0]?.slice(0, 100) || "New preparation" }),
   );
@@ -643,11 +655,9 @@ function PreparationPage(props: {
     noStricterAccess,
     hasFiles,
     scopeReady: scope.draftId !== undefined,
-    branchesPending:
-      !props.copyFrom &&
-      !props.pullRequest &&
-      resolved.mode === "worktree" &&
-      branches.state === "loading",
+    branchesPending: props.copyFrom
+      ? !sourceRepository.loaded
+      : !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading",
     sourceProblem: issueSource.problem || prSource.problem,
   });
   const sendProblem = readiness.problem;
@@ -655,10 +665,18 @@ function PreparationPage(props: {
     if (!project || !launchModel || !resolved.mode || readiness.problem || readiness.pending)
       return false;
     if (draft.attachments.length && !scope.draftId) return false;
-    if (copy.copy.state === "copying") return false;
-    // A project from another machine is copied here first; the message waits for it.
-    const target = props.copyFrom ? await copy.run() : project;
-    if (!target) return false;
+    // A project from another machine is copied here first. The message stays in the composer
+    // meanwhile, and goes once the copy has landed (`landed`).
+    // A copy made here before is used again rather than copied once more.
+    const copied = props.copyFrom && copiedTo(storage, props.copyFrom, project, props.host);
+    const reused = copied && projects.includes(copied) ? copied : undefined;
+    if (props.copyFrom && !landed && !reused) {
+      void copy.run().then((id) => {
+        if (id) setLanded({ project: id, opposite: draft.opposite });
+      });
+      return false;
+    }
+    const target = landed?.project ?? reused ?? project;
     submitting.current = true;
     recoveryMayLeave.current = true;
     forgetReturned();

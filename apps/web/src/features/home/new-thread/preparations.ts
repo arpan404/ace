@@ -10,6 +10,8 @@ const Preparation = z.object({
   owner: z.string().optional(),
   revision: z.number().int().nonnegative().optional(),
   project: z.string(),
+  /** The machine `project` is on, while it isn't on this one yet: sending copies it here. */
+  from: z.string().optional(),
   skill: z.string().optional(),
   pullRequest: z.string().max(4096).optional(),
   issue: z.string().max(4096).optional(),

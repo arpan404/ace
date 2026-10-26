@@ -106,6 +106,12 @@ export class FakeProjects {
   private homeLink: string | undefined;
   private removed = new Set<string>();
   private retained = new Map<string, Project>();
+  /** Plain folders another machine sent here: not repositories, as the real daemon finds. */
+  private plainCopies = new Set<string>();
+  /** Whether the project is a plain folder another machine sent here. */
+  isPlainCopy(id: string): boolean {
+    return this.plainCopies.has(id);
+  }
   private directories = new Map<string, Directory>([
     ["/fake", { empty: true, git: false, modifiedAt: 1, initialBranch: "main" }],
   ]);
@@ -321,7 +327,13 @@ export class FakeProjects {
    * is one, else a new Git checkout in `parent` (or the home), named after the source with `-2`,
    * `-3`… when the folder is taken.
    */
-  receive(input: { name: string; parent?: string | undefined; origin?: string | undefined }): {
+  receive(input: {
+    name: string;
+    parent?: string | undefined;
+    origin?: string | undefined;
+    /** False for a plain folder (an archive): it lands as a folder, not a repository. */
+    git?: boolean | undefined;
+  }): {
     workspaceId: string;
     path: string;
     reused: boolean;
@@ -334,12 +346,13 @@ export class FakeProjects {
     this.makeFolders(path);
     this.directories.set(path, {
       empty: false,
-      git: true,
+      git: input.git !== false,
       initialBranch: "main",
       modifiedAt: this.context.now(),
       ...(input.origin ? { remote: input.origin } : {}),
     });
     const result = this.register(path, input.name);
+    if (input.git === false) this.plainCopies.add(result.workspace.id);
     return { workspaceId: result.workspace.id, path, reused: false };
   }
   /** `mkdir -p` on the fake host: each missing folder on the way, empty. */

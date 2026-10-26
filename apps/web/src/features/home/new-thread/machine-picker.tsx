@@ -11,6 +11,7 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { useManyDevices } from "../row-parts.tsx";
 import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
@@ -63,6 +64,7 @@ function MachineMenu(props: {
   returnFocus(): HTMLElement | null;
 }) {
   const { machines, current, choose } = props.choice;
+  const { storage } = useLayout();
   const moving = useRef(false);
   // The project goes along: the other machine's own copy of it, or this one, to copy on send.
   const move = async (next: Machine) => {
@@ -70,7 +72,10 @@ function MachineMenu(props: {
     moving.current = true;
     const home = props.from ? machines.find((each) => each.id === props.from) : current;
     try {
-      choose(next, { ...(await projectOn(next, props.project, home)), draft: props.draft });
+      choose(next, {
+        ...(await projectOn(storage, next, props.project, home)),
+        draft: props.draft,
+      });
     } finally {
       moving.current = false;
     }

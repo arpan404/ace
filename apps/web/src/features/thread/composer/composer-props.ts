@@ -18,8 +18,11 @@ export interface ComposerHandle {
   focus(): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
-  /** Send the message as Send would (the Browser's annotate bar asks for it). */
-  submit(): void;
+  /**
+   * Send the message as Send would (the Browser's annotate bar asks for it); `opposite` as the
+   * other send key would.
+   */
+  submit(opposite?: boolean): void;
 }
 
 export interface ComposerProps {
