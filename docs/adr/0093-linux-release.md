@@ -22,9 +22,17 @@ XDG folders, a Rust screen helper), but nothing has shipped or run end to end on
 
 ### Targets and artifacts
 
-Ship linux-x64 and linux-arm64, glibc only. Natives are built inside a Debian 11 (glibc 2.31)
-container so one artifact runs on Ubuntu 20.04+, Debian 11+, Fedora, Arch and their
-derivatives (Omarchy included). Musl is out of scope.
+Ship linux-x64 and linux-arm64, glibc only. Natives are built inside a Debian 12 (glibc 2.36)
+container so one artifact runs on every supported system. Musl is out of scope.
+
+**Supported systems (revised 2026-10-25).** Modern Ubuntu (24.04 LTS and newer), Fedora,
+Debian (12 and 13) and Omarchy (Arch with Hyprland), each in its default Wayland session:
+GNOME on Ubuntu, Fedora and Debian, Hyprland on Omarchy. KDE Plasma on Wayland works too and
+is tested, at lower priority. X11 sessions, Sway and other wlroots desktops, older releases
+(Ubuntu 20.04 and 22.04, Debian 11) and other distribution families (openSUSE) are not
+supported: their code, test sessions and install hints are removed rather than kept
+untested. The first revision of this ADR built on Debian 11 for Ubuntu 20.04+; Debian 11 has
+since left the regular mirrors, and none of the supported systems needs a glibc that old.
 
 - Daemon archive (ADR 0041), now including the Linux screen helper at
   `helpers/ace-screen-helper-linux` beside the daemon bundle. The daemon uses
@@ -34,7 +42,8 @@ derivatives (Omarchy included). Musl is out of scope.
   collides with the `ace` CLI. The deb installs an AppArmor profile so Electron's and ace's
   Chromium sandbox work on Ubuntu 23.10+ without disabling the kernel restriction.
 - The screen helper links glibc dynamically (static glibc plus `dlopen` of PipeWire is not
-  reliable) and keeps PipeWire optional: computer use on X11 and accessibility never need it.
+  reliable) and loads the session's PipeWire: accessibility never needs it, screenshots and
+  live view do.
 - A release workflow builds every target on its native runner (`ubuntu-24.04`,
   `ubuntu-24.04-arm`, macOS), runs the artifact smoke test, and uploads unsigned artifacts.
   Signing stays an offline step (ADR 0041). Publication accepts any non-empty subset of
@@ -43,10 +52,10 @@ derivatives (Omarchy included). Musl is out of scope.
 ### Service
 
 The systemd user unit (ADR 0041) is the Linux supervisor. The daemon reads the graphical
-session's `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` from
-the user manager at use time, so a service started before login still reaches the desktop.
-Without a session, browser use runs headless and computer use reports that no desktop
-session is available.
+session's `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` (and
+`DISPLAY` for XWayland apps) from the user manager at use time, so a service started before
+login still reaches the desktop. Without a session, browser use runs headless and computer use
+reports that no desktop session is available; in an X11 session it asks for a Wayland login.
 
 ### Browser use
 
@@ -75,9 +84,8 @@ without procps.
 The desktop parks unseen agent tabs without a visible window on Linux. A never-shown,
 minimized or fully clipped window gets no frames on Linux, and offscreen rendering is fixed
 when a tab is created, so parked views keep their full size inside a 1×1 parking window: a
-view larger than its window is clipped but keeps rendering. On X11 an empty window shape hides
-that pixel; Wayland has no shapes, so one pixel remains there. macOS and
-Windows keep the transparent window.
+view larger than its window is clipped but keeps rendering. Wayland has no window shapes, so
+one pixel remains. macOS and Windows keep the transparent window.
 
 ### Computer use
 
@@ -88,24 +96,23 @@ and registers the same three tools as on macOS.
 
 - **App identity** is the desktop-file id (`org.gnome.TextEditor`, a Flatpak app id), taken
   from the process (`GIO_LAUNCHED_DESKTOP_FILE`, the systemd scope, `/.flatpak-info`), else
-  matched through `StartupWMClass`/`WM_CLASS`, else the executable name. It fills the
+  matched through the accessible app name, else the executable name. It fills the
   `bundleId` field. Installed apps come from `.desktop` files; launch uses `gio launch`.
 - **Semantics first.** The tree, element ids and actions come from AT-SPI2, which works on
-  X11 and Wayland and on covered windows: `DoAction`, `GrabFocus`, `EditableText`, `Text`
+  background and covered windows: `DoAction`, `GrabFocus`, `EditableText`, `Text`
   selection, `Value`, `Selection`, menus pressed by path. The helper turns on
   `org.a11y.Status.IsEnabled` as screen readers do, so GTK, Qt, Chromium and Electron apps
   started afterwards expose their trees.
-- **Raw input needs the window in front.** Linux has no reliable way to post keys or pointer
-  events to a background window. Key presses, x,y clicks, drags and pixel scrolls are
-  delivered with XTest on X11 or the RemoteDesktop portal on Wayland, only while the target
-  window is active. Otherwise the step fails with a message telling the agent to add an
-  `activate` step. Typing into a field uses AT-SPI text insertion and needs no focus.
-  The `cmd` modifier means Control on Linux, so shortcuts keep their intent across
-  platforms.
-- **Screenshots.** X11 captures the target window (Composite when available, so covered
-  windows still capture), scaled to the engine's 1568 px / 1.15 MP limit with id marks.
-  Wayland uses the ScreenCast portal with a persisted restore token; until the person has
-  granted it, `state` returns the outline with a `screenshotError` explaining how to grant it.
+- **No raw input.** Wayland gives no program a way to send keys or pointer events to another
+  app's window (the RemoteDesktop portal is the person's, granted in its dialog for a live
+  view). Keys with no accessibility equivalent, x,y clicks, drags and wheel scrolls fail with a
+  message pointing the agent to element ids. Typing into a field uses AT-SPI text insertion
+  and needs no focus; Return, Backspace, Delete, arrows and select-all in text go through
+  AT-SPI too. The `cmd` modifier means Control on Linux, so shortcuts keep their intent
+  across platforms.
+- **Screenshots** use the ScreenCast portal with a persisted restore token, scaled to the
+  engine's 1568 px / 1.15 MP limit with id marks. Until the person has granted it, `state`
+  returns the outline with a `screenshotError` explaining how to grant it.
 - **Policy.** The built-in block list gains Linux terminals, password managers, polkit and
   pinentry prompts, and ace's own desktop app.
 
@@ -167,7 +174,7 @@ shortcut uses the GlobalShortcuts portal on Wayland. The `ace` CLI shim detects 
 points at the stable AppImage path, not its temporary mount.
 
 The app's Linux identity is `dev.ace.app` everywhere: the installed desktop entry
-(`dev.ace.app.desktop`), the X11 window class and Wayland app id, and the autostart entry.
+(`dev.ace.app.desktop`), the Wayland app id, and the autostart entry.
 Portals need a reverse-DNS id; GNOME refuses global shortcuts to one like `ace-desktop`, and
 Chromium only uses the shortcuts portal on GNOME with `GlobalShortcutsPortalPreferredTrigger`
 on as well. The executable stays `ace-desktop`. An AppImage or extracted tar.gz installs
@@ -185,7 +192,7 @@ StatusNotifier host (stock GNOME, bare window managers) show no tray icon, so th
 the window closes into the background there, a notification says ace is still running.
 
 **Releases and updates.** Linux desktop releases go through the same `release.ts build` and
-`publish` as macOS (ADR 0091), run in the Debian 11 container on a host of each
+`publish` as macOS (ADR 0091), run in the Debian 12 container on a host of each
 architecture, unsigned. They publish an AppImage, a deb and a tar.gz under one naming
 scheme (`ace-<version>-<arch>.<ext>`) with `latest-linux.yml` / `latest-linux-arm64.yml`.
 
@@ -198,20 +205,19 @@ scheme (`ace-<version>-<arch>.<ext>`) with `latest-linux.yml` / `latest-linux-ar
 ## Testing
 
 Linux verification runs in a local Ubuntu 26.04 arm64 VM (Lima) and on CI's x64 and arm64
-runners: the helper against Xvfb, Openbox and GTK apps with the accessibility bus; the
-browser engine with and without the sandbox restriction; the daemon archive smoke test; and
-the desktop AppImage under a headless GNOME Wayland session. The daemon's Linux end to end
-(`apps/daemon/scripts/linux-e2e/run.sh`) also runs Hyprland (on a virtual KMS display, with
-the distro's xdg-desktop-portal-hyprland or a build of Arch's version) and Sway, with
-waybar, mako and hypridle running and a scripted screen-sharing chooser. Neither portal has
-RemoteDesktop, so there the live view is watch-only and raw agent input is unsupported;
-ace never works around the portal with compositor IPC or virtual input. KDE Plasma 6 runs
-in the same suites (`run.sh kde`); its live view is watch-only too. Person control in a live
-view is X11 and GNOME on Wayland only (ADR 0049, Live view by desktop), and clients say why
-elsewhere instead of offering a take-over. The desktop app's e2e
-(`apps/desktop/scripts/linux-e2e.sh`) runs on X11, GNOME Wayland, KDE, Hyprland and Sway, with
-Electron Wayland-native on the Wayland ones. The tar.gz was smoke-tested by hand in the VM as a
-fresh user on GNOME Wayland and Openbox: self-registration, `ace://` links with the app running
+runners: the helper against GTK and Qt apps in headless GNOME Shell and KDE Plasma Wayland
+sessions with the accessibility bus; the browser engine with and without the sandbox
+restriction; the daemon archive smoke test; and the desktop AppImage under a headless GNOME
+Wayland session. The daemon's Linux end to end (`apps/daemon/scripts/linux-e2e/run.sh`) runs
+GNOME, KDE Plasma 6, Hyprland (on a virtual KMS display, with the distro's
+xdg-desktop-portal-hyprland or a build of Arch's version, waybar, mako and hypridle running
+and a scripted screen-sharing chooser) and a headless machine. Hyprland's portal has no
+RemoteDesktop, so there the live view is watch-only; ace never works around the portal with
+compositor IPC or virtual input. KDE's live view is watch-only too. Person control in a live
+view is GNOME only (ADR 0049, Live view by desktop), and clients say why elsewhere instead of
+offering a take-over. The desktop app's e2e (`apps/desktop/scripts/linux-e2e.sh`) runs on
+GNOME, KDE and Hyprland, with Electron Wayland-native. The tar.gz was smoke-tested by hand in
+the VM as a fresh user on GNOME Wayland: self-registration, `ace://` links with the app running
 and closed, the sandbox setup through run0 (the VM has no pkexec) then restart into a sandboxed
 renderer, the autostart entry and the `ace` command after quitting. In that VM every Vulkan
 client under KWin Wayland (on vgem, with only Mesa's software Vulkan) crashes in Mesa's
@@ -226,8 +232,8 @@ actions, the real share picker, portal capture, and the AppImage.
 
 ## Consequences
 
-- Linux computer use is weaker than macOS for apps with poor accessibility: raw keys and
-  clicks interrupt the person because they need the window in front.
+- Linux computer use is weaker than macOS for apps with poor accessibility: agents get no raw
+  keys or clicks, only what an app exposes through AT-SPI.
 - On Wayland the person grants screen capture once per session type through the portal
   chooser; ace never bypasses it.
 - First releases are unsigned on Linux; integrity comes from the Ed25519-signed manifest
