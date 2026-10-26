@@ -79,16 +79,17 @@ export async function installChromium(
   return acquireChromium({ ...options, dataDir });
 }
 
+const existing = (path: string) =>
+  access(path).then(
+    () => path,
+    () => undefined,
+  );
+
 /** Windows has no execute bit: existence is the test, and PATH lookup never accepts a .bat/.cmd. */
 async function detectWindowsChromium(
   options: { executablePath?: string; dataDir?: string; arch?: string },
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
-  const exists = (path: string) =>
-    access(path).then(
-      () => path,
-      () => undefined,
-    );
   const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(
     (root): root is string => Boolean(root),
   );
@@ -99,7 +100,7 @@ async function detectWindowsChromium(
     ...roots.map((root) => join(root, "Microsoft/Edge/Application/msedge.exe")),
   ];
   for (const candidate of installed) {
-    const found = candidate && (await exists(candidate));
+    const found = candidate && (await existing(candidate));
     if (found) return found;
   }
   for (const command of ["chrome.exe", "chromium.exe", "msedge.exe"]) {
@@ -110,7 +111,7 @@ async function detectWindowsChromium(
   try {
     // ace's own pinned Chrome for Testing, if it was acquired into this data directory.
     const artifact = chromiumArtifact("win32", options.arch ?? process.arch);
-    return await exists(
+    return await existing(
       join(
         options.dataDir,
         "chromium",
