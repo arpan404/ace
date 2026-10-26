@@ -91,7 +91,7 @@ function Shot($name) {
 function StopApp($daemonPid) {
   Get-Process ace -ErrorAction SilentlyContinue | Stop-Process -Force
   # The app's daemon outlives a killed app; ask it to stop as `ace stop` does.
-  & $shim stop 2>&1 | Out-Null
+  cmd.exe /c "`"$shim`" stop >nul 2>&1"
   $deadline = (Get-Date).AddMinutes(1)
   while ((Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
   if (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) { Fail "the daemon did not stop on request" }
@@ -138,7 +138,7 @@ Done
 
 Step "The app starts its own daemon"
 $firstDaemon = LaunchApp $installDir
-Start-Sleep -Seconds 10
+if ($ShotDir) { Start-Sleep -Seconds 45 }
 Shot "first-launch"
 Set-Content -Path (Join-Path $homeDir "smoke-marker.txt") -Value "kept"
 # A login item as the app's Settings writes it, so uninstall must remove it.
@@ -152,7 +152,7 @@ if ($entry.DisplayVersion -ne $SecondVersion) { Fail "installed version is $($en
 if (Get-Process -Id $firstDaemon -ErrorAction SilentlyContinue) { Fail "the old daemon still runs after the update" }
 $secondDaemon = LaunchApp $installDir
 Write-Host "daemon after update: pid $secondDaemon"
-Start-Sleep -Seconds 10
+if ($ShotDir) { Start-Sleep -Seconds 45 }
 Shot "after-update"
 Done
 
