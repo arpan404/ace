@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import type { Plugin, Rolldown } from "vite";
 
 /**
@@ -65,20 +66,66 @@ export function initialChunk(entry: string): NonNullable<ChunkGroup>[number] {
 }
 
 /**
- * Windows: the same group, matching the entry whatever its slashes and drive-letter case. The
- * path `fileURLToPath` gives (`D:\\a\\src\\main.tsx`) need not be the module id the bundler
- * uses (`D:/a/src/main.tsx`). Missed, the entry joins the shared chunk, and its top-level `await`
- * then holds every lazy chunk the boot imports (the fake daemon's), which waits on it in turn:
- * the page never gets past "Starting ace…".
+ * Windows: one spelling for a module path, so the entry is recognised however the checkout is
+ * reached. The path `fileURLToPath` gives (`D:\\a\\src\\main.tsx`) need not be the bundler's
+ * module id (`D:/a/src/main.tsx`), and a checkout behind a junction, symlink or `subst` drive, or
+ * spelled with a `\\?\\` prefix, names the same file differently again. Missed, the entry joins
+ * the shared chunk, and its top-level `await` then holds every lazy chunk the boot imports,
+ * which waits on it in turn: the page never gets past "Starting ace…".
  */
-function windowsModuleKey(path: string): string {
-  return path.replaceAll("\\", "/").toLowerCase();
+export function windowsModuleKey(id: string, realpath: (path: string) => string): string {
+  const path = id.replace(/[?#].*$/, "").replace(/^(?:\\\\|\/\/)\?[\\/]/, "");
+  let real = path;
+  try {
+    real = realpath(path);
+  } catch {
+    // Virtual modules and missing files keep the spelling they have.
+  }
+  return real
+    .replace(/^(?:\\\\|\/\/)\?[\\/]/, "")
+    .replaceAll("\\", "/")
+    .toLowerCase();
 }
-export function windowsInitialChunk(entry: string): NonNullable<ChunkGroup>[number] {
-  const target = windowsModuleKey(entry);
+
+/** Windows: the same group, with the entry matched by `windowsModuleKey`. */
+export function windowsInitialChunk(
+  entry: string,
+  realpath: (path: string) => string = realpathSync.native,
+): NonNullable<ChunkGroup>[number] {
+  const keys = new Map<string, string>();
+  const key = (id: string) => {
+    let known = keys.get(id);
+    if (known === undefined) keys.set(id, (known = windowsModuleKey(id, realpath)));
+    return known;
+  };
+  const target = key(entry);
   return {
     debugName: "initial",
     tags: ["$initial"],
-    name: (id) => (windowsModuleKey(id) === target || id.endsWith(".html") ? null : "initial"),
+    name: (id) => (key(id) === target || id.endsWith(".html") ? null : "initial"),
+  };
+}
+
+/**
+ * Windows build guard: the page entry must keep a chunk of its own (`windowsInitialChunk`). If
+ * it ever lands in a shared chunk the build fails here instead of shipping a page that hangs.
+ */
+export function windowsEntryGuard(
+  entry: string,
+  realpath: (path: string) => string = realpathSync.native,
+): Plugin {
+  const target = windowsModuleKey(entry, realpath);
+  return {
+    name: "ace:windows-entry-chunk",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "chunk" || output.isEntry) continue;
+        if (Object.keys(output.modules).some((id) => windowsModuleKey(id, realpath) === target))
+          this.error(
+            `The page entry (${entry}) was bundled into the shared chunk ${output.fileName}; its top-level await would hang every lazy chunk loaded during boot.`,
+          );
+      }
+    },
   };
 }
