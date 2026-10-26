@@ -22,7 +22,7 @@ async function tempRoot(): Promise<string> {
   return root;
 }
 
-describe("Windows Chromium detection", () => {
+describe.runIf(process.platform === "win32")("Windows Chromium detection", () => {
   it("prefers the explicit executablePath override on Windows", async () => {
     const root = await tempRoot();
     const explicit = await fakeExecutable(root, "custom", "chrome.exe");
@@ -73,7 +73,7 @@ describe("Windows Chromium detection", () => {
   });
 });
 
-describe("Windows ARM64 browser", () => {
+describe.runIf(process.platform === "win32")("Windows ARM64 browser", () => {
   it("uses the installed browser, since no pinned download exists", async () => {
     const root = await tempRoot();
     const edge = await fakeExecutable(root, "Microsoft", "Edge", "Application", "msedge.exe");

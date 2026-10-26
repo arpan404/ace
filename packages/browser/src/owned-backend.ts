@@ -81,16 +81,25 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     (owned = new ChromeBackend({
       executable: () => {
         if (options.executablePath) return Promise.resolve(options.executablePath);
-        acquiring ??= (
-          process.platform === "win32" && process.arch === "arm64" && !options.acquisition?.artifact
-            ? installedWindowsChromium({ dataDir: options.dataDir })
-            : acquireChromium({
-                ...options.acquisition,
-                dataDir: options.dataDir,
-                signal,
-                progress,
-              })
-        ).catch((error: unknown) => {
+        // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge.
+        if (
+          process.platform === "win32" &&
+          process.arch === "arm64" &&
+          !options.acquisition?.artifact
+        )
+          acquiring ??= installedWindowsChromium({ dataDir: options.dataDir }).catch(
+            (error: unknown) => {
+              acquiring = undefined;
+              options.onError?.(error);
+              throw error;
+            },
+          );
+        acquiring ??= acquireChromium({
+          ...options.acquisition,
+          dataDir: options.dataDir,
+          signal,
+          progress,
+        }).catch((error: unknown) => {
           acquiring = undefined;
           options.onError?.(error);
           throw error;
