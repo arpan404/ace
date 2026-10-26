@@ -39,6 +39,14 @@ on:
       - tools/release/src/archive*.ts
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
+      - apps/daemon/src/network.ts
+      - apps/daemon/src/tailscale-*
+      - apps/daemon/src/tls-identity*
+      - apps/daemon/src/self-signed-certificate.ts
+      - apps/daemon/src/triage-*
+      - apps/daemon/src/doctor/**
+      - packages/devices/src/sdk*.ts
+      - packages/devices/src/android-sdk-install*
       - package.json
       - bun.lock
   workflow_dispatch:
