@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { ClientCore } from "@ace/client";
+import type { ChunkReader } from "./thread-attachments.ts";
 import type { ThreadSession } from "./thread-session.ts";
-import { connect, fixture, latest, open, reset, sent, until } from "./thread-harness.ts";
+import { connect, fixture, forks, latest, open, reset, sent, until } from "./thread-harness.ts";
 
 /*
  * Moving an open thread to another model, account or provider from its model sheet, over the
@@ -62,9 +64,9 @@ function codexThread(model = "gpt-6", running = false): FakeDaemon {
 
 async function openSheet(
   client: ClientCore,
-  { fork = false } = {},
+  { fork = false, chunks }: { fork?: boolean; chunks?: ChunkReader } = {},
 ): Promise<{ thread: ThreadSession; ready: Sheet }> {
-  const thread = open(client, "sw");
+  const thread = open(client, "sw", chunks);
   await until(() => latest("thread.tune"), "the thread");
   if (fork) await forkOnSwitch(client);
   thread.handle({ type: "models" });
@@ -138,7 +140,8 @@ test("another provider asks first, and nothing is sent until the person confirms
   const asked = ready.rows[row("claude-personal", opus)];
   const ask = ready.asks[asked?.ask ?? -1];
   expect(ask?.title).toBe("Switch to Claude Code?");
-  expect(ask?.message).toMatch(/stays behind/);
+  expect(ask?.message).toMatch(/doesn't carry over/);
+  expect(ask?.action).toBe("Switch to Claude Code");
   const pick = (confirmed: boolean, requestId: string) =>
     thread.handle({
       type: "switchModel",
@@ -150,6 +153,12 @@ test("another provider asks first, and nothing is sent until the person confirms
   pick(false, "unasked");
   await until(() => latest("admission", "unasked"), "refusal");
   expect(admission("unasked").ok).toBe(false);
+  // The question comes back with the refusal, so the sheet can ask it.
+  expect(latest("thread.switchAsk", "unasked")).toMatchObject({
+    key: opus,
+    account: "claude-personal",
+    ask: { title: "Switch to Claude Code?" },
+  });
   expect(commands("thread.switch")).toHaveLength(0);
   pick(true, "asked");
   await until(() => commands("thread.switch").length === 1, "the switch on the wire");
@@ -177,7 +186,13 @@ test("with fork on switch, another provider continues in a new thread with the n
     continues: true,
   });
   expect(commands("thread.switch")).toHaveLength(0);
-  thread.handle({ type: "send", text: "Carry on there.", opposite: false, requestId: "go" });
+  thread.handle({
+    type: "send",
+    text: "Carry on there.",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
   const continued = await until(() => latest("thread.continued"), "the new thread");
   const fork = commands("thread.fork")[0];
   expect(fork).toMatchObject({
@@ -215,11 +230,91 @@ test("a continuation waits while the agent's turn is still running", async () =>
     requestId: "pick",
   });
   await until(() => controls()?.provider === "claude", "the continuation");
-  thread.handle({ type: "send", text: "Carry on.", opposite: false, requestId: "early" });
+  thread.handle({
+    type: "send",
+    text: "Carry on.",
+    opposite: false,
+    continues: true,
+    requestId: "early",
+  });
   await until(() => latest("admission", "early"), "refusal");
   expect(admission("early")).toMatchObject({
     ok: false,
     message: expect.stringMatching(/Stop it/),
   });
+  expect(commands("thread.fork")).toHaveLength(0);
+});
+
+const notes = Buffer.alloc(2048, 7);
+const chunks: ChunkReader = async (_localId, offset, limit) =>
+  notes.subarray(offset, offset + limit).toString("base64");
+const tray = () => latest("thread.attachments") as { files: { state: string }[] } | undefined;
+const sendOn = (thread: ThreadSession, requestId: string) =>
+  thread.handle({ type: "send", text: "Carry on.", opposite: false, continues: true, requestId });
+
+async function continuing(options: { chunks?: ChunkReader } = {}) {
+  const { thread } = await openSheet(connect(codexThread()), { fork: true, ...options });
+  thread.handle({
+    type: "switchModel",
+    key: opus,
+    account: "claude-personal",
+    confirmed: true,
+    requestId: "pick",
+  });
+  await until(() => controls()?.continues, "the continuation");
+  return thread;
+}
+
+test("a fork the daemon refuses keeps the message's files and the continuation, so sending again starts it", async () => {
+  const thread = await continuing({ chunks });
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "screen-0001",
+      name: "screen.png",
+      mimeType: "image/png",
+      bytes: notes.length,
+      sha256: createHash("sha256").update(notes).digest("hex"),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "ready", "the upload");
+  forks.refuse = true;
+  sendOn(thread, "refused");
+  const receipt = await until(() => latest("receipt", "refused"), "the refusal");
+  expect(receipt).toMatchObject({ ok: false, message: expect.stringMatching(/didn't start/) });
+  expect(tray()?.files).toHaveLength(1);
+  expect(controls()?.continues).toBe(true);
+  expect(latest("thread.continued")).toBeUndefined();
+  forks.refuse = false;
+  sendOn(thread, "again");
+  await until(() => latest("thread.continued"), "the new thread");
+  expect(commands("thread.fork")[1]?.context).toMatchObject({
+    attachments: [{ sha256: expect.any(String) }],
+  });
+  await until(() => tray()?.files.length === 0, "the files gone with it");
+});
+
+test("a second send while the new thread is starting is held back and starts nothing more", async () => {
+  const thread = await continuing();
+  forks.hold = true;
+  sendOn(thread, "first");
+  await until(() => commands("thread.fork").length === 1, "the first fork");
+  sendOn(thread, "second");
+  await until(() => latest("admission", "second"), "the second send answered");
+  expect(admission("second")).toMatchObject({
+    ok: false,
+    message: expect.stringMatching(/Still starting the new thread/),
+  });
+  forks.release();
+  await until(() => latest("thread.continued"), "the new thread");
+  expect(commands("thread.fork")).toHaveLength(1);
+});
+
+test("a send that no longer matches what the composer showed is refused rather than sent elsewhere", async () => {
+  const thread = await continuing();
+  thread.handle({ type: "send", text: "Here.", opposite: false, requestId: "stale" });
+  await until(() => latest("admission", "stale"), "refusal");
+  expect(admission("stale").ok).toBe(false);
+  expect(commands("thread.send")).toHaveLength(0);
   expect(commands("thread.fork")).toHaveLength(0);
 });

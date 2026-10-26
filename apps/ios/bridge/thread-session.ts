@@ -85,6 +85,7 @@ export class ThreadSession {
       now: () => host.now(),
       preview,
       changed: () => this.#controls(),
+      files: () => this.#tray.files(),
     });
     this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
       this.#dispatch(payload, id),
@@ -165,7 +166,13 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        if (this.#sheet.continued) this.#continue(action.text, action.requestId);
+        if ((action.continues ?? false) !== (this.#sheet.continued !== undefined))
+          this.#admission(
+            action.requestId,
+            false,
+            "Where this message goes just changed. Check the model and send again.",
+          );
+        else if (this.#sheet.continued) this.#continue(action.text, action.requestId);
         else if (!this.#reply(action.text, action.reply, action.requestId))
           this.#send(action.text, action.opposite, action.requestId);
         break;
@@ -365,29 +372,36 @@ export class ThreadSession {
   #continue(text: string, id: string): void {
     const choice = this.#sheet.continued;
     if (!choice) return;
+    if (this.#sheet.sending) {
+      this.#admission(id, false, "Still starting the new thread. Wait for it to open.");
+      return;
+    }
     const files = this.#tray.context();
-    const problem =
-      "refused" in files ? files.refused : this.#tray.refusedBy(this.#sheet.continuedReader());
     const built =
-      problem === undefined
-        ? continuationPayload(
-            this.#store,
-            this.#threadId,
+      "refused" in files
+        ? files
+        : continuationPayload({
+            reader: this.#store,
+            threadId: this.#threadId,
             choice,
             text,
-            "context" in files ? files.context : undefined,
-          )
-        : { refused: problem };
+            files: this.#tray.files(),
+            modalities: this.#sheet.modalities(choice),
+            context: files.context,
+          });
     if ("refused" in built) {
       this.#admission(id, false, built.refused);
       return;
     }
+    // Swift keeps the words and files until the daemon answers; only a started thread takes them.
+    this.#sheet.continuationSending();
     void dispatchCommand(this.#client, built.payload, id, this.#pump, {
-      saved: () => this.#tray.sent(),
-      // Refused, the continuation stays picked, so sending again tries the new thread again.
+      unsaved: () => this.#sheet.continuationSettled(false),
+      refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
       receipt: (result) => {
+        this.#sheet.continuationSettled(result.ok);
         if (!result.ok) return;
-        this.#sheet.continuedSent();
+        this.#tray.sent();
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));

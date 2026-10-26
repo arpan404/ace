@@ -3,16 +3,16 @@ import type { CommandPayload, ProviderKind, ThreadId } from "@ace/protocol";
 import {
   catalogModelIds,
   choiceSelection,
+  continuationAttachmentProblem,
   continuationNote,
   isBusy,
   modelChoices,
   modelKey,
   modelLabel,
-  providerNames,
   selectionInputs,
   switchNextTurnNote,
-  type AttachmentReader,
   type ModelChoice,
+  type SwitchQuestion,
 } from "@ace/ui-core";
 import { runsOn, selectionIdentity } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
@@ -21,11 +21,11 @@ import type { Preview } from "./agents.ts";
 import { ModelFavorites } from "./model-favorites.ts";
 import { pickerRows } from "./new-thread-agents.ts";
 import {
-  pickedChoice,
+  shapeScene,
   switchPayload,
   switchPlan,
   switchRows,
-  type SwitchScene,
+  type ShapedScene,
   type SwitchTarget,
 } from "./thread-switch.ts";
 
@@ -44,8 +44,6 @@ type Admission = (id: string, ok: boolean, message: string) => void;
 const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
 });
-
-const unconfirmed = "Confirm the move first.";
 
 /** What the composer's model control names instead of what the thread runs on. */
 export interface NextModel {
@@ -73,7 +71,9 @@ export class ThreadModelSheet {
   /** A switch sent from here, and how the thread stood when it was sent. */
   #chosen: { choice: ModelChoice; stood: string } | undefined;
   #continued: ModelChoice | undefined;
-  /** What the rows were last worked out for: the thread's selection, switch and busyness. */
+  #sending = false;
+  readonly #files: () => readonly { name: string; mimeType?: string | undefined }[];
+  /** What the rows were last worked out for (`#shape`). */
   #shaped = "";
 
   constructor(
@@ -81,7 +81,14 @@ export class ThreadModelSheet {
     store: ThreadSource,
     threadId: ThreadId,
     signal: AbortSignal,
-    io: { put: Put; now: () => number; preview: Preview; changed: () => void },
+    io: {
+      put: Put;
+      now: () => number;
+      preview: Preview;
+      changed: () => void;
+      /** The files on the message being written, which a new thread's model must read. */
+      files: () => readonly { name: string; mimeType?: string | undefined }[];
+    },
   ) {
     this.#client = client;
     this.#store = store;
@@ -91,6 +98,7 @@ export class ThreadModelSheet {
     this.#now = io.now;
     this.#preview = io.preview;
     this.#changed = io.changed;
+    this.#files = io.files;
     this.#favorites = new ModelFavorites(client);
   }
 
@@ -99,23 +107,31 @@ export class ThreadModelSheet {
     return this.#continued;
   }
 
-  /** The continuation's message was saved: the composer is back to this thread. */
-  continuedSent(): void {
+  /** A message is on its way to start the new thread: nothing else starts one meanwhile. */
+  get sending(): boolean {
+    return this.#sending;
+  }
+
+  /** The message starting the new thread went out. */
+  continuationSending(): void {
+    this.#sending = true;
+  }
+
+  /**
+   * The daemon answered it: started, the composer is back on this thread; refused or never
+   * saved, the continuation stays picked so sending again tries again.
+   */
+  continuationSettled(started: boolean): void {
+    this.#sending = false;
+    if (!started) return;
     this.#continued = undefined;
     this.#changed();
     this.#publish();
   }
 
-  /** What the new thread's model reads, for checking the message's files against it. */
-  continuedReader(): AttachmentReader | undefined {
-    const choice = this.#continued;
-    if (!choice) return undefined;
-    return {
-      provider: providerNames[choice.provider],
-      imageInput: undefined,
-      model: choice.model,
-      modalities: selectionInputs(this.#read?.catalog.models ?? [], choiceSelection(choice)),
-    };
+  /** The input modalities `choice`'s model reads, from the catalog. */
+  modalities(choice: ModelChoice): readonly string[] | undefined {
+    return selectionInputs(this.#read?.catalog.models ?? [], choiceSelection(choice));
   }
 
   /** A model or switch picked here, while the daemon hasn't reported it, for the composer. */
@@ -151,8 +167,7 @@ export class ThreadModelSheet {
       this.#chosen = undefined;
       this.#changed();
     }
-    const shaped = JSON.stringify([stood, this.#busy()]);
-    if (this.#state === "ready" && shaped !== this.#shaped) this.#publish();
+    if (this.#state === "ready" && this.#shape() !== this.#shaped) this.#publish();
   }
 
   async open(): Promise<void> {
@@ -199,7 +214,15 @@ export class ThreadModelSheet {
   ): void {
     const scene = this.#scene();
     if (!scene) return admit(requestId, false, "Still reading this thread. Try again.");
-    const plan = switchPlan(scene, target, this.#busy());
+    if (this.#sending)
+      return admit(requestId, false, "Still starting the new thread. Wait for it to open.");
+    const plan = switchPlan(scene, target);
+    // Rows the person saw may be older than the thread: ask now in the current words.
+    const unasked = (ask: SwitchQuestion) => {
+      this.#publish();
+      this.#put("switchAsk", () => ({ type: "thread.switchAsk", id: requestId, ...target, ask }));
+      admit(requestId, false, "");
+    };
     switch (plan.kind) {
       case "stay":
         return admit(requestId, true, "");
@@ -209,11 +232,11 @@ export class ThreadModelSheet {
       case "refused":
         return admit(requestId, false, plan.message);
       case "continue":
-        if (!confirmed) return admit(requestId, false, unconfirmed);
+        if (!confirmed) return unasked(plan.ask);
         this.#continued = plan.choice;
         break;
       case "switch": {
-        if (plan.ask && !confirmed) return admit(requestId, false, unconfirmed);
+        if (plan.ask && !confirmed) return unasked(plan.ask);
         const chosen = { choice: plan.choice, stood: this.#stood() };
         this.#continued = undefined;
         this.#chosen = chosen;
@@ -244,16 +267,35 @@ export class ThreadModelSheet {
   #busy(): boolean {
     return isBusy(this.#store.thread?.status);
   }
-  #scene(): SwitchScene | undefined {
+  /** What the rows depend on in the thread: its selection and switch, busyness and route inputs. */
+  #shape(): string {
+    const thread = this.#store.thread;
+    return JSON.stringify([
+      this.#stood(),
+      this.#busy(),
+      thread?.provider ?? "",
+      thread?.backend ?? "",
+      thread?.live?.account ?? "",
+      thread?.execution?.provider ?? "",
+      thread?.execution?.instanceId ?? "",
+    ]);
+  }
+  #scene(): ShapedScene | undefined {
     const thread = this.#store.thread;
     if (!thread || !this.#read) return undefined;
-    return {
+    const files = this.#files();
+    return shapeScene({
       thread,
       choices: this.#choices,
       forkOnSwitch: this.#forkOnSwitch,
       chosen: this.#chosen?.choice,
       continued: this.#continued,
-    };
+      busy: this.#busy(),
+      carryProblem: (choice) =>
+        files.length
+          ? continuationAttachmentProblem(files, choice, this.modalities(choice))
+          : undefined,
+    });
   }
   async #readForkOnSwitch(): Promise<boolean | undefined> {
     try {
@@ -285,12 +327,12 @@ export class ThreadModelSheet {
     }));
   }
   #publish(): void {
-    this.#shaped = JSON.stringify([this.#stood(), this.#busy()]);
+    this.#shaped = this.#shape();
     this.#put("models", () => {
       const scene = this.#scene();
       const read = this.#read;
       if (!scene || !read) return undefined;
-      const picked = pickedChoice(scene);
+      const picked = scene.picked;
       // A model the catalog doesn't list (retired, custom) is still the one checked, by name.
       const selection = runsOn(scene.thread);
       const current = picked
@@ -316,7 +358,7 @@ export class ThreadModelSheet {
         current: current ?? null,
         currentLabel:
           picked || !selection?.model ? "" : this.#preview(modelLabel(selection.model), 128),
-        ...switchRows(scene, targets, this.#busy()),
+        ...switchRows(scene, targets),
       };
     });
   }

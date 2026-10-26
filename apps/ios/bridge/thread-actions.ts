@@ -30,6 +30,11 @@ export const ThreadAction = z.discriminatedUnion("type", [
     opposite: z.boolean(),
     /** The question card on the strip, as the person left it: the words may answer it. */
     reply: QuestionReply.optional(),
+    /**
+     * The composer showed the message starting a new thread (`thread.controls` `continues`) and
+     * waits for the daemon's answer; refused when the bridge no longer agrees.
+     */
+    continues: z.boolean().optional(),
     requestId,
   }),
   z.object({ type: z.literal("stop"), requestId }),

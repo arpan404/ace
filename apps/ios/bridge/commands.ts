@@ -53,7 +53,13 @@ export async function dispatchCommand(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  hooks: { saved?(): void; receipt?(result: Receipt): void; unsaved?(): void } = {},
+  hooks: {
+    saved?(): void;
+    receipt?(result: Receipt): void;
+    unsaved?(): void;
+    /** Words for the daemon's refusal; its own error by default. */
+    refusal?(error: string | undefined): string;
+  } = {},
 ): Promise<void> {
   try {
     await submitCommand(
@@ -74,7 +80,9 @@ export async function dispatchCommand(
           type: "receipt",
           id: requestId,
           ok: result.ok,
-          message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
+          message: result.ok
+            ? ""
+            : preview(hooks.refusal?.(result.error) ?? result.error ?? "Request refused", 2048),
         }));
       },
     );

@@ -2,11 +2,12 @@ import type { CommandPayload, Thread, ThreadId } from "@ace/protocol";
 import {
   choiceSelection,
   currentModelChoice,
-  providerNames,
+  switchQuestion,
   switchUnsupportedNote,
   threadForkSwitchRoute,
   threadSwitchRoute,
   type ModelChoice,
+  type SwitchQuestion,
   type SwitchRoute,
 } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
@@ -16,7 +17,8 @@ import { runsOn } from "@ace/ui-core/thread-execution";
  * (`threadSwitchRoute`, or `threadForkSwitchRoute` unless `threads.forkOnSwitch` is off): the
  * same provider switches in place at once; another provider in place asks first, since the
  * agent's own state stays behind; a route to a new thread asks, then waits for the person's next
- * message; an unsupported one is refused. Pure over the thread and the catalog's choices.
+ * message; an unsupported one is refused. The questions are the shared `switchQuestion`. Pure
+ * over the thread and the catalog's choices.
  */
 
 /** A row of the picker: a model on one account (`ModelChoice.key` and `accountId`). */
@@ -34,13 +36,18 @@ export interface SwitchScene {
   chosen: ModelChoice | undefined;
   /** A model the next message continues on, in a new thread. */
   continued: ModelChoice | undefined;
+  busy: boolean;
+  /** Why the message being written can't go to a new thread on `choice`, if it can't. */
+  carryProblem: (choice: ModelChoice) => string | undefined;
 }
 
-/** What the person confirms before the move, in words. */
-export interface SwitchAsk {
-  title: string;
-  message: string;
-  action: string;
+/** A scene with what every row is measured against worked out once. */
+export interface ShapedScene extends SwitchScene {
+  /** What the thread runs on next (a queued switch included), as the catalog lists it. */
+  running: ModelChoice | undefined;
+  /** The row the picker checks: a continuation, else a switch on its way, else what runs. */
+  picked: ModelChoice | undefined;
+  byRow: ReadonlyMap<string, ModelChoice>;
 }
 
 export type SwitchPlan =
@@ -49,72 +56,56 @@ export type SwitchPlan =
   | { kind: "back" }
   /** `note` is what the picker says beside it. */
   | { kind: "refused"; message: string; note: string }
-  | { kind: "switch"; choice: ModelChoice; ask: SwitchAsk | undefined }
-  | { kind: "continue"; choice: ModelChoice; ask: SwitchAsk };
+  | { kind: "switch"; choice: ModelChoice; ask: SwitchQuestion | undefined }
+  | { kind: "continue"; choice: ModelChoice; ask: SwitchQuestion };
 
-export function findChoice(
-  choices: readonly ModelChoice[],
-  target: SwitchTarget,
-): ModelChoice | undefined {
-  return choices.find((choice) => choice.key === target.key && choice.accountId === target.account);
+const rowId = (key: string, account: string) => `${account}\u0000${key}`;
+
+export function shapeScene(scene: SwitchScene): ShapedScene {
+  const running = currentModelChoice(scene.choices, runsOn(scene.thread));
+  return {
+    ...scene,
+    running,
+    picked: scene.continued ?? scene.chosen ?? running,
+    byRow: new Map(scene.choices.map((choice) => [rowId(choice.key, choice.accountId), choice])),
+  };
 }
 
-/** The catalog's row for what the thread runs on next (a queued switch included). */
-export function runningChoice(scene: Pick<SwitchScene, "thread" | "choices">) {
-  return currentModelChoice(scene.choices, runsOn(scene.thread));
-}
-
-/** The row the picker checks: a continuation, else a switch on its way, else what runs. */
-export function pickedChoice(scene: SwitchScene): ModelChoice | undefined {
-  return scene.continued ?? scene.chosen ?? runningChoice(scene);
-}
-
-export function routeTo(scene: SwitchScene, choice: ModelChoice): SwitchRoute {
+function routeTo(scene: SwitchScene, choice: ModelChoice): SwitchRoute {
   const route = scene.forkOnSwitch === false ? threadSwitchRoute : threadForkSwitchRoute;
   return route(scene.thread, choice);
 }
 
-/** The provider the thread is on, or is moving to by a switch sent from here. */
-function providerNow(scene: SwitchScene) {
-  return scene.chosen?.provider ?? runsOn(scene.thread)?.provider ?? scene.thread.provider;
-}
-
-/** What to ask before moving to `choice` by `route`; undefined moves at once. */
-export function switchAsk(
+/** The question to ask before moving to `choice` by `route`; undefined moves at once. */
+function switchAsk(
   scene: SwitchScene,
   choice: ModelChoice,
   route: SwitchRoute,
-  busy: boolean,
-): SwitchAsk | undefined {
-  const to = providerNames[choice.provider];
-  if (route === "new_thread")
-    return {
-      title: "Continue in a new thread?",
-      message: `Your next message starts a new thread on ${to}, with this conversation as its context. This thread stays as it is.`,
-      action: "Continue",
-    };
-  const from = providerNow(scene);
-  if (route !== "in_place" || choice.provider === from) return undefined;
-  return {
-    title: `Switch to ${to}?`,
-    message:
-      `${to} picks up from a summary of this conversation. What ${providerNames[from]} kept to itself, its own session state, stays behind.` +
-      (busy ? " The switch happens once the current turn finishes." : ""),
-    action: "Switch",
-  };
+): SwitchQuestion | undefined {
+  // The provider the thread is on, or is moving to by a switch sent from here.
+  const from = scene.chosen?.provider ?? runsOn(scene.thread)?.provider ?? scene.thread.provider;
+  const continues = route === "new_thread";
+  if (!continues && (route !== "in_place" || choice.provider === from)) return undefined;
+  return switchQuestion({
+    from,
+    to: choice,
+    busy: scene.busy,
+    continues,
+    warning: continues ? scene.carryProblem(choice) : undefined,
+  });
 }
 
 /** What picking `target` does. The daemon refuses a `thread.switch` by the same route. */
-export function switchPlan(scene: SwitchScene, target: SwitchTarget, busy: boolean): SwitchPlan {
-  const choice = findChoice(scene.choices, target);
+export function switchPlan(scene: ShapedScene, target: SwitchTarget): SwitchPlan {
+  const choice = scene.byRow.get(rowId(target.key, target.account));
   if (!choice)
     return {
       kind: "refused",
       message: "That model isn't offered now. Pick another.",
       note: "Not available now",
     };
-  if (choice.id === pickedChoice(scene)?.id) return { kind: "stay" };
-  if (scene.continued && choice.id === runningChoice(scene)?.id) return { kind: "back" };
+  if (choice.id === scene.picked?.id) return { kind: "stay" };
+  if (scene.continued && choice.id === scene.running?.id) return { kind: "back" };
   const route = routeTo(scene, choice);
   if (route === "unsupported")
     return {
@@ -122,7 +113,7 @@ export function switchPlan(scene: SwitchScene, target: SwitchTarget, busy: boole
       message: `This thread can't move there. ${switchUnsupportedNote}.`,
       note: switchUnsupportedNote,
     };
-  const ask = switchAsk(scene, choice, route, busy);
+  const ask = switchAsk(scene, choice, route);
   if (route === "new_thread" && ask) return { kind: "continue", choice, ask };
   return { kind: "switch", choice, ask };
 }
@@ -136,20 +127,16 @@ export function switchPayload(threadId: ThreadId, choice: ModelChoice): CommandP
 export interface SwitchRows {
   /** By picker row id (`account` NUL `key`): an index into `asks`, or the note it can't be picked for. */
   rows: Record<string, { ask: number | null; note: string | null }>;
-  asks: SwitchAsk[];
+  asks: SwitchQuestion[];
 }
 
-export function switchRows(
-  scene: SwitchScene,
-  targets: readonly SwitchTarget[],
-  busy: boolean,
-): SwitchRows {
+export function switchRows(scene: ShapedScene, targets: readonly SwitchTarget[]): SwitchRows {
   const rows: SwitchRows["rows"] = {};
-  const asks: SwitchAsk[] = [];
+  const asks: SwitchQuestion[] = [];
   const index = new Map<string, number>();
   for (const target of targets) {
-    const plan = switchPlan(scene, target, busy);
-    const id = `${target.account}\u0000${target.key}`;
+    const plan = switchPlan(scene, target);
+    const id = rowId(target.key, target.account);
     if (plan.kind === "refused") rows[id] = { ask: null, note: plan.note };
     if ((plan.kind !== "switch" && plan.kind !== "continue") || !plan.ask) continue;
     const said = JSON.stringify(plan.ask);
