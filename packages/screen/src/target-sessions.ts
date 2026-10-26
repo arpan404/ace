@@ -189,8 +189,14 @@ export class TargetSessions {
           );
           await startingSession.pixels.initialize();
         } else {
-          const result = await startingHelper.request(start, validateStart);
-          if (startingHelper.capabilities?.platform.startsWith("linux")) {
+          const linux = startingHelper.capabilities?.platform.startsWith("linux") === true;
+          const result = await startingHelper.request(
+            linux
+              ? { ...start, captureGeneration: startingSession.pixels.startGeneration() }
+              : start,
+            validateStart,
+          );
+          if (linux) {
             if (!result || typeof result !== "object" || !("capabilities" in result))
               throw new Error("Missing capture capabilities");
             startingHelper.capabilities = ScreenCapabilities.parse(result.capabilities);
@@ -199,6 +205,8 @@ export class TargetSessions {
             const picked = ScreenChooserPick.safeParse("picked" in result ? result.picked : null);
             if (target.kind === "chooser" && picked.success)
               startingSession.state.target = { ...target, picked: picked.data };
+            // Capture pauses until someone watches, as on Windows.
+            await startingSession.pixels.initialize();
           }
         }
       });

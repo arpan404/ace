@@ -273,3 +273,36 @@ it("the last Linux viewer releases capture after input drains while retaining th
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("a Linux screenshot shows a change made while nobody was watching", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-linux-watch-"));
+  const manager = new ScreenManager({
+    ...command,
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    const state = await manager.start(target);
+    manager.controller(state.sessionId, "agent", "agent-a");
+    manager.mode(state.sessionId, "foreground");
+    // Nobody watches: the desktop's change waits in the helper, unencoded.
+    await computerUseHandler(
+      manager,
+      state.sessionId,
+      "agent-a",
+    )("screen_ui_act", {
+      ref: "stable-entry",
+      action: "setValue",
+      value: "typed while unwatched",
+    });
+    const frame = await manager.captureScreenshot(state.sessionId);
+    expect(frame.payload.toString()).toBe("screen:typed while unwatched");
+    expect(frame.header.captureGeneration).toBeGreaterThan(0);
+    await manager.stop(state.sessionId);
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
