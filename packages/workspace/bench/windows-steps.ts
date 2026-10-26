@@ -44,6 +44,23 @@ await time("node open+read+close (async)", async (n) => {
   await h.close();
 });
 await time("node readFile (async)", (n) => readFile(join(root, n)));
+const { createRequire } = await import("node:module");
+const raw: unknown = createRequire(import.meta.url)("../dist/descriptor.node");
+const rawOpen = Reflect.get(raw as object, "openMetadataAt") as (
+  fd: number,
+  name: string,
+) => number;
+const rawStat = Reflect.get(raw as object, "statFd") as (fd: number) => unknown;
+await time("raw openMetadataAt+statFd+close", (n) => {
+  const fd = rawOpen(dir.fd, n);
+  rawStat(fd);
+  closeSync(fd);
+});
+await time("hot openMetadataAt+statFd+close", (n) => {
+  const d = openMetadataAt(dir.fd, n);
+  statWindowsFd(d.fd);
+  closeSync(d.fd);
+});
 await dir.close();
 const service = await createWorkspace(root, { ripgrep: null });
 for (let i = 0; i < 2; i++) {
