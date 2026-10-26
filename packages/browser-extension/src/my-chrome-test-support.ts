@@ -12,7 +12,8 @@ import { launchTestChrome } from "./chrome-pipe-test-support.ts";
 import { extensionId } from "./extension-id.ts";
 import { writeExtension } from "./extension-files.ts";
 import { extensionDir, hostCredentialPath } from "./host-files.ts";
-import { installNativeHost } from "./install.ts";
+import { installNativeHost, uninstallNativeHost } from "./install.ts";
+import { windowsHostKeys } from "./native-hosts.ts";
 
 type Cleanups = (() => Promise<void>)[];
 const token = "c".repeat(64);
@@ -109,14 +110,16 @@ export async function connectedBrowser(
     }),
   );
   await writeExtension(extensionDir(dataDir));
-  await installNativeHost({
-    platform: process.platform,
-    home: root,
-    dataDir,
-    node: process.execPath,
-    // A browser started with --user-data-dir reads hosts only from its own profile.
-    extraDirs: [join(userDataDir, "NativeMessagingHosts")],
-  });
+  if (process.platform === "win32") await registerWindowsHost(root, dataDir, cleanups);
+  else
+    await installNativeHost({
+      platform: process.platform,
+      home: root,
+      dataDir,
+      node: process.execPath,
+      // A browser started with --user-data-dir reads hosts only from its own profile.
+      extraDirs: [join(userDataDir, "NativeMessagingHosts")],
+    });
   const chrome = await launchTestChrome(chromePath, userDataDir, chromeArgs);
   cleanups.push(() => chrome.close());
   const loaded = z
@@ -137,4 +140,17 @@ export async function connectedBrowser(
     "the extension popup to load",
   );
   return { hub, chrome, asPerson, root };
+}
+
+/**
+ * Windows browsers read native hosts only from the registry, whatever their `--user-data-dir`:
+ * the host is registered for real under this user's HKCU (CI's disposable user), with a private
+ * `%LOCALAPPDATA%` holding each browser's user data root, and unregistered afterwards.
+ */
+async function registerWindowsHost(root: string, dataDir: string, cleanups: Cleanups) {
+  const env = { LOCALAPPDATA: join(root, "local") };
+  for (const target of windowsHostKeys(root, env)) await mkdir(target.root, { recursive: true });
+  const options = { platform: "win32" as const, home: root, dataDir, env };
+  cleanups.push(() => uninstallNativeHost(options));
+  await installNativeHost({ ...options, node: process.execPath });
 }

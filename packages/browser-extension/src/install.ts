@@ -9,7 +9,7 @@ import { launcherScript, nativeHostManifest, nativeHostTargets } from "./native-
 // Windows only.
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, rmdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { userBrowserDir } from "./host-files.ts";
 import { windowsHostKeys, windowsLauncherScript, windowsLocalAppData } from "./native-hosts.ts";
@@ -179,7 +179,13 @@ async function withRegistryLock<T>(options: WindowsOptions, work: () => Promise<
       await writeFile(lock, owner, { flag: "wx" });
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      // Another data directory's uninstall removed the emptied folder: make it again.
+      if (code === "ENOENT" && attempt < 20) {
+        await mkdir(dir, { recursive: true });
+        continue;
+      }
+      if (code !== "EEXIST") throw error;
     }
     const held = await readFile(lock, "utf8").catch(() => undefined);
     const age = await stat(lock).then(
@@ -260,6 +266,8 @@ async function uninstallWindowsHost(options: Omit<InstallOptions, "node">): Prom
   );
   await rm(manifestPath, { force: true });
   await rm(dirname(windowsLauncherPath(options)), { recursive: true, force: true });
+  // The last data directory's uninstall leaves no empty host folder; another's launcher keeps it.
+  await rmdir(windowsHostsDir(options)).catch(() => {});
 }
 
 function reg(args: readonly string[]): Promise<void> {
