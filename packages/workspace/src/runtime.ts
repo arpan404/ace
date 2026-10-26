@@ -1,70 +1,55 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { watch, type FSWatcher } from "node:fs";
+import { watch, type Stats, type FSWatcher } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { win32 } from "node:path";
-import { posixStats, type IdentifiedStats } from "./file-identity.ts";
 import { Worker } from "node:worker_threads";
-import { openMetadataAt, openRoot, type Descriptor } from "./descriptor.ts";
+import { openMetadataAt, openRoot } from "./descriptor.ts";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
-  stat(path: string): Promise<IdentifiedStats>;
-  lstat(path: string): Promise<IdentifiedStats>;
+  stat(path: string): Promise<Stats>;
+  lstat(path: string): Promise<Stats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-/*
- * Windows path metadata is read through pinned handles: Node's Windows stat has lossy dev/ino
- * and reports a junction as a directory. stat resolves the full path and opens it; lstat
- * resolves only the parent and opens the leaf without following it. These are observations,
- * not authorization; SafeRoot still compares them with its anchored handles.
- */
-async function observe(acquire: () => Descriptor): Promise<IdentifiedStats> {
-  const handle = acquire();
-  try {
-    return await handle.stat();
-  } finally {
-    await handle.close();
-  }
-}
-async function windowsChild(parentPath: string, leaf: string): Promise<IdentifiedStats> {
+export const filesystem: WorkspaceFileSystem = { realpath, stat, lstat, open };
+if (process.platform === "win32")
+  Object.assign(filesystem, { stat: windowsStat, lstat: windowsLstat });
+
+// Windows path metadata through pinned handles, so identities match descriptor stats. stat
+// resolves the whole path; lstat resolves only the parent and describes the leaf itself.
+async function windowsObserve(parentPath: string, leaf?: string): Promise<Stats> {
   const parent = openRoot(parentPath);
   try {
-    return await observe(() => openMetadataAt(parent.fd, leaf));
+    if (leaf === undefined) return await parent.stat();
+    const child = openMetadataAt(parent.fd, leaf);
+    try {
+      return await child.stat();
+    } finally {
+      await child.close();
+    }
   } finally {
     await parent.close();
   }
 }
-function windowsPinned(canonical: string): Promise<IdentifiedStats> {
-  if (win32.dirname(canonical) === canonical) return observe(() => openRoot(canonical));
-  return windowsChild(win32.dirname(canonical), win32.basename(canonical));
+function windowsPinned(canonical: string): Promise<Stats> {
+  if (win32.dirname(canonical) === canonical) return windowsObserve(canonical);
+  return windowsObserve(win32.dirname(canonical), win32.basename(canonical));
 }
-/** Native policy refuses namespaces, UNC and drive-relative roots before realpath can turn
- * them into an ordinary drive path. */
-async function windowsRootAllowed(input: string): Promise<void> {
-  const root = win32.parse(input).root;
-  if (root !== "" && (root.length !== 3 || root[1] !== ":")) await openRoot(input).close();
+/** UNC, device and drive-relative paths are refused before realpath can rewrite them. */
+async function windowsRootAllowed(path: string): Promise<void> {
+  const root = win32.parse(path).root;
+  if (root !== "" && (root.length !== 3 || root[1] !== ":")) await openRoot(path).close();
 }
-
-export const filesystem: WorkspaceFileSystem = {
-  realpath,
-  async stat(path) {
-    if (process.platform === "win32") {
-      await windowsRootAllowed(path);
-      return windowsPinned(await realpath(path));
-    }
-    return posixStats(await stat(path, { bigint: true }));
-  },
-  async lstat(path) {
-    if (process.platform === "win32") {
-      await windowsRootAllowed(path);
-      const leaf = win32.basename(path);
-      if (leaf === "" || leaf === "." || leaf === "..") return windowsPinned(await realpath(path));
-      return windowsChild(await realpath(win32.dirname(path)), leaf);
-    }
-    return posixStats(await lstat(path, { bigint: true }));
-  },
-  open,
-};
+async function windowsStat(path: string): Promise<Stats> {
+  await windowsRootAllowed(path);
+  return windowsPinned(await realpath(path));
+}
+async function windowsLstat(path: string): Promise<Stats> {
+  await windowsRootAllowed(path);
+  const leaf = win32.basename(path);
+  if (leaf === "" || leaf === "." || leaf === "..") return windowsPinned(await realpath(path));
+  return windowsObserve(await realpath(win32.dirname(path)), leaf);
+}
 export type CancelTimer = () => void;
 export interface WorkspaceClock {
   after(callback: () => void | Promise<void>, milliseconds: number): CancelTimer;

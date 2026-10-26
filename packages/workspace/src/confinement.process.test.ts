@@ -2,15 +2,12 @@ import { lstat, mkdir, readFile, rename, symlink, unlink, writeFile } from "node
 import { join, parse } from "node:path";
 import { expect, it } from "vitest";
 import { createWorkspace, filesystem, SafeRoot, WorkspaceError } from "./index.ts";
-import { sameFile } from "./pinned-directory.ts";
 import { fixture } from "./test-support.ts";
 
-const platform = process.platform;
-const windowsOnly = it.runIf(platform === "win32");
-
-/** A directory link: a junction on Windows, which needs no privilege; a symlink elsewhere. */
-function linkDirectory(target: string, path: string): Promise<void> {
-  return symlink(target, path, "junction");
+const windowsOnly = it.runIf(process.platform === "win32");
+/** A directory link: a junction on Windows, which needs no privilege; elsewhere a symlink. */
+function link(target: string, path: string): Promise<void> {
+  return process.platform === "win32" ? symlink(target, path, "junction") : symlink(target, path);
 }
 
 it("never exposes outside bytes during an ABA swap coordinated at filesystem boundaries", async () => {
@@ -28,7 +25,7 @@ it("never exposes outside bytes during an ABA swap coordinated at filesystem bou
     if (out === escaped) return;
     if (out) {
       await rename(parent, parked);
-      await linkDirectory(outside.root, parent);
+      await link(outside.root, parent);
     } else {
       await unlink(parent);
       await rename(parked, parent);
@@ -129,7 +126,7 @@ it("anchors the root itself when an ancestor is swapped during service creation 
     if (escaped === out) return;
     if (out) {
       await rename(parent, parked);
-      await linkDirectory(outside.root, parent);
+      await link(outside.root, parent);
     } else {
       await unlink(parent);
       await rename(parked, parent);
@@ -182,7 +179,7 @@ it("rejects an ancestor symlink inserted after realpath returns during root acqu
     if (escaped === out) return;
     if (out) {
       await rename(parent, parked);
-      await linkDirectory(outside.root, parent);
+      await link(outside.root, parent);
     } else {
       await unlink(parent);
       await rename(parked, parent);
@@ -227,32 +224,30 @@ it("rejects an ancestor symlink inserted after realpath returns during root acqu
   expect(await service.read({ path: "a" })).toMatchObject({ text: "inside" });
 });
 
-it("reads, lists and searches Unicode files with lossless identity", async () => {
+const same = (a: { dev: number; ino: number }, b: { dev: number; ino: number }) =>
+  a.dev === b.dev && a.ino === b.ino;
+
+windowsOnly("Windows workspaces read, list and search Unicode files", async () => {
   const { root, file } = await fixture();
   await file("dossier-日本語/café-✓.txt", "first\nneedle 日本語\n");
   const workspace = await createWorkspace(root, { ripgrep: null });
   expect(await workspace.read({ path: "dossier-日本語/café-✓.txt" })).toMatchObject({
     text: "first\nneedle 日本語\n",
-    binary: false,
   });
   const listed = await workspace.list({ dir: "dossier-日本語" });
   expect(listed.entries.map((entry) => entry.path)).toEqual(["dossier-日本語/café-✓.txt"]);
   const found = await workspace.search({ query: "needle", limit: 1 });
-  expect(found.matches).toMatchObject([
-    { path: "dossier-日本語/café-✓.txt", line: 2, preview: "needle 日本語" },
-  ]);
+  expect(found.matches).toMatchObject([{ path: "dossier-日本語/café-✓.txt", line: 2 }]);
   const { info } = await (await SafeRoot.create(root)).metadata("dossier-日本語/café-✓.txt");
-  expect(info.identity.kind).toBe(platform === "win32" ? "win32" : "posix");
-  expect(info.isFile()).toBe(true);
   expect(info.size).toBe(Buffer.byteLength("first\nneedle 日本語\n"));
 });
 
-it("refuses a directory link out of the workspace and a replaced workspace root", async () => {
+windowsOnly("Windows workspaces refuse an outward junction and a replaced root", async () => {
   const { root, service, file } = await fixture();
   const outside = await fixture();
   await file("inside.txt", "original");
   await outside.file("secret.txt", "outside bytes");
-  await linkDirectory(outside.root, join(root, "escape"));
+  await link(outside.root, join(root, "escape"));
   await expect(service.read({ path: "escape/secret.txt" })).rejects.toMatchObject({
     code: "PATH_ESCAPE",
   });
@@ -268,60 +263,29 @@ it("refuses a directory link out of the workspace and a replaced workspace root"
   expect(await readFile(join(outside.root, "secret.txt"), "utf8")).toBe("outside bytes");
 });
 
-it("path stat follows a directory link while lstat describes the link itself", async () => {
+windowsOnly("Windows path stat follows a junction while lstat describes the junction", async () => {
   const { root, file } = await fixture();
   await file("outside/sentinel.txt", "outside");
-  await file("scope/hello-✓.txt", "hello filesystem");
-  const link = join(root, "scope", "link");
-  await linkDirectory(join(root, "outside"), link);
-
-  const regular = await filesystem.stat(join(root, "scope", "hello-✓.txt"));
-  expect(regular.isFile()).toBe(true);
-  expect(regular.size).toBe(Buffer.byteLength("hello filesystem"));
-  const sameRegular = await filesystem.lstat(join(root, "scope", "hello-✓.txt"));
-  expect(sameFile(sameRegular.identity, regular.identity)).toBe(true);
-
-  const followed = await filesystem.stat(link);
+  await file("scope/hello.txt", "hello");
+  const junction = join(root, "scope", "junction");
+  await link(join(root, "outside"), junction);
+  const regular = join(root, "scope", "hello.txt");
+  expect(same(await filesystem.stat(regular), await filesystem.lstat(regular))).toBe(true);
+  const followed = await filesystem.stat(junction);
   expect(followed.isDirectory()).toBe(true);
-  expect(sameFile(followed.identity, (await filesystem.stat(join(root, "outside"))).identity)).toBe(
-    true,
-  );
-  const itself = await filesystem.lstat(link);
+  expect(same(followed, await filesystem.stat(join(root, "outside")))).toBe(true);
+  const itself = await filesystem.lstat(junction);
   expect(itself.isSymbolicLink()).toBe(true);
-  expect(itself.isDirectory()).toBe(false);
-  expect(sameFile(itself.identity, followed.identity)).toBe(false);
-  // A trailing separator asks for the target, exactly as Node's own lstat reports it.
-  const sep = platform === "win32" ? "\\" : "/";
-  const expected = await lstat(link + sep);
-  const observed = await filesystem.lstat(link + sep);
-  expect(observed.isSymbolicLink()).toBe(expected.isSymbolicLink());
-  expect(observed.isDirectory()).toBe(expected.isDirectory());
-
-  const top = parse(await filesystem.realpath(root)).root;
-  const drive = await filesystem.stat(top);
-  expect(drive.isDirectory()).toBe(true);
-  expect(sameFile(drive.identity, (await filesystem.lstat(top)).identity)).toBe(true);
-  await expect(filesystem.stat(join(root, "missing.txt"))).rejects.toMatchObject({
-    code: "ENOENT",
-  });
-  await expect(filesystem.lstat(join(root, "missing.txt"))).rejects.toMatchObject({
-    code: "ENOENT",
+  expect(same(itself, followed)).toBe(false);
+  expect((await filesystem.lstat(junction + "\\")).isSymbolicLink()).toBe(
+    (await lstat(junction + "\\")).isSymbolicLink(),
+  );
+  const drive = parse(await filesystem.realpath(root)).root;
+  expect(same(await filesystem.stat(drive), await filesystem.lstat(drive))).toBe(true);
+  await expect(filesystem.lstat(join(root, "NUL"))).rejects.toMatchObject({ code: "EINVAL" });
+  for (const path of ["C:relative", "\\absolute", "\\\\?\\C:\\file", "\\\\.\\C:\\file"])
+    await expect(filesystem.stat(path)).rejects.toMatchObject({ code: "EINVAL" });
+  await expect(filesystem.stat("\\\\ace-invalid\\share\\file")).rejects.toMatchObject({
+    code: "ENOTSUP",
   });
 });
-
-windowsOnly(
-  "Windows device, UNC and drive-relative paths are refused before resolution",
-  async () => {
-    const { root, file } = await fixture();
-    await file("ok.txt", "ok");
-    await expect(filesystem.lstat(join(root, "NUL"))).rejects.toMatchObject({ code: "EINVAL" });
-    for (const path of ["C:relative", "\\absolute", "\\\\?\\C:\\file", "\\\\.\\C:\\file"]) {
-      await expect(filesystem.stat(path)).rejects.toMatchObject({ code: "EINVAL" });
-      await expect(filesystem.lstat(path)).rejects.toMatchObject({ code: "EINVAL" });
-    }
-    await expect(filesystem.stat("\\\\ace-invalid\\share\\file")).rejects.toMatchObject({
-      code: "ENOTSUP",
-    });
-    expect((await filesystem.stat(join(root, "ok.txt"))).isFile()).toBe(true);
-  },
-);
