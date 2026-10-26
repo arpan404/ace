@@ -103,16 +103,16 @@ pub fn refusal(file: &str, original: Option<&str>, subsystem: Option<u16>) -> Op
     let shown = file.trim();
     if runs_commands(file) || original.is_some_and(runs_commands) {
         return Some(format!(
-            "{shown} runs commands or other programs, so computer use does not start or operate it. Use your shell tool, which goes through your approvals."
+            "Computer use does not operate this app: {shown} runs commands or other programs. Use your shell tool, which goes through your approvals."
         ));
     }
     match subsystem {
         Some(GUI) => None,
         Some(CONSOLE) => Some(format!(
-            "{shown} is a console program; computer use only starts windowed apps. Use your shell tool for console programs."
+            "Computer use does not operate this app: {shown} is a console program, and computer use only starts windowed apps. Use your shell tool for console programs."
         )),
         _ => Some(format!(
-            "{shown} is not a windowed Windows app computer use can start."
+            "Computer use does not operate this app: {shown} is not a windowed Windows app."
         )),
     }
 }
@@ -122,7 +122,7 @@ pub fn refusal(file: &str, original: Option<&str>, subsystem: Option<u16>) -> Op
 pub fn running_refusal(file: &str, original: Option<&str>) -> Option<String> {
     (runs_commands(file) || original.is_some_and(runs_commands)).then(|| {
         format!(
-            "{} runs commands or other programs, so computer use does not operate it. Use your shell tool, which goes through your approvals.",
+            "Computer use does not operate this app: {} runs commands or other programs. Use your shell tool, which goes through your approvals.",
             file.trim()
         )
     })

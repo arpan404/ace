@@ -19,7 +19,7 @@ function windowsClient(stopsOnEnd: boolean) {
   const started: { args: readonly string[]; child: ChildProcessWithoutNullStreams }[] = [];
   const client = windowsComputerClient("C:\\ace\\ace-screen-helper-windows.exe", "/data", {
     spawnHelper: (_command, args, env) => {
-      const child = spawn(process.execPath, ["-e", helperScript(stopsOnEnd), ...args], {
+      const child = spawn(process.execPath, ["-e", helperScript(stopsOnEnd), "--", ...args], {
         env,
         stdio: ["pipe", "pipe", "pipe"],
       });

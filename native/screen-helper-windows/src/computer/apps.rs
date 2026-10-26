@@ -417,19 +417,23 @@ pub fn within(window: HWND, child: HWND) -> bool {
 }
 
 /// The title of the dialog that blocks `window` (it is disabled while a modal dialog it owns
-/// is open), or None when nothing blocks it.
+/// is open), or None when nothing blocks it. Empty when the dialog has no title.
 pub fn blocking_dialog(window: HWND) -> Option<String> {
-    unsafe {
-        let root = GetAncestor(window, GA_ROOT);
-        if windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(root).as_bool() {
-            return None;
-        }
-        let popup = GetLastActivePopup(root);
-        let title = if popup.is_invalid() || popup == root {
-            String::new()
-        } else {
-            title_of(popup)
-        };
-        Some(title)
+    let root = unsafe { GetAncestor(window, GA_ROOT) };
+    if unsafe { windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(root) }.as_bool() {
+        return None;
     }
+    let mut handles: Vec<HWND> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(
+            Some(collect),
+            LPARAM((&mut handles as *mut Vec<HWND>) as isize),
+        );
+    }
+    let dialog = handles.into_iter().find(|hwnd| unsafe {
+        GetWindow(*hwnd, GW_OWNER).unwrap_or_default() == root
+            && IsWindowVisible(*hwnd).as_bool()
+            && windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(*hwnd).as_bool()
+    });
+    Some(dialog.map(title_of).unwrap_or_default())
 }
