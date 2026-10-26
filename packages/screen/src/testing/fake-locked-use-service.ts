@@ -8,6 +8,7 @@
  * Run directly (`node fake-locked-use-service.ts --locked-use --socket <path>`) it serves the
  * default behaviour until killed.
  */
+import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { z } from "zod";
 import {
@@ -194,6 +195,8 @@ export async function fakeLockedUseService(path: string): Promise<FakeLockedUseS
         server.close(() => resolve());
       }),
   };
+  // Like the real service, a stale socket file from an earlier run is replaced.
+  rmSync(path, { force: true });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(path, () => resolve());

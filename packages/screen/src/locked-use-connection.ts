@@ -115,7 +115,7 @@ export class LockedUseConnection {
       pending.stop();
       pending.reject(error);
     }
-    for (const listener of [...this.#closes]) listener();
+    for (const listener of this.#closes) listener();
     this.#closes.clear();
     this.#events.clear();
   }
@@ -143,7 +143,7 @@ export class LockedUseConnection {
         else pending.reject(new LockedUseReplyError(message.error.code, message.error.message));
         continue;
       }
-      for (const listener of [...this.#events]) listener(message);
+      for (const listener of this.#events) listener(message);
     }
   }
 }

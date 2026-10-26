@@ -119,8 +119,6 @@ export class LockedUseRuntime {
   }
 
   async #open(): Promise<LockedUseConnection> {
-    const child = this.#child;
-    if (!child || child.exitCode !== null || child.signalCode !== null) await this.#start();
     const socket = await this.#dial();
     if (this.#closed) {
       socket.destroy();
@@ -161,20 +159,35 @@ export class LockedUseRuntime {
     this.#child = started;
   }
 
-  /** The service creates its socket after it starts: retry until it accepts or time runs out. */
+  /**
+   * Connects, starting the service when none is running. It creates its socket after it
+   * starts, so a refused connection is retried, restarting a service that exited meanwhile,
+   * until it accepts or time runs out.
+   */
   async #dial(): Promise<Socket> {
     const connect = this.#options.connect ?? connectLockedUse;
     const limit = this.#options.connectTimeoutMs ?? 5_000;
     let waited = 0;
     for (;;) {
+      if (!this.#running()) await this.#start();
       try {
         return await connect(this.#options.socketPath);
       } catch (error) {
-        if (this.#closed || waited >= limit || !this.#child) throw error;
+        if (this.#closed) throw error;
+        if (waited >= limit) {
+          // A service that never accepts is replaced on the next use.
+          this.#child?.kill("SIGTERM");
+          throw error;
+        }
       }
       await new Promise<void>((resolve) => this.#options.scheduler.after(retryMs, resolve));
       waited += retryMs;
     }
+  }
+
+  #running(): boolean {
+    const child = this.#child;
+    return !!child && child.exitCode === null && child.signalCode === null;
   }
 }
 

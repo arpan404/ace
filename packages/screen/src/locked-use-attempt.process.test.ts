@@ -14,9 +14,12 @@ import {
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
+const failingWork = async () => {
+  throw new Error("app_not_found");
+};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 async function setup() {
@@ -181,10 +184,7 @@ it("an unverified installation never begins an attempt", async () => {
 
 it("a step that fails inside the interval still relocks first, then reports its own error", async () => {
   const { service, run, types } = await setup();
-  const work = async () => {
-    throw new Error("app_not_found");
-  };
-  await expect(run({ work })).rejects.toThrow("app_not_found");
+  await expect(run({ work: failingWork })).rejects.toThrow("app_not_found");
   expect(types()).toEqual(["status", "enable", "begin", "finish"]);
   expect(service.status).toMatchObject({ phase: "ready", session: "locked" });
 });

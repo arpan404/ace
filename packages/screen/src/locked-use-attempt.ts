@@ -134,6 +134,7 @@ export async function runProtectedAttempt<T>(
     completed.reject(error);
     abort.abort(error);
   };
+  const currentStage = () => stage;
   // States that arrive before the begin reply is read; replayed after it, in wire order.
   const early: LockedUseServiceStatus[] = [];
   const observe = (next: LockedUseServiceStatus) => {
@@ -224,7 +225,8 @@ export async function runProtectedAttempt<T>(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error }),
     );
-    if (stage === "stopping" && !failure) {
+    // Read through a call: the event handlers move `stage` while the work runs.
+    if (currentStage() === "stopping" && !failure) {
       // Never a success: wait for the completion's reason (a takeover, an expiry).
       deadline(
         attempt.relockTimeoutMs ?? 30_000,

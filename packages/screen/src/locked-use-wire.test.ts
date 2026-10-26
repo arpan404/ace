@@ -92,9 +92,9 @@ describe("locked use requests", () => {
   });
 });
 
-describe("locked use service messages", () => {
-  const decode = (value: unknown) => decodeLockedUseMessage(bytes(JSON.stringify(value)));
+const decode = (value: unknown) => decodeLockedUseMessage(bytes(JSON.stringify(value)));
 
+describe("locked use service messages", () => {
   it("a state keeps fields this daemon doesn't know", () => {
     const message = decode({
       v: 1,
