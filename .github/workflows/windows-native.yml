@@ -47,6 +47,14 @@ on:
       - packages/agent-registry/**
       - packages/history-import/**
       - packages/mcp-server/src/private-config.ts
+      - apps/daemon/src/network.ts
+      - apps/daemon/src/tailscale-*
+      - apps/daemon/src/tls-identity*
+      - apps/daemon/src/self-signed-certificate.ts
+      - apps/daemon/src/triage-*
+      - apps/daemon/src/doctor/**
+      - packages/devices/src/sdk*.ts
+      - packages/devices/src/android-sdk-install*
       - package.json
       - bun.lock
   workflow_dispatch:

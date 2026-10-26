@@ -84,15 +84,61 @@ export default defineConfig({
       "packages/adapter-pi/src/shim-session.process.test.ts",
       // Providers: no descendant outlives a stop, even without a job
       "packages/provider-kit/src/tree-stop.process.test.ts",
+      // Remote access, Fleet, automations, devices and doctor on Windows: Tailscale from PATH or
+      // its install folder (a fake tailscale.exe), the OpenSSL-free TLS identity, pairing and
+      // revocation, cross-machine delegation, schedules across sleep/restart, notifications,
+      // Android SDK discovery, iOS-needs-a-Mac reporting, doctor and triage with ace stopped.
+      "apps/daemon/src/tailscale-install.process.test.ts",
+      "apps/daemon/src/lan-address.test.ts",
+      "apps/daemon/src/tls-identity-node.process.test.ts",
+      "apps/daemon/src/triage-handoff.process.test.ts",
+      "apps/daemon/src/doctor/host-checks.test.ts",
+      "apps/daemon/src/doctor/remote-access.test.ts",
+      "apps/daemon/src/pairing-codes.process.test.ts",
+      "apps/daemon/src/remote.server.process.test.ts",
+      "apps/daemon/src/remote-restart.server.process.test.ts",
+      "apps/daemon/src/fleet-access.server.process.test.ts",
+      "apps/daemon/src/tailscale-https.server.process.test.ts",
+      "apps/daemon/src/machines/fleet-links.test.ts",
+      "apps/daemon/src/machines/child-recheck.test.ts",
+      "apps/daemon/src/machines/machines.process.test.ts",
+      "apps/daemon/src/machines/machine-queue-restart.process.test.ts",
+      "apps/daemon/src/machines/children-reach.process.test.ts",
+      "apps/daemon/src/automation-durability.process.test.ts",
+      "packages/automations/src/service.test.ts",
+      "packages/automations/src/durability.test.ts",
+      "packages/automations/src/cancellation.test.ts",
+      "packages/automations/src/startup.test.ts",
+      "packages/automations/src/queue.test.ts",
+      "packages/automations/src/audit-reliability.test.ts",
+      "packages/offshift/src/journal.process.test.ts",
+      "packages/offshift/src/steps.test.ts",
+      "packages/offshift/src/next.test.ts",
+      "packages/notify/src/delivery.test.ts",
+      "packages/notify/src/log-holes.test.ts",
+      "packages/notify/src/inbox.test.ts",
+      "packages/notify/src/worker.process.test.ts",
+      "packages/notify/src/webpush.process.test.ts",
+      "packages/secure-channel/src/noise.test.ts",
+      "packages/secure-channel/src/host-keys.process.test.ts",
+      "packages/secure-channel/src/handshake-boundary.test.ts",
+      "packages/devices/src/android-sdk-install.process.test.ts",
+      "packages/devices/src/emulator-discovery.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
-    // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
-    // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.
+    // Shared files also hold POSIX cases. These check POSIX owner uid and mode bits; Windows
+    // counterparts ("Windows bounded reads refuse junctions...") run instead, and the data
+    // home's owner-only ACL protects the push secrets file on Windows. The LAN restart case
+    // asserts key.pem's mode 0600; "on Windows, a LAN daemon makes its TLS identity itself..."
+    // covers the same restart. The pairing-list case orders two same-expiry links by random id,
+    // so it fails half the time on every OS.
     testNamePattern:
-      /^(?!bounded regular-file reads refuse links, directories and oversized files$)/,
+      /^(?!(?:bounded regular-file reads refuse links, directories and oversized files|stored push subscription secrets are accessible only to the local file owner|(?:remote access(?: > | ))?persists device credentials and the private TLS identity across daemon restarts in LAN mode|open pairing links are listed without their codes, and a cancelled one no longer pairs)$)/,
     testTimeout: PROCESS_TEST_TIMEOUT,
     hookTimeout: PROCESS_TEST_TIMEOUT,
-    globalSetup: ["./scripts/test-home-global-setup.ts"],
+    // process-test-setup builds the daemon CLI and the shared TLS fixture the remote, Fleet and
+    // automation suites start daemons with.
+    globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/process-test-setup.ts"],
     setupFiles: ["./scripts/test-home-setup.ts"],
   },
 });
