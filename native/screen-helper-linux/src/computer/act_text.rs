@@ -87,9 +87,9 @@ impl Actor<'_> {
             CuError::new(
                 "not_supported",
                 if chromium {
-                    format!("{label} takes no typed text through accessibility: {} is built on Chromium, which doesn't offer that on Linux. Use set_value if offered, ace's browser tools for web pages, or ask the person to type it.", self.session.name)
+                    format!("{label} takes no typed text through accessibility: {} is built on Chromium, which doesn't offer that on Linux. Use set_value if offered, or ace's browser tools for web pages.{}", self.session.name, self.front_hint())
                 } else {
-                    format!("{label} takes no typed text through accessibility. Use set_value if offered, or ask the person to type it.")
+                    format!("{label} takes no typed text through accessibility. Use set_value if offered.{}", self.front_hint())
                 },
             )
         })
@@ -169,6 +169,9 @@ impl Actor<'_> {
         if let Some((element, label)) = self.text_target(step).await? {
             Self::secure(&element, "type")?;
             if let Some(refused) = self.not_typable(&element, &label) {
+                if self.front.allowed {
+                    return self.type_in_front(&element, &label, &typed).await;
+                }
                 return Err(refused);
             }
             if element.interfaces.editable {
@@ -198,6 +201,9 @@ impl Actor<'_> {
         if let Some((element, label)) = self.text_target(step).await? {
             Self::secure(&element, "paste into")?;
             if let Some(refused) = self.not_typable(&element, &label) {
+                if self.front.allowed {
+                    return self.type_in_front(&element, &label, &pasted).await;
+                }
                 return Err(refused);
             }
             if element.interfaces.editable {
@@ -224,8 +230,8 @@ impl Actor<'_> {
             Some(target) => Some(target),
             None => self.text_target(&Step::new()).await?,
         };
-        if let Some((element, label)) = target.filter(|(e, _)| e.interfaces.text) {
-            if let Some(done) = self.emulate(&element, &chord, repeat).await? {
+        if let Some((element, label)) = target.as_ref().filter(|(e, _)| e.interfaces.text) {
+            if let Some(done) = self.emulate(element, &chord, repeat).await? {
                 return Ok(format!(
                     "pressed {} ({done} in {label} through accessibility)",
                     chord.key
@@ -244,7 +250,13 @@ impl Actor<'_> {
                 return Ok(format!("pressed {} ({done} through accessibility)", chord.key));
             }
         }
-        Err(self.raw_refused(&format!("The key {}", chord.key)))
+        if self.front.allowed {
+            let field = target.as_ref().filter(|_| step.get("id").is_some()).map(|(e, l)| (e, l.as_str()));
+            return self.key_in_front(&chord, repeat, field).await;
+        }
+        let mut refused = self.raw_refused(&format!("The key {}", chord.key));
+        refused.message.push_str(&self.front_hint());
+        Err(refused)
     }
 
     /// The text-editing keys AT-SPI can do without the window in front.

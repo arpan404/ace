@@ -20,6 +20,8 @@ pub struct Actor<'a> {
     pub session: &'a mut AppSession,
     pub activity: &'a Activity,
     pub check: &'a Checkpoint,
+    /// Typing in front, for this batch (`act_front.rs`).
+    pub front: &'a mut crate::computer::act_front::Front,
 }
 
 pub fn int(step: &Step, key: &str) -> Option<i64> {

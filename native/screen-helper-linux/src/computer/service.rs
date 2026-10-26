@@ -1,5 +1,6 @@
 //! The ops: `hello`, `apps`, `resolve`, `state` and `act`, one at a time.
 use crate::computer::act::Actor;
+use crate::computer::act_front::Front;
 use crate::computer::apps::{self, RunningApp};
 use crate::computer::bus::Bus;
 use crate::computer::cancel::{Cancellations, Checkpoint};
@@ -55,6 +56,8 @@ pub struct Service {
     person: Option<Person>,
     /// `--lease-seconds`: the keep-awake lease, for tests.
     lease: Option<Duration>,
+    /// Typing in front, for batches that activate their app.
+    front: Front,
 }
 
 fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -71,6 +74,7 @@ impl Service {
             sessions: HashMap::new(),
             resolved: HashMap::new(),
             cast: None,
+            front: Front::new(data_dir.clone()),
             data_dir,
             person: None,
             lease,
@@ -203,7 +207,18 @@ impl Service {
                     CuError::new("app_not_found", format!("{query} is not running and not installed."))
                 })?;
                 if let Some(pid) = apps::inaccessible_process(entry, &installed) {
-                    return Err(apps::inaccessible_error(entry, pid));
+                    // Just started (by the person, or a moment ago): it joins the bus shortly.
+                    let starting = apps::process_age(std::path::Path::new("/proc"), pid)
+                        .is_some_and(|age| age < apps::STARTING);
+                    if !starting {
+                        return Err(apps::inaccessible_error(entry, pid));
+                    }
+                    let entry = entry.clone();
+                    let app = self
+                        .wait_for_launch(bus, &entry, &installed, check)
+                        .await
+                        .map_err(|error| if error.code == "launch_failed" { apps::inaccessible_error(&entry, pid) } else { error })?;
+                    return self.adopt(query, app);
                 }
                 if !launch {
                     return Err(CuError::new(
@@ -216,6 +231,12 @@ impl Service {
                 self.wait_for_launch(bus, entry, &installed, check).await?
             }
         };
+        Ok((self.adopt(query, app)?.0, launched))
+    }
+
+    /// Keeps the session for a found app, dropping ones gone or long unused.
+    fn adopt(&mut self, query: &str, app: RunningApp) -> CuResult<(u32, bool)> {
+        let alive = |pid: u32| std::path::Path::new(&format!("/proc/{pid}")).exists();
         self.sessions.retain(|pid, session| {
             alive(*pid) && (*pid == app.pid || session.last_used.elapsed() < Duration::from_secs(600))
         });
@@ -226,7 +247,7 @@ impl Service {
             .entry(app.pid)
             .or_insert_with(|| AppSession::new(app.pid, app.obj.clone(), app.id.clone(), app.name.clone()));
         follow_module(session, &app);
-        Ok((app.pid, launched))
+        Ok((app.pid, false))
     }
 
     async fn wait_for_launch(
@@ -343,8 +364,10 @@ impl Service {
             activity,
             cast,
             person,
+            front,
             ..
         } = self;
+        front.begin();
         let person = person.as_mut().ok_or_else(|| CuError::new("internal", "No person watch."))?;
         let session = sessions
             .get_mut(&pid)
@@ -375,8 +398,13 @@ impl Service {
                 session: &mut *session,
                 activity,
                 check,
+                front: &mut *front,
             };
             for (index, step) in steps.iter().enumerate() {
+                person.own_input(actor.front.last_key);
+                if actor.front.allowed && matches!(step.get("type").and_then(Value::as_str), Some("type" | "paste" | "key")) {
+                    actor.front.person_idle_ms = person.idle_ms().await;
+                }
                 let outcome = match check.check() {
                     Ok(()) => match person.check_step(&bus, actor.session, step).await {
                         Ok(()) => actor.run(step).await,
@@ -407,6 +435,7 @@ impl Service {
                 }
             }
         }
+        front.finish().await;
         let mut result = json!({"done": done});
         if let Some(failure) = failure {
             result["error"] = failure;
