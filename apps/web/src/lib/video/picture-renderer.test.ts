@@ -193,23 +193,24 @@ function delayedSetup() {
     fallback: () => {},
     pressure: () => {},
   });
-  const turned = (
-    sequence: number,
-    rotation: number,
-    options: { key?: boolean; streamId?: string; timestamp?: number; scale?: number } = {},
-  ): TurnedPicture => ({
-    ...picture(sequence, { key: options.key ?? false, streamId: options.streamId ?? "capture-1" }),
-    timestamp: options.timestamp ?? sequence * 1000,
-    rotation,
-    scale: options.scale ?? 1,
-  });
-  return { renderer, shown, acks, decoders, turned };
+  return { renderer, shown, acks, decoders };
 }
+
+const turned = (
+  sequence: number,
+  rotation: number,
+  options: { key?: boolean; streamId?: string; timestamp?: number; scale?: number } = {},
+): TurnedPicture => ({
+  ...picture(sequence, { key: options.key ?? false, streamId: options.streamId ?? "capture-1" }),
+  timestamp: options.timestamp ?? sequence * 1000,
+  rotation,
+  scale: options.scale ?? 1,
+});
 
 test("a picture the decoder hands back late is shown with its own time, rotation and scale", async () => {
   const view = delayedSetup();
-  await view.renderer.render(view.turned(1, 0, { key: true, scale: 3 }));
-  await view.renderer.render(view.turned(2, 90, { scale: 2 }));
+  await view.renderer.render(turned(1, 0, { key: true, scale: 3 }));
+  await view.renderer.render(turned(2, 90, { scale: 2 }));
   view.decoders[0]?.output(1);
   expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 0, scale: 3 }]);
   expect(view.acks).toEqual([{ sequence: 1, timestamp: 1000, keyframe: false }]);
@@ -219,8 +220,8 @@ test("a picture the decoder hands back late is shown with its own time, rotation
 
 test("a late picture from before a new capture is never shown with the new capture's details", async () => {
   const view = delayedSetup();
-  await view.renderer.render(view.turned(1, 0, { key: true }));
-  await view.renderer.render(view.turned(1, 270, { key: true, streamId: "capture-2" }));
+  await view.renderer.render(turned(1, 0, { key: true }));
+  await view.renderer.render(turned(1, 270, { key: true, streamId: "capture-2" }));
   // The first capture's decoder answers after the switch: dropped, not drawn as capture 2's.
   view.decoders[0]?.output(1);
   expect(view.shown).toEqual([]);
