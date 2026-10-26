@@ -21,6 +21,7 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - packages/commands/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
       - packages/files/src/upload*

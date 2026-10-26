@@ -15,6 +15,7 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/workspace": "workspace:*",
     "jsonc-parser": "^3.3.1",
     "koffi": "3.3.2",
     "smol-toml": "^1.4.2",

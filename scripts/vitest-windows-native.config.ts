@@ -44,6 +44,10 @@ const posixOnly = [
   // Windows still registers the session screen tools beside the computer-use engine's; the
   // computer-use branch moves Windows to the engine, which brings this back under budget.
   "each provider's per-request ace context stays within its budget",
+  // POSIX mode bits and a chmod-refused folder; "Windows update apply puts the original back
+  // when the lock can't be written" runs instead.
+  "when the lock can't be written the original folder is put back and the lock is unchanged",
+  "the skills lock makes ~/.agents itself when it's missing",
 ];
 
 export default defineConfig({
@@ -97,6 +101,9 @@ export default defineConfig({
       // The daemon's MCP sessions and tools, and project/thread transfers between machines.
       "apps/daemon/src/mcp*.test.ts",
       "apps/daemon/src/transfers/**/*.test.ts",
+      // Command discovery, prompt files and the skills library over Windows handles: junction
+      // links, no-replace renames and crash recovery without an atomic exchange.
+      "packages/commands/src/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "packages/mcp-server/src/discovery-fifo.process.test.ts"],
     // Shared files also hold POSIX cases; each listed one has a Windows counterpart or no
