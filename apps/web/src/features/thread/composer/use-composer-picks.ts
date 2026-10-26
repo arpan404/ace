@@ -2,6 +2,7 @@ import { useClient } from "@ace/client-react";
 import type { CatalogMention, Mention } from "@ace/protocol";
 import {
   editComposerTokens,
+  heldReferences,
   pickSuggestion,
   referenceLimits,
   suggestionToken,
@@ -118,7 +119,7 @@ export function useComposerPicks(args: {
     args.setAdding(false);
     const trigger = args.trigger;
     if (!trigger) return;
-    const outcome = pickSuggestion(item, tokens);
+    const outcome = pickSuggestion(item, heldReferences(tokens));
     switch (outcome.kind) {
       case "refused":
         args.setNotice(outcome.notice);

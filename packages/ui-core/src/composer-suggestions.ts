@@ -86,8 +86,11 @@ export interface CommandScope {
   draft: boolean;
   /** The + list: only the builtin entries, under "Add". */
   adding: boolean;
-  /** Builtin actions this client can't run: left out rather than shown broken. */
-  unsupported?: ReadonlySet<string> | undefined;
+  /**
+   * The builtin actions this client can run (by `actionKind`); any other is left out rather
+   * than shown broken. Omitted, every action is listed.
+   */
+  actions?: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -115,7 +118,7 @@ export function commandSuggestions(
       !(
         entry.invocation.type === "action" &&
         ((entry.invocation.action === "plan" && provider !== "claude") ||
-          scope.unsupported?.has(actionKind(entry.invocation.action)))
+          (scope.actions && !scope.actions.has(actionKind(entry.invocation.action))))
       ) &&
       (adding ? entry.kind === "builtin" : entry.kind !== "builtin" || !!query.trim()),
   );
@@ -208,14 +211,27 @@ export type SuggestionPick =
   | { kind: "arguments" }
   | { kind: "reference" };
 
-export function pickSuggestion(
-  item: ComposerSuggestion,
+/** How many references a message holds: in all, threads and browser tabs. */
+export interface HeldReferences {
+  all: number;
+  threads: number;
+  tabs: number;
+}
+export function heldReferences(
   tokens: readonly Pick<ComposerToken, "thread" | "browserTab">[],
-): SuggestionPick {
+): HeldReferences {
+  return {
+    all: tokens.length,
+    threads: tokens.filter((token) => token.thread).length,
+    tabs: tokens.filter((token) => token.browserTab).length,
+  };
+}
+
+export function pickSuggestion(item: ComposerSuggestion, held: HeldReferences): SuggestionPick {
   if (
-    tokens.length >= referenceLimits.all ||
-    (item.threadId && tokens.filter((token) => token.thread).length >= referenceLimits.threads) ||
-    (item.tab && tokens.filter((token) => token.browserTab).length >= referenceLimits.tabs)
+    held.all >= referenceLimits.all ||
+    (item.threadId && held.threads >= referenceLimits.threads) ||
+    (item.tab && held.tabs >= referenceLimits.tabs)
   )
     return { kind: "refused", notice: tooManyReferences };
   const invocation = item.entry?.invocation;

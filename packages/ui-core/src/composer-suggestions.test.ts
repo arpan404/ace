@@ -1,4 +1,4 @@
-import { ThreadId, type CatalogEntry } from "@ace/protocol";
+import type { CatalogEntry } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   commandArguments,
@@ -106,13 +106,13 @@ test("the + list holds only builtins, with plan mode for Claude alone and attach
   expect(names("codex", true)).toEqual(["Attach files", "Run checks"]);
 });
 
-test("actions a client can't run are left out of its lists", () => {
+test("actions a client can't run are left out of its lists, never shown broken", () => {
   const rows = commandSuggestions(catalog, {
     query: "",
     provider: "claude",
     draft: false,
     adding: true,
-    unsupported: new Set(["automation.run", "attachments"]),
+    actions: new Set(["attach", "plan"]),
   });
   expect(rows.map((row) => row.label)).toEqual(["Attach files", "Plan mode"]);
 });
@@ -185,17 +185,17 @@ test("a prompt with parameters asks for them, a builtin runs its action, and the
   const deploy = commandSuggestions(catalog, { ...scope, query: "deploy" })[0];
   const attach = commandSuggestions(catalog, { ...scope, adding: true, query: "" })[0];
   if (!deploy || !attach) throw new Error("missing rows");
-  expect(pickSuggestion(deploy, [])).toEqual({ kind: "arguments" });
-  expect(pickSuggestion(attach, [])).toEqual({ kind: "action", action: "attach" });
-  const threads = Array.from({ length: 8 }, () => ({ thread: undefined, browserTab: undefined }));
-  const ref = { type: "thread_ref" as const, threadId: ThreadId.parse("x"), budgetBytes: 1 };
-  const eight = threads.map(() => ({ thread: ref }));
-  expect(pickSuggestion({ group: "Threads", label: "t", threadId: "t" }, threads).kind).toBe(
-    "reference",
-  );
-  expect(pickSuggestion({ group: "Threads", label: "t", threadId: "t" }, eight).kind).toBe(
-    "refused",
-  );
+  const none = { all: 0, threads: 0, tabs: 0 };
+  expect(pickSuggestion(deploy, none)).toEqual({ kind: "arguments" });
+  expect(pickSuggestion(attach, none)).toEqual({ kind: "action", action: "attach" });
+  expect(
+    pickSuggestion({ group: "Threads", label: "t", threadId: "t" }, { all: 7, threads: 7, tabs: 0 })
+      .kind,
+  ).toBe("reference");
+  expect(
+    pickSuggestion({ group: "Threads", label: "t", threadId: "t" }, { all: 8, threads: 8, tabs: 0 })
+      .kind,
+  ).toBe("refused");
 });
 
 test("prompt arguments must be filled where required and numbers must be numbers", () => {

@@ -1,6 +1,7 @@
 import { AccessMode, KnownSpeed } from "@ace/protocol";
 import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
+import { References } from "./composer-references.ts";
 import { Picked } from "./thread-attachments.ts";
 import { RequestAnswer } from "./thread-requests.ts";
 
@@ -30,6 +31,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
     opposite: z.boolean(),
     /** The question card on the strip, as the person left it: the words may answer it. */
     reply: QuestionReply.optional(),
+    /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
+    references: References.optional(),
     requestId,
   }),
   z.object({ type: z.literal("stop"), requestId }),

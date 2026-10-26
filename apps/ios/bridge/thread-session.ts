@@ -3,6 +3,7 @@ import {
   FollowUpBehavior,
   InteractionId,
   ThreadId,
+  type CatalogEntry,
   type CatalogModel,
   type CommandPayload,
 } from "@ace/protocol";
@@ -11,6 +12,7 @@ import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
+import { goalCommand, joinContext, messageContent, type Reference } from "./composer-references.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
@@ -69,6 +71,8 @@ export class ThreadSession {
   #starProblem: string | null = null;
   readonly #favorites: ModelFavorites;
   readonly #access: ThreadAccessFollower;
+  /** The thread's catalog as the composer last read it, for a typed `/name`. */
+  readonly #catalog: (threadId: string) => readonly CatalogEntry[] | undefined;
 
   constructor(
     client: ClientCore,
@@ -77,7 +81,9 @@ export class ThreadSession {
     epoch: number,
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
+    catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
   ) {
+    this.#catalog = catalog;
     this.#client = client;
     this.#store = store;
     this.#threadId = ThreadId.parse(threadId);
@@ -171,7 +177,7 @@ export class ThreadSession {
     switch (action.type) {
       case "send":
         if (!this.#reply(action.text, action.reply, action.requestId))
-          this.#send(action.text, action.opposite, action.requestId);
+          this.#send(action.text, action.opposite, action.requestId, action.references ?? []);
         break;
       case "stop":
         this.#dispatch(stopPayload(this.#store, this.#threadId), action.requestId);
@@ -315,9 +321,20 @@ export class ThreadSession {
     return true;
   }
   /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
-  #send(text: string, opposite: boolean, id: string): void {
+  #send(text: string, opposite: boolean, id: string, references: readonly Reference[]): void {
     if (!this.#settingKnown) {
-      void this.#whenKnown.then(() => this.#send(text, opposite, id));
+      void this.#whenKnown.then(() => this.#send(text, opposite, id, references));
+      return;
+    }
+    const content = messageContent(text, references, this.#catalog(this.#threadId));
+    const goal = goalCommand(
+      this.#threadId,
+      this.#store.thread,
+      text,
+      this.#tray.size > 0 || content.references !== undefined,
+    );
+    if (goal) {
+      this.#dispatch(goal, id, "This thread's goal can't be changed right now.");
       return;
     }
     if (!messageHasContent(text, this.#tray.size)) {
@@ -338,10 +355,12 @@ export class ThreadSession {
       isBusy(this.#store.thread?.status),
       payload.delivery,
     );
+    const context = joinContext(files.context, content.references);
     const message: CommandPayload = {
       ...payload,
+      input: content.input,
       ...(options ? { options } : {}),
-      ...(files.context ? { context: files.context } : {}),
+      ...(context ? { context } : {}),
     };
     void dispatchCommand(this.#client, message, id, this.#pump, {
       saved: () => this.#tray.sent(),
