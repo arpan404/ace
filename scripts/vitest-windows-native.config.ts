@@ -46,6 +46,7 @@ export default defineConfig({
       // command lookup that never runs a git.exe or gh.exe planted in a checkout.
       "packages/git/src/held-directory.process.test.ts",
       "packages/git/src/checkout-paths.process.test.ts",
+      "packages/git/src/checkpoint-bytes.process.test.ts",
       "packages/git/src/reviewer-hooks.process.test.ts",
       "packages/forge/src/command-search.process.test.ts",
       "packages/forge/src/command.process.test.ts",
