@@ -21,6 +21,7 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - apps/daemon/src/local-files*
       - packages/preview/**
       - packages/service/**
       - native/screen-helper-windows/**
@@ -189,27 +190,6 @@ jobs:
           path: ~/.bun/install/cache
           key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
-      - name: Probe and build windows-core with native cl
-        shell: cmd
-        env:
-          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
-          HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
-          NODE_LIB: ${{ steps.headers.outputs.node-lib }}
-          MSVC_ARCH: ${{ matrix.msvc_arch }}
-        run: |
-          @echo off
-          setlocal
-          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
-          where cl || exit /b 1
-          cl 2>&1 | findstr /C:"Version" || exit /b 1
-          echo INCLUDE=%INCLUDE%
-          set "CL_EXE="
-          for /f "delims=" %%C in ('where cl') do if not defined CL_EXE set "CL_EXE=%%C"
-          echo %CL_EXE% | findstr /I /L /C:"Host%MSVC_ARCH%" || exit /b 1
-          echo Actual cl: %CL_EXE%
-          node packages/workspace/build-windows-core.ts --probe-only --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
-          node packages/workspace/build-windows-core.ts --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
-
       - name: Build Windows descriptor via build.ts and verify exports
         shell: cmd
         env:
@@ -301,4 +281,4 @@ jobs:
         run: |
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           bun --version
-          Get-ChildItem packages/workspace/dist/windows-core.node | Format-List Name, Length, LastWriteTime
+          Get-ChildItem packages/workspace/dist/descriptor.node | Format-List Name, Length, LastWriteTime
