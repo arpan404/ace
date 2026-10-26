@@ -116,6 +116,8 @@ def main() -> None:
     person_presses_escape()
     time.sleep(2.5)
     asking(data)
+    # A new helper can't tell the last one's keys from the person's: let them age.
+    time.sleep(2)
 
     helper = Helper(BINARY, "--data-dir", data)
     try:

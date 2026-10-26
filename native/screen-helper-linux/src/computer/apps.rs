@@ -179,6 +179,27 @@ pub fn inaccessible_process(entry: &DesktopApp, installed: &[DesktopApp]) -> Opt
     })
 }
 
+/// An app process younger than this may still be joining the accessibility bus.
+pub const STARTING: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How long ago a process started, from its `stat` start time and the system's uptime.
+pub fn process_age(proc_root: &Path, pid: u32) -> Option<std::time::Duration> {
+    let stat = std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
+    let uptime = std::fs::read_to_string(proc_root.join("uptime")).ok()?;
+    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    age_from(&stat, &uptime, u64::try_from(ticks).ok().filter(|t| *t > 0)?)
+}
+
+/// The age from `/proc/<pid>/stat` (start time is field 22, in clock ticks since boot; the
+/// command name before it may hold spaces and parentheses) and `/proc/uptime` (seconds).
+pub fn age_from(stat: &str, uptime: &str, ticks_per_second: u64) -> Option<std::time::Duration> {
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    let start_ticks: u64 = after_name.split_whitespace().nth(19)?.parse().ok()?;
+    let up: f64 = uptime.split_whitespace().next()?.parse().ok()?;
+    let started = start_ticks as f64 / ticks_per_second as f64;
+    Some(std::time::Duration::from_secs_f64((up - started).max(0.0)))
+}
+
 /// Why an app that runs can't be seen, for the agent.
 pub fn inaccessible_error(entry: &DesktopApp, pid: u32) -> CuError {
     let name = &entry.name;
@@ -190,4 +211,19 @@ pub fn inaccessible_error(entry: &DesktopApp, pid: u32) -> CuError {
         )
     };
     CuError::new("app_inaccessible", message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::age_from;
+    use std::time::Duration;
+
+    #[test]
+    fn a_process_age_comes_from_its_start_time_even_when_its_name_holds_parentheses() {
+        // Field 22 (start time) is 1_000 ticks at 100 per second: started 10 s after boot.
+        let fields: Vec<String> = (3..=21).map(|n| n.to_string()).collect();
+        let stat = format!("4242 (Web (Content) x) S {} 1000 0 0", fields[1..].join(" "));
+        assert_eq!(age_from(&stat, "25.50 99.00\n", 100), Some(Duration::from_millis(15_500)));
+        assert_eq!(age_from("garbage", "25.50 99.00", 100), None);
+    }
 }
