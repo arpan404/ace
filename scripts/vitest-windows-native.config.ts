@@ -78,6 +78,7 @@ export default defineConfig({
       // Windows; config-paths.process.test.ts runs the same cases with "/" paths.
       "packages/workspace/src/include-watch.process.test.ts",
       "packages/workspace/src/branch-includes.process.test.ts",
+      "packages/workspace/src/head-reconciliation.process.test.ts",
     ],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
     // Windows counterpart ("Windows bounded reads refuse junctions...") runs instead.

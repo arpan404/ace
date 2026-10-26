@@ -5,7 +5,8 @@ import { WorkspaceError } from "./index.ts";
 import { fixture } from "./test-support.ts";
 
 // Windows refuses to rename a folder while ace holds a handle inside it, so the swapping child
-// retries; a junction stands in for the symlink, needing no privilege.
+// retries; a junction stands in for the symlink, needing no privilege. Windows also reports a
+// folder that is pending deletion as access denied, so that is an allowed refusal here.
 test.runIf(process.platform === "win32")(
   "never returns outside bytes while a real child swaps a parent folder for a junction",
   async () => {
@@ -63,7 +64,7 @@ test.runIf(process.platform === "win32")(
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           expect(error.code, String(error)).toMatch(
-            /^(NOT_FOUND|NOT_DIRECTORY|PATH_ESCAPE|PATH_CHANGED)$/,
+            /^(NOT_FOUND|NOT_DIRECTORY|PATH_ESCAPE|PATH_CHANGED|PERMISSION_DENIED)$/,
           );
         }
       }

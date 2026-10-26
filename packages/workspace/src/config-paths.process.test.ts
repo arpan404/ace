@@ -1,6 +1,7 @@
-import { join } from "node:path";
+import { watch as nativeWatch } from "node:fs";
+import { join, sep } from "node:path";
 import { describe, expect, test } from "vitest";
-import { workspaceRuntime } from "./index.ts";
+import { filesystem, workspaceRuntime } from "./index.ts";
 import { batches, exec, fixture } from "./test-support.ts";
 
 /** Git config text treats "\\" as an escape, so Windows paths written into it use "/". */
@@ -143,3 +144,164 @@ describe.runIf(process.platform === "win32")("Windows Git config sources", () =>
     },
   );
 });
+
+// The same HEAD case as head-reconciliation.process.test.ts, with a "/" path in config text.
+test.runIf(process.platform === "win32")(
+  "detachment and repeated detached HEAD updates leave unrelated inventory untouched when ignores stay the same",
+  async () => {
+    const timers = new Set<() => void | Promise<void>>();
+    let scheduled: (() => void) | undefined;
+    let headEvent: (() => void) | undefined;
+    let saveEvent: (() => void) | undefined;
+    let unavailable = false;
+    let workspace: string | undefined;
+    const h = await fixture(
+      {
+        filesystem: {
+          ...filesystem,
+          lstat(path) {
+            if (unavailable && path.endsWith(`${sep}unrelated`))
+              throw Object.assign(new Error("Unrelated inventory is temporarily unavailable"), {
+                code: "EIO",
+              });
+            return filesystem.lstat(path);
+          },
+        },
+        runtime: {
+          watch(root, options, listener) {
+            return nativeWatch(root, options, (event, filename) => {
+              listener(event, filename);
+              // Absolute, so it matches a recursive root watch and Linux's per-directory ones.
+              const path = filename === null ? undefined : join(root, filename);
+              if (!workspace || !path) return;
+              if (
+                path === join(workspace, ".git", "HEAD") ||
+                path === join(workspace, ".git", "HEAD.lock")
+              )
+                headEvent?.();
+              if (path === join(workspace, "a.ts")) saveEvent?.();
+            });
+          },
+          clock: {
+            after(task) {
+              timers.add(task);
+              scheduled?.();
+              return () => {
+                timers.delete(task);
+              };
+            },
+            every() {
+              throw new Error("Native watcher must not poll");
+            },
+          },
+        },
+      },
+      true,
+    );
+    workspace = h.service.root;
+    const reconcile = async () => {
+      if (!timers.size)
+        await new Promise<void>((resolve) => {
+          scheduled = resolve;
+        });
+      scheduled = undefined;
+      const pending = [...timers];
+      for (const task of pending) {
+        timers.delete(task);
+        await task();
+      }
+    };
+    const peer = await fixture();
+    await peer.file("base-rules", "");
+    await peer.file("rules", "a.ts\n");
+    await peer.file(
+      "branch.conf",
+      `[core]\nexcludesFile = ${gitPath(join(peer.service.root, "rules"))}\n`,
+    );
+    await h.file("a.ts", "visible");
+    await h.file("unrelated/deep/file.txt", "unrelated inventory");
+    await exec("git", ["-C", h.root, "symbolic-ref", "HEAD", "refs/heads/base"]);
+    await exec("git", ["-C", h.root, "add", "a.ts", "unrelated"]);
+    const commit = async (message: string) => {
+      await exec("git", [
+        "-C",
+        h.root,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@ace.local",
+        "commit",
+        "--allow-empty",
+        "-m",
+        message,
+      ]);
+      return (await exec("git", ["-C", h.root, "rev-parse", "HEAD"])).stdout.trim();
+    };
+    const first = await commit("First");
+    const second = await commit("Second");
+    // Keep the watched file untracked so branch-dependent excludes affect it.
+    await exec("git", ["-C", h.root, "rm", "--cached", "a.ts"]);
+    await exec("git", ["-C", h.root, "branch", "other", first]);
+    await exec("git", [
+      "-C",
+      h.root,
+      "config",
+      "core.excludesFile",
+      join(peer.service.root, "base-rules"),
+    ]);
+    await exec("git", [
+      "-C",
+      h.root,
+      "config",
+      "--add",
+      "includeIf.onbranch:other.path",
+      join(peer.service.root, "branch.conf"),
+    ]);
+    const events = batches();
+    const warnings: string[] = [];
+    const subscription = await h.service.watch({
+      onChange: events.onChange,
+      onWarning: (message) => warnings.push(message),
+    });
+    const updateHead = async (args: string[]) => {
+      const delivered = new Promise<void>((resolve) => {
+        headEvent = resolve;
+      });
+      await exec("git", ["-C", h.root, ...args]);
+      await delivered;
+      headEvent = undefined;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await reconcile();
+    };
+    try {
+      expect(subscription.mode).toBe("native");
+      unavailable = true;
+      await updateHead(["update-ref", "--no-deref", "HEAD", first]);
+      expect(warnings).toEqual([]);
+      for (const oid of [second, first, second, first]) {
+        await updateHead(["update-ref", "HEAD", oid]);
+        expect(warnings).toEqual([]);
+        expect(events.history).toEqual([]);
+      }
+      // Ordinary saves still reconcile their changed path without reading unrelated directories.
+      const saved = new Promise<void>((resolve) => {
+        saveEvent = resolve;
+      });
+      await h.file("a.ts", "saved with more bytes");
+      await saved;
+      saveEvent = undefined;
+      await reconcile();
+      expect(events.history.flat()).toContainEqual({ path: "a.ts", kind: "changed" });
+      expect(warnings).toEqual([]);
+      unavailable = false;
+      await updateHead(["symbolic-ref", "HEAD", "refs/heads/other"]);
+      expect(events.history.flat()).toContainEqual({ path: "a.ts", kind: "deleted" });
+      events.history.length = 0;
+      await updateHead(["update-ref", "--no-deref", "HEAD", first]);
+      expect(events.history.flat()).toEqual([{ path: "a.ts", kind: "created" }]);
+      expect(warnings).toEqual([]);
+    } finally {
+      await subscription.dispose();
+    }
+  },
+);
