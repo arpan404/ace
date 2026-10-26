@@ -1,13 +1,11 @@
 //! One app the agent works in: its windows, the chosen window, stable ids and the last walk.
 use crate::computer::bus::{Bus, BusError, Obj, key};
-use crate::computer::element::{self, COORD_SCREEN, COORD_WINDOW};
+use crate::computer::element::{self, COORD_WINDOW};
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::ids::Ids;
-use crate::computer::outline::{Node, Rect, content_offset};
+use crate::computer::outline::{Node, Rect};
 use crate::computer::walk::{FrameMap, Tree, Walker};
-use crate::computer::xdisplay::XDisplay;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -34,8 +32,6 @@ pub struct AppSession {
     /// while its window is active, so background key steps fall back to this.
     pub text_focus: Option<Obj>,
     pub not_responding: bool,
-    /// X windows already redirected for capture.
-    pub redirected: HashSet<u32>,
     /// Screenshot pixels per window pixel in the last screenshot; maps x,y steps.
     pub scale: f64,
     pub last_used: Instant,
@@ -57,7 +53,6 @@ impl AppSession {
             menu_bar: None,
             text_focus: None,
             not_responding: false,
-            redirected: HashSet::new(),
             scale: 1.0,
             last_used: Instant::now(),
         }
@@ -155,39 +150,6 @@ impl AppSession {
             .or_else(|| all.first())
             .cloned();
         Ok(all)
-    }
-
-    /// The X window showing the chosen accessible window.
-    pub fn x_window(&self, x: &XDisplay) -> Option<u32> {
-        let window = self.window.as_ref()?;
-        x.window_for(self.pid, &window.title)
-    }
-
-    /// How extents map to window pixels. Toolkits that know their screen position (GTK3, Qt)
-    /// report screen coordinates; GTK4 reports window-relative ones only.
-    pub async fn frame_map(&self, bus: &Bus, x: &XDisplay, xid: u32) -> Option<FrameMap> {
-        let window = self.window.as_ref()?;
-        let (wx, wy, ww, wh) = x.geometry(xid)?;
-        let screen = element::extents(bus, &window.obj, COORD_SCREEN).await.ok().flatten();
-        if let Some(frame) = screen {
-            let near = (frame.x - f64::from(wx)).abs() < 96.0 && (frame.y - f64::from(wy)).abs() < 96.0;
-            if near && !(frame.x == 0.0 && frame.y == 0.0 && (wx, wy) != (0, 0)) {
-                return Some(FrameMap {
-                    coord: COORD_SCREEN,
-                    dx: f64::from(wx),
-                    dy: f64::from(wy),
-                });
-            }
-        }
-        // GTK4: the window's content sits centred in the X window (inside its shadow margin),
-        // whatever offset the frame itself reports.
-        let content = self.content(bus).await?;
-        let (dx, dy) = content_offset((f64::from(ww), f64::from(wh)), content);
-        Some(FrameMap {
-            coord: COORD_WINDOW,
-            dx,
-            dy,
-        })
     }
 
     /// The window's content box in window-relative coordinates: its largest child, else the

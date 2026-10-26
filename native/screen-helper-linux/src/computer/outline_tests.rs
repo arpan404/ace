@@ -30,7 +30,7 @@ fn buttons_read_as_the_macos_engine_names_them() {
 
 #[test]
 fn gtk4_window_extents_land_inside_the_shadow_margin() {
-    // A 700×520 X window whose 690×510 content reports itself at (-5, -5).
+    // A 700×520 window frame whose 690×510 content reports itself at (-5, -5).
     let content = Rect {
         x: -5.0,
         y: -5.0,

@@ -1,6 +1,6 @@
 //! Text and keys. Typing inserts through AT-SPI EditableText, which needs no focus and works
 //! on background windows. Keys go to the focused text through AT-SPI where an equivalent
-//! exists (Return, Backspace, Delete, select all, arrows); others need the window in front.
+//! exists (Return, Backspace, Delete, select all, arrows); Wayland lets ace send no others.
 use crate::computer::act::{Actor, Step, grab, int, set_selection, text};
 use crate::computer::bus::BusError;
 use crate::computer::element::{self, Element};
@@ -124,11 +124,7 @@ impl Actor<'_> {
                 });
             }
         }
-        let foreground = self.foreground("type").map_err(|_| {
-            CuError::new("no_text_target", format!("Nothing that takes text is focused in {}. Pass the id of a text field (type {{text, id}}), or click one first.", self.session.name))
-        })?;
-        self.type_keys(foreground, &typed).await?;
-        Ok(format!("typed \"{shown}\" with the keyboard"))
+        Err(CuError::new("no_text_target", format!("Nothing that takes text is focused in {}. Pass the id of a text field (type {{text, id}}), or click one first.", self.session.name)))
     }
 
     pub async fn paste(&mut self, step: &Step) -> CuResult<String> {
@@ -154,48 +150,17 @@ impl Actor<'_> {
                 });
             }
         }
-        let foreground = self.foreground("paste").map_err(|_| {
-            CuError::new("no_text_target", format!("Nothing that takes text is focused in {}. Pass the id of a text field (paste {{text, id}}), or click one first.", self.session.name))
-        })?;
-        if self.clipboard.is_none() {
-            *self.clipboard = Some(crate::computer::clipboard::Clipboard::start()?);
-        }
-        // Bounded to half a second.
-        let previous = crate::computer::clipboard::read();
-        if let Some(clipboard) = self.clipboard.as_ref() {
-            clipboard.set(pasted);
-        }
-        let chord = keys::parse_chord("ctrl+v")?;
-        let sent = self.send_chord(foreground, &chord, 1, 0).await;
-        crate::computer::events::pause(300, self.check).await.ok();
-        if let (Some(clipboard), Some(previous)) = (self.clipboard.as_ref(), previous) {
-            clipboard.set(previous);
-        }
-        sent?;
-        Ok(format!("pasted {count} characters with the clipboard{note}"))
+        Err(CuError::new("no_text_target", format!("Nothing that takes text is focused in {}. Pass the id of a text field (paste {{text, id}}), or click one first.", self.session.name)))
     }
 
     pub async fn key(&mut self, step: &Step) -> CuResult<String> {
         let chord = keys::parse_chord(text(step, "key").unwrap_or_default())?;
         let repeat = int(step, "repeat").unwrap_or(1).clamp(1, 50) as usize;
-        let hold = int(step, "hold_ms").unwrap_or(0).clamp(0, 5000) as u64;
         let target = if step.get("id").is_some() {
             self.text_target(step).await?
         } else {
             None
         };
-        if let Ok(foreground) = self.foreground("key") {
-            self.send_chord(foreground, &chord, repeat, hold).await?;
-            return Ok(format!(
-                "pressed {}{}",
-                chord.key,
-                if repeat > 1 {
-                    format!(" ×{repeat}")
-                } else {
-                    String::new()
-                }
-            ));
-        }
         let target = match target {
             Some(target) => Some(target),
             None => self.text_target(&Step::new()).await?,
@@ -208,10 +173,7 @@ impl Actor<'_> {
                 ));
             }
         }
-        Err(self
-            .foreground("key")
-            .err()
-            .unwrap_or_else(|| CuError::new("not_supported", "This key can't be sent.")))
+        Err(self.raw_refused(&format!("The key {}", chord.key)))
     }
 
     /// The text-editing keys AT-SPI can do without the window in front.

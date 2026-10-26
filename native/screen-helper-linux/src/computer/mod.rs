@@ -1,6 +1,6 @@
 //! `ace-screen-helper-linux --computer`: the agent computer-use engine (ADR 0087, ADR 0093).
 //! Same JSON-lines wire as the macOS helper: `hello`, `apps`, `resolve`, `state`, `act`,
-//! `cancel`. Semantics come from AT-SPI; X11 adds screenshots and foreground-only raw input.
+//! `cancel`. Semantics come from AT-SPI; screenshots from the ScreenCast portal.
 pub mod cancel;
 pub mod catalog;
 pub mod conditions;
@@ -27,10 +27,6 @@ pub(crate) mod apps;
 #[cfg(target_os = "linux")]
 mod bus;
 #[cfg(target_os = "linux")]
-mod capture;
-#[cfg(target_os = "linux")]
-mod clipboard;
-#[cfg(target_os = "linux")]
 mod element;
 #[cfg(target_os = "linux")]
 mod events;
@@ -48,8 +44,6 @@ mod service;
 mod session;
 #[cfg(target_os = "linux")]
 mod walk;
-#[cfg(target_os = "linux")]
-pub(crate) mod xdisplay;
 
 #[cfg(target_os = "linux")]
 pub use run::run;

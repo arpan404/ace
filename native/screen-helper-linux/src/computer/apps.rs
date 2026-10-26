@@ -3,8 +3,7 @@ use crate::computer::bus::{Bus, Obj};
 use crate::computer::desktop::{self, DesktopApp};
 use crate::computer::element;
 use crate::computer::error::{CuError, CuResult};
-use crate::computer::identity::{self, Hints};
-use crate::computer::xdisplay::XDisplay;
+use crate::computer::identity;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -22,34 +21,17 @@ pub fn installed() -> Vec<DesktopApp> {
     desktop::scan(&desktop::application_dirs(&|name| std::env::var(name).ok()))
 }
 
-/// The app an X window belongs to, named as `running` names it, so a live view and computer
-/// use call one app by one id.
-pub fn x_window_app_id(x: &XDisplay, window: u32, pid: u32, installed: &[DesktopApp]) -> String {
-    let described = x.describe(window);
-    let hints = Hints {
-        gtk_application_id: described.gtk_application_id,
-        wm_class: described.wm_class,
-        accessible_name: None,
-    };
-    identity::identify(&identity::read_process(Path::new("/proc"), pid), &hints, installed).0
-}
-
 /// The app an accessible application belongs to, from its process and accessible name.
-pub fn process_app_id(pid: u32, accessible_name: Option<String>, installed: &[DesktopApp]) -> String {
-    let hints = Hints {
-        accessible_name,
-        ..Hints::default()
-    };
-    identity::identify(&identity::read_process(Path::new("/proc"), pid), &hints, installed).0
+pub fn process_app_id(pid: u32, accessible_name: Option<&str>, installed: &[DesktopApp]) -> String {
+    identity::identify(&identity::read_process(Path::new("/proc"), pid), accessible_name, installed).0
 }
 
 /// Apps with at least one window on the accessibility bus, this helper excluded.
-pub async fn running(bus: &Bus, x: Option<&XDisplay>, installed: &[DesktopApp]) -> Vec<RunningApp> {
+pub async fn running(bus: &Bus, installed: &[DesktopApp]) -> Vec<RunningApp> {
     let Ok(apps) = bus.applications().await else {
         return Vec::new();
     };
     let own = std::process::id();
-    let x_windows = x.map(XDisplay::client_windows).unwrap_or_default();
     let reads = futures_util::future::join_all(apps.into_iter().map(|app| async move {
         let pid = bus.pid_of(&app.0).await?;
         let name = bus.string_prop(&app, "Accessible", "Name").await.unwrap_or_default();
@@ -74,14 +56,9 @@ pub async fn running(bus: &Bus, x: Option<&XDisplay>, installed: &[DesktopApp]) 
         if pid == own || running.iter().any(|r: &RunningApp| r.obj.0 == obj.0) {
             continue;
         }
-        let window = x_windows.iter().find(|w| w.pid == Some(pid));
-        let hints = Hints {
-            gtk_application_id: window.and_then(|w| w.gtk_application_id.clone()),
-            wm_class: window.map(|w| w.wm_class.clone()).unwrap_or_default(),
-            accessible_name: Some(name.clone()).filter(|n| !n.is_empty()),
-        };
         let facts = identity::read_process(Path::new("/proc"), pid);
-        let (id, entry) = identity::identify(&facts, &hints, installed);
+        let accessible_name = Some(name.as_str()).filter(|n| !n.is_empty());
+        let (id, entry) = identity::identify(&facts, accessible_name, installed);
         // The desktop's own shell, portals, bars and agents are not apps to operate.
         let system = crate::computer::catalog::is_system_component;
         if system(&id) || facts.exe_name.as_deref().is_some_and(system) {

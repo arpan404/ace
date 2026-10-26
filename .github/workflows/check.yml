@@ -129,10 +129,6 @@ jobs:
           swift build --package-path native/screen-helper --target ScreenTest
           swift test --package-path native/screen-helper
 
-      - name: X11 pointer refusal with real grabs and applications
-        if: runner.os == 'Linux'
-        run: native/screen-helper-linux/test-in-docker.sh --pointer
-
       - name: Tests
         # Chromium keeps its sandbox; only this disposable runner enables userns.
         # Set up before tests because runner images can include Chromium already.

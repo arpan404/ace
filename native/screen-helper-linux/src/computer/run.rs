@@ -1,6 +1,5 @@
-//! The process shell: a stdin thread that frames requests and answers `cancel` at once, one
-//! serial worker that runs every other op, and a signal thread that puts back a borrowed
-//! clipboard before exiting.
+//! The process shell: a stdin thread that frames requests and answers `cancel` at once, and
+//! one serial worker that runs every other op.
 use crate::computer::cancel::Cancellations;
 use crate::computer::service::Service;
 use crate::computer::wire::{LineFramer, REQUEST_LIMIT, RequestLine, error_line, ok_line, parse_line};
@@ -27,35 +26,6 @@ impl Output {
 enum Message {
     Request { id: String, body: Map<String, Value> },
     End,
-}
-
-fn termination_signals() -> libc::sigset_t {
-    // SAFETY: sigset_t is plain data, initialised by sigemptyset before use.
-    unsafe {
-        let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut set);
-        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-            libc::sigaddset(&mut set, signal);
-        }
-        set
-    }
-}
-
-/// Blocks termination signals in every thread and handles them on one: restore, then exit.
-fn watch_signals() {
-    let set = termination_signals();
-    // SAFETY: called before other threads start, so they inherit the mask.
-    unsafe {
-        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
-    }
-    std::thread::spawn(move || {
-        let mut signal: libc::c_int = 0;
-        // SAFETY: the set is valid and blocked in all threads.
-        if unsafe { libc::sigwait(&set, &mut signal) } == 0 {
-            crate::computer::clipboard::restore_pending();
-            std::process::exit(128 + signal);
-        }
-    });
 }
 
 fn read_stdin(output: Output, cancellations: Cancellations, sender: tokio::sync::mpsc::UnboundedSender<Message>) {
@@ -94,7 +64,6 @@ fn data_dir(args: impl Iterator<Item = String>) -> Option<std::path::PathBuf> {
 }
 
 pub async fn run() -> i32 {
-    watch_signals();
     let output = Output {
         out: Arc::new(Mutex::new(std::io::stdout())),
     };
@@ -119,7 +88,5 @@ pub async fn run() -> i32 {
             Err(error) => error_line(&id, error.code, &error.message),
         });
     }
-    service.shutdown();
-    crate::computer::clipboard::restore_pending();
     0
 }

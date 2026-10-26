@@ -4,43 +4,19 @@ use crate::computer::apps::{self, RunningApp};
 use crate::computer::bus::Bus;
 use crate::computer::cancel::{Cancellations, Checkpoint};
 use crate::computer::catalog::{self, Candidate};
-use crate::computer::clipboard::Clipboard;
 use crate::computer::desktop::DesktopApp;
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::events::Activity;
 use crate::computer::observe::{self, Options};
 use crate::computer::screencast::ScreenCast;
 use crate::computer::session::AppSession;
-use crate::computer::xdisplay::XDisplay;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-const X11_CAPABILITIES: [&str; 20] = [
-    "click",
-    "move",
-    "type",
-    "paste",
-    "key",
-    "set_value",
-    "select_text",
-    "scroll",
-    "scroll_to",
-    "action",
-    "menu",
-    "focus",
-    "drag",
-    "window",
-    "wait",
-    "wait_for",
-    "activate",
-    "cancel",
-    "outline_off",
-    "when",
-];
-/// Without X11 there is no pointer, so hover and drag are left out.
-const WAYLAND_CAPABILITIES: [&str; 18] = [
+/// Wayland lets ace send no pointer input, so hover and drag are left out.
+const CAPABILITIES: [&str; 18] = [
     "click",
     "type",
     "paste",
@@ -66,11 +42,9 @@ pub struct Service {
     cancellations: Cancellations,
     bus: Option<Bus>,
     activity: Activity,
-    x: Option<XDisplay>,
-    x_tried: bool,
+    cast_tried: bool,
     sessions: HashMap<u32, AppSession>,
     resolved: HashMap<String, u32>,
-    clipboard: Option<Clipboard>,
     /// Wayland screenshots, through the ScreenCast portal.
     cast: Option<ScreenCast>,
     /// Where restore tokens are kept (`--data-dir`); without it they last for this process.
@@ -87,19 +61,11 @@ impl Service {
             cancellations,
             bus: None,
             activity: Activity::default(),
-            x: None,
-            x_tried: false,
+            cast_tried: false,
             sessions: HashMap::new(),
             resolved: HashMap::new(),
-            clipboard: None,
             cast: None,
             data_dir,
-        }
-    }
-
-    pub fn shutdown(&mut self) {
-        if let Some(x) = &self.x {
-            x.restore_keymap();
         }
     }
 
@@ -113,29 +79,21 @@ impl Service {
         Ok(bus)
     }
 
-    /// X11 when the session is X11; otherwise the ScreenCast portal for screenshots.
-    async fn connect_display(&mut self) {
-        if !self.x_tried {
-            self.x_tried = true;
-            self.x = XDisplay::connect();
-            if self.x.is_none() {
-                self.cast = ScreenCast::connect(self.data_dir.clone()).await;
-            }
+    /// The ScreenCast portal, for screenshots.
+    async fn connect_cast(&mut self) {
+        if !self.cast_tried {
+            self.cast_tried = true;
+            self.cast = ScreenCast::connect(self.data_dir.clone()).await;
         }
     }
 
     pub async fn handle(&mut self, body: &Map<String, Value>, check: &Checkpoint) -> CuResult<Value> {
-        self.connect_display().await;
+        self.connect_cast().await;
         match body.get("op").and_then(Value::as_str).unwrap_or_default() {
             "hello" => {
                 let accessibility = self.bus().await.is_ok();
-                let capabilities: &[&str] = if self.x.is_some() {
-                    &X11_CAPABILITIES
-                } else {
-                    &WAYLAND_CAPABILITIES
-                };
                 Ok(
-                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.x.is_some() || self.cast.is_some(), "capabilities": capabilities}),
+                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.cast.is_some(), "capabilities": CAPABILITIES}),
                 )
             }
             "apps" => self.apps(body.get("query").and_then(Value::as_str)).await,
@@ -156,7 +114,7 @@ impl Service {
 
     async fn catalog(&self, bus: &Bus) -> (Vec<DesktopApp>, Vec<RunningApp>) {
         let installed = apps::installed();
-        let running = apps::running(bus, self.x.as_ref(), &installed).await;
+        let running = apps::running(bus, &installed).await;
         (installed, running)
     }
 
@@ -240,7 +198,7 @@ impl Service {
         while started.elapsed() < Duration::from_secs(15) {
             check.check()?;
             tokio::time::sleep(Duration::from_millis(250)).await;
-            let running = apps::running(bus, self.x.as_ref(), installed).await;
+            let running = apps::running(bus, installed).await;
             if let Some(app) = running.into_iter().find(|r| r.id == entry.id) {
                 return Ok(app);
             }
@@ -265,7 +223,6 @@ impl Service {
                 check,
             )
             .await?;
-        let x = self.x.as_ref();
         let session = self
             .sessions
             .get_mut(&pid)
@@ -289,7 +246,7 @@ impl Service {
             outline: flag(body, "outline", true),
             marks: flag(body, "marks", true),
         };
-        let mut result = observe::observation(&bus, x, session, &windows, self.cast.as_mut(), &options).await;
+        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options).await;
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -310,14 +267,11 @@ impl Service {
             )
             .await?;
         let Self {
-            x,
             sessions,
             activity,
-            clipboard,
             cast,
             ..
         } = self;
-        let x = x.as_ref();
         let session = sessions
             .get_mut(&pid)
             .ok_or_else(|| CuError::new("app_not_found", "The app went away."))?;
@@ -326,11 +280,7 @@ impl Service {
             session.choose_window(&bus, body.get("window")).await?;
         }
         if session.nodes.is_empty() {
-            let frames = match x.and_then(|x| session.x_window(x).map(|xid| (x, xid))) {
-                Some((x, xid)) => session.frame_map(&bus, x, xid).await,
-                None => None,
-            };
-            session.walk(&bus, frames, Duration::from_secs(3)).await;
+            session.walk(&bus, None, Duration::from_secs(3)).await;
         }
         let before = session
             .windows(&bus)
@@ -348,11 +298,9 @@ impl Service {
         {
             let mut actor = Actor {
                 bus: &bus,
-                x,
                 session: &mut *session,
                 activity,
                 check,
-                clipboard,
             };
             for (index, step) in steps.iter().enumerate() {
                 let outcome = match check.check() {
@@ -413,7 +361,7 @@ impl Service {
                 outline: flag(body, "outline", true),
                 marks: flag(body, "marks", true),
             };
-            result["state"] = observe::observation(&bus, x, session, &windows, cast.as_mut(), &options).await;
+            result["state"] = observe::observation(&bus, session, &windows, cast.as_mut(), &options).await;
         }
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)

@@ -68,9 +68,9 @@ impl Rect {
     }
 }
 
-/// What to subtract from window-relative extents to get X window pixels, given the window's
-/// content box: the content sits centred in the X window (GTK4 surrounds it with an even
-/// shadow margin), so its left edge lands at half the spare width.
+/// What to subtract from window-relative extents to get pixels of a captured window frame,
+/// given the window's content box: the content sits centred in the frame (GTK4 surrounds it
+/// with an even shadow margin), so its left edge lands at half the spare width.
 pub fn content_offset(window: (f64, f64), content: Rect) -> (f64, f64) {
     let margin = |outer: f64, inner: f64| ((outer - inner) / 2.0).max(0.0);
     (

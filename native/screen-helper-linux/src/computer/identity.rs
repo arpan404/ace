@@ -1,7 +1,7 @@
 //! Which app a process is: its desktop-file id. Read from the process when it says (the
 //! launcher's `GIO_LAUNCHED_DESKTOP_FILE`, a Flatpak's `/.flatpak-info`, the systemd scope
-//! the session put it in), else matched through window and accessibility names against the
-//! installed `.desktop` files, else its executable name.
+//! the session put it in), else matched through its accessible name against the installed
+//! `.desktop` files, else its executable name.
 use crate::computer::desktop::DesktopApp;
 use std::path::Path;
 
@@ -11,14 +11,6 @@ pub struct ProcessFacts {
     pub flatpak_id: Option<String>,
     pub cgroup_unit: Option<String>,
     pub exe_name: Option<String>,
-}
-
-/// What the desktop and accessibility say about the process's windows.
-#[derive(Clone, Debug, Default)]
-pub struct Hints {
-    pub gtk_application_id: Option<String>,
-    pub wm_class: Vec<String>,
-    pub accessible_name: Option<String>,
 }
 
 /// Reads the facts under a proc root (`/proc` in production, a temp folder in tests).
@@ -117,7 +109,7 @@ pub fn unit_app_id(unit: &str, installed: &[DesktopApp]) -> Option<String> {
 /// The app's id and its desktop entry, when installed.
 pub fn identify<'a>(
     facts: &ProcessFacts,
-    hints: &Hints,
+    accessible_name: Option<&str>,
     installed: &'a [DesktopApp],
 ) -> (String, Option<&'a DesktopApp>) {
     let by_id = |id: &str| installed.iter().find(|app| app.id.eq_ignore_ascii_case(id));
@@ -130,25 +122,13 @@ pub fn identify<'a>(
                 .cgroup_unit
                 .as_deref()
                 .and_then(|unit| unit_app_id(unit, installed))
-        })
-        .or_else(|| hints.gtk_application_id.clone());
+        });
     if let Some(id) = declared {
         let app = by_id(&id);
         return (app.map(|a| a.id.clone()).unwrap_or(id), app);
     }
-    if let Some(app) = hints.accessible_name.as_deref().and_then(by_id) {
+    if let Some(app) = accessible_name.and_then(by_id) {
         return (app.id.clone(), Some(app));
-    }
-    for class in &hints.wm_class {
-        let class = class.to_lowercase();
-        let found = installed.iter().find(|app| {
-            app.wm_class.as_deref().is_some_and(|w| w.to_lowercase() == class)
-                || app.id.to_lowercase() == class
-                || app.short_id() == class
-        });
-        if let Some(app) = found {
-            return (app.id.clone(), Some(app));
-        }
     }
     if let Some(exe) = &facts.exe_name {
         let found = installed
@@ -160,7 +140,7 @@ pub fn identify<'a>(
         }
         return (exe.clone(), None);
     }
-    (hints.accessible_name.clone().unwrap_or_default(), None)
+    (accessible_name.unwrap_or_default().to_owned(), None)
 }
 
 #[cfg(test)]

@@ -4,7 +4,6 @@ use crate::computer::outline::{Rect, States};
 use atspi::{State, StateSet};
 use std::collections::HashMap;
 
-pub const COORD_SCREEN: u32 = 0;
 pub const COORD_WINDOW: u32 = 1;
 
 #[derive(Clone, Debug, Default)]
