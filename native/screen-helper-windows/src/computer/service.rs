@@ -335,6 +335,7 @@ impl Service {
         let started = Instant::now();
         self.uia()?;
         let app = body.get("app").and_then(Value::as_str).unwrap_or_default();
+        let previous = apps::front_window();
         let (key, launched) = self.open(app, true, check)?;
         let (windows, _) = desktop_apps();
         let Self { uia, sessions, .. } = self;
@@ -348,6 +349,7 @@ impl Service {
             let mut activity = Activity::watch(&session.pids(&windows));
             activity.begin();
             activity.settle(&timing::AFTER_LAUNCH, check)?;
+            apps::give_back(previous, &session.pids(&windows));
         }
         check.check()?;
         session.choose(&windows, body.get("window"))?;
@@ -402,6 +404,14 @@ impl Service {
             .unwrap_or_default();
         let mut activity = Activity::watch(&pids);
         let person = PersonWatch::start();
+        // The person's window while the app is in the background, to give back when a step
+        // pulls the app forward without activate.
+        let previous = (!session
+            .windows(&windows)
+            .iter()
+            .any(|w| apps::is_foreground(w.hwnd)))
+        .then(apps::front_window);
+        let mut activated = false;
         let mut done: Vec<String> = Vec::new();
         let mut failure = None;
         {
@@ -420,6 +430,10 @@ impl Service {
                     Ok(()) => actor.run(step),
                     Err(error) => Err(error),
                 };
+                activated |= step.get("type").and_then(Value::as_str) == Some("activate");
+                if let (Some(previous), false) = (previous, activated) {
+                    apps::give_back(previous, &pids);
+                }
                 match outcome {
                     Ok(line) => done.push(line),
                     Err(error) => {
@@ -446,6 +460,10 @@ impl Service {
         }
         if flag(body, "observe", true) && check.check().is_ok() {
             let _ = activity.settle(&timing::BEFORE_LOOK, check);
+            // Apps that move forward a moment after a press are caught here.
+            if let (Some(previous), false) = (previous, activated) {
+                apps::give_back(previous, &pids);
+            }
             let (now, _) = desktop_apps();
             // Follow a window or dialog the steps opened.
             if let Some(opened) = session

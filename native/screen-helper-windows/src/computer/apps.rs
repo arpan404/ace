@@ -324,3 +324,52 @@ pub fn fallback_name(id: &str, path: Option<&str>) -> String {
     path.and_then(file_description)
         .unwrap_or_else(|| executable_name(id))
 }
+
+/// Brings a window to the front and gives it the keyboard. Windows lets only the foreground
+/// thread do this, so the helper briefly joins that thread's input.
+pub fn bring_forward(hwnd: HWND) {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+    unsafe {
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        if SetForegroundWindow(hwnd).as_bool() && is_foreground(hwnd) {
+            return;
+        }
+        let front = GetForegroundWindow();
+        let theirs = GetWindowThreadProcessId(front, None);
+        let ours = GetCurrentThreadId();
+        let joined =
+            theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(hwnd);
+        if joined {
+            let _ = AttachThreadInput(ours, theirs, false);
+        }
+    }
+}
+
+/// The window in front now, to give the foreground back to later.
+pub fn front_window() -> HWND {
+    unsafe { GetForegroundWindow() }
+}
+
+/// Some apps take the foreground when launched or when a control is pressed through UI
+/// Automation (Store apps, packaged Win32 apps). When `app` took it from `previous` without an
+/// `activate` step, the person's window gets it back. True when it was given back.
+pub fn give_back(previous: HWND, app: &[u32]) -> bool {
+    let front = front_window();
+    if previous.is_invalid() || front == previous || !unsafe { IsWindow(previous) }.as_bool() {
+        return false;
+    }
+    let owner = pid_of(unsafe { GetAncestor(front, GA_ROOTOWNER) });
+    let host = pid_of(front);
+    let content = frame_content_pid(unsafe { GetAncestor(front, GA_ROOT) }).unwrap_or(host);
+    if !(app.contains(&owner) || app.contains(&host) || app.contains(&content)) {
+        return false;
+    }
+    bring_forward(previous);
+    true
+}

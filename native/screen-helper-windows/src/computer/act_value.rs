@@ -223,6 +223,13 @@ impl Actor<'_> {
         wanted: &str,
         expand: Option<i32>,
     ) -> CuResult<String> {
+        // A Win32 combo box picks the item by message and tells its parent, as the person's
+        // choice would; UI Automation's proxy opens the drop-down and activates the window.
+        if let Ok(fresh) = self.uia.refresh(element) {
+            if let Some(done) = win32_combo(&fresh, label, wanted) {
+                return done;
+            }
+        }
         let find = |root: &IUIAutomationElement| -> Option<IUIAutomationElement> {
             unsafe {
                 let all = root
@@ -610,5 +617,61 @@ impl Actor<'_> {
                 .ElementFromHandleBuildCache(hwnd, &self.uia.one)
         }
         .map_err(|e| stale_or(e, "read"))
+    }
+}
+
+fn win32_combo(
+    element: &IUIAutomationElement,
+    label: &str,
+    wanted: &str,
+) -> Option<CuResult<String>> {
+    let hwnd = uia::native_window(element)?;
+    if !uia::class_name(element).eq_ignore_ascii_case("combobox") {
+        return None;
+    }
+    const CB_FINDSTRINGEXACT: u32 = 0x0158;
+    const CB_SETCURSEL: u32 = 0x014E;
+    const CBN_SELCHANGE: usize = 1;
+    let text: Vec<u16> = wanted.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let index = SendMessageW(
+            hwnd,
+            CB_FINDSTRINGEXACT,
+            WPARAM(usize::MAX),
+            LPARAM(text.as_ptr() as isize),
+        )
+        .0;
+        if index < 0 {
+            return Some(Err(CuError::new(
+                "not_settable",
+                format!(
+                    "{label} has no item \"{}\". Click it to see its items.",
+                    clip(wanted, 60).unwrap_or_default()
+                ),
+            )));
+        }
+        SendMessageW(hwnd, CB_SETCURSEL, WPARAM(index as usize), LPARAM(0));
+        let parent = GetParent(hwnd).ok()?;
+        let id = GetDlgCtrlID(hwnd) as u32 as usize & 0xFFFF;
+        Some(
+            PostMessageW(
+                parent,
+                WM_COMMAND,
+                WPARAM(id | (CBN_SELCHANGE << 16)),
+                LPARAM(hwnd.0 as isize),
+            )
+            .map(|_| {
+                format!(
+                    "chose \"{}\" in {label}",
+                    clip(wanted, 60).unwrap_or_default()
+                )
+            })
+            .map_err(|e| {
+                CuError::new(
+                    "action_failed",
+                    format!("The choice could not be sent: {e}"),
+                )
+            }),
+        )
     }
 }

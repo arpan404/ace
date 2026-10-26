@@ -11,8 +11,7 @@ use super::outline::Rect;
 use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::*,
-    System::Threading::{AttachThreadInput, GetCurrentThreadId},
-    UI::{HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::SetFocus, WindowsAndMessaging::*},
+    UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::*},
 };
 
 impl Actor<'_> {
@@ -121,25 +120,7 @@ impl Actor<'_> {
             return Err(desktop::locked_error());
         }
         let name = self.session.name.clone();
-        unsafe {
-            if IsIconic(hwnd).as_bool() {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-            }
-            if !SetForegroundWindow(hwnd).as_bool() || !apps::is_foreground(hwnd) {
-                let front = GetForegroundWindow();
-                let theirs = GetWindowThreadProcessId(front, None);
-                let ours = GetCurrentThreadId();
-                let joined = theirs != 0
-                    && theirs != ours
-                    && AttachThreadInput(ours, theirs, true).as_bool();
-                let _ = BringWindowToTop(hwnd);
-                let _ = SetForegroundWindow(hwnd);
-                let _ = SetFocus(hwnd);
-                if joined {
-                    let _ = AttachThreadInput(ours, theirs, false);
-                }
-            }
-        }
+        apps::bring_forward(hwnd);
         let started = Instant::now();
         while started.elapsed() < Duration::from_millis(1_000) {
             if apps::is_foreground(hwnd) {

@@ -79,6 +79,10 @@ fn enumerate() -> Vec<StartApp> {
                 });
             let id = match &target {
                 Some(path) if path.to_lowercase().ends_with(".exe") => executable_id(path),
+                // File Explorer's entry names the shell, not an executable.
+                _ if parsing.eq_ignore_ascii_case("Microsoft.Windows.Explorer") => {
+                    "explorer.exe".to_owned()
+                }
                 _ if parsing.contains('!') && !parsing.contains('\\') => parsing.clone(),
                 _ if parsing.to_lowercase().ends_with(".exe") => executable_id(&parsing),
                 _ => continue,
