@@ -50,6 +50,24 @@ if (manifests.size === ReleaseTarget.options.length) {
   await mkdir(join(directory, "homebrew"), { recursive: true });
   await writeFile(join(directory, "homebrew/ace.rb"), formula);
 }
+// ReleaseTarget also lists the Windows targets, which the formula never names: a release with
+// every macOS and Linux target but not both Windows ones writes it as well.
+const brewTargets = ReleaseTarget.options.filter((target) => !target.startsWith("win32-"));
+if (
+  manifests.size !== ReleaseTarget.options.length &&
+  brewTargets.every((target) => manifests.has(target))
+) {
+  let formula = (await readFile(join(source, "homebrew/ace.rb.in"), "utf8"))
+    .replaceAll("@VERSION@", version)
+    .replaceAll("@BASE@", base);
+  for (const target of brewTargets)
+    formula = formula.replace(
+      `@${target.replace("-", "_").toUpperCase()}_SHA256@`,
+      manifests.get(target)?.sha256 ?? "",
+    );
+  await mkdir(join(directory, "homebrew"), { recursive: true });
+  await writeFile(join(directory, "homebrew/ace.rb"), formula);
+}
 const digest = await hashFile(join(directory, "install.sh"));
 await writeFile(join(directory, "install.sh.sha256"), `${digest}  install.sh\n`);
 // Windows installs through install.ps1, configured the same way for the Windows targets.
