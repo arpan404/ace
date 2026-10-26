@@ -54,7 +54,7 @@ test("the Devices list ends with the device tools' versions, and Set up shows ho
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const tools = await within(panel).findByLabelText("Device tools");
   await waitFor(() =>
-    expect(tools.textContent).toBe("Xcode 26.0·serve-sim 0.1.48·Android SDKSet up…"),
+    expect(tools.textContent).toBe("Xcode 26.0·serve-sim 0.1.49-beta.139.1·Android SDKSet up…"),
   );
   await userEvent.click(within(tools).getByRole("button", { name: "Set up…" }));
   const dialog = await screen.findByRole("dialog", { name: "Device tools" });

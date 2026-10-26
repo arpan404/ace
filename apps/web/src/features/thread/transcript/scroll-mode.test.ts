@@ -26,8 +26,6 @@ const wheel = (upward: boolean, at = 100, atEnd = false): ScrollEvent => ({
   type: "gesture",
   upward,
   atEnd,
-  scrollable: true,
-  hasOlder: false,
   detached: false,
   at,
 });
@@ -178,15 +176,9 @@ test("the row the reader sees stays held while older rows settle above it", () =
 });
 
 test("a small scroll up at the live end keeps following, so no Scroll to end shows", () => {
-  for (const viewport of [
-    { scrollable: true, hasOlder: true },
-    { scrollable: true, hasOlder: false },
-    { scrollable: false, hasOlder: false },
-  ]) {
-    const nudge = { ...wheel(true, 100, true), ...viewport };
-    expect(run(following, nudge, scrolled(true, true)).mode.kind).toBe("following");
-    expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
-  }
+  const nudge = wheel(true, 100, true);
+  expect(run(following, nudge, scrolled(true, true)).mode.kind).toBe("following");
+  expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
 });
 
 test("a scroll that lands off the end without the reader's gesture keeps following", () => {
