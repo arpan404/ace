@@ -1,4 +1,4 @@
-import { readFile, readdir, cp, mkdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 const Package = z.object({
@@ -8,11 +8,21 @@ const Package = z.object({
     .max(160)
     .optional(),
 });
-/** Copy license text, never dependency implementation, into the distribution. */
+
+/** Where the bundled dependencies' license texts are written, in one file. */
+export const thirdPartyLicensesFile = "THIRD-PARTY-LICENSES";
+
+/**
+ * Copy license text, never dependency implementation, into the distribution.
+ *
+ * Every text goes into one file under a heading naming its package and file. One file per
+ * notice made dozens of archive entries, and installed updaters refuse an archive over their
+ * entry budget (`releaseArchiveLimits` in `@ace/service`).
+ */
 export async function collectLicenses(inputs: string[], output: string): Promise<void> {
   if (inputs.length > 4096) throw new Error("Bundle input limit exceeded");
   const packages = new Set<string>();
-  await mkdir(join(output, "licenses"));
+  const notices: { heading: string; text: string }[] = [];
   for (const input of inputs) {
     if (!input.includes("node_modules")) continue;
     let directory = dirname(resolve(input));
@@ -33,12 +43,19 @@ export async function collectLicenses(inputs: string[], output: string): Promise
       if (packages.has(directory)) break;
       if (packages.size >= 128) throw new Error("Dependency license limit exceeded");
       packages.add(directory);
-      const name = pkg.name.replaceAll("/", "_").replaceAll("@", "");
       for (const file of await readdir(directory, { withFileTypes: true })) {
         if (file.isFile() && /^(?:licen[cs]e|notice|copying)(?:[-.]|$)/i.test(file.name))
-          await cp(join(directory, file.name), join(output, "licenses", `${name}-${file.name}`));
+          notices.push({
+            heading: `${pkg.name} (${file.name})`,
+            text: (await readFile(join(directory, file.name), "utf8")).trimEnd(),
+          });
       }
       break;
     }
   }
+  const body = notices
+    .toSorted((a, b) => (a.heading < b.heading ? -1 : a.heading > b.heading ? 1 : 0))
+    .map(({ heading, text }) => `${"=".repeat(78)}\n${heading}\n${"=".repeat(78)}\n\n${text}\n`)
+    .join("\n");
+  await writeFile(join(output, thirdPartyLicensesFile), body);
 }

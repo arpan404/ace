@@ -5,17 +5,24 @@ import { create } from "tar";
 import { releaseArchiveLimits, unpackArchive } from "@ace/service";
 
 /** Enumerate only regular files, exactly once, as the installed updater expects. */
-export async function releaseFiles(root: string, prefix = ""): Promise<string[]> {
+export async function releaseFiles(root: string): Promise<string[]> {
+  const result = await walk(root, "");
+  if (result.length > releaseArchiveLimits.entries)
+    throw new Error(
+      `Release exceeds the supported updater entry budget: ${result.length} files, at most ${releaseArchiveLimits.entries}`,
+    );
+  return result.toSorted();
+}
+
+async function walk(root: string, prefix: string): Promise<string[]> {
   const result: string[] = [];
   for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
     const path = join(prefix, entry.name);
-    if (entry.isDirectory()) result.push(...(await releaseFiles(root, path)));
+    if (entry.isDirectory()) result.push(...(await walk(root, path)));
     else if (entry.isFile()) result.push(path);
     else throw new Error(`Unsafe release entry: ${path}`);
-    if (result.length > releaseArchiveLimits.entries)
-      throw new Error("Release exceeds the supported updater entry budget");
   }
-  return result.toSorted();
+  return result;
 }
 
 /** Validate the exact completed archive through the consumer before advertising it. */
