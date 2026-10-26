@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { userBrowserHostName } from "@ace/protocol";
 
 /** Where one browser looks for per-user native hosts, and the data root that shows it is installed. */
-export interface NativeHostTarget {
+interface NativeHostTarget {
   browser: string;
   /** The browser's user data directory; present only when the browser has run. */
   root: string;
@@ -33,10 +33,7 @@ const linuxRoots = [
   ["Brave", "BraveSoftware/Brave-Browser"],
   ["Vivaldi", "vivaldi"],
 ] as const;
-// Chrome and Edge find Windows hosts only through these documented HKCU keys:
-// https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
-// https://learn.microsoft.com/microsoft-edge/extensions/developer-guide/native-messaging
-// HKCU\Software is shared between the 32- and 64-bit registry views, so one key serves both.
+// Windows hosts live in HKCU keys, which the 32- and 64-bit registry views share.
 const windowsRoots = [
   ["Chrome", "Google/Chrome/User Data", "Google\\Chrome"],
   ["Edge", "Microsoft/Edge/User Data", "Microsoft\\Edge"],
@@ -93,7 +90,7 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-/** cmd.exe double-quoted word. `%` is doubled so environment expansion never rewrites a path. */
+/** cmd.exe quoted word; `%` doubles so variable expansion never rewrites a path. */
 function batchWord(value: string): string {
   if (/[\r\n\0"]/.test(value)) throw new Error("Invalid native host path");
   return `"${value.replaceAll("%", "%%")}"`;
@@ -104,9 +101,7 @@ export function launcherScript(
   platform: NodeJS.Platform,
   options: { node: string; entry: string; dataDir: string },
 ): string {
-  // cmd.exe decodes each batch line in the console code page (OEM, such as 437), not UTF-8, so
-  // non-ASCII paths would reach Node mangled. `chcp 65001` switches the host's own console to
-  // UTF-8 before cmd reads the line that carries the paths.
+  // cmd.exe reads batch lines in the OEM code page; switch to UTF-8 before the paths.
   if (platform === "win32")
     return `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n${batchWord(options.node)} ${batchWord(options.entry)} --data-dir ${batchWord(options.dataDir)} %*\r\n`;
   return `#!/bin/sh

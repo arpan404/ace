@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { access, chmod, mkdir, open, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -171,88 +172,54 @@ export async function uninstallNativeHost(options: Omit<InstallOptions, "node">)
   await rm(launcherPath(options.dataDir, options.platform), { force: true });
 }
 
-// PowerShell rather than reg.exe: reg.exe exits 1 with a localized message both for a missing
-// key and for denied access, and writes non-ASCII values in the console code page when piped,
-// so it can prove neither ownership of a Unicode manifest path nor that a key is absent. .NET
-// returns null for a missing key and throws on denied access. Paths travel as base64 JSON.
-// https://learn.microsoft.com/dotnet/api/microsoft.win32.registrykey
-const registryScript = `
-$ErrorActionPreference = 'Stop'
-try {
-  $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd())) | ConvertFrom-Json
-  $values = @()
-  foreach ($path in $request.keys) {
-    $key = $null
-    try {
-      if ($request.action -eq 'write') {
-        $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($path)
-        $key.SetValue('', [string]$request.value, [Microsoft.Win32.RegistryValueKind]::String)
-      } else {
-        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, ($request.action -eq 'remove'))
-        $value = $null
-        if ($null -ne $key) {
-          $value = $key.GetValue('', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-          if ($null -ne $value -and $key.GetValueKind('') -ne [Microsoft.Win32.RegistryValueKind]::String) { throw 'Native host registry value must be REG_SZ' }
-          if ($request.action -eq 'remove' -and $value -ceq $request.value) { $key.DeleteValue('', $false) }
-        }
-        $values += $value
-      }
-    } finally {
-      if ($null -ne $key) { $key.Dispose() }
-    }
-  }
-  $json = ConvertTo-Json -InputObject @($values) -Compress
-  [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)))
-} catch {
-  [Console]::Error.WriteLine($_.Exception.Message)
-  exit 1
-}
-`;
-
-async function registryRequest(
-  action: "read" | "write" | "remove",
-  keys: readonly string[],
-  value?: string,
-): Promise<(string | undefined)[]> {
-  const output = await new Promise<string>((resolve, reject) => {
-    const child = execFile(
-      "powershell.exe",
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-EncodedCommand",
-        Buffer.from(registryScript, "utf16le").toString("base64"),
-      ],
-      { timeout: 10_000, maxBuffer: 65_536, windowsHide: true, encoding: "utf8" },
-      (error, stdout) => (error ? reject(error) : resolve(stdout)),
-    );
-    child.stdin?.on("error", () => {});
-    child.stdin?.end(
-      Buffer.from(JSON.stringify({ action, keys, value }), "utf8").toString("base64"),
+function reg(args: readonly string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile("reg.exe", args, { timeout: 10_000, maxBuffer: 65_536, windowsHide: true }, (error) =>
+      error ? reject(error) : resolve(),
     );
   });
-  const encoded = z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9+/]*={0,2}$/)
-    .parse(output);
-  const values = z
-    .array(z.string().nullable())
-    .max(32)
-    .parse(JSON.parse(Buffer.from(encoded, "base64").toString("utf8")));
-  if (action === "read" && values.length !== keys.length)
-    throw new Error("Incomplete native host registry response");
-  return values.map((entry) => entry ?? undefined);
 }
 
-/** The real HKCU registry. Lazy: importing this module never starts PowerShell. */
+/** One key's default value. `reg export` writes UTF-16, so Unicode paths survive. */
+async function readKey(key: string, file: string): Promise<string | undefined> {
+  try {
+    await reg(["export", `HKCU\\${key}`, file, "/y"]);
+  } catch {
+    // A missing key, and on one's own HKCU only an unreadable one, reads as unregistered.
+    return undefined;
+  }
+  const line = (await readFile(file))
+    .toString("utf16le")
+    .split(/\r?\n/)
+    .find((entry) => entry.startsWith("@="));
+  if (line === undefined) return undefined;
+  const value = /^@="((?:[^"\\]|\\.)*)"$/.exec(line)?.[1];
+  if (value === undefined) throw new Error("Native host registry value must be REG_SZ");
+  return value.replaceAll(/\\(.)/g, "$1");
+}
+
+async function readKeys(keys: readonly string[]): Promise<(string | undefined)[]> {
+  const dir = await mkdtemp(join(tmpdir(), "ace-native-host-"));
+  try {
+    const values = [];
+    for (const [index, key] of keys.entries())
+      values.push(await readKey(key, join(dir, `${index}.reg`)));
+    return values;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** The real HKCU registry through the built-in reg.exe. */
 export const hostRegistry: NativeHostRegistry = {
-  read: (keys) => registryRequest("read", keys),
+  read: readKeys,
   async write(keys, value) {
-    await registryRequest("write", keys, value);
+    for (const key of keys)
+      await reg(["add", `HKCU\\${key}`, "/ve", "/t", "REG_SZ", "/d", value, "/f"]);
   },
   async remove(keys, expected) {
-    await registryRequest("remove", keys, expected);
+    const values = await readKeys(keys);
+    for (const [index, key] of keys.entries())
+      if (values[index] === expected) await reg(["delete", `HKCU\\${key}`, "/ve", "/f"]);
   },
 };
