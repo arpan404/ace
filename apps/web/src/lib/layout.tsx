@@ -65,6 +65,8 @@ export type PalettePage =
 export interface PaletteStart {
   page?: PalettePage | undefined;
   attempt?: { path: string; problem: string; canAllow?: boolean | undefined } | undefined;
+  /** Add project's Clone step, filled in with this repository on this machine. */
+  clone?: { url: string; machine: string } | undefined;
 }
 
 interface LayoutValue {

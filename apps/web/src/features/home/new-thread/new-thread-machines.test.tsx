@@ -82,13 +82,23 @@ test("a machine that isn't connected shows why in the picker and can't be picked
 
 test("a draft written on Build server reopens on Build server", async () => {
   const { made } = machines();
+  const weather = made.daemon.projects.list().workspaces[0]?.id ?? "";
+  made.daemon.createThread({
+    id: "thread-here",
+    workspaceId: weather,
+    title: "Trim the cache",
+    provider: "claude",
+    hasSentMessage: true,
+  });
   await made.open("/new");
   await chooseMachine("This Mac", "Build server");
   await screen.findByRole("button", { name: "Project: api" });
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Rotate the keys");
 
-  await chooseMachine("Build server", "This Mac");
-  await screen.findByRole("button", { name: "Project: weather" });
+  // Leave New thread for a thread here; the draft stays with its machine.
+  const threads = await screen.findByRole("list", { name: "Threads" });
+  await userEvent.click(await within(threads).findByRole("link", { name: /^Trim the cache/ }));
+  await screen.findByRole("heading", { level: 1, name: "Trim the cache" });
   const drafts = await screen.findByRole("list", { name: "Draft threads on Build server" });
   await userEvent.click(within(drafts).getByRole("link", { name: /^Rotate the keys\. Draft/ }));
 
@@ -145,4 +155,126 @@ test("a thread addressed by this window's own host id is the open row in the lis
   const threads = await screen.findByRole("list", { name: "Threads" });
   const row = await within(threads).findByRole("link", { name: /^Trim the cache/ });
   await waitFor(() => expect(row.className).toContain("bg-active"));
+});
+
+/** Registers a checkout on `daemon`, with its `origin` when given, and returns its id. */
+function addProject(daemon: FakeDaemon, path: string, remote?: string) {
+  daemon.projects.seedFolders(path.slice(0, path.lastIndexOf("/")), [
+    { path, git: true, ...(remote ? { remote } : {}) },
+  ]);
+  const added = daemon.projects.command({ type: "workspace.add", path });
+  if (!added?.workspace) throw new Error(`couldn't add ${path}`);
+  return added.workspace.id;
+}
+
+/** The fakes number ids per daemon from 1, so a test checks that `id` isn't also there. */
+const onlyHere = (there: FakeDaemon, id: string) =>
+  !there.projects.list().workspaces.some((each) => each.id === id);
+
+async function writeIn(project: string, text: string) {
+  await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
+  await userEvent.click(await screen.findByRole("option", { name: project }));
+  await screen.findByRole("button", { name: `Project: ${project}` });
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), text);
+}
+
+test("moving to another machine opens its copy of the repository and takes the message along", async () => {
+  const { made, build } = machines();
+  addProject(made.daemon, "/Users/dev/code/notes");
+  const here = addProject(made.daemon, "/Users/dev/code/ace", "git@github.com:acme/ace.git");
+  addProject(build, "/home/ci/src/ace-main", "https://github.com/acme/ace");
+  // Ids belong to one daemon: the copy is found by its origin, not by a shared id or name.
+  expect(onlyHere(build, here)).toBe(true);
+  await made.open("/new");
+  await writeIn("ace", "Fix the flaky upload test");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(await screen.findByRole("button", { name: "Project: ace-main" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Fix the flaky upload test",
+    ),
+  );
+  // One message, one draft: it moved to the build server and left nothing behind here.
+  const drafts = await screen.findByRole("list", { name: "Draft threads on Build server" });
+  expect(
+    within(drafts).getByRole("link", { name: /^Fix the flaky upload test\. Draft/ }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Draft threads" })).toBeNull();
+});
+
+test("a repository the other machine lacks offers to clone it there, and the message waits", async () => {
+  const { made, build } = machines();
+  addProject(made.daemon, "/Users/dev/code/notes");
+  const here = addProject(
+    made.daemon,
+    "/Users/dev/code/sandbox",
+    "https://github.com/acme/sandbox.git",
+  );
+  expect(onlyHere(build, here)).toBe(true);
+  await made.open("/new");
+  await writeIn("sandbox", "Try the new parser");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Project unavailable" }),
+  ).toBeTruthy();
+  expect(await screen.findByText(/^sandbox isn't on Build server\. Clone it here/)).toBeTruthy();
+  expect(screen.getByLabelText("Saved message").textContent).toBe("Try the new parser");
+
+  await userEvent.click(screen.getByRole("button", { name: "Clone sandbox here" }));
+  const address = await screen.findByRole("textbox", { name: "Repository address" });
+  expect((address as HTMLInputElement).value).toBe("https://github.com/acme/sandbox.git");
+  // Enter takes the address, then clones into the suggested folder.
+  await userEvent.keyboard("{Enter}");
+  await screen.findByText("~/services/sandbox");
+  await userEvent.keyboard("{Enter}");
+
+  // The clone lands in New thread there, in the new copy, with the message.
+  expect(await screen.findByRole("button", { name: "Project: sandbox" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Try the new parser",
+    ),
+  );
+});
+
+test("starting in another project instead of cloning takes the message along", async () => {
+  const { made, build } = machines();
+  addProject(made.daemon, "/Users/dev/code/notes");
+  const here = addProject(
+    made.daemon,
+    "/Users/dev/code/sandbox",
+    "https://github.com/acme/sandbox.git",
+  );
+  expect(onlyHere(build, here)).toBe(true);
+  await made.open("/new");
+  await writeIn("sandbox", "Try the new parser");
+
+  await chooseMachine("This Mac", "Build server");
+  await userEvent.click(await screen.findByRole("button", { name: "Choose another project" }));
+  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Try the new parser",
+    ),
+  );
+});
+
+test("a same-named project holding another repository isn't taken for the one moved", async () => {
+  const { made, build } = machines();
+  addProject(made.daemon, "/Users/dev/code/notes");
+  const here = addProject(made.daemon, "/Users/dev/code/web", "https://github.com/acme/web.git");
+  addProject(build, "/home/ci/web", "https://github.com/someone-else/web.git");
+  expect(onlyHere(build, here)).toBe(true);
+  await made.open("/new");
+  await writeIn("web", "Bump the router");
+
+  await chooseMachine("This Mac", "Build server");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Project unavailable" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Project: web" })).toBeNull();
 });

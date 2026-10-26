@@ -20,6 +20,7 @@ const NewThreadSearch = z.object({
   issue: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
   pullRequest: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
   project: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
+  repo: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(4096))), undefined),
   base: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
   machine: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(256))), undefined),
   folder: z.catch(
@@ -47,8 +48,9 @@ function NewThreadRoute() {
     <NewThreadOnMachine
       recoverStart={recoverStart}
       machine={search.machine}
-      key={`${search.machine ?? ""}:${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}:${search.issue ?? ""}`}
+      key={`${search.machine ?? ""}:${search.project ?? ""}:${search.repo ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}:${search.issue ?? ""}`}
       project={search.project}
+      repo={search.repo}
       base={search.base}
       skill={search.skill}
       pullRequest={search.pullRequest}

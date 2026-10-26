@@ -9,7 +9,9 @@ import {
   rememberMachine,
   rememberedMachine,
   targetMachine,
+  type Leaving,
 } from "./machine-choice.ts";
+import { carryDraft } from "./carried-draft.ts";
 import { NewThreadPage } from "./new-thread-page.tsx";
 
 /**
@@ -34,10 +36,11 @@ export function NewThreadOnMachine(
       current && {
         machines,
         current,
-        choose(next: Machine) {
+        choose(next: Machine, leaving?: Leaving) {
           rememberMachine(storage, next.primary ? undefined : next.id);
+          if (leaving) carryDraft(storage, leaving.draft, next.id);
           // Named even for this window's own, so the choice outlasts a remembered default.
-          void navigate(newThreadOn(next.id));
+          void navigate(newThreadOn(next.id, leaving?.project, leaving?.repo));
         },
       },
     [machines, current, storage, navigate],

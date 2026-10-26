@@ -276,9 +276,10 @@ test("a removed project's draft opens its saved content and recovery guidance in
   await userEvent.click(
     await screen.findByRole("link", { name: "Unregistered project content. Draft, Project relay" }),
   );
-  expect((await screen.findByRole("alert")).textContent).toContain(
-    "This preparation's project is no longer registered",
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /^This project isn't on .+\. Add it here to keep going/,
   );
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
   expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
   expect(

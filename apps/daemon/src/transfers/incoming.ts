@@ -11,6 +11,7 @@ import {
   type TransferCommit,
 } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
+import { sameOriginProject } from "../project-origin.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import {
   appendAt,
@@ -210,12 +211,8 @@ export class IncomingTransfers {
     return this.view(record);
   }
   /** A project here whose origin is the same repository. */
-  private async sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
-    for (const project of this.deps.projects.list().slice(0, 64)) {
-      const origin = await this.deps.git.transferOrigin(project.path).catch(() => undefined);
-      if (origin && origin.normalized === normalized) return project.workspaceId;
-    }
-    return undefined;
+  private sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
+    return sameOriginProject(this.deps.git, this.deps.projects.list(), normalized);
   }
   /** One piece of the upload at `offset`; out of order answers what is held, unchanged. */
   async chunk(

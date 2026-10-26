@@ -306,6 +306,22 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: this.projects.list(op.after, op.limit),
       });
+    if (op.op === "workspace.origin") {
+      const source = this.projects.source(op.workspaceId);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: source
+          ? { kind: "origin", url: (source.git && source.origin) || null }
+          : { kind: "error", code: "workspace_not_found" },
+      });
+    }
+    if (op.op === "workspaces.match")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "match", workspaceId: this.projects.withOrigin(op.url)?.id ?? null },
+      });
     if (op.op === "runs.list") {
       const all = Object.values(this.context.thread(op.threadId)?.runs ?? {}).filter(
         (run) => run.ordinal !== undefined,

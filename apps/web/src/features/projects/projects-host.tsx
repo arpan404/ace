@@ -47,7 +47,7 @@ export function ProjectsHost(props: { children: ReactNode }) {
   const show = useCallback(
     (next: ProjectRequest) => {
       if (next.kind === "add") {
-        openPalette({ page: addPages[next.tab], attempt: next.attempt });
+        openPalette({ page: addPages[next.tab], attempt: next.attempt, clone: next.clone });
         return;
       }
       setRequest(next);

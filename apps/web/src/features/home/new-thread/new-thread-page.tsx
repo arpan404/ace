@@ -26,6 +26,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
+import { useOriginMatch } from "@/lib/project-origin.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import {
@@ -76,6 +77,7 @@ import { sendReadiness } from "./send-readiness.ts";
 import { ReturnedStartNotice } from "./returned-start-notice.tsx";
 import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
+import { takeCarriedDraft } from "./carried-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
@@ -133,6 +135,11 @@ export function NewThreadPage(props: {
   /** Whether a recovered start may open its thread: on boot only, never on a later visit. */
   recoverStart: boolean;
   project?: string | undefined;
+  /**
+   * The project's `origin` URL when it comes from another machine (`newThreadOn`): its id is
+   * that machine's, so this one opens its own copy of the repository, or offers to clone it.
+   */
+  repo?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -146,9 +153,13 @@ export function NewThreadPage(props: {
   // On another machine every link from here stays on it (ADR 0102).
   const machine = useMachineSearch();
   const scoped = useScopedMachine()?.id;
+  const elsewhere =
+    loaded && !!props.project && props.project !== chatChoice && !projects.includes(props.project);
+  const copy = useOriginMatch(elsewhere ? props.repo : undefined);
+  const requested = copy.state === "matched" ? copy.project : props.project;
   // "No project" is offered after every project, and is the choice when there are none.
   const choice =
-    props.project ??
+    requested ??
     pickProject(
       [...projects, chatChoice],
       undefined,
@@ -156,12 +167,13 @@ export function NewThreadPage(props: {
       filter,
     );
   const chat = useChatProject(choice === chatChoice, storage);
-  if (!loaded || !host) return <NewThreadSkeleton />;
-  if (props.project && props.project !== chatChoice && !projects.includes(props.project))
+  if (!loaded || !host || copy.state === "matching") return <NewThreadSkeleton />;
+  if (requested && requested !== chatChoice && !projects.includes(requested))
     return (
       <UnavailablePreparation
         host={host}
-        project={props.project}
+        project={requested}
+        repo={props.repo}
         skill={props.skill}
         pullRequest={props.pullRequest}
         issue={props.issue}
@@ -244,6 +256,8 @@ function PreparationPage(props: {
     props.skill,
     props.issue ?? props.pullRequest,
   );
+  // A message carried from another machine fills an empty draft before the editor reads it.
+  const [carried] = useState(() => takeCarriedDraft(storage, props.host, draftKey));
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -541,6 +555,13 @@ function PreparationPage(props: {
       savePreparation(storage, props.host, draftKey, { ...saved, base });
   });
   const settledBase = branches.state === "ready" ? JSON.stringify(base) : undefined;
+  // The carried message is this machine's draft now, listed with the others.
+  const keepCarried = useEffectEvent(() =>
+    remember({ title: carried?.trim().split("\n")[0]?.slice(0, 100) || "New preparation" }),
+  );
+  useEffect(() => {
+    if (carried) keepCarried();
+  }, [carried]);
   useEffect(() => {
     if (settledSettings !== undefined) settlePreparation();
   }, [settledSettings]);
@@ -782,7 +803,11 @@ function PreparationPage(props: {
               ?
             </h2>
           )}
-          <MachineLine returnFocus={messageField} />
+          <MachineLine
+            project={props.chat ? chatChoice : project}
+            draft={{ host: props.host, key: draftKey }}
+            returnFocus={messageField}
+          />
           <div className="shrink-0">
             <Composer
               ref={composer}

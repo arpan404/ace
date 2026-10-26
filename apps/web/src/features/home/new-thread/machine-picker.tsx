@@ -10,8 +10,10 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
+import { useProjectOrigin } from "@/lib/project-origin.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import { useManyDevices } from "../row-parts.tsx";
-import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
+import { useNewThreadMachines, type Leaving, type NewThreadMachines } from "./machine-choice.ts";
 
 /**
  * The machine a new thread runs on, as a line under the page's question ("on Build server"),
@@ -20,15 +22,27 @@ import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.t
  * that isn't connected shows why and can't be picked. Picking one moves the whole page to it:
  * its projects, models, branches and access.
  */
-export function MachineLine(props: { returnFocus(): HTMLElement | null }) {
+export function MachineLine(props: {
+  returnFocus(): HTMLElement | null;
+  /** The project (`chatChoice` for a chat) and draft that go along to another machine. */
+  project: string;
+  draft: { host: string; key: string };
+}) {
   const host = useMachineIdentity();
   const many = useManyDevices();
   const choice = useNewThreadMachines();
   const online = choice?.machines.filter((machine) => machine.status === "online").length ?? 0;
-  if (choice !== undefined && (online > 1 || !choice.current.primary))
+  const picks = choice !== undefined && (online > 1 || !choice.current.primary);
+  const repo = useProjectOrigin(picks && props.project !== chatChoice ? props.project : undefined);
+  if (picks)
     return (
       <p className={line}>
-        on <MachineMenu choice={choice} returnFocus={props.returnFocus} />
+        on{" "}
+        <MachineMenu
+          choice={choice}
+          leaving={{ project: props.project, repo, draft: props.draft }}
+          returnFocus={props.returnFocus}
+        />
       </p>
     );
   if (!many) return null;
@@ -37,7 +51,11 @@ export function MachineLine(props: { returnFocus(): HTMLElement | null }) {
 
 const line = "-mt-4 mb-6 px-1 text-center text-sm text-muted-foreground";
 
-function MachineMenu(props: { choice: NewThreadMachines; returnFocus(): HTMLElement | null }) {
+function MachineMenu(props: {
+  choice: NewThreadMachines;
+  leaving: Leaving;
+  returnFocus(): HTMLElement | null;
+}) {
   const { machines, current, choose } = props.choice;
   return (
     <Menu>
@@ -60,7 +78,8 @@ function MachineMenu(props: { choice: NewThreadMachines; returnFocus(): HTMLElem
           value={current.id}
           onValueChange={(id: unknown) => {
             const next = machines.find((machine) => machine.id === id);
-            if (next && next.id !== current.id && next.status === "online") choose(next);
+            if (next && next.id !== current.id && next.status === "online")
+              choose(next, props.leaving);
           }}
         >
           {machines.map((machine) => (

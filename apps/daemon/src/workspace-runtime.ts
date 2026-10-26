@@ -19,6 +19,8 @@ import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
+import { sameOriginProject } from "./project-origin.ts";
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import type { CreationProgress } from "./creation-progress.ts";
 import { CreationDrafts } from "./creation-drafts.ts";
 import { clearWorkspaceChange, settleWorkspaceChange } from "./workspace-change-clear.ts";
@@ -574,6 +576,30 @@ export class WorkspaceRuntime {
         });
         return result;
       });
+    if (op.op === "workspace.origin") {
+      const root = this.store.getWorkspacePath(op.workspaceId);
+      if (!root) throw new Error("workspace_not_found");
+      const origin = await this.git.transfer.transferOrigin(root).catch(() => undefined);
+      return wrap({ kind: "origin", url: origin?.url ?? null });
+    }
+    if (op.op === "workspaces.match") {
+      const projects = this.store.atomic((db) =>
+        db
+          .prepare(
+            `${projectSelect} WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) ORDER BY w.id`,
+          )
+          .all()
+          .map(decodeProjectRow)
+          .filter((project) => project.kind !== "chat")
+          .map((project) => ({ workspaceId: project.id, path: project.path })),
+      );
+      const match = await sameOriginProject(
+        this.git.transfer,
+        projects,
+        normalizeRemoteUrl(op.url),
+      );
+      return wrap({ kind: "match", workspaceId: match ?? null });
+    }
     if (op.op === "branches.list") {
       const root = this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
