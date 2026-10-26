@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
@@ -211,6 +211,25 @@ async function appMode(launched: Launched, mode: "system" | "light" | "dark"): P
   await page.waitForTimeout(600);
 }
 
+/**
+ * A full-screen capture plus a line in `screens/report.jsonl` saying what the page and the OS
+ * showed at that moment, so a capture can be read without guessing.
+ */
+async function capture(launched: Launched, name: string): Promise<void> {
+  captureScreen(join(screens, `${name}.png`));
+  const page = await launched.page
+    .evaluate(() => ({
+      scheme: document.documentElement.dataset.scheme,
+      prefersDark: matchMedia("(prefers-color-scheme: dark)").matches,
+      background: getComputedStyle(document.body).backgroundColor,
+    }))
+    .catch((reason: unknown) => ({ error: String(reason) }));
+  const osDark = await launched.app
+    .evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors)
+    .catch(() => undefined);
+  appendFileSync(join(screens, "report.jsonl"), `${JSON.stringify({ name, osDark, ...page })}\n`);
+}
+
 /** Visible controls in the top bar that reach under the caption buttons. */
 function underCaptionButtons(page: Page) {
   return page.evaluate(() => {
@@ -311,7 +330,7 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
             const found = await underCaptionButtons(page);
             expect(found.overlay, "the caption-button overlay is on").toBe(true);
             problems.push(...found.hits.map((hit) => `${name}/${dark ? "dark" : "light"}: ${hit}`));
-            captureScreen(join(screens, `${scale * 100}-${dark ? "dark" : "light"}-${name}.png`));
+            await capture(launched, `${scale * 100}-${dark ? "dark" : "light"}-${name}`);
           }
         }
         expect(problems).toEqual([]);
@@ -322,10 +341,10 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         await go(launched, "ace://new");
         await appMode(launched, "light");
         await scheme(launched, true);
-        captureScreen(join(screens, `${scale * 100}-os-dark-app-light.png`));
+        await capture(launched, `${scale * 100}-os-dark-app-light`);
         await appMode(launched, "dark");
         await scheme(launched, false);
-        captureScreen(join(screens, `${scale * 100}-os-light-app-dark.png`));
+        await capture(launched, `${scale * 100}-os-light-app-dark`);
         await appMode(launched, "system");
         const shown = await launched.page.evaluate(() => document.documentElement.dataset.scheme);
         expect(shown).toBe("light");
@@ -399,7 +418,9 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
             }),
         );
         expect(result).toBe("shown");
-        captureScreen(join(screens, "toast.png"));
+        // The toast slides in from the corner a moment after Windows reports it shown.
+        await launched.page.waitForTimeout(1_500);
+        await capture(launched, "toast");
       });
     });
 });
