@@ -27,6 +27,7 @@ import {
 import { credentialHelperArgs, systemCredentialConfigFile } from "./credential-helpers.ts";
 import { userTransportConfig } from "./transport-config.ts";
 import { hooksInsideCheckout } from "./reviewer-hooks.ts";
+import { hooksInsideWindowsCheckout } from "./reviewer-hooks-identity.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -241,6 +242,16 @@ export class GitCli {
   }
   /** Whether a hook Git would run in the checkout at `cwd` lives inside it. */
   hooksInsideCheckout(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    if (this.runtime.platform === "win32")
+      return hooksInsideWindowsCheckout(
+        (args) =>
+          this.executeRaw(cwd, args, {
+            captureBytes: 65_536,
+            allowFailure: true,
+            ...(signal ? { signal } : {}),
+          }),
+        cwd,
+      );
     return hooksInsideCheckout(
       (args) =>
         this.executeRaw(cwd, args, {
