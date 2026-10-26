@@ -313,7 +313,8 @@ export async function scrcpyCapture(options: {
     if (images && !jpeg) {
       const ffmpeg = await discoverExecutable("ffmpeg", options.env);
       // Without ffmpeg the capture stays H.264, and agents' stills come from the device instead.
-      if (!ffmpeg) return false;
+      // Stopped meanwhile (or another switch got there first): start nothing that would outlive it.
+      if (!ffmpeg || stopped || jpeg) return Boolean(jpeg);
       // scrcpy's encoder already keeps to the stream's rate: every picture it sends is one to make.
       jpeg = new H264Jpeg({
         ffmpeg,
