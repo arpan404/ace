@@ -18,6 +18,8 @@ struct InboxStack<Destination: View>: View {
     let pulls: Bool
     /// The tab showing, which the sidebar's foot switches in a regular window.
     @Binding var tab: InboxTab
+    /// The list as a drawer over the open page in a compact window (`ThreadDrawer`).
+    @Binding var drawer: ThreadDrawer
     /// What the Pulls tab's pages ask of the inbox.
     let forge: ForgeInboxHooks
     @Binding var machine: String
@@ -31,8 +33,8 @@ struct InboxStack<Destination: View>: View {
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
-    /// The list as a drawer over the open page in a compact window (`ThreadDrawer`).
-    @State private var drawer = ThreadDrawer()
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -63,15 +65,15 @@ struct InboxStack<Destination: View>: View {
     /// foot and New thread in its bar (beside a thread) or at the foot beside them (as a drawer,
     /// where the bar has no room for it). The split view says where that is (`listHoldsTabs`).
     private var root: some View {
-        HoldsTabs { holds, drawer in
+        HoldsTabs { holds, inDrawer in
             listed
                 .inboxFootBar {
-                    if holds { InboxPlaces(tab: $tab, compose: drawer && inbox.canStartThreads ? forge.startThread : nil) }
+                    if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? forge.startThread : nil) }
                 }
                 // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
                 .navigationTitle(pulls ? "Pull requests" : "Threads")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !drawer) }
+                .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
         }
     }
 
@@ -80,7 +82,7 @@ struct InboxStack<Destination: View>: View {
             if pulls {
                 ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
                           // The list's row is the open page, in place of the one open before.
-                          actions: ForgeTabActions(open: { path = [.forge($0)]; drawer.close() }, openThread: { forge.openThread($0); drawer.close() },
+                          actions: ForgeTabActions(open: { route in pick { path = [.forge(route)] } }, openThread: { key in pick { forge.openThread(key) } },
                                                    startThread: forge.startThread),
                           openMachines: header.machines)
             } else {
@@ -103,12 +105,30 @@ struct InboxStack<Destination: View>: View {
                                    prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search threads and messages"))
     }
 
-    /// A row picked in the drawer shows its thread with the drawer closed, even the one already open.
+    /// A row picked in the list (`ThreadDrawer.pick`): the drawer closes, the search ends in a
+    /// compact window, and the row's thread opens unless it is the one already showing. A tap
+    /// taken as part of a row action does none of it.
     private var picking: InboxRowActions {
-        InboxRowActions(open: { actions.open($0); drawer.close() }, settle: actions.settle, unsettle: actions.unsettle,
+        InboxRowActions(open: { key in
+                            guard actions.accepts() else { return }
+                            let pick = withAnimation(drawerMotion) {
+                                drawer.pick(key, open: ThreadColumns.selection(path), in: ThreadDrawer.layout(sizeClass, path: path))
+                            }
+                            if pick.endsSearch { searching = false }
+                            if pick.opens { actions.open(key) }
+                        },
+                        accepts: actions.accepts, settle: actions.settle, unsettle: actions.unsettle,
                         snooze: actions.snooze, snoozeUntil: actions.snoozeUntil, wake: actions.wake,
                         archive: actions.archive, pin: actions.pin, move: actions.move)
     }
+    /// A pull request, issue or thread picked from the Pulls list.
+    private func pick(_ open: () -> Void) {
+        let layout = ThreadDrawer.layout(sizeClass, path: path)
+        withAnimation(drawerMotion) { drawer.close() }
+        if layout != .beside { searching = false }
+        open()
+    }
+    private var drawerMotion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 
@@ -213,6 +233,8 @@ private struct InboxSearchField: ViewModifier {
                         .accessibilityHidden(true)
                 }
             }
+            // A list built again (a fold, a window resize) shows the field the search still has.
+            .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
                 if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }

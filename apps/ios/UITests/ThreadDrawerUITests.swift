@@ -67,6 +67,66 @@ import XCTest
         XCTAssertTrue(next.waitForNotHittable(timeout: 10))
     }
 
+    func testDraggingTheDimmedThreadPastTheListsWidthClosesTheDrawerAndItOpensAgain() throws {
+        let app = try launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        let sidebar = app.buttons["thread.sidebar"], closer = app.buttons["drawer.close"]
+        let frame = app.windows.firstMatch.frame
+        let window = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        sidebar.tap()
+        XCTAssertTrue(closer.waitForExistence(timeout: 10))
+        // Slowly, from the thread's trailing edge to the window's leading one: further than the
+        // list is wide, holding at the end before letting go.
+        window.withOffset(CGVector(dx: frame.width * 0.9, dy: frame.height * 0.5))
+            .press(forDuration: 0.1, thenDragTo: window.withOffset(CGVector(dx: frame.width * 0.05, dy: frame.height * 0.5)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(closer.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["thread.ios-question"].waitForNotHittable(timeout: 10))
+        // Nothing is left holding the drawer: its button opens it again.
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10), "the thread is reachable again")
+        sidebar.tap()
+        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the sidebar button still opens the drawer")
+    }
+
+    func testTappingTheOpenThreadsRowClosesTheDrawerWithoutOpeningItAgain() throws {
+        let app = try launch(probe: true)
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        let sidebar = app.buttons["thread.sidebar"], closer = app.buttons["drawer.close"]
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        let opens = app.probe["opens"]
+        XCTAssertNotNil(opens)
+        sidebar.tap()
+        let row = app.buttons["thread.ios-form"]
+        XCTAssertTrue(row.waitForHittable(timeout: 10))
+        row.tap()
+        XCTAssertTrue(closer.waitForNonExistence(timeout: 10), "the open row closes the drawer")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(app.probe["opens"], opens, "the open thread is not opened again")
+    }
+
+    func testSettlingARowFromTheDrawerOffersUndo() throws {
+        let app = try launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        app.buttons["thread.sidebar"].tap()
+        let done = app.buttons["thread.ios-done"]
+        for _ in 0..<8 where !done.reachable {
+            app.buttons["thread.ios-question"].firstMatch.swipeUp()
+        }
+        XCTAssertTrue(done.reachable)
+        done.swipeLeft()
+        XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
+        app.buttons["Settle"].tap()
+        let undo = app.buttons["inbox.undoSettle"]
+        XCTAssertTrue(undo.waitForHittable(timeout: 10), "Undo shows over the drawer")
+        screenshot("drawer-undo")
+        XCTAssertLessThan(undo.frame.maxX, app.buttons["drawer.close"].frame.minX + 1, "Undo sits over the list")
+        undo.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+    }
+
     func testAPageOverTheThreadGoesBackWithTheChevronAndOnlyTheThreadOpensTheDrawer() throws {
         let app = try launch()
         open("thread.ios-browser", in: app)
@@ -83,9 +143,10 @@ import XCTest
         XCTAssertTrue(sidebar.waitForHittable(timeout: 10), "back on the thread, its sidebar button is back")
     }
 
-    private func launch() throws -> XCUIApplication {
+    private func launch(probe: Bool = false) throws -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+            + (probe ? ["--perf-probe"] : [])
         app.launch()
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("a compact phone window") }
         return app

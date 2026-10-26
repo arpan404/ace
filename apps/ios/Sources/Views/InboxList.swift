@@ -3,6 +3,8 @@ import SwiftUI
 /// What a row's swipes, menu and tap do. The inbox owns them; the list only offers them.
 struct InboxRowActions {
     let open: (InboxKey) -> Void
+    /// Whether a row tap now opens anything: just after a row action it doesn't (`RowTapGuard`).
+    let accepts: () -> Bool
     let settle: (ThreadRow, InboxKey) -> Void
     let unsettle: (ThreadRow, InboxKey) -> Void
     let snooze: (InboxKey) -> Void
