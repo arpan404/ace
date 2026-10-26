@@ -40,3 +40,38 @@ test("a chat still shows its save warning above the composer", async ({ page }) 
   await expect(page.getByRole("alert")).toContainText("Couldn't save this preparation");
   await expect(page.locator(".ace-glass-attached")).toBeVisible();
 });
+
+test("the sidebar device filter shows only the selected device's threads", async ({
+  page,
+}, info) => {
+  await page.goto("/new?project=chat");
+  await page.getByRole("combobox", { name: "Message" }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Device filter: All devices" }).click();
+  await page.getByRole("menuitemradio", { name: "Build server", exact: true }).click();
+  await page.keyboard.press("Escape");
+  const threads = page.getByRole("navigation", { name: "Threads", exact: true });
+  await expect(threads.getByRole("link", { name: /^Add rate limits to the api\./ })).toBeVisible();
+  await expect(threads.getByRole("link", { name: /^Fix flaky checkout test\./ })).toBeHidden();
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", colorScheme);
+    await page.screenshot({
+      path: info.outputPath(`device-filter-${colorScheme}.png`),
+      animations: "disabled",
+    });
+    await page.getByRole("button", { name: "Device filter: Build server" }).click();
+    await expect(
+      page.getByRole("menuitemradio", { name: "Build server", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath(`device-menu-${colorScheme}.png`),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+  }
+  await page.getByRole("button", { name: "Device filter: Build server" }).click();
+  await page.getByRole("menuitemradio", { name: "All devices", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(threads.getByRole("link", { name: /^Fix flaky checkout test\./ })).toBeVisible();
+});

@@ -17,6 +17,9 @@ import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
+import { DeviceFilter } from "./device-filter.tsx";
+import { useSidebarDevice } from "./device-filter-state.ts";
+import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import {
@@ -37,11 +40,14 @@ const StartedTitlePublisher = deferredComponent(() =>
  */
 export function HomeSidebar() {
   // Other machines' threads join the one flat list, each row marked with its machine.
-  const others = useOverlaidMachineEntries(useMachineEntries(useHostIdentity()?.hostId));
+  const host = useHostIdentity()?.hostId;
+  const others = useOverlaidMachineEntries(useMachineEntries(host));
   const list = useHomeList(others);
   // The daemon's count of settled threads, while it still holds some back.
   const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
   const { project } = useOrganizerState();
+  const device = useSidebarDevice();
+  const deviceName = useMachines().find((machine) => machine.id === device)?.name;
   useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
@@ -56,6 +62,7 @@ export function HomeSidebar() {
   const { only } = entry;
   return (
     <>
+      <DeviceFilter />
       <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
         <span className="flex-1" />
@@ -93,11 +100,19 @@ export function HomeSidebar() {
             <EmptyState
               className="shrink-0 justify-start pt-6"
               icon={ChatsIcon}
-              title={project ? `Nothing in ${directory.name(project)}` : "No threads yet"}
+              title={
+                project
+                  ? `Nothing in ${directory.name(project)}`
+                  : deviceName
+                    ? `No threads on ${deviceName}`
+                    : "No threads yet"
+              }
               description={
                 project
                   ? "Threads from this project will land here."
-                  : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                  : deviceName
+                    ? "Threads from this device will land here."
+                    : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
               }
               action={
                 project ? (
@@ -108,13 +123,24 @@ export function HomeSidebar() {
                   >
                     Show all projects
                   </button>
+                ) : device ? (
+                  <button
+                    type="button"
+                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={() => organizer.setDevice(undefined)}
+                  >
+                    Show all devices
+                  </button>
                 ) : undefined
               }
             />
             <ThreadList list={list} />
           </>
         ) : (
-          <ThreadList list={list} settledTotal={settledTotal} />
+          <ThreadList
+            list={list}
+            settledTotal={device && device !== host ? undefined : settledTotal}
+          />
         )}
       </nav>
     </>
