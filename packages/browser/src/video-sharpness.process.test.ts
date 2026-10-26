@@ -160,6 +160,14 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     expect(joined.psnr).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
     await sleep(2_000);
+    // Windows runners have no H.264 or HEVC encoder, so the stream is VP9 at a variable bit
+    // rate: no sharp still keyframe (that needs per-frame quantizers), so after a scroll it
+    // sharpens back to the still page's level instead of beyond it.
+    if (process.platform === "win32" && viewer.chunks.at(-1)?.codec.startsWith("vp09")) {
+      expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(joined.psnr - 0.5);
+      viewer.bridge.close();
+      return;
+    }
     // Motion is coded coarse; once the page is still it sharpens again (about 35 dB without
     // the still page's sharp keyframe, about 38.5 with it).
     expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(37);
