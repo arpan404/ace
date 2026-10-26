@@ -30,6 +30,7 @@ export default defineConfig({
     include: [
       "packages/browser/src/video-software.process.test.ts",
       "packages/browser/src/discovery.test.ts",
+      "packages/browser/src/chrome-video.test.ts",
       "packages/browser-extension/src/install.process.test.ts",
       "packages/preview/src/discovery.process.test.ts",
       "packages/provider-kit/src/process-containment.process.test.ts",

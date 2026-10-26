@@ -64,6 +64,16 @@ async function put(f: Fixture, name: string, value: string) {
 }
 
 /**
+ * Windows: Chrome there encodes VP9, and its software VP9 decoder pads a frame's coded width
+ * to its buffer alignment (1318 becomes 1408). The visible picture is the full encode, so the
+ * size check reads that instead.
+ */
+const visibleSizeOnWindows =
+  process.platform === "win32"
+    ? "last = { codedWidth: last.visibleRect.width, codedHeight: last.visibleRect.height };"
+    : "";
+
+/**
  * Decodes the stream from its last keyframe and compares the picture on screen now with a
  * screenshot of the page, at the screenshot's size: PSNR of luma, in dB.
  */
@@ -119,6 +129,7 @@ async function shownVersusPage(f: Fixture, chunks: readonly BrowserVideoChunk[])
     const a = luma(last), b = luma(page);
     let error = 0;
     for (let i = 0; i < a.length; i++) error += (a[i] - b[i]) ** 2;
+    ${visibleSizeOnWindows}
     return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
   })()`);
   return z
@@ -149,6 +160,14 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     expect(joined.psnr).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
     await sleep(2_000);
+    // Windows runners have no H.264 or HEVC encoder, so the stream is VP9 at a variable bit
+    // rate: no sharp still keyframe (that needs per-frame quantizers), so after a scroll it
+    // sharpens back to the still page's level instead of beyond it.
+    if (process.platform === "win32" && viewer.chunks.at(-1)?.codec.startsWith("vp09")) {
+      expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(joined.psnr - 0.5);
+      viewer.bridge.close();
+      return;
+    }
     // Motion is coded coarse; once the page is still it sharpens again (about 35 dB without
     // the still page's sharp keyframe, about 38.5 with it).
     expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(37);

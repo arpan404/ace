@@ -75,58 +75,62 @@ async function directory(): Promise<{ path: string; cleanup: () => Promise<void>
   return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
 }
 
-test("on Windows, supported waits for the extension scripts before calling their exports", async () => {
-  const dir = await directory();
-  try {
-    const workerGlobals: Globals = {};
-    const offscreenGlobals: Globals = {};
-    let delays = 0;
-    const connection = driver({ workerGlobals, offscreenGlobals });
-    const video = new ChromeVideo({
-      connection,
-      targets: { keep: () => {} },
-      directory: dir.path,
-      platform: "win32",
-      delay: async () => {
-        delays++;
-        if (delays === 2)
-          workerGlobals.aceVideo = {
-            ready: async () => {},
-            open: async () => ({ streamId: "stream-1" }),
-          };
-        if (delays === 4)
-          offscreenGlobals.aceVideo = {
-            supported: async (codecs: readonly string[]) =>
-              codecs.filter((codec) => codec === "vp8"),
-          };
-      },
-    });
-    await expect(video.supported(["vp8"], 320, 200)).resolves.toEqual(["vp8"]);
-  } finally {
-    await dir.cleanup();
-  }
-});
+test.runIf(process.platform === "win32")(
+  "on Windows, supported waits for the extension scripts before calling their exports",
+  async () => {
+    const dir = await directory();
+    try {
+      const workerGlobals: Globals = {};
+      const offscreenGlobals: Globals = {};
+      let delays = 0;
+      const connection = driver({ workerGlobals, offscreenGlobals });
+      const video = new ChromeVideo({
+        connection,
+        targets: { keep: () => {} },
+        directory: dir.path,
+        delay: async () => {
+          delays++;
+          if (delays === 2)
+            workerGlobals.aceVideo = {
+              ready: async () => {},
+              open: async () => ({ streamId: "stream-1" }),
+            };
+          if (delays === 4)
+            offscreenGlobals.aceVideo = {
+              supported: async (codecs: readonly string[]) =>
+                codecs.filter((codec) => codec === "vp8"),
+            };
+        },
+      });
+      await expect(video.supported(["vp8"], 320, 200)).resolves.toEqual(["vp8"]);
+    } finally {
+      await dir.cleanup();
+    }
+  },
+);
 
-test("on Windows, supported rejects bounded when the extension scripts never define their exports", async () => {
-  const dir = await directory();
-  try {
-    const delays: number[] = [];
-    const connection = driver({ workerGlobals: {}, offscreenGlobals: {} });
-    const video = new ChromeVideo({
-      connection,
-      targets: { keep: () => {} },
-      directory: dir.path,
-      platform: "win32",
-      delay: async (milliseconds: number) => {
-        delays.push(milliseconds);
-      },
-    });
-    await expect(video.supported(["vp8"], 320, 200)).rejects.toThrow(
-      "The video extension did not start",
-    );
-    expect(delays.length).toBeLessThanOrEqual(50);
-    expect(delays.every((milliseconds) => milliseconds === 100)).toBe(true);
-  } finally {
-    await dir.cleanup();
-  }
-});
+test.runIf(process.platform === "win32")(
+  "on Windows, supported rejects bounded when the extension scripts never define their exports",
+  async () => {
+    const dir = await directory();
+    try {
+      const delays: number[] = [];
+      const connection = driver({ workerGlobals: {}, offscreenGlobals: {} });
+      const video = new ChromeVideo({
+        connection,
+        targets: { keep: () => {} },
+        directory: dir.path,
+        delay: async (milliseconds: number) => {
+          delays.push(milliseconds);
+        },
+      });
+      await expect(video.supported(["vp8"], 320, 200)).rejects.toThrow(
+        "The video extension did not start",
+      );
+      expect(delays.length).toBeLessThanOrEqual(50);
+      expect(delays.every((milliseconds) => milliseconds === 100)).toBe(true);
+    } finally {
+      await dir.cleanup();
+    }
+  },
+);

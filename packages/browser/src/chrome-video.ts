@@ -39,7 +39,6 @@ export class ChromeVideo implements VideoHost {
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
   private ready: Promise<{ worker: BrowserCdp; document: BrowserCdp }> | undefined;
-  private platform: NodeJS.Platform | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
   private ids = 0;
@@ -50,10 +49,7 @@ export class ChromeVideo implements VideoHost {
     /** Where the unpacked extension is written. */
     directory: string;
     delay: (milliseconds: number) => Promise<void>;
-    /** Windows starts extension targets slowly; see `untilExport`. */
-    platform?: NodeJS.Platform;
   }) {
-    this.platform = options.platform;
     this.connection = options.connection;
     this.targets = options.targets;
     this.directory = options.directory;
@@ -184,10 +180,10 @@ export class ChromeVideo implements VideoHost {
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
     const worker = await this.attach(`${origin}worker.js`);
-    if (this.platform === "win32") await this.untilExport(worker, "ready");
+    if (process.platform === "win32") await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
     const document = await this.attach(`${origin}offscreen.html`);
-    if (this.platform === "win32") await this.untilExport(document, "supported");
+    if (process.platform === "win32") await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };

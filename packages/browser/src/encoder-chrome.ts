@@ -15,9 +15,7 @@ export class EncoderChrome {
   private videos = new WeakMap<ChromeInstance, ChromeVideo>();
   private lifetime = new AbortController();
   private delay: (milliseconds: number) => Promise<void>;
-  private platform: NodeJS.Platform;
   constructor(options: ChromeHostOptions) {
-    this.platform = options.platform;
     this.host = new ChromeHost(options);
     this.profileDir = options.profileDir;
     const schedule = options.cleanup.schedule;
@@ -94,7 +92,6 @@ export class EncoderChrome {
         targets: instance.targets,
         directory: `${this.profileDir}-video-extension`,
         delay: this.delay,
-        platform: this.platform,
       });
       this.videos.set(instance, video);
     }
