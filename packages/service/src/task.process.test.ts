@@ -31,7 +31,7 @@ const token = "a".repeat(64);
 
 /** Stands in for the release's ace.mjs: a daemon that answers `POST /v1/stop`. */
 const daemon = `import { createServer } from "node:http";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const home = process.env.ACE_HOME;
 const log = (line) => appendFileSync(join(home, "fixture.log"), line + "\\n");
@@ -40,7 +40,10 @@ if (process.argv[2] !== "supervise") {
   process.exit(0);
 }
 const server = createServer((request, response) => {
-  if (request.method === "POST" && request.url === "/v1/stop" && request.headers.authorization === "Bearer ${token}") {
+  if (existsSync(join(home, "ignore-stop"))) {
+    response.statusCode = 503;
+    response.end();
+  } else if (request.method === "POST" && request.url === "/v1/stop" && request.headers.authorization === "Bearer ${token}") {
     log("stop-request");
     response.end("{}", () => process.exit(0));
   } else {
@@ -144,6 +147,15 @@ async function until<T>(read: () => Promise<T | undefined>, ms = 20_000): Promis
   throw new Error("Timed out");
 }
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const Chain = z.array(z.object({ name: z.string(), window: z.number(), command: z.string() }));
 /** The process, its ancestors up to the console host, and each one's main window handle. */
 async function ancestry(pid: number) {
@@ -217,6 +229,18 @@ windows("Windows login task", () => {
     await expect(manager.perform("uninstall")).rejects.toThrow(/Incompatible or legacy/);
     const kept = await runProcess("schtasks.exe", ["/Query", "/TN", task.name, "/XML"]);
     expect(kept.stdout).toContain("cmd.exe");
+  });
+
+  test("a daemon that never answers is ended with every process the task started", async () => {
+    const root = await home();
+    const task = taskPlan(root);
+    const manager = service(root, task);
+    await manager.perform("install");
+    const pid = Number(await until(() => readFile(join(root, "daemon.pid"), "utf8")));
+    await writeFile(join(root, "ignore-stop"), "");
+    await expect(manager.perform("stop")).resolves.toEqual({ active: false });
+    expect(alive(pid)).toBe(false);
+    await expect(manager.perform("uninstall")).resolves.toEqual({ active: false });
   });
 
   test("a changed task record is refused before Task Scheduler is asked anything", async () => {

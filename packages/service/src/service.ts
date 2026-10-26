@@ -257,11 +257,40 @@ export class TaskService {
    * fallback for a daemon that does not answer.
    */
   private async stop(): Promise<void> {
-    if ((await this.ports.requestStop()) && (await this.until(false, 60_000))) return;
+    // A daemon that is still starting has not written its endpoint yet: ask again briefly.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (await this.ports.requestStop()) {
+        if (await this.until(false, 60_000)) return;
+        break;
+      }
+      if (!(await this.running())) return;
+      await this.ports.wait(500);
+    }
     await checked(this.ports.run, "schtasks.exe", ["/End", "/TN", this.plan.name]);
+    await this.endTree();
     if (!(await this.until(false, 10_000))) throw new Error("The service task did not stop");
   }
+  /**
+   * `/End` ends only the task's first process (conhost), so the launcher, supervisor and daemon
+   * under it are ended here: every process running this home's launcher or a release of it with
+   * `supervise`, with its whole tree.
+   */
+  private async endTree(): Promise<void> {
+    const home = win32.dirname(win32.dirname(this.plan.command[0]));
+    const script = `Get-CimInstance Win32_Process | Where-Object { $c = [string]$_.CommandLine; $c.Contains('supervise') -and ($c.Contains(${text(this.plan.command[0])}) -or $c.Contains(${text(win32.join(home, "releases") + "\\")})) } | ForEach-Object { $_.ProcessId }`;
+    const found = await this.ports.run("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ]);
+    for (const pid of found.stdout.split(/\s+/).filter((line) => /^\d+$/.test(line)))
+      await this.ports.run("taskkill.exe", ["/T", "/F", "/PID", pid]);
+  }
 }
+
+/** A PowerShell single-quoted string. */
+const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
 async function replaceFile(path: string, content: string): Promise<void> {
   await writeFile(path + ".tmp", content);
