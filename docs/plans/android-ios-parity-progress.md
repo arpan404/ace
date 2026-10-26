@@ -51,9 +51,14 @@ debug fixture; none of the later app capabilities has been certified by this exe
 - Shared device use requires coordination. No device reservation is currently held.
 - Full `bun run check` actually ran and stopped early
   (`/tmp/ace-android-integration-check-20261026.log`): `fmt:check` passed on 10,029
-  files, then `docs:protocol --check` failed on a stale `manifest.json` in 4 s;
-  later gates including typecheck, test and perf are unrun, and a root-cause audit
-  is ongoing. Native/physical gates stay open. M01 through M15 remain planned.
+  files, then `docs:protocol --check` failed on a stale `manifest.json` in 4 s.
+  Root cause: our `bun.lock` devDep fingerprint. The existing generator refreshed
+  only the `docs/protocol/manifest.json` input; all 1,136 rendered file hashes
+  unchanged, and `docs:protocol --check` now passes. Full check rerun (owner
+  `48944c02`) is in progress — not a pass. Native/physical gates stay open. M00
+  stays open; M01 through M15 remain planned, with the A01.01 packet proposed in
+  [android-measurement-variant.md](../mobile/android-measurement-variant.md)
+  (reviewed, not implemented).
   Current startup still uses the debug fixture; no production-parity claim is made.
 - Workspace hygiene: three settled worktrees removed, branches kept; untracked Windows
   source backed up at `~/.ace/cleanup-backups/windows-app-audit-20261026`. The Windows
