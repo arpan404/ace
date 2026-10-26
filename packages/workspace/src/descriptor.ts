@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { close, constants, fstat, fstatSync, read, write, type Stats } from "node:fs";
+import { close, closeSync, constants, fstat, fstatSync, read, write, type Stats } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
@@ -183,8 +182,20 @@ export class Descriptor {
 
 export function statAt(parent: number, name: string) {
   if (process.platform === "win32") {
-    const facts = windowsCall(() => windows().statAt(parent, windowsName(name)));
-    return { ...windowsIdentity(facts), size: facts.size, mtime: windowsTime(facts.writeTime) };
+    const child = openMetadataAt(parent, name);
+    try {
+      const facts = windowsCall(() => windows().statFd(child.fd));
+      const { dev, ino } = fstatSync(child.fd);
+      return {
+        dev,
+        ino,
+        ...windowsIdentity(facts),
+        size: facts.size,
+        mtime: windowsTime(facts.writeTime),
+      };
+    } finally {
+      closeSync(child.fd);
+    }
   }
   try {
     return binding().statAt(parent, name);
@@ -263,7 +274,6 @@ const WindowsBinding = z.object({
   removeDirectoryAt: change,
   renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
   statFd: z.function({ input: [z.number().int()], output: WindowsFacts }),
-  statAt: z.function({ input: [z.number().int(), z.string()], output: WindowsFacts }),
   names: z.function({
     input: [z.number().int(), z.number().int()],
     output: z.array(z.string()).max(DIRECTORY_CAP),
@@ -315,12 +325,20 @@ function windowsOpenAt(parent: number, name: string, flags: number): number {
   return windowsCall(() => windows().openAt(parent, name));
 }
 /**
- * dev and ino for main's identity checks. Node's Windows ino rounds a 64-bit file id to a double,
- * so ino keeps the id's low 53 bits exactly and dev is a 53-bit digest of the whole FILE_ID_INFO:
- * equal pairs mean the same file. A junction or symlink reads as a link, never its target.
+ * Windows identity has one source: dev and ino are always Node's own fstat values, so stats
+ * from Node and from this module compare equal wherever they are persisted or checked. Node
+ * rounds file ids above 2^53, so this module's own checks also compare the exact volume
+ * serial and 128-bit file id carried under `windowsFileId`.
  */
+const windowsFileId = Symbol("windowsFileId");
+/** False only when both stats carry exact Windows ids and those ids differ. */
+export function sameWindowsFile(a: object, b: object): boolean {
+  const left: unknown = Reflect.get(a, windowsFileId);
+  const right: unknown = Reflect.get(b, windowsFileId);
+  return left === undefined || right === undefined || left === right;
+}
+/** Type from the handle's attributes: a junction or symlink reads as a link, never its target. */
 function windowsIdentity(facts: z.infer<typeof WindowsFacts>) {
-  const id = Buffer.from(facts.id);
   const readonly = facts.attributes & 0x1;
   const mode =
     facts.attributes & 0x400
@@ -332,18 +350,14 @@ function windowsIdentity(facts: z.infer<typeof WindowsFacts>) {
         : readonly
           ? 0o100444
           : 0o100666;
-  return {
-    dev: Number(createHash("sha256").update(id).digest().readBigUInt64BE(0) >> 11n),
-    ino: Number(id.readBigUInt64LE(8) & 0x1f_ffff_ffff_ffffn),
-    mode,
-  };
+  return { mode, [windowsFileId]: Buffer.from(facts.id).toString("hex") };
 }
 /** FILETIME ticks (100 ns since 1601) as Unix milliseconds; earlier than 1970 stays negative. */
 function windowsTime(ticks: bigint): number {
   const delta = ticks - 116444736000000000n;
   return Number(delta / 10000n) + Number(delta % 10000n) / 10000;
 }
-/** Node's fstat with identity and type read from the same Windows handle. */
+/** Node's fstat with the type and exact file id read from the same Windows handle. */
 export function statWindowsFd(fd: number): Stats {
   return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windows().statFd(fd))));
 }

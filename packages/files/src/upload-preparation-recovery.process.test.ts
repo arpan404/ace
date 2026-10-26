@@ -153,3 +153,47 @@ for (const replacement of ["file", "symlink", "hardlink"] as const) {
     }
   });
 }
+
+test.runIf(process.platform === "win32")(
+  "a Windows replacement resumes acknowledged bytes after an interrupted intent and restart",
+  async () => {
+    const f = await fixture({ maxReservedBytes: 4 });
+    const db = new DatabaseSync(join(f.home, "data", "files.sqlite"));
+    try {
+      const final = join(f.root, "final");
+      await writeFile(final, "old");
+      const expected = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      const upload = Upload.parse(
+        await f.service.request("writer", { op: "upload.begin", path: "final", expected, size: 4 }),
+      );
+      await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+      db.exec(`CREATE TRIGGER lose_preparation BEFORE UPDATE ON resources
+        WHEN OLD.kind='upload' AND json_type(NEW.body,'$.publishing')='text'
+        BEGIN SELECT RAISE(ABORT,'lost upload preparation'); END`);
+      await expect(
+        f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+      ).rejects.toThrow("lost upload preparation");
+      db.exec("DROP TRIGGER lose_preparation");
+      await f.restart();
+      await expect(
+        f.service.request("writer", { op: "upload.resume", uploadId: upload.uploadId }),
+      ).resolves.toMatchObject({ offset: 4, size: 4 });
+      await expect(
+        f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+      ).resolves.toMatchObject({ path: "final" });
+      expect(await readFile(final, "utf8")).toBe("data");
+      await f.restart();
+      await expect(
+        f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+      ).resolves.toMatchObject({ path: "final" });
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "next", expected: null, size: 4 }),
+      ).resolves.toMatchObject({ offset: 0 });
+    } finally {
+      db.close();
+      await f.close();
+    }
+  },
+);

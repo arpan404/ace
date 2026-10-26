@@ -4,6 +4,7 @@ import {
   openMetadataAt,
   statAt,
   descriptorNames,
+  sameWindowsFile,
   type Descriptor,
 } from "./descriptor.ts";
 import { constants, type Stats } from "node:fs";
@@ -25,6 +26,7 @@ export function validRelativePath(input: string): boolean {
   );
 }
 function same(a: Stats, b: Stats): boolean {
+  if (process.platform === "win32" && !sameWindowsFile(a, b)) return false;
   return a.dev === b.dev && a.ino === b.ino;
 }
 export class SafeRoot {
@@ -232,6 +234,8 @@ export class SafeRoot {
         await parent.close();
       }
       if (proof.dev !== expected.dev || proof.ino !== expected.ino)
+        throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
+      if (process.platform === "win32" && !sameWindowsFile(proof, expected))
         throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
       const info = expected;
       info.size = proof.size;

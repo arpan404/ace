@@ -1,4 +1,5 @@
 import { workspaceRuntime } from "@ace/workspace";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { createHash } from "node:crypto";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -236,3 +237,66 @@ for (const mode of [0o200, 0o000, 0o100]) {
     }
   });
 }
+
+test.runIf(process.platform === "win32")(
+  "Windows uploads whose publication reply was lost publish once after restart, legacy intents included, while an edited file keeps its debt",
+  async () => {
+    let now = 1;
+    let loseReply = true;
+    const f = await fixture({
+      now: () => now,
+      retentionMs: 10,
+      maxReservedBytes: 12,
+      exclusiveRename: {
+        async move(source, destination) {
+          await rename(source, destination);
+          if (loseReply) throw new Error("worker lost publication reply");
+        },
+        async close() {},
+      },
+    });
+    const db = new DatabaseSync(join(f.home, "data", "files.sqlite"));
+    try {
+      const uploads: Record<string, string> = {};
+      for (const path of ["final", "legacy", "edited"]) {
+        const { uploadId } = Upload.parse(
+          await f.service.request("writer", { op: "upload.begin", path, expected: null, size: 4 }),
+        );
+        uploads[path] = uploadId;
+        await f.service.append("writer", uploadId, 0, Buffer.from("data"));
+        await expect(
+          f.service.request("writer", { op: "upload.commit", uploadId, sha256: digest }),
+        ).rejects.toThrow("worker lost");
+      }
+      // An intent written before metadata attestation takes the legacy hashing path.
+      db.prepare(
+        "UPDATE resources SET body = json_remove(body, '$.verified') WHERE id = ? AND kind = 'upload'",
+      ).run(uploads.legacy ?? "");
+      await writeFile(join(f.root, "edited"), "safe");
+      loseReply = false;
+      await f.restart();
+      for (const path of ["final", "legacy"]) {
+        await expect(
+          f.service.request("writer", {
+            op: "upload.commit",
+            uploadId: uploads[path] ?? "",
+            sha256: digest,
+          }),
+        ).resolves.toMatchObject({ path });
+        expect(await readFile(join(f.root, path), "utf8")).toBe("data");
+      }
+      now = 20;
+      await f.service.sweep();
+      expect(await readFile(join(f.root, "edited"), "utf8")).toBe("safe");
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "next", expected: null, size: 8 }),
+      ).resolves.toMatchObject({ offset: 0 });
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "over", expected: null, size: 1 }),
+      ).rejects.toMatchObject({ code: "QUOTA" });
+    } finally {
+      db.close();
+      await f.close();
+    }
+  },
+);

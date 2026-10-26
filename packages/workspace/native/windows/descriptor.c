@@ -315,19 +315,6 @@ static napi_value stat_fd(napi_env env, napi_callback_info info) {
   const char *code = borrow(fd, &handle);
   return code ? fail(env, code) : describe(env, handle);
 }
-static napi_value stat_at(napi_env env, napi_callback_info info) {
-  napi_value args[2];
-  HANDLE parent = NULL, child = NULL;
-  WCHAR name[NAME_BYTES];
-  DWORD length;
-  const char *code = child_args(env, info, 2, args, &parent, name, &length);
-  if (!code) code = open_child(parent, name, length, OPT_REPARSE, FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-      OPT_OPEN, &child);
-  if (code) return fail(env, code);
-  napi_value result = describe(env, child);
-  CloseHandle(child);
-  return result;
-}
 // Lists at most `cap` names; one more is E2BIG. Every entry is bounds-checked.
 static napi_value names(napi_env env, napi_callback_info info) {
   napi_value args[2], result, value;
@@ -388,7 +375,6 @@ static napi_value init(napi_env env, napi_value exports) {
     {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"removeDirectoryAt", NULL, remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL},
-    {"statAt", NULL, stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"statFd", NULL, stat_fd, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
   };

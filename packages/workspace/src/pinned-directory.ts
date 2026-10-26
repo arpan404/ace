@@ -21,6 +21,7 @@ import {
   statAt,
   symlinkAt,
   statWindowsFd,
+  sameWindowsFile,
   type Descriptor,
 } from "./descriptor.ts";
 
@@ -73,7 +74,11 @@ export class PinnedDirectory {
     const current = openRoot(canonical);
     try {
       const info = fstatSync(current.fd);
-      if (process.platform === "win32") Object.assign(info, statWindowsFd(current.fd));
+      if (
+        process.platform === "win32" &&
+        !sameWindowsFile(statWindowsFd(current.fd), this.identity)
+      )
+        return false;
       return info.dev === this.identity.dev && info.ino === this.identity.ino;
     } finally {
       closeSync(current.fd);

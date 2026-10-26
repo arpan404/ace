@@ -23,6 +23,8 @@ on:
       - packages/workspace/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
+      - packages/files/src/upload*
+      - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*
       - packages/preview/**
       - native/screen-helper-windows/**
