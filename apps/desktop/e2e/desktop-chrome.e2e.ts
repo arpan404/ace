@@ -58,6 +58,19 @@ async function launch(scale: number): Promise<Launched> {
   } catch (error) {
     captureScreen(join(screens, `launch-failed-${scale * 100}.png`));
     console.log(`[page url] ${page.url()}`);
+    const loaded = await page
+      .evaluate(() =>
+        performance
+          .getEntriesByType("resource")
+          .map((entry) => {
+            const resource = entry as PerformanceResourceTiming;
+            return `${resource.responseStatus} ${resource.initiatorType} ${resource.name}`;
+          })
+          .join("\n"),
+      )
+      .catch((reason: unknown) => String(reason));
+    console.log(`[page resources]\n${loaded}`);
+    console.log(`[page html] ${(await page.content()).slice(0, 3000)}`);
     console.log(
       `[page text] ${(
         await page
