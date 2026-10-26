@@ -7,6 +7,9 @@ import { list, obj, str } from "../native.ts";
 import { aceMcpApprovals } from "./mcp-approvals.ts";
 import { historyStore, longHistory } from "./history-store.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
+// Windows delivers no SIGTERM; there, ignoring termination means outliving stdin closing.
+if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "win32")
+  setInterval(() => {}, 60_000);
 const args: string[] = [];
 const overrides = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index++) {
