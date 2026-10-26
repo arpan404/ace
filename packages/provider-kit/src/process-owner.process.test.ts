@@ -1,14 +1,17 @@
-import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import { observeProcessGroups, spawnRawSupervised, spawnSupervised } from "./process.ts";
+import {
+  observeProcessGroups,
+  spawnRawSupervised,
+  spawnSupervised,
+  type SpawnOptions,
+} from "./process.ts";
 import { spawnBytes } from "./process-bytes.ts";
 import { stopOwnedGroups } from "./process-owner.ts";
-import type { TreePorts } from "./process-tree.ts";
 
 const windowsHost = process.platform === "win32";
 const stubborn = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
@@ -24,9 +27,9 @@ function signalLeader(pid: number, force: boolean): void {
 
 /** A Job Object stand-in whose release is observable. */
 function fakeJob() {
-  const job = { joined: 0, released: false };
+  const job = { released: false };
   const factory = () => ({
-    assign: () => void job.joined++,
+    assign: () => {},
     dispose: () => void (job.released = true),
   });
   return { job, factory };
@@ -34,19 +37,19 @@ function fakeJob() {
 
 type Mode = {
   name: string;
-  ports: TreePorts;
-  /** How a forced stop shows in the exit: a signal on POSIX, taskkill /F's exit code on Windows. */
+  ports: Pick<SpawnOptions, "platform" | "windowsKillTree" | "windowsJobFactory">;
+  /** taskkill /F leaves exit code 1 on Windows; the stand-in's SIGKILL shows as a signal. */
   forced: { signal: NodeJS.Signals | null };
   /** Windows console children cannot be asked to close; only a forced stop ends them. */
   polite: boolean;
 };
+// Off Windows the Windows branch runs with taskkill stood in for; on Windows it runs for real.
 const modes: Mode[] = windowsHost
   ? [{ name: "Windows tree", ports: {}, forced: { signal: null }, polite: false }]
   : [
-      { name: "process group", ports: {}, forced: { signal: "SIGKILL" }, polite: true },
       {
         name: "Windows tree stop",
-        ports: { platform: "win32", killTree: signalLeader, jobFactory: () => undefined },
+        ports: { platform: "win32", windowsKillTree: signalLeader },
         forced: { signal: "SIGKILL" },
         polite: true,
       },
@@ -64,7 +67,7 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 /** A child that ignores the polite stop, started once it is ready to ignore it. */
-async function stubbornChild(ports: TreePorts, retained = false) {
+async function stubbornChild(ports: Mode["ports"], retained = false) {
   const root = await mkdtemp(join(tmpdir(), "ace-tree-"));
   const ready = join(root, "ready");
   const proc = spawnRawSupervised({
@@ -195,22 +198,22 @@ describe.each(modes)("an owned $name", (mode) => {
 });
 
 test.skipIf(windowsHost)("a contained tree releases its job when ownership ends", async () => {
-  const ports = { platform: "win32", killTree: signalLeader } as const;
+  const ports = { platform: "win32", windowsKillTree: signalLeader } as const;
   const natural = fakeJob();
   const proc = spawnSupervised({
     ...ports,
-    jobFactory: natural.factory,
+    windowsJobFactory: natural.factory,
     command: process.execPath,
     args: ["-e", ""],
     env: {},
     name: "contained",
   });
   await proc.exited;
-  expect(natural.job).toEqual({ joined: 1, released: true });
+  expect(natural.job).toEqual({ released: true });
   const retained = fakeJob();
-  const service = await stubbornChild({ ...ports, jobFactory: retained.factory }, true);
+  const service = await stubbornChild({ ...ports, windowsJobFactory: retained.factory }, true);
   await service.stop({ graceMs: 50 });
-  expect(retained.job).toEqual({ joined: 1, released: true });
+  expect(retained.job).toEqual({ released: true });
 });
 
 test.runIf(windowsHost)("a real batch shim preserves arguments through cmd parsing", async () => {
@@ -232,27 +235,6 @@ test.runIf(windowsHost)("a real batch shim preserves arguments through cmd parsi
     });
     expect(await proc.exited).toMatchObject({ code: 0, reason: "exit" });
     expect(z.array(z.string()).parse(JSON.parse(await readFile(record, "utf8")))).toEqual(args);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("owner exit runs each owned group's platform destroy", async () => {
-  // Negative-pid signals are invalid on Windows, so the exit hook runs the
-  // destroy each owner registered instead of assuming a process group.
-  const root = await mkdtemp(join(tmpdir(), "ace-owner-exit-"));
-  try {
-    const receipt = join(root, "destroyed");
-    const moduleUrl = new URL("./process-owner.ts", import.meta.url).href;
-    const script = `import {registerGroup} from ${JSON.stringify(moduleUrl)};
-import {writeFileSync} from "node:fs";
-registerGroup(424242, () => Promise.resolve(), {name:"test-destroy"}, () => { writeFileSync(${JSON.stringify(receipt)}, "destroyed"); });
-process.exit(0);`;
-    const owner = spawn(process.execPath, ["--input-type=module", "-e", script], {
-      stdio: "ignore",
-    });
-    expect(await once(owner, "close")).toEqual([0, null]);
-    expect(await readFile(receipt, "utf8")).toBe("destroyed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

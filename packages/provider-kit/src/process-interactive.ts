@@ -1,31 +1,55 @@
 import { spawn } from "node:child_process";
-import { registerGroup, unregisterGroup } from "./process-owner.ts";
-import { ownedTree, type TreePorts } from "./process-tree.ts";
+import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { toWindowsCommand } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
 import type { ProcessExit } from "./process.ts";
 export type InteractiveProcess = {
   exited: Promise<ProcessExit>;
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 /** Inherit the terminal without capturing login output or credential input. */
-export function spawnInteractive(
-  options: TreePorts & {
-    command: string;
-    args: readonly string[];
-    env: NodeJS.ProcessEnv;
-    stdout?: "stdout" | "stderr";
-  },
-): InteractiveProcess {
-  const tree = ownedTree(options.command, options.args, options);
-  const { terminate, destroy } = tree;
-  const child = spawn(tree.command, tree.args, {
+export function spawnInteractive(options: {
+  command: string;
+  args: readonly string[];
+  env: NodeJS.ProcessEnv;
+  stdout?: "stdout" | "stderr";
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
+  /** Whole-tree stop used on Windows instead of process-group signals. */
+  windowsKillTree?: WindowsKillTree;
+  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
+  windowsJobFactory?: WindowsJobFactory;
+}): InteractiveProcess {
+  // Process groups do not exist on Windows; contain the tree with a Job Object and taskkill.
+  const windows = (options.platform ?? process.platform) === "win32";
+  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const terminate = (pid: number) => {
+    if (windows) killTree(pid, false);
+    else killGroup(pid, "SIGTERM");
+  };
+  const destroy = (pid: number) => {
+    if (windows) killTree(pid, true);
+    else killGroup(pid, "SIGKILL");
+  };
+  const target = windows
+    ? toWindowsCommand(options.command, options.args)
+    : { command: options.command, args: [...options.args], verbatim: false };
+  const child = spawn(target.command, target.args, {
     env: options.env,
     stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
-    ...tree.spawnOptions,
     // The console stays visible: login owns credential entry and browser handoff.
-    windowsHide: false,
+    ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
+    windowsVerbatimArguments: target.verbatim,
   });
   const pid = child.pid;
-  const job = tree.contain(pid);
+  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
+  if (pid !== undefined) job?.assign(pid);
   let stopped = false;
   let failed = false;
   let closed = false;

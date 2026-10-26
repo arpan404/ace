@@ -2,11 +2,6 @@ import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
-/** Whole-tree stop where process groups do not exist (Windows); `force` ends it outright. */
-export type KillTree = (pid: number, force: boolean) => void;
-/** Tests inject a platform and tree stop; production reads the host. */
-export type GroupPorts = { platform?: NodeJS.Platform; killTree?: KillTree };
-
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
   number,
@@ -21,25 +16,10 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
   return () => journals.delete(journal);
 }
 
-/** taskkill /T stops the tree the way a process-group signal would; /F forces it. No shell. */
-function taskkillTree(pid: number, force: boolean): void {
-  try {
-    const killer = spawn("taskkill", ["/pid", String(pid), "/T", ...(force ? ["/F"] : [])], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.once("error", () => {});
-    killer.unref();
-  } catch {
-    /* Exit polling still reaps a survivor; the next stop escalates. */
-  }
-}
-
-export function killGroup(pid: number, signal: NodeJS.Signals, ports: GroupPorts = {}): void {
-  const platform = ports.platform ?? process.platform;
-  if (platform === "win32") {
-    // No process groups exist; SIGKILL forces the tree, anything else asks it to close.
-    (ports.killTree ?? taskkillTree)(pid, signal === "SIGKILL");
+export function killGroup(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    // No process groups exist; reap the tree like every other Windows stop.
+    killWindowsTree(pid, true);
     return;
   }
   try {
@@ -47,33 +27,24 @@ export function killGroup(pid: number, signal: NodeJS.Signals, ports: GroupPorts
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     // Darwin can report EPERM for groups containing only zombies before reaping.
-    if (code !== "ESRCH" && !(platform === "darwin" && code === "EPERM")) throw error;
-  }
-}
-function groupGone(pid: number, platform: NodeJS.Platform): boolean {
-  try {
-    // Windows has no group to probe; the tree is tracked through its leader.
-    process.kill(platform === "win32" ? pid : -pid, 0);
-    return false;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH" || (platform === "darwin" && code === "EPERM")) return true;
-    throw error;
+    if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
 }
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
-export async function stopRetainedGroup(
-  pid: number,
-  graceMs: number,
-  ports: GroupPorts = {},
-): Promise<void> {
-  const platform = ports.platform ?? process.platform;
-  killGroup(pid, "SIGTERM", ports);
+export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
+  killGroup(pid, "SIGTERM");
   const deadline = performance.now() + graceMs;
-  while (!groupGone(pid, platform)) {
+  while (true) {
+    try {
+      process.kill(-pid, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
+      throw error;
+    }
     const remaining = deadline - performance.now();
     if (remaining <= 0) {
-      killGroup(pid, "SIGKILL", ports);
+      killGroup(pid, "SIGKILL");
       break;
     }
     await delay(Math.min(25, remaining));
@@ -160,4 +131,95 @@ export async function stopOwnedGroups(graceMs = 500): Promise<void> {
   const results = await Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)));
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Some owned process groups could not be stopped");
+}
+
+// Windows: no process groups exist, so trees stop through taskkill and batch entrypoints
+// run through cmd.exe.
+
+/** Whole-tree stop on Windows, where process groups do not exist. */
+export type WindowsKillTree = (pid: number, force: boolean) => void;
+
+/** taskkill /T stops the tree the way a Job Object would; /F forces it. Never uses a shell. */
+export function killWindowsTree(pid: number, force: boolean): void {
+  try {
+    const killer = spawn(
+      "taskkill",
+      force ? ["/pid", String(pid), "/T", "/F"] : ["/pid", String(pid), "/T"],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+    killer.once("error", () => {});
+    killer.unref();
+  } catch {
+    /* Exit polling still reaps a survivor; the next stop escalates. */
+  }
+}
+
+/** Graceful tree stop that escalates after the grace, mirroring stopRetainedGroup. */
+export async function stopRetainedWindowsTree(
+  pid: number,
+  graceMs: number,
+  killTree: WindowsKillTree = killWindowsTree,
+): Promise<void> {
+  killTree(pid, false);
+  const deadline = performance.now() + graceMs;
+  while (true) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
+      throw error;
+    }
+    if (performance.now() >= deadline) {
+      killTree(pid, true);
+      return;
+    }
+    await delay(25);
+  }
+}
+
+/** Batch entrypoints cannot spawn directly (CVE-2024-27980); route them through cmd.exe. */
+export type WindowsCommand = { command: string; args: string[]; verbatim: boolean };
+
+/** Quote for the target argv parser: always wrap, escape `"` and edge backslashes. */
+function msvcrtQuote(value: string): string {
+  let quoted = '"';
+  let backslashes = 0;
+  for (const char of value) {
+    if (char === "\\") {
+      backslashes++;
+      continue;
+    }
+    if (char === '"') quoted += "\\".repeat(backslashes * 2 + 1) + '"';
+    else quoted += "\\".repeat(backslashes) + char;
+    backslashes = 0;
+  }
+  return quoted + "\\".repeat(backslashes * 2) + '"';
+}
+
+/** Hide one cmd.exe parse behind `^`; a second pass survives the shim's `%*` reparse. */
+function caretEscape(text: string): string {
+  return text.replace(/([()%!^"<>&|])/g, "^$1");
+}
+
+/** The program path rides in plain quotes so a space cannot split it; a quote
+ * or % in the path is refused instead of misquoted. */
+function escapeCommand(value: string): string {
+  if (value.includes('"') || value.includes("%"))
+    throw new Error("Windows batch command path cannot contain a quote or %");
+  return `"${value}"`;
+}
+
+function escapeArgument(value: string): string {
+  return caretEscape(caretEscape(msvcrtQuote(value)));
+}
+
+/** Wrap a batch entrypoint as `cmd.exe /d /s /c "..."`; other commands pass through. */
+export function toWindowsCommand(command: string, args: readonly string[]): WindowsCommand {
+  const base = command.split(/[\\/]/).pop() ?? command;
+  if (!/\.(?:cmd|bat)$/i.test(base)) return { command, args: [...args], verbatim: false };
+  const line = [escapeCommand(command), ...args.map(escapeArgument)].join(" ");
+  return { command: "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], verbatim: true };
 }

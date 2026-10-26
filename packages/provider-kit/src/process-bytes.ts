@@ -1,8 +1,14 @@
 import { spawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { terminateDirectoryProcesses } from "./directory-processes.ts";
-import { registerGroup, unregisterGroup } from "./process-owner.ts";
-import { ownedTree, type TreePorts } from "./process-tree.ts";
+import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
+import { toWindowsCommand } from "./process-owner.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
@@ -12,7 +18,7 @@ export interface ByteProcess {
   exited: Promise<number | null>;
   stop(): Promise<void>;
 }
-export interface ByteProcessOptions extends TreePorts {
+export interface ByteProcessOptions {
   command: string;
   args: readonly string[];
   cwd: string;
@@ -20,19 +26,36 @@ export interface ByteProcessOptions extends TreePorts {
   /** Exclusive private Git directory used to identify helpers that detach from the group. */
   ownedCwd?: string;
   scheduleDrain?: (callback: () => void, milliseconds: number) => () => void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
+  /** Whole-tree stop used on Windows instead of process-group signals. */
+  windowsKillTree?: WindowsKillTree;
+  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
+  windowsJobFactory?: WindowsJobFactory;
 }
 /** Byte streams for binary CLI output; owns descendants and drains no unbounded line buffers. */
 export function spawnBytes(options: ByteProcessOptions): ByteProcess {
-  const tree = ownedTree(options.command, options.args, options);
-  const { destroy } = tree;
-  const child = spawn(tree.command, tree.args, {
+  // No process groups exist on Windows; stop the whole tree with taskkill instead.
+  const windows = (options.platform ?? process.platform) === "win32";
+  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const destroy = (pid: number) => {
+    if (windows) killTree(pid, true);
+    else killGroup(pid, "SIGKILL");
+  };
+  const target = windows
+    ? toWindowsCommand(options.command, options.args)
+    : { command: options.command, args: [...options.args], verbatim: false };
+  const child = spawn(target.command, target.args, {
     cwd: options.cwd,
     env: options.env,
-    ...tree.spawnOptions,
+    ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+    windowsVerbatimArguments: target.verbatim,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
-  const job = tree.contain(pid);
+  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
+  if (pid !== undefined) job?.assign(pid);
   let cleanup: Promise<void> | undefined;
   let closed = false;
   let cancelDrain: (() => void) | undefined;
@@ -41,8 +64,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       cleanup = (async () => {
         if (pid !== undefined) destroy(pid);
         // No lsof or /proc on Windows; the taskkill tree stop is the only reaper.
-        if (options.ownedCwd && tree.platform !== "win32")
-          await terminateDirectoryProcesses([options.ownedCwd]);
+        if (options.ownedCwd && !windows) await terminateDirectoryProcesses([options.ownedCwd]);
       })();
     return cleanup;
   };

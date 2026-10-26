@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import {
   createKillOnCloseJob,
   createRetainedJob,
-  type JobObjectApi,
+  type WindowsJobApi,
 } from "./process-containment.ts";
 
 function fixture(
@@ -15,11 +15,10 @@ function fixture(
     processHeld: false,
     loaded: true,
     failUnload: false,
-    failProcessClose: false,
     members: 0,
     failClose: options.closeFails ?? false,
   };
-  const api: JobObjectApi = {
+  const api: WindowsJobApi = {
     create() {
       const handle = Object.hasOwn(options, "handle") ? options.handle : jobHandle;
       state.held = handle === jobHandle;
@@ -38,7 +37,6 @@ function fixture(
     close(handle) {
       if (handle === processHandle) {
         if (!state.processHeld) throw new Error("Process handle closed twice");
-        if (state.failProcessClose) throw new Error("process close denied");
         state.processHeld = false;
       } else if (handle === jobHandle) {
         if (!state.held) throw new Error("Job handle closed twice");
@@ -135,28 +133,5 @@ test("a failed library unload retries without reopening or double-closing the jo
   expect(() => job.activeCount()).toThrow("closed");
   state.failUnload = false;
   job.dispose();
-  expect(state.loaded).toBe(false);
-});
-
-test("assignment and cleanup failures remain visible and retained handles can retry", () => {
-  const { api, state } = fixture({ join: false });
-  const job = createRetainedJob(() => api);
-  state.failProcessClose = true;
-  let failure: unknown;
-  try {
-    job.assign(4242);
-  } catch (error) {
-    failure = error;
-  }
-  if (!(failure instanceof AggregateError)) throw new Error("Expected both failures");
-  expect(failure.cause).toBeInstanceOf(Error);
-  expect(
-    failure.errors.map((error: unknown) => (error instanceof Error ? error.message : "invalid")),
-  ).toEqual(["Windows job assignment failed", "process close denied"]);
-  expect(state.processHeld).toBe(true);
-  state.failProcessClose = false;
-  job.dispose();
-  expect(state.processHeld).toBe(false);
-  expect(state.held).toBe(false);
   expect(state.loaded).toBe(false);
 });

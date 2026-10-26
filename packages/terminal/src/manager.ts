@@ -1,5 +1,10 @@
 import { ByteRing } from "./ring.ts";
-import { createBackendFactory, resolveShell, shutdownScheduler } from "./pty.ts";
+import {
+  createConptyBackendFactory,
+  createPosixBackendFactory,
+  resolveShell,
+  shutdownScheduler,
+} from "./pty.ts";
 import type { BackendFactory } from "./pty.ts";
 import type { ShutdownScheduler } from "./ownership.ts";
 import { randomUUID } from "node:crypto";
@@ -43,7 +48,8 @@ export class TerminalManager {
     this.#capacity = scrollbackBytes;
     this.#graceMs = graceMs;
     this.#dependencies = {
-      backendFactory: createBackendFactory(),
+      backendFactory:
+        process.platform === "win32" ? createConptyBackendFactory() : createPosixBackendFactory(),
       resolveShell,
       createSessionId: randomUUID,
       shutdownScheduler,

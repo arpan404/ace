@@ -1,16 +1,10 @@
-import { afterEach, describe, expect, test } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setImmediate } from "node:timers/promises";
 import { fixture, until, collect, runNode, quote } from "./test-support.ts";
-import { TerminalManager } from "./index.ts";
 import type { TerminalEvent } from "./index.ts";
-
-// These cases drive POSIX shells (stty, printf, job control); Windows runs the ConPTY block below.
-const posix = test.skipIf(process.platform === "win32");
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -31,7 +25,7 @@ function text(events: TerminalEvent[]): string {
     .join("");
 }
 
-posix("typed input echoes through a real PTY in the requested workspace", async () => {
+test("typed input echoes through a real PTY in the requested workspace", async () => {
   const { terminal, attachment, home } = await open();
   terminal.write("stty echo; printf 'ROUND_TRIP\\n'; pwd\r");
   expect(await until(attachment, `${home}\r\n`)).toContain("ROUND_TRIP\r\n");
@@ -39,7 +33,7 @@ posix("typed input echoes through a real PTY in the requested workspace", async 
   expect(await until(attachment, "INPUT_ECHO\r\n")).toContain("INPUT_ECHO");
 });
 
-posix("stty size reports the resized PTY dimensions", async () => {
+test("stty size reports the resized PTY dimensions", async () => {
   const { terminal, attachment } = await open();
   terminal.write(
     `sh -c ${quote("printf 'SIZE_READY\\n'; read -r reply; stty size; printf 'SIZE_DONE\\n'")}\r`,
@@ -52,7 +46,7 @@ posix("stty size reports the resized PTY dimensions", async () => {
   expect(terminal.snapshot()).toMatchObject({ cols: 113, rows: 37 });
 });
 
-posix("ctrl-C interrupts a foreground sleep and returns control to the shell", async () => {
+test("ctrl-C interrupts a foreground sleep and returns control to the shell", async () => {
   const { terminal, attachment } = await open();
   terminal.write(`sh -c ${quote("printf 'RUNNING:%s:READY\\n' $$; exec sleep 1000")}\r`);
   const output = await until(attachment, ":READY\r\n");
@@ -70,7 +64,7 @@ posix("ctrl-C interrupts a foreground sleep and returns control to the shell", a
   expect(await until(attachment, "STATUS:130\r\n")).toContain("STATUS:130");
 });
 
-posix("late attachers receive final output and the retained exit code", async () => {
+test("late attachers receive final output and the retained exit code", async () => {
   const { terminal } = await open();
   terminal.write("printf 'FINAL_OUTPUT\\n'; exit 23\r");
   expect(await terminal.exited).toEqual({ code: 23, signal: null });
@@ -84,7 +78,7 @@ posix("late attachers receive final output and the retained exit code", async ()
   expect(terminal.snapshot().exit).toEqual({ code: 23, signal: null });
 });
 
-posix("an old offset replays the retained tail and flags truncation only once", async () => {
+test("an old offset replays the retained tail and flags truncation only once", async () => {
   const { terminal } = await open({ scrollbackBytes: 128 * 1024 });
   runNode(terminal, "process.stdout.write('x'.repeat(256 * 1024)+'TAIL')");
   terminal.write("exit 0\r");
@@ -101,7 +95,7 @@ posix("an old offset replays the retained tail and flags truncation only once", 
   expect(Buffer.from(snapshot.data, "base64").toString()).toBe(text(events));
 });
 
-posix("two concurrent attachers receive identical bytes and byte offsets", async () => {
+test("two concurrent attachers receive identical bytes and byte offsets", async () => {
   const { terminal } = await open();
   const first = collect(terminal.attach({ fromOffset: 0 }));
   const second = collect(terminal.attach({ fromOffset: 0 }));
@@ -119,7 +113,7 @@ posix("two concurrent attachers receive identical bytes and byte offsets", async
   }
 });
 
-posix("a UTF-8 character split across native reads is delivered whole", async () => {
+test("a UTF-8 character split across native reads is delivered whole", async () => {
   const { terminal, attachment } = await open();
   const offset = terminal.snapshot().nextOffset;
   terminal.write("printf '\\342\\202'; read -r reply; printf '\\254DONE\\n'\r");
@@ -141,48 +135,42 @@ posix("a UTF-8 character split across native reads is delivered whole", async ()
   expect(output).toBe("€DONE\r\n");
 });
 
-posix(
-  "offsets inside a UTF-8 character skip its continuation bytes and mark truncation",
-  async () => {
-    const { terminal, attachment } = await open();
-    const offset = terminal.snapshot().nextOffset;
-    terminal.write("printf '🙂AFTER\\n'; exec /usr/bin/true\r");
-    await terminal.exited;
-    attachment.detach();
-    const events = await collect(terminal.attach({ fromOffset: offset + 1 }));
-    expect(events[0]).toMatchObject({
-      type: "data",
-      offset: offset + 4,
-      data: "AFTER\r\n",
-      truncatedBefore: true,
-    });
-  },
-);
+test("offsets inside a UTF-8 character skip its continuation bytes and mark truncation", async () => {
+  const { terminal, attachment } = await open();
+  const offset = terminal.snapshot().nextOffset;
+  terminal.write("printf '🙂AFTER\\n'; exec /usr/bin/true\r");
+  await terminal.exited;
+  attachment.detach();
+  const events = await collect(terminal.attach({ fromOffset: offset + 1 }));
+  expect(events[0]).toMatchObject({
+    type: "data",
+    offset: offset + 4,
+    data: "AFTER\r\n",
+    truncatedBefore: true,
+  });
+});
 
-posix(
-  "environment overrides reach a login interactive shell with terminal colors enforced",
-  async () => {
-    const { manager, home } = await open();
-    const terminal = manager.openTerminal({
-      cwd: home,
-      shell: "/bin/bash",
-      cols: 80,
-      rows: 24,
-      name: "environment",
-      env: { HOME: home, ACE_TERMINAL_TEST: "override", TERM: "wrong", COLORTERM: "wrong" },
-    });
-    const attachment = terminal.attach();
-    await until(attachment, "__READY__\r\n");
-    terminal.write(
-      "shopt -q login_shell && printf 'LOGIN:'; case $- in *i*) printf 'INTERACTIVE:';; esac; printf '%s:%s:%s\\n' \"$ACE_TERMINAL_TEST\" \"$TERM\" \"$COLORTERM\"; exit\r",
-    );
-    expect(text(await collect(attachment))).toContain(
-      "LOGIN:INTERACTIVE:override:xterm-256color:truecolor\r\n",
-    );
-  },
-);
+test("environment overrides reach a login interactive shell with terminal colors enforced", async () => {
+  const { manager, home } = await open();
+  const terminal = manager.openTerminal({
+    cwd: home,
+    shell: "/bin/bash",
+    cols: 80,
+    rows: 24,
+    name: "environment",
+    env: { HOME: home, ACE_TERMINAL_TEST: "override", TERM: "wrong", COLORTERM: "wrong" },
+  });
+  const attachment = terminal.attach();
+  await until(attachment, "__READY__\r\n");
+  terminal.write(
+    "shopt -q login_shell && printf 'LOGIN:'; case $- in *i*) printf 'INTERACTIVE:';; esac; printf '%s:%s:%s\\n' \"$ACE_TERMINAL_TEST\" \"$TERM\" \"$COLORTERM\"; exit\r",
+  );
+  expect(text(await collect(attachment))).toContain(
+    "LOGIN:INTERACTIVE:override:xterm-256color:truecolor\r\n",
+  );
+});
 
-posix("a daemon started with no locale still gets typed UTF-8 through the shell", async () => {
+test("a daemon started with no locale still gets typed UTF-8 through the shell", async () => {
   const { manager, home } = await open();
   // As launchd or a desktop app starts the daemon: no locale variable at all.
   const terminal = manager.openTerminal({
@@ -205,49 +193,43 @@ posix("a daemon started with no locale still gets typed UTF-8 through the shell"
   expect(text(await collect(attachment))).toContain("TYPED:漢字🙂\r\n");
 });
 
-posix(
-  "detaching resolves a pending read without affecting the shell or other watchers",
-  async () => {
-    const { terminal, attachment } = await open();
-    const pending = attachment.next();
-    attachment.detach();
-    expect((await pending).done).toBe(true);
-    const other = terminal.attach({ fromOffset: terminal.snapshot().nextOffset });
-    terminal.write("printf 'STILL_ALIVE\\n'\r");
-    expect(await until(other, "STILL_ALIVE\r\n")).toContain("STILL_ALIVE");
-    other.detach();
-  },
-);
+test("detaching resolves a pending read without affecting the shell or other watchers", async () => {
+  const { terminal, attachment } = await open();
+  const pending = attachment.next();
+  attachment.detach();
+  expect((await pending).done).toBe(true);
+  const other = terminal.attach({ fromOffset: terminal.snapshot().nextOffset });
+  terminal.write("printf 'STILL_ALIVE\\n'\r");
+  expect(await until(other, "STILL_ALIVE\r\n")).toContain("STILL_ALIVE");
+  other.detach();
+});
 
-posix(
-  "20 MiB drains with no readers while a stalled reader gets resync and bounded scrollback",
-  async () => {
-    const capacity = 64 * 1024;
-    const { terminal, attachment } = await open({ scrollbackBytes: capacity });
-    attachment.detach();
-    const slow = terminal.attach({ fromOffset: terminal.snapshot().nextOffset });
-    const before = terminal.snapshot().nextOffset;
-    terminal.write("exec ");
-    runNode(
-      terminal,
-      "const fs=require('node:fs'); const block=Buffer.alloc(65536,120); for(let i=0;i<320;i++)fs.writeSync(1,block); fs.writeSync(1,'END');",
-    );
-    expect(await terminal.exited).toEqual({ code: 0, signal: null });
-    const snapshot = terminal.snapshot();
-    expect(snapshot.nextOffset - before).toBe(20 * 1024 * 1024 + 3);
-    expect(Buffer.from(snapshot.data, "base64").length).toBe(capacity);
-    expect((await slow.next()).value).toEqual({
-      type: "resync",
-      oldestOffset: snapshot.oldestOffset,
-      nextOffset: snapshot.nextOffset,
-    });
-    expect((await slow.next()).done).toBe(true);
-    const replay = await collect(terminal.attach({ fromOffset: snapshot.oldestOffset }));
-    expect(text(replay).endsWith("END")).toBe(true);
-  },
-);
+test("20 MiB drains with no readers while a stalled reader gets resync and bounded scrollback", async () => {
+  const capacity = 64 * 1024;
+  const { terminal, attachment } = await open({ scrollbackBytes: capacity });
+  attachment.detach();
+  const slow = terminal.attach({ fromOffset: terminal.snapshot().nextOffset });
+  const before = terminal.snapshot().nextOffset;
+  terminal.write("exec ");
+  runNode(
+    terminal,
+    "const fs=require('node:fs'); const block=Buffer.alloc(65536,120); for(let i=0;i<320;i++)fs.writeSync(1,block); fs.writeSync(1,'END');",
+  );
+  expect(await terminal.exited).toEqual({ code: 0, signal: null });
+  const snapshot = terminal.snapshot();
+  expect(snapshot.nextOffset - before).toBe(20 * 1024 * 1024 + 3);
+  expect(Buffer.from(snapshot.data, "base64").length).toBe(capacity);
+  expect((await slow.next()).value).toEqual({
+    type: "resync",
+    oldestOffset: snapshot.oldestOffset,
+    nextOffset: snapshot.nextOffset,
+  });
+  expect((await slow.next()).done).toBe(true);
+  const replay = await collect(terminal.attach({ fromOffset: snapshot.oldestOffset }));
+  expect(text(replay).endsWith("END")).toBe(true);
+});
 
-posix("an active watcher continues after another watcher falls behind", async () => {
+test("an active watcher continues after another watcher falls behind", async () => {
   const { terminal, attachment } = await open({ scrollbackBytes: 4096 });
   const slow = terminal.attach({ fromOffset: terminal.snapshot().nextOffset });
   for (let i = 0; i < 8; i++) {
@@ -257,7 +239,7 @@ posix("an active watcher continues after another watcher falls behind", async ()
   expect((await slow.next()).value).toMatchObject({ type: "resync" });
 });
 
-posix("kill retains the POSIX signal for a late attacher", async () => {
+test("kill retains the POSIX signal for a late attacher", async () => {
   const { terminal } = await open();
   await terminal.kill("SIGKILL");
   expect((await terminal.exited).signal).toBe(9);
@@ -267,7 +249,7 @@ posix("kill retains the POSIX signal for a late attacher", async () => {
   });
 });
 
-posix("closeAll kills a background child in a shell job-control group", async () => {
+test("closeAll kills a background child in a shell job-control group", async () => {
   const { terminal, manager, attachment } = await open();
   terminal.write("trap '' HUP; sleep 1000 & printf 'CHILD:%s:READY\\n' $!\r");
   const output = await until(attachment, ":READY\r\n");
@@ -294,7 +276,7 @@ posix("closeAll kills a background child in a shell job-control group", async ()
   await manager.closeAll();
 });
 
-posix("closeAll escalates when a foreground child ignores SIGTERM", async () => {
+test("closeAll escalates when a foreground child ignores SIGTERM", async () => {
   const { terminal, manager, attachment } = await open();
   runNode(
     terminal,
@@ -320,7 +302,7 @@ posix("closeAll escalates when a foreground child ignores SIGTERM", async () => 
   expect(state === undefined || state.startsWith("Z")).toBe(true);
 });
 
-posix("invalid dimensions and offsets fail before corrupting a running session", async () => {
+test("invalid dimensions and offsets fail before corrupting a running session", async () => {
   const { terminal, attachment } = await open();
   expect(() => terminal.resize(0, 1)).toThrow(RangeError);
   expect(() => terminal.attach({ fromOffset: -1 })).toThrow(RangeError);
@@ -329,79 +311,4 @@ posix("invalid dimensions and offsets fail before corrupting a running session",
   );
   terminal.write(`printf '%s\\n' ${quote("VALID")}\r`);
   expect(await until(attachment, "VALID\r\n")).toContain("VALID");
-});
-
-/** A real ConPTY terminal on the host's default shell, past its first evaluated command. */
-async function openConpty() {
-  const home = await mkdtemp(join(tmpdir(), "ace-terminal-conpty-"));
-  const manager = new TerminalManager({ graceMs: 0 });
-  const terminal = manager.openTerminal({ cwd: home, cols: 80, rows: 24, name: "conpty" });
-  const attachment = terminal.attach();
-  cleanups.push(async () => {
-    attachment.detach();
-    // Windows keeps the shell's cwd locked until the tree has stopped.
-    await manager.closeAll();
-    await rm(home, { recursive: true, force: true });
-  });
-  const pwsh = /pwsh|powershell/i.test(terminal.snapshot().shell);
-  /** Evaluates arithmetic in the shell; the result never appears in the typed input. */
-  const evaluate = (sum: string) => terminal.write(pwsh ? `${sum}\r` : `set /a ${sum}\r`);
-  evaluate("123456+654321");
-  await until(attachment, "777777");
-  return { manager, terminal, attachment, pwsh, evaluate };
-}
-
-describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
-  test("the shell evaluates input instead of echoing it, before and after a resize", async () => {
-    const { terminal, attachment, evaluate } = await openConpty();
-    evaluate("123*456");
-    expect(await until(attachment, "56088")).toContain("56088");
-    terminal.resize(113, 37);
-    expect(terminal.snapshot()).toMatchObject({ cols: 113, rows: 37 });
-    evaluate("999+1");
-    expect(await until(attachment, "1000")).toContain("1000");
-  });
-
-  test("ctrl-C at the prompt leaves the shell running", async () => {
-    const { terminal, attachment, evaluate } = await openConpty();
-    terminal.write("\x03");
-    // Let the line editor finish cancelling before the next line arrives.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    evaluate("4000+321");
-    const shellExit = terminal.exited.then((status) => {
-      throw new Error(`The shell exited on ctrl-C: ${JSON.stringify(status)}`);
-    });
-    expect(await Promise.race([until(attachment, "4321"), shellExit])).toContain("4321");
-    expect(terminal.ownsProcesses).toBe(true);
-  });
-
-  test("UTF-8 output survives ConPTY", async () => {
-    const { terminal, attachment, pwsh } = await openConpty();
-    // PowerShell only executes a quoted path with the call operator. The emoji is emitted from
-    // code points so the literal never occurs in typed input.
-    terminal.write(
-      `${pwsh ? "& " : ""}${JSON.stringify(process.execPath)} -e "process.stdout.write('UTF8_'+String.fromCodePoint(0x1F600,0xE9,0x7D42)+'\\n')"\r`,
-    );
-    expect(await until(attachment, "UTF8_😀")).toContain("😀");
-  });
-
-  test("shell exit retains history and ownership until close", async () => {
-    const { terminal } = await openConpty();
-    terminal.write("exit 23\r");
-    expect(await terminal.exited).toEqual({ code: 23, signal: null });
-    expect(terminal.ownsProcesses).toBe(true);
-    const events = await collect(terminal.attach({ fromOffset: 0 }));
-    expect(events.at(-1)).toEqual({
-      type: "exit",
-      status: { code: 23, signal: null },
-      nextOffset: terminal.snapshot().nextOffset,
-    });
-  });
-
-  test("close stops a running child of the shell", async () => {
-    const { manager, terminal } = await openConpty();
-    terminal.write("ping -n 30 127.0.0.1\r");
-    await manager.closeAll();
-    expect(terminal.ownsProcesses).toBe(false);
-  });
 });

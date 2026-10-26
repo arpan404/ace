@@ -2,66 +2,26 @@ import { readFileSync } from "node:fs";
 import koffi from "koffi";
 import { z } from "zod";
 
-/**
- * Kernel process identity on Windows.
- *
- * OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION followed by
- * GetProcessTimes is the documented start surface:
- * https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
- * https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes
- * The creation time is a FILETIME
- * (https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime):
- * a 64-bit count of 100-nanosecond intervals since 1 January 1601 UTC,
- * stored as dwLowDateTime followed by dwHighDateTime. PID plus creation
- * time disambiguates PID reuse. GetProcessTimes documents four [out]
- * FILETIME pointers with no NULL allowance, so all four buffers are real.
- *
- * FILETIME is wall-clock, not a boot counter. The wall-clock origin survives
- * reboots without a boot-id join, but a system-clock rollback can reuse a
- * start value and the clock resolution is coarse. Identity therefore assumes
- * a monotonic system clock; callers still prove absence separately (ESRCH)
- * and permission failures must retain resources. No reboot-proof claim is
- * made here.
- *
- * Owner equality uses the process token user SID, kept lossless as a string:
- * https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken
- * https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation
- * https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class
- * https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_user
- * https://learn.microsoft.com/en-us/windows/win32/api/sddl/nf-sddl-convertsidtostringsidw
- * https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree
- * SID string notation is S-R-I-S...:
- * https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-components
- * No hashes or synthetic uid values are used. Windows has no POSIX pgid;
- * group stays pid for leader checks. Process groups and inventory recovery
- * remain POSIX-only pending W11; this module never claims full recovery.
- */
-
-/** Minimal right that still serves GetProcessTimes and OpenProcessToken (Vista+). */
-export const processQueryLimitedInformation = 0x1000;
-/** TOKEN_QUERY from winnt.h; required to query a token per GetTokenInformation docs. */
-export const tokenQuery = 0x0008;
-/** TokenUser from TOKEN_INFORMATION_CLASS per Microsoft docs. */
-export const tokenUser = 1;
-/** OpenProcess reports this when the PID names no live process. */
-export const errorInvalidParameter = 87;
-/** First GetTokenInformation with zero length reports this with the needed size. */
-export const errorInsufficientBuffer = 122;
-
-/** SID string in S-R-I-S... notation, kept lossless with a bounded length. */
-export const windowsSidSchema = z
+// Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
+// plus the token-user SID string. Windows has no pgid, so group stays the pid.
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const TOKEN_QUERY = 0x0008;
+const TOKEN_USER = 1;
+const ERROR_INVALID_PARAMETER = 87;
+const ERROR_INSUFFICIENT_BUFFER = 122;
+const windowsSid = z
   .string()
   .regex(/^S-\d+(-\d+)+$/)
   .max(256);
-
-const pidSchema = z.number().int().positive();
-const dwordSchema = z.number().int().nonnegative().max(0xffffffff);
-const nativeIntSchema = z.number().int();
-const tokenInfoSizeSchema = z.number().int().positive().max(4096);
+const nativeInt = z.number().int();
+const dword = z.number().int().nonnegative().max(0xffffffff);
 
 /** NULL from Win32 arrives as null, undefined, 0, or 0n through koffi BigInt pointers. */
 function isNullHandle(handle: unknown): boolean {
   return handle === null || handle === undefined || handle === 0 || handle === 0n;
+}
+function expectNative(ok: boolean): void {
+  if (!ok) throw new Error("Kernel process identity unavailable");
 }
 
 /** Raw Win32 surface behind the identity. Tests inject a fake; production uses koffi. */
@@ -78,11 +38,10 @@ export type WindowsProcessIdentityApi = {
   unload: () => void;
 };
 
-/** Thin koffi shell over kernel32 and Advapi32; every native result is validated before use. */
-export function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
+function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
   const kernel = koffi.load("kernel32.dll");
   let advapi: ReturnType<typeof koffi.load> | undefined;
-  const unloadLibraries = (): void => {
+  const unload = (): void => {
     try {
       kernel.unload();
     } finally {
@@ -94,114 +53,94 @@ export function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
     const openProcess = kernel.func(
       "void* __stdcall OpenProcess(uint access, int inherit, uint pid)",
     );
-    const getProcessTimes = kernel.func(
-      "int __stdcall GetProcessTimes(void* hProcess, void* lpCreationTime, void* lpExitTime, void* lpKernelTime, void* lpUserTime)",
+    const times = kernel.func(
+      "int __stdcall GetProcessTimes(void* process, void* creation, void* exit, void* kernel, void* user)",
     );
-    const getLastError = kernel.func("uint __stdcall GetLastError()");
+    const lastError = kernel.func("uint __stdcall GetLastError()");
     const closeHandle = kernel.func("int __stdcall CloseHandle(void* handle)");
-    const localFree = kernel.func("void* __stdcall LocalFree(void* hMem)");
-    const openProcessToken = advapi.func(
-      "int __stdcall OpenProcessToken(void* ProcessHandle, uint DesiredAccess, _Out_ void** TokenHandle)",
+    const localFree = kernel.func("void* __stdcall LocalFree(void* memory)");
+    const openToken = advapi.func(
+      "int __stdcall OpenProcessToken(void* process, uint access, _Out_ void** token)",
     );
-    const getTokenInformation = advapi.func(
-      "int __stdcall GetTokenInformation(void* TokenHandle, int TokenInformationClass, void* TokenInformation, uint TokenInformationLength, _Out_ uint* ReturnLength)",
+    const tokenInfo = advapi.func(
+      "int __stdcall GetTokenInformation(void* token, int infoClass, void* info, uint length, _Out_ uint* needed)",
     );
-    const convertSidToStringSidW = advapi.func(
-      "int __stdcall ConvertSidToStringSidW(void* Sid, _Out_ void** StringSid)",
+    const sidToString = advapi.func(
+      "int __stdcall ConvertSidToStringSidW(void* sid, _Out_ void** text)",
     );
     return {
-      open: (pid) => openProcess(processQueryLimitedInformation, 0, pid),
-      times: (handle, creation, exit, kernelTime, userTime) =>
-        getProcessTimes(handle, creation, exit, kernelTime, userTime),
-      openToken: (processHandle, outToken) => openProcessToken(processHandle, tokenQuery, outToken),
+      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid),
+      times,
+      openToken: (handle, out) => openToken(handle, TOKEN_QUERY, out),
       tokenInfo: (token, info, length, needed) =>
-        getTokenInformation(token, tokenUser, info, length, needed),
-      sidToString: (sid, outString) => convertSidToStringSidW(sid, outString),
-      decodeSid: (ptr) => {
-        const address = z.bigint().parse(ptr);
-        const text: unknown = koffi.decode.string16(address);
-        return z.string().min(1).parse(text);
-      },
-      free: (ptr) => {
-        localFree(ptr);
-      },
-      lastError: () => getLastError(),
-      close: (handle) => {
-        closeHandle(handle);
-      },
-      unload: unloadLibraries,
+        tokenInfo(token, TOKEN_USER, info, length, needed),
+      sidToString,
+      decodeSid: (ptr) =>
+        z
+          .string()
+          .min(1)
+          .parse(koffi.decode.string16(z.bigint().parse(ptr))),
+      free: (ptr) => void localFree(ptr),
+      lastError,
+      close: (handle) => void closeHandle(handle),
+      unload,
     };
   } catch (error) {
     try {
-      unloadLibraries();
+      unload();
     } catch {
-      // Best-effort cleanup; preserve the original binding failure.
+      // Keep the binding failure.
     }
     throw error;
   }
 }
 
-/** Combine a FILETIME pair into its canonical decimal start string. */
-export function filetimeToStart(low: number, high: number): string {
-  const lowWord = dwordSchema.parse(low);
-  const highWord = dwordSchema.parse(high);
-  return ((BigInt(highWord) << 32n) | BigInt(lowWord)).toString();
-}
-
 /**
- * Read the creation-time start and token-user SID for one PID. Returns
- * undefined only when OpenProcess reports ERROR_INVALID_PARAMETER (no such
- * process); every other native failure throws so the caller can prove
- * absence separately. The process handle, token handle, and SID string
- * buffer are always released before returning.
+ * Creation start and token-user SID for one PID, or undefined when no such process exists. Other
+ * native failures throw; every handle and buffer is released before returning.
  */
 export function readWindowsProcessIdentity(
   pid: number,
   api: WindowsProcessIdentityApi,
 ): { start: string; owner: string } | undefined {
-  pidSchema.parse(pid);
+  z.number().int().positive().parse(pid);
   const handle = api.open(pid);
   if (isNullHandle(handle)) {
-    if (nativeIntSchema.parse(api.lastError()) === errorInvalidParameter) return undefined;
-    throw new Error("Kernel process identity unavailable");
+    expectNative(nativeInt.parse(api.lastError()) === ERROR_INVALID_PARAMETER);
+    return undefined;
   }
   try {
+    // GetProcessTimes takes four FILETIME out-pointers and allows no NULL.
     const creation = Buffer.alloc(8);
-    const exit = Buffer.alloc(8);
-    const kernelTime = Buffer.alloc(8);
-    const userTime = Buffer.alloc(8);
-    if (nativeIntSchema.parse(api.times(handle, creation, exit, kernelTime, userTime)) === 0)
-      throw new Error("Kernel process identity unavailable");
-    const start = filetimeToStart(creation.readUInt32LE(0), creation.readUInt32LE(4));
+    expectNative(
+      nativeInt.parse(
+        api.times(handle, creation, Buffer.alloc(8), Buffer.alloc(8), Buffer.alloc(8)),
+      ) !== 0,
+    );
+    const low = dword.parse(creation.readUInt32LE(0));
+    const high = dword.parse(creation.readUInt32LE(4));
+    const start = ((BigInt(high) << 32n) | BigInt(low)).toString();
     const tokenOut: unknown[] = [null];
-    if (nativeIntSchema.parse(api.openToken(handle, tokenOut)) === 0)
-      throw new Error("Kernel process identity unavailable");
+    expectNative(nativeInt.parse(api.openToken(handle, tokenOut)) !== 0);
     const token = tokenOut[0];
-    if (isNullHandle(token)) throw new Error("Kernel process identity unavailable");
+    expectNative(!isNullHandle(token));
     try {
+      // The first call with no buffer reports the size TOKEN_USER needs.
       const needed: number[] = [0];
-      const first = nativeIntSchema.parse(api.tokenInfo(token, null, 0, needed));
-      if (first !== 0) throw new Error("Kernel process identity unavailable");
-      if (nativeIntSchema.parse(api.lastError()) !== errorInsufficientBuffer)
-        throw new Error("Kernel process identity unavailable");
-      const size = tokenInfoSizeSchema.parse(needed[0]);
-      const info = Buffer.alloc(size);
-      const actual: number[] = [0];
-      if (nativeIntSchema.parse(api.tokenInfo(token, info, info.length, actual)) === 0)
-        throw new Error("Kernel process identity unavailable");
-      const sid: unknown =
-        process.arch === "ia32" ? BigInt(info.readUInt32LE(0)) : info.readBigUInt64LE(0);
-      if (sid === 0n) throw new Error("Kernel process identity unavailable");
+      expectNative(nativeInt.parse(api.tokenInfo(token, null, 0, needed)) === 0);
+      expectNative(nativeInt.parse(api.lastError()) === ERROR_INSUFFICIENT_BUFFER);
+      const info = Buffer.alloc(z.number().int().positive().max(4096).parse(needed[0]));
+      expectNative(nativeInt.parse(api.tokenInfo(token, info, info.length, [0])) !== 0);
+      const sid = process.arch === "ia32" ? BigInt(info.readUInt32LE(0)) : info.readBigUInt64LE(0);
+      expectNative(sid !== 0n);
       const stringOut: unknown[] = [null];
-      if (nativeIntSchema.parse(api.sidToString(sid, stringOut)) === 0)
-        throw new Error("Kernel process identity unavailable");
-      const stringPtr = stringOut[0];
-      if (isNullHandle(stringPtr)) throw new Error("Kernel process identity unavailable");
+      expectNative(nativeInt.parse(api.sidToString(sid, stringOut)) !== 0);
+      const text = stringOut[0];
+      expectNative(!isNullHandle(text));
       try {
-        const owner = windowsSidSchema.parse(api.decodeSid(stringPtr));
-        return { start, owner };
+        return { start, owner: windowsSid.parse(api.decodeSid(text)) };
       } finally {
-        api.free(stringPtr);
+        api.free(text);
       }
     } finally {
       api.close(token);
@@ -214,7 +153,7 @@ export function readWindowsProcessIdentity(
 export const ProcessIdentity = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1).max(128),
-  uid: z.union([z.number().int().nonnegative(), windowsSidSchema]),
+  uid: z.union([z.number().int().nonnegative(), windowsSid]),
   group: z.number().int().positive(),
 });
 export type ProcessIdentity = z.infer<typeof ProcessIdentity>;
@@ -231,10 +170,9 @@ function gone(target: number): boolean {
   }
 }
 export function processGroupIsGone(group: number): boolean {
-  z.number().int().positive().parse(group);
   if (process.platform === "win32")
     throw new Error("Process-group inspection is unavailable on Windows");
-  return gone(-group);
+  return gone(-z.number().int().positive().parse(group));
 }
 function linuxStat(text: string): { pid: number; ticks: string; group: number } {
   const end = text.lastIndexOf(")");
@@ -303,24 +241,17 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
       }
     }
     if (process.platform === "win32") {
-      // Creation FILETIME plus token SID; see readWindowsProcessIdentity. Group stays pid.
       const api = loadWindowsProcessIdentityApi();
       try {
         const found = readWindowsProcessIdentity(pid, api);
-        if (found === undefined) return undefined;
-        const identity = ProcessIdentity.parse({
-          pid,
-          start: found.start,
-          uid: found.owner,
-          group: pid,
-        });
-        if (identity.pid !== pid) throw new Error("Process identity mismatch");
-        return identity;
+        return (
+          found && ProcessIdentity.parse({ pid, start: found.start, uid: found.owner, group: pid })
+        );
       } finally {
         api.unload();
       }
     }
-    throw new Error("Kernel process identity requires Linux, macOS, or Windows");
+    throw new Error("Kernel process identity requires Linux or macOS");
   } catch (error) {
     // Native/procfs failure is not absence unless the kernel also proves the PID is gone.
     if (gone(pid)) return undefined;

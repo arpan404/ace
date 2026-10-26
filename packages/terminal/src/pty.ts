@@ -2,12 +2,13 @@ import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { constants as osConstants, tmpdir } from "node:os";
+import { constants as osConstants, tmpdir, userInfo } from "node:os";
 import { spawn } from "node-pty";
+import { win32 } from "node:path";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { createRetainedJob, type RetainedJob } from "@ace/provider-kit/process-containment";
+import { findWindowsExecutableSync } from "@ace/provider-kit/discovery";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
-import { terminalEnvironment } from "./shell.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
@@ -56,33 +57,52 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-export { resolveShell } from "./shell.ts";
-export type { ShellSelectionPorts, ShellSelectionEnv } from "./shell.ts";
+/** What shell selection reads from the machine; tests substitute each one. */
+export interface ShellSelectionPorts {
+  readonly env?: NodeJS.ProcessEnv | undefined;
+  readonly exists?: ((path: string) => boolean) | undefined;
+  /**
+   * The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. Defaults
+   * to the real account only when `env` is the real environment too.
+   */
+  readonly accountShell?: (() => string | null) | undefined;
+  /** Windows only; defaults to the host. */
+  readonly platform?: NodeJS.Platform | undefined;
+  /** Windows only: PATH/PATHEXT lookup for pwsh and powershell. */
+  readonly findExecutable?:
+    | ((command: string, env: NodeJS.ProcessEnv) => string | undefined)
+    | undefined;
+}
 
-/** Output and exit, decoded the same way for every backend. */
-function streams(pty: NativePty, onExited: () => void) {
-  return {
-    onData(listener: (bytes: Buffer) => void) {
-      // ConPTY delivers utf8-decoded strings of whole code points; POSIX delivers raw bytes.
-      const subscription = pty.onData((input) =>
-        listener(typeof input === "string" ? Buffer.from(input, "utf8") : decodeBytes(input)),
-      );
-      return () => subscription.dispose();
-    },
-    onExit(listener: (status: ExitStatus | Error) => void) {
-      const subscription = pty.onExit((input) => {
-        onExited();
-        let status: ExitStatus | Error;
-        try {
-          status = decodeExit(input);
-        } catch (error) {
-          status = error instanceof Error ? error : new Error("Invalid native exit");
-        }
-        listener(status);
-      });
-      return () => subscription.dispose();
-    },
-  };
+function systemAccountShell(): string | null {
+  try {
+    return userInfo().shell;
+  } catch {
+    return null;
+  }
+}
+
+// Accounts that may not log in name these instead of a shell.
+const refusing = /\/(?:nologin|false)$/;
+
+/**
+ * `$SHELL` (the session's choice), then the account's login shell (a daemon started by systemd
+ * or launchd may have no `$SHELL`) unless it refuses logins, then the first of `/bin/zsh`,
+ * `/bin/bash` and `/bin/sh` that is installed.
+ */
+export function resolveShell(shell?: string, ports?: ShellSelectionPorts): string {
+  if (shell !== undefined) return shell;
+  if ((ports?.platform ?? process.platform) === "win32") return resolveWindowsShell(ports);
+  const env = ports?.env ?? process.env;
+  const exists = ports?.exists ?? isExecutable;
+  if (env.SHELL) return env.SHELL;
+  const accountShell = ports?.accountShell ?? (ports?.env ? () => null : systemAccountShell);
+  const account = accountShell();
+  if (account && !refusing.test(account) && exists(account)) return account;
+  for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
+    if (exists(candidate)) return candidate;
+  }
+  throw new Error("No login shell found");
 }
 
 function isExecutable(path: string): boolean {
@@ -111,9 +131,21 @@ export function createPosixBackendFactory(
 ): BackendFactory {
   const read = createProcessTable();
   return (options, shell, context) => {
-    if (!ports && process.platform === "win32")
-      throw new Error("Windows terminals use the ConPTY backend");
-    const env = terminalEnvironment(process.env, options.env, process.platform);
+    if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
+    const environment: Record<string, string | undefined> = {
+      ...process.env,
+      ...options.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+    };
+    // A daemon started outside a terminal (launchd, a desktop app) inherits no locale, and a
+    // shell in the C locale mangles typed UTF-8. Terminal apps set one; so does ace, when unset.
+    if (!environment.LC_ALL && !environment.LC_CTYPE && !environment.LANG)
+      environment.LC_CTYPE = "C.UTF-8";
+    // node-pty stringifies undefined as "undefined". Preserve explicit environment masks.
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(environment))
+      if (value !== undefined) env[key] = value;
     assertTestEnvironmentIsolation(env);
     const lease = ports?.createLease?.() ?? createGroupLease(leaseRoot, context.scheduler);
     const keeper = fileURLToPath(new URL("../native/group-keeper", import.meta.url));
@@ -224,9 +256,23 @@ export function createPosixBackendFactory(
       },
       write: (data) => pty.write(data),
       resize: (cols, rows) => pty.resize(cols, rows),
-      ...streams(pty, () => {
-        exited = true;
-      }),
+      onData(listener) {
+        const subscription = pty.onData((input) => listener(decodeBytes(input)));
+        return () => subscription.dispose();
+      },
+      onExit(listener) {
+        const subscription = pty.onExit((input) => {
+          exited = true;
+          let status: ExitStatus | Error;
+          try {
+            status = decodeExit(input);
+          } catch (error) {
+            status = error instanceof Error ? error : new Error("Invalid native exit");
+          }
+          listener(status);
+        });
+        return () => subscription.dispose();
+      },
       kill: async (signal) => {
         await ownership.kill(signal);
         if (signal === "SIGKILL") {
@@ -243,6 +289,57 @@ export function createPosixBackendFactory(
   };
 }
 
+// Windows below: shell order, a case-insensitive environment, and the ConPTY backend.
+
+/** The value of a Windows env key, matched case-insensitively; empty counts as unset. */
+function windowsEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env).find(
+    (candidate) => candidate.toLowerCase() === name && env[candidate],
+  );
+  return key === undefined ? undefined : env[key];
+}
+
+/**
+ * Windows never reads `$SHELL`: pwsh, then powershell, then `%ComSpec%`, then
+ * `%SystemRoot%\System32\cmd.exe`, where SystemRoot must be drive-absolute so the fallback
+ * never depends on the cwd.
+ */
+function resolveWindowsShell(ports?: ShellSelectionPorts): string {
+  const env = ports?.env ?? process.env;
+  const find = ports?.findExecutable ?? findWindowsExecutableSync;
+  for (const candidate of ["pwsh", "powershell"]) {
+    const found = find(candidate, { ...env });
+    if (found) return found;
+  }
+  const comSpec = windowsEnvValue(env, "comspec");
+  if (comSpec !== undefined) return comSpec;
+  const systemRoot = windowsEnvValue(env, "systemroot");
+  if (systemRoot && /^[A-Za-z]:[\\/]/.test(systemRoot)) {
+    const cmd = win32.join(systemRoot, "System32", "cmd.exe");
+    if ((ports?.exists ?? isExecutable)(cmd)) return cmd;
+  }
+  throw new Error("No login shell found");
+}
+
+/**
+ * The shell's environment on Windows, where keys are case-insensitive: a later key wins
+ * regardless of spelling, `undefined` removes every spelling, and terminal colors are enforced.
+ * Unset values are dropped because node-pty would stringify them as "undefined".
+ */
+function windowsTerminalEnv(
+  overrides: Readonly<Record<string, string | undefined>> | undefined,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  const merged = [process.env, overrides ?? {}, { TERM: "xterm-256color", COLORTERM: "truecolor" }];
+  for (const layer of merged)
+    for (const [key, value] of Object.entries(layer)) {
+      for (const prior of Object.keys(env))
+        if (prior.toLowerCase() === key.toLowerCase()) delete env[prior];
+      if (value !== undefined) env[key] = value;
+    }
+  return env;
+}
+
 export interface ConptyNative extends NativePty {
   kill(): void;
 }
@@ -253,29 +350,21 @@ export interface ConptyPorts {
 }
 
 /**
- * ConPTY backend for Windows. The selected shell runs directly under ConPTY (`useConptyDll`,
- * the shipped conpty.dll) inside a kill-on-close Job Object, which takes the place of the POSIX
- * session lease: `terminate()` stops the tree and `activeCount()` is the only liveness source.
- * No POSIX signals, `ps` table or PID kills are used. The dll kill path closes the
- * pseudoconsole and terminates the exact shell handle, so there is no PID-reuse hazard (node-pty
- * 1.1.0 `PtyKill`: `ConptyClosePseudoConsole` plus `TerminateProcess(hShell, 1)`).
+ * Windows: the shell runs directly under ConPTY (`useConptyDll`) inside a kill-on-close Job
+ * Object, which replaces the POSIX session lease; `activeCount()` is the only liveness source and
+ * ownership outlives shell exit until close empties the job. The dll kill path terminates the
+ * exact shell handle, so no PID is ever signalled.
  *
- * Containment race: node-pty starts the shell with a plain, non-suspended `CreateProcessW`
- * inside `spawn()` and returns its pid, and the shell joins the job synchronously right after,
- * before this event-loop turn ends. Only a process the shell starts within that window could
- * escape. A shell can't start one that fast: pwsh and powershell load .NET first, and cmd.exe
- * reads its AutoRun key first. node-pty has no suspended start, and the earlier alternative, a
- * Node gate that started the shell only after joining, cost a Node process and temp files per
- * terminal.
- *
- * Ownership outlives shell exit until `close` confirms `activeCount() === 0` and disposes the
- * job; shell exit alone never completes it.
+ * node-pty starts the shell with a non-suspended CreateProcessW inside `spawn()`, and the shell
+ * joins the job synchronously after it. Only a child started inside that microsecond window
+ * could escape, and no supported shell gets that far so fast: pwsh and powershell load .NET
+ * first, and cmd.exe reads AutoRun first. Supervised processes accept the same race (ADR 0091).
  */
 export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFactory {
   const spawnNative = ports.spawn ?? spawn;
   const createJob = ports.createJob ?? (() => createRetainedJob());
   return (options, shell, context) => {
-    const env = terminalEnvironment(process.env, options.env, "win32");
+    const env = windowsTerminalEnv(options.env);
     assertTestEnvironmentIsolation(env);
     const job = createJob();
     // An uncontained shell never runs on: stop its exact handle, then release the job.
@@ -357,7 +446,25 @@ export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFact
       },
       write: (data) => pty.write(data),
       resize: (cols, rows) => pty.resize(cols, rows),
-      ...streams(pty, () => {}),
+      onData(listener) {
+        // ConPTY delivers utf8-decoded strings of whole code points.
+        const subscription = pty.onData((input) =>
+          listener(typeof input === "string" ? Buffer.from(input, "utf8") : decodeBytes(input)),
+        );
+        return () => subscription.dispose();
+      },
+      onExit(listener) {
+        const subscription = pty.onExit((input) => {
+          let status: ExitStatus | Error;
+          try {
+            status = decodeExit(input);
+          } catch (error) {
+            status = error instanceof Error ? error : new Error("Invalid native exit");
+          }
+          listener(status);
+        });
+        return () => subscription.dispose();
+      },
       kill: async (signal) => {
         if (ownershipComplete) return;
         // Windows has no POSIX signals and no graceful stop: anything but SIGKILL is an error,
@@ -373,9 +480,4 @@ export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFact
       },
     };
   };
-}
-
-/** The terminal backend for this OS: a POSIX pty in its own leased session, or ConPTY in a job. */
-export function createBackendFactory(platform: NodeJS.Platform = process.platform): BackendFactory {
-  return platform === "win32" ? createConptyBackendFactory() : createPosixBackendFactory();
 }
