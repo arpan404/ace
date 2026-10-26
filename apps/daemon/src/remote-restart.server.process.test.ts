@@ -40,8 +40,8 @@ it.runIf(process.platform === "win32")(
     const ticket = (fingerprint: string) =>
       accessRequest(remote, "/v1/tickets", { token: paired.token, fingerprint, method: "POST" });
     expect(SocketTicket.parse(await ticket(second.fingerprint)).ticket).toBeTruthy();
-    // A client pinned to another key never sends its token.
-    await expect(ticket("0".repeat(64))).rejects.toThrow(/fingerprint mismatch/);
+    // A client pinned to another key drops the connection before sending its token.
+    await expect(ticket("0".repeat(64))).rejects.toThrow("Access transport unavailable");
 
     expect(
       await accessRequest(origin, `/v1/devices/${paired.device.id}`, {
