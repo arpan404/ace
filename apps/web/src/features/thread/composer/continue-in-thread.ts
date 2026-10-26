@@ -1,12 +1,11 @@
 import type { ClientApi } from "@ace/client";
-import { maxMessageBytes, type ForkPoint, type MessageContext } from "@ace/protocol";
+import type { ForkPoint, MessageContext } from "@ace/protocol";
 import {
-  activeRootRun,
   choiceSelection,
-  imageType,
-  imagesUnreadable,
-  latestFinishedTurn,
-  providerNames,
+  continuationAttachmentProblem,
+  continuationPlan,
+  forkInput,
+  turnStillRunningMessage,
   type ModelChoice,
 } from "@ace/ui-core";
 import type { Selection, ThreadSources, ThreadRef } from "../sources/index.ts";
@@ -21,9 +20,6 @@ export interface Continuation {
   choice: ModelChoice;
 }
 
-/** What the chip says while a continuation waits for the person's message. */
-export { continuationNote } from "@ace/ui-core";
-
 /** Why the message can't start the new thread yet, in words the composer shows as they are. */
 export class ContinuationRefused extends Error {
   override name = "ContinuationRefused";
@@ -36,31 +32,8 @@ export class ContinuationRefused extends Error {
 export class TurnStillRunning extends ContinuationRefused {
   override name = "TurnStillRunning";
   constructor() {
-    super("The agent is still on this turn. Stop it, then send again to continue in a new thread.");
+    super(turnStillRunningMessage);
   }
-}
-
-/**
- * Why the new thread's model can't take one of these files, or undefined when it can take them
- * all. Only images can be refused: the model's catalog entry says which inputs it reads. Any
- * other file reaches every provider (inline, as a document or as a path), as a send's does.
- */
-export function continuationAttachmentProblem(
-  files: readonly { name: string; mimeType?: string | undefined }[],
-  choice: Pick<ModelChoice, "provider" | "model">,
-  modalities: readonly string[] | undefined,
-): string | undefined {
-  const images = files.filter((file) =>
-    (file.mimeType ?? imageType(file.name) ?? "").startsWith("image/"),
-  );
-  if (!images.length) return undefined;
-  const unreadable = imagesUnreadable({
-    provider: providerNames[choice.provider],
-    imageInput: undefined,
-    model: choice.model,
-    modalities,
-  });
-  return unreadable && `${unreadable} Remove ${images.map((file) => file.name).join(", ")} first.`;
 }
 
 /**
@@ -83,10 +56,9 @@ export async function forkWithDraft(request: {
   title?: string | undefined;
 }): Promise<string> {
   const { draft } = request;
-  const input = draft.text.trim();
-  if (!input) throw new ContinuationRefused("Write a message to start the new thread.");
-  if (input.length > maxMessageBytes)
-    throw new ContinuationRefused("The message is too long to start a new thread with.");
+  const checked = forkInput(draft.text);
+  if ("refused" in checked) throw new ContinuationRefused(checked.refused);
+  const { input } = checked;
   const problem = continuationAttachmentProblem(
     draft.files.local,
     request.reads,
@@ -132,21 +104,15 @@ export async function continueInNewThread(request: {
   draft: Draft;
 }): Promise<string> {
   const lease = request.client.thread(request.thread.id);
-  const { running, point } = (() => {
+  const plan = (() => {
     try {
-      return {
-        running: activeRootRun(lease.store) !== undefined,
-        point: latestFinishedTurn(lease.store, lease.store.thread?.rootAgentId),
-      };
+      return continuationPlan(lease.store, request.draft.text);
     } finally {
       lease.release();
     }
   })();
-  if (running) throw new TurnStillRunning();
-  if (!point)
-    throw new ContinuationRefused(
-      "This thread has no finished turn to carry over. Start a new thread instead.",
-    );
+  if (!plan.ok) throw plan.running ? new TurnStillRunning() : new ContinuationRefused(plan.message);
+  const { point } = plan;
   return forkWithDraft({
     actions: request.actions,
     thread: request.thread,
