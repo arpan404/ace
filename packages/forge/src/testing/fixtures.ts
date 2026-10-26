@@ -20,7 +20,7 @@ export { repository, sha, nextSha } from "./identities.ts";
 
 let windowsNode: Promise<string> | undefined;
 /**
- * Windows can't run a script by its shebang. The fake becomes a link to this Node, named `gh`,
+ * Windows can't run a script by its shebang. Beside the fake sits `gh.exe`, a link to this Node,
  * which a preload turns back into fake-gh.mjs with gh's own arguments.
  */
 async function windowsFakeGh(executable: string): Promise<void> {
@@ -29,8 +29,9 @@ async function windowsFakeGh(executable: string): Promise<void> {
     await copyFile(process.execPath, node);
     return node;
   });
-  await rm(executable);
-  await link(await windowsNode, executable).catch(() => copyFile(process.execPath, executable));
+  // Node looks up an extensionless command as `gh.com`, then `gh.exe`.
+  const linked = `${executable}.exe`;
+  await link(await windowsNode, linked).catch(() => copyFile(process.execPath, linked));
   const preload = pathToFileURL(fileURLToPath(new URL("./fake-gh-preload.mjs", import.meta.url)));
   process.env.NODE_OPTIONS = `--import=${preload.href}`;
 }
