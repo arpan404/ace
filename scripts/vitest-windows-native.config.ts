@@ -74,6 +74,39 @@ const posixOnly = [
   // Expects "/" after the plugin root and exec bits; "on Windows claude receives the plugin MCP
   // server..." and "on Windows Claude commands name plugin files..." run instead.
   "Claude receives native commands, agents, hook matchers, skill resources and MCP config",
+  // packages/files: Unix sockets, POSIX symlink creation on unpack and mode bits.
+  "round-trips a folder with nested files, empty dirs, modes, binaries and inside links",
+  "skips sockets and links that leave the folder, and counts them",
+  "measures exactly the bytes and entries that packing writes",
+  "preserves executable permissions when replacing a file through edits or uploads",
+  // Matches the destination with a "/" separator.
+  "directory deletion rechecks agent edits after a failed queued write",
+  // Windows tar prints CRLF and decodes names through the ANSI code page.
+  "streams a folder archive with bounded RSS and excludes ignored files and symlinks",
+  "streams interoperable PAX archives with long UTF-8 names and complete files beyond 8 GiB",
+  // Mode 0, 100, 200 and 400 files; Windows has only the read-only attribute.
+  ...[false, true].flatMap((restart) =>
+    ["0", "200", "100"].flatMap((mode) =>
+      ["intent", "prepared"].map(
+        (fault) =>
+          `a mode ${mode} replacement resumes acknowledged bytes after interrupted ${fault}${restart ? " and restart" : " in the running service"}`,
+      ),
+    ),
+  ),
+  ...["file", "symlink", "hardlink"].map(
+    (replacement) =>
+      `unpublished permission recovery leaves a replacement ${replacement} untouched`,
+  ),
+  ...["200", "0", "100"].map(
+    (mode) =>
+      `a replacement publishes mode ${mode} before losing publication completion and recovers without read access`,
+  ),
+  ...["startup", "other uploads"].flatMap((blocked) =>
+    ["moved", "replaced", "permissions"].map(
+      (alteration) =>
+        `a pending receipt with a ${alteration} destination settles without blocking ${blocked}`,
+    ),
+  ),
 ];
 
 export default defineConfig({
@@ -94,7 +127,6 @@ export default defineConfig({
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
       "packages/git/src/disabled-hooks.process.test.ts",
-      "packages/files/src/upload-identity.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
       "packages/terminal/src/pty.test.ts",
@@ -130,6 +162,8 @@ export default defineConfig({
       // Command discovery, prompt files and the skills library over Windows handles: junction
       // links, no-replace renames and crash recovery without an atomic exchange.
       "packages/commands/src/**/*.test.ts",
+      // Uploads, downloads, edits, trash, folder archives and blob export.
+      "packages/files/src/**/*.test.ts",
     ],
     exclude: [
       "**/node_modules/**",

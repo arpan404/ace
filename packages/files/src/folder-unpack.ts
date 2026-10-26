@@ -106,6 +106,11 @@ class Tree {
     }
     try {
       const info = created.stat();
+      if (process.platform === "win32") {
+        // Windows folders have no mode bits, and their handles can't change attributes.
+        this.made.set(path, { dev: info.dev, ino: info.ino });
+        return existing ? "existing" : "made";
+      }
       if (!existing) await chmodFd(created.fd, mode);
       this.made.set(path, { dev: info.dev, ino: info.ino });
     } finally {
@@ -155,6 +160,25 @@ async function writeFile(
     await closeFd(fd);
   }
   return true;
+}
+
+/**
+ * Windows: a backslash or colon in a member name would be a separator, drive or stream there,
+ * and names differing only in case are one file.
+ */
+function windowsMember(path: string, seen: Set<string>): void {
+  if (/[\\:]/.test(path)) throw unsafe("Archive entry path is not allowed on Windows", path);
+  const folded = `\0${path.toLowerCase()}`;
+  if (seen.has(folded)) throw unsafe("Archive entry appears twice", path);
+  seen.add(folded);
+}
+/** Windows: the pinned directory refused a name Windows can't hold (CON, `name.`, `a?b`). */
+function windowsNameRefused(error: unknown): boolean {
+  return (
+    code(error) === "EINVAL" &&
+    error instanceof Error &&
+    error.message.startsWith("Invalid Windows file name")
+  );
 }
 
 /** Whether a folder-relative directory of the destination is a link already there. */
@@ -262,6 +286,7 @@ async function extractArchive(
       const type = header.type ?? "unknown";
       const path = type === "directory" ? header.name.replace(/\/$/, "") : header.name;
       if (!validMemberName(path)) throw unsafe("Archive entry path is not allowed", path);
+      if (process.platform === "win32") windowsMember(path, seen);
       for (const key of Object.keys(header.pax ?? {}))
         if (!PAX_KEYS.has(key)) throw unsafe(`Archive entry uses PAX key ${key}`, path);
       if (seen.has(path)) throw unsafe("Archive entry appears twice", path);
@@ -319,6 +344,12 @@ async function extractArchive(
       if (!route || route.some((directory) => links.has(directory)))
         throw unsafe("Archive link points outside the folder", path);
     }
+    if (process.platform === "win32") {
+      // Windows links need a privilege ace never asks for; checked links are left out.
+      skipped += links.size;
+      entries -= links.size;
+      links.clear();
+    }
     for (const [path, target] of links) {
       checkAborted(signal);
       if (merging) {
@@ -342,6 +373,8 @@ async function extractArchive(
     return { entries, files, skipped };
   } catch (error) {
     if (error instanceof FolderArchiveError) throw error;
+    if (process.platform === "win32" && windowsNameRefused(error))
+      throw unsafe("Archive entry name is not allowed on Windows", "");
     if (error instanceof Error && error.name === "AbortError")
       throw new FolderArchiveError("ABORTED", "Folder archive cancelled");
     // Filesystem failures carry a code; anything else came from parsing the tar itself.
