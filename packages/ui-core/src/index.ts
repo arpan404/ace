@@ -154,6 +154,8 @@ export * from "./approvals.ts";
 export * from "./approval-copy.ts";
 export * from "./follow-up.ts";
 export * from "./stop-fence.ts";
+export * from "./fork-point.ts";
+export * from "./continuation.ts";
 export {
   composerInput,
   editComposerTokens,

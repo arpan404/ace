@@ -150,6 +150,17 @@ struct ThreadView: View {
                     }
                 }
             }
+            // The next message continued this thread in a new one: open it once its row is here
+            // (ten seconds at most; after that it's in the list to tap).
+            .task(id: screen.continued) {
+                guard let opened = screen.continued else { return }
+                for _ in 0..<100 where model.inbox[opened] == nil {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if Task.isCancelled { return }
+                }
+                screen.continued = nil
+                if model.inbox[opened] != nil { openThread(opened) }
+            }
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }

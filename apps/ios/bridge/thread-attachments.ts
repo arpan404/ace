@@ -128,6 +128,11 @@ export class AttachmentTray {
     if (release) void this.#ask(release).catch(() => {});
   }
 
+  /** The files on the message, by name and type. */
+  files(): { name: string; mimeType: string | undefined }[] {
+    return [...this.#files.values()].map((file) => ({ name: file.name, mimeType: file.mimeType }));
+  }
+
   /** Why the message can't go yet, or the context carrying the held files. */
   context(): { refused: string } | { context: MessageContext | undefined } {
     const files = [...this.#files.values()];

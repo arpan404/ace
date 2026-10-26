@@ -21,6 +21,8 @@ struct ModelPickerRow: Identifiable, Equatable {
     let starred: Bool
     /// The picker key (`modelKey`) a star saves.
     let key: String
+    /// Why it can't be picked here ("Starts new threads only"); nil when it can.
+    var note: String? = nil
 }
 
 /// Whether a model's name matches what was typed into "Find a model".
@@ -46,7 +48,7 @@ enum ModelPickerStart {
 /// the agents' rows. A search looks through every account's tab, each row naming its account,
 /// as the web's search does.
 enum NewThreadPickerRows {
-    struct Chosen: Equatable { let provider: String; let key: String; let account: String }
+    struct Chosen: Codable, Sendable, Equatable { let provider: String; let key: String; let account: String }
 
     static func tabs(_ read: ComposeAgentsRead) -> [ModelPickerTab] {
         read.tabs.map { ModelPickerTab(id: $0.id, provider: $0.provider, name: $0.name, note: $0.reason) }
@@ -84,26 +86,24 @@ enum NewThreadPickerRows {
     }
 }
 
-/// The open thread's picker: its provider's models on the account it runs on, and the ones
-/// starred among them under Favorites. A thread keeps its provider, so there is no other tab.
+/// The open thread's picker: New thread's tabs and rows (`NewThreadPickerRows`), with a row the
+/// thread can't move to saying why, and a model the catalog doesn't list checked under its own
+/// name on its account's tab.
 enum ThreadPickerRows {
-    static let account = "account"
-
-    static func tabs(provider: String, name: String) -> [ModelPickerTab] {
-        [ModelPickerTab(id: ModelPickerTab.favorites, provider: nil, name: "Favorites"),
-         ModelPickerTab(id: account, provider: provider, name: name)]
-    }
-
-    static func rows(_ list: ThreadModels, provider: String, tab: String, chosen: String?, query: String) -> [ModelPickerRow] {
-        let starred = Set(list.favorites)
-        let row = { (model: ModelOption) in
-            ModelPickerRow(id: model.id, label: model.label, detail: model.detail.isEmpty ? nil : model.detail,
-                           chosen: model.id == chosen, starred: starred.contains(model.id), key: provider + "\u{0}" + model.id)
+    static func rows(_ list: ThreadModels, tab: String, chosen: NewThreadPickerRows.Chosen?, query: String, expanded: Bool)
+        -> (rows: [ModelPickerRow], hidden: Int) {
+        var listed = NewThreadPickerRows.rows(list.read, tab: tab, chosen: chosen, query: query, expanded: expanded)
+        listed.rows = listed.rows.map { row in
+            guard let note = list.moves[row.id]?.note else { return row }
+            var noted = row
+            noted.note = note
+            return noted
         }
-        if ModelSearch.active(query) { return list.models.filter { ModelSearch.matches(query, $0.label) }.map(row) }
-        if tab == ModelPickerTab.favorites {
-            return list.favorites.compactMap { id in list.models.first { $0.id == id } }.map(row)
+        if let current = list.current, !list.currentLabel.isEmpty, !ModelSearch.active(query),
+           tab == "\(current.provider):\(current.account)" || tab == current.provider {
+            listed.rows.insert(ModelPickerRow(id: current.account + "\u{0}" + current.key, label: list.currentLabel,
+                                              chosen: chosen == current, starred: false, key: current.key), at: 0)
         }
-        return list.models.map(row)
+        return listed
     }
 }

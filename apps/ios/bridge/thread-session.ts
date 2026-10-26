@@ -1,13 +1,6 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
-import {
-  FollowUpBehavior,
-  InteractionId,
-  ThreadId,
-  type CatalogModel,
-  type CommandPayload,
-} from "@ace/protocol";
-import { catalogModelIds, composerReply, isBusy, messageHasContent, modelKey } from "@ace/ui-core";
-import { runsOn } from "@ace/ui-core/thread-execution";
+import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
+import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -20,9 +13,9 @@ import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
-import { ModelFavorites } from "./model-favorites.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
-import { threadModelRows, type ThreadModelRow } from "./thread-models.ts";
+import { continuationPayload } from "./thread-continue.ts";
+import { ThreadModelSheet } from "./thread-model-sheet.ts";
 import { TuneFollower } from "./thread-tune.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
@@ -63,11 +56,7 @@ export class ThreadSession {
   readonly #whenKnown = new Promise<void>((resolve) => {
     this.#known = resolve;
   });
-  #models: { state: string; models: ThreadModelRow[] } = { state: "idle", models: [] };
-  #listed: CatalogModel[] = [];
-  #stars: string[] = [];
-  #starProblem: string | null = null;
-  readonly #favorites: ModelFavorites;
+  readonly #sheet: ThreadModelSheet;
   readonly #access: ThreadAccessFollower;
 
   constructor(
@@ -91,7 +80,13 @@ export class ThreadSession {
       this.#pill.queued(count),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
-    this.#favorites = new ModelFavorites(client);
+    this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
+      put,
+      now: () => host.now(),
+      preview,
+      changed: () => this.#controls(),
+      files: () => this.#tray.files(),
+    });
     this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
       this.#dispatch(payload, id),
     );
@@ -120,6 +115,7 @@ export class ThreadSession {
       )
         this.#controls();
       if (keys === "all" || keys.has("thread")) {
+        this.#sheet.threadChanged();
         this.#tune.update();
         this.#access.update();
       }
@@ -170,7 +166,14 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        if (!this.#reply(action.text, action.reply, action.requestId))
+        if ((action.continues ?? false) !== (this.#sheet.continued !== undefined))
+          this.#admission(
+            action.requestId,
+            false,
+            "Where this message goes just changed. Check the model and send again.",
+          );
+        else if (this.#sheet.continued) this.#continue(action.text, action.requestId);
+        else if (!this.#reply(action.text, action.reply, action.requestId))
           this.#send(action.text, action.opposite, action.requestId);
         break;
       case "stop":
@@ -216,16 +219,28 @@ export class ThreadSession {
         void this.#retry(action.id, action.requestId);
         break;
       case "models":
-        void this.#listModels();
+        void this.#sheet.open();
         break;
       case "switchModel":
-        this.#dispatch(this.#switchPayload(action.model), action.requestId);
+        this.#sheet.pick(
+          { key: action.key, account: action.account },
+          action.confirmed,
+          action.requestId,
+          (payload, id, refused) =>
+            void dispatchCommand(this.#client, payload, id, this.#pump, {
+              unsaved: refused,
+              receipt: (result) => {
+                if (!result.ok) refused();
+              },
+            }),
+          (id, ok, message) => this.#admission(id, ok, message),
+        );
         break;
       case "access":
         this.#access.set(action.mode, action.requestId);
         break;
       case "favorite":
-        void this.#favorite(action.model);
+        void this.#sheet.favorite(action.key);
         break;
       case "queue":
         this.#dispatch(
@@ -345,8 +360,51 @@ export class ThreadSession {
     };
     void dispatchCommand(this.#client, message, id, this.#pump, {
       saved: () => this.#tray.sent(),
-      receipt: (ok) => {
+      receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
+      },
+    });
+  }
+  /**
+   * The message starts a new thread on the model picked to continue on (`thread.fork`), and the
+   * app opens it once the daemon names it (`thread.continued`).
+   */
+  #continue(text: string, id: string): void {
+    const choice = this.#sheet.continued;
+    if (!choice) return;
+    if (this.#sheet.sending) {
+      this.#admission(id, false, "Still starting the new thread. Wait for it to open.");
+      return;
+    }
+    const files = this.#tray.context();
+    const built =
+      "refused" in files
+        ? files
+        : continuationPayload({
+            reader: this.#store,
+            threadId: this.#threadId,
+            choice,
+            text,
+            files: this.#tray.files(),
+            modalities: this.#sheet.modalities(choice),
+            context: files.context,
+          });
+    if ("refused" in built) {
+      this.#admission(id, false, built.refused);
+      return;
+    }
+    // Swift keeps the words and files until the daemon answers; only a started thread takes them.
+    this.#sheet.continuationSending();
+    void dispatchCommand(this.#client, built.payload, id, this.#pump, {
+      unsaved: () => this.#sheet.continuationSettled(false),
+      refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
+      receipt: (result) => {
+        this.#sheet.continuationSettled(result.ok);
+        if (!result.ok) return;
+        this.#tray.sent();
+        const threadId = result.forkThreadId;
+        if (threadId)
+          this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));
       },
     });
   }
@@ -365,7 +423,10 @@ export class ThreadSession {
   #controls(): void {
     this.#put("controls", () =>
       this.#settingKnown
-        ? { type: "thread.controls", row: controlsRow(this.#store, this.#setting) }
+        ? {
+            type: "thread.controls",
+            row: controlsRow(this.#store, this.#setting, this.#sheet.next()),
+          }
         : undefined,
     );
   }
@@ -413,61 +474,5 @@ export class ThreadSession {
     } catch {
       this.#admission(id, false, "Couldn't send it again. It is still here.");
     }
-  }
-  #selection() {
-    return runsOn(this.#store.thread);
-  }
-  async #listModels(): Promise<void> {
-    const selection = this.#selection();
-    if (!selection) return;
-    this.#publishModels("loading");
-    try {
-      this.#listed = await this.#tune.read();
-      this.#stars = await this.#favorites.read(catalogModelIds(this.#listed));
-      this.#publishModels("ready");
-    } catch {
-      if (!this.#abort.signal.aborted) this.#publishModels("failed");
-    }
-  }
-  async #favorite(model: string): Promise<void> {
-    const selection = this.#selection();
-    if (!selection) return;
-    try {
-      const key = modelKey(selection.provider, model);
-      this.#stars = await this.#favorites.toggle(key, catalogModelIds(this.#listed));
-      this.#starProblem = null;
-    } catch {
-      this.#starProblem = "Couldn't save this favourite. Reconnect and try again.";
-    }
-    if (this.#models.state === "ready") this.#publishModels("ready");
-  }
-  #publishModels(state: string): void {
-    const selection = this.#selection();
-    const rows =
-      state === "ready" && selection
-        ? threadModelRows(this.#listed, selection, this.#stars, preview)
-        : { models: [], favorites: [] };
-    this.#models = { state, models: rows.models };
-    const patch = {
-      type: "thread.models",
-      ...this.#models,
-      favorites: rows.favorites,
-      starProblem: this.#starProblem,
-    };
-    this.#put("models", () => patch);
-  }
-  #switchPayload(model: string): CommandPayload | undefined {
-    const selection = this.#selection();
-    const offered = this.#models.models.some((entry) => entry.id === model);
-    if (!selection || !offered) return undefined;
-    return {
-      type: "thread.switch",
-      threadId: this.#threadId,
-      selection: {
-        provider: selection.provider,
-        model,
-        ...(selection.instanceId ? { instanceId: selection.instanceId } : {}),
-      },
-    };
   }
 }

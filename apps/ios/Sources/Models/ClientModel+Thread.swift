@@ -18,9 +18,15 @@ extension ClientModel {
         // Words, files or both; the bridge checks again with the shared rule.
         guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
-        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "requestId": id]
+        // A message that starts a new thread keeps its words and files until the daemon has
+        // started it: a refusal leaves the draft as it was, with the refusal's words.
+        let continues = thread.screen.controls?.continues == true
+        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "continues": continues, "requestId": id]
         if let reply { action["reply"] = reply.payload }
-        return await admissions.wait(id: id) { threadAction(action) }
+        guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
+        let refused = await receipts.wait(id: id) { threadAction(action) }
+        if let refused { error = refused }
+        return refused == nil
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {
@@ -53,12 +59,16 @@ extension ClientModel {
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
     func requestModels() { threadAction(["type": "models"]) }
-    /// Star or unstar one of the thread's provider's models, where the web keeps stars.
-    func favoriteModel(_ id: String) { threadAction(["type": "favorite", "model": id]) }
-    func switchModel(_ model: ModelOption) async -> Bool {
+    /// Star or unstar a model by its picker key, where the web keeps stars.
+    func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
+    /// Move the thread to a model on one account; `confirmed` once the person answered the row's
+    /// question. The bridge decides what that does: switch, or continue with the next message.
+    func switchModel(key: String, account: String, confirmed: Bool) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) { threadAction(["type": "switchModel", "model": model.id, "requestId": id]) }
+        return await admissions.wait(id: id) {
+            threadAction(["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id])
+        }
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {
