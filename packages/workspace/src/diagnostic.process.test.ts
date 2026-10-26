@@ -11,11 +11,9 @@ test.runIf(process.platform === "win32")("diagnose git metadata paths and raw ev
   console.log("DIAG root", JSON.stringify(h.root), "service", JSON.stringify(h.service.root));
   console.log("DIAG realpath", JSON.stringify(await realpath(h.root)));
   for (const name of ["HEAD", "index", "info/exclude", "config"]) {
-    const out = await exec(
-      "git",
-      ["rev-parse", "--path-format=absolute", "--git-path", name],
-      { cwd: h.service.root },
-    );
+    const out = await exec("git", ["rev-parse", "--path-format=absolute", "--git-path", name], {
+      cwd: h.service.root,
+    });
     console.log("DIAG git-path", name, JSON.stringify(out.stdout));
   }
   const cfg = await exec("git", ["config", "--null", "--show-origin", "--list"], {
@@ -86,12 +84,20 @@ test.runIf(process.platform === "win32")("diagnose included config watch", async
   });
   console.log("DIAG mode", subscription.mode, JSON.stringify(warnings));
   const hidden = events.next("a.ts", "deleted");
-  await peer.file("nested/extra.conf", `[core]\nexcludesFile = ${join(peer.service.root, "rules")}\n`);
+  await peer.file(
+    "nested/extra.conf",
+    `[core]\nexcludesFile = ${join(peer.service.root, "rules")}\n`,
+  );
   const result = await Promise.race([
     hidden.then(() => "hidden"),
     new Promise((resolve) => setTimeout(() => resolve("timeout"), 5000)),
   ]);
-  console.log("DIAG include result", result, JSON.stringify(events.history), JSON.stringify(warnings));
+  console.log(
+    "DIAG include result",
+    result,
+    JSON.stringify(events.history),
+    JSON.stringify(warnings),
+  );
   await subscription.dispose();
 });
 
