@@ -26,6 +26,11 @@ export interface ProtectedAttempt<T> {
   agentProcessIDs: readonly number[];
   /** Unguessable and never reused. */
   attemptID: string;
+  /**
+   * The person's `computer.lockedUse` setting is on. Sent as `optIn: true` on enable and begin;
+   * without it the service refuses with `not_enabled` and turns itself off.
+   */
+  optIn: boolean;
   /** The approved computer-use step; it must stop when `signal` aborts. */
   work: (signal: AbortSignal) => Promise<T>;
   scheduler: Scheduler;
@@ -67,6 +72,21 @@ function stopped(reason: string, detail?: string | null): LockedUseAttemptError 
   );
 }
 
+/** A service error or refusal after the step started: nothing about "nothing ran". */
+function interrupted(error: unknown, relocking: boolean): LockedUseAttemptError {
+  if (error instanceof LockedUseAttemptError) return error;
+  if (error instanceof LockedUseReplyError && error.code === "manual_unlock_required")
+    return new LockedUseAttemptError("person_took_over", tookOver);
+  const code = error instanceof LockedUseReplyError ? error.code : "unavailable";
+  const detail = error instanceof Error ? error.message : String(error);
+  return new LockedUseAttemptError(
+    `locked_use_${code}`,
+    relocking
+      ? `The step ran, but locking the Mac again reported a problem (${detail}). Stop computer actions and tell the person.`
+      : `Locked computer use stopped (${detail}) and the Mac is being locked again. Observe again before acting.`,
+  );
+}
+
 function phaseFailure(phase: string): LockedUseAttemptError {
   if (phase === "manualUnlockRequired")
     return new LockedUseAttemptError("person_took_over", tookOver);
@@ -77,9 +97,12 @@ function phaseFailure(phase: string): LockedUseAttemptError {
 }
 
 /** Reads a fresh status, enabling the service first if it is off, and checks it can begin. */
-async function readyStatus(connection: LockedUseConnection): Promise<LockedUseServiceStatus> {
+async function readyStatus(
+  connection: LockedUseConnection,
+  optIn: boolean,
+): Promise<LockedUseServiceStatus> {
   let status = await connection.request({ type: "status" });
-  if (status?.phase === "disabled") status = await connection.request({ type: "enable" });
+  if (status?.phase === "disabled") status = await connection.request({ type: "enable", optIn });
   if (!status) throw new Error("the service sent no status");
   if (!status.installation.verified)
     throw new LockedUseAttemptError(
@@ -110,7 +133,7 @@ export async function runProtectedAttempt<T>(
 ): Promise<T> {
   let status: LockedUseServiceStatus;
   try {
-    status = await readyStatus(connection);
+    status = await readyStatus(connection, attempt.optIn);
   } catch (error) {
     throw refused(error);
   }
@@ -126,6 +149,8 @@ export async function runProtectedAttempt<T>(
   completed.promise.catch(() => {});
   const abort = new AbortController();
   const timers: (() => void)[] = [];
+  // Only bounds the wait for `working`; cleared the moment it arrives.
+  let stopReady: (() => void) | undefined;
 
   const fail = (error: LockedUseAttemptError) => {
     if (failure || stage === "done") return;
@@ -143,6 +168,7 @@ export async function runProtectedAttempt<T>(
     else if (stage === "starting") {
       if (next.phase === "working" && ours) {
         stage = "working";
+        stopReady?.();
         working.resolve();
       } else if (!(starting.has(next.phase) && ours)) fail(phaseFailure(next.phase));
     } else if (stage === "working") {
@@ -158,8 +184,14 @@ export async function runProtectedAttempt<T>(
   const onEvent = (event: LockedUseEvent) => {
     if (event.type === "state") return observe(event.status);
     if (event.attemptID != null && event.attemptID !== attemptID) return;
-    if (event.type === "error")
-      return fail(refused(new LockedUseReplyError(event.code, event.message)));
+    if (event.type === "error") {
+      const error = new LockedUseReplyError(event.code, event.message);
+      return fail(
+        stage === "begin" || stage === "starting"
+          ? refused(error)
+          : interrupted(error, stage === "finishing"),
+      );
+    }
     if (stage === "finishing" && event.reason === "finished") return completed.resolve();
     fail(stopped(event.reason, event.workError));
   };
@@ -187,11 +219,24 @@ export async function runProtectedAttempt<T>(
   const cancel = () => {
     if (!connection.closed) void connection.request({ type: "cancel", attemptID }).catch(() => {});
   };
+  // Whether the service may hold an attempt: begin was sent and not explicitly refused. A
+  // begin that timed out or lost its reply may still have started one, so it is cancelled.
+  let mayHoldAttempt = false;
 
   try {
+    stopReady = scheduler.after(attempt.readyTimeoutMs ?? 15_000, () =>
+      fail(
+        new LockedUseAttemptError(
+          "locked_use_timeout",
+          `Locked computer use did not unlock in time. ${notRun}`,
+        ),
+      ),
+    );
+    timers.push(() => stopReady?.());
     // Cancelled or closed before it began: nothing is sent.
     if (!failure)
       try {
+        mayHoldAttempt = true;
         const begun = await connection.request({
           type: "begin",
           scope: {
@@ -202,29 +247,27 @@ export async function runProtectedAttempt<T>(
             attemptID,
           },
           agentProcessIDs: attempt.agentProcessIDs,
+          optIn: attempt.optIn,
         });
         stage = "starting";
         for (const next of [...(begun ? [begun] : []), ...early.splice(0)]) observe(next);
       } catch (error) {
+        if (error instanceof LockedUseReplyError) mayHoldAttempt = false;
         fail(refused(error));
       }
-    deadline(
-      attempt.readyTimeoutMs ?? 15_000,
-      new LockedUseAttemptError(
-        "locked_use_timeout",
-        `Locked computer use did not unlock in time. ${notRun}`,
-      ),
-    );
     await working.promise.catch(() => {});
     if (failure) {
-      if (stage !== "begin") cancel();
+      if (mayHoldAttempt) cancel();
       throw failure;
     }
-    // Working: the approved step runs, and stops if protection goes.
-    const outcome = await attempt.work(abort.signal).then(
-      (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
+    // Working: the approved step runs, and stops if protection goes. Protection that already
+    // went (a relock read together with `working`) means the step never starts.
+    const outcome = abort.signal.aborted
+      ? { ok: false as const, error: new LockedUseAttemptError("locked_use_stopped", notRun) }
+      : await attempt.work(abort.signal).then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
     // Read through a call: the event handlers move `stage` while the work runs.
     if (currentStage() === "stopping" && !failure) {
       // Never a success: wait for the completion's reason (a takeover, an expiry).
@@ -252,7 +295,7 @@ export async function runProtectedAttempt<T>(
     try {
       await connection.request({ type: "finish", attemptID });
     } catch (error) {
-      fail(refused(error));
+      fail(interrupted(error, true));
     }
     await completed.promise.catch(() => {});
     if (failure) throw failure;

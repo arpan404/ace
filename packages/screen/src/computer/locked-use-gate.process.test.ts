@@ -4,9 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runProtectedAttempt } from "../locked-use-attempt.ts";
-import { LockedUseConnection, connectLockedUse } from "../locked-use-connection.ts";
+import {
+  connectLockedUse,
+  openLockedUseConnection,
+  type LockedUseConnection,
+} from "../locked-use-connection.ts";
 import { systemScheduler } from "../runtime.ts";
-import { fakeLockedUseService, fakeStatus } from "../testing/fake-locked-use-service.ts";
+import {
+  fakeLockedUseService,
+  fakeLockedUseToken,
+  fakeStatus,
+} from "../testing/fake-locked-use-service.ts";
 import type { ComputerClient } from "./client.ts";
 import { lockedUseGate } from "./locked-use-gate.ts";
 import { computerWorld } from "./testing/world.ts";
@@ -19,6 +27,8 @@ afterEach(async () => {
 interface Facts {
   setting: boolean;
   turn: string | undefined;
+  /** Runs inside the protected interval, just before the approved step. */
+  duringWork?: () => Promise<void>;
 }
 
 /**
@@ -37,31 +47,43 @@ async function gated(facts: Facts) {
   let connection: LockedUseConnection | undefined;
   let next = 0;
   const connect = async () =>
-    (connection ??= new LockedUseConnection(await connectLockedUse(service.path), {
+    (connection ??= await openLockedUseConnection(await connectLockedUse(service.path), {
       nextId: () => `r${++next}`,
       scheduler: systemScheduler,
+      token: fakeLockedUseToken,
     }));
   cleanups.push(() => connection?.close());
   const protectedRuns: string[] = [];
+  let running = 0;
   let client: ComputerClient | undefined;
   const gate = lockedUseGate({
     enabled: async () => facts.setting,
     status: async () => (await connect()).request({ type: "status" }),
+    intervalActive: () => running > 0,
     turn: () => facts.turn,
     agentProcessIDs: async (app) => {
       const pid = await client?.helperProcessId(app);
       return pid === undefined ? [] : [pid];
     },
-    runProtected: async (scope, agentProcessIDs, work, signal) => {
+    runProtected: async (scope, agentProcessIDs, work, signal, optIn) => {
       protectedRuns.push(scope.turnID);
-      return runProtectedAttempt(await connect(), {
-        ...scope,
-        agentProcessIDs,
-        attemptID: `attempt-${protectedRuns.length}`,
-        work,
-        signal,
-        scheduler: systemScheduler,
-      });
+      running++;
+      try {
+        return await runProtectedAttempt(await connect(), {
+          ...scope,
+          agentProcessIDs,
+          attemptID: `attempt-${protectedRuns.length}`,
+          optIn,
+          work: async (inner) => {
+            await facts.duringWork?.();
+            return work(inner);
+          },
+          signal,
+          scheduler: systemScheduler,
+        });
+      } finally {
+        running--;
+      }
     },
   });
   const world = await computerWorld({ env: { FAKE_LOCKED: lock }, toolkit: { lockedUse: gate } });
@@ -171,4 +193,40 @@ it("an unlocked Mac never enters the protected path, even with locked use on and
   expect(after.result).toEqual(before.result);
   expect(world.protectedRuns).toEqual([]);
   expect(world.service.requests.map((request) => request.type)).toEqual(["status"]);
+});
+
+it("while an interval holds the Mac unlocked, another call is refused and never reaches the app", async () => {
+  const facts: Facts = { setting: true, turn: "run-7" };
+  const world = await gated(facts);
+  world.service.status = verifiedReady();
+  let other: Awaited<ReturnType<typeof world.call>> | undefined;
+  facts.duringWork = async () => {
+    // Another agent with no approved turn: the Mac now reads unlocked to it.
+    facts.turn = undefined;
+    other = await world.call("screen_act", {
+      app: "Calculator",
+      actions: [{ type: "type", text: "9" }],
+    });
+  };
+  const looked = await world.call("screen_state", { app: "Calculator" });
+  expect(looked.result.isError).toBeFalsy();
+  expect(other?.result.isError).toBe(true);
+  expect(other?.text).toContain("briefly unlocked for another task");
+  expect((await world.ops()).filter((op) => op.startsWith("act"))).toEqual([]);
+  expect(world.protectedRuns).toEqual(["run-7"]);
+});
+
+it("once the interval has ended, a Mac the person unlocked is used directly as before", async () => {
+  const world = await gated({ setting: true, turn: "run-7" });
+  world.service.status = verifiedReady();
+  await world.call("screen_state", { app: "Calculator" });
+  writeFileSync(world.lock, "unlocked");
+  world.service.status = fakeStatus({ phase: "ready", session: "unlocked" });
+  const acted = await world.call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "type", text: "9" }],
+  });
+  expect(acted.result.isError).toBeFalsy();
+  expect(world.protectedRuns).toEqual(["run-7"]);
+  expect(world.service.requests.filter((request) => request.type === "begin")).toHaveLength(1);
 });

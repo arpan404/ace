@@ -81,6 +81,9 @@ export class HelperConnection {
     signal: AbortSignal | undefined,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new ComputerError("closed", "Computer use stopped."));
+    // An abort that already happened fires no `abort` event, so it is honoured here: the
+    // request is never queued or written.
+    if (signal?.aborted) return Promise.reject(new ComputerError("cancelled", "Cancelled."));
     const timing = this.options.timing
       ? new ComputerRequestSpan(op, this.options.timing.now)
       : undefined;

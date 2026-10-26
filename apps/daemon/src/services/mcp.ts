@@ -16,7 +16,7 @@ import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { computerToolkit, screenToolkit } from "@ace/screen";
-import { computerLockedUseGate } from "../computer-locked-use.ts";
+import { cancelLockedUseWhenTurnedOff, computerLockedUseGate } from "../computer-locked-use.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { toolFailureReporter } from "../tool-failure-log.ts";
@@ -32,6 +32,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
   const devices = services.devices;
   const lockedUse = computerLockedUseGate(services);
+  const stopLockedUseWatch = await cancelLockedUseWhenTurnedOff(services);
+  if (stopLockedUseWatch) resources.own(stopLockedUseWatch);
 
   const asks = new Asks({
     store,

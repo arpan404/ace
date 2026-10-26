@@ -6,6 +6,7 @@ import {
   fakeTeam,
   fakeVersion,
   installedLayout,
+  permitWith,
   ruleWith,
   type FakeMacLayout,
 } from "./locked-use-fake-mac.ts";
@@ -58,7 +59,7 @@ describe("locked use detection", () => {
   });
 
   it("needs repair when the unlock rule lacks ace's alternative", async () => {
-    const status = await statusOf({ ...installedLayout(), rule: ruleWith([]) });
+    const status = await statusOf({ ...installedLayout(), rule: ruleWith([]), permit: null });
     expect(status).toEqual({
       state: "driftRepairNeeded",
       reason: "The screen saver unlock rule doesn't include ace.",
@@ -99,11 +100,75 @@ describe("locked use detection", () => {
     expect(status.state).toBe("driftRepairNeeded");
   });
 
-  it("finds the mechanism only inside a plist, not in stray text", async () => {
+  it("finds ace's right only inside a plist, not in stray text", async () => {
     const status = await statusOf({
       ...installedLayout(),
-      rule: "<string>AceLockedUseAuthorization:permit</string>",
+      rule: "<string>dev.ace.locked-use.permit</string>",
     });
     expect(status.state).toBe("driftRepairNeeded");
+  });
+
+  it("needs repair when the unlock rule names ace's right but that right isn't defined", async () => {
+    const status = await statusOf({ ...installedLayout(), permit: null });
+    expect(status).toEqual({
+      state: "driftRepairNeeded",
+      reason: "The screen saver unlock rule names ace's unlock right, which is missing.",
+    });
+  });
+
+  it("never reports on when ace's mechanism sits under the screen saver right's ignored mechanisms key", async () => {
+    const mechanisms =
+      "\t<key>mechanisms</key>\n\t<array><string>AceLockedUseAuthorization:permit</string></array>";
+    for (const rule of [
+      ruleWith([], { extra: mechanisms }),
+      ruleWith(["dev.ace.locked-use.permit"], { extra: mechanisms }),
+    ]) {
+      const status = await statusOf({ ...installedLayout(), rule });
+      expect(status).toEqual({
+        state: "driftRepairNeeded",
+        reason: "The screen saver unlock rule has an ace entry macOS ignores.",
+      });
+    }
+  });
+
+  it("needs repair when the screen saver right naming ace isn't an either-or rule", async () => {
+    const status = await statusOf({
+      ...installedLayout(),
+      rule: ruleWith(["dev.ace.locked-use.permit"], { klass: "evaluate-mechanisms" }),
+    });
+    expect(status).toEqual({
+      state: "driftRepairNeeded",
+      reason: "The screen saver unlock rule isn't an either-or rule.",
+    });
+  });
+
+  it("needs repair when ace's right has the wrong class or doesn't run ace's mechanism", async () => {
+    for (const permit of [
+      permitWith(undefined, "rule"),
+      permitWith(["builtin:authenticate"]),
+      permitWith(["AceLockedUseAuthorization:permit-everything"]),
+    ]) {
+      const status = await statusOf({ ...installedLayout(), permit });
+      expect(status).toEqual({
+        state: "driftRepairNeeded",
+        reason: "ace's unlock right doesn't run ace's plug-in.",
+      });
+    }
+  });
+
+  it("needs repair when ace's right is left behind without the rule naming it, even with the setting off", async () => {
+    const status = await statusOf({ ...emptyLayout(), permit: permitWith() }, false);
+    expect(status).toEqual({
+      state: "driftRepairNeeded",
+      reason: "ace's unlock right is defined but the screen saver rule doesn't name it.",
+    });
+  });
+
+  it("needs repair, never on, when ace's right can't be read", async () => {
+    const status = await statusOf({ ...installedLayout(), permit: undefined });
+    expect(status).toEqual({
+      state: "driftRepairNeeded",
+      reason: "Couldn't read ace's unlock right.",
+    });
   });
 });

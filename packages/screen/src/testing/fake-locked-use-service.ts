@@ -5,8 +5,13 @@
  * relocking, completion, ready). Tests replace any request's handling to script refusals,
  * error events, takeovers and dropped connections. It never touches the machine.
  *
- * Run directly (`node fake-locked-use-service.ts --locked-use --socket <path>`) it serves the
- * default behaviour until killed.
+ * Like the real service it serves a client only after that client's first frame is `hello`
+ * with the daemon's token (anything else is refused and the client dropped), and `enable` and
+ * `begin` without `optIn: true` are refused as `not_enabled`, turning it off and relocking.
+ *
+ * Run directly (`node fake-locked-use-service.ts --locked-use --socket <path>`) it reads the
+ * token as one line of 64 hex characters on stdin (exiting 2 without one in 5s), serves the
+ * default behaviour, and exits when stdin closes.
  */
 import { rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -31,8 +36,13 @@ export const FakeRequest = z.looseObject({
     })
     .optional(),
   agentProcessIDs: z.array(z.number()).optional(),
+  optIn: z.unknown().optional(),
+  token: z.unknown().optional(),
 });
 export type FakeRequest = z.infer<typeof FakeRequest>;
+
+/** The token tests give the fake service unless they choose another. */
+export const fakeLockedUseToken = "0123456789abcdef".repeat(4);
 
 export function fakeStatus(patch: Partial<LockedUseServiceStatus> = {}): LockedUseServiceStatus {
   return {
@@ -57,8 +67,10 @@ export type FakeHandler = (service: FakeLockedUseService, request: FakeRequest) 
 
 export interface FakeLockedUseService {
   readonly path: string;
-  /** Every request received, in order. */
+  /** Every request received after a client's hello was accepted, in order. */
   readonly requests: FakeRequest[];
+  /** Every hello received, accepted or not, as the token it carried. */
+  readonly hellos: unknown[];
   status: LockedUseServiceStatus;
   /** Replace how one request type is handled. */
   handle(type: string, handler: FakeHandler): void;
@@ -129,14 +141,37 @@ export function endAttempt(
   service.publish({ phase: "ready", attemptID: null });
 }
 
-export async function fakeLockedUseService(path: string): Promise<FakeLockedUseService> {
+/** Whether a request must carry the person's opt-in, and lacks it. */
+const lacksOptIn = (request: FakeRequest) =>
+  (request.type === "enable" || request.type === "begin") && request.optIn !== true;
+
+/** What the real service does on a missing opt-in: refuse, stop any attempt, turn off. */
+function refuseWithoutOptIn(service: FakeLockedUseService, request: FakeRequest): void {
+  service.reply(request, {
+    code: "not_enabled",
+    message: "Locked use isn't turned on by the person.",
+  });
+  if (service.status.attemptID) endAttempt(service, undefined, "notEnabled");
+  service.publish({ phase: "disabled" });
+}
+
+export async function fakeLockedUseService(
+  path: string,
+  options: { token?: string } = {},
+): Promise<FakeLockedUseService> {
+  const token = options.token ?? fakeLockedUseToken;
+  /** Clients whose hello was accepted; only they are served and sent messages. */
   const clients = new Set<Socket>();
+  const sockets = new Set<Socket>();
   const handlers = new Map<string, FakeHandler>();
   const waiters: { type: string; resolve: (request: FakeRequest) => void }[] = [];
   const server: Server = createServer((socket) => {
-    clients.add(socket);
+    sockets.add(socket);
     const decoder = new LockedUseFrameDecoder();
-    socket.on("close", () => clients.delete(socket));
+    socket.on("close", () => {
+      clients.delete(socket);
+      sockets.delete(socket);
+    });
     socket.on("error", () => {});
     socket.on("data", (chunk: Buffer) => {
       let frames: Buffer[];
@@ -148,17 +183,40 @@ export async function fakeLockedUseService(path: string): Promise<FakeLockedUseS
       }
       for (const frame of frames) {
         const request = FakeRequest.parse(JSON.parse(frame.toString("utf8")));
+        if (!clients.has(socket)) {
+          if (request.type === "hello") service.hellos.push(request.token);
+          const ok = request.type === "hello" && request.token === token;
+          const answer = ok
+            ? { type: "reply", id: request.id, ok: true }
+            : {
+                type: "reply",
+                id: request.id,
+                ok: false,
+                error: { code: "unauthorized", message: "hello required" },
+              };
+          socket.write(
+            encodeLockedUseFrame(new TextEncoder().encode(JSON.stringify({ v: 1, ...answer }))),
+          );
+          if (!ok) {
+            socket.end();
+            return;
+          }
+          clients.add(socket);
+          continue;
+        }
         service.requests.push(request);
         for (const waiter of waiters.splice(0))
           if (waiter.type === request.type) waiter.resolve(request);
           else waiters.push(waiter);
-        (handlers.get(request.type) ?? defaults[request.type])?.(service, request);
+        if (lacksOptIn(request)) refuseWithoutOptIn(service, request);
+        else (handlers.get(request.type) ?? defaults[request.type])?.(service, request);
       }
     });
   });
   const service: FakeLockedUseService = {
     path,
     requests: [],
+    hellos: [],
     status: fakeStatus(),
     defaults,
     handle: (type, handler) => handlers.set(type, handler),
@@ -187,7 +245,7 @@ export async function fakeLockedUseService(path: string): Promise<FakeLockedUseS
       return new Promise((resolve) => waiters.push({ type, resolve }));
     },
     dropClients() {
-      for (const client of clients) client.destroy();
+      for (const socket of sockets) socket.destroy();
     },
     close: () =>
       new Promise<void>((resolve) => {
@@ -204,9 +262,31 @@ export async function fakeLockedUseService(path: string): Promise<FakeLockedUseS
   return service;
 }
 
+/** The daemon's token: one line of 64 lowercase hex characters on stdin, within 5s. */
+function readToken(): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let text = "";
+    const timer = setTimeout(() => resolve(undefined), 5_000);
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk: string) => {
+      text += chunk;
+      const end = text.indexOf("\n");
+      if (end < 0) return;
+      clearTimeout(timer);
+      const line = text.slice(0, end);
+      resolve(/^[0-9a-f]{64}$/.test(line) ? line : undefined);
+    });
+    process.stdin.on("end", () => resolve(undefined));
+  });
+}
+
 const socketFlag = process.argv.indexOf("--socket");
 if (process.argv.includes("--locked-use") && socketFlag !== -1) {
   const path = process.argv[socketFlag + 1];
   if (!path) process.exit(2);
-  await fakeLockedUseService(path);
+  const token = await readToken();
+  if (!token) process.exit(2);
+  // The daemon closing stdin means it is gone: relock (nothing to do here) and exit.
+  process.stdin.on("end", () => process.exit(0));
+  await fakeLockedUseService(path, { token });
 }

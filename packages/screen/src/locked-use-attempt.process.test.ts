@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runProtectedAttempt, type ProtectedAttempt } from "./locked-use-attempt.ts";
-import { LockedUseConnection, connectLockedUse } from "./locked-use-connection.ts";
+import { connectLockedUse, openLockedUseConnection } from "./locked-use-connection.ts";
 import { systemScheduler } from "./runtime.ts";
 import {
   endAttempt,
   fakeLockedUseService,
+  fakeLockedUseToken,
   fakeStatus,
   type FakeLockedUseService,
 } from "./testing/fake-locked-use-service.ts";
@@ -20,6 +21,10 @@ afterEach(async () => {
 const failingWork = async () => {
   throw new Error("app_not_found");
 };
+const slow = async (signal: AbortSignal) => {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  return signal.aborted ? "aborted" : "the outline";
+};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 async function setup() {
@@ -28,9 +33,11 @@ async function setup() {
   const service = await fakeLockedUseService(join(dir, "s.sock"));
   cleanups.push(() => service.close());
   let next = 0;
-  const connection = new LockedUseConnection(await connectLockedUse(service.path), {
+  const connection = await openLockedUseConnection(await connectLockedUse(service.path), {
     nextId: () => `r${++next}`,
     scheduler: systemScheduler,
+    requestTimeoutMs: 200,
+    token: fakeLockedUseToken,
   });
   cleanups.push(() => connection.close());
   const ran: string[] = [];
@@ -45,6 +52,7 @@ async function setup() {
       turnID: "run-1",
       agentProcessIDs: [4242],
       attemptID: "attempt-1",
+      optIn: true,
       scheduler: systemScheduler,
       readyTimeoutMs: 300,
       relockTimeoutMs: 300,
@@ -198,4 +206,64 @@ it("a relock the service never confirms is an error, not a success", async () =>
   await expect(run({ work, relockTimeoutMs: 100 })).rejects.toMatchObject({
     code: "locked_use_relock_unconfirmed",
   });
+});
+
+it("a relock read together with working never starts the work, and reports why it stopped", async () => {
+  const { service, ran, work, run } = await setup();
+  coverThen(service, () => {
+    service.publish({ phase: "working", session: "unlocked" });
+    service.publish({ phase: "relocking" });
+    setTimeout(() => endAttempt(service, undefined, "expired"), 50);
+  });
+  const error = await run({ work }).catch((caught: unknown) => caught);
+  expect(error).toMatchObject({ code: "locked_use_expired" });
+  expect(ran).toEqual([]);
+});
+
+it("work that outlasts the unlock deadline still finishes: the deadline stops at working", async () => {
+  const { run, types } = await setup();
+  await expect(run({ work: slow, readyTimeoutMs: 100 })).resolves.toBe("the outline");
+  expect(types()).toEqual(["status", "enable", "begin", "finish"]);
+});
+
+it("a finish the service refuses reports a relock problem, never that nothing ran", async () => {
+  const { service, ran, work, run } = await setup();
+  service.handle("finish", (fake, request) =>
+    fake.reply(request, { code: "relock_failed", message: "The lock was not confirmed." }),
+  );
+  const error = await run({ work }).catch((caught: unknown) => caught);
+  expect(ran).toEqual(["working"]);
+  expect(error).toMatchObject({ code: "locked_use_relock_failed" });
+  expect(String(error)).toContain("The step ran");
+  expect(String(error)).not.toContain("Nothing ran");
+});
+
+it("a begin that gets no reply in time is cancelled, so the service can't hold the Mac unlocked", async () => {
+  const { service, ran, work, run } = await setup();
+  service.handle("begin", () => {});
+  const error = await run({ work }).catch((caught: unknown) => caught);
+  expect(String(error)).toContain("Nothing ran");
+  expect((await service.received("cancel")).attemptID).toBe("attempt-1");
+  expect(ran).toEqual([]);
+});
+
+it("with the setting off, enable carries no opt-in: the service refuses and nothing runs", async () => {
+  const { service, ran, work, run, types } = await setup();
+  await expect(run({ work, optIn: false })).rejects.toMatchObject({
+    code: "locked_use_not_enabled",
+  });
+  expect(types()).toEqual(["status", "enable"]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled", session: "locked" });
+});
+
+it("a begin without the opt-in is refused as not enabled, even with the service ready", async () => {
+  const { service, ran, work, run, types } = await setup();
+  service.status = fakeStatus({ phase: "ready" });
+  await expect(run({ work, optIn: false })).rejects.toMatchObject({
+    code: "locked_use_not_enabled",
+  });
+  expect(types()).toEqual(["status", "begin"]);
+  expect(ran).toEqual([]);
+  expect(service.status).toMatchObject({ phase: "disabled", session: "locked" });
 });

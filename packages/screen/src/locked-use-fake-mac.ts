@@ -1,5 +1,5 @@
 import type { MacCommandResult, MacHost } from "./locked-use-host.ts";
-import { lockedUseBundlePath } from "./locked-use-host.ts";
+import { lockedUseBundlePath, lockedUsePermitRight } from "./locked-use-host.ts";
 
 /** A pretend Mac for tests: each field is one component as the real tools would report it. */
 export interface FakeMacLayout {
@@ -8,8 +8,13 @@ export interface FakeMacLayout {
   team: string;
   identifier: string;
   version: string;
-  /** Raw `security authorizationdb read` stdout, or undefined for a failed read. */
+  /** Raw `security authorizationdb read system.login.screensaver` stdout; undefined fails. */
   rule: string | undefined;
+  /**
+   * Raw `security authorizationdb read dev.ace.locked-use.permit` stdout; null when the right
+   * isn't defined (macOS prints `NO (-60005)`), undefined for any other failed read.
+   */
+  permit: string | null | undefined;
   broker: boolean;
   guardian: boolean;
   /** Replaces every command's output, as a broken tool would. */
@@ -19,21 +24,54 @@ export interface FakeMacLayout {
 export const fakeTeam = "ABCDE12345";
 export const fakeVersion = "1";
 
-export function ruleWith(mechanisms: readonly string[]): string {
-  const strings = mechanisms.map((value) => `\t\t<string>${value}</string>`).join("\n");
+function plistOf(entries: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-\t<key>class</key>
-\t<string>rule</string>
-\t<key>rule</key>
-\t<array>
-\t\t<string>authenticate-session-owner-or-admin</string>
-${strings}
-\t</array>
+${entries}
 </dict>
 </plist>
 `;
+}
+
+const stringArray = (values: readonly string[]) =>
+  `<array>\n${values.map((value) => `\t\t<string>${value}</string>`).join("\n")}\n\t</array>`;
+
+/**
+ * The screen saver right as macOS ships it (an OR rule), with `names` added to its `rule`
+ * alternatives; `extra` is spliced in as more dict entries.
+ */
+export function ruleWith(
+  names: readonly string[],
+  options: { klass?: string; extra?: string } = {},
+): string {
+  return plistOf(`\t<key>class</key>
+\t<string>${options.klass ?? "rule"}</string>
+\t<key>comment</key>
+\t<string>The owner or any administrator can unlock the screensaver.</string>
+\t<key>created</key>
+\t<real>700000000.5</real>
+\t<key>k-of-n</key>
+\t<integer>1</integer>
+\t<key>rule</key>
+\t${stringArray(["authenticate-session-owner-or-admin", ...names])}
+\t<key>shared</key>
+\t<true/>
+${options.extra ?? ""}`);
+}
+
+/** ace's permit right as the installer writes it, or with another class or mechanisms. */
+export function permitWith(
+  mechanisms: readonly string[] = ["AceLockedUseAuthorization:permit"],
+  klass = "evaluate-mechanisms",
+): string {
+  return plistOf(`\t<key>class</key>
+\t<string>${klass}</string>
+\t<key>mechanisms</key>
+\t${stringArray(mechanisms)}
+\t<key>shared</key>
+\t<false/>`);
 }
 
 export function installedLayout(): FakeMacLayout {
@@ -43,7 +81,8 @@ export function installedLayout(): FakeMacLayout {
     team: fakeTeam,
     identifier: "dev.ace.locked-use.authorization-plugin",
     version: fakeVersion,
-    rule: ruleWith(["AceLockedUseAuthorization:permit"]),
+    rule: ruleWith([lockedUsePermitRight]),
+    permit: permitWith(),
     broker: true,
     guardian: true,
   };
@@ -54,6 +93,7 @@ export function emptyLayout(): FakeMacLayout {
     ...installedLayout(),
     bundle: false,
     rule: ruleWith([]),
+    permit: null,
     broker: false,
     guardian: false,
   };
@@ -86,12 +126,15 @@ export function fakeMac(layout: FakeMacLayout, clock = { now: 0 }) {
         return Promise.resolve(
           ok("", `Executable=x\nIdentifier=${layout.identifier}\nTeamIdentifier=${layout.team}\n`),
         );
-      if (command.endsWith("security"))
+      if (command.endsWith("security")) {
+        const read = args[2] === lockedUsePermitRight ? layout.permit : layout.rule;
+        if (read === null) return Promise.resolve({ code: 1, stdout: "", stderr: "NO (-60005)" });
         return Promise.resolve(
-          layout.rule === undefined
-            ? { code: 1, stdout: "", stderr: "NO (-60005)" }
-            : ok(layout.rule, "YES (0)"),
+          read === undefined
+            ? { code: 1, stdout: "", stderr: "security: read failed" }
+            : ok(read, "YES (0)"),
         );
+      }
       if (command.endsWith("launchctl")) {
         const label = (second ?? "").replace("system/", "");
         const loaded = label.endsWith("guardian") ? layout.guardian : layout.broker;

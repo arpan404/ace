@@ -71,19 +71,35 @@ describe("locked use frames", () => {
   });
 });
 
+const sent = (request: Parameters<typeof encodeLockedUseRequest>[1]) => {
+  const [frame] = new LockedUseFrameDecoder().push(encodeLockedUseRequest("r1", request));
+  return JSON.parse(text(frame ?? new Uint8Array())) as unknown;
+};
+
 describe("locked use requests", () => {
-  it("begin carries the scope and agent processes under its id", () => {
+  it("begin carries the scope, agent processes and the person's opt-in under its id", () => {
     const scope = { userID: 501, sessionID: 7, threadID: "t", turnID: "r", attemptID: "a" };
-    const [frame] = new LockedUseFrameDecoder().push(
-      encodeLockedUseRequest("r1", { type: "begin", scope, agentProcessIDs: [42] }),
-    );
-    expect(JSON.parse(text(frame ?? new Uint8Array()))).toEqual({
+    expect(sent({ type: "begin", scope, agentProcessIDs: [42], optIn: true })).toEqual({
       v: 1,
       id: "r1",
       type: "begin",
       scope,
       agentProcessIDs: [42],
+      optIn: true,
     });
+  });
+
+  it("enable and begin carry no opt-in at all when the setting is off", () => {
+    const scope = { userID: 501, sessionID: 7, threadID: "t", turnID: "r", attemptID: "a" };
+    expect(sent({ type: "enable", optIn: false })).toEqual({ v: 1, id: "r1", type: "enable" });
+    expect(sent({ type: "begin", scope, agentProcessIDs: [42], optIn: false })).not.toHaveProperty(
+      "optIn",
+    );
+  });
+
+  it("hello carries the daemon's token", () => {
+    const token = "ab".repeat(32);
+    expect(sent({ type: "hello", token })).toEqual({ v: 1, id: "r1", type: "hello", token });
   });
 
   it("a request id outside 1 to 64 characters is refused", () => {

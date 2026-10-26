@@ -7,11 +7,13 @@ import {
   lockedUseBundlePath,
   lockedUseGuardianLabel,
   lockedUseMechanism,
+  lockedUsePermitRight,
   lockedUseRight,
   plutilPath,
   securityPath,
   type MacHost,
 } from "./locked-use-host.ts";
+import { parsePlistDict, plistStringList, type PlistDict } from "./locked-use-plist.ts";
 
 /** What ace expects to find when locked use is on. */
 export interface LockedUseExpectation {
@@ -62,42 +64,84 @@ export function codesignField(output: string, key: string): string | undefined {
   return undefined;
 }
 
-function decodeXml(text: string): string {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&")
-    .trim();
-}
-
-/** Every `<string>` value in an XML plist, or undefined when the text isn't one. */
-export function plistStrings(text: string): string[] | undefined {
-  const start = text.indexOf("<plist");
-  const end = text.lastIndexOf("</plist>");
-  if (start < 0 || end < start) return undefined;
-  const body = text.slice(start, end);
-  return [...body.matchAll(/<string>([^<]*)<\/string>/g)].map((match) => decodeXml(match[1] ?? ""));
-}
-
-/** The string following `<key>name</key>` in an XML plist. */
+/** The string under `key` in an XML plist's root dict. */
 export function plistValue(text: string, key: string): string | undefined {
-  if (plistStrings(text) === undefined) return undefined;
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`<key>\\s*${escaped}\\s*</key>\\s*<string>([^<]*)</string>`).exec(text);
-  return match ? decodeXml(match[1] ?? "") : undefined;
+  const value = parsePlistDict(text)?.get(key);
+  return typeof value === "string" ? value.trim() : undefined;
 }
 
-/** Whether a right, as `security authorizationdb read` printed it, includes our mechanism. */
-export function ruleFact(result: { code: number; stdout: string }): ComponentFact {
-  if (result.code !== 0) return unknown("Couldn't read the screen saver unlock rule.");
-  const strings = plistStrings(result.stdout);
-  if (strings === undefined) return unknown("The screen saver unlock rule couldn't be parsed.");
-  if (strings.includes(lockedUseMechanism)) return valid;
-  if (strings.some((value) => value.includes("AceLockedUse")))
-    return invalid("The screen saver unlock rule has an unexpected ace entry.");
-  return absent;
+/** What one `security authorizationdb read <right>` printed and how it exited. */
+export interface RightRead {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+type RightShape = { kind: "missing" } | { kind: "unreadable" } | { kind: "right"; dict: PlistDict };
+
+/** errAuthorizationDenied: what `security authorizationdb read` prints for an undefined right. */
+const undefinedRight = /\(-60005\)/;
+
+function rightShape(read: RightRead): RightShape {
+  if (read.code !== 0)
+    return undefinedRight.test(`${read.stderr}\n${read.stdout}`)
+      ? { kind: "missing" }
+      : { kind: "unreadable" };
+  const dict = parsePlistDict(read.stdout);
+  return dict ? { kind: "right", dict } : { kind: "unreadable" };
+}
+
+const mentionsAce = (values: readonly string[]) =>
+  values.some((value) => value === lockedUsePermitRight || value.includes("AceLockedUse"));
+
+/** The screen saver right: an OR rule (`class rule`, k-of-n 1) that names our permit right. */
+function screensaverShape(dict: PlistDict): "names" | "absent" | { invalid: string } {
+  const rule = plistStringList(dict.get("rule"));
+  // authd ignores `mechanisms` on a rule-class right; any ace entry there is stale, never valid.
+  if (mentionsAce(plistStringList(dict.get("mechanisms"))))
+    return { invalid: "The screen saver unlock rule has an ace entry macOS ignores." };
+  const names = rule.includes(lockedUsePermitRight);
+  if (!names)
+    return mentionsAce(rule)
+      ? { invalid: "The screen saver unlock rule has an unexpected ace entry." }
+      : "absent";
+  const kOfN = dict.get("k-of-n");
+  if (dict.get("class") !== "rule" || (kOfN !== undefined && kOfN !== 1))
+    return { invalid: "The screen saver unlock rule isn't an either-or rule." };
+  return "names";
+}
+
+/** Our permit right: `class evaluate-mechanisms` running our plug-in mechanism. */
+function permitValid(dict: PlistDict): boolean {
+  return (
+    dict.get("class") === "evaluate-mechanisms" &&
+    plistStringList(dict.get("mechanisms")).includes(lockedUseMechanism)
+  );
+}
+
+/**
+ * Whether the screen saver unlock rule reaches our mechanism, from two reads: the
+ * `system.login.screensaver` right must be an OR rule naming `dev.ace.locked-use.permit`, and
+ * that right must evaluate our mechanism. Only both together are valid; an unreadable read is
+ * unknown, never valid.
+ */
+export function ruleFact(screensaver: RightRead, permit: RightRead): ComponentFact {
+  const outer = rightShape(screensaver);
+  if (outer.kind === "missing") return unknown("The screen saver unlock rule is missing.");
+  if (outer.kind === "unreadable") return unknown("Couldn't read the screen saver unlock rule.");
+  const named = screensaverShape(outer.dict);
+  const inner = rightShape(permit);
+  if (typeof named === "object") return invalid(named.invalid);
+  if (named === "absent") {
+    if (inner.kind === "missing") return absent;
+    if (inner.kind === "unreadable") return unknown("Couldn't read ace's unlock right.");
+    return invalid("ace's unlock right is defined but the screen saver rule doesn't name it.");
+  }
+  if (inner.kind === "missing")
+    return invalid("The screen saver unlock rule names ace's unlock right, which is missing.");
+  if (inner.kind === "unreadable") return unknown("Couldn't read ace's unlock right.");
+  if (!permitValid(inner.dict)) return invalid("ace's unlock right doesn't run ace's plug-in.");
+  return valid;
 }
 
 /** Whether `launchctl print system/<label>` shows the daemon loaded. 113 = not loaded. */
@@ -166,11 +210,13 @@ export async function readLockedUseFacts(
 ): Promise<LockedUseFacts> {
   const [bundle, rule, broker, guardian] = await Promise.all([
     guard(() => bundleFact(host, expect), "authorization plug-in"),
-    guard(
-      async () =>
-        ruleFact(await host.exec(securityPath, ["authorizationdb", "read", lockedUseRight])),
-      "screen saver unlock rule",
-    ),
+    guard(async () => {
+      const [screensaver, permit] = await Promise.all([
+        host.exec(securityPath, ["authorizationdb", "read", lockedUseRight]),
+        host.exec(securityPath, ["authorizationdb", "read", lockedUsePermitRight]),
+      ]);
+      return ruleFact(screensaver, permit);
+    }, "screen saver unlock rule"),
     guard(
       async () =>
         daemonFact(
