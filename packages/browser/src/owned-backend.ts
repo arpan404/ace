@@ -1,8 +1,7 @@
 import { basename, dirname, join } from "node:path";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
-import { detectChromium } from "./discovery.ts";
-import { ownedChromium } from "./owned-chromium.ts";
+import { detectChromium, ownedChromium } from "./discovery.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";

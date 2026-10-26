@@ -28,8 +28,7 @@ export default defineConfig({
     reporters: ["default", new FailureDetailsReporter()],
     include: [
       "packages/browser/src/video-software.process.test.ts",
-      "packages/browser/src/discovery-windows.test.ts",
-      "packages/browser/src/owned-chromium.test.ts",
+      "packages/browser/src/discovery.test.ts",
       "packages/browser-extension/src/install.test.ts",
       "packages/browser/src/video-sharpness.process.test.ts",
       "packages/workspace/src/windows-core.process.test.ts",
