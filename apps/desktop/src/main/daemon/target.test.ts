@@ -30,8 +30,14 @@ describe("which daemon the packaged app uses", () => {
     expect(resolveTarget({ ACE_HOME: "/h" }, options("linux")).kind).toBe("managed");
   });
 
-  it("asks for a remote daemon on Windows instead of starting one that cannot run", () => {
-    expect(resolveTarget({}, options("win32"))).toMatchObject({ kind: "remote-only" });
+  it.runIf(process.platform === "win32")("manages a local daemon on Windows", () => {
+    expect(resolveTarget({}, options("win32"))).toEqual({
+      kind: "managed",
+      home: "/Users/me/.ace",
+      entry: "/app/daemon/ace.mjs",
+    });
+    expect(resolveTarget({ ACE_DESKTOP_DAEMON: "attach" }, options("win32", untouched, false)))
+      .toMatchObject({ kind: "attach" });
   });
 
   it("uses a configured remote daemon on any platform", () => {

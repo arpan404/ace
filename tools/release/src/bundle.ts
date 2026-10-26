@@ -47,6 +47,9 @@ export async function bundleDaemon(
                 /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
             },
             async (args) => {
+              // Windows paths arrive with backslashes; the rewrites below match `/` paths.
+              if (process.platform === "win32")
+                args = { ...args, path: args.path.replaceAll("\\", "/") };
               let contents = await readFile(args.path, "utf8");
               for (const [source, worker, output] of [
                 ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],

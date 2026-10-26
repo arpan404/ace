@@ -8,7 +8,7 @@ export interface AppPaths {
   /** The macOS helper's pinned hashes; outside `Contents/Helpers`, which may hold only code. */
   screenHelperManifest: string | undefined;
   binDirectory: string;
-  /** The bundled Node runtime the daemon runs on (absent on Windows, which has no daemon). */
+  /** The bundled Node runtime the daemon runs on. */
   node: string;
   /**
    * The tray image at 1x; `@2x` sits beside it. macOS tints a black template image to its menu
@@ -62,6 +62,8 @@ export function appPaths(options: {
           : join(resources, "helpers", "manifest.json"),
     binDirectory: join(resources, "bin"),
     node: join(resources, "runtime", "bin", "node"),
+    // The Windows runtime is the official zip's layout: `node.exe` at its root.
+    ...(options.platform === "win32" ? { node: join(resources, "runtime", "node.exe") } : {}),
     trayIcon: options.packaged
       ? join(options.resourcesPath, "icons", trayImage)
       : join(desktop, "resources", trayImage),

@@ -55,6 +55,9 @@ async function packageRoot(from: string, name: string): Promise<string> {
 
 /** Stage the pinned SDK's runtime code, dependency closure and target helpers. */
 export async function stageCursorRuntime(source: string, destination: string, target: string) {
+  // Windows packages carry no Cursor runtime yet: its Windows support is decided separately
+  // (the SDK ships an x64 helper only), so the provider stays unavailable there.
+  if (target.startsWith("win32-")) return [];
   if (!/^(darwin|linux)-(arm64|x64)$/.test(target))
     throw new Error(`Unsupported Cursor runtime target: ${target}`);
   const sdkRoot = await realpath(source);
