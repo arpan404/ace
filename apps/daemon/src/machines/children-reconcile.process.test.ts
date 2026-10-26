@@ -353,3 +353,137 @@ it("messages to an unreachable machine never hold back a message to a healthy on
   for (const sent of h.resent) tried.add(sent);
   for (const id of stuck) expect(tried, id).toContain(`follow-up-${id}`);
 });
+
+/**
+ * The machine's answers to messages sent again, held open until the test releases them, so a
+ * test can count what is in flight at each moment, per machine.
+ */
+function gatedResends(h: ReturnType<typeof machine>) {
+  const open: { host: string; answer: (value: "taken") => void }[] = [];
+  h.answers.resend = (host) =>
+    new Promise((resolve) => {
+      open.push({ host, answer: resolve });
+    });
+  return {
+    inFlight: (host?: string) =>
+      open.filter((entry) => host === undefined || entry.host === host).length,
+    async releaseAll() {
+      for (const entry of open.splice(0)) entry.answer("taken");
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+  };
+}
+
+it("an unanswered message waits out its saved retry wait, even across a restart, then is sent exactly once", async () => {
+  const first = machine();
+  const id = first.add("child");
+  first.report(id, working);
+  await first.fire();
+  first.children.send(id, message("follow-up"))(undefined);
+  first.answers.resend = async () => {
+    throw new Error("Studio is unreachable");
+  };
+  // The first retry goes at once; the next waits one second, the one after that two.
+  await first.fire();
+  expect(first.resent).toEqual(["follow-up"]);
+  first.clock.now += 999;
+  await first.fire();
+  expect(first.resent).toEqual(["follow-up"]);
+  first.clock.now += 1;
+  await first.fire();
+  expect(first.resent).toEqual(["follow-up", "follow-up"]);
+
+  // The caller restarts mid-wait: the saved wait still holds.
+  first.children.close();
+  const restarted = machine(first.home);
+  restarted.clock.now = first.clock.now;
+  restarted.report(id, working);
+  restarted.answers.resend = async () => {
+    throw new Error("Studio is unreachable");
+  };
+  restarted.clock.now += 1_999;
+  await restarted.fire();
+  expect(restarted.resent).toEqual([]);
+  restarted.clock.now += 1;
+  await restarted.fire();
+  expect(restarted.resent).toEqual(["follow-up"]);
+});
+
+it("at most four messages go to one machine at once, and a message to another machine still goes meanwhile", async () => {
+  const h = machine();
+  const busy = Array.from({ length: 6 }, (_, index) => h.add(`busy-${index}`, "busy"));
+  const other = h.add("other", "other");
+  for (const id of [...busy, other]) h.report(id, working);
+  await h.fire();
+  const gates = gatedResends(h);
+  for (const id of busy) h.children.send(id, message(`to-${id}`))(undefined);
+  await h.fire();
+  expect(gates.inFlight("busy")).toBe(4);
+
+  // While that machine is full its other messages wait, and another machine's goes out.
+  h.children.send(other, message(`to-${other}`))(undefined);
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(gates.inFlight("busy")).toBe(4);
+  expect(gates.inFlight("other")).toBe(1);
+
+  // As answers come, the waiting ones go, and every message is answered.
+  for (let round = 0; round < 3; round++) {
+    await gates.releaseAll();
+    h.clock.now += 60_000;
+    await h.fire();
+  }
+  expect(new Set(h.resent)).toEqual(new Set([...busy, other].map((id) => `to-${id}`)));
+  expect(gates.inFlight()).toBe(0);
+  const sent = h.resent.length;
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(h.resent).toHaveLength(sent);
+});
+
+it("at most sixteen messages are sent again at once across all machines, and all are answered", async () => {
+  const h = machine();
+  const ids = Array.from({ length: 24 }, (_, index) =>
+    h.add(`child-${index}`, `host-${index % 6}`),
+  );
+  for (const id of ids) h.report(id, working);
+  await h.fire();
+  const gates = gatedResends(h);
+  for (const id of ids) h.children.send(id, message(`to-${id}`))(undefined);
+  await h.fire();
+  expect(gates.inFlight()).toBe(16);
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(gates.inFlight()).toBe(16);
+
+  for (let round = 0; round < 3; round++) {
+    await gates.releaseAll();
+    h.clock.now += 60_000;
+    await h.fire();
+  }
+  expect(new Set(h.resent)).toEqual(new Set(ids.map((id) => `to-${id}`)));
+  expect(gates.inFlight()).toBe(0);
+  const sent = h.resent.length;
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(h.resent).toHaveLength(sent);
+});
+
+it("however many messages wait for a full machine, they never crowd out another machine's", async () => {
+  const h = machine();
+  const busy = Array.from({ length: 70 }, (_, index) => h.add(`busy-${index}`, "busy"));
+  const other = h.add("other", "other");
+  for (const id of [...busy, other]) h.report(id, working);
+  await h.fire();
+  const gates = gatedResends(h);
+  for (const id of busy) h.children.send(id, message(`to-${id}`))(undefined);
+  await h.fire();
+  expect(gates.inFlight("busy")).toBe(4);
+
+  // More of that machine's messages are due than one batch reads, all queued ahead of this one.
+  h.children.send(other, message(`to-${other}`))(undefined);
+  await h.fire();
+  expect(gates.inFlight("other")).toBe(1);
+  expect(gates.inFlight("busy")).toBe(4);
+  await gates.releaseAll();
+});
