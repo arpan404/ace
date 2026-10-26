@@ -1,8 +1,7 @@
 // Bounded Windows workspace handle core (W04 first cut) — shared declarations.
 //
 // Scope: pinned opens, exclusive file/directory creation, metadata, enumeration,
-// lossless FileIdInfo identity, plus the private-file ACL check and the
-// owner-only private-file secure. No pipe yet. HANDLEs never cross NAPI;
+// lossless FileIdInfo identity. No pipe yet. HANDLEs never cross NAPI;
 // every returned handle is converted with uv_open_osfhandle before NAPI
 // carries it, so NAPI carries only CRT fds. Each call borrows parent HANDLEs
 // via uv_get_osfhandle and stores nothing.
@@ -97,97 +96,10 @@ const char *wcore_mkdir_at(int parent_fd, const char *name);
 const char *wcore_unlink_at(int parent_fd, const char *name);
 const char *wcore_remove_directory_at(int parent_fd, const char *name);
 
-// Private-file check: fail closed unless the named child is a regular file
-// with a single link, owned by the current process user, guarded by a
-// protected owner-only DACL carrying exactly one zero-flag
-// ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS mask for that owner. Reparse
-// points are ELOOP, directories EISDIR, hardlinks and any DACL/owner
-// mismatch EACCES. No admin bypass.
-const char *wcore_check_private_at(int parent_fd, const char *name);
-
-// Private-file check on an already-open fd: same fail-closed verdict as
-// checkPrivateAt, applied to the borrowed HANDLE itself (never reopened by
-// name, never closed here, never changes any ACL). The caller keeps the fd
-// alive through this synchronous call. Reparse points are ELOOP,
-// directories EISDIR, hardlinks and any DACL/owner mismatch EACCES.
-const char *wcore_check_private_fd(int fd);
-
-// Private-file secure (no ownership change, no admin bypass): fail closed
-// unless the named child is a regular file with a single link, already
-// owned by the current process user. Installs the exact owner-only
-// protected DACL (one zero-flag ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS
-// mask for the owner), then re-reads the SAME handle through the shared
-// check logic before reporting success. Reparse points are ELOOP,
-// directories EISDIR, hardlinks and any owner mismatch EACCES.
-const char *wcore_secure_private_at(int parent_fd, const char *name);
-
-// Private-file secure on an already-open fd: same fail-closed hardening as
-// securePrivateAt, applied to the borrowed HANDLE itself (never reopened by
-// name, never closed here, never changes the owner). Requires the regular
-// single-link shape and current-user ownership, installs the protected
-// owner-only DACL, then re-reads the SAME handle. The caller keeps the fd
-// alive through this synchronous call. Pair with openPrivateMetadataAt,
-// whose WRITE_DAC access authorizes the replacement. No WRITE_OWNER.
-const char *wcore_secure_private_fd(int fd);
-
-// Private metadata open for a later same-handle secure: one validated
-// component relative to a pinned parent (directory, no reparse; strict
-// component, no follow) opened with READ_CONTROL | WRITE_DAC |
-// FILE_READ_ATTRIBUTES | SYNCHRONIZE only (never data, never WRITE_OWNER).
-// Fails closed unless the child is a regular single link owned by the
-// current user; the DACL may be broad so it stays healable by secure.
-// Returns a Node-owned fd for securePrivateFd.
-const char *wcore_open_private_metadata_at(int parent_fd, const char *name, int *out_fd);
-
-// Atomically create a private regular file. Exclusively creates one
-// validated component relative to a pinned parent (FILE_CREATE: any
-// existing name, including junctions and directories, is EEXIST with no
-// mutation). The owner-only protected DACL (one zero-flag
-// FILE_ALL_ACCESS ACE for the current TokenUser) is installed in
-// OBJECT_ATTRIBUTES.SecurityDescriptor at NtCreateFile creation, never
-// repaired afterwards. The returned fd is verified with the shared
-// checkPrivateFd logic; verification failure closes the fresh fd and
-// never reopens or deletes by name. No WRITE_OWNER, no admin bypass.
-const char *wcore_create_private_file_at(int parent_fd, const char *name, int *out_fd);
-
-// Exclusive protected directory creation with inheritable current-user-only
-// ACL. Existing names are EEXIST without repair or ownership changes.
-const char *wcore_create_private_directory_at(int parent_fd, const char *name, int *out_fd);
-// Observe a pinned directory's current-user owner and protected inheritable
-// owner-only DACL. The borrowed fd is never closed or changed.
-const char *wcore_check_private_directory_fd(int fd);
-
-// Shared private-security helpers (single owner: private_security.c).
-// wcore_current_user_sid loads a malloc'd copy of the current process
-// TokenUser SID; wcore_owner_only_acl builds a malloc'd ACL with exactly
-// one zero-flag ACCESS_ALLOWED_ACE carrying FILE_ALL_ACCESS for `user`;
-// wcore_owner_directory_acl builds the same single-ACE ACL with
-// OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE for directories.
-// wcore_verify_private_file_security checks an open file HANDLE for the
-// protected zero-flag owner-only shape; the directory variant expects the
-// inherit flags. Shape checks stay with the callers; these cover only the
-// TokenUser ownership + protected-DACL + single-ACE verdict. On success
-// the caller frees *out with free(); on failure *out is NULL and the
-// return is a static POSIX code string. Fail closed, no admin bypass.
-const char *wcore_current_user_sid(PSID *out);
-const char *wcore_assert_current_owner(PSID owner);
-const char *wcore_init_private_descriptor(
-    PSID user, PACL acl, SECURITY_DESCRIPTOR *out);
-const char *wcore_owner_only_acl(PSID user, PACL *out);
-const char *wcore_owner_directory_acl(PSID user, PACL *out);
-const char *wcore_verify_private_file_security(HANDLE child);
-const char *wcore_verify_private_directory_security(HANDLE child);
-
 // Same-parent rename of the source object itself. Destination is one validated
-// component relative to the pinned parent. rename replaces, exclusive refuses
-// an existing destination. Neither operation follows a reparse point.
+// component relative to the pinned parent; an existing destination is
+// replaced. A reparse point is renamed itself, never followed.
 const char *wcore_rename_at(int parent_fd, const char *from, const char *to);
-const char *wcore_rename_exclusive_at(int parent_fd, const char *from, const char *to);
-
-// Lossless identity of an open fd: VolumeSerialNumber as 16 lowercase hex
-// chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier
-// byte order, string equality only — never truncated to JS doubles).
-const char *wcore_identity_of(int fd, char vol_hex[17], char id_hex[33]);
 
 // Shared lossless identity formatting (single owner: file_identity.c).
 // VolumeSerialNumber as 16 zero-padded lowercase hex chars (MSB first);
@@ -269,11 +181,6 @@ const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);
 const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);
-// Narrow FILE_CREATE variant carrying an absolute SECURITY_DESCRIPTOR for
-// OBJECT_ATTRIBUTES.SecurityDescriptor (NULL selects the inherited default
-// and is never used by private creation). Only creation uses a non-NULL SD.
-const char *wcore_nt_create_new_child_sd(HANDLE parent, const WCHAR *wname, DWORD wlen,
-    ULONG options, ACCESS_MASK access, PSECURITY_DESCRIPTOR sd, HANDLE *out);
 #endif
 
 #endif

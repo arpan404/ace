@@ -1,4 +1,4 @@
-// Metadata, identity and enumeration Node-API callbacks.
+// Metadata and enumeration Node-API callbacks.
 #ifdef _WIN32
 #include "windows_binding.h"
 #include "windows_core.h"
@@ -13,33 +13,6 @@ static int read_cap(napi_env env, napi_value value, int32_t *out) {
   if ((double)checked != number) return 0;
   if (out != NULL) *out = checked;
   return 1;
-}
-
-static napi_value do_identity_of(napi_env env, napi_callback_info info) {
-  napi_value args[1];
-  napi_value result = NULL;
-  napi_value value = NULL;
-  size_t count = 1;
-  int32_t fd = -1;
-  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok ||
-      count != 1 || !read_fd(env, args[0], &fd))
-    return fail_for(env, "identityOf", "EINVAL", NULL);
-  char vol[17], id[33];
-  const char *code = wcore_identity_of(fd, vol, id);
-  if (code != NULL) return fail_for(env, "identityOf", code, NULL);
-  // Borrowed fd only: never close here; ownership stays with the JS side.
-  if (napi_create_object(env, &result) != napi_ok)
-    return throw_binding_error(env, "identityOf");
-  if (napi_create_string_utf8(env, vol, NAPI_AUTO_LENGTH, &value) != napi_ok)
-    return throw_binding_error(env, "identityOf");
-  if (napi_set_named_property(env, result, "vol", value) != napi_ok)
-    return throw_binding_error(env, "identityOf");
-  value = NULL;
-  if (napi_create_string_utf8(env, id, NAPI_AUTO_LENGTH, &value) != napi_ok)
-    return throw_binding_error(env, "identityOf");
-  if (napi_set_named_property(env, result, "id", value) != napi_ok)
-    return throw_binding_error(env, "identityOf");
-  return result;
 }
 
 static napi_value make_stat_result(napi_env env, const char *op,
@@ -167,7 +140,6 @@ static napi_value do_names(napi_env env, napi_callback_info info) {
 
 napi_status wcore_define_metadata(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
-    {"identityOf", NULL, do_identity_of, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, do_stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"statFd", NULL, do_stat_fd, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, do_names, NULL, NULL, NULL, napi_default, NULL},

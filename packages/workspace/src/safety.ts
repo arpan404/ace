@@ -2,7 +2,7 @@ import {
   openDirectoryAt,
   openFileAt,
   openRoot,
-  openPrivateMetadataAt,
+  openMetadataAt,
   statAt,
   descriptorNames,
   type Descriptor,
@@ -176,7 +176,7 @@ export class SafeRoot {
         throw new WorkspaceError("NOT_FILE", "Expected a regular private file");
       const parent = await this.anchored(parentResolved, openDirectoryAt);
       try {
-        handle = openPrivateMetadataAt(parent.fd, basename(path));
+        handle = openMetadataAt(parent.fd, basename(path));
       } finally {
         await parent.close();
       }

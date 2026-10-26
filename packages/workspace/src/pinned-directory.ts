@@ -9,7 +9,6 @@ import {
   openDirectoryAt,
   openFileAt,
   createFileAt,
-  createPrivateDirectoryAt,
   mkdirAt,
   descriptorNames,
   statAt,
@@ -78,19 +77,6 @@ export class PinnedDirectory {
     mkdirAt(this.fd, name);
     return this.child(name);
   }
-  mkdirPrivate(name: string): PinnedDirectory {
-    const handle = createPrivateDirectoryAt(this.fd, name);
-    try {
-      handle.checkPrivateDirectory();
-      return new PinnedDirectory(handle);
-    } catch (error) {
-      closeSync(handle.fd);
-      throw error;
-    }
-  }
-  checkPrivate(): void {
-    this.handle.checkPrivateDirectory();
-  }
   names(): string[] {
     return descriptorNames(this.fd);
   }
@@ -129,22 +115,23 @@ export class PinnedDirectory {
   readText(name: string, limit: number, owner?: number): string {
     return this.readBytes(name, limit, owner).toString("utf8");
   }
-  /** Current-user private text. Windows proves TokenUser ownership and DACL
-   * through the opened handle; POSIX uses the current uid.
-   */
-  readPrivateText(name: string, limit: number): string {
-    return this.readText(name, limit, process.getuid?.() ?? 0);
-  }
   /** Bounded regular-file bytes through the pinned directory, without following symlinks. */
   readBytes(name: string, limit: number, owner?: number): Buffer {
     const file = openFileAt(this.fd, name);
     try {
       const info = file.statSync();
-      if (!info.isFile() || info.size > limit)
+      if (
+        !info.isFile() ||
+        info.size > limit ||
+        (owner !== undefined && (info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0))
+      )
         throw new Error(
           `Refusing ${name}: expected a bounded regular file owned by the home owner`,
         );
-      if (owner !== undefined) file.checkPrivate(owner);
+      // The name can be unlinked after openat but before fstat. Never return
+      // removed private-file contents; report absence so lock contenders retry.
+      if (owner !== undefined && info.nlink === 0)
+        throw Object.assign(new Error(`${name} was removed during read`), { code: "ENOENT" });
       const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {

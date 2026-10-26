@@ -1,13 +1,4 @@
-import {
-  close,
-  constants,
-  fstat,
-  read,
-  write,
-  fstatSync,
-  fchmodSync,
-  type BigIntStats,
-} from "node:fs";
+import { close, constants, fstat, read, write, fstatSync, type BigIntStats } from "node:fs";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
 import {
@@ -67,7 +58,7 @@ export function openFileAt(parent: number, name: string): Descriptor {
 export function createFileAt(parent: number, name: string): Descriptor {
   try {
     const fd = onWindows()
-      ? windowsBinding().createPrivateFileAt(parent, name)
+      ? windowsBinding().createFileAt(parent, name)
       : posixBinding().openAt(
           parent,
           name,
@@ -78,31 +69,10 @@ export function createFileAt(parent: number, name: string): Descriptor {
     return nativeFailure(error);
   }
 }
-export function createPrivateDirectoryAt(parent: number, name: string): Descriptor {
-  if (process.platform !== "win32") {
-    mkdirAt(parent, name);
-    return openDirectoryAt(parent, name);
-  }
-  try {
-    return new Descriptor(windowsBinding().createPrivateDirectoryAt(parent, name));
-  } catch (error) {
-    return nativeFailure(error);
-  }
-}
 export function openMetadataAt(parent: number, name: string): Descriptor {
   try {
     const fd = onWindows()
       ? windowsBinding().openMetadataAt(parent, name)
-      : posixBinding().openMetadataAt(parent, name);
-    return new Descriptor(fd);
-  } catch (error) {
-    return nativeFailure(error);
-  }
-}
-export function openPrivateMetadataAt(parent: number, name: string): Descriptor {
-  try {
-    const fd = onWindows()
-      ? windowsBinding().openPrivateMetadataAt(parent, name)
       : posixBinding().openMetadataAt(parent, name);
     return new Descriptor(fd);
   } catch (error) {
@@ -137,140 +107,43 @@ export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
     return nativeFailure(error);
   }
 }
-/** Fd metadata adapter. Implementations observe the caller-held fd directly. */
-export interface DescriptorStatSource {
-  statSync(fd: number): IdentifiedStats;
-  stat(fd: number): Promise<IdentifiedStats>;
-}
-
 function fstatAsync(fd: number): Promise<BigIntStats> {
   return new Promise((resolve, reject) =>
     fstat(fd, { bigint: true }, (error, info) => (error ? reject(error) : resolve(info))),
   );
 }
 
-const posixDescriptorStats: DescriptorStatSource = {
-  statSync(fd: number): IdentifiedStats {
-    if (process.platform === "win32")
-      throw new Error("Windows descriptor metadata requires native file identity integration");
-    return posixStats(fstatSync(fd, { bigint: true }));
-  },
-  stat(fd: number): Promise<IdentifiedStats> {
-    if (process.platform === "win32")
-      return Promise.reject(
-        new Error("Windows descriptor metadata requires native file identity integration"),
-      );
-    return fstatAsync(fd).then((info) => posixStats(info));
-  },
-};
-
-/** Build a Windows fd stat source from a native metadata lookup.
- * Both observations run on the same caller-held fd: bigint display metadata
- * from fstat plus FILE_ID_INFO and reparse-aware mode from statFd. Node's
- * fstat classifies an opened junction as a directory, so native mode owns
- * the type predicates as well. The path is never reopened,
- * so a pathname rename cannot redirect the observation. The caller keeps the
- * fd alive through the async stat.
- */
-export function windowsDescriptorStats(statFd: (fd: number) => unknown): DescriptorStatSource {
-  const nativeMetadata = Win32FileIdentitySchema.omit({ kind: true }).extend({
-    mode: z.number().int().min(0).max(0o177777),
-  });
-  return {
-    statSync(fd: number): IdentifiedStats {
-      const info = fstatSync(fd, { bigint: true });
-      const fields = nativeMetadata.parse(statFd(fd));
-      return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id }, fields.mode);
-    },
-    stat(fd: number): Promise<IdentifiedStats> {
-      return fstatAsync(fd).then((info) => {
-        const fields = nativeMetadata.parse(statFd(fd));
-        return identifiedStats(
-          info,
-          { kind: "win32", vol: fields.vol, id: fields.id },
-          fields.mode,
-        );
-      });
-    },
-  };
+const WindowsFdMetadata = Win32FileIdentitySchema.omit({ kind: true }).extend({
+  mode: z.number().int().min(0).max(0o177777),
+});
+/** Node's Windows dev/ino are lossy and its fstat reports an opened junction as a directory,
+ * so identity and type come from the native FILE_ID_INFO read on the same held fd. */
+function identify(fd: number, info: BigIntStats): IdentifiedStats {
+  if (process.platform !== "win32") return posixStats(info);
+  const fields = WindowsFdMetadata.parse(windowsBinding().statFd(fd));
+  return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id }, fields.mode);
 }
 
-const windowsDefaultStats: DescriptorStatSource = windowsDescriptorStats((fd) =>
-  windowsBinding().statFd(fd),
-);
-function defaultStats(): DescriptorStatSource {
-  if (process.platform === "win32") return windowsDefaultStats;
-  return posixDescriptorStats;
-}
-
-/** Own a descriptor acquired by openat. Node's callback API accepts it directly.
- * The descriptor owns normal fd lifetime; the stat source only observes it.
- */
+/** Own a descriptor acquired by openat. Node's callback API accepts it directly. */
 export class Descriptor {
   readonly fd: number;
-  private readonly statsSource: DescriptorStatSource;
-  constructor(fd: number, statsSource?: DescriptorStatSource) {
+  constructor(fd: number) {
     this.fd = fd;
-    this.statsSource = statsSource ?? defaultStats();
-  }
-  checkPrivate(owner: number): void {
-    try {
-      if (process.platform === "win32") {
-        windowsBinding().checkPrivateFd(this.fd);
-        return;
-      }
-      const info = this.statSync();
-      if (!info.isFile() || info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0)
-        throw new Error("Refusing private descriptor: expected a regular file owned by the owner");
-      if (info.nlink === 0)
-        throw Object.assign(new Error("Private file was removed during read"), { code: "ENOENT" });
-    } catch (error) {
-      nativeFailure(error);
-    }
-  }
-  checkPrivateDirectory(): void {
-    try {
-      if (process.platform === "win32") {
-        windowsBinding().checkPrivateDirectoryFd(this.fd);
-        return;
-      }
-      const info = this.statSync();
-      if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
-        throw new Error("Refusing directory: expected a private directory owned by this user");
-    } catch (error) {
-      nativeFailure(error);
-    }
   }
   chmod(mode: number): void {
+    // Windows has no POSIX mode bits; the folder's inherited ACL governs access.
+    if (process.platform === "win32") return;
     try {
-      if (process.platform === "win32") {
-        if (mode !== 0o600)
-          throw Object.assign(
-            new Error(`Unsupported mode ${mode.toString(8)}: Windows private files use 0600`),
-            { code: "ENOTSUP" },
-          );
-        try {
-          windowsBinding().checkPrivateFd(this.fd);
-        } catch (error) {
-          if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error;
-          windowsBinding().securePrivateFd(this.fd);
-        }
-        // A protected DACL and the readonly attribute are independent. Node's
-        // Windows fchmod clears readonly through the same file object, so an
-        // upload recovery must not report 0600 while owner writes remain blocked.
-        if ((this.statSync().mode & 0o200) === 0) fchmodSync(this.fd, mode);
-        return;
-      }
       posixBinding().chmodMetadata(this.fd, mode);
     } catch (error) {
       nativeFailure(error);
     }
   }
   statSync(): IdentifiedStats {
-    return this.statsSource.statSync(this.fd);
+    return identify(this.fd, fstatSync(this.fd, { bigint: true }));
   }
-  stat(): Promise<IdentifiedStats> {
-    return this.statsSource.stat(this.fd);
+  async stat(): Promise<IdentifiedStats> {
+    return identify(this.fd, await fstatAsync(this.fd));
   }
   read(
     buffer: Buffer,

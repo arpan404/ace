@@ -98,15 +98,7 @@ const WindowsBinding = z
       input: [z.number().int(), z.string()],
       output: z.number().int().nonnegative(),
     }),
-    openPrivateMetadataAt: z.function({
-      input: [z.number().int(), z.string()],
-      output: z.number().int().nonnegative(),
-    }),
     createFileAt: z.function({
-      input: [z.number().int(), z.string()],
-      output: z.number().int().nonnegative(),
-    }),
-    createPrivateFileAt: z.function({
       input: [z.number().int(), z.string()],
       output: z.number().int().nonnegative(),
     }),
@@ -117,35 +109,18 @@ const WindowsBinding = z
       input: [z.number().int(), z.string(), z.string()],
       output: z.void(),
     }),
-    renameExclusiveAt: z.function({
-      input: [z.number().int(), z.string(), z.string()],
-      output: z.void(),
-    }),
-    createPrivateDirectoryAt: z.function({
-      input: [z.number().int(), z.string()],
-      output: z.number().int().nonnegative(),
-    }),
-    checkPrivateDirectoryFd: z.function({ input: [z.number().int()], output: z.void() }),
-    securePrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
-    checkPrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
-    checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
-    securePrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
     statFd: z.function({ input: [z.number().int()], output: WindowsMetadata }),
     statAt: z.function({ input: [z.number().int(), z.string()], output: WindowsMetadata }),
-    identityOf: z.function({ input: [z.number().int()], output: WindowsIdentity }),
     names: z.function({
       input: [z.number().int(), z.number().int()],
       output: z.array(z.string()).max(DIRECTORY_CAP),
     }),
   })
   .strict();
-export function parseWindowsBinding(native: unknown): z.infer<typeof WindowsBinding> {
-  return WindowsBinding.parse(native);
-}
 let loadedWindows: z.infer<typeof WindowsBinding> | undefined;
 export function windowsBinding(): z.infer<typeof WindowsBinding> {
   if (!loadedWindows) {
-    loadedWindows = parseWindowsBinding(loadNativeAddon());
+    loadedWindows = WindowsBinding.parse(loadNativeAddon());
   }
   return loadedWindows;
 }

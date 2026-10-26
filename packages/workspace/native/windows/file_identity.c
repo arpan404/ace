@@ -1,4 +1,4 @@
-// identityOf for the Windows handle core: lossless FileIdInfo strings.
+// Lossless FileIdInfo identity formatting for the Windows handle core.
 //
 // Primary sources:
 // - GetFileInformationByHandleEx + FILE_ID_INFO (VolumeSerialNumber u64,
@@ -43,19 +43,4 @@ void wcore_format_id(const FILE_ID_128 *id, char out[33]) {
   out[32] = '\0';
 }
 
-const char *wcore_identity_of(int fd, char vol_hex[17], char id_hex[33]) {
-  if (vol_hex == NULL || id_hex == NULL) return "EINVAL";
-  HANDLE handle = NULL;
-  const char *borrowed = wcore_borrow_handle(fd, &handle);
-  if (borrowed != NULL) return borrowed;
-  FILE_ID_INFO info;
-  memset(&info, 0, sizeof(info));
-  if (!GetFileInformationByHandleEx(handle, FileIdInfo, &info, sizeof(info))) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    return code != NULL ? code : "EIO";
-  }
-  wcore_format_vol((ULONGLONG)info.VolumeSerialNumber, vol_hex);
-  wcore_format_id(&info.FileId, id_hex);
-  return NULL;
-}
 #endif

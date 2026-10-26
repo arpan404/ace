@@ -52,7 +52,4 @@ const char *wcore_rename_at(int parent_fd, const char *from, const char *to) {
   return rename_child(parent_fd, from, to, TRUE);
 }
 
-const char *wcore_rename_exclusive_at(int parent_fd, const char *from, const char *to) {
-  return rename_child(parent_fd, from, to, FALSE);
-}
 #endif

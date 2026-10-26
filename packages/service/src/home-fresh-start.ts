@@ -10,7 +10,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 import { claimHome, type HomeClaim } from "./home-claim.ts";
 import { carryRelease } from "./home-release.ts";
@@ -62,20 +61,6 @@ function exists(path: string): boolean {
   }
 }
 
-function checkWindowsHome(root: string): void {
-  const directory = PinnedDirectory.atBoundary(root);
-  try {
-    directory.checkPrivate();
-  } catch (cause) {
-    throw new Error(
-      `Refusing ace data home ${root}: expected a protected directory owned only by this Windows user. Choose a new, missing ACE_HOME path to create a private home.`,
-      { cause },
-    );
-  } finally {
-    directory.closeSync();
-  }
-}
-
 function readFacts(root: string): HomeFacts {
   try {
     // A home that is a link is set aside as the link (ADR 0081); never follow it to adopt,
@@ -89,9 +74,6 @@ function readFacts(root: string): HomeFacts {
   try {
     if (!statSync(root).isDirectory())
       throw new Error(`Refusing ace data home ${root}: it is not a directory`);
-    // Observe security before reading a marker or adopting any existing data.
-    // Never propagate a replacement DACL through an existing directory tree.
-    if (process.platform === "win32") checkWindowsHome(root);
     names = readdirSync(root);
   } catch (error) {
     if (code(error) !== "ENOENT") throw error;
@@ -131,14 +113,7 @@ function writeMarker(root: string, version: number, now: Date): boolean {
 function create(root: string, version: number, now: Date): boolean {
   mkdirSync(dirname(root), { recursive: true, mode: 0o700 });
   try {
-    if (process.platform === "win32") {
-      const parent = PinnedDirectory.atBoundary(dirname(root));
-      try {
-        parent.mkdirPrivate(basename(root)).closeSync();
-      } finally {
-        parent.closeSync();
-      }
-    } else mkdirSync(root, { mode: 0o700 });
+    mkdirSync(root, { mode: 0o700 });
   } catch (error) {
     if (code(error) === "EEXIST") return false;
     throw error;
