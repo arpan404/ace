@@ -14,6 +14,7 @@ import {
   readReviewers,
 } from "./forge-people.ts";
 import type { ShownBodies } from "./forge-conversation.ts";
+import { ProjectListRefused, readProjects } from "./project-list.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
 import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from "./forge-inbox.ts";
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
@@ -191,24 +192,20 @@ export class ForgeService {
 
   /** The machine's projects, read as New thread reads them (`workspaces.list`). */
   async #projects(signal: AbortSignal): Promise<ProjectsReply> {
-    const projects: { id: string; name: string }[] = [];
-    let after: string | undefined;
-    do {
-      const reply = await this.#owner.request(
-        {
-          type: "workspace.request",
-          operation: { op: "workspaces.list", limit: 100, ...(after ? { after } : {}) },
-        },
-        { signal, timeoutMs: 15_000 },
-      );
-      if (reply.result.kind === "error") throw new ForgeRefusal(reply.result.code);
-      if (reply.result.kind !== "workspaces") throw new ForgeRefusal("forge_invalid_data");
-      for (const project of reply.result.workspaces)
-        // A chat's hidden project has no repository (ADR 0099).
-        if (project.kind !== "chat")
-          projects.push({ id: project.id, name: this.#preview(project.name, 200) });
-      after = reply.result.next;
-    } while (after && projects.length < 300);
+    // A chat's hidden project has no repository (ADR 0099).
+    const listed = await readProjects(
+      this.#owner,
+      { signal, timeoutMs: 15_000 },
+      300,
+      (project) => project.kind !== "chat",
+    ).catch((error: unknown) => {
+      if (!(error instanceof ProjectListRefused)) throw error;
+      throw new ForgeRefusal(error.code === "invalid_data" ? "forge_invalid_data" : error.code);
+    });
+    const projects = listed.map((project) => ({
+      id: project.id,
+      name: this.#preview(project.name, 200),
+    }));
     return { type: "forge.projects", projects };
   }
 }

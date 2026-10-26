@@ -17,6 +17,8 @@ final class MachineSession: Identifiable {
     private(set) var sessions: [MachineSession] = []
     private(set) var names: [String: String] = [:]
     private var seen: [String: Double]
+    /// Each machine's mark as last seen, so an offline machine's rows keep it.
+    private var glyphs: [String: String]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: () -> Double
     @ObservationIgnored private var memo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
@@ -24,12 +26,23 @@ final class MachineSession: Identifiable {
     init(defaults: UserDefaults = .standard, now: @escaping () -> Double) {
         self.defaults = defaults; self.now = now
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
+        glyphs = defaults.dictionary(forKey: Self.glyphsKey) as? [String: String] ?? [:]
     }
 
     /// Machine names show on rows only when there is more than one machine to tell apart.
     var showsMachineNames: Bool { sessions.count > 1 }
     func client(_ hostId: String) -> ClientModel? { sessions.first { $0.hostId == hostId }?.client }
     func name(_ hostId: String) -> String { names[hostId] ?? hostId }
+    /// A row's machine mark: only when there is more than one machine to tell apart.
+    func mark(_ hostId: String) -> MachineMark? {
+        guard showsMachineNames else { return nil }
+        let glyph = client(hostId)?.machineGlyph ?? glyphs[hostId].flatMap(AceIcon.Name.init(rawValue:)) ?? .laptop
+        return MachineMark(name: name(hostId), glyph: glyph)
+    }
+    /// A row's project mark, from the machine the row came from.
+    func projectLook(_ key: InboxKey, workspace: String?) -> ProjectMarkLook? {
+        workspace.flatMap { client(key.machineId)?.projectLooks[$0] }
+    }
     func row(_ key: InboxKey) -> ThreadRow? { client(key.machineId)?.inbox[key.id] }
     func pending(_ key: InboxKey) -> PendingRow? { client(key.machineId)?.pending[key.id] }
 
@@ -88,14 +101,21 @@ final class MachineSession: Identifiable {
         if client.connection == "ready" { return now() }
         return [seen[hostId], client.machineStatus?.seenAt].compactMap { $0 }.max()
     }
-    /// Persist last-seen times, such as when the app leaves the foreground.
+    /// Persist last-seen times and machine marks, such as when the app leaves the foreground.
     func recordSeen() {
-        for session in sessions { if let value = lastSeen(session.hostId) { seen[session.hostId] = value } }
+        for session in sessions {
+            if let value = lastSeen(session.hostId) { seen[session.hostId] = value }
+            if let glyph = session.client.machineGlyph { glyphs[session.hostId] = glyph.rawValue }
+        }
         defaults.set(seen, forKey: Self.seenKey)
+        defaults.set(glyphs, forKey: Self.glyphsKey)
     }
     private func forget(_ hostId: String) {
         seen[hostId] = nil
+        glyphs[hostId] = nil
         defaults.set(seen, forKey: Self.seenKey)
+        defaults.set(glyphs, forKey: Self.glyphsKey)
     }
     private static let seenKey = "ace.machines.lastSeen"
+    private static let glyphsKey = "ace.machines.marks"
 }

@@ -43,8 +43,14 @@ export function startMachines(context: ServiceContext): void {
     models: () => services.models,
     journal: () => services.agentControl?.delegations.journal,
     now,
+    limit: () => services.childLimit?.current(),
+    schedule,
+    report: (error) => log.log("warn", "Machine child not started", logError(error)),
   });
   resources.own(() => threads.close());
+  // A raised or cleared limit starts children other machines left waiting here at once.
+  const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
+  if (stopFollowing) resources.own(stopFollowing);
   const browser = new TargetBrowser({
     store,
     engine,
@@ -118,6 +124,10 @@ export function startMachines(context: ServiceContext): void {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.status(machine, parent, ids);
     },
+    resend: async (machine, parent, child, message) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.resend(machine, parent, child, message);
+    },
     mirror,
     label: (machine) => directory.label(machine),
     deliver: (parentThreadId, key, text) => {
@@ -139,6 +149,10 @@ export function startMachines(context: ServiceContext): void {
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>
       services.agentControl?.delegations.journal.isDescendant(child, ancestor) ?? false,
+    descendants: (thread) =>
+      services.agentControl?.delegations.journal.descendants(thread).map((edge) => edge.childId) ??
+      [],
+    device: (machine) => directory.device(machine),
     log: record("warn"),
   });
   resources.own(() => children.close());
@@ -161,13 +175,19 @@ export function startMachines(context: ServiceContext): void {
       .cancel(ThreadId.parse(id))
       .catch((error: unknown) => log.log("warn", "Machine child not stopped", logError(error)));
   };
-  services.engine?.bindHostInteractions((command) => mirror.resolve(command));
+  services.engine?.bindHostInteractions(
+    (command) => mirror.resolve(command) ?? children.resolve(command),
+  );
   services.engine?.bindExternalTaskStop("ace-machine:", cancel);
   const delegations = services.agentControl?.delegations;
   if (delegations) {
     delegations.monitor.attachRemote(children);
     delegations.onRemoteCancel = (thread) => {
       for (const id of children.under(thread)) cancel(id);
+    };
+    // The person's Stop on a thread another machine delegated here cancels its waiting launch.
+    delegations.onStopped = (thread) => {
+      threads.launches.cancel(thread);
     };
   }
   services.machines = { caller, children };

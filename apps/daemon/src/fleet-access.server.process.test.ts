@@ -149,8 +149,6 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
   const f = await setup();
   const host = await welcomed(await f.connect());
   const kept = await issue(host, { op: "pairing", scopes: ["read"], label: "Phone" });
-  // Distinct expiry times keep listing order independent of random pairing IDs.
-  f.advance(1);
   const cancelled = await issue(host, {
     op: "pairing",
     scopes: ["read", "operate"],

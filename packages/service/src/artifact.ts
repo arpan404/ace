@@ -30,10 +30,7 @@ export async function hashFile(file: string): Promise<string> {
 export async function downloadArchive(
   response: Response,
   path: string,
-  // Only `bytes` and `sha256` are read; a full manifest stays accepted so existing
-  // callers keep typechecking while pinned single-file downloads pass just the two.
-  manifest: Pick<ReleaseManifest, "bytes" | "sha256"> &
-    Partial<Omit<ReleaseManifest, "bytes" | "sha256">>,
+  manifest: ReleaseManifest,
 ): Promise<void> {
   if (!response.ok || !response.body) throw new Error("Release download failed");
   let bytes = 0;

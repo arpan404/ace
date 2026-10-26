@@ -4,6 +4,11 @@ import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
 import { skillUsageTable } from "./skill-usage.ts";
+import {
+  machineChildGenerations,
+  machineChildLaunches,
+  machineChildReach,
+} from "./machine-tables.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -136,6 +141,12 @@ const migrations = [
   threadColdTable,
   // Skill mention counts for the Skills page (ADR 0103), backfilled from stored messages.
   skillUsageTable,
+  // Fences stale status replies for a child on another machine once it is given new work.
+  machineChildGenerations,
+  // Run slots of children other machines delegate here, backfilled from existing delegations.
+  machineChildLaunches,
+  // Remote children stay reachable: their pairing, a parent's children, refused messages.
+  machineChildReach,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

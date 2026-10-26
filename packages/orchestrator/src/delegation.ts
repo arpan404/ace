@@ -10,10 +10,11 @@ export function admitDelegation(input: DelegationCapacity, policy: DelegationPol
 }
 /**
  * How many queued children may start now. Excess work waits for a slot instead of being refused.
- * `running` counts children that already hold a slot, which can exceed the policy after revival.
+ * `running` counts children that already hold a slot, which can exceed the limit after revival
+ * or after the limit was lowered. No limit leaves every slot free; engine capacity still applies.
  */
-export function launchSlots(running: number, policy: DelegationPolicy): number {
-  return Math.max(0, policy.maxConcurrent - running);
+export function launchSlots(running: number, limit: number | undefined): number {
+  return limit === undefined ? Infinity : Math.max(0, limit - running);
 }
 /** Bounded summaries are data. Stable thread pointers let the parent page omitted output. */
 export function childResultPrompt(results: readonly DelegationOutcome[]): string {

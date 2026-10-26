@@ -5,7 +5,6 @@ import {
   KnownSpeed,
   WorkspaceId,
   type CatalogModel,
-  type Project,
 } from "@ace/protocol";
 import {
   baseOptions,
@@ -27,6 +26,7 @@ import {
 } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
+import { readProjects } from "./project-list.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
 import { ModelFavorites } from "./model-favorites.ts";
@@ -169,21 +169,13 @@ export class NewThread {
       last ?? { type: "compose.projects", state: "loading", projects: [] },
     );
     try {
-      const listed: Project[] = [];
-      let after: string | undefined;
-      do {
-        const reply = await this.#owner.request(
-          {
-            type: "workspace.request",
-            operation: { op: "workspaces.list", limit: 100, ...(after ? { after } : {}) },
-          },
-          quiet,
-        );
-        if (reply.result.kind !== "workspaces") throw new Error(reply.result.kind);
-        // A chat's hidden project is never one to pick (ADR 0099).
-        listed.push(...reply.result.workspaces.filter((project) => project.kind !== "chat"));
-        after = reply.result.next;
-      } while (after && listed.length < maxProjects);
+      // A chat's hidden project is never one to pick (ADR 0099).
+      const listed = await readProjects(
+        this.#owner,
+        quiet,
+        maxProjects,
+        (project) => project.kind !== "chat",
+      );
       this.#projectAccess.clear();
       for (const project of listed)
         if (project.defaults?.access) this.#projectAccess.set(project.id, project.defaults.access);

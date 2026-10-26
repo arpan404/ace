@@ -85,7 +85,7 @@ function noVideo(): Refusal {
   return new Refusal(
     "tool_missing",
     "This Mac's screen helper can't stream video for the Simulator live view",
-    "Download device tools in Devices for ace's serve-sim 0.1.48.",
+    "Download device tools in Devices for ace's serve-sim 0.1.49-beta.139.1.",
   );
 }
 /** The daemon's refusal when its screen helper lacks a macOS permission. */

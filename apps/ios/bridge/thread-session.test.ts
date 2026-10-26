@@ -14,6 +14,8 @@ import {
   until,
 } from "./thread-harness.ts";
 
+const idle = () => {};
+
 /*
  * The thread screen's bridge messages over the real SDK and an in-process fake daemon
  * (`thread-harness.ts`). No provider CLI runs.
@@ -611,7 +613,8 @@ test("a thread stays shown when the daemon's snapshot replaces the one kept from
   await reset();
   // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
   // thread patch, ready included. The transcript must show again rather than load forever.
-  const { promise: network, resolve: release } = Promise.withResolvers<void>();
+  let release = idle;
+  const network = new Promise<void>((resolve) => (release = resolve));
   open(connect(fake, { readSnapshots: storage, held: network }), "long");
   await until(() => latest("thread.ready"), "the kept transcript shown");
   native.frames.length = 0;

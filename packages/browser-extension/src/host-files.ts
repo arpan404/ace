@@ -13,14 +13,8 @@ export function hostCredentialPath(dataDir: string): string {
 export function extensionDir(dataDir: string): string {
   return join(userBrowserDir(dataDir), "extension");
 }
-export function launcherPath(
-  dataDir: string,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  return join(
-    userBrowserDir(dataDir),
-    platform === "win32" ? "ace-native-host.cmd" : "ace-native-host",
-  );
+export function launcherPath(dataDir: string): string {
+  return join(userBrowserDir(dataDir), "ace-native-host");
 }
 
 /** The host's local-only `user-browser` credential, written by the daemon on install. */

@@ -65,7 +65,6 @@ test("fixture git in the test environment cannot reinitialize a checkout named b
     { ...process.env, GIT_DIR: join(main, ".git", "worktrees", "linked") },
     home,
     process.env.ACE_TEST_REAL_HOME ?? join(root, "real-home"),
-    process.platform,
   );
   const remote = join(root, "remote.git");
   mkdirSync(remote);
@@ -85,7 +84,6 @@ test("fixture git started below a guarded checkout cannot discover it", ({ onTes
     process.env,
     join(root, "home"),
     process.env.ACE_TEST_REAL_HOME ?? join(root, "real-home"),
-    process.platform,
     repository?.checkouts,
   );
   expect(() => git(nested, ["config", "core.bare", "true"], env)).toThrow(/not in a git directory/);

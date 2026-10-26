@@ -514,9 +514,9 @@ export class FakeServicesWire {
                         {
                           id: "serve-sim",
                           available: true,
-                          detail: "serve-sim 0.1.48",
-                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.48.",
-                          version: "0.1.48",
+                          detail: "serve-sim 0.1.49-beta.139.1",
+                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.49-beta.139.1.",
+                          version: "0.1.49-beta.139.1",
                         },
                         {
                           id: "android",

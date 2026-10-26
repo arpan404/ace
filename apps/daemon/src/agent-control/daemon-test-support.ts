@@ -9,38 +9,62 @@ export async function daemonFixture(
   options: Pick<
     import("../services/options.ts").DaemonOptions,
     "accounts" | "workspaceActions" | "browser" | "machines" | "devices" | "projects" | "transfers"
-  > = {},
+  > & {
+    /** Engine limits, e.g. one active thread so the engine is full. */
+    engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
+  } = {},
   environment: NodeJS.ProcessEnv = {},
   /** A restart: the same home and scripted providers again. */
   reuse?: ReturnType<typeof setup>,
 ) {
   const h = reuse ?? setup();
-  const daemon = await startDaemon({
-    config: readConfig({
+  /** Starts a daemon on this fixture's home, as a restart starts it again on the same data. */
+  const config = () =>
+    readConfig({
       ...environment,
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
       ACE_LOG_LEVEL: environment["ACE_LOG_LEVEL"] ?? "silent",
-    }),
-    engine: { registry: h.registry, clock: h.clock },
-    ...(agentControl ? { agentControl } : {}),
-    modelInstances: [],
-    ...(options.accounts ? { accounts: options.accounts } : {}),
-    ...(options.browser ? { browser: options.browser } : {}),
-    ...(options.machines ? { machines: options.machines } : {}),
-    ...(options.devices ? { devices: options.devices } : {}),
-    ...(options.projects ? { projects: options.projects } : {}),
-    ...(options.transfers ? { transfers: options.transfers } : {}),
-    workspaceActions: {
-      forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
-      ...options.workspaceActions,
-    },
-  });
-  // Delegation needs a verifiable permission ceiling. Fixture threads run in each
-  // provider's unrestricted mode, as a user who chose it in Settings would.
-  await daemon.settings.set("access.defaultMode", "full-access", { kind: "global" });
-  for (const provider of ["codex", "claude"] as const)
-    await seedScriptedModels(daemon.models, scriptedModelInstance(provider, h.home));
+    });
+  /**
+   * A restart registers the scripted providers' instances as it starts, as a real daemon finds
+   * its installed CLIs at boot, so work it resumes or starts sees their models from the first
+   * moment; the first start leaves them to `prepare`, as before.
+   */
+  const boot = (restarted = false) =>
+    startDaemon({
+      config: config(),
+      engine: {
+        registry: h.registry,
+        clock: h.clock,
+        ...(options.engineLimits ? { limits: options.engineLimits } : {}),
+      },
+      ...(agentControl ? { agentControl } : {}),
+      modelInstances: restarted
+        ? (["codex", "claude"] as const).map((provider) => scriptedModelInstance(provider, h.home))
+        : [],
+      ...(options.accounts ? { accounts: options.accounts } : {}),
+      ...(options.browser ? { browser: options.browser } : {}),
+      ...(options.machines ? { machines: options.machines } : {}),
+      ...(options.devices ? { devices: options.devices } : {}),
+      ...(options.projects ? { projects: options.projects } : {}),
+      ...(options.transfers ? { transfers: options.transfers } : {}),
+      workspaceActions: {
+        forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
+        ...options.workspaceActions,
+      },
+    });
+  const daemon = await boot();
+  let current = daemon;
+  /** What a person would have set up before: settings persist, the scripted catalog is seeded. */
+  const prepare = async (started: Awaited<ReturnType<typeof boot>>) => {
+    // Delegation needs a verifiable permission ceiling. Fixture threads run in each
+    // provider's unrestricted mode, as a user who chose it in Settings would.
+    await started.settings.set("access.defaultMode", "full-access", { kind: "global" });
+    for (const provider of ["codex", "claude"] as const)
+      await seedScriptedModels(started.models, scriptedModelInstance(provider, h.home));
+  };
+  await prepare(daemon);
   const controls = daemon.agentControl;
   if (!controls || !daemon.engine) {
     await daemon.close();
@@ -69,10 +93,26 @@ export async function daemonFixture(
   return {
     h,
     daemon,
+    /**
+     * Closes this daemon and starts a new one on the same home; the caller owns closing it.
+     * `stopped` runs while no daemon is open, with its data directory, e.g. to rewrite its files.
+     */
+    async restart(stopped?: (dataDir: string) => void | Promise<void>) {
+      await current.close();
+      await stopped?.(config().dataDir);
+      current = await boot(true);
+      await prepare(current);
+      return current;
+    },
     controls,
     workspace,
     caller,
+    /** An agent tool call from the parent, on the daemon running now (after any restart). */
     call: (operation: AgentControlOperation) =>
-      controls.port.execute(caller, operation, new AbortController().signal),
+      (current.agentControl ?? controls).port.execute(
+        caller,
+        operation,
+        new AbortController().signal,
+      ),
   };
 }

@@ -24,6 +24,9 @@ struct InboxList: View {
     /// Whether the scope takes every thread of a machine, so its unloaded threads still count.
     let whole: (String) -> Bool
     @Binding var shelves: InboxShelves
+    /// A row to bring into view as soon as it is among the list's own rows (an Undo's), then
+    /// cleared. One still on a shelf waits: the shelf is not where it is coming back to.
+    @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
     let compose: (() -> Void)?
@@ -38,53 +41,66 @@ struct InboxList: View {
 
     var body: some View {
         let sections = sections
-        List {
-            if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
-                ViewOnlyNote(message: "View only")
-                    .accessibilityHint("Pair with View and act to send, archive or snooze.")
-                    .inboxRowChrome()
-            }
-            let live = sections.filter { !Self.shelved.contains($0.key) }
-            ForEach(live) { section in
-                // One section sorted by hand or by creation needs no heading: the title says it.
-                if live.count > 1 || section.key != "threads" {
-                    InboxSectionHeading(label: section.label).inboxRowChrome()
+        ScrollViewReader { proxy in
+            List {
+                if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
+                    ViewOnlyNote(message: "View only")
+                        .accessibilityHint("Pair with View and act to send, archive or snooze.")
+                        .inboxRowChrome()
                 }
-                rows(section)
-            }
-            ForEach(Self.shelved, id: \.self) { key in
-                if let section = sections.first(where: { $0.key == key }) {
-                    let open = key == "snoozed" ? shelves.snoozed : shelves.settled
-                    InboxShelf(label: section.label, count: section.count, expanded: open) {
-                        withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
-                            if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
-                        }
+                let live = sections.filter { !Self.shelved.contains($0.key) }
+                ForEach(live) { section in
+                    // One section sorted by hand or by creation needs no heading: the title says it.
+                    if live.count > 1 || section.key != "threads" {
+                        InboxSectionHeading(label: section.label).inboxRowChrome()
                     }
-                    .accessibilityIdentifier("inbox.\(key)")
+                    rows(section)
+                }
+                ForEach(Self.shelved, id: \.self) { key in
+                    if let section = sections.first(where: { $0.key == key }) {
+                        let open = key == "snoozed" ? shelves.snoozed : shelves.settled
+                        InboxShelf(label: section.label, count: section.count, expanded: open) {
+                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
+                                if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
+                            }
+                        }
+                        .accessibilityIdentifier("inbox.\(key)")
+                        .inboxRowChrome()
+                        .padding(.top, AceTheme.Spacing.sm)
+                        if open { rows(section) }
+                    }
+                }
+                if !inbox.merged.more.isEmpty {
+                    Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
+                        Text("Show older threads").meta()
+                            .padding(.horizontal, AceTheme.Spacing.md)
+                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("inbox.more")
                     .inboxRowChrome()
-                    .padding(.top, AceTheme.Spacing.sm)
-                    if open { rows(section) }
                 }
+                if sections.isEmpty { emptyState.inboxRowChrome() }
             }
-            if !inbox.merged.more.isEmpty {
-                Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
-                    Text("Show older threads").meta()
-                        .padding(.horizontal, AceTheme.Spacing.md)
-                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                }
-                .buttonStyle(.row)
-                .accessibilityIdentifier("inbox.more")
-                .inboxRowChrome()
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(surface)
+            .environment(\.defaultMinListRowHeight, 0)
+            .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+            .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
+            .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
+            .onChange(of: revealable(sections), initial: true) { _, key in
+                guard let key else { return }
+                reveal = nil
+                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key, anchor: .center) }
             }
-            if sections.isEmpty { emptyState.inboxRowChrome() }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(surface)
-        .environment(\.defaultMinListRowHeight, 0)
-        .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
-        .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
-        .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
+    }
+    /// The row to reveal, once it is listed outside the shelves.
+    private func revealable(_ sections: [MergedInbox.Section]) -> InboxKey? {
+        guard let reveal else { return nil }
+        let listed = sections.contains { !Self.shelved.contains($0.key) && $0.rows.contains(reveal) }
+        return listed ? reveal : nil
     }
     /// Marks the first time this process draws inbox rows, for launch timing.
     private static var tracedRows = false
@@ -107,7 +123,7 @@ struct InboxList: View {
             }
         } else {
             ForEach(section.rows, id: \.self) { key in
-                InboxThreadCell(inbox: inbox, key: key, section: section.key, actions: actions)
+                InboxThreadCell(inbox: inbox, key: key, section: section.key, actions: actions).id(key)
             }
         }
     }
@@ -230,7 +246,8 @@ private struct InboxThreadCell: View {
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
         return Button { actions.open(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
+            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
+                           project: inbox.projectLook(key, workspace: row.workspaceId))
         }
         .buttonStyle(RowPressStyle(selected: open == key))
         .accessibilityAddTraits(open == key ? .isSelected : [])

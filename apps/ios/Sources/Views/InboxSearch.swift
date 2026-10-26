@@ -52,7 +52,8 @@ struct InboxSearchList: View {
                 Section {
                     ForEach(threads, id: \.key) { match in
                         Button { open(match.key) } label: {
-                            InboxThreadRow(row: match.row, snoozed: false, machine: inbox.showsMachineNames ? inbox.name(match.key.machineId) : nil)
+                            InboxThreadRow(row: match.row, snoozed: false, machine: inbox.mark(match.key.machineId),
+                                           project: inbox.projectLook(match.key, workspace: match.row.workspaceId))
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("search.thread.\(match.row.id)")

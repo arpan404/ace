@@ -1,16 +1,11 @@
 import { readFileSync } from "node:fs";
 import koffi from "koffi";
 import { z } from "zod";
-import {
-  loadWindowsProcessIdentityApi,
-  readWindowsProcessIdentity,
-  windowsSidSchema,
-} from "./windows-process-identity.ts";
 
 export const ProcessIdentity = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1).max(128),
-  uid: z.union([z.number().int().nonnegative(), windowsSidSchema]),
+  uid: z.number().int().nonnegative(),
   group: z.number().int().positive(),
 });
 export type ProcessIdentity = z.infer<typeof ProcessIdentity>;
@@ -27,10 +22,7 @@ function gone(target: number): boolean {
   }
 }
 export function processGroupIsGone(group: number): boolean {
-  z.number().int().positive().parse(group);
-  if (process.platform === "win32")
-    throw new Error("Process-group inspection is unavailable on Windows");
-  return gone(-group);
+  return gone(-z.number().int().positive().parse(group));
 }
 function linuxStat(text: string): { pid: number; ticks: string; group: number } {
   const end = text.lastIndexOf(")");
@@ -98,31 +90,7 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
         library.unload();
       }
     }
-    if (process.platform === "win32") {
-      // OpenProcess + GetProcessTimes binds PID reuse via creation FILETIME
-      // while OpenProcessToken + TokenUser SID binds owner equality without
-      // hashes or synthetic values. FILETIME is wall-clock: it survives
-      // reboots without a boot-id join, but clock rollback can reuse a start
-      // value, so callers still prove absence via ESRCH. Group stays pid (no
-      // pgid); process groups and inventory recovery remain POSIX-only
-      // pending W11 and are never claimed as recovered here.
-      const api = loadWindowsProcessIdentityApi();
-      try {
-        const found = readWindowsProcessIdentity(pid, api);
-        if (found === undefined) return undefined;
-        const identity = ProcessIdentity.parse({
-          pid,
-          start: found.start,
-          uid: found.owner,
-          group: pid,
-        });
-        if (identity.pid !== pid) throw new Error("Process identity mismatch");
-        return identity;
-      } finally {
-        api.unload();
-      }
-    }
-    throw new Error("Kernel process identity requires Linux, macOS, or Windows");
+    throw new Error("Kernel process identity requires Linux or macOS");
   } catch (error) {
     // Native/procfs failure is not absence unless the kernel also proves the PID is gone.
     if (gone(pid)) return undefined;

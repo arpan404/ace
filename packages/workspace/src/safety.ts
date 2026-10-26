@@ -1,46 +1,36 @@
 import {
-  openDirectoryAt,
-  openFileAt,
+  openAt,
   openRoot,
-  openPrivateMetadataAt,
+  openMetadataAt,
   statAt,
   descriptorNames,
   type Descriptor,
 } from "./descriptor.ts";
-import { sameFile, type IdentifiedStats } from "./file-identity.ts";
+import { constants, type Stats } from "node:fs";
+import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
-import { passesWindowsRelativePathPolicy } from "./path-policy.ts";
 import { isAbsolute, join, relative, sep, win32, dirname, basename } from "node:path";
 import { failure, errorCode, WorkspaceError } from "./types.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
-export function validRelativePath(
-  input: string,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
-  if (
+export function validRelativePath(input: string): boolean {
+  return !(
     input.includes("\0") ||
     input.includes("\\") ||
     isAbsolute(input) ||
     win32.isAbsolute(input) ||
     input.split("/").includes("..")
-  ) {
-    return false;
-  }
-  if (platform === "win32" && !passesWindowsRelativePathPolicy(input)) {
-    return false;
-  }
-  return true;
+  );
 }
-function same(a: IdentifiedStats, b: IdentifiedStats): boolean {
-  return sameFile(a.identity, b.identity);
+function same(a: Stats, b: Stats): boolean {
+  return a.dev === b.dev && a.ino === b.ino;
 }
 export class SafeRoot {
   readonly root: string;
   readonly runtime: WorkspaceRuntime;
-  private readonly identity: IdentifiedStats;
+  private readonly identity: Stats;
   private readonly fs: WorkspaceFileSystem;
-  private constructor(root: string, identity: IdentifiedStats, runtime: WorkspaceRuntime) {
+  private constructor(root: string, identity: Stats, runtime: WorkspaceRuntime) {
     this.runtime = runtime;
     this.fs = runtime.filesystem;
     this.root = root;
@@ -54,7 +44,7 @@ export class SafeRoot {
       const fs = runtime.filesystem;
       const canonical = await fs.realpath(root);
       const descriptor = openRoot(canonical);
-      let identity: IdentifiedStats;
+      let identity: Stats;
       try {
         identity = await descriptor.stat();
       } finally {
@@ -110,26 +100,24 @@ export class SafeRoot {
       throw failure(error);
     }
   }
-  async verify(input: string, resolved: string, expected: IdentifiedStats): Promise<void> {
+  async verify(input: string, resolved: string, expected: Stats): Promise<void> {
     if ((await this.resolve(input)) !== resolved || !same(await this.fs.stat(resolved), expected)) {
       throw new WorkspaceError("PATH_CHANGED", "Path changed during the operation");
     }
   }
-  private async anchored(
-    resolved: string,
-    openLeaf: (parent: number, name: string) => Descriptor,
-  ): Promise<Descriptor> {
+  private async anchored(resolved: string, flags: number): Promise<FileHandle | Descriptor> {
     this.contains(resolved);
-    let current: Descriptor = openRoot(this.root);
+    let current: FileHandle | Descriptor = openRoot(this.root);
     try {
       if (!same(await current.stat(), this.identity))
         throw new WorkspaceError("PATH_CHANGED", "Workspace root was replaced");
       const parts = relative(this.root, resolved).split(sep).filter(Boolean);
       for (const [index, part] of parts.entries()) {
-        const next: Descriptor =
-          index === parts.length - 1
-            ? openLeaf(current.fd, part)
-            : openDirectoryAt(current.fd, part);
+        const next = openAt(
+          current.fd,
+          part,
+          index === parts.length - 1 ? flags : constants.O_RDONLY | constants.O_DIRECTORY,
+        );
         await current.close();
         current = next;
       }
@@ -141,15 +129,15 @@ export class SafeRoot {
   }
   async file(
     input: string,
-  ): Promise<{ handle: Descriptor; info: IdentifiedStats; resolved: string }> {
-    let handle: Descriptor | undefined;
+  ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
+    let handle: FileHandle | Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
       if (transferTemporary(relative(this.root, resolved).split(sep).join("/")))
         throw new WorkspaceError("INVALID_PATH", "Upload temporary files are private");
       const expected = await this.fs.lstat(resolved);
       if (!expected.isFile()) throw new WorkspaceError("NOT_FILE", "Path is not a regular file");
-      handle = await this.anchored(resolved, openFileAt);
+      handle = await this.anchored(resolved, constants.O_RDONLY);
       const info = await handle.stat();
       if (!info.isFile() || !same(info, expected))
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
@@ -174,9 +162,12 @@ export class SafeRoot {
       const expected = await this.fs.lstat(resolved);
       if (!expected.isFile())
         throw new WorkspaceError("NOT_FILE", "Expected a regular private file");
-      const parent = await this.anchored(parentResolved, openDirectoryAt);
+      const parent = await this.anchored(
+        parentResolved,
+        constants.O_RDONLY | constants.O_DIRECTORY,
+      );
       try {
-        handle = openPrivateMetadataAt(parent.fd, basename(path));
+        handle = openMetadataAt(parent.fd, basename(path));
       } finally {
         await parent.close();
       }
@@ -229,7 +220,7 @@ export class SafeRoot {
       const expected = await this.fs.lstat(resolved);
       const parent = await this.anchored(
         resolved === this.root ? resolved : dirname(resolved),
-        openDirectoryAt,
+        constants.O_RDONLY | constants.O_DIRECTORY,
       );
       let proof;
       try {
@@ -238,7 +229,7 @@ export class SafeRoot {
       } finally {
         await parent.close();
       }
-      if (!sameFile(proof.identity, expected.identity))
+      if (proof.dev !== expected.dev || proof.ino !== expected.ino)
         throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
       const info = expected;
       info.size = proof.size;
@@ -260,13 +251,13 @@ export class SafeRoot {
     }
   }
   async entries(input: string) {
-    let handle: Descriptor | undefined;
+    let handle: FileHandle | Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
       const expected = await this.fs.lstat(resolved);
       if (!expected.isDirectory())
         throw new WorkspaceError("NOT_DIRECTORY", "Path is not a directory");
-      handle = await this.anchored(resolved, openDirectoryAt);
+      handle = await this.anchored(resolved, constants.O_RDONLY | constants.O_DIRECTORY);
       if (!same(await handle.stat(), expected))
         throw new WorkspaceError("PATH_CHANGED", "Directory was replaced");
       const fd = handle.fd;

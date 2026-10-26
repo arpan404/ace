@@ -38,6 +38,10 @@ export class MachineDirectory {
   constructor(deps: DirectoryDeps) {
     this.deps = deps;
   }
+  /** The device this machine is paired with `machine` as, or undefined when it is not paired. */
+  device(machine: string): string | undefined {
+    return this.deps.profiles().find((entry) => entry.name === machine)?.deviceId;
+  }
   /** The person-facing name of a machine, as it last described itself. */
   label(machine: string): string {
     return this.seen.get(machine)?.name ?? machine;

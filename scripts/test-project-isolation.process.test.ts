@@ -28,13 +28,8 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
   await writeFile(
     setup,
     `
-    import {writeFileSync, statSync} from 'node:fs'; import {join} from 'node:path';
+    import {writeFileSync} from 'node:fs'; import {join} from 'node:path';
     if (process.env.ACE_ACCOUNTS_DB) throw new Error('Inherited account selector survived worker setup');
-    if (process.env.ACE_CHROMIUM_PATH !== ${JSON.stringify(join(root, "chrome"))}) throw new Error('Browser executable selector lost');
-    if (process.env.ACE_WINDOWS_SCREEN_HELPER !== ${JSON.stringify(join(root, "screen-helper.exe"))}) throw new Error('Screen helper executable selector lost');
-    for (const key of ['APPDATA', 'LOCALAPPDATA', 'TMP', 'TEMP']) {
-      if (!process.env[key].startsWith(process.env.HOME) || !statSync(process.env[key]).isDirectory()) throw new Error('Missing isolated '+key);
-    }
     writeFileSync(join(process.env.HOME, 'setup-ready'), 'private');
   `,
   );
@@ -69,8 +64,6 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
     USERPROFILE: protectedHome,
     ACE_TEST_REAL_HOME: protectedHome,
     ACE_ACCOUNTS_DB: join(protectedHome, "accounts.sqlite"),
-    ACE_CHROMIUM_PATH: join(root, "chrome"),
-    ACE_WINDOWS_SCREEN_HELPER: join(root, "screen-helper.exe"),
     CODEX_HOME: join(protectedHome, ".codex"),
     ZDOTDIR: protectedHome,
   };

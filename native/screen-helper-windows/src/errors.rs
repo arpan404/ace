@@ -40,11 +40,6 @@ impl Error {
             phase: None,
         }
     }
-    pub fn context(self, operation: &str) -> Self {
-        let mut failure = Self::new(self.code, format!("{operation}: {}", self.message));
-        failure.phase = self.phase;
-        failure
-    }
     pub fn phase(mut self, phase: &'static str) -> Self {
         self.phase = Some(phase);
         self

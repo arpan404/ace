@@ -10267,7 +10267,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| maxConcurrent | no | integer | {"default":4,"minimum":1,"maximum":64} |
+| maxConcurrent | no | integer | {"minimum":1,"maximum":64} |
 | maxDepth | no | integer | {"default":8,"minimum":1,"maximum":8} |
 | coalesceMs | no | integer | {"default":50,"minimum":0,"maximum":1000} |
 
@@ -16205,6 +16205,7 @@ Example:
 | --- | --- | --- | --- |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | title | yes | string | {"maxLength":256} |
+| queued | no | boolean |  |
 
 Example:
 
@@ -16371,6 +16372,7 @@ Example:
 | --- | --- | --- | --- |
 | error | yes | ["machine_opted_out","machine_forbidden","unauthorized","not_found","invalid","unavailable","too_late"] |  |
 | message | no | string | {"maxLength":512} |
+| final | no | boolean |  |
 
 Example:
 
@@ -28151,17 +28153,17 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"devices.emulatorWindow":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"automations.enabled":{"type":"boolean"},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"devices.emulatorWindow":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
+    "agents.maxRunningChildren": null,
     "automations.enabled": true,
     "browser.downloadDefault": "example",
     "browser.profileScope": "thread",
-    "generation.model": null,
     "host.icon": {
       "kind": "monitor"
     },
@@ -28195,7 +28197,7 @@ Example:
 
 ```json
 {
-  "key": "threads.useWorktree",
+  "key": "worktree.preparationTimeoutMs",
   "provenance": "defaults",
   "value": true
 }
@@ -28216,7 +28218,7 @@ Example:
 
 ```json
 {
-  "key": "remote.transport",
+  "key": "remote.agentAccess",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -28227,7 +28229,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","devices.emulatorWindow","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","remote.enabled","remote.transport","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","automations.enabled","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","devices.emulatorWindow","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","remote.enabled","remote.transport","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -28388,7 +28390,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.verifier.tier"
+    "providers.verifier.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {},
@@ -28609,6 +28611,7 @@ Example:
 | remote.hostedPairingLink | yes | boolean |  |
 | remote.relayUrl | yes | string | {"maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]} |
 | automations.enabled | yes | boolean |  |
+| agents.maxRunningChildren | yes | union | {"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]} |
 | generation.model | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]} |
 | generation.autoDraftCommits | yes | boolean |  |
 | clients.theme | yes | [JsonValue.json](schema/JsonValue.json) |  |
@@ -28620,6 +28623,7 @@ Example:
 {
   "access.defaultMode": "read-only",
   "access.nativeModes": {},
+  "agents.maxRunningChildren": 6,
   "automations.enabled": false,
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
@@ -28628,15 +28632,12 @@ Example:
   "browser.profile": "persistent",
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": 4,
-  "clients.theme": [],
+  "clients.keybindings": [],
+  "clients.theme": null,
   "computer.blockedApps": [],
   "devices.emulatorWindow": false,
   "generation.autoDraftCommits": false,
-  "generation.model": {
-    "model": "example",
-    "provider": "cursor"
-  },
+  "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
     "kind": "monitor"
