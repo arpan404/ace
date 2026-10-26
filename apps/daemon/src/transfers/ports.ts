@@ -7,6 +7,7 @@ import type { measureFolder, mergeArchive, packFiles, packFolder, unpackArchive 
  */
 export type TransferGit = Pick<
   GitTransfer,
+  | "sourceCheckout"
   | "transferOrigin"
   | "ignoredPaths"
   | "bundleRefs"

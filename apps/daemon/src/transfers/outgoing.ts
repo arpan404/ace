@@ -424,6 +424,7 @@ export class OutgoingTransfers {
             `${transferId}.${method === "archive" ? "tar" : "bundle"}`,
           ),
           incremental,
+          includeIgnored: record.request.includeIgnored,
           signal,
         });
         plan = { ...plan, ...(file ? { file } : {}), incremental };

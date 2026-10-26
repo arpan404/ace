@@ -20,6 +20,11 @@ export const TransferPlan = z.object({
   /** A detached HEAD, pinned under this ref in the source repository while it is sent. */
   pinned: z.string().optional(),
   changes: z.object({ ref: z.string(), commit: z.string() }).optional(),
+  /**
+   * An archived folder inside a Git work tree: the tree's top and the folder's path in it ("" at
+   * the top). Git's ignore rules then choose what the archive leaves behind.
+   */
+  repository: z.object({ root: z.string(), path: z.string() }).optional(),
   /** The bundle or archive, once written, with what it holds. */
   file: z.object({ path: z.string(), bytes: z.number(), sha256: z.string() }).optional(),
   /** The bundle holds only what origin lacks. */
