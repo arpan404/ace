@@ -112,8 +112,8 @@ const posixOnly = [
   // a project there..." check the same transfers against that.
   "sends the whole repository when the target can't clone its origin",
   "opens a project on another machine on the same branch, uncommitted changes still uncommitted there",
-  // Makes links in the copy; ace never asks for the privilege Windows links need, so a folder
-  // holding links can't land there yet (@ace/files has to leave them behind instead).
+  // Makes links in the copy; ace never asks for the privilege Windows links need. "on Windows,
+  // copies a folder that isn't a repository, leaving its links behind" runs instead.
   "copies a folder that isn't a repository, keeping links inside it and dropping one that escapes",
   // POSIX mode bits (0600, 0755); "on Windows, brings .env and ignored local config..." checks
   // the same transfer without them.
