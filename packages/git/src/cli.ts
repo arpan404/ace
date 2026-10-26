@@ -34,6 +34,7 @@ import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
+import { windowsHooklessArgs, windowsHooklessEnv } from "./disabled-hooks.ts";
 import { count, decode } from "./decode.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
@@ -583,6 +584,10 @@ export class GitCli {
       ...(options.write ? {} : { GIT_OPTIONAL_LOCKS: "0" }),
       ...options.env,
     });
+    if (this.runtime.platform === "win32") {
+      args = windowsHooklessArgs(args);
+      windowsHooklessEnv(env);
+    }
     if (typeof this.executionPolicy.getStore() === "object") {
       // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.
       delete env.SSH_ASKPASS;

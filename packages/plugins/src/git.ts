@@ -5,7 +5,9 @@ import {
   type ByteProcessOptions,
 } from "@ace/provider-kit/process-bytes";
 import { createWriteStream } from "node:fs";
+import { mkdtempSync, rmdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, isAbsolute } from "node:path";
 import type { Readable } from "node:stream";
 import { Transform } from "node:stream";
@@ -32,6 +34,7 @@ export interface GitRuntime {
 export function gitRuntime(): GitRuntime {
   return {
     spawn: spawnBytes,
+    ...(process.platform === "win32" && { spawn: spawnWindowsGit }),
     command: "git",
     env: { PATH: process.env.PATH },
     async release(root) {
@@ -42,6 +45,27 @@ export function gitRuntime(): GitRuntime {
       return () => clearTimeout(timer);
     },
   };
+}
+// Git for Windows resolves `/dev/null/<hook>` under the drive root (C:\dev\null\...), a path
+// another user could populate. On Windows hooks point at a private empty folder instead.
+let windowsHooks: string | undefined;
+function spawnWindowsGit(options: ByteProcessOptions): ByteProcess {
+  if (windowsHooks === undefined) {
+    const created = mkdtempSync(join(tmpdir(), "ace-plugin-hooks-"));
+    windowsHooks = created;
+    process.once("exit", () => {
+      try {
+        rmdirSync(created);
+      } catch {
+        // Best effort; nothing is ever written here.
+      }
+    });
+  }
+  const hooks = `core.hooksPath=${windowsHooks}`;
+  return spawnBytes({
+    ...options,
+    args: options.args.map((arg) => (arg === "core.hooksPath=/dev/null" ? hooks : arg)),
+  });
 }
 async function runGit<T>(
   args: string[],

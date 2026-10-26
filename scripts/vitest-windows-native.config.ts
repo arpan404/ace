@@ -39,6 +39,7 @@ export default defineConfig({
       "packages/workspace/src/pinned-directory.process.test.ts",
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
+      "packages/git/src/disabled-hooks.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
       "packages/terminal/src/shell.test.ts",
       "packages/terminal/src/pty.test.ts",
