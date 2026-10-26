@@ -10,14 +10,19 @@ import LockedUseRuntime
     private let connect: () -> NSXPCConnection
     private weak var coordinator: LockedUseCoordinator?
     private var connection: NSXPCConnection?
+    private var registering = false
 
     public init(connect: @escaping () -> NSXPCConnection, coordinator: LockedUseCoordinator) {
         self.connect = connect
         self.coordinator = coordinator
     }
 
-    /// Call at startup and again whenever `linked` is false.
-    @discardableResult public func register() -> Bool {
+    /// Call at startup and again whenever `linked` is false. Returns at once; `linked`
+    /// becomes true on the main actor only when the broker accepts this connection.
+    public func register(done: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        guard !registering else { return done(false) }
+        registering = true
+        linked = false
         connection?.invalidate()
         let next = connect()
         next.remoteObjectInterface = NSXPCInterface(with: LockedUseBrokerRegistration.self)
@@ -26,8 +31,11 @@ import LockedUseRuntime
         let dropped: () -> Void = { [weak self, weak next] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.connection === next else { return }
+                    guard let self, let next, self.connection === next else { return }
+                    // The broker forgot this registration; the next refresh registers again.
                     self.linked = false
+                    self.connection = nil
+                    next.invalidate()
                 }
             }
         }
@@ -35,10 +43,16 @@ import LockedUseRuntime
         next.interruptionHandler = dropped
         next.resume()
         connection = next
-        linked = lockedUseCall(next, timeout: .milliseconds(500)) { (proxy: LockedUseBrokerRegistration, reply) in
+        lockedUseCallAsync(next, timeout: .milliseconds(500), { (proxy: LockedUseBrokerRegistration, reply) in
             proxy.register(reply: reply)
-        }
-        return linked
+        }, done: { [weak self, weak next] accepted in
+            guard let self else { return }
+            registering = false
+            // A link dropped or replaced while the reply was in flight stays unlinked.
+            let current = next != nil && connection === next
+            linked = accepted && current
+            done(linked)
+        })
     }
 
     public func stop() {
