@@ -16,7 +16,11 @@ import {
   packagedAppVersion,
   targetArch,
 } from "./common.ts";
-import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import {
+  notaryCredentials,
+  windowsSigning,
+  windowsSigningConfig,
+} from "../src/packaging/release-signing.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
@@ -46,6 +50,13 @@ const arch = targetArch(process.argv);
 const notary = notaryCredentials(process.env);
 if (signed && process.platform === "darwin" && notary.kind === "incomplete")
   throw new Error(`Notarization needs ${notary.missing.join(", ")} as well`);
+// Windows: sign when a certificate is configured, else build unsigned and say so.
+const authenticode =
+  process.platform === "win32" && signed ? windowsSigning(process.env) : undefined;
+if (authenticode?.kind === "incomplete")
+  throw new Error(`Windows signing needs ${authenticode.missing.join(", ")} as well`);
+if (authenticode?.kind === "none")
+  console.warn("[package] no Windows signing certificate is configured; building unsigned");
 if (!process.argv.includes("--skip-build"))
   execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
     stdio: "inherit",
@@ -105,8 +116,10 @@ const config: Configuration = {
       to: "icons",
       filter: ["trayTemplate*.png", "trayColor*.png"],
     },
-    // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
+    // The daemon's own Node runtime.
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
+    // Windows: what the installer runs on that runtime (build/installer.nsh).
+    ...(existsSync(join(dist, "setup")) ? [{ from: join(dist, "setup"), to: "setup" }] : []),
     ...(process.platform === "darwin"
       ? existsSync(helper)
         ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
@@ -191,6 +204,7 @@ const config: Configuration = {
     icon: join(desktop, "build/icon.png"),
     // One naming scheme for every release file (`desktopAssets` in release-plan.ts).
     artifactName: "ace-${version}-${arch}-setup.${ext}",
+    ...(authenticode ? windowsSigningConfig(authenticode) : {}),
   },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
@@ -249,6 +263,9 @@ const config: Configuration = {
 };
 
 if (!signed) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+// An unsigned Windows build must not pick up a certificate from the environment.
+if (process.platform === "win32" && authenticode?.kind !== "certificate")
+  for (const name of ["CSC_LINK", "WIN_CSC_LINK"]) delete process.env[name];
 
 const targets =
   process.platform === "darwin"

@@ -38,11 +38,14 @@ on:
       - tools/release/src/node-runtime*.ts
       - tools/release/src/archive*.ts
       - tools/release/**
-      - packages/service/**
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
       - package.json
       - bun.lock
+      - apps/desktop/**
+      - packages/service/**
+      - tools/release/src/bundle.ts
+      - tools/release/src/*-assets.ts
   workflow_dispatch:
 
 permissions:
@@ -292,6 +295,169 @@ jobs:
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           bun --version
           Get-ChildItem packages/workspace/dist/descriptor.node | Format-List Name, Length, LastWriteTime
+
+  # Builds the per-user NSIS installer on a native runner of each architecture, installs it
+  # silently, starts the app and its bundled daemon, runs `ace` from a fresh PATH, updates in
+  # place while it runs, uninstalls and checks the data home is kept
+  # (apps/desktop/scripts/installer-smoke.ps1). Unsigned: no certificate in CI.
+  windows-installer:
+    name: Windows installer (${{ matrix.os }} ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            msvc_arch: x64
+            rust_target: x86_64-pc-windows-msvc
+            node_subdir: win-x64
+          - os: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
+            rust_target: aarch64-pc-windows-msvc
+            node_subdir: win-arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+      FIRST_VERSION: 0.0.1-ci.1
+      SECOND_VERSION: 0.0.1-ci.2
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+
+      - name: Restore Bun download cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+
+      - name: Fetch official Node headers + node.lib and verify SHASUMS256
+        id: headers
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Dist = "https://nodejs.org/dist/v${{ env.NODE_VERSION }}"
+          $Temp = $env:RUNNER_TEMP
+          $Shasums = Join-Path $Temp "SHASUMS256.txt"
+          $HeadersTar = Join-Path $Temp "node-headers.tar.gz"
+          $NodeLib = Join-Path $Temp "node.lib"
+          $Stage = Join-Path $Temp "node-headers"
+          Invoke-WebRequest -Uri "$Dist/SHASUMS256.txt" -OutFile $Shasums
+          Invoke-WebRequest -Uri "$Dist/node-v${{ env.NODE_VERSION }}-headers.tar.gz" -OutFile $HeadersTar
+          Invoke-WebRequest -Uri "$Dist/${{ matrix.node_subdir }}/node.lib" -OutFile $NodeLib
+          $wantHeaders = ((Select-String -Path $Shasums -Pattern "node-v${{ env.NODE_VERSION }}-headers.tar.gz").Line -split '\s+')[0]
+          $wantLib = ((Select-String -Path $Shasums -Pattern "${{ matrix.node_subdir }}/node.lib").Line -split '\s+')[0]
+          if ((Get-FileHash $HeadersTar -Algorithm SHA256).Hash.ToLower() -ne $wantHeaders) { throw "headers SHA256 mismatch" }
+          if ((Get-FileHash $NodeLib -Algorithm SHA256).Hash.ToLower() -ne $wantLib) { throw "node.lib SHA256 mismatch" }
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          tar -xzf $HeadersTar -C $Stage
+          $HeadersDir = (Get-ChildItem -Path $Stage -Filter "node_api.h" -Recurse | Select-Object -First 1).DirectoryName
+          "headers-dir=$HeadersDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "node-lib=$NodeLib" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate MSVC developer environment
+        id: msvc
+        run: |
+          $ErrorActionPreference = "Stop"
+          $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
+          "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install dependencies (builds descriptor.node)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          bun install --frozen-lockfile --os=win32 --cpu=${{ matrix.arch }} || exit /b 1
+
+      - name: Rust toolchain for the screen helper
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup target add ${{ matrix.rust_target }} --toolchain stable
+          rustup default stable
+
+      - name: Run the Windows install unit tests
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          apps/desktop/src/packaging/setup.test.ts
+          apps/desktop/src/packaging/user-path.test.ts
+          apps/desktop/src/main/os/cli-path.test.ts
+          apps/desktop/src/main/daemon/target.test.ts
+
+      - name: Package ${{ env.FIRST_VERSION }} (NSIS, unsigned)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_VERSION: ${{ env.FIRST_VERSION }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          node apps/desktop/scripts/package.ts --full --unsigned --arch ${{ matrix.arch }} || exit /b 1
+
+      - name: Package ${{ env.SECOND_VERSION }} from the same build
+        env:
+          ACE_VERSION: ${{ env.SECOND_VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $release = "apps/desktop/dist/release"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/installers" | Out-Null
+          Move-Item "$release/ace-${{ env.FIRST_VERSION }}-${{ matrix.arch }}-setup.exe" "$env:RUNNER_TEMP/installers/"
+          foreach ($file in @("apps/desktop/dist/app/package.json", "apps/desktop/dist/daemon/desktop-app.json")) {
+            $json = Get-Content $file -Raw | ConvertFrom-Json
+            $json.version = "${{ env.SECOND_VERSION }}"
+            $json | ConvertTo-Json -Depth 10 | Set-Content -NoNewline -Encoding utf8NoBOM $file
+          }
+          node apps/desktop/scripts/package.ts --full --unsigned --skip-build --arch ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { throw "second package failed" }
+          Move-Item "$release/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe" "$env:RUNNER_TEMP/installers/"
+          Get-ChildItem $release -Filter "latest*.yml" | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+
+      - name: Install, run, update and uninstall
+        timeout-minutes: 20
+        run: >-
+          ./apps/desktop/scripts/installer-smoke.ps1
+          -First "$env:RUNNER_TEMP/installers/ace-${{ env.FIRST_VERSION }}-${{ matrix.arch }}-setup.exe"
+          -Second "$env:RUNNER_TEMP/installers/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe"
+          -SecondVersion "${{ env.SECOND_VERSION }}"
+
+      - name: Upload app and daemon logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs-${{ matrix.arch }}
+          path: |
+            ~/AppData/Roaming/ace/logs
+            ~/.ace/logs
+          if-no-files-found: ignore
 
   # The standalone daemon on Windows: the archive build, its smoke check, the per-user login
   # task and install.ps1 end to end. Lighter than the job above: no screen or browser work.
