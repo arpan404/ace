@@ -24,6 +24,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var draftKey: String? = nil
     /// The `@` and `/` lists, and the + list's builtins; nil offers none.
     var suggester: ComposerSuggester? = nil
+    /// The most the `@` and `/` list may take, so the message stays above the keyboard.
+    var suggestionHeight: CGFloat? = nil
     /// A builtin picked from `/` or + that the screen runs (attach, plan, model, review).
     var run: (String) -> Void = { _ in }
     @ViewBuilder var top: () -> Top
@@ -55,7 +57,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let suggester, suggester.trigger != nil {
-                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() })
+                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
                     .transition(.opacity)
             }
             if let notice {

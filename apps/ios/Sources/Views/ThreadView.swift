@@ -211,7 +211,8 @@ struct ThreadView: View {
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                  files: screen.attachments.count,
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
-                                 suggester: suggester, run: runComposerAction) {
+                                 suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
+                                 run: runComposerAction) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)

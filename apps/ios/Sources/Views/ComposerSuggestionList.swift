@@ -7,8 +7,10 @@ struct ComposerSuggestionList: View {
     let list: SuggestionList?
     let pick: (SuggestionRow) -> Void
     let retry: () -> Void
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The most the list may take; nil allows about five rows.
+    var maxHeight: CGFloat? = nil
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 48
+    @State private var contentHeight: CGFloat = 0
     var body: some View {
         let shape = AceShape.group
         Group {
@@ -23,10 +25,11 @@ struct ComposerSuggestionList: View {
                         }
                     }
                     .padding(.vertical, AceTheme.Spacing.xs)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: rowHeight * 5.5)
-                .fixedSize(horizontal: false, vertical: true)
+                // As tall as its rows, never past the room the screen leaves it.
+                .frame(height: min(contentHeight, min(rowHeight * 5.5, maxHeight ?? .infinity)))
             case "failed":
                 HStack(spacing: AceTheme.Spacing.sm) {
                     Text("Couldn't read suggestions.").foregroundStyle(AceTheme.Colours.mutedForeground)
