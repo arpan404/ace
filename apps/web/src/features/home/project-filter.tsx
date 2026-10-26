@@ -99,22 +99,29 @@ export function ProjectFilter() {
       <Tip label={device?.name ?? label} disabled={!device}>
         <MenuTrigger
           aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-          className="inline-flex h-6.5 min-w-0 max-w-full items-center gap-1 rounded-sm pr-2 pl-[9px] text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
+          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
         >
-          <span className="max-w-35 truncate">{label}</span>
+          <span className="max-w-35 truncate text-foreground">{label}</span>
           {device && (
-            <span aria-hidden className="inline-flex shrink-0 items-center gap-1.5">
-              <span>·</span>
+            <span
+              aria-hidden
+              className="inline-flex shrink-0 items-center gap-1.5 text-xs font-normal text-muted-foreground"
+            >
+              <span className="text-subtle-foreground">·</span>
               <MachineMark icon={device.icon} primary={device.primary} />
               <span data-selected-device-name className="hidden @min-[18rem]/thread-filters:inline">
                 {deviceName}
               </span>
             </span>
           )}
-          <CaretDownIcon aria-hidden size={14} className="shrink-0" />
+          <CaretDownIcon
+            aria-hidden
+            size={12}
+            className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground"
+          />
         </MenuTrigger>
       </Tip>
-      <MenuContent align="end" className="max-h-[60vh] min-w-[220px] overflow-y-auto">
+      <MenuContent align="start" className="max-h-[60vh] min-w-64 overflow-y-auto">
         <DeviceFilter />
         <MenuRadioGroup
           value={project ?? all}
