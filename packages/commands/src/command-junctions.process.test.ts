@@ -183,3 +183,20 @@ windows("Windows removes a cached command when its file becomes a junction", asy
   expect(f.catalog.resolve(target, command.id)).toEqual({ ok: false, error: "not_found" });
   expect(f.catalog.list(target, "item").commands.some((c) => c.id === command.id)).toBe(false);
 });
+
+windows(
+  "Windows command discovery finds folders added in the same clock tick as the last scan",
+  async () => {
+    const f = await fixture();
+    await f.files.start();
+    // Windows stamps folder times from a ~16 ms clock: each folder lands right after a scan, often
+    // inside the same tick, so its parent's times can't show the change.
+    for (let round = 0; round < 20; round++) {
+      await mkdir(join(f.root, `set${round}`));
+      await writeFile(join(f.root, `set${round}`, "item.md"), "Body");
+      f.files.invalidate(f.root);
+      await f.files.flush();
+      expect(f.names()).toContain(`set${round}:item`);
+    }
+  },
+);
