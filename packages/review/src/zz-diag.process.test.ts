@@ -48,6 +48,20 @@ test.runIf(process.platform === "win32")("diag review open", async () => {
     root,
     target,
   );
+  const { GitService } = await import("@ace/git");
+  const direct = new GitService();
+  await direct
+    .diff({ worktree: root, from: { kind: "commit", ref: base }, to: { kind: "working-tree" } })
+    .then(
+      (result) => console.log("DIFF OK", result.entries.length),
+      (error: unknown) =>
+        console.log(
+          "DIFF FAIL",
+          String(error),
+          JSON.stringify((error as { details?: unknown }).details),
+        ),
+    );
+  await direct.close();
   console.log("OPENED", JSON.stringify(opened).slice(0, 3000));
   await service.close();
 });
