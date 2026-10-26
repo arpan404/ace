@@ -61,8 +61,11 @@ export function followProjectLooks(owner: ProjectLooksOwner, pump: PatchSink): (
     try {
       const projects = await readProjects(owner, quiet, maxProjects);
       if (stopped) return;
-      const listed = new Set(projects.map((project) => project.id));
-      for (const id of [...sent.keys()]) if (!listed.has(id)) put(id, null);
+      const listed = new Set<string>(projects.map((project) => project.id));
+      // A project gone from a complete list loses its look; a capped list proves nothing.
+      // (A Map may lose entries while it is iterated.)
+      if (projects.length < maxProjects)
+        for (const id of sent.keys()) if (!listed.has(id)) put(id, null);
       for (const project of projects) show(project);
     } catch {
       // A machine that can't list its projects keeps the marks the phone last drew.

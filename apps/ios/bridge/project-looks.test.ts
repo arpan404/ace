@@ -90,9 +90,9 @@ test("a row names its project, and the project's own image, chosen glyph or favi
 });
 
 test("row updates never resend a look; an edited badge is sent again and a cleared one clears it", async () => {
-  const { daemon, sink } = await following((daemon) => {
-    thread(daemon, "t-docs", "docs");
-    command(daemon, {
+  const { daemon, sink } = await following((seeded) => {
+    thread(seeded, "t-docs", "docs");
+    command(seeded, {
       type: "workspace.update",
       workspaceId: WorkspaceId.parse("docs"),
       name: "docs",
