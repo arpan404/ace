@@ -365,29 +365,18 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
         expect(problems).toEqual([]);
       });
 
+      // Only where the test may switch Windows' own dark mode (a disposable CI runner).
       it.runIf(process.env.GITHUB_ACTIONS === "true" && scale === 1)(
-        "probe: does the page follow a live Windows dark-mode switch",
+        "in System mode the page follows Windows switching between light and dark",
         async () => {
-          const { app, page } = launched;
-          const read = () =>
-            page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
-          const probe: Record<string, unknown> = {};
-          await scheme(launched, false);
-          probe.lightBefore = await read();
+          const { page } = launched;
+          const shown = () => page.evaluate(() => document.documentElement.dataset.scheme);
+          await go(launched, "ace://new");
           await scheme(launched, true);
-          await page.waitForTimeout(3_000);
-          probe.afterRegistry = await read();
-          probe.mainDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
-          await app.evaluate(({ nativeTheme }) => {
-            nativeTheme.themeSource = "system";
-          });
-          await page.waitForTimeout(1_500);
-          probe.afterReassign = await read();
-          await page.reload();
-          await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 60_000 });
-          probe.afterReload = await read();
-          appendFileSync(join(screens, "report.jsonl"), `${JSON.stringify({ probe })}\n`);
+          expect(await shown()).toBe("dark");
+          await capture(launched, "system-mode-windows-dark");
           await scheme(launched, false);
+          expect(await shown()).toBe("light");
         },
       );
 

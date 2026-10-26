@@ -20,6 +20,7 @@ import {
   hasDesktopBridge,
   setDesktopWindowBackground,
 } from "./boot/desktop.ts";
+import { desktopMatchMedia } from "./boot/desktop-color-scheme.ts";
 import { webStorage } from "./boot/web-storage.ts";
 import { BareBootFailure, BootFailure, DesktopFailureScreen } from "./features/connect/index.ts";
 import { StartupPending } from "./features/startup/index.ts";
@@ -41,6 +42,8 @@ const environment = {
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
 };
+// Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`).
+environment.matchMedia = desktopMatchMedia(environment.matchMedia);
 const stores = { local, session };
 
 /** `navigator.userAgentData.brands` where the browser has it (Chromium); not in every DOM lib. */
