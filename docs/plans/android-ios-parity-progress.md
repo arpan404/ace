@@ -60,9 +60,9 @@ debug fixture; none of the later app capabilities has been certified by this exe
   web tests with no assertion fail reported — not a pass. Passed: fmt,
   docs:protocol, lint, size (9,063 files), annotate, extension, UI (80
   advisories), deps, typecheck. Test incomplete (SIGTERM at 900 s);
-  perf and typecheck:full unrun. Parent authorizes one further serialized
-  integration run (repo DEFAULT, 4 workers, 1,800 s) after this update; the new
-  owner will wait for it. Native/device gates stay open (physical hardware
+  perf and typecheck:full unrun. The authorized further serialized integration run
+  (repo DEFAULT, 4 workers, 1,800 s) is running — not passed. Native/device gates
+  stay open (physical hardware
   certification belongs to M01). M00
   stays open; M01 through M15 remain planned, with the A01.01 packet proposed in
   [android-measurement-variant.md](../mobile/android-measurement-variant.md)
@@ -70,8 +70,17 @@ debug fixture; none of the later app capabilities has been certified by this exe
   Current startup still uses the debug fixture; no production-parity claim is made.
 - CI lane attempts (hosted, no green claim, no hardware UI): first run 40376025273
   failed on missing node-gyp (fixed via pinned bootstrap); second run 40376716112
-  failed at the KVM gate; third run is being monitored (monitor 21924412: SDK
-  provisioning active, KVM fix passed, final outcome unknown).
+  failed at the KVM gate; third run 40377312535 at source head `bc219d4b2` failed after Gradle reported BUILD
+  SUCCESSFUL in 9m8s with both hosted debug APKs assembled: step 17 stopped
+  before launch because `ci-ace-android` was absent from `emulator -list-avds`,
+  so the native UI positive/negative gates were skipped. KVM was present
+  (`root:kvm`, mode 0660) and its access bootstrap passed; SDK/image, the AVD
+  create command, scoped typecheck, dependency checks, focused Vitest, and
+  prebuild passed, but the creation step did not establish successful discovery.
+  A new workflow fix aligns `ANDROID_USER_HOME`, `ANDROID_EMULATOR_HOME`, and
+  `ANDROID_AVD_HOME` under `RUNNER_TEMP`, explicitly sets the creation path, and
+  asserts registration/config/discovery before Gradle; its hosted validation is
+  pending, not a confirmed root-cause claim.
 - User-requested small-progress PR created:
   [PR #1450](https://github.com/arpan404/ace/pull/1450). Parent owns Git push.
 - Workspace hygiene: three settled worktrees removed, branches kept; untracked Windows
