@@ -179,7 +179,9 @@ struct InboxView: View {
             snooze: { snoozing = $0 },
             snoozeUntil: { row, key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
             wake: { row, key in Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
-            archive: { row, key in command(key, .archived) { await $0.archive(row.id) } })
+            archive: { row, key in command(key, .archived) { await $0.archive(row.id) } },
+            pin: { row, key, pinned in Task { _ = await inbox.client(key.machineId)?.pin(row.id, pinned) } },
+            move: { key, section, index in Task { await inbox.move(key, in: section, to: index) } })
     }
     /// Runs an undoable inbox command; once this device admits it, the toast offers Undo.
     private func command(_ key: InboxKey, _ kind: InboxUndo.Kind, _ run: @escaping (ClientModel) async -> Bool) {

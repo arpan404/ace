@@ -9,6 +9,10 @@ struct InboxRowActions {
     let snoozeUntil: (ThreadRow, InboxKey, String) -> Void
     let wake: (ThreadRow, InboxKey) -> Void
     let archive: (ThreadRow, InboxKey) -> Void
+    /// Pin (leading Pinned) or unpin.
+    let pin: (ThreadRow, InboxKey, Bool) -> Void
+    /// Put the row at an index among the other rows of its section, as shown.
+    let move: (InboxKey, MergedInbox.Section, Int) -> Void
 }
 
 /// Which folded groups at the end of the list are open.
@@ -122,9 +126,19 @@ struct InboxList: View {
                 }
             }
         } else {
+            let movable = inbox.movable(section)
             ForEach(section.rows, id: \.self) { key in
-                InboxThreadCell(inbox: inbox, key: key, section: section.key, actions: actions).id(key)
+                InboxThreadCell(inbox: inbox, key: key, section: section, movable: movable, actions: actions).id(key)
             }
+            // The system's own drag to reorder: press and hold a row, then move it. Pinned rows
+            // always; the Threads list only when it is sorted by hand.
+            .onMove(perform: movable ? { from, to in
+                guard let source = from.first, source < section.rows.count else { return }
+                let key = section.rows[source]
+                guard inbox.client(key.machineId)?.canOperate == true else { return }
+                // `to` counts the moving row; the shared rules count only the others.
+                actions.move(key, section, to > source ? to - 1 : to)
+            } : nil)
         }
     }
 
@@ -229,7 +243,9 @@ extension EnvironmentValues {
 private struct InboxThreadCell: View {
     let inbox: MachineInbox
     let key: InboxKey
-    let section: String
+    let section: MergedInbox.Section
+    /// Whether rows here move by hand (Pinned, or Threads sorted by hand).
+    let movable: Bool
     let actions: InboxRowActions
     /// The thread open beside the list.
     @Environment(\.openThreadRow) private var open
@@ -239,8 +255,12 @@ private struct InboxThreadCell: View {
     }
 
     private func threadRow(_ row: ThreadRow) -> some View {
-        let snoozed = section == "snoozed"
-        let settled = section == "settled"
+        let snoozed = section.key == "snoozed"
+        let settled = section.key == "settled"
+        let pinned = row.pinned == true
+        let position = section.rows.firstIndex(of: key)
+        let canMoveUp = movable && (position ?? 0) > 0
+        let canMoveDown = movable && position.map { $0 < section.rows.count - 1 } == true
         // A view-only grant is per machine: only that machine's rows lose their actions.
         let canOperate = inbox.client(key.machineId)?.canOperate ?? false
         // The daemon refuses to settle a tree that still runs.
@@ -270,10 +290,22 @@ private struct InboxThreadCell: View {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate { Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
+            if canOperate {
+                pinButton(row, pinned).tint(Color(uiColor: .systemGray))
+                Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2))
+            }
+        }
+        .accessibilityActions {
+            if canOperate {
+                if canMoveUp { Button("Move up") { step(-1) } }
+                if canMoveDown { Button("Move down") { step(1) } }
+            }
         }
         .contextMenu {
             if canOperate {
+                pinButton(row, pinned)
+                if canMoveUp { Button("Move up", ace: .arrowUp) { step(-1) } }
+                if canMoveDown { Button("Move down", ace: .arrowDown) { step(1) } }
                 if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
                 else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
                 if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
@@ -285,5 +317,14 @@ private struct InboxThreadCell: View {
                 Button("Archive", ace: .archive) { actions.archive(row, key) }
             }
         }
+    }
+
+    private func pinButton(_ row: ThreadRow, _ pinned: Bool) -> some View {
+        Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { actions.pin(row, key, !pinned) }
+    }
+    /// One place up or down among the section's rows as shown.
+    private func step(_ by: Int) {
+        guard let position = section.rows.firstIndex(of: key) else { return }
+        actions.move(key, section, position + by)
     }
 }
