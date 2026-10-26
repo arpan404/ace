@@ -189,6 +189,9 @@ describe.skipIf(!enabled)("Windows window chrome and integration", () => {
     if (process.env.ACE_E2E_REUSE_BUILD === "1" && existsSync(join(out, "renderer/index.html")))
       return;
     await Promise.all(electronBundles(out, process.env).map((options) => build(options)));
+    // ACE_E2E_REUSE_BUILD=1: keep the last renderer build (quick local Windows test loops).
+    if (process.env.ACE_E2E_REUSE_BUILD === "1" && existsSync(join(out, "renderer/index.html")))
+      return;
     // Vite's own CLI on this Node: no `bun x` shim or cmd.exe in between on Windows.
     const vite = join(
       dirname(createRequire(join(repo, "apps/web/package.json")).resolve("vite/package.json")),
