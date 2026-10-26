@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { mismatchedBinaries, type Arch } from "@ace/release/native-arch";
 import { dist } from "./common.ts";
-import { windowsRuntimePaths } from "@ace/release/node-runtime";
+import { runtimeNodePath } from "@ace/release/node-runtime";
 
 /**
  * Never ship a package whose native code cannot run: each required piece must be present,
@@ -11,16 +11,15 @@ import { windowsRuntimePaths } from "@ace/release/node-runtime";
 export async function verifyNatives(arch: Arch): Promise<void> {
   const ptyRoot = join(dist, "daemon/node_modules/node-pty");
   // Windows runs no local daemon yet (no descriptor.node), only the Node runtime foundation.
-  const windowsRuntime = windowsRuntimePaths(join(dist, "runtime"));
   const required = [
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
+    runtimeNodePath(join(dist, "runtime"), process.platform),
     ...(process.platform === "win32"
-      ? [windowsRuntime.exePath]
+      ? []
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
           join(dist, "daemon/group-keeper"),
-          join(dist, "runtime/bin/node"),
         ]),
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);

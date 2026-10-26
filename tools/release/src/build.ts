@@ -33,7 +33,7 @@ async function main() {
   await rm(join(output, `${target}.json`), { force: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
-  await stageNodeRuntime({ target, version, cacheDir: output, destination: root });
+  await stageNodeRuntime({ target, cacheDir: output, destination: root });
   const native = process.argv[5]
     ? NativeInputs.parse(JSON.parse(await readFile(process.argv[5], "utf8")))[target]
     : undefined;

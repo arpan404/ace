@@ -1,27 +1,14 @@
 import { cp, mkdir, stat, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import type { z } from "zod";
-import { ReleaseTarget } from "@ace/protocol";
 import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import {
-  isWindowsDesktopRuntimeTarget,
-  type WindowsDesktopRuntimeTarget,
-} from "./windows-node-files.ts";
+  isWindowsTarget,
+  runtimeTarget,
+  type ReleaseTarget as PosixPtyTarget,
+  type RuntimeTarget,
+} from "./node-runtime.ts";
 
-type PosixPtyTarget = z.infer<typeof ReleaseTarget>;
-export type PtyRuntimeTarget = PosixPtyTarget | WindowsDesktopRuntimeTarget;
-
-/**
- * Parses standalone POSIX targets plus bounded Windows desktop targets without
- * changing the protocol `ReleaseTarget` schema (standalone updater/archives stay
- * POSIX-only; Windows uses the separate union owned by `windows-node-files.ts`).
- */
-export function parsePtyRuntimeTarget(value: string): PtyRuntimeTarget {
-  const posix = ReleaseTarget.safeParse(value);
-  if (posix.success) return posix.data;
-  if (isWindowsDesktopRuntimeTarget(value)) return value;
-  throw new Error(`Unsupported PTY target ${value}`);
-}
+type WindowsPtyTarget = Exclude<RuntimeTarget, PosixPtyTarget>;
 
 /**
  * Bounded Windows ConPTY closure for the `useConptyDll:true` backend
@@ -57,12 +44,13 @@ export async function stagePtyFiles(
   destination: string,
   target: string,
 ): Promise<void> {
-  const platform = parsePtyRuntimeTarget(target);
+  const platform = runtimeTarget(target);
+  if (!platform) throw new Error(`Unsupported PTY target ${target}`);
   await mkdir(destination, { recursive: true });
   await copyRuntimePackage(join(source, "lib"), join(destination, "lib"));
   for (const name of ["package.json", "LICENSE"])
     await cp(join(source, name), join(destination, name), { recursive: true });
-  if (isWindowsDesktopRuntimeTarget(platform)) {
+  if (isWindowsTarget(platform)) {
     await stageWindowsConpty(source, destination, platform);
     return;
   }
@@ -101,7 +89,7 @@ async function stagePosixNative(
 async function stageWindowsConpty(
   source: string,
   destination: string,
-  target: WindowsDesktopRuntimeTarget,
+  target: WindowsPtyTarget,
 ): Promise<void> {
   for (const file of windowsWorkerFiles)
     if (!(await regularFile(join(source, file))))
