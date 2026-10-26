@@ -110,8 +110,8 @@ export async function bundleDaemon(
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
-              // The Windows binding loads the same addon a second time.
-              if (args.path.endsWith("/workspace/src/descriptor.ts"))
+              // A Windows bundle's Windows binding loads the same addon a second time.
+              if (target.startsWith("win32-") && args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replaceAll('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/terminal/src/pty.ts"))
                 contents = contents.replace(guardianSourcePath, guardianBundlePath);

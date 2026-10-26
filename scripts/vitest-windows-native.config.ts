@@ -68,6 +68,7 @@ export default defineConfig({
       "apps/desktop/src/main/os/cli-path.test.ts",
       "apps/desktop/src/main/daemon/target.test.ts",
       "apps/desktop/src/main/os/cli-shim.process.test.ts",
+      "tools/release/src/bundle-addon.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
