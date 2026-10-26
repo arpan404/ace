@@ -46,8 +46,10 @@ export class TuneFollower {
   readonly #now: () => number;
   #catalog: CatalogModel[] = [];
   #choices: ModelChoice[] = [];
-  /** The provider and account the catalog was read for. */
+  /** The provider and account the catalog was last asked for; cleared when that read fails. */
   #account: string | undefined;
+  /** The newest catalog read: an older one answering late is dropped. */
+  #reading = 0;
   #pending: PendingTurn | undefined;
   #notice = "";
 
@@ -77,19 +79,31 @@ export class TuneFollower {
   async read(): Promise<CatalogModel[]> {
     const selection = runsOn(this.#store.thread);
     if (!selection) return [];
-    this.#account = accountOf(selection);
-    const reply = await this.#client.request(
-      {
-        type: "models.list",
-        options: {
-          provider: selection.provider,
-          ...(selection.instanceId ? { instance: selection.instanceId } : {}),
-          limit: 100,
+    const account = accountOf(selection);
+    const reading = ++this.#reading;
+    this.#account = account;
+    let models: CatalogModel[];
+    try {
+      const reply = await this.#client.request(
+        {
+          type: "models.list",
+          options: {
+            provider: selection.provider,
+            ...(selection.instanceId ? { instance: selection.instanceId } : {}),
+            limit: 100,
+          },
         },
-      },
-      { signal: this.#signal },
-    );
-    this.#catalog = ModelListResult.parse(reply.result).models;
+        { signal: this.#signal },
+      );
+      models = ModelListResult.parse(reply.result).models;
+    } catch (error) {
+      // Not read: the next change of the thread asks again.
+      if (reading === this.#reading) this.#account = undefined;
+      throw error;
+    }
+    // A newer read (the thread moved again) owns the catalog.
+    if (reading !== this.#reading) return this.#catalog;
+    this.#catalog = models;
     this.#choices = modelChoices(this.#catalog, [], this.#now());
     this.#reconcile();
     this.#emit();
