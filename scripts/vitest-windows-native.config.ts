@@ -60,6 +60,14 @@ export default defineConfig({
       "packages/screen/src/windows.process.test.ts",
       "packages/screen/src/lifecycle-review.process.test.ts",
       "packages/screen/src/ui-results.process.test.ts",
+      // Command discovery, prompt files and the skills library over Windows handles: junction
+      // links, no-replace renames and crash recovery without an atomic exchange.
+      "packages/commands/src/command-junctions.process.test.ts",
+      "packages/commands/src/skill-junctions.process.test.ts",
+      "packages/commands/src/skill-update-swap.process.test.ts",
+      "packages/commands/src/files.process.test.ts",
+      "packages/commands/src/prompt-files.process.test.ts",
+      "packages/commands/src/skill-updates.process.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     // Shared files also hold POSIX cases. This one checks POSIX owner uid and mode bits; its
