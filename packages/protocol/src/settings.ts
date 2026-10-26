@@ -158,6 +158,13 @@ export const SettingsValues = z.object({
       examples: ["", "wss://relay.example.invalid/"],
     }),
   "automations.enabled": z.boolean(),
+  /**
+   * Delegated children one parent runs at once on this machine; further children wait queued
+   * and start as running ones finish. Null, the default, sets no limit: only engine capacity
+   * makes children wait. Children other machines delegate here count per calling thread. At most
+   * 64, the engine's own thread limit and the largest slot limit a queued child reports.
+   */
+  "agents.maxRunningChildren": z.number().int().min(1).max(64).nullable(),
   /** Titles and commit/PR drafts; null picks one from the ready providers. */
   "generation.model": UtilityModelChoice.nullable(),
   /** The Commit dialog drafts its message as it opens. */

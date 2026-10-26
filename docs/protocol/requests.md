@@ -1199,7 +1199,7 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {
     "workspaceId": "example"

@@ -49,6 +49,15 @@ export function ceilingRefusal(
 export function engineFull(error: unknown): boolean {
   return error instanceof AgentControlError && error.message === "engine_capacity_exceeded";
 }
+/**
+ * The engine can't take a start yet: it is full, or still starting after a restart. Either way
+ * the launch waits and is tried again; neither is a reason it can never run.
+ */
+export function startsLater(error: unknown): boolean {
+  return (
+    engineFull(error) || (error instanceof AgentControlError && error.message === "engine_starting")
+  );
+}
 
 /** Only trusted engine admission results enter this mapping, never provider error objects. */
 export function controlAdmissionError(reason: string): AgentControlError {

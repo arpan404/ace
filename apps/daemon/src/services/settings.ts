@@ -1,6 +1,7 @@
 import { SettingsKey } from "@ace/protocol";
 import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { RoleSettingsState } from "../role-settings.ts";
+import { ChildLimitSetting } from "../child-limit-setting.ts";
 import { SettingsService } from "@ace/settings";
 import type { ServiceContext } from "./types.ts";
 import { downloadsHost, systemDownloadsFolder, usableFolder } from "../download-folder.ts";
@@ -22,6 +23,9 @@ export async function startSettings(context: ServiceContext): Promise<void> {
   const roles = new RoleSettingsState();
   resources.own(await roles.start(settings));
   services.roles = roles;
+  const childLimit = new ChildLimitSetting();
+  resources.own(await childLimit.start(settings));
+  services.childLimit = childLimit;
   // The file sink starts before settings with the environment or default cap; the saved
   // cap applies here and on every later change, without a restart.
   const release = await settings.subscribe({ keys: ["logs.maxBytes"], scope: {} }, (event) => {
