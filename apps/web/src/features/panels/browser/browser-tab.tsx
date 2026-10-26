@@ -132,7 +132,15 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     live,
     tab: shown,
     online,
-    area: () => pageArea.current?.getBoundingClientRect(),
+    area: () => {
+      const element = pageArea.current;
+      if (!element) return undefined;
+      const box = element.getBoundingClientRect();
+      // Its layout size where nothing is drawn yet (a box not painted, a test's layout).
+      return box.width > 0 && box.height > 0
+        ? box
+        : { width: element.offsetWidth, height: element.offsetHeight };
+    },
   });
   const native = useNativeView(
     threadId,

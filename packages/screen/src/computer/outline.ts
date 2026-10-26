@@ -3,6 +3,7 @@
  * stable id, and a diff against the caller's previous look so repeated observations cost
  * only what changed. Pure: no I/O, no clocks.
  */
+import type { ComputerPlatform } from "./schemas.ts";
 import type { ComputerNode, ComputerState } from "./wire.ts";
 
 export interface OutlineLine {
@@ -116,19 +117,30 @@ export function windowKey(state: ComputerState): string {
 const where = (onScreen: boolean | undefined) =>
   onScreen ? "on screen" : "off screen: another Space, hidden or covered by a full-screen app";
 
-export function stateHeader(state: ComputerState): string {
+/** What a locked or absent desktop session means for the model, in the platform's words. */
+const sessionWords: Record<ComputerPlatform, { locked: string; unavailable: string }> = {
+  macos: {
+    locked:
+      "The Mac is locked. Only controls currently exposed through accessibility can work. Screenshots, activate and posted input are unavailable. Use another tool if controls are missing; observe again after unlocking.",
+    unavailable:
+      "The Mac’s GUI session is unavailable. Stop computer actions until it returns, then observe again.",
+  },
+  linux: {
+    locked:
+      "The screen is locked. Controls exposed through accessibility still work; screenshots are unavailable. Use another tool if controls are missing; observe again after the person unlocks it.",
+    unavailable:
+      "This computer’s desktop session is not in front (another user’s session is, or it ended). Stop computer actions until it returns, then observe again.",
+  },
+};
+
+export function stateHeader(state: ComputerState, platform: ComputerPlatform = "macos"): string {
   const { app, window, windows } = state;
   const lines = [
     `${app.name} (${app.bundleId})${app.active ? ", frontmost" : ", in the background"}${state.launched ? ", just opened" : ""}`,
   ];
-  if (state.screenLocked)
-    lines.push(
-      "The Mac is locked. Only controls currently exposed through accessibility can work. Screenshots, activate and posted input are unavailable. Use another tool if controls are missing; observe again after unlocking.",
-    );
-  if (state.sessionState === "unavailable")
-    lines.push(
-      "The Mac’s GUI session is unavailable. Stop computer actions until it returns, then observe again.",
-    );
+  if (state.accessibilityNote) lines.push(state.accessibilityNote);
+  if (state.screenLocked) lines.push(sessionWords[platform].locked);
+  if (state.sessionState === "unavailable") lines.push(sessionWords[platform].unavailable);
   if (!window && !state.screenLocked && state.sessionState !== "unavailable") {
     lines.push(
       windows.length

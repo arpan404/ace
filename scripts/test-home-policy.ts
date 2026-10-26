@@ -115,9 +115,8 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     "XDG_DATA_DIRS",
     "XDG_SESSION_TYPE",
     "XDG_CURRENT_DESKTOP",
-    // Hyprland's and Sway's control sockets, and the file the scripted chooser answers from.
+    // Hyprland's control socket, and the file the scripted chooser answers from.
     "HYPRLAND_INSTANCE_SIGNATURE",
-    "SWAYSOCK",
     "ACE_E2E_PICKER_CHOICE",
   ] as const) {
     const value = ambient[key];

@@ -7,7 +7,7 @@ extension ClientModel {
 
     /// Save the start in the SDK's outbox under `commandId`: true once it is on this phone.
     /// A view-only machine submits nothing.
-    func startThread(_ draft: NewThreadDraft, commandId: String) async -> Bool {
+    func startThread(_ draft: NewThreadDraft, commandId: String, references: [Any] = []) async -> Bool {
         guard canOperate, let project = draft.projectId else { return false }
         let files = compose.attachments?.workspaceId == project ? compose.attachments?.files.count ?? 0 : 0
         // Words, files or both; the bridge checks again with the shared rule.
@@ -23,6 +23,7 @@ extension ClientModel {
         if let speed = draft.speed { create["speed"] = speed }
         if let access = draft.access { create["access"] = access }
         if let issue = draft.issue { create["issue"] = issue.json }
+        if !references.isEmpty { create["references"] = references }
         if draft.worktree, let base = draft.base {
             create["base"] = base.remote.map { ["ref": base.ref, "remote": $0] } ?? ["ref": base.ref]
         }

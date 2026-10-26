@@ -59,6 +59,8 @@ export { oppositeFollowUpBehavior } from "./follow-up.ts";
 export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
 export { subscribeSettings } from "./settings-subscription.ts";
+export { subscribeLockedUse } from "./locked-use-subscription.ts";
+export type { LockedUseOwner } from "./locked-use-subscription.ts";
 export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";

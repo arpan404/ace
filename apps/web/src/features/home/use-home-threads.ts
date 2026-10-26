@@ -13,6 +13,9 @@ import {
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
+import { machineRow } from "@/lib/machine-threads.ts";
+import { useSidebarDevice } from "./device-filter-state.ts";
 
 /** How Home orders the threads below Pinned (Settings › Agents › Sort threads). */
 export function useHomeSort(): HomeSort {
@@ -87,6 +90,8 @@ const listEqual = (a: HomeList, b: HomeList) =>
  * (`useMachineEntries`), ordered in the same flat list (ADR 0102).
  */
 export function useHomeList(others: readonly ThreadListEntry[] = noOthers): HomeList {
+  const device = useSidebarDevice();
+  const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const sortBy = useHomeSort();
@@ -95,7 +100,10 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers): Home
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const own = read(reader);
-      const entries = others.length ? [...own, ...others] : own;
+      const all = others.length ? [...own, ...others] : own;
+      const entries = device
+        ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
+        : all;
       const { pinned, active, recent, snoozed, settled } = arrange(
         entries,
         { ...state, sortBy },
@@ -108,7 +116,7 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers): Home
         : [...active, ...recent].filter((id) => byId.get(id)?.status.state === "needs_you");
       return { pinned, active, recent, snoozed, settled, needsYou };
     },
-    [state, sortBy, now, read, others],
+    [state, sortBy, now, read, others, device, ownDevice],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }

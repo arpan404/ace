@@ -18,7 +18,7 @@ import Testing
             sections(["asking", "done"]),
         ]), database: database)
         let session = StartRecorder()
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
 
         await model.connect(target: try target(), directory: directory)
 
@@ -57,7 +57,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
         try InboxCheckpoint.write("[{\"type\":\"inbox.row\"", database: database)
-        let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in StartRecorder() })
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
         await model.connect(target: try target(), directory: directory)
         #expect(model.inbox.isEmpty)
         #expect(!model.inboxLoaded)

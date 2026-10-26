@@ -9,15 +9,17 @@ struct ComposerAccessories: View {
     let screen: ThreadScreenModel
     let problem: String?
     private var notice: String? { screen.tune?.notice.isEmpty == false ? screen.tune?.notice : nil }
+    /// "Continues in a new thread with your next message": Send does something else now, so it's said.
+    private var continues: String? { screen.controls?.continues == true ? screen.controls?.note : nil }
     var body: some View {
-        if !screen.attachments.isEmpty || notice != nil || problem != nil {
+        if !screen.attachments.isEmpty || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !screen.attachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            ForEach(screen.attachments) { file in AttachmentChip(file: file) { model.detach(file.id) } }
-                        }
-                    }
+                    ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if let continues {
+                    Text(continues).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(2).accessibilityIdentifier("composer.continues")
                 }
                 if let notice {
                     Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)
@@ -53,8 +55,11 @@ struct ComposerModelButton: View {
                                 hasLevels: !tune.efforts.isEmpty, hasSpeeds: tune.speeds.count > 1)
     }
     var body: some View {
+        // A switch not in effect yet (sent from here, queued for the next turn, or a continuation)
+        // shows a clock and says why to assistive tech.
+        let note = screen.controls?.note.flatMap { $0.isEmpty ? nil : $0 }
         ModelEffortChip(provider: screen.controls?.provider, model: name, effort: tune,
-                        queued: screen.controls?.switching == "queued",
+                        queued: screen.controls?.switching == "queued" || note != nil, note: note,
                         modelID: "composer.model", effortID: "composer.effort", openModel: open, openEffort: openTune)
     }
 }

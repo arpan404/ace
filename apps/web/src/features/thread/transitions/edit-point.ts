@@ -1,5 +1,5 @@
 import type { ForkPoint, Item, Run } from "@ace/protocol";
-import { forkPointOf, sameForkPoint } from "./fork-point.ts";
+import { forkPointOf, sameForkPoint } from "@ace/ui-core";
 
 /*
  * Where retrying the person's last ask starts from. Pure over the thread's order. It goes back to

@@ -64,6 +64,41 @@ test("a photo uploads in chunks and the next message carries it", async () => {
   await until(() => tray()?.files.length === 0, "the tray emptied");
 });
 
+test("a video uploads to an agent with known capabilities and goes with the message", async () => {
+  // Every file type reaches the agent (natively, inline or as a readable path), so a provider
+  // that reads images doesn't refuse a clip for not being one.
+  const fake = fixture();
+  fake.createThread({
+    id: "clips",
+    workspaceId: "ace",
+    title: "Clips",
+    provider: "codex",
+    capabilities: { imageInput: true },
+  });
+  fake.apply("clips", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  const clip = Buffer.alloc(64 * 1024, 3);
+  staged.set("clip-0001", clip);
+  const thread = open(connect(fake), "clips", chunks);
+  await until(() => latest("thread.controls"), "the composer");
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "clip-0001",
+      name: "Clip.mov",
+      mimeType: "video/quicktime",
+      bytes: clip.length,
+      sha256: sha(clip),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "ready", "the upload");
+  expect(tray()?.files[0]).toMatchObject({ kind: "video", mimeType: "video/quicktime", error: "" });
+  thread.handle({ type: "send", text: "What happens here?", opposite: false, requestId: "m1" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]?.context).toMatchObject({
+    attachments: [{ sha256: sha(clip) }],
+  });
+});
+
 test("a file over the shared size limit is refused before anything uploads", async () => {
   const thread = open(connect(idle()), "files", chunks);
   await until(() => latest("thread.controls"), "the composer");
@@ -83,13 +118,14 @@ test("a file over the shared size limit is refused before anything uploads", asy
     error: "Too large: files can be up to 512 MB each",
   });
   expect(uploads("upload.begin")).toHaveLength(0);
-  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "m1" });
-  await until(() => latest("admission", "m1"), "the send refused");
-  expect(latest("admission", "m1")?.ok).toBe(false);
+  // Request ids of its own: the sink keeps earlier tests' answers.
+  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "too-large-send" });
+  await until(() => latest("admission", "too-large-send"), "the send refused");
+  expect(latest("admission", "too-large-send")?.ok).toBe(false);
   thread.handle({ type: "detach", localId: "video-0001" });
   await until(() => tray()?.files.length === 0, "the file removed");
-  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "m2" });
-  await until(() => latest("admission", "m2")?.ok, "the send admitted");
+  thread.handle({ type: "send", text: "Here", opposite: false, requestId: "too-large-retry" });
+  await until(() => latest("admission", "too-large-retry")?.ok, "the send admitted");
   expect(commands("thread.send")[0]?.context).toBeUndefined();
 });
 

@@ -211,6 +211,10 @@ struct ControlsRow: Codable, Sendable, Equatable {
     var providerName: String?
     let model: String
     let switching: String
+    /// Why the model named isn't running yet: "Applies at the agent's next turn".
+    var note: String? = nil
+    /// The next message starts a new thread on that model.
+    var continues: Bool? = nil
 }
 /// The daemon queue's follow-ups for the open thread, with the shared summary line.
 struct QueueRow: Codable, Sendable, Equatable {
@@ -227,29 +231,75 @@ struct QueueRow: Codable, Sendable, Equatable {
     let messages: [Message]
     let more: Int
 }
-struct ModelOption: Codable, Sendable, Equatable, Identifiable {
-    let id: String
-    let label: String
-    let detail: String
-    let current: Bool
-}
-
-/// The open thread's model sheet (`thread.models`): its provider's models, the one in use marked,
-/// the ids starred among them in the order they were starred, and why the last star didn't save.
+/// The open thread's model sheet (`thread.models`, `bridge/thread-model-sheet.ts`): every
+/// set-up account's models as New thread lists them, the model checked, and what picking a row
+/// does. A row missing from `moves` switches at once; one with a note can't be picked; one with an
+/// ask is confirmed first in the words of `asks`. Decoded leniently: a part that doesn't read is
+/// left empty rather than failing the frame.
 struct ThreadModels: Decodable, Sendable, Equatable {
-    var state = "idle"
-    var models: [ModelOption] = []
-    var favorites: [String] = []
-    var starProblem: String? = nil
+    struct Move: Decodable, Sendable, Equatable { var ask: Int?; var note: String? }
+    /// The shared `switchQuestion`: a switch names the model (`detail`), a continuation may warn
+    /// about files the new thread's model can't read.
+    struct Ask: Decodable, Sendable, Equatable {
+        let title: String; let message: String; let action: String
+        var detail: String?; var warning: String?
+        /// The alert's body: the message, then the model or the warning.
+        var body: String { [message, detail, warning].compactMap { $0 }.joined(separator: "\n\n") }
+    }
+    var read = ComposeAgentsRead()
+    var current: NewThreadPickerRows.Chosen?
+    /// The checked model's name when the catalog doesn't list it.
+    var currentLabel = ""
+    var moves: [String: Move] = [:]
+    var asks: [Ask?] = []
+    var state: String { read.state }
 
     init() {}
-    private enum Keys: String, CodingKey { case state, models, favorites, starProblem }
+    private enum Keys: String, CodingKey { case state, tabs, providers, favorites, starProblem, current, currentLabel, rows, asks }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
-        state = try box.decode(String.self, forKey: .state)
-        models = try box.decode([ModelOption].self, forKey: .models)
-        favorites = try box.decodeIfPresent([String].self, forKey: .favorites) ?? []
-        starProblem = try box.decodeIfPresent(String.self, forKey: .starProblem)
+        read = ComposeAgentsRead(
+            state: try box.decode(String.self, forKey: .state),
+            agents: (try? box.decodeIfPresent(Lenient<ComposeAgent>.self, forKey: .providers))?.items ?? [],
+            tabs: (try? box.decodeIfPresent(Lenient<ComposeTab>.self, forKey: .tabs))?.items ?? [],
+            favorites: (try? box.decodeIfPresent([String].self, forKey: .favorites)) ?? [],
+            starProblem: try? box.decodeIfPresent(String.self, forKey: .starProblem))
+        current = try? box.decodeIfPresent(NewThreadPickerRows.Chosen.self, forKey: .current)
+        currentLabel = (try? box.decodeIfPresent(String.self, forKey: .currentLabel)) ?? ""
+        moves = (try? box.decodeIfPresent([String: Lenient<Move>.One].self, forKey: .rows))?.compactMapValues(\.value) ?? [:]
+        // Positions matter (rows name an ask by index): one that doesn't read stays as a gap.
+        asks = (try? box.decodeIfPresent(Lenient<Ask>.Kept.self, forKey: .asks))?.items ?? []
+    }
+    /// What confirms a move to `row` (a picker row id), if it asks.
+    func ask(_ row: String) -> Ask? {
+        guard let index = moves[row]?.ask, asks.indices.contains(index) else { return nil }
+        return asks[index]
+    }
+}
+
+/// A list decoded element by element: one entry that doesn't read is dropped (`items`), or kept
+/// as a gap where positions matter (`Kept`), so it never empties the rest.
+struct Lenient<Element: Decodable>: Decodable {
+    let items: [Element]
+    init(from decoder: any Decoder) throws {
+        var box = try decoder.unkeyedContainer()
+        var items: [Element] = []
+        while !box.isAtEnd { if let item = try box.decode(One.self).value { items.append(item) } }
+        self.items = items
+    }
+    struct Kept: Decodable {
+        let items: [Element?]
+        init(from decoder: any Decoder) throws {
+            var box = try decoder.unkeyedContainer()
+            var items: [Element?] = []
+            while !box.isAtEnd { items.append(try box.decode(One.self).value) }
+            self.items = items
+        }
+    }
+    /// One value that may not read; decoding it always moves past it.
+    struct One: Decodable {
+        let value: Element?
+        init(from decoder: any Decoder) throws { value = try? Element(from: decoder) }
     }
 }
 

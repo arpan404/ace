@@ -53,14 +53,23 @@ import Testing
         let found = NewThreadPickerRows.rows(read(lead: 1), tab: "favorites", chosen: nil, query: "opus", expanded: false).rows
         #expect(found.map(\.detail) == ["Claude Code · Personal", "Claude Code · Work"])
     }
-    @Test func theThreadSheetsFavoritesFollowTheStarOrderAndItsCheckFollowsThePick() {
+    @Test func aThreadRowItCantMoveToSaysWhy() {
         var list = ThreadModels()
-        list.models = [ModelOption(id: "a", label: "A", detail: "", current: true), ModelOption(id: "b", label: "B", detail: "", current: false)]
-        list.favorites = ["b", "a"]
-        let favorites = ThreadPickerRows.rows(list, provider: "codex", tab: "favorites", chosen: "b", query: "")
-        #expect(favorites.map(\.label) == ["B", "A"])
-        #expect(favorites.map(\.chosen) == [true, false])
-        #expect(favorites.first?.key == "codex\u{0}b")
-        #expect(ThreadPickerRows.rows(list, provider: "codex", tab: ThreadPickerRows.account, chosen: "a", query: "").map(\.label) == ["A", "B"])
+        list.read = read()
+        list.moves = [ref(sonnet).account + "\u{0}" + sonnet.key: .init(ask: nil, note: "Starts new threads only")]
+        let rows = ThreadPickerRows.rows(list, tab: "claude:personal", chosen: nil, query: "", expanded: true).rows
+        #expect(rows.map(\.note) == [nil, "Starts new threads only", nil])
+    }
+    @Test func aThreadsModelTheCatalogDoesntListIsCheckedFirstOnItsAccountsTab() {
+        var list = ThreadModels()
+        list.read = read()
+        let retired = NewThreadPickerRows.Chosen(provider: "claude", key: "claude\u{0}retired", account: "personal")
+        list.current = retired
+        list.currentLabel = "Retired"
+        let personal = ThreadPickerRows.rows(list, tab: "claude:personal", chosen: retired, query: "", expanded: true).rows
+        #expect(personal.map(\.label) == ["Retired", "Opus", "Sonnet", "Haiku"])
+        #expect(personal.map(\.chosen) == [true, false, false, false])
+        let work = ThreadPickerRows.rows(list, tab: "claude:work", chosen: retired, query: "", expanded: true).rows
+        #expect(work.map(\.label) == ["Opus"])
     }
 }

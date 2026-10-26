@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { agentName, formatClock, saidAt } from "@ace/ui-core";
+import { agentName, forkPointOf, formatClock, saidAt, sameForkPoint } from "@ace/ui-core";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -10,7 +10,6 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredCopyAnswer } from "./deferred-review.ts";
 import { messageActions } from "./message-actions.ts";
-import { forkPointOf, sameForkPoint } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
 import { RetryAnswerButton, useRetryPoint } from "../transitions/message-edits.tsx";
 import { useStreaming } from "../transcript/use-streaming.ts";
