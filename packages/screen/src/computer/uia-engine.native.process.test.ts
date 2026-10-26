@@ -199,9 +199,17 @@ describe.runIf(windows)("Windows computer-use engine", () => {
       { type: "menu", path: ["File", "Save"] },
       { type: "key", key: "ctrl+n" },
     ];
-    const acted = ComputerActResult.parse(await client.request("act", { app, actions: steps }));
-    expect(acted.error).toBeUndefined();
-    expect(acted.done).toHaveLength(steps.length);
+    // One step at a time, so a step that brings the window forward is named.
+    let acted: ComputerActResult | undefined;
+    for (const step of steps) {
+      acted = ComputerActResult.parse(await client.request("act", { app, actions: [step] }));
+      expect(acted.error, step.type).toBeUndefined();
+      expect(acted.done, step.type).toHaveLength(1);
+      expect({ step: step.type, front: (await target.values()).front }).toEqual({
+        step: step.type,
+        front: false,
+      });
+    }
     await target.pressed();
     await target.event("save");
     await target.event("new");
@@ -217,7 +225,7 @@ describe.runIf(windows)("Windows computer-use engine", () => {
       front: false,
     });
     expect((await cover.values()).front).toBe(true);
-    expect(acted.state?.nodes.some((entry) => entry.name === "Pressed 1")).toBe(true);
+    expect(acted?.state?.nodes.some((entry) => entry.name === "Pressed 1")).toBe(true);
   }, 120_000);
 
   it("Windows engine refuses input that needs the window in front, then acts after activate", async () => {

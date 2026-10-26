@@ -31,6 +31,17 @@ impl Actor<'_> {
         unsafe {
             match value {
                 Value::Bool(wanted) => {
+                    let native_check = uia::class_name(&fresh).eq_ignore_ascii_case("button");
+                    if native_check && facts.toggle.is_some() {
+                        let on = facts.toggle == Some(TOGGLE_ON);
+                        if on != *wanted {
+                            self.press(id, &element)?;
+                        }
+                        return Ok(format!(
+                            "set {label} {}",
+                            if *wanted { "on" } else { "off" }
+                        ));
+                    }
                     if facts.toggle.is_some() {
                         let toggle = pattern::<IUIAutomationTogglePattern>(
                             &element,

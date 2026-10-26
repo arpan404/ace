@@ -244,7 +244,7 @@ impl Actor<'_> {
     }
 
     /// Presses an element by UI Automation, the way its plain click would.
-    fn press(&mut self, id: u64, element: &IUIAutomationElement) -> CuResult<String> {
+    pub fn press(&mut self, id: u64, element: &IUIAutomationElement) -> CuResult<String> {
         let label = self.label(id);
         let fresh = self.uia.refresh(element)?;
         let facts = uia::facts(&fresh);
@@ -263,6 +263,9 @@ impl Actor<'_> {
                 | outline::control::DATA_ITEM
                 | outline::control::TAB_ITEM
         );
+        if let Some(done) = win32_button(&fresh, &label) {
+            return done;
+        }
         unsafe {
             if item && facts.selected.is_some() {
                 pattern::<IUIAutomationSelectionItemPattern>(
@@ -738,5 +741,59 @@ impl Actor<'_> {
             self.activity.settle(&timing::BETWEEN_STEPS, self.check)?;
         }
         Ok(format!("chose {}", shown.join(" › ")))
+    }
+}
+
+/// Clicks a Win32 push button or check box the way the control itself reports a click: the
+/// check state changes (for automatic check boxes) and the parent gets BN_CLICKED. UI
+/// Automation's own proxy sends BM_CLICK instead, a simulated mouse press that activates the
+/// window. None for anything else, which UI Automation handles.
+fn win32_button(element: &IUIAutomationElement, label: &str) -> Option<CuResult<String>> {
+    let hwnd = uia::native_window(element)?;
+    if !uia::class_name(element).eq_ignore_ascii_case("button") {
+        return None;
+    }
+    const BM_GETCHECK: u32 = 0x00F0;
+    const BM_SETCHECK: u32 = 0x00F1;
+    unsafe {
+        let kind = GetWindowLongW(hwnd, GWL_STYLE) as u32 & 0x0F;
+        let parent = GetParent(hwnd).ok()?;
+        let id = GetDlgCtrlID(hwnd);
+        let checked = || SendMessageW(hwnd, BM_GETCHECK, WPARAM(0), LPARAM(0)).0;
+        let what = match kind {
+            // Push and default push buttons.
+            0 | 1 => format!("pressed {label}"),
+            // Automatic check box and three-state box: the control flips its own state.
+            3 | 6 => {
+                let next = match (kind, checked()) {
+                    (6, 1) => 2,
+                    (_, 0) => 1,
+                    _ => 0,
+                };
+                SendMessageW(hwnd, BM_SETCHECK, WPARAM(next as usize), LPARAM(0));
+                format!(
+                    "toggled {label} (now {})",
+                    if next == 1 {
+                        "on"
+                    } else if next == 2 {
+                        "mixed"
+                    } else {
+                        "off"
+                    }
+                )
+            }
+            // Manual check boxes: the app changes the state when told of the click.
+            2 | 5 => format!("pressed {label}"),
+            _ => return None,
+        };
+        // Low word: the control id; high word: BN_CLICKED, which is zero.
+        let wparam = WPARAM(id as u32 as usize & 0xFFFF);
+        Some(
+            PostMessageW(parent, WM_COMMAND, wparam, LPARAM(hwnd.0 as isize))
+                .map(|_| what)
+                .map_err(|e| {
+                    CuError::new("action_failed", format!("The click could not be sent: {e}"))
+                }),
+        )
     }
 }
