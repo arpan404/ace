@@ -18,9 +18,9 @@ import { MachineFailure } from "./transport.ts";
 import { ChildOutbox } from "./child-outbox.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
+  RECHECK_PER_MACHINE,
   RECHECK_POLLS,
   RECHECK_WINDOW_MS,
-  recheckBatches,
   recheckOutcome,
 } from "./child-recheck.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
@@ -59,6 +59,25 @@ export interface ChildrenDeps {
 }
 
 /**
+ * Unsettled children grouped by machine, at most 16 per status call (the call's limit), so
+ * every one is read on every poll rather than the same first 16.
+ */
+function statusBatches(rows: readonly ChildRow[]): [string, ChildRow[]][] {
+  const batches: [string, ChildRow[]][] = [];
+  const open = new Map<string, ChildRow[]>();
+  for (const row of rows) {
+    let batch = open.get(row.machine);
+    if (!batch || batch.length >= 16) {
+      batch = [];
+      open.set(row.machine, batch);
+      batches.push([row.machine, batch]);
+    }
+    batch.push(row);
+  }
+  return batches;
+}
+
+/**
  * Delegated children that run on other machines. The ledger is durable so a restart keeps
  * watching them; a machine that can't be reached keeps its children working, never done.
  */
@@ -71,6 +90,8 @@ export class MachineChildren implements RemoteChildren {
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
+  /** The last re-check turn handed out; each machine's least recently checked go next. */
+  private recheckTurn: number;
   /** Messages this process is sending now, by child and request id: not sent again meanwhile. */
   private inFlight = new Set<string>();
   private closed = false;
@@ -78,6 +99,7 @@ export class MachineChildren implements RemoteChildren {
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
+    this.recheckTurn = this.ledger.lastRecheckTurn();
     this.outbox = new ChildOutbox(deps.store);
     this.arm();
   }
@@ -304,7 +326,7 @@ export class MachineChildren implements RemoteChildren {
         this.ledger.rows("settled=0 OR delivered=0").length > 0 ||
         this.outbox.hasUnsent() ||
         this.ledger.anyMessages();
-      watchingSettled = !due && this.recentlySettled(1).length > 0;
+      watchingSettled = !due && this.ledger.hasRecentlySettled(this.deps.now() - RECHECK_WINDOW_MS);
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
     }
@@ -328,12 +350,9 @@ export class MachineChildren implements RemoteChildren {
         this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
       );
       const active = this.ledger.rows("settled=0");
-      const byMachine = new Map<string, ChildRow[]>();
-      for (const row of active)
-        byMachine.set(row.machine, [...(byMachine.get(row.machine) ?? []), row]);
       await Promise.all([
-        ...[...byMachine].map(async ([machine, rows]) => {
-          const ids = rows.slice(0, 16).map((row) => row.id);
+        ...statusBatches(active).map(async ([machine, rows]) => {
+          const ids = rows.map((row) => row.id);
           const first = rows[0];
           if (!first) return;
           try {
@@ -386,11 +405,17 @@ export class MachineChildren implements RemoteChildren {
   private recheckDue(watchingUnsettled: boolean): [string, ChildRow[]][] {
     if (watchingUnsettled && ++this.sinceRecheck < RECHECK_POLLS) return [];
     this.sinceRecheck = 0;
-    return [...recheckBatches(this.recentlySettled(256))];
-  }
-  /** Children settled within the re-check window, most recent first. */
-  private recentlySettled(limit: number): ChildRow[] {
-    return this.ledger.recentlySettled(this.deps.now() - RECHECK_WINDOW_MS, limit);
+    const since = this.deps.now() - RECHECK_WINDOW_MS;
+    const turn = ++this.recheckTurn;
+    // Every machine, and on each the children checked longest ago: all are checked in turn.
+    return this.ledger.recheckMachines(since).flatMap((machine) => {
+      const rows = this.ledger.recheckTurn(machine, since, RECHECK_PER_MACHINE);
+      this.ledger.markRechecked(
+        rows.map((row) => row.id),
+        turn,
+      );
+      return rows.length ? [[machine, rows] as [string, ChildRow[]]] : [];
+    });
   }
   /**
    * A settled child re-read: work started on its machine reopens it, so its parent reads it

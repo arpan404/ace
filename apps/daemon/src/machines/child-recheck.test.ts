@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { MachinePendingRequest, ThreadId, type MachineThreadView } from "@ace/protocol";
-import { RECHECK_PER_MACHINE, recheckBatches, recheckOutcome } from "./child-recheck.ts";
+import { recheckOutcome } from "./child-recheck.ts";
 
 const view = (changes: Partial<MachineThreadView>): MachineThreadView => ({
   threadId: ThreadId.parse("child-a"),
@@ -52,19 +52,4 @@ test("work that ran there and settled with a new result gives the parent that re
   expect(
     recheckOutcome(view({ state: "cancelled", result: "Stopped before it started." }), view({})),
   ).toBe("settle");
-});
-
-test("each machine is asked about at most its most recent settled children", () => {
-  const rows = [
-    ...Array.from({ length: RECHECK_PER_MACHINE + 4 }, (_, index) => ({
-      machine: "studio",
-      id: `s${index}`,
-    })),
-    { machine: "laptop", id: "l0" },
-  ];
-  const batches = recheckBatches(rows);
-  expect(batches.get("studio")?.map((row) => row.id)).toEqual(
-    rows.slice(0, RECHECK_PER_MACHINE).map((row) => row.id),
-  );
-  expect(batches.get("laptop")?.map((row) => row.id)).toEqual(["l0"]);
 });

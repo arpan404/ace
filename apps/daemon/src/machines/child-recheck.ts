@@ -12,22 +12,11 @@ import { settledStates } from "../agent-control/watch-view.ts";
 export const RECHECK_POLLS = 10;
 /** Only children settled this recently are re-checked. */
 export const RECHECK_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** At most this many children per machine per re-check: one status call each. */
+/**
+ * At most this many children per machine per re-check, one status call each; each machine's
+ * children checked longest ago go first, so every one is checked in turn.
+ */
 export const RECHECK_PER_MACHINE = 16;
-
-/** The most recently settled children, at most `RECHECK_PER_MACHINE` per machine. */
-export function recheckBatches<T extends { machine: string }>(
-  recentFirst: readonly T[],
-): Map<string, T[]> {
-  const batches = new Map<string, T[]>();
-  for (const row of recentFirst) {
-    const batch = batches.get(row.machine) ?? [];
-    if (batch.length >= RECHECK_PER_MACHINE) continue;
-    batch.push(row);
-    batches.set(row.machine, batch);
-  }
-  return batches;
-}
 
 /**
  * What a re-read view of a settled child means: it runs again (`reopen`), it ran again and

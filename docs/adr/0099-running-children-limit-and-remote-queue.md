@@ -80,7 +80,10 @@ settle, and the caller must notice so the parent never reads done while it runs.
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently
   settled children with the ordinary `status` call: children settled within the last 24 hours,
   at most 16 per machine per check (one call each), every 10 polls (10 s by default) or on every
-  poll once only settled children are watched, as those polls already come at that pace. A child
+  poll once only settled children are watched, as those polls already come at that pace. Every
+  machine is asked each time, and on each the children checked longest ago go first (a saved
+  turn number), so every eligible child is checked in turn however many there are. Unsettled
+  children are all read on every poll, 16 per status call. A child
   found running again reopens: the parent's row shows it running and the parent waits until it
   settles again. One that ran and settled with a different result hands the parent that result;
   changes that leave the outcome and result alone (a title, a pin) are ignored. Work started

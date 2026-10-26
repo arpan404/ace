@@ -5,7 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import { AgentId, ThreadId, type MachineMessage, type MachineThreadView } from "@ace/protocol";
 import { Store } from "@ace/daemon";
 import { MachineChildren } from "./children.ts";
-import { RECHECK_POLLS } from "./child-recheck.ts";
+import { RECHECK_PER_MACHINE, RECHECK_POLLS } from "./child-recheck.ts";
 import { RequestMirror } from "./mirror.ts";
 
 const homes: string[] = [];
@@ -220,4 +220,28 @@ it("an unchanged result after a follow-up that never ran is not repeated, and po
   h.clock.now += 25 * HOUR;
   await h.fire();
   expect(h.timers).toEqual([]);
+});
+
+it("with more settled children than one re-check asks about, every one is checked in turn", async () => {
+  const h = machine();
+  const ids = Array.from({ length: RECHECK_PER_MACHINE + 1 }, (_, index) =>
+    h.add(`child-${index}`),
+  );
+  for (const id of ids) h.report(id, done(`Result ${id}`));
+  await h.fire();
+  for (const id of ids) expect(h.state(id), id).toBe("done");
+  h.asked.length = 0;
+
+  // The first turn asks about at most a batch; the child it left out goes next, and work the
+  // person there gave it is noticed then.
+  await h.fire();
+  const first = new Set(h.asked.flat());
+  expect(first.size).toBe(RECHECK_PER_MACHINE);
+  const left = ids.find((id) => !first.has(id));
+  if (!left) throw new Error("Every child was asked about at once");
+  h.report(left, working);
+  await h.fire();
+  expect(h.asked.at(-1)).toContain(left);
+  expect(h.state(left)).toBe("working");
+  expect(h.asked.every((batch) => batch.length <= RECHECK_PER_MACHINE)).toBe(true);
 });

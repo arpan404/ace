@@ -17,6 +17,8 @@ export const ChildRow = z.object({
   /** Advances with each piece of new work sent, fencing status replies read before it. */
   generation: z.number(),
   settled_at: z.number().nullable(),
+  /** The re-check turn it was last asked about in; lower turns go first. */
+  rechecked: z.number(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
 
@@ -183,16 +185,42 @@ export class ChildLedger {
       ),
     );
   }
-  /** Children settled at or after `since`, most recent first; an indexed read. */
-  recentlySettled(since: number, limit: number): ChildRow[] {
+  /** Machines with a child settled at or after `since`. */
+  recheckMachines(since: number): string[] {
     return this.store
       .atomic((db) =>
         db
           .prepare(
-            "SELECT * FROM machine_children WHERE settled=1 AND settled_at>=? ORDER BY settled_at DESC LIMIT ?",
+            "SELECT DISTINCT machine FROM machine_children WHERE settled=1 AND settled_at>=?",
           )
-          .all(since, limit),
+          .all(since),
+      )
+      .map((row) => z.string().parse(row.machine));
+  }
+  /** One machine's settled children due a re-check, those checked longest ago first. */
+  recheckTurn(machine: string, since: number, limit: number): ChildRow[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT * FROM machine_children WHERE settled=1 AND machine=? AND settled_at>=? ORDER BY rechecked, id LIMIT ?",
+          )
+          .all(machine, since, limit),
       )
       .map((raw) => ChildRow.parse(raw));
+  }
+  /** The latest re-check turn recorded. */
+  lastRecheckTurn(): number {
+    return Number(
+      this.store.atomic((db) =>
+        db.prepare("SELECT COALESCE(MAX(rechecked),0) AS turn FROM machine_children").get(),
+      )?.turn ?? 0,
+    );
+  }
+  markRechecked(ids: readonly string[], turn: number): void {
+    this.store.atomic((db) => {
+      const mark = db.prepare("UPDATE machine_children SET rechecked=? WHERE id=?");
+      for (const id of ids) mark.run(turn, id);
+    });
   }
 }

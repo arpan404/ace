@@ -41,14 +41,17 @@ export const machineChildLaunches = `${machineThreads}
  * - `machine_child_messages` holds each message sent to it until its machine has answered for it
  *   (taken or refused); while one is unanswered no status reply settles the child, and the
  *   message is sent again under the same request id, which its machine runs at most once.
- * - `settled_at` lets the caller keep re-checking recently settled children that work started on
- *   their machine may reopen.
+ * - `settled_at` and `rechecked` let the caller keep re-checking recently settled children that
+ *   work started on their machine may reopen, in turns, so every one is eventually checked.
  */
 export const machineChildGenerations = `${machineChildren}
   ALTER TABLE machine_children ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE machine_children ADD COLUMN settled_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN rechecked INTEGER NOT NULL DEFAULT 0;
   UPDATE machine_children SET settled_at = created_at WHERE settled = 1;
   CREATE INDEX IF NOT EXISTS machine_children_settled ON machine_children(settled, settled_at);
+  CREATE INDEX IF NOT EXISTS machine_children_recheck
+    ON machine_children(settled, machine, rechecked);
   CREATE TABLE IF NOT EXISTS machine_child_messages (
     child_id TEXT NOT NULL, request_id TEXT NOT NULL, message TEXT NOT NULL,
     created_at INTEGER NOT NULL, PRIMARY KEY (child_id, request_id));`;
