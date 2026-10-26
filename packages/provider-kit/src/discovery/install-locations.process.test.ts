@@ -145,6 +145,20 @@ describe.runIf(process.platform === "win32")("Windows installer folders", () => 
     expect(result.error).toBeUndefined();
   });
 
+  it("an explicit PATH given over the daemon's inherited Path is the one searched and launched", async () => {
+    const dirs = await folders();
+    const shim = await cliShim(
+      join(dirs.empty, "claude"),
+      "2.1.286 (Claude Code)",
+      JSON.stringify({ loggedIn: false }),
+    );
+    const system = join(process.env["SystemRoot"] ?? "C:\\Windows", "System32");
+    // Merged over process.env, whose own spelling is usually `Path`: a spawned child sees the
+    // first of the sorted spellings, `PATH`, so the lookup must search that one too.
+    const result = await discoverProvider("claude", { env: { PATH: `${dirs.empty};${system}` } });
+    expect(result).toMatchObject({ installed: true, path: shim, version: "2.1.286" });
+  });
+
   it("OpenCode v2 in its installer folder is chosen over a v1 earlier on a mixed-case Path", async () => {
     const dirs = await folders();
     const system = join(process.env["SystemRoot"] ?? "C:\\Windows", "System32");

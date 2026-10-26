@@ -2,7 +2,7 @@ import { delimiter, isAbsolute, resolve } from "node:path";
 import { win32 } from "node:path";
 import { probeOutput } from "../process.ts";
 import { findExecutable, scriptExecutablePaths } from "./executable.ts";
-import { windowsFallbackPaths } from "./executable.ts";
+import { windowsEnv, windowsFallbackPaths } from "./executable.ts";
 import { parseVersion } from "./parsers.ts";
 
 /** OpenCode v1 is a different CLI. Only v2 may own an ace OpenCode binding. */
@@ -52,7 +52,7 @@ export async function findOpenCodeExecutable(
 }
 
 function windowsCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
-  const path = Object.entries(env).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? "";
+  const path = windowsEnv(env, "PATH") ?? "";
   return [
     ...path
       .split(";")

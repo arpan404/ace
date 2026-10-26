@@ -21,12 +21,15 @@ async function executable(path: string, windows: boolean): Promise<boolean> {
   }
 }
 
-/** Windows environment keys are case-insensitive (`Path` vs `PATH`). */
-function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  for (const [key, value] of Object.entries(env)) {
-    if (key.toUpperCase() === name && value !== undefined) return value;
-  }
-  return undefined;
+/**
+ * Windows environment keys are case-insensitive (`Path` vs `PATH`). With several spellings,
+ * the one a spawned child sees wins: Node sorts the keys and keeps the first of each name.
+ */
+export function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env)
+    .toSorted()
+    .find((candidate) => candidate.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
 }
 
 /** An extensionless name tries only PATHEXT matches: npm's bin dir pairs an
