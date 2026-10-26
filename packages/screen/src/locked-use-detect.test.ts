@@ -142,6 +142,33 @@ describe("locked use detection", () => {
     });
   });
 
+  it("needs repair, never on, when the screen saver rule has no k-of-n and several names, so all must pass", async () => {
+    const status = await statusOf({
+      ...installedLayout(),
+      rule: ruleWith(["dev.ace.locked-use.permit"], { kOfN: null }),
+    });
+    expect(status).toEqual({
+      state: "driftRepairNeeded",
+      reason: "The screen saver unlock rule isn't an either-or rule.",
+    });
+  });
+
+  it("needs repair when the screen saver rule naming ace requires more than one name", async () => {
+    const status = await statusOf({
+      ...installedLayout(),
+      rule: ruleWith(["dev.ace.locked-use.permit"], { kOfN: 2 }),
+    });
+    expect(status).toMatchObject({ state: "driftRepairNeeded" });
+  });
+
+  it("reports on when ace's right is the screen saver rule's only name and k-of-n is absent", async () => {
+    const status = await statusOf({
+      ...installedLayout(),
+      rule: ruleWith(["dev.ace.locked-use.permit"], { kOfN: null, stock: [] }),
+    });
+    expect(status).toEqual({ state: "on" });
+  });
+
   it("needs repair when ace's right has the wrong class or doesn't run ace's mechanism", async () => {
     for (const permit of [
       permitWith(undefined, "rule"),

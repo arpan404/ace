@@ -94,7 +94,10 @@ function rightShape(read: RightRead): RightShape {
 const mentionsAce = (values: readonly string[]) =>
   values.some((value) => value === lockedUsePermitRight || value.includes("AceLockedUse"));
 
-/** The screen saver right: an OR rule (`class rule`, k-of-n 1) that names our permit right. */
+/**
+ * The screen saver right: an OR rule (`class rule` with k-of-n 1, or a single name and no
+ * k-of-n) that names our permit right.
+ */
 function screensaverShape(dict: PlistDict): "names" | "absent" | { invalid: string } {
   const rule = plistStringList(dict.get("rule"));
   // authd ignores `mechanisms` on a rule-class right; any ace entry there is stale, never valid.
@@ -105,8 +108,10 @@ function screensaverShape(dict: PlistDict): "names" | "absent" | { invalid: stri
     return mentionsAce(rule)
       ? { invalid: "The screen saver unlock rule has an unexpected ace entry." }
       : "absent";
+  // An absent k-of-n means every name must succeed; it is an OR only with a single name.
   const kOfN = dict.get("k-of-n");
-  if (dict.get("class") !== "rule" || (kOfN !== undefined && kOfN !== 1))
+  const either = kOfN === 1 || (kOfN === undefined && rule.length === 1);
+  if (dict.get("class") !== "rule" || !either)
     return { invalid: "The screen saver unlock rule isn't an either-or rule." };
   return "names";
 }

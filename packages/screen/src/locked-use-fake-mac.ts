@@ -40,22 +40,28 @@ const stringArray = (values: readonly string[]) =>
 
 /**
  * The screen saver right as macOS ships it (an OR rule), with `names` added to its `rule`
- * alternatives; `extra` is spliced in as more dict entries.
+ * alternatives; `extra` is spliced in as more dict entries. `kOfN: null` leaves the key out;
+ * `stock` replaces macOS's own alternatives.
  */
 export function ruleWith(
   names: readonly string[],
-  options: { klass?: string; extra?: string } = {},
+  options: {
+    klass?: string;
+    extra?: string;
+    kOfN?: number | null;
+    stock?: readonly string[];
+  } = {},
 ): string {
+  const kOfN = options.kOfN === undefined ? 1 : options.kOfN;
+  const stock = options.stock ?? ["authenticate-session-owner-or-admin"];
   return plistOf(`\t<key>class</key>
 \t<string>${options.klass ?? "rule"}</string>
 \t<key>comment</key>
 \t<string>The owner or any administrator can unlock the screensaver.</string>
 \t<key>created</key>
 \t<real>700000000.5</real>
-\t<key>k-of-n</key>
-\t<integer>1</integer>
-\t<key>rule</key>
-\t${stringArray(["authenticate-session-owner-or-admin", ...names])}
+${kOfN === null ? "" : `\t<key>k-of-n</key>\n\t<integer>${kOfN}</integer>\n`}\t<key>rule</key>
+\t${stringArray([...stock, ...names])}
 \t<key>shared</key>
 \t<true/>
 ${options.extra ?? ""}`);
