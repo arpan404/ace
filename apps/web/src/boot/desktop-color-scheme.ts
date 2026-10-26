@@ -17,9 +17,23 @@ interface ThemeBridge {
   onChange(listener: (value: unknown) => void): unknown;
 }
 
-export function desktopMatchMedia(base: MatchMedia, scope: object = globalThis): MatchMedia {
+export interface DesktopColorScheme {
+  matchMedia: MatchMedia;
+  /**
+   * Windows: settles once the desktop has said light or dark (or after `waitMs`), so the first
+   * render reads the OS's mode rather than the page's stale guess. Undefined elsewhere.
+   */
+  ready: Promise<void> | undefined;
+}
+
+export function desktopColorScheme(
+  base: MatchMedia,
+  scope: object = globalThis,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((done) => setTimeout(done, ms)),
+  waitMs = 1_500,
+): DesktopColorScheme {
   const theme = windowsThemeBridge(scope);
-  if (!theme) return base;
+  if (!theme) return { matchMedia: base, ready: undefined };
   let dark: boolean | undefined;
   const listeners = new Set<Listener>();
   const update = (value: unknown) => {
@@ -29,9 +43,10 @@ export function desktopMatchMedia(base: MatchMedia, scope: object = globalThis):
     const event = { matches: next, media: darkQuery } as MediaQueryListEvent;
     for (const listener of listeners) listener(event);
   };
+  // Subscribed before asking, so a change in between is never missed.
   theme.onChange(update);
-  theme.appearance().then(update, () => {});
-  return (query) => {
+  const answered = theme.appearance().then(update, () => {});
+  const matchMedia: MatchMedia = (query) => {
     const own = base(query);
     if (query !== darkQuery) return own;
     return {
@@ -47,6 +62,7 @@ export function desktopMatchMedia(base: MatchMedia, scope: object = globalThis):
       dispatchEvent: () => false,
     } as unknown as MediaQueryList;
   };
+  return { matchMedia, ready: Promise.race([answered, wait(waitMs)]) };
 }
 
 /** The bridge's theme calls, only in the Windows desktop app. */

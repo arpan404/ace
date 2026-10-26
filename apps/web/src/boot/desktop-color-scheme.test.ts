@@ -1,5 +1,7 @@
-import { expect, test } from "vitest";
-import { desktopMatchMedia } from "./desktop-color-scheme.ts";
+import { describe, expect, test } from "vitest";
+import { desktopColorScheme } from "./desktop-color-scheme.ts";
+
+const dark = "(prefers-color-scheme: dark)";
 
 /** The page's own media queries: light, and never changing (as on Windows). */
 function pageMedia(query: string): MediaQueryList {
@@ -11,13 +13,13 @@ function pageMedia(query: string): MediaQueryList {
   } as unknown as MediaQueryList;
 }
 
-function bridge(platform: string, dark: boolean) {
+function bridge(platform: string, answer: Promise<unknown>) {
   const listeners: ((value: unknown) => void)[] = [];
   const scope = {
     ace: {
       platform,
       theme: {
-        appearance: async () => ({ dark, highContrast: false }),
+        appearance: () => answer,
         onChange: (listener: (value: unknown) => void) => listeners.push(listener),
       },
     },
@@ -25,31 +27,56 @@ function bridge(platform: string, dark: boolean) {
   return { scope, send: (value: unknown) => listeners.forEach((listener) => listener(value)) };
 }
 
-test("the Windows app's System mode follows the OS dark mode the desktop reports", async () => {
-  const { scope, send } = bridge("win32", true);
-  const media = desktopMatchMedia(pageMedia, scope);
-  await Promise.resolve();
-  await Promise.resolve();
-  const dark = media("(prefers-color-scheme: dark)");
-  expect(dark.matches).toBe(true);
+const never = () => new Promise<void>(() => {});
 
-  const heard: boolean[] = [];
-  dark.addEventListener("change", (event) => heard.push(event.matches));
-  send({ dark: false });
-  expect(media("(prefers-color-scheme: dark)").matches).toBe(false);
-  send({ dark: false });
-  send({ dark: true });
-  expect(heard).toEqual([false, true]);
-  // Other queries stay the page's own.
-  expect(media("(prefers-reduced-motion: reduce)").matches).toBe(true);
-});
+describe.runIf(process.platform === "win32")("the Windows app's System mode", () => {
+  test("starts in the OS mode the desktop reports, even before anything listens", async () => {
+    const { scope } = bridge("win32", Promise.resolve({ dark: true }));
+    const scheme = desktopColorScheme(pageMedia, scope, never);
+    await scheme.ready;
+    // The first read after `ready`, as the theme's first render does it.
+    expect(scheme.matchMedia(dark).matches).toBe(true);
+  });
 
-test("macOS, Linux and browsers keep the page's own media queries", async () => {
-  for (const platform of ["darwin", "linux"]) {
-    const { scope } = bridge(platform, true);
-    const media = desktopMatchMedia(pageMedia, scope);
-    await Promise.resolve();
-    expect(media("(prefers-color-scheme: dark)").matches).toBe(false);
-  }
-  expect(desktopMatchMedia(pageMedia, {})).toBe(pageMedia);
+  test("follows the OS switching while it runs", async () => {
+    const { scope, send } = bridge("win32", Promise.resolve({ dark: true }));
+    const scheme = desktopColorScheme(pageMedia, scope, never);
+    await scheme.ready;
+    const list = scheme.matchMedia(dark);
+    const heard: boolean[] = [];
+    list.addEventListener("change", (event) => heard.push(event.matches));
+    send({ dark: false });
+    expect(scheme.matchMedia(dark).matches).toBe(false);
+    send({ dark: false });
+    send({ dark: true });
+    expect(heard).toEqual([false, true]);
+    expect(scheme.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+  });
+
+  test("a switch that lands while the first answer is on its way is kept", async () => {
+    const { promise, resolve: answer } = Promise.withResolvers<unknown>();
+    const { scope, send } = bridge("win32", promise);
+    const scheme = desktopColorScheme(pageMedia, scope, never);
+    send({ dark: true });
+    answer({ dark: true });
+    await scheme.ready;
+    expect(scheme.matchMedia(dark).matches).toBe(true);
+  });
+
+  test("never holds the first render when the desktop does not answer", async () => {
+    const { scope } = bridge("win32", new Promise(() => {}));
+    const scheme = desktopColorScheme(pageMedia, scope, () => Promise.resolve());
+    await scheme.ready;
+    expect(scheme.matchMedia(dark).matches).toBe(false);
+  });
+
+  test("macOS, Linux and browsers keep the page's own media queries", () => {
+    for (const platform of ["darwin", "linux"]) {
+      const { scope } = bridge(platform, Promise.resolve({ dark: true }));
+      const scheme = desktopColorScheme(pageMedia, scope, never);
+      expect(scheme.ready).toBeUndefined();
+      expect(scheme.matchMedia).toBe(pageMedia);
+    }
+    expect(desktopColorScheme(pageMedia, {}).matchMedia).toBe(pageMedia);
+  });
 });
