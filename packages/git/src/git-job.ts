@@ -7,6 +7,7 @@ import {
 import {
   processIdentity,
   windowsTreeRuntime,
+  type WindowsProcessRecord,
   type WindowsTreeMember,
   type WindowsTreeRuntime,
 } from "@ace/provider-kit/process-identity";
@@ -137,12 +138,20 @@ function stopCall(
 ): Promise<CleanupResult> {
   const identity = attempt(() => ports.identify(pid));
   const tree = identity && { pid, ...identity };
+  // The call's proven tree: its leader, grown by children proven to be started by a member. A
+  // process whose ancestry can't be proven may be someone else's and is never touched.
+  const recorded: WindowsProcessRecord[] = tree ? [tree] : [];
+  const live = (): WindowsTreeMember[] => {
+    const state = ports.tree.state(recorded);
+    recorded.push(...state.discovered);
+    return state.live;
+  };
   // Descendants started before Git joined: join them, until a walk finds none it hadn't seen.
   const seen = new Set<number>();
   const outside: WindowsTreeMember[] = [];
   for (let round = 0; round < sweepRounds; round++) {
     if (!tree) break;
-    const members = attempt(() => ports.tree.members(tree)) ?? [];
+    const members = attempt(live) ?? [];
     const fresh = members.filter((member) => !seen.has(member.pid));
     if (!fresh.length) break;
     for (const member of fresh) {
@@ -164,7 +173,7 @@ function stopCall(
     const members = attempt(() => job.activeCount());
     if (members === undefined || members > 0) return true;
     if (tree) {
-      const left = attempt(() => ports.tree.members(tree));
+      const left = attempt(live);
       if (left === undefined) return true;
       if (left.length) {
         for (const member of left) quietly(() => ports.tree.terminate(member));
