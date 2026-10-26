@@ -7,14 +7,18 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 export class MachineFailure extends Error {
   readonly kind: "offline" | "disconnected" | "refused";
   readonly refusal: MachineRefusal["error"] | undefined;
+  /** The target's answer for the request id is recorded: every copy of it gets this one. */
+  readonly final: boolean;
   constructor(
     kind: "offline" | "disconnected" | "refused",
     refusal?: MachineRefusal["error"],
     message?: string,
+    final = false,
   ) {
     super(message ?? (refusal ? `Machine refused: ${refusal}` : `Machine ${kind}`));
     this.kind = kind;
     this.refusal = refusal;
+    this.final = final;
   }
 }
 
@@ -143,6 +147,7 @@ export function pinnedRequest(
                 ? "unauthorized"
                 : "unavailable",
             refusal.success ? refusal.data.message : undefined,
+            refusal.success && refusal.data.final === true,
           ),
         );
       });

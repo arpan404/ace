@@ -13,12 +13,19 @@ const statuses: Record<MachineRefusal["error"], number> = {
 export class TargetRefusal extends Error {
   readonly code: MachineRefusal["error"];
   readonly status: number;
-  constructor(code: MachineRefusal["error"], message?: string) {
+  /** The answer recorded for its request id: every copy gets it (MachineRefusal.final). */
+  readonly final: boolean;
+  constructor(code: MachineRefusal["error"], message?: string, final = false) {
     super(message ?? code);
     this.code = code;
     this.status = statuses[code];
+    this.final = final;
   }
   body(): MachineRefusal {
-    return { error: this.code, ...(this.message !== this.code ? { message: this.message } : {}) };
+    return {
+      error: this.code,
+      ...(this.message !== this.code ? { message: this.message } : {}),
+      ...(this.final ? { final: true } : {}),
+    };
   }
 }

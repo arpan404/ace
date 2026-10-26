@@ -53,6 +53,11 @@ export const settingKeys = {
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
+  maxRunningChildren: setting(
+    "agents.maxRunningChildren",
+    SettingsValues.shape["agents.maxRunningChildren"],
+    null,
+  ),
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),

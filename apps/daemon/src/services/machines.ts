@@ -43,8 +43,14 @@ export function startMachines(context: ServiceContext): void {
     models: () => services.models,
     journal: () => services.agentControl?.delegations.journal,
     now,
+    limit: () => services.childLimit?.current(),
+    schedule,
+    report: (error) => log.log("warn", "Machine child not started", logError(error)),
   });
   resources.own(() => threads.close());
+  // A raised or cleared limit starts children other machines left waiting here at once.
+  const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
+  if (stopFollowing) resources.own(stopFollowing);
   const browser = new TargetBrowser({
     store,
     engine,
@@ -118,6 +124,10 @@ export function startMachines(context: ServiceContext): void {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.status(machine, parent, ids);
     },
+    resend: async (machine, parent, child, message) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.resend(machine, parent, child, message);
+    },
     mirror,
     label: (machine) => directory.label(machine),
     deliver: (parentThreadId, key, text) => {
@@ -168,6 +178,10 @@ export function startMachines(context: ServiceContext): void {
     delegations.monitor.attachRemote(children);
     delegations.onRemoteCancel = (thread) => {
       for (const id of children.under(thread)) cancel(id);
+    };
+    // The person's Stop on a thread another machine delegated here cancels its waiting launch.
+    delegations.onStopped = (thread) => {
+      threads.launches.cancel(thread);
     };
   }
   services.machines = { caller, children };

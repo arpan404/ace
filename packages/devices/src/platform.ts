@@ -39,6 +39,7 @@ import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
 import { downloadDeviceTools, type DeviceTools } from "./device-tools.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { managedServeSim, type ServeSimCommand } from "./serve-sim-install.ts";
+import { readSimulatorScreens, type SimulatorScreen } from "./simulator-screens.ts";
 import {
   emulatorConsolePort,
   emulatorGrpc,
@@ -182,6 +183,18 @@ export class DevicePlatform {
         "Only foldable simulators, such as the iPhone Duo, have a posture.",
       );
     return this.postures.set(nativeId(device), posture, authorize);
+  }
+  /** A booted Simulator's built-in screens, from devicectl; empty when it can't say. */
+  async simulatorScreens(device: Device): Promise<SimulatorScreen[]> {
+    if (device.platform !== "ios" || this.options.platform !== "darwin") return [];
+    try {
+      const { xcrun } = await this.xcode();
+      const args = ["devicectl", "device", "info", "displays", "--device", nativeId(device)];
+      const output = await this.run(xcrun, [...args, "--quiet", "--json-output", "-"], 256 * 1024);
+      return readSimulatorScreens(JSON.parse(output.stdout));
+    } catch {
+      return [];
+    }
   }
   private iosSimulators(authorize?: () => void) {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {
