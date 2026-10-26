@@ -3,6 +3,7 @@ import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
 import { installedWindowsChromium } from "./discovery.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
+import { chromeJobs } from "./chrome-job.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { ChromeBackend } from "./headless.ts";
@@ -46,6 +47,8 @@ export function chromeDefaults(
         platform === "win32"
           ? async () => ({ close: async () => {} })
           : (profile) => guardChromium(profile),
+      // Windows: a kill-on-close job owns each profile's Chrome tree instead.
+      ...(platform === "win32" && chromeJobs(spawnProcess)),
     },
     cleanup: { timeoutMs: 5_000, schedule, kill: chromiumProcessKiller(platform) },
   };
