@@ -143,6 +143,10 @@ pub fn walk(
     let mut root = None;
     if !large {
         match unsafe { uia.api.ElementFromHandleBuildCache(hwnd, &uia.tree) } {
+            // A provider that cached no children at all is read step by step instead.
+            Ok(element) if uia::cached_children(&element).is_empty() => {
+                root = Some((element, false))
+            }
             Ok(element) => root = Some((element, true)),
             Err(error) => timed_out = uia::is_timeout(&error),
         }
