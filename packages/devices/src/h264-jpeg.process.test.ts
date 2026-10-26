@@ -18,12 +18,11 @@ async function clip(frames: number): Promise<Buffer[] | undefined> {
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const file = join(home, "clip.h264");
   try {
-    await run(ffmpeg, [
-      ...["-nostdin", "-loglevel", "error", "-f", "lavfi"],
-      ...["-i", "testsrc=size=640x360:rate=30", "-frames:v", String(frames)],
-      ...["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0"],
-      ...["-x264-params", "aud=1", "-f", "h264", file],
-    ]);
+    const args = ["-nostdin", "-loglevel", "error", "-f", "lavfi", "-i"];
+    args.push("testsrc=size=640x360:rate=30", "-frames:v", String(frames), "-c:v", "libx264");
+    args.push("-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", "-x264-params");
+    args.push("aud=1", "-f", "h264", file);
+    await run(ffmpeg, args);
   } catch {
     return undefined;
   }
