@@ -5,11 +5,11 @@ import {
   choiceSelection,
   imageType,
   imagesUnreadable,
+  latestFinishedTurn,
   providerNames,
   type ModelChoice,
 } from "@ace/ui-core";
 import type { Selection, ThreadSources, ThreadRef } from "../sources/index.ts";
-import { latestFinishedTurn } from "../transitions/fork-point.ts";
 import type { Draft } from "./draft.ts";
 
 /**
@@ -22,7 +22,7 @@ export interface Continuation {
 }
 
 /** What the chip says while a continuation waits for the person's message. */
-export const continuationNote = "Continues in a new thread with your next message";
+export { continuationNote } from "@ace/ui-core";
 
 /** Why the message can't start the new thread yet, in words the composer shows as they are. */
 export class ContinuationRefused extends Error {

@@ -128,6 +128,15 @@ export class AttachmentTray {
     if (release) void this.#ask(release).catch(() => {});
   }
 
+  /** Why `reader` (another model the message would go to) can't take a held file, if it can't. */
+  refusedBy(reader: AttachmentReader | undefined): string | undefined {
+    for (const file of this.#files.values()) {
+      const problem = attachmentProblem({ name: file.name, mimeType: file.mimeType }, reader);
+      if (problem) return `${problem} Remove ${file.name} first.`;
+    }
+    return undefined;
+  }
+
   /** Why the message can't go yet, or the context carrying the held files. */
   context(): { refused: string } | { context: MessageContext | undefined } {
     const files = [...this.#files.values()];

@@ -35,6 +35,8 @@ import { preview } from "./presentation.ts";
  */
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+const accountOf = (selection: { provider: string; instanceId?: string | undefined }) =>
+  JSON.stringify([selection.provider, selection.instanceId ?? ""]);
 
 export class TuneFollower {
   readonly #client: ClientCore;
@@ -44,7 +46,8 @@ export class TuneFollower {
   readonly #now: () => number;
   #catalog: CatalogModel[] = [];
   #choices: ModelChoice[] = [];
-  #provider: string | undefined;
+  /** The provider and account the catalog was read for. */
+  #account: string | undefined;
   #pending: PendingTurn | undefined;
   #notice = "";
 
@@ -62,10 +65,10 @@ export class TuneFollower {
     this.#now = now;
   }
 
-  /** The thread changed: read the catalog for a new provider, re-check a pick, redraw. */
+  /** The thread changed: read the catalog for a new provider or account, re-check a pick, redraw. */
   update(): void {
     const selection = runsOn(this.#store.thread);
-    if (selection && selection.provider !== this.#provider) void this.read().catch(() => {});
+    if (selection && accountOf(selection) !== this.#account) void this.read().catch(() => {});
     this.#reconcile();
     this.#emit();
   }
@@ -74,7 +77,7 @@ export class TuneFollower {
   async read(): Promise<CatalogModel[]> {
     const selection = runsOn(this.#store.thread);
     if (!selection) return [];
-    this.#provider = selection.provider;
+    this.#account = accountOf(selection);
     const reply = await this.#client.request(
       {
         type: "models.list",

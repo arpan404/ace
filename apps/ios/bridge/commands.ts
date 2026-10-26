@@ -8,6 +8,8 @@ type Receipt = {
   error?: string | undefined;
   /** What a `thread.create` or `workspace.add` made. */
   threadId?: string | undefined;
+  /** The thread a `thread.fork` opened. */
+  forkThreadId?: string | undefined;
   workspace?: { id: string } | undefined;
 };
 
@@ -51,7 +53,7 @@ export async function dispatchCommand(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  hooks: { saved?(): void; receipt?(ok: boolean): void } = {},
+  hooks: { saved?(): void; receipt?(result: Receipt): void; unsaved?(): void } = {},
 ): Promise<void> {
   try {
     await submitCommand(
@@ -67,7 +69,7 @@ export async function dispatchCommand(
         }));
       },
       (result) => {
-        hooks.receipt?.(result.ok);
+        hooks.receipt?.(result);
         pump.put(`receipt:${requestId}`, () => ({
           type: "receipt",
           id: requestId,
@@ -77,6 +79,7 @@ export async function dispatchCommand(
       },
     );
   } catch {
+    hooks.unsaved?.();
     pump.put(`admission:${requestId}`, () => ({
       type: "admission",
       id: requestId,

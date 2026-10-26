@@ -49,11 +49,21 @@ export const ThreadAction = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retrySend"), id: z.string().min(1), requestId }),
   z.object({ type: z.literal("models") }),
-  z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
+  /**
+   * A model on one account (the picker row's `key` and `account`), with the row's question
+   * answered when it asks one.
+   */
+  z.object({
+    type: z.literal("switchModel"),
+    key: z.string().min(1).max(512),
+    account: z.string().min(1).max(256),
+    confirmed: z.boolean(),
+    requestId,
+  }),
   /** The thread's access from its next turn; null goes back to the default. */
   z.object({ type: z.literal("access"), mode: AccessMode.nullable(), requestId }),
-  /** Star or unstar one of the thread's provider's models. */
-  z.object({ type: z.literal("favorite"), model: z.string().min(1).max(512) }),
+  /** Star or unstar a model by its picker key (`modelKey`). */
+  z.object({ type: z.literal("favorite"), key: z.string().min(1).max(512) }),
   /** Effort for the next message; null goes back to the model's default. */
   z.object({ type: z.literal("effort"), effort: z.string().min(1).max(64).nullable(), requestId }),
   z.object({ type: z.literal("speed"), speed: KnownSpeed, requestId }),

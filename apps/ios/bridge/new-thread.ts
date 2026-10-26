@@ -13,17 +13,10 @@ import {
   defaultWorktreeBase,
   messageHasContent,
   providerNames,
-  readModelCatalog,
   selectionInputs,
   type AttachmentReader,
-  type ModelCatalog,
 } from "@ace/ui-core";
-import {
-  newThreadAgents,
-  newThreadProjects,
-  selectNewThreadAgent,
-  type NewThreadAgents,
-} from "@ace/ui-core/mobile";
+import { newThreadProjects, selectNewThreadAgent, type NewThreadAgents } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
 import { readProjects } from "./project-list.ts";
@@ -31,6 +24,7 @@ import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
 import { ModelFavorites } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
+import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
 
 /*
@@ -211,27 +205,12 @@ export class NewThread {
       last ?? { type: "compose.agents", state: "loading", providers: [] },
     );
     try {
-      const catalogRead = readModelCatalog(this.#owner, {}).catch((): ModelCatalog => ({
-        models: [],
-        instances: [],
-      }));
-      const [readiness, accounts, catalog, stars] = await Promise.all([
-        this.#owner.request({ type: "providers.request", operation: "readiness" }, quiet),
-        this.#owner
-          .request({ type: "accounts.list" }, quiet)
-          .then((reply) => reply.accounts)
-          .catch(() => []),
-        catalogRead,
-        catalogRead.then((read) => this.#favorites.read(catalogModelIds(read.models))),
-      ]);
+      const { agents, catalog, stars } = await readAgents(
+        this.#owner,
+        this.#favorites,
+        this.#now(),
+      );
       this.#stars = { keys: stars, problem: null };
-      if (!readiness.result.ok) throw new Error(readiness.result.error);
-      const agents = newThreadAgents({
-        statuses: readiness.result.providers,
-        accounts,
-        catalog,
-        now: this.#now(),
-      });
       this.#agents = agents;
       this.#catalog = catalog.models;
       this.#emitAgents(agents);
