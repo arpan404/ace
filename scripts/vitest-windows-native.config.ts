@@ -65,6 +65,7 @@ export default defineConfig({
       // revocation, cross-machine delegation, schedules across sleep/restart, notifications,
       // Android SDK discovery, iOS-needs-a-Mac reporting, doctor and triage with ace stopped.
       "apps/daemon/src/tailscale-install.process.test.ts",
+      "apps/daemon/src/lan-address.test.ts",
       "apps/daemon/src/tls-identity-node.process.test.ts",
       "apps/daemon/src/triage-handoff.process.test.ts",
       "apps/daemon/src/doctor/host-checks.test.ts",

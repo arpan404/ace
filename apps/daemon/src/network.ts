@@ -90,6 +90,29 @@ export async function findWindowsTailscale(env: NodeJS.ProcessEnv): Promise<stri
   return findExecutable(win32.join(programFiles, "Tailscale", "tailscale.exe"), env, "win32");
 }
 
+/**
+ * Windows lists Hyper-V, WSL, VPN and VM adapters (`vEthernet (WSL)`, `VirtualBox Host-Only`)
+ * beside the real one, often first. Pairing links name the first physical-looking IPv4 address;
+ * undefined leaves the plain first-address choice. ACE_ADVERTISE_HOST still wins.
+ */
+export function windowsLanAddress(
+  interfaces: ReturnType<typeof networkInterfaces>,
+): string | undefined {
+  const virtual =
+    /vethernet|hyper-v|wsl|virtualbox|vmware|vmnet|loopback|bluetooth|tailscale|zerotier|wireguard|vpn/i;
+  for (const [name, entries] of Object.entries(interfaces)) {
+    if (virtual.test(name)) continue;
+    const entry = entries?.find(
+      (candidate) =>
+        !candidate.internal &&
+        candidate.family === "IPv4" &&
+        !candidate.address.startsWith("169.254."),
+    );
+    if (entry) return entry.address;
+  }
+  return undefined;
+}
+
 function windowsTailscale(env: NodeJS.ProcessEnv): Pick<NetworkRuntime, "status" | "certificate"> {
   const run = async (args: string[], timeout: number) => {
     // Looked up on every call, so installing Tailscale needs no daemon restart. When it is
@@ -121,6 +144,7 @@ export async function remoteListener(
     host = "0.0.0.0";
     advertisedHost =
       config.advertiseHost ??
+      (process.platform === "win32" ? windowsLanAddress(runtime.interfaces()) : undefined) ??
       Object.values(runtime.interfaces())
         .flat()
         .find((entry) => entry && !entry.internal && entry.family === "IPv4")?.address ??
