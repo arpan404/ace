@@ -131,7 +131,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     }
     /// What a typed message does now, in the web's glyphs: Steer or Queue while the agent works.
     private var glyph: AceIcon.Name {
-        guard controls?.busy == true, !empty else { return .arrowUp }
+        guard controls?.busy == true else { return .arrowUp }
         return controls?.delivery == "steer" ? .arrowBendUpRight : .queue
     }
     private func submit(alternate: Bool) {
