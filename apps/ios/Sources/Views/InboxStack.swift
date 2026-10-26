@@ -10,8 +10,8 @@ struct InboxHeaderActions {
 /// problem) and the glass Settings and Search buttons in the bar, the filter chips under it, the
 /// list, and the thread it opens. Search is the system's own: the list turns into results while
 /// there is a query. The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and
-/// their pages. Beside an open page the sidebar carries what the tab bar does on a phone: New
-/// thread joins its bar and Threads and Pull requests sit at its foot.
+/// their pages. Beside an open page, or as the drawer over one, the list carries what the tab bar
+/// does: Threads and Pull requests sit at its foot, New thread in its bar or beside them.
 struct InboxStack<Destination: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
@@ -60,15 +60,18 @@ struct InboxStack<Destination: View>: View {
     }
 
     /// The list, its search, its bar and, where it carries them, Threads and Pull requests at its
-    /// foot and New thread in its bar. The split view says where that is (`listHoldsTabs`).
+    /// foot and New thread in its bar (beside a thread) or at the foot beside them (as a drawer,
+    /// where the bar has no room for it). The split view says where that is (`listHoldsTabs`).
     private var root: some View {
-        HoldsTabs { holds in
+        HoldsTabs { holds, drawer in
             listed
-                .inboxFootBar { if holds { InboxPlaces(tab: $tab) } }
+                .inboxFootBar {
+                    if holds { InboxPlaces(tab: $tab, compose: drawer && inbox.canStartThreads ? forge.startThread : nil) }
+                }
                 // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
                 .navigationTitle(pulls ? "Pull requests" : "Threads")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbar(holdsTabs: holds) }
+                .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !drawer) }
         }
     }
 
@@ -133,7 +136,7 @@ struct InboxStack<Destination: View>: View {
         if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
     }
 
-    @ToolbarContentBuilder private func toolbar(holdsTabs: Bool) -> some ToolbarContent {
+    @ToolbarContentBuilder private func toolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         // The title, its menu and the scope or connection problem under it, with no glass. The
         // Pulls tab's title is its list's own, which knows its projects.
@@ -153,7 +156,7 @@ struct InboxStack<Destination: View>: View {
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
         // The phone's floating New thread button, in the Threads sidebar's own bar.
-        if holdsTabs, !pulls, inbox.canStartThreads {
+        if composeInBar, !pulls, inbox.canStartThreads {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
@@ -217,11 +220,13 @@ private struct InboxSearchField: ViewModifier {
     }
 }
 
-/// Reads whether the list carries the tabs where the split view sets it, under this stack.
+/// Reads whether the list carries the tabs, and whether it is the drawer over a compact
+/// window's thread, where the split view sets them, under this stack.
 private struct HoldsTabs<Content: View>: View {
     @Environment(\.listHoldsTabs) private var holds
-    @ViewBuilder let content: (Bool) -> Content
-    var body: some View { content(holds) }
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @ViewBuilder let content: (Bool, Bool) -> Content
+    var body: some View { content(holds, holds && sizeClass != .regular) }
 }
 
 /// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the

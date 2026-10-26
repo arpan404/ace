@@ -32,7 +32,8 @@ struct DrawerCloser: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: close)
             .gesture(
-                DragGesture(minimumDistance: AceTheme.Spacing.sm)
+                // Measured in the window: the page under the finger moves with it.
+                DragGesture(minimumDistance: AceTheme.Spacing.sm, coordinateSpace: .global)
                     .onChanged { moved($0.translation.width) }
                     .onEnded { ended($0.translation.width, $0.velocity.width) })
             .accessibilityElement()

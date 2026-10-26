@@ -25,13 +25,13 @@ import XCTest
         // The thread is pushed aside, still in sight at the trailing edge as one close button.
         let closer = app.buttons["drawer.close"]
         XCTAssertTrue(closer.waitForExistence(timeout: 5))
+        screenshot("drawer-open")
         XCTAssertGreaterThan(closer.frame.minX, width * 0.7)
         XCTAssertLessThan(closer.frame.minX, width * 0.9)
         // The list carries Threads, Pull requests and New thread while the tab bar is away.
         XCTAssertTrue(app.buttons["sidebar.threads"].reachable)
         XCTAssertTrue(app.buttons["inbox.compose"].reachable)
         XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
-        screenshot("drawer-open")
 
         next.tap()
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
