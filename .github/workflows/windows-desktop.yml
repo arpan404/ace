@@ -14,6 +14,8 @@ on:
       - apps/desktop/e2e/desktop-chrome.e2e.ts
       - apps/desktop/e2e/fixtures/screen-capture.ts
       - apps/web/src/**
+      - apps/web/*.ts
+      - apps/web/index.html
       - packages/ui-core/src/**
   pull_request:
     paths:
