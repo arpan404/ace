@@ -70,18 +70,21 @@ if (
 }
 const digest = await hashFile(join(directory, "install.sh"));
 await writeFile(join(directory, "install.sh.sha256"), `${digest}  install.sh\n`);
-// Windows installs through install.ps1, configured the same way for the Windows targets.
-let windowsInstaller = (await readFile(join(source, "install.ps1"), "utf8"))
-  .replace("__ACE_RELEASE_PUBLIC_KEY__", key.trim())
-  .replace("__ACE_RELEASE_BASE_URL__", base);
-for (const target of ["win32-x64", "win32-arm64"] as const)
-  windowsInstaller = windowsInstaller.replace(
-    `__ACE_${target.replace("-", "_").toUpperCase()}_SHA256__`,
-    manifests.get(target)?.sha256 ?? "",
-  );
-await writeFile(join(directory, "install.ps1"), windowsInstaller);
-const windowsDigest = await hashFile(join(directory, "install.ps1"));
-await writeFile(join(directory, "install.ps1.sha256"), `${windowsDigest}  install.ps1\n`);
+// Windows installs through install.ps1, configured the same way for the Windows targets. Only
+// a release with a Windows build publishes it; macOS and Linux releases stay as they were.
+if (manifests.has("win32-x64") || manifests.has("win32-arm64")) {
+  let windowsInstaller = (await readFile(join(source, "install.ps1"), "utf8"))
+    .replace("__ACE_RELEASE_PUBLIC_KEY__", key.trim())
+    .replace("__ACE_RELEASE_BASE_URL__", base);
+  for (const target of ["win32-x64", "win32-arm64"] as const)
+    windowsInstaller = windowsInstaller.replace(
+      `__ACE_${target.replace("-", "_").toUpperCase()}_SHA256__`,
+      manifests.get(target)?.sha256 ?? "",
+    );
+  await writeFile(join(directory, "install.ps1"), windowsInstaller);
+  const windowsDigest = await hashFile(join(directory, "install.ps1"));
+  await writeFile(join(directory, "install.ps1.sha256"), `${windowsDigest}  install.ps1\n`);
+}
 const npx = [];
 for (const manifest of manifests.values()) npx.push(await createNpxPackage(directory, manifest));
 await writeFile(
