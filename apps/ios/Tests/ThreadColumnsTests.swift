@@ -14,12 +14,10 @@ import SwiftUI
         }
     }
 
-    @Test func aCompactWindowStacksTheListAndTheThread() {
+    @Test func aCompactWindowNeverPutsTheListBesideTheThread() {
         // A phone, the folded Duo, a narrow iPad window.
         #expect(!ThreadColumns.sideBySide(.compact, width: 402))
         #expect(!ThreadColumns.sideBySide(.compact, width: 1000))
-        #expect(ThreadColumns.compactColumn([.thread(open)]) == .detail)
-        #expect(ThreadColumns.compactColumn([]) == .sidebar)
     }
 
     @Test func aRegularWindowTooNarrowForBothGivesTheOpenThreadTheWholeWidth() {
@@ -35,43 +33,12 @@ import SwiftUI
         #expect(ThreadColumns.selection(path) == open)
         #expect(ThreadColumns.detail(path) == [.thread(child)])
         #expect(ThreadColumns.path(path, detail: ThreadColumns.detail(path)) == path)
-        #expect(ThreadColumns.compactColumn(path) == .detail)
     }
 
     @Test func goingBackFromAChildInTheDetailColumnKeepsItsParentOpen() {
         let path: [InboxRoute] = [.thread(open), .thread(child)]
         #expect(ThreadColumns.path(path, detail: []) == [.thread(open)])
         #expect(ThreadColumns.path([], detail: [.thread(child)]) == [])
-    }
-
-    @Test func goingBackToTheListOnAPhoneClosesTheThreadWhicheverSignalComesFirst() {
-        // The split view's report, then the list appearing.
-        var back = BackToList()
-        back.listDisappeared()
-        let reportFirst = back.listReported(.compact)
-        let thenShown = back.listAppeared(.compact)
-        #expect(!reportFirst && thenShown)
-        // The list appearing first, then the report: the order that left the row stuck open.
-        back.listDisappeared()
-        let shownFirst = back.listAppeared(.compact)
-        let thenReported = back.listReported(.compact)
-        #expect(!shownFirst && thenReported)
-    }
-
-    @Test func poppingABrowserOverTheThreadOrResizingTheWindowKeepsTheThreadOpen() {
-        // A page popped over the thread: reported, but the list stays covered.
-        var back = BackToList()
-        back.listDisappeared()
-        let popped = back.listReported(.compact)
-        back.listDisappeared()
-        // The window changing shape: the list appears with no report.
-        let resized = back.listAppeared(.compact)
-        #expect(!popped && !resized)
-        // Beside the list (regular) neither ever closes the thread.
-        var wide = BackToList()
-        let wideReport = wide.listReported(.regular)
-        let wideShown = wide.listAppeared(.regular)
-        #expect(!wideReport && !wideShown)
     }
 
     @Test func aTapJustAfterARowActionOpensNothingButALaterOneDoes() {

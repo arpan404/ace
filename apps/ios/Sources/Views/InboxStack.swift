@@ -31,7 +31,8 @@ struct InboxStack<Destination: View>: View {
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The list as a drawer over the open page in a compact window (`ThreadDrawer`).
+    @State private var drawer = ThreadDrawer()
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -52,42 +53,58 @@ struct InboxStack<Destination: View>: View {
     var body: some View {
         // The list beside the open page in a regular window, a stack in a compact one.
         if pulls {
-            InboxSplit(path: $path, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
+            InboxSplit(path: $path, drawer: $drawer, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
         } else {
-            InboxSplit(path: $path, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
+            InboxSplit(path: $path, drawer: $drawer, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
         }
     }
 
-    @ViewBuilder private var root: some View {
+    /// The list, its search, its bar and, where it carries them, Threads and Pull requests at its
+    /// foot and New thread in its bar. The split view says where that is (`listHoldsTabs`).
+    private var root: some View {
+        HoldsTabs { holds in
+            listed
+                .inboxFootBar { if holds { InboxPlaces(tab: $tab) } }
+                // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
+                .navigationTitle(pulls ? "Pull requests" : "Threads")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { toolbar(holdsTabs: holds) }
+        }
+    }
+
+    @ViewBuilder private var listed: some View {
         Group {
             if pulls {
                 ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
                           // The list's row is the open page, in place of the one open before.
-                          actions: ForgeTabActions(open: { path = [.forge($0)] }, openThread: forge.openThread, startThread: forge.startThread),
+                          actions: ForgeTabActions(open: { path = [.forge($0)]; drawer.close() }, openThread: { forge.openThread($0); drawer.close() },
+                                                   startThread: forge.startThread),
                           openMachines: header.machines)
             } else {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
                     let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: actions, compose: nil)
+                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil)
                         .refreshable { await refresh() }
                         .opacity(results ? 0 : 1)
                         .allowsHitTesting(!results)
                         .accessibilityHidden(results)
                     if results {
-                        InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
+                        InboxSearchList(inbox: inbox, query: query, includes: includes, open: picking.open)
                     }
                 }
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
                                    prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search threads and messages"))
-        .inboxFootBar { if ThreadColumns.sidebarHoldsTabs(sizeClass) { InboxPlaces(tab: $tab) } }
-        // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
-        .navigationTitle(pulls ? "Pull requests" : "Threads")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
+    }
+
+    /// A row picked in the drawer shows its thread with the drawer closed, even the one already open.
+    private var picking: InboxRowActions {
+        InboxRowActions(open: { actions.open($0); drawer.close() }, settle: actions.settle, unsettle: actions.unsettle,
+                        snooze: actions.snooze, snoozeUntil: actions.snoozeUntil, wake: actions.wake,
+                        archive: actions.archive, pin: actions.pin, move: actions.move)
     }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
@@ -116,7 +133,7 @@ struct InboxStack<Destination: View>: View {
         if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
     }
 
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+    @ToolbarContentBuilder private func toolbar(holdsTabs: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         // The title, its menu and the scope or connection problem under it, with no glass. The
         // Pulls tab's title is its list's own, which knows its projects.
@@ -130,13 +147,13 @@ struct InboxStack<Destination: View>: View {
         ToolbarItem(placement: .topBarTrailing) { settings }
         // A phone gives each button its own glass; the sidebar groups its three into one, so a
         // narrow column (a window beside its controls) still shows them all.
-        if #available(iOS 26, *), !ThreadColumns.sidebarHoldsTabs(sizeClass) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+        if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
             Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
         // The phone's floating New thread button, in the Threads sidebar's own bar.
-        if ThreadColumns.sidebarHoldsTabs(sizeClass), !pulls, inbox.canStartThreads {
+        if holdsTabs, !pulls, inbox.canStartThreads {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
@@ -198,6 +215,13 @@ private struct InboxSearchField: ViewModifier {
                 if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
+}
+
+/// Reads whether the list carries the tabs where the split view sets it, under this stack.
+private struct HoldsTabs<Content: View>: View {
+    @Environment(\.listHoldsTabs) private var holds
+    @ViewBuilder let content: (Bool) -> Content
+    var body: some View { content(holds) }
 }
 
 /// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the
