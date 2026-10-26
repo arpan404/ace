@@ -41,7 +41,7 @@ export function startDaemonCli(home: string, cleanups: Cleanups, preload?: strin
   const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), cli, "start"], {
     cwd: daemonPackage,
     env: daemonEnv(home),
-    stdio: preload ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
   let output = "";
@@ -49,7 +49,8 @@ export function startDaemonCli(home: string, cleanups: Cleanups, preload?: strin
   child.stderr?.on("data", (chunk: Buffer) => {
     errors += chunk.toString();
   });
-  const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
+  // Exit, not close: a descendant still holding the pipes must not hang the test.
+  const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
   const ready = new Promise<void>((resolve, reject) => {
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString();
@@ -62,7 +63,18 @@ export function startDaemonCli(home: string, cleanups: Cleanups, preload?: strin
     if (child.exitCode === null && child.signalCode === null) child.kill();
     await exited;
   });
-  return { child, ready, exited, errors: () => errors };
+  /** The exit code, or a failure naming the daemon's own output when it does not exit. */
+  const exitWithin = (milliseconds: number) =>
+    Promise.race([
+      exited,
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error(`Daemon did not exit in ${milliseconds}ms: ${errors}`)),
+          milliseconds,
+        ).unref();
+      }),
+    ]);
+  return { child, ready, exited, exitWithin, errors: () => errors };
 }
 
 /** The daemon's own account of how its previous run ended. */

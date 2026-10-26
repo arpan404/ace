@@ -1,9 +1,14 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { processIdentity } from "@ace/provider-kit/process-identity";
+import {
+  ProcessIdentity,
+  WindowsSid,
+  processIdentity,
+  windowsTreeRuntime,
+} from "@ace/provider-kit/process-identity";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { invoke } from "./cli-test-support.ts";
@@ -101,6 +106,22 @@ function journalReusedPid(dataDir: string, pid: number): void {
   }
 }
 
+/** Live processes that still count as a recorded skill provider's tree, by image name. */
+async function skillTreeHolders(root: string): Promise<string[]> {
+  const lease = z
+    .object({ processes: z.array(ProcessIdentity) })
+    .parse(JSON.parse(await readFile(join(root, "skill-processes.json"), "utf8")));
+  const tasklist = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tasklist.exe");
+  return lease.processes.flatMap((leader) =>
+    windowsTreeRuntime
+      .members({ pid: leader.pid, start: leader.start, uid: WindowsSid.parse(leader.uid) })
+      .map(
+        (member) =>
+          `${member.pid}: ${execFileSync(tasklist, ["/FI", `PID eq ${member.pid}`, "/FO", "CSV", "/NH"], { encoding: "utf8" }).trim()}`,
+      ),
+  );
+}
+
 function killLater(cleanups: Cleanups, pids: number[]): void {
   cleanups.push(() => {
     for (const pid of pids) if (running(pid)) process.kill(pid);
@@ -174,6 +195,7 @@ test.runIf(windows)(
 
     process.kill(crashed.escaped.child);
     await expect.poll(() => running(crashed.escaped.child), { timeout: 10_000 }).toBe(false);
+    expect(await skillTreeHolders(root)).toEqual([]);
     await (
       await builtinSkillRecovery(dataDir)
     )(Promise.resolve(), (error) => errors.push(error));

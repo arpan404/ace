@@ -118,16 +118,26 @@ test.runIf(windows)(
     const home = await temporaryHome("ace-win-break-", cleanups);
     // The console delivers Ctrl+Break to Node as a SIGBREAK process event; the test raises
     // that same event inside the real daemon process.
-    // Outside the home: a fresh home must start empty.
-    const preload = join(await temporaryHome("ace-win-break-fixture-", cleanups), "break.mjs");
+    // Outside the home: a fresh home must start empty. A file, not IPC, asks for the break, so
+    // the daemon's descendants inherit nothing from the test.
+    const fixture = await temporaryHome("ace-win-break-fixture-", cleanups);
+    const preload = join(fixture, "break.mjs");
+    const request = join(fixture, "break-now");
     await writeFile(
       preload,
-      'process.on("message", (m) => { if (m === "break") process.emit("SIGBREAK"); });\nprocess.channel?.unref();\n',
+      `import { existsSync } from "node:fs";
+const poll = setInterval(() => {
+  if (!existsSync(${JSON.stringify(request)})) return;
+  clearInterval(poll);
+  process.emit("SIGBREAK");
+}, 100);
+poll.unref();
+`,
     );
     const daemon = startDaemonCli(home, cleanups, pathToFileURL(preload).href);
     await daemon.ready;
-    daemon.child.send("break", () => daemon.child.disconnect());
-    expect(await daemon.exited).toBe(0);
+    await writeFile(request, "");
+    expect(await daemon.exitWithin(30_000)).toBe(0);
     expect(await walBytes(join(home, "events.sqlite"))).toBe(0);
 
     const next = startDaemonCli(home, cleanups);
