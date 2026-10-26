@@ -17,6 +17,9 @@ const hashes: Record<ReleaseTarget, string> = {
   "darwin-x64": "6f03c1b48ddbe1b129a6f8038be08e0899f05f17185b4d3e4350180ab669a7f3",
   "linux-arm64": "0f6d40b94c6a2eb6b4c240ffc8b9fd3ada7ab044c177dd413c06e1ef9a63f081",
   "linux-x64": "6223aad1a81f9d1e7b682c59d12e2de233f7b4c37475cd40d1c89c42b737ffa8",
+  // Windows has no Node archive here: stageWindowsNodeRuntime pins the raw node.exe instead.
+  "win32-x64": "",
+  "win32-arm64": "",
 };
 
 /**
@@ -31,6 +34,7 @@ export async function stageNodeRuntime(options: {
   destination: string;
 }): Promise<void> {
   const { target, cacheDir } = options;
+  if (isWindowsTarget(target)) throw new Error("Stage Windows Node with stageWindowsNodeRuntime");
   const archive = `node-v${nodeVersion}-${target}.tar.gz`;
   const archivePath = join(cacheDir, archive);
   try {
@@ -59,8 +63,8 @@ export async function stageNodeRuntime(options: {
   });
 }
 
-// Windows desktop builds ship the raw official node.exe and the tagged LICENSE (no zip). The
-// standalone ReleaseTarget above stays macOS and Linux: its updater has no Windows archives.
+// Windows builds (desktop and standalone) ship the raw official node.exe and the tagged LICENSE
+// (no zip).
 export type WindowsTarget = "win32-x64" | "win32-arm64";
 
 export function isWindowsTarget(target: string): target is WindowsTarget {
