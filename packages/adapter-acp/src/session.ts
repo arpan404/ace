@@ -137,6 +137,11 @@ class AcpSession implements ProviderSession {
   promptFrames = 0;
   readonly started: number;
   readonly now: () => number;
+  /**
+   * Windows has no SIGTERM for a console child: taskkill without /F cannot end it. Closing the
+   * agent's stdin is the polite stop there, before the tree stop escalates.
+   */
+  readonly windows: boolean;
   constructor(
     ctx: SessionContext,
     quirks: AcpQuirks,
@@ -146,6 +151,7 @@ class AcpSession implements ProviderSession {
   ) {
     this.launch = launch;
     this.now = runtime.now;
+    this.windows = (runtime.platform ?? process.platform) === "win32";
     this.started = runtime.now();
     this.shells = new ShellSettlement(quirks);
     this.routing = new SessionRouting(ctx.threadId, ctx.resume?.nativeSessionId ?? "");
@@ -224,6 +230,7 @@ class AcpSession implements ProviderSession {
     this.cancelQuestions();
     this.rejectQueue(error);
     this.rpc.stopRequests(error);
+    if (this.windows) this.proc.stdin.end();
     void this.proc.stop();
   }
   abort = (): void => {
@@ -575,6 +582,7 @@ class AcpSession implements ProviderSession {
       this.ctx.signal.removeEventListener("abort", this.abort);
     }
     this.ctx.mcp?.end();
+    if (this.windows) this.proc.stdin.end();
     await this.proc.stop();
     this.rpc.close();
   }
