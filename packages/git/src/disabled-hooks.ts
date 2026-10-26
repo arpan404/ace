@@ -1,37 +1,29 @@
-import { mkdirSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Git for Windows can interpret /dev/null as C:\dev\null. A unique empty
-// directory avoids consulting a predictable path another user could populate.
-// This I/O shell owns the directory for the lifetime of this process.
-let directory: string | undefined;
-function configurationRoot(): string {
-  if (directory === undefined) {
-    const created = mkdtempSync(join(tmpdir(), "ace-git-hooks-"));
-    mkdirSync(join(created, "hooks"), { mode: 0o700 });
-    writeFileSync(join(created, "attributes"), "", { flag: "wx", mode: 0o600 });
-    directory = created;
-    process.once("exit", () => {
-      try {
-        // Never recursively delete an unexpected entry.
-        rmdirSync(join(created, "hooks"));
-        unlinkSync(join(created, "attributes"));
-        rmdirSync(created);
-      } catch {
-        // Crash/exit cleanup is best effort; no checkout data lives here.
-      }
-    });
-  }
-  return directory;
+// Git for Windows resolves `/dev/null/<hook>` against the drive root (C:\dev\null\...),
+// a path another user could populate. On Windows, hooks point at a private empty
+// directory this process owns for its lifetime instead.
+let windowsHooks: string | undefined;
+
+function privateEmptyDirectory(): string {
+  const created = mkdtempSync(join(tmpdir(), "ace-git-hooks-"));
+  process.once("exit", () => {
+    try {
+      // rmdir, never a recursive delete: an unexpected entry stays put.
+      rmdirSync(created);
+    } catch {
+      // Best effort; no checkout data lives here.
+    }
+  });
+  return created;
 }
 
 export function disabledHooksPath(): string {
-  return join(configurationRoot(), "hooks");
-}
-
-export function disabledAttributesPath(): string {
-  return join(configurationRoot(), "attributes");
+  if (process.platform !== "win32") return "/dev/null";
+  windowsHooks ??= privateEmptyDirectory();
+  return windowsHooks;
 }
 
 export function withoutHooks(): string[] {

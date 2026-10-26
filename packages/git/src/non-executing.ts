@@ -1,5 +1,5 @@
-import { disabledAttributesPath, disabledHooksPath } from "./disabled-hooks.ts";
 import { z } from "zod";
+import { disabledHooksPath } from "./disabled-hooks.ts";
 import { GitError } from "./types.ts";
 
 // Event switches apply only when no configured friendly name shadows the event.
@@ -41,6 +41,7 @@ const hookSwitches = (): readonly (readonly [string, string])[] => [
 const fixed: readonly (readonly [string, string])[] = [
   ["core.fsmonitor", "false"],
   ["core.untrackedCache", "false"],
+  ["core.attributesFile", "/dev/null"],
   ["gc.auto", "0"],
   ["maintenance.auto", "false"],
   ["commit.gpgSign", "false"],
@@ -112,7 +113,6 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
   return {
     ...commandConfig([
       ...hookSwitches(),
-      ["core.attributesFile", disabledAttributesPath()],
       ...fixed,
       ...[...drivers].flatMap((name) => [
         [`${name}.clean`, ""],
