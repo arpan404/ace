@@ -115,22 +115,25 @@ import XCTest
         sidebar.tap()
         let first = app.buttons["thread.ios-form"]
         XCTAssertTrue(first.waitForHittable(timeout: 10), "the drawer is out")
-        let done = app.buttons["thread.ios-done"]
-        // Scroll the drawer's list by its own rows, clear of the dimmed thread.
-        let list = first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        for _ in 0..<8 where !done.reachable {
-            list.withOffset(CGVector(dx: 0, dy: 300)).press(forDuration: 0.05, thenDragTo: list, withVelocity: .default, thenHoldForDuration: 0.2)
+        // The first row on screen that can be settled (a working thread can't be), other than
+        // the open one: which rows those are depends on the fixture's activity order.
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier != %@", "thread.ios-", "thread.ios-form"))
+        var settled: String?
+        for index in 0..<min(rows.count, 12) {
+            let row = rows.element(boundBy: index)
+            guard row.isHittable else { continue }
+            row.swipeLeft()
+            if app.buttons["Settle"].waitForExistence(timeout: 2) { settled = row.identifier; break }
+            row.swipeRight()
         }
-        XCTAssertTrue(done.reachable)
-        done.swipeLeft()
-        XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
+        let id = try XCTUnwrap(settled, "a visible row offers Settle")
         app.buttons["Settle"].tap()
         let undo = app.buttons["inbox.undoSettle"]
         XCTAssertTrue(undo.waitForHittable(timeout: 10), "Undo shows over the drawer")
         screenshot("drawer-undo")
         XCTAssertLessThan(undo.frame.maxX, app.buttons["drawer.close"].frame.minX + 1, "Undo sits over the list")
         undo.tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 10), "Undo puts the row back")
     }
 
     func testAPageOverTheThreadGoesBackWithTheChevronAndOnlyTheThreadOpensTheDrawer() throws {
