@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -6,7 +6,7 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
-import { simulatorNeedsTranscode } from "./simulator-transcode.ts";
+import { simulatorNeedsTranscode, startSimulatorTranscode } from "./simulator-transcode.ts";
 import { fakeServeSim } from "./testing/fake-serve-sim.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
@@ -146,4 +146,84 @@ it("serve-sim's stream passes through for a good link and is re-encoded smaller 
         .some((frame) => frame.header.codec === "h264" && frame.header.width !== 600),
     )
     .toBe(true);
+});
+
+/** A transcoder that reads nothing until `go` exists, then logs every packet header it gets. */
+const stalledTranscoder = (log: string, go: string) => `
+const fs = require("fs");
+let pending = Buffer.alloc(0);
+const read = () => process.stdin.on("data", (chunk) => {
+  pending = Buffer.concat([pending, chunk]);
+  for (;;) {
+    if (pending.length < 4) return;
+    const length = pending.readUInt32BE(0);
+    if (pending.length < 4 + length) return;
+    const header = JSON.parse(pending.subarray(4, 4 + length));
+    if (pending.length < 4 + length + header.bytes) return;
+    pending = pending.subarray(4 + length + header.bytes);
+    fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(header) + "\\n");
+  }
+});
+const wait = setInterval(() => {
+  if (!fs.existsSync(${JSON.stringify(go)})) return;
+  clearInterval(wait);
+  read();
+}, 10);
+`;
+
+it("a transcoder that falls behind skips to serve-sim's next IDR and still gets every setting", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-transcode-stall-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, "bin"));
+  const log = join(home, "received.log");
+  const go = join(home, "go");
+  const helper = await nodeBinary(join(home, "bin"), "transcode", stalledTranscoder(log, go));
+  let keyframesAsked = 0;
+  const transcode = startSimulatorTranscode({
+    helper,
+    runtime: { spawn: spawnRawSupervised },
+    env: { PATH: process.env["PATH"] ?? "" },
+    frame: () => {},
+    failed: () => {},
+    needKeyframe: () => keyframesAsked++,
+  });
+  onTestFinished(() => transcode.stop());
+  const unit = Buffer.alloc(256 * 1024, 1);
+  // The transcoder stalls: an IDR and many deltas pile up until its pipe is full.
+  let seq = 0;
+  transcode.push(unit, true, seq++, 0);
+  for (let index = 0; index < 40; index++) transcode.push(unit, false, seq++, 0);
+  expect(keyframesAsked).toBe(1);
+  // A setting and a keyframe request made meanwhile must still arrive.
+  transcode.settings({ bitrate: 2_000_000, maxWidth: 600, maxHeight: 1304 });
+  transcode.keyframe();
+  await writeFile(go, "");
+  const received = async () =>
+    (await readFile(log, "utf8").catch(() => ""))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { op: string; seq?: number; keyframe?: boolean });
+  await expect.poll(async () => (await received()).some((h) => h.op === "keyframe")).toBe(true);
+  // Deltas after the drop refer to a picture the transcoder never got: they wait for the IDR.
+  const afterDrop = seq;
+  transcode.push(unit, false, seq++, 0);
+  transcode.push(unit, true, seq++, 0);
+  transcode.push(unit, false, seq++, 0);
+  await expect.poll(async () => (await received()).at(-1)?.seq).toBe(seq - 1);
+
+  const all = await received();
+  expect(all).toContainEqual(expect.objectContaining({ op: "settings", bitrate: 2_000_000 }));
+  const frames = all.filter((h) => h.op === "frame");
+  // Up to the first gap the pictures are consecutive from the first IDR...
+  const firstGap = frames.findIndex(
+    (h, index) => index > 0 && h.seq !== (frames[index - 1]?.seq ?? 0) + 1,
+  );
+  expect(firstGap).toBeGreaterThan(0);
+  expect(frames[0]).toMatchObject({ seq: 0, keyframe: true });
+  // ...and the first picture after it is serve-sim's next IDR, then what follows it.
+  expect(frames.slice(firstGap).map((h) => [h.seq, h.keyframe])).toEqual([
+    [afterDrop + 1, true],
+    [afterDrop + 2, false],
+  ]);
+  expect(keyframesAsked).toBe(1);
 });

@@ -444,6 +444,7 @@ export async function simulatorCapture(options: {
               void stopTranscode()
                 .then(() => h264?.keyframe())
                 .catch(() => {}),
+            needKeyframe: () => void h264?.keyframe().catch(() => {}),
             frame: (frame) => {
               if (stopped) return;
               const scale = native ? frame.header.width / native.width : 1;

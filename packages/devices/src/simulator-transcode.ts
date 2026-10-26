@@ -1,3 +1,4 @@
+import { VideoChunkGate } from "@ace/browser/video-gate";
 import { FrameDecoder, type Frame } from "@ace/screen";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
@@ -28,9 +29,20 @@ export function simulatorNeedsTranscode(input: {
 }
 
 /**
+ * How much input may wait in the transcoder's pipe. Past it, pictures are dropped rather than
+ * queued: a few seconds of backlog would only make the live view late.
+ */
+export const simulatorTranscodeInputLimit = 2 * 1024 * 1024;
+
+/**
  * serve-sim's H.264 re-encoded by the screen helper's `--transcode` mode (a process of its own,
  * hardware decode and encode) at the viewer's size and bit rate. Units go in as serve-sim sends
  * them; frame packets come out in the capture's framing.
+ *
+ * A transcoder that can't keep up gets fewer pictures, never broken ones: once a picture is
+ * dropped, later deltas wait for serve-sim's next IDR (asked for through `needKeyframe`), since
+ * they refer to the one dropped. Settings and keyframe requests are never dropped; while the
+ * pipe is full the newest of each waits and goes ahead of the next picture.
  */
 export interface SimulatorTranscode {
   push(payload: Buffer, keyframe: boolean, seq: number, ts: number): void;
@@ -52,6 +64,8 @@ export function startSimulatorTranscode(options: {
   env: NodeJS.ProcessEnv;
   frame(frame: Frame): void;
   failed(error: unknown): void;
+  /** A dropped picture broke the input's references: serve-sim's next IDR mends them. */
+  needKeyframe(): void;
 }): SimulatorTranscode {
   let stopped = false;
   const child = options.runtime.spawn({
@@ -82,16 +96,38 @@ export function startSimulatorTranscode(options: {
         ),
       );
   });
-  const write = (bytes: Buffer) => {
-    // A transcoder that can't keep up drops input: the newest picture matters, not every one.
-    if (!stopped && child.stdin.writable && child.stdin.writableLength < 8 * 1024 * 1024)
-      child.stdin.write(bytes);
+  const room = () =>
+    !stopped && child.stdin.writable && child.stdin.writableLength < simulatorTranscodeInputLimit;
+  const gate = new VideoChunkGate();
+  let owedSettings: Parameters<SimulatorTranscode["settings"]>[0] | undefined;
+  let owedKeyframe = false;
+  /** Settings and keyframe requests owed since the pipe filled, sent once it has room. */
+  const sendControl = () => {
+    if (!room()) return;
+    if (owedSettings) child.stdin.write(packet({ op: "settings", ...owedSettings }));
+    if (owedKeyframe) child.stdin.write(packet({ op: "keyframe" }));
+    owedSettings = undefined;
+    owedKeyframe = false;
   };
+  child.stdin.on("drain", sendControl);
   return {
-    push: (payload, keyframe, seq, ts) =>
-      write(packet({ op: "frame", keyframe, seq, ts }, payload)),
-    settings: (settings) => write(packet({ op: "settings", ...settings })),
-    keyframe: () => write(packet({ op: "keyframe" })),
+    push: (payload, keyframe, seq, ts) => {
+      sendControl();
+      const outcome = gate.offer("simulator", "input", keyframe, () => {
+        if (!room()) return false;
+        child.stdin.write(packet({ op: "frame", keyframe, seq, ts }, payload));
+        return true;
+      });
+      if (outcome.keyframe && !stopped) options.needKeyframe();
+    },
+    settings: (settings) => {
+      owedSettings = settings;
+      sendControl();
+    },
+    keyframe: () => {
+      owedKeyframe = true;
+      sendControl();
+    },
     async stop() {
       if (stopped) return;
       stopped = true;
