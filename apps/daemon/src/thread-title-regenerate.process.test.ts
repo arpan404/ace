@@ -70,13 +70,13 @@ test("with no utility model the thread keeps its opening request's words as its 
 });
 
 test("a name the person gives while the title is generating wins over the generated one", async () => {
-  let answer: (title: string) => void = () => {};
-  const f = await setup(() => new Promise((resolve) => (answer = resolve)));
+  const pending = Promise.withResolvers<string>();
+  const f = await setup(() => pending.promise);
   await f.regenerate();
   f.store.appendEvents(f.thread.id, [
     { type: "thread.updated", title: "Picked by hand", titleSource: "person" },
   ]);
-  answer("Delay the reconnect banner");
+  pending.resolve("Delay the reconnect banner");
   await settled();
   expect(f.store.getThread(f.thread.id)?.title).toBe("Picked by hand");
 });
