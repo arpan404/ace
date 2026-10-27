@@ -2,25 +2,80 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { tokens, textStyle, useTheme } from "../theme.tsx";
 import {
+  codeLineCount,
   isCodeCollapsible,
+  isOverInlineLimit,
+  isSafeWebUrl,
+  longMessagePreview,
   markdownBlocks,
   markdownInline,
   markdownPieces,
   visibleCodeText,
-  codeLineCount,
   type InlineSpan,
   type MarkdownBlock,
 } from "./markdown.ts";
+import { openWebLink } from "./links.ts";
 import { copyCodeText } from "./clipboard.ts";
 
 /**
- * Agent Markdown as native text (A05.02, iOS `MarkdownView` parity).
+ * Agent Markdown as native text (A05.02, iOS `MarkdownView` behavior).
  *
- * Blocks are memoized by position and long paragraphs render in sentence
- * pieces, so a streamed delta only re-lays-out its own row's last piece.
- * Code blocks carry a language + Copy header and collapse past 20 lines;
- * tables scroll sideways; malformed input stays readable as prose.
+ * Inline syntax is a documented subset (see `markdown.ts`): bold, italic,
+ * code and safe `http(s)` links. `ace://` stays literal; the Files screen
+ * remains the only file route. Messages past `INLINE_MESSAGE_LIMIT` render a
+ * bounded plain preview instead of parsing unbounded text per delta.
+ * Blocks are keyed by position (as iOS keys by offset): appending only
+ * changes the tail, while a mid-stream structural change (fence closes,
+ * `---` becomes a rule) remounts downstream blocks, same as iOS.
  */
+function shortFingerprint(text: string): string {
+  let hash = 0;
+  const scanned = Math.min(text.length, 64);
+  for (let i = 0; i < scanned; i++) hash = (hash * 31 + text.charCodeAt(i)!) | 0;
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function blockFingerprint(block: MarkdownBlock): string {
+  switch (block.kind) {
+    case "paragraph":
+      return `p:${shortFingerprint(block.text)}`;
+    case "heading":
+      return `h${block.level}:${shortFingerprint(block.text)}`;
+    case "code":
+      return `code:${block.language}:${shortFingerprint(block.text)}`;
+    case "list":
+      return `list:${block.ordered ? "o" : "u"}:${block.start}:${shortFingerprint(block.items.join("\n"))}`;
+    case "quote":
+      return `q:${shortFingerprint(block.text)}`;
+    case "table":
+      return `t:${shortFingerprint([...block.headers, ...block.rows.flat()].join("\n"))}`;
+    case "rule":
+      return "rule";
+  }
+}
+
+function spanFingerprint(span: InlineSpan): string {
+  return span.kind === "link"
+    ? `link:${shortFingerprint(span.text)}:${shortFingerprint(span.url)}`
+    : `${span.kind}:${shortFingerprint(span.text)}`;
+}
+
+/** Content-based keys with occurrence counting: append-only deltas keep
+ * settled entries (and their state) while duplicates stay unique. */
+function withStableKeys<T>(
+  values: T[],
+  fingerprint: (value: T) => string,
+): { key: string; value: T }[] {
+  const seen = new Map<string, number>();
+  const keyed: { key: string; value: T }[] = [];
+  for (const value of values) {
+    const base = fingerprint(value);
+    const occurrence = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occurrence);
+    keyed.push({ key: `${base}#${occurrence}`, value });
+  }
+  return keyed;
+}
 export const Markdown = memo(function Markdown({
   text,
   streaming,
@@ -28,15 +83,41 @@ export const Markdown = memo(function Markdown({
   text: string;
   streaming?: boolean;
 }) {
-  const blocks = useMemo(() => markdownBlocks(text), [text]);
+  const overLimit = isOverInlineLimit(text);
+  const theme = useTheme();
+  const blocks = useMemo(() => (overLimit ? [] : markdownBlocks(text)), [text, overLimit]);
+  const preview = useMemo(() => (overLimit ? longMessagePreview(text) : ""), [text, overLimit]);
   if (text === "") return null;
-  // Blocks are keyed by position, as iOS keys them by offset: a streamed
-  // delta only appends or changes the tail, so settled blocks keep their
-  // identity (and selection) instead of re-rendering on every delta.
+  if (overLimit) {
+    return (
+      <View style={{ gap: tokens.spacing.sm }} testID="markdown">
+        <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}>
+          This answer is too long to show here.
+        </Text>
+        <Text
+          style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}
+          testID="markdown.tooLong"
+        >
+          {preview}
+        </Text>
+        {streaming ? (
+          <Text
+            style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}
+            accessibilityLabel="Streaming"
+          >
+            {"▍"}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+  // Content keys (stronger than iOS offsets): append-only deltas keep
+  // settled blocks; a structural change mid-stream remounts only what changed.
+  const keyedBlocks = useMemo(() => withStableKeys(blocks, blockFingerprint), [blocks]);
   return (
     <View style={{ gap: tokens.spacing.sm }} testID="markdown">
-      {blocks.map((block, index) => (
-        <BlockRow key={index} block={block} />
+      {keyedBlocks.map(({ key, value }) => (
+        <BlockRow key={key} block={value} />
       ))}
       {streaming ? (
         <Text
@@ -69,26 +150,34 @@ const BlockRow = memo(function BlockRow({ block }: { block: MarkdownBlock }) {
   }
 });
 
-/** One run of prose, memoized so an unchanged streaming piece never re-parses. */
+/** One run of prose, flowing inside a single Text so sentence pieces wrap. */
 const Paragraph = memo(function Paragraph({ text }: { text: string }) {
+  const theme = useTheme();
   const pieces = useMemo(() => markdownPieces(text), [text]);
+  const keyedPieces = useMemo(() => withStableKeys(pieces, shortFingerprint), [pieces]);
   return (
-    <View>
-      {pieces.map((piece, index) => (
-        <Piece key={index} text={piece} />
+    <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+      {keyedPieces.map(({ key, value }) => (
+        <Piece key={key} text={value} />
       ))}
-    </View>
+    </Text>
   );
 });
 
 const Piece = memo(function Piece({ text }: { text: string }) {
   const theme = useTheme();
+  const spans = useMemo(() => markdownInline(text), [text]);
   return (
     <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
-      <Inline spans={markdownInline(text)} />
+      <Inline spans={spans} />
     </Text>
   );
 });
+
+function MemoInline({ text }: { text: string }) {
+  const spans = useMemo(() => markdownInline(text), [text]);
+  return <Inline spans={spans} />;
+}
 
 const Heading = memo(function Heading({ level, text }: { level: number; text: string }) {
   const theme = useTheme();
@@ -100,33 +189,34 @@ const Heading = memo(function Heading({ level, text }: { level: number; text: st
       }}
       accessibilityRole="header"
     >
-      <Inline spans={markdownInline(text)} />
+      <MemoInline text={text} />
     </Text>
   );
 });
 
 function Inline({ spans }: { spans: InlineSpan[] }) {
   const theme = useTheme();
+  const keyed = useMemo(() => withStableKeys(spans, spanFingerprint), [spans]);
   return (
     <>
-      {spans.map((span, index) => {
+      {keyed.map(({ key, value: span }) => {
         switch (span.kind) {
           case "strong":
             return (
-              <Text key={index} style={{ fontWeight: "700" }}>
+              <Text key={key} style={{ fontWeight: "700" }}>
                 {span.text}
               </Text>
             );
           case "emphasis":
             return (
-              <Text key={index} style={{ fontStyle: "italic" }}>
+              <Text key={key} style={{ fontStyle: "italic" }}>
                 {span.text}
               </Text>
             );
           case "code":
             return (
               <Text
-                key={index}
+                key={key}
                 style={{
                   ...textStyle("code"),
                   backgroundColor: theme.colours.fill,
@@ -136,13 +226,23 @@ function Inline({ spans }: { spans: InlineSpan[] }) {
               </Text>
             );
           case "link":
+            if (!isSafeWebUrl(span.url)) {
+              return <Text key={key}>{span.text}</Text>;
+            }
             return (
-              <Text key={index} style={{ color: theme.colours.accent }}>
+              <Text
+                key={key}
+                style={{ color: theme.colours.accent, textDecorationLine: "underline" }}
+                accessibilityRole="link"
+                onPress={() => {
+                  void openWebLink(span.url);
+                }}
+              >
                 {span.text}
               </Text>
             );
           default:
-            return <Text key={index}>{span.text}</Text>;
+            return <Text key={key}>{span.text}</Text>;
         }
       })}
     </>
@@ -153,8 +253,9 @@ const CodeBlock = memo(function CodeBlock({ language, text }: { language: string
   const theme = useTheme();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const collapsible = isCodeCollapsible(text);
-  const shown = visibleCodeText(text, expanded);
+  const collapsible = useMemo(() => isCodeCollapsible(text), [text]);
+  const shown = useMemo(() => visibleCodeText(text, expanded), [text, expanded]);
+  const lineCount = useMemo(() => codeLineCount(text), [text]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 1500);
@@ -233,7 +334,7 @@ const CodeBlock = memo(function CodeBlock({ language, text }: { language: string
             }}
           >
             <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
-              {expanded ? "Collapse" : `Show all ${codeLineCount(text)} lines`}
+              {expanded ? "Collapse" : `Show all ${lineCount} lines`}
             </Text>
           </Pressable>
         </>
@@ -252,15 +353,28 @@ const MarkdownList = memo(function MarkdownList({
   items: string[];
 }) {
   const theme = useTheme();
+  const keyedItems = useMemo(() => {
+    const seen = new Map<string, number>();
+    let number = start;
+    const keyed: { key: string; item: string; number: number }[] = [];
+    for (const item of items) {
+      const base = shortFingerprint(item);
+      const occurrence = (seen.get(base) ?? 0) + 1;
+      seen.set(base, occurrence);
+      keyed.push({ key: `${base}#${occurrence}`, item, number });
+      number += 1;
+    }
+    return keyed;
+  }, [items, start]);
   return (
     <View style={{ gap: tokens.spacing.xs }}>
-      {items.map((item, index) => (
-        <View key={index} style={{ flexDirection: "row", gap: tokens.spacing.sm }}>
+      {keyedItems.map(({ key, item, number }) => (
+        <View key={key} style={{ flexDirection: "row", gap: tokens.spacing.sm }}>
           <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}>
-            {ordered ? `${start + index}.` : "•"}
+            {ordered ? `${number}.` : "•"}
           </Text>
           <Text style={{ ...textStyle("body"), color: theme.colours.foreground, flex: 1 }}>
-            <Inline spans={markdownInline(item)} />
+            <MemoInline text={item} />
           </Text>
         </View>
       ))}
@@ -274,7 +388,7 @@ const Quote = memo(function Quote({ text }: { text: string }) {
     <View style={{ flexDirection: "row", gap: tokens.spacing.md }}>
       <View style={{ width: 2, backgroundColor: theme.colours.separator }} />
       <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground, flex: 1 }}>
-        <Inline spans={markdownInline(text)} />
+        <MemoInline text={text} />
       </Text>
     </View>
   );
@@ -296,13 +410,24 @@ const MarkdownTable = memo(function MarkdownTable({
 }) {
   const theme = useTheme();
   const cellWidth = 160;
+  const keyedHeaders = useMemo(() => withStableKeys(headers, shortFingerprint), [headers]);
+  const keyedRows = useMemo(
+    () =>
+      withStableKeys(rows, (row) => shortFingerprint(row.join("\n"))).map(
+        ({ key, value: row }) => ({
+          key,
+          cells: withStableKeys(row, shortFingerprint),
+        }),
+      ),
+    [rows],
+  );
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} testID="markdown.table">
       <View>
         <View style={{ flexDirection: "row", backgroundColor: theme.colours.fill }}>
-          {headers.map((cell, index) => (
+          {keyedHeaders.map(({ key, value: cell }) => (
             <Text
-              key={index}
+              key={key}
               style={{
                 ...textStyle("body"),
                 fontWeight: "600",
@@ -311,15 +436,15 @@ const MarkdownTable = memo(function MarkdownTable({
                 padding: tokens.spacing.sm,
               }}
             >
-              <Inline spans={markdownInline(cell)} />
+              <MemoInline text={cell} />
             </Text>
           ))}
         </View>
-        {rows.map((row, rowIndex) => (
-          <View key={rowIndex} style={{ flexDirection: "row" }}>
-            {row.map((cell, cellIndex) => (
+        {keyedRows.map(({ key, cells }) => (
+          <View key={key} style={{ flexDirection: "row" }}>
+            {cells.map(({ key: cellKey, value: cell }) => (
               <Text
-                key={cellIndex}
+                key={cellKey}
                 style={{
                   ...textStyle("body"),
                   color: theme.colours.foreground,
@@ -329,7 +454,7 @@ const MarkdownTable = memo(function MarkdownTable({
                   borderBottomColor: theme.colours.separator,
                 }}
               >
-                <Inline spans={markdownInline(cell)} />
+                <MemoInline text={cell} />
               </Text>
             ))}
           </View>

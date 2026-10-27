@@ -1,13 +1,19 @@
 import { expect, it, vi } from "vitest";
 import {
   CODE_VISIBLE_LINES,
+  INLINE_MESSAGE_LIMIT,
+  LONG_MESSAGE_PREVIEW_CHARS,
   codeLineCount,
   isCodeCollapsible,
+  isOverInlineLimit,
+  isSafeWebUrl,
+  longMessagePreview,
   markdownBlocks,
   markdownInline,
   markdownPieces,
   visibleCodeText,
 } from "./markdown.ts";
+import { openWebLink } from "./links.ts";
 import { copyCodeText } from "./clipboard.ts";
 
 it("parses prose, lists, a closed fence, a quote, a rule and an ordered list", () => {
@@ -99,7 +105,7 @@ it("leaves malformed markdown readable instead of dropping it", () => {
   ]);
 });
 
-it("parses inline emphasis, code spans and allowlisted links", () => {
+it("parses inline emphasis, code spans and safe web links only", () => {
   expect(markdownInline("Run **bold** and *soft* `code`")).toEqual([
     { kind: "text", text: "Run " },
     { kind: "strong", text: "bold" },
@@ -112,6 +118,25 @@ it("parses inline emphasis, code spans and allowlisted links", () => {
     { kind: "link", text: "docs", url: "https://example.com" },
     { kind: "text", text: " and [evil](javascript:alert(1))" },
   ]);
+  // ace:// stays literal: Android has no in-message file opener, and the
+  // Files screen remains the only file route.
+  expect(markdownInline("[file](ace://thread/file)")).toEqual([
+    { kind: "text", text: "[file](ace://thread/file)" },
+  ]);
+  expect(markdownInline("[spaced](https://example.com/a b)")).toEqual([
+    { kind: "text", text: "[spaced](https://example.com/a b)" },
+  ]);
+});
+
+it("validates web URLs before styling them as links", () => {
+  expect(isSafeWebUrl("https://example.com/a?b=c")).toBe(true);
+  expect(isSafeWebUrl("http://example.com/")).toBe(true);
+  expect(isSafeWebUrl("ace://thread/file")).toBe(false);
+  expect(isSafeWebUrl("javascript:alert(1)")).toBe(false);
+  expect(isSafeWebUrl("https://example.com/a b")).toBe(false);
+  expect(isSafeWebUrl("https://example.com/a\nb")).toBe(false);
+  expect(isSafeWebUrl(`https://example.com/${"a".repeat(2048)}`)).toBe(false);
+  expect(isSafeWebUrl("")).toBe(false);
 });
 
 it("only changes the last piece when a long paragraph streams", () => {
@@ -122,7 +147,53 @@ it("only changes the last piece when a long paragraph streams", () => {
   expect(before.length).toBeGreaterThan(2);
   expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
   expect(after[after.length - 1]?.endsWith("More")).toBe(true);
-  expect(after.join(" ")).toBe(`${text}More`);
+  expect(after.join("")).toBe(`${text}More`);
+  expect(before.join("")).toBe(text);
+});
+
+it("keeps sentence spaces inside flowing pieces", () => {
+  const pieces = markdownPieces("End. Next.", 4);
+  expect(pieces.join("")).toBe("End. Next.");
+  expect(pieces.length).toBeGreaterThan(1);
+  expect(pieces[1]?.startsWith(" ")).toBe(true);
+});
+
+it("splits long paragraphs at the production size", () => {
+  const sentence = "Streaming sentence with enough words to pass the bound. ";
+  const text = sentence.repeat(80);
+  expect(text.length).toBeGreaterThan(2_000);
+  const pieces = markdownPieces(text);
+  expect(pieces.length).toBeGreaterThan(1);
+  expect(pieces.join("")).toBe(text);
+  for (const piece of pieces.slice(0, -1)) {
+    expect(piece.length).toBeGreaterThanOrEqual(2_000);
+  }
+});
+
+it("bounds over-limit messages instead of parsing them", () => {
+  expect(isOverInlineLimit("a".repeat(INLINE_MESSAGE_LIMIT))).toBe(false);
+  expect(isOverInlineLimit("a".repeat(INLINE_MESSAGE_LIMIT + 1))).toBe(true);
+  const long = "b".repeat(INLINE_MESSAGE_LIMIT + 10);
+  const preview = longMessagePreview(long);
+  expect(preview.length).toBe(LONG_MESSAGE_PREVIEW_CHARS);
+  expect(long.startsWith(preview)).toBe(true);
+});
+
+it("opens only safe web links and never throws", async () => {
+  const opened: string[] = [];
+  expect(
+    await openWebLink("https://example.com/a", { openURL: (url) => void opened.push(url) }),
+  ).toBe(true);
+  expect(opened).toEqual(["https://example.com/a"]);
+  expect(await openWebLink("ace://thread/file", { openURL: () => true })).toBe(false);
+  expect(await openWebLink("javascript:alert(1)", { openURL: () => true })).toBe(false);
+  expect(
+    await openWebLink("https://example.com/", {
+      openURL: () => {
+        throw new Error("no browser");
+      },
+    }),
+  ).toBe(false);
 });
 
 it("keeps a short paragraph whole", () => {

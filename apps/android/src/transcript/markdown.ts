@@ -16,7 +16,14 @@ export type MarkdownBlock =
   | { kind: "table"; headers: string[]; rows: string[][] }
   | { kind: "rule" };
 
-/** A long paragraph cut into pieces at sentence ends, mirroring iOS `pieces`. */
+/** A long paragraph cut into pieces at sentence ends, mirroring iOS `pieces`.
+ *
+ * iOS drops the separating whitespace because its pieces stack in a `VStack`
+ * (the line break replaces the space). Android flows pieces inline inside one
+ * `Text` so prose wraps, so the separator stays at the start of the next
+ * piece: `pieces.join("")` is the original paragraph. Appended text still only
+ * changes the last piece.
+ */
 export function markdownPieces(paragraph: string, size = 2_000): string[] {
   if (paragraph === "") return [""];
   const pieces: string[] = [];
@@ -34,8 +41,9 @@ export function markdownPieces(paragraph: string, size = 2_000): string[] {
       /\s/.test(paragraph[next]!)
     ) {
       pieces.push(paragraph.slice(start, next));
-      // The space between two sentences belongs to neither piece.
-      start = next + 1;
+      // The separator stays with the next piece so flowing prose keeps its
+      // space; iOS drops it because its VStack line break replaces it.
+      start = next;
       index = start;
       length = 0;
       continue;
@@ -175,6 +183,18 @@ export const CODE_VISIBLE_LINES = 20;
 export const CODE_COLLAPSE_MARGIN = 2;
 /** Assistant text past this many characters opens elsewhere instead of the row. */
 export const INLINE_MESSAGE_LIMIT = 200_000;
+/** Preview characters shown when a message exceeds the inline limit. Bounds parsing. */
+export const LONG_MESSAGE_PREVIEW_CHARS = 4_000;
+
+export function isOverInlineLimit(text: string): boolean {
+  return text.length > INLINE_MESSAGE_LIMIT;
+}
+
+/** Bounded preview for an over-limit message: plain slice, never markdown-parsed. */
+export function longMessagePreview(text: string): string {
+  if (text.length <= LONG_MESSAGE_PREVIEW_CHARS) return text;
+  return text.slice(0, LONG_MESSAGE_PREVIEW_CHARS);
+}
 
 export function isCodeCollapsible(text: string): boolean {
   return lineCount(text) > CODE_VISIBLE_LINES + CODE_COLLAPSE_MARGIN;
@@ -194,13 +214,31 @@ function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
-/** Inline spans for one run of prose. Malformed markup stays literal. */
+/** Inline spans for one run of prose. Malformed markup stays literal.
+ *
+ * Subset, not iOS parity: handles `**`/`__`, `*`/`_`, `` ` `` and
+ * `[text](https://…)`/`http://`. Autolinks, images, strikethrough,
+ * nested/escaped emphasis and link titles stay literal. Only safe web URLs
+ * become links; `ace://`, `javascript:` and anything with whitespace or
+ * control characters stays literal so styled text is never a dead or unsafe
+ * tap target.
+ */
 export type InlineSpan =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
   | { kind: "emphasis"; text: string }
   | { kind: "code"; text: string }
   | { kind: "link"; text: string; url: string };
+
+/** Safe to open externally: http(s) only, bounded, no whitespace/controls. */
+export function isSafeWebUrl(url: string): boolean {
+  if (url.length === 0 || url.length > 2048) return false;
+  if (!/^https?:\/\//.test(url)) return false;
+  // Reject whitespace, controls and DEL; the parser already split on ")".
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\x00-\x1f\x7f]/.test(url)) return false;
+  return true;
+}
 
 export function markdownInline(text: string): InlineSpan[] {
   const spans: InlineSpan[] = [];
@@ -249,7 +287,7 @@ export function markdownInline(text: string): InlineSpan[] {
         const end = text.indexOf(")", mid + 2);
         if (end > mid + 2) {
           const url = text.slice(mid + 2, end);
-          if (/^(https?:\/\/|ace:\/\/)/.test(url)) {
+          if (isSafeWebUrl(url)) {
             pushPlain();
             spans.push({ kind: "link", text: text.slice(i + 1, mid), url });
             i = end + 1;
