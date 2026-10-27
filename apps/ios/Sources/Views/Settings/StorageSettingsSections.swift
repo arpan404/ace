@@ -129,6 +129,9 @@ struct NumberRow: View {
             }
             Spacer(minLength: AceTheme.Spacing.sm)
             TextField(emptyKeeps ? "Keep" : "", text: Binding(get: { draft ?? shown }, set: { draft = $0 }))
+                .textFieldStyle(.plain)
+                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
@@ -139,6 +142,8 @@ struct NumberRow: View {
             Text(unit).foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
         .onChange(of: focused) { _, now in if !now { save() } }
         .onSubmit(save)
     }

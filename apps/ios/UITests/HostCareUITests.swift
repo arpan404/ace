@@ -43,7 +43,7 @@ import XCTest
         XCTAssertTrue(remove.waitForExistence(timeout: 20))
         screenshot("storage-preview")
         remove.tap()
-        let confirm = app.buttons["storage.remove.confirm"]
+        let confirm = app.buttons["storage.remove.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         screenshot("storage-confirm")
         confirm.tap()
@@ -71,13 +71,13 @@ import XCTest
         for _ in 0..<6 where !reset.isHittable { app.swipeUp() }
         screenshot("diagnostics-lower")
         reset.tap()
-        XCTAssertTrue(app.buttons["diagnostics.reset.confirm"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["diagnostics.reset.confirm"].firstMatch.waitForExistence(timeout: 5))
         screenshot("diagnostics-reset")
     }
 
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

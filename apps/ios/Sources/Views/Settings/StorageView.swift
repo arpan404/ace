@@ -60,10 +60,16 @@ struct StorageView: View {
                         Text(row.detail)
                     }
                 }
-                LabeledContent { Text(usage.database.size).monospacedDigit() } label: {
-                    Text("Transcript database")
-                    Text(compaction?.line ?? usage.database.detail)
+                // The detail is a sentence; the size keeps the title's line so neither wraps under the other.
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Transcript database")
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Text(usage.database.size).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    quiet(compaction?.line ?? usage.database.detail)
                 }
+                .accessibilityElement(children: .combine)
                 if let partial = usage.partial { quiet(partial) }
                 if let backups = usage.backups {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
