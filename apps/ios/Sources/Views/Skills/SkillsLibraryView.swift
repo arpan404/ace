@@ -71,7 +71,11 @@ struct SkillsLibraryView: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.rows) { row in
-                        NavigationLink(value: SkillRoute(id: row.id, title: row.title)) { SkillRowLabel(row: row) }
+                        // A direct link: Settings' stack is driven by its own typed routes, so a
+                        // value link of another type would never push.
+                        NavigationLink {
+                            SkillPageView(model: model, route: SkillRoute(id: row.id, title: row.title), workspaceId: project?.id, project: project?.name)
+                        } label: { SkillRowLabel(row: row) }
                             .accessibilityIdentifier("skills.row.\(row.name)")
                     }
                 } header: { InsetHeader(group.title) }
@@ -101,9 +105,6 @@ struct SkillsLibraryView: View {
         .sensoryFeedback(.success, trigger: made)
         .searchable(text: $query, prompt: "Search skills and plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: SkillRoute.self) { route in
-            SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
-        }
         .navigationDestination(item: $opened) { route in
             SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
         }
