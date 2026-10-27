@@ -51,7 +51,12 @@ test("the registry lists every agent with where it stands here, and search narro
   const found = await ask({ type: "acp.registry", query: "gemini" });
   expect(found.screen.rows[0].name).toBe("Gemini CLI");
   const none = await ask({ type: "acp.registry", query: "zzzz" });
-  expect(none.screen).toMatchObject({ rows: [], empty: "No agents match “zzzz”." });
+  expect(none.screen).toMatchObject({
+    rows: [],
+    empty: "No agents match “zzzz”.",
+    noMatch: true,
+  });
+  expect(all.screen.noMatch).toBe(false);
 });
 
 test("a refresh that can't reach the registry keeps the saved list and says so", async () => {
@@ -97,24 +102,16 @@ test("an installed, current agent offers nothing to install", async () => {
   expect(page.agent.setup).toEqual({ run: "gemini", prompt: null, note: null });
 });
 
-test("an agent added by command is checked first, then bound as a local agent", async () => {
+test("add by command is offered but never binds, as the web does against a daemon", async () => {
   const { ask, daemon } = await open();
-  expect(
-    await ask({ type: "acp.manual.check", name: "Mine", command: "npx my-agent" }),
-  ).toMatchObject({ field: "command" });
-  expect(await ask({ type: "acp.manual.check", name: "Mine", command: "fake-acp --acp" })).toEqual({
+  const before = daemon.services.registry.installations.length;
+  expect(await ask({ type: "acp.manual" })).toEqual({
     ok: true,
-    display: "fake-acp --acp",
-    field: null,
+    manual: { canAdd: false, note: "This daemon can't add agents by command yet." },
   });
-  expect(await ask({ type: "acp.manual.add", name: "Mine", command: "fake-acp --acp" })).toEqual({
-    ok: true,
-    name: "Mine",
-  });
-  expect(daemon.services.registry.installations.map((entry) => entry.acpAgentId)).toContain(
-    "local:mine",
-  );
-  const missing = await ask({ type: "acp.manual.add", name: "Other", command: "not-here" });
-  expect(missing).toMatchObject({ ok: false });
-  expect(missing.problem).toMatch(/installed on the computer running ace/);
+  // Nothing a person could do on the page reaches the daemon's local bindings.
+  expect(daemon.services.registry.installations).toHaveLength(before);
+  expect(() =>
+    SettingsManageRequest.parse({ type: "acp.manual.add", name: "Mine", command: "fake-acp" }),
+  ).toThrow();
 });

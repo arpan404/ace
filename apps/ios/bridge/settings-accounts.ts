@@ -1,10 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import {
-  ApiKeyUpstream,
-  type AntigravitySignIn,
-  type ApiKeySupport as ApiKeySupportSchema,
-  type ProviderAccountSummary,
-} from "@ace/protocol";
+import type { AntigravitySignIn, ProviderAccountSummary } from "@ace/protocol";
 import {
   AccountBadgeColor,
   AccountBadgeIcon,
@@ -17,18 +12,23 @@ import {
   antigravitySignIn,
   antigravitySignInLabel,
   antigravitySignInMethods,
-  apiKeyServiceLabel,
   providerNames,
   type AccountBadgePreview,
 } from "@ace/ui-core";
 import { z } from "zod";
+import { preview } from "./presentation.ts";
 
 /*
  * A provider's accounts on the phone, as the web's Settings manages them: each account's badge,
- * state and what can be done with it; every way the daemon can add one (`provider.accounts.add`
- * with a browser login, an API key, an OpenCode service or an Antigravity sign-in method); sign
- * in again the same ways (`provider.accounts.reauth`); and on remove, whether the account's
- * files can go too. The live badge preview for the editor is here as well. Swift draws.
+ * state and what can be done with it; every sign-in way the daemon offers to add one
+ * (`provider.accounts.add` with a browser login, OpenCode's sign-in terminal or an Antigravity
+ * sign-in method); sign in again the same ways (`provider.accounts.reauth`); and on remove,
+ * whether the account's files can go too. The live badge preview for the editor is here as well.
+ *
+ * API keys are never taken on the phone: ADR 0002 lets a paired device submit one only over the
+ * relay's encrypted `provider_auth` channel, which the phone doesn't have, and the daemon refuses
+ * keys on an ordinary paired connection. A provider that takes keys gets one line pointing to ace
+ * on the computer instead. Swift draws.
  */
 
 const badge = {
@@ -37,8 +37,6 @@ const badge = {
   icon: AccountBadgeIcon.optional(),
 };
 const way = z.object({
-  method: z.enum(["login", "api_key"]),
-  upstream: ApiKeyUpstream.optional(),
   signIn: z.enum(["google", "enterprise", "agent_platform"]).optional(),
   project: z.string().max(128).default(""),
   location: z.string().max(64).default(""),
@@ -75,14 +73,11 @@ export const AccountsScreenRequest = z.discriminatedUnion("type", [
 ]);
 export type AccountsScreenRequest = z.infer<typeof AccountsScreenRequest>;
 type Provider = z.infer<typeof ManagedAccountProvider>;
-type ApiKeySupport = z.infer<typeof ApiKeySupportSchema>;
 
 /** One way to add an account or sign one in again, as a row the person picks. */
 export interface AccountWay {
   id: string;
   label: string;
-  method: "login" | "api_key";
-  upstream: string | null;
   signIn: "google" | "enterprise" | "agent_platform" | null;
   /** Asks for a Google Cloud project and location. */
   cloud: boolean;
@@ -90,76 +85,43 @@ export interface AccountWay {
   next: string;
 }
 
-/** Every way the daemon offers to add an account for this provider. */
-export function accountWays(provider: Provider, support: ApiKeySupport): AccountWay[] {
+/** Every sign-in way the daemon offers to add an account for this provider. */
+export function accountWays(provider: Provider): AccountWay[] {
   const name = providerNames[provider];
-  const base = { upstream: null, signIn: null, cloud: false } as const;
-  const login = (next: string): AccountWay => ({
-    ...base,
-    id: "login",
-    label: "Sign in with the browser",
-    method: "login",
-    next,
-  });
   if (provider === "antigravity")
     return antigravitySignInMethods.map((entry) => ({
-      upstream: null,
       id: entry.method,
       label: entry.label,
-      method: "login",
       signIn: entry.method,
       cloud: entry.cloud,
       next: entry.cloud
         ? "Name the Google Cloud project and location the account uses."
         : `ace opens ${name}'s own Google sign-in. Your password stays with Google.`,
     }));
-  if (provider === "opencode")
-    return [
-      login(
-        "ace opens OpenCode's sign-in terminal on the connected computer. Finish its prompts there.",
-      ),
-    ];
-  const ways = [
-    login(
-      `ace opens ${name}'s own sign-in in your browser. Your password and tokens stay with ${name}; ace never sees them.`,
-    ),
+  return [
+    {
+      id: "login",
+      label: "Sign in with the browser",
+      signIn: null,
+      cloud: false,
+      next:
+        provider === "opencode"
+          ? "ace opens OpenCode's sign-in terminal on the connected computer. Finish its prompts there."
+          : `ace opens ${name}'s own sign-in in your browser. Your password and tokens stay with ${name}; ace never sees them.`,
+    },
   ];
-  if (support.supported)
-    ways.push({
-      ...base,
-      id: "api_key",
-      label: `Use ${apiKeyServiceLabel(provider)} API key`,
-      method: "api_key",
-      next: `Next, paste the key. ${name} stores it; ace hands it over once and never saves it.`,
-    });
+}
+
+/** Ways to sign an existing account in again: the same sign-in ways, never a key. */
+export function reauthWays(provider: Provider): AccountWay[] {
+  const ways = accountWays(provider);
+  for (const entry of ways) if (!entry.signIn) entry.label = "Sign in again";
   return ways;
 }
 
-/** Ways to sign an existing account in again: the browser, then each API key the CLI takes. */
-export function reauthWays(provider: Provider, support: ApiKeySupport): AccountWay[] {
-  const ways = accountWays(provider, support);
-  for (const entry of ways)
-    if (entry.method === "login" && !entry.signIn) entry.label = "Sign in again";
-  if (provider !== "opencode" || !support.supported) return ways;
-  return [
-    ...ways,
-    ...(support.upstreams ?? []).flatMap((upstream): AccountWay[] => {
-      const parsed = ApiKeyUpstream.safeParse(upstream);
-      return parsed.success
-        ? [
-            {
-              id: `api_key:${parsed.data}`,
-              label: `Use ${apiKeyServiceLabel("opencode", parsed.data)} API key`,
-              method: "api_key",
-              upstream: parsed.data,
-              signIn: null,
-              cloud: false,
-              next: "Next, paste the key. OpenCode stores it; ace never saves it.",
-            },
-          ]
-        : [];
-    }),
-  ];
+/** The one line for a provider that takes API keys: keys are added in ace on the computer. */
+export function apiKeyLine(supported: boolean, machine: string): string | null {
+  return supported ? `Add an API key in ace on ${machine}.` : null;
 }
 
 /** Agents whose sign-in ace removes along with the account, and whose files can go too. */
@@ -238,6 +200,8 @@ export interface AccountsScreen {
   accounts: AccountRow[];
   ways: AccountWay[];
   reauth: AccountWay[];
+  /** "Add an API key in ace on studio.", for a provider that takes keys; never asked for here. */
+  apiKey: string | null;
 }
 
 type Owner = Pick<ClientCore, "request">;
@@ -261,11 +225,7 @@ function chosen(
   input: z.infer<typeof way>,
 ):
   | {
-      fields: {
-        method: "login" | "api_key";
-        upstream?: z.infer<typeof ApiKeyUpstream>;
-        signIn?: AntigravitySignIn;
-      };
+      fields: { method: "login"; signIn?: AntigravitySignIn };
     }
   | { problem: string } {
   if (provider === "antigravity") {
@@ -277,9 +237,7 @@ function chosen(
     if ("problem" in picked) return picked;
     return { fields: { method: "login" as const, signIn: picked.signIn } };
   }
-  return {
-    fields: { method: input.method, ...(input.upstream ? { upstream: input.upstream } : {}) },
-  };
+  return { fields: { method: "login" } };
 }
 
 export async function answerAccountsScreen(
@@ -305,12 +263,17 @@ export async function answerAccountsScreen(
       options,
     );
     if (!reply.result.ok) return failure(reply.result.error);
+    const machine = await owner
+      .request({ type: "host.identity" }, options)
+      .then((identity) => identity.identity.displayName)
+      .catch(() => "the computer running ace");
     const screen: AccountsScreen = {
       provider: request.provider,
       name: providerNames[request.provider],
       accounts: reply.result.accounts.map((entry) => accountRow(entry, request.provider, now)),
-      ways: accountWays(request.provider, reply.result.apiKey),
-      reauth: reauthWays(request.provider, reply.result.apiKey),
+      ways: accountWays(request.provider),
+      reauth: reauthWays(request.provider),
+      apiKey: apiKeyLine(reply.result.apiKey.supported, preview(machine, 64)),
     };
     return { ok: true, screen };
   }

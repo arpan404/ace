@@ -6,12 +6,7 @@ export {
   type AccountBadgeDraft,
   type AccountBadgePreview,
 } from "./account-badge.ts";
-export {
-  manualAgent,
-  splitCommand,
-  type ManualAgent,
-  type ManualAgentCheck,
-} from "./acp-manual-agent.ts";
+export { splitCommand } from "./command-line.ts";
 export {
   checkMcpServer,
   mcpServersNote,

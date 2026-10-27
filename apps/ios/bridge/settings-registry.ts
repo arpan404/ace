@@ -1,6 +1,5 @@
 import type { ClientCore } from "@ace/client";
 import type { ProviderInstallProgress, RegistryAgent } from "@ace/protocol";
-import { manualAgent } from "@ace/ui-core";
 import {
   latestInstallation,
   planFacts,
@@ -24,14 +23,12 @@ import { z } from "zod";
 /*
  * Settings' ACP registry on the phone: browse and search the registry, an entry's page with its
  * install plan and set-up steps, install or update through the daemon's provider installer (so
- * the agent joins Providers and Accounts as on the web), and add an agent the registry doesn't
- * list by its command (`registry.bind`, a `local:` binding the owner approves). Words come from
- * `@ace/ui-core/acp-registry`; Swift draws them.
+ * the agent joins Providers and Accounts as on the web), and the web's Add by command page for
+ * an agent the registry doesn't list. Words come from `@ace/ui-core/acp-registry`; Swift draws.
  */
 
 const agentId = z.string().min(1).max(256);
 const session = z.string().min(1).max(128);
-const manual = { name: z.string().max(256), command: z.string().max(8192) };
 export const RegistryScreenRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("acp.registry"), query: z.string().max(256).default("") }),
   z.object({ type: z.literal("acp.registry.refresh") }),
@@ -43,8 +40,7 @@ export const RegistryScreenRequest = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("acp.registry.progress"), session }),
   z.object({ type: z.literal("acp.registry.cancel"), session }),
-  z.object({ type: z.literal("acp.manual.check"), ...manual }),
-  z.object({ type: z.literal("acp.manual.add"), ...manual }),
+  z.object({ type: z.literal("acp.manual") }),
 ]);
 export type RegistryScreenRequest = z.infer<typeof RegistryScreenRequest>;
 
@@ -67,6 +63,8 @@ export interface RegistryScreen {
   age: string;
   /** What to say when no row shows. */
   empty: string | null;
+  /** A search matched nothing: offer Add one by command, as the web does. */
+  noMatch: boolean;
   /** The list is stale or older than ten minutes: download it again behind the list. */
   revalidate: boolean;
 }
@@ -117,6 +115,7 @@ export function registryScreen(view: RegistryView, query: string, now: number): 
         ? "Couldn't reach the registry · Showing the saved list"
         : registryAge(view.fetchedAt, now),
     empty,
+    noMatch: view.agents.length > 0 && rows.length === 0,
     revalidate:
       view.stale || view.fetchedAt === undefined || now - view.fetchedAt > revalidateAfterMs,
   };
@@ -209,6 +208,22 @@ export function installScreen(progress: ProviderInstallProgress): InstallScreen 
   };
 }
 
+/** The web's Add by command page: offered everywhere the registry is, added only when it can be. */
+export interface ManualScreen {
+  canAdd: boolean;
+  /** Why Add is off; null when it can add. */
+  note: string | null;
+}
+
+/**
+ * Whether this daemon can add an ACP agent by its command. No daemon has a request for it yet
+ * (the registry installs only listed agents, and a bare `registry.bind` leaves no account a
+ * thread can use), so the page shows and says so, exactly as the web does against a daemon.
+ */
+export function manualScreen(): ManualScreen {
+  return { canAdd: false, note: "This daemon can't add agents by command yet." };
+}
+
 type Owner = Pick<ClientCore, "registry" | "request">;
 type Reply = { ok: true; [key: string]: unknown } | { ok: false; problem: string };
 
@@ -289,25 +304,8 @@ export async function answerRegistryScreen(
       case "acp.registry.progress":
       case "acp.registry.cancel":
         return await install(owner, request, signal);
-      case "acp.manual.check": {
-        const check = manualAgent(request.name, request.command);
-        return check.ok
-          ? { ok: true, display: check.agent.display, field: null }
-          : { ok: true, problem: check.problem, field: check.field };
-      }
-      case "acp.manual.add": {
-        const check = manualAgent(request.name, request.command);
-        if (!check.ok) return { ok: false, problem: check.problem };
-        const { name: _name, display: _display, ...binding } = check.agent;
-        const reply = await owner.registry({ type: "registry.bind", ...binding }, { signal });
-        if (reply.result.ok) return { ok: true, name: check.agent.name };
-        return {
-          ok: false,
-          problem: reply.result.reason.endsWith("scope required")
-            ? registryFailure(reply.result.reason)
-            : "ace couldn't add that command. Check it's installed on the computer running ace and isn't already added.",
-        };
-      }
+      case "acp.manual":
+        return { ok: true, manual: manualScreen() };
     }
   } catch (error) {
     return failed(error);

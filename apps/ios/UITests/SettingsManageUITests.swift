@@ -7,7 +7,7 @@ import XCTest
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9885"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9895", "-ace.appearance", "dark"]
         app.launch()
         app.openBrowseDestination("library.providers")
         return app
@@ -26,6 +26,10 @@ import XCTest
         XCTAssertTrue(found)
         let search = app.searchFields.firstMatch
         search.tap()
+        search.typeText("zzzz")
+        XCTAssertTrue(app.buttons["Add one by command"].waitForExistence(timeout: 10))
+        screenshot("registry-no-match")
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
         search.typeText("google")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 10))
         screenshot("registry-search")
@@ -46,20 +50,12 @@ import XCTest
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         name.tap(); name.typeText("My agent")
         let command = app.textFields["Command"]
-        command.tap(); command.typeText("npx my-agent")
-        XCTAssertTrue(app.staticTexts["Use the agent's installed command, not a package runner like npx."].waitForExistence(timeout: 10))
-        screenshot("manual-problem")
-        command.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20))
-        command.typeText("fake-acp --acp")
+        command.tap(); command.typeText("my-agent --acp")
+        // As on the web against a daemon: the page is there, says why, and Add stays off.
+        XCTAssertTrue(app.staticTexts["This daemon can't add agents by command yet."].waitForExistence(timeout: 10))
         let matches = app.buttons.matching(identifier: "Add agent")
-        let addAgent = matches.element(boundBy: max(matches.count - 1, 0))
-        XCTAssertTrue(addAgent.waitForEnabled(timeout: 10))
-        addAgent.tap()
-        XCTAssertTrue(app.staticTexts["Add My agent?"].waitForExistence(timeout: 10))
-        screenshot("manual-confirm")
-        let confirm = app.buttons.matching(identifier: "Add agent")
-        confirm.element(boundBy: confirm.count - 1).tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch.waitForExistence(timeout: 20))
+        XCTAssertFalse(matches.element(boundBy: max(matches.count - 1, 0)).isEnabled)
+        screenshot("manual")
     }
 
     func testAnAccountsBadgeChangesAsItIsEditedAndRemoveOffersItsFiles() {
@@ -71,6 +67,11 @@ import XCTest
         let edit = app.buttons["Edit name and badge"].firstMatch
         XCTAssertTrue(edit.waitForExistence(timeout: 20))
         screenshot("accounts")
+        let keyLine = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Add an API key in ace on'")).firstMatch
+        for _ in 0..<5 where !keyLine.exists { app.swipeUp() }
+        XCTAssertTrue(keyLine.exists)
+        screenshot("accounts-api-key-line")
+        for _ in 0..<5 where !edit.isHittable { app.swipeDown() }
         edit.tap()
         XCTAssertTrue(app.textFields["Badge letters"].waitForExistence(timeout: 10))
         screenshot("badge-editor")
@@ -91,15 +92,14 @@ import XCTest
         let addAccount = app.buttons["Add account"].firstMatch
         for _ in 0..<4 where !addAccount.isHittable { app.swipeUp() }
         addAccount.tap()
-        XCTAssertTrue(app.buttons["Use OpenAI API key"].waitForExistence(timeout: 10))
-        screenshot("add-account")
-        app.buttons["Use OpenAI API key"].tap()
+        XCTAssertTrue(app.buttons["Sign in with the browser"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Use OpenAI API key"].exists)
         let label = app.textFields["Account name"]
         label.tap(); label.typeText("Side")
-        screenshot("add-account-key")
+        screenshot("add-account")
         app.buttons["Add"].tap()
-        XCTAssertTrue(app.secureTextFields["API key"].waitForExistence(timeout: 15))
-        screenshot("add-account-paste-key")
+        XCTAssertFalse(app.secureTextFields["API key"].waitForExistence(timeout: 5))
+        screenshot("add-account-sign-in")
         app.buttons["Done"].tap()
     }
 
@@ -135,16 +135,5 @@ import XCTest
         if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
             try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
         }
-    }
-}
-
-private extension XCUIElement {
-    func waitForEnabled(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if exists && isEnabled { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        }
-        return false
     }
 }

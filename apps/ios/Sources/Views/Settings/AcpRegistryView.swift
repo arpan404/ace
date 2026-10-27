@@ -14,6 +14,7 @@ struct RegistryScreenData: Decodable, Equatable {
     let rows: [RegistryRowData]
     let age: String
     let empty: String?
+    let noMatch: Bool
     let revalidate: Bool
 }
 private struct RegistryAnswer: ManageAnswer {
@@ -49,6 +50,9 @@ struct AcpRegistryView: View {
                         }
                         if let empty = screen.empty {
                             Text(empty).foregroundStyle(AceTheme.Colours.mutedForeground).transition(.opacity)
+                            if screen.noMatch {
+                                NavigationLink("Add one by command") { ManualAcpAgentView(model: model) }
+                            }
                         }
                     } header: { InsetHeader("ACP registry") } footer: { footer(screen) }
                 } else if problem == nil {

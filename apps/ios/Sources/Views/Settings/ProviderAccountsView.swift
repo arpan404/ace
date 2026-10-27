@@ -21,14 +21,11 @@ struct AccountRowData: Decodable, Identifiable, Equatable {
 struct AccountWay: Decodable, Identifiable, Equatable {
     let id: String
     let label: String
-    let method: String
-    let upstream: String?
     let signIn: String?
     let cloud: Bool
     let next: String
     func payload(project: String = "", location: String = "") -> [String: Any] {
-        var value: [String: Any] = ["method": method, "project": project, "location": location]
-        if let upstream { value["upstream"] = upstream }
+        var value: [String: Any] = ["project": project, "location": location]
         if let signIn { value["signIn"] = signIn }
         return value
     }
@@ -38,6 +35,8 @@ struct AccountsScreenData: Decodable, Equatable {
     let accounts: [AccountRowData]
     let ways: [AccountWay]
     let reauth: [AccountWay]
+    /// "Add an API key in ace on studio." Keys are never taken on the phone (ADR 0002).
+    let apiKey: String?
 }
 private struct AccountsAnswer: ManageAnswer {
     let ok: Bool
@@ -73,7 +72,10 @@ struct ProviderAccountsView: View {
                     if model.canOperate {
                         Section {
                             Button("Add account") { adding = true }.frame(minHeight: 44)
-                        } footer: { if screen.accounts.isEmpty { Text("No accounts yet.") } }
+                        } footer: {
+                            let lines = [screen.accounts.isEmpty ? "No accounts yet." : nil, screen.apiKey].compactMap { $0 }
+                            if !lines.isEmpty { Text(lines.joined(separator: " ")) }
+                        }
                     }
                 } else if problem == nil {
                     Section { ForEach(0..<2, id: \.self) { _ in placeholder } }.redacted(reason: .placeholder)

@@ -65,6 +65,11 @@ const Request = z.union([
   TerminalRequest,
   UsageSummary,
 ]);
+/**
+ * ADR 0002 lets a paired device hand over an API key only on the relay's encrypted
+ * `provider_auth` channel, which this bridge doesn't have, so a key never leaves the phone here.
+ */
+const ApiKeyHandOver = z.object({ type: z.literal("provider.login.apiKey") });
 const DeviceRequestType = z.object({
   type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
 });
@@ -141,6 +146,7 @@ export class NativeServices {
     this.#pending.set(id, controller);
     if (read) this.#keeping.add(id);
     try {
+      if (ApiKeyHandOver.safeParse(raw).success) throw new Error("API keys stay off the phone");
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {

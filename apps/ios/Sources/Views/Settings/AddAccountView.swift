@@ -24,10 +24,6 @@ private struct SignInAnswer: ManageAnswer {
         started = progress.map { StartedSignIn(progress: $0, instance: owner?.instance) }
     }
 }
-private struct LoginAnswer: Decodable {
-    struct Result: Decodable { let ok: Bool; let progress: LoginProgress? }
-    let result: Result
-}
 
 /// Name a new account, give it a badge, choose how it signs in, then sign in.
 struct AddAccountView: View {
@@ -184,61 +180,14 @@ struct AccountSignInSheet: View {
     }
 }
 
-/// A started sign-in: a key the CLI waits for is asked for here and handed over once, in
-/// memory only (ADR 0002 amendment); everything else continues in the provider's sign-in page.
+/// A started sign-in, continued in the provider's sign-in page. API keys are never entered on
+/// the phone: ADR 0002 allows them only over the relay's `provider_auth` channel.
 struct AccountSignInFlow: View {
     let model: ClientModel
     let provider: String
     let name: String
     let started: StartedSignIn
-    @State private var key = ""
-    /// The sign-in as last read; it starts before it knows whether the CLI wants a key.
-    @State private var current: LoginProgress?
-    @State private var handedOver: LoginProgress?
-    @State private var problem: String?
-    @State private var busy = false
     var body: some View {
-        let progress = current ?? started.progress
-        if progress.state == "starting", handedOver == nil {
-            HStack { Spacer(); ProgressView(); Spacer() }
-                .frame(maxHeight: .infinity)
-                .task { await settle() }
-        } else if progress.state == "awaiting_api_key", handedOver == nil {
-            Form {
-                Group {
-                    Section {
-                        SecureField("API key", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("Continue") { Task { await handOver() } }.disabled(key.isEmpty || busy)
-                    } header: { InsetHeader("Paste the key") } footer: { Text("\(name)'s CLI stores the key. ace hands it over once and never saves it.") }
-                    ServiceProblem(message: problem)
-                }
-                .insetRowBackground()
-            }
-            .insetGroupedList()
-            .onDisappear { key = "" }
-        } else {
-            ProviderSignInView(model: model, provider: provider, name: name, instance: started.instance, initial: handedOver ?? progress)
-        }
-    }
-    /// Reads the sign-in until it says what it waits for.
-    private func settle() async {
-        while (current ?? started.progress).state == "starting", !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(400))
-            if let reply = try? await model.service(["type": "provider.login.poll", "session": started.progress.session], as: LoginAnswer.self),
-               let next = reply.result.progress {
-                withAnimation(.smooth) { current = next }
-            }
-        }
-    }
-    private func handOver() async {
-        busy = true; problem = nil
-        let entry = key
-        key = ""
-        defer { busy = false }
-        do {
-            let reply = try await model.service(["type": "provider.login.apiKey", "session": (current ?? started.progress).session, "apiKey": entry], as: LoginAnswer.self)
-            guard reply.result.ok, let next = reply.result.progress else { throw ServiceFailure(message: "The CLI didn't take the key. Check it and try again.") }
-            withAnimation(.smooth) { handedOver = next }
-        } catch { problem = error.localizedDescription }
+        ProviderSignInView(model: model, provider: provider, name: name, instance: started.instance, initial: started.progress)
     }
 }

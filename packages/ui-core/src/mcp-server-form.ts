@@ -1,5 +1,5 @@
 import { McpServerInput, type McpSources, type ProviderKind } from "@ace/protocol";
-import { splitCommand } from "./acp-manual-agent.ts";
+import { splitCommand } from "./command-line.ts";
 
 /*
  * A provider's own MCP servers as Settings shows them: one plain word per state, and the Add

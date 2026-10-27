@@ -35,47 +35,55 @@ async function open() {
 
 const labels = (ways: { label: string }[]) => ways.map((way) => way.label);
 
-test("each provider offers every way its daemon can add an account", async () => {
+test("each provider offers its sign-in ways and never asks for an API key on the phone", async () => {
   const { ask } = await open();
-  const codex = await ask({ type: "accounts.screen", provider: "codex" });
-  expect(labels(codex.screen.ways)).toEqual(["Sign in with the browser", "Use OpenAI API key"]);
-  const claude = await ask({ type: "accounts.screen", provider: "claude" });
-  expect(labels(claude.screen.ways)).toEqual(["Sign in with the browser"]);
-  const antigravity = await ask({ type: "accounts.screen", provider: "antigravity" });
-  expect(antigravity.screen.ways).toMatchObject([
+  const codex = (await ask({ type: "accounts.screen", provider: "codex" })).screen;
+  expect(labels(codex.ways)).toEqual(["Sign in with the browser"]);
+  expect(labels(codex.reauth)).toEqual(["Sign in again"]);
+  // Codex takes keys, but only through ace on the computer (ADR 0002's provider_auth channel).
+  expect(codex.apiKey).toMatch(/^Add an API key in ace on .+\.$/);
+  const claude = (await ask({ type: "accounts.screen", provider: "claude" })).screen;
+  expect(labels(claude.ways)).toEqual(["Sign in with the browser"]);
+  expect(claude.apiKey).toBeNull();
+  const opencode = (await ask({ type: "accounts.screen", provider: "opencode" })).screen;
+  expect(labels(opencode.reauth)).toEqual(["Sign in again"]);
+  const antigravity = (await ask({ type: "accounts.screen", provider: "antigravity" })).screen;
+  expect(antigravity.ways).toMatchObject([
     { label: "Google account", cloud: false },
     { label: "Gemini Enterprise", cloud: true },
     { label: "Agent Platform", cloud: true },
   ]);
+  for (const screen of [codex, claude, opencode, antigravity])
+    expect(JSON.stringify([screen.ways, screen.reauth])).not.toMatch(/api.?key|upstream/i);
 });
 
-test("adding an account starts its sign-in, and a cloud sign-in needs its project first", async () => {
+test("adding an account starts a browser sign-in, even when a request names a key method", async () => {
   const { ask } = await open();
   const added = await ask({
     type: "accounts.screen.add",
     provider: "codex",
     label: "Work",
     shortLabel: "WK",
-    way: { method: "api_key" },
+    // Stray fields from an older caller are dropped by the schema; only login is ever sent.
+    way: { method: "api_key", upstream: "openai" } as never,
   });
   expect(added.ok).toBe(true);
-  expect(added.progress).toMatchObject({ provider: "codex", method: "api_key" });
+  expect(added.progress).toMatchObject({ provider: "codex" });
+  expect(added.progress.method ?? "login").toBe("login");
+});
 
+test("a cloud sign-in needs its project first, and a name and usable badge are required", async () => {
+  const { ask } = await open();
   expect(
     await ask({
       type: "accounts.screen.add",
       provider: "antigravity",
       label: "Team",
-      way: { method: "login", signIn: "enterprise", project: "", location: "global" },
+      way: { signIn: "enterprise", project: "", location: "global" },
     }),
   ).toEqual({ ok: false, problem: "Enter the Google Cloud project ID, like my-project-123." });
   expect(
-    await ask({
-      type: "accounts.screen.add",
-      provider: "codex",
-      label: "  ",
-      way: { method: "login" },
-    }),
+    await ask({ type: "accounts.screen.add", provider: "codex", label: "  ", way: {} }),
   ).toEqual({ ok: false, problem: "Give the account a name, like Work." });
   expect(
     await ask({
@@ -83,7 +91,7 @@ test("adding an account starts its sign-in, and a cloud sign-in needs its projec
       provider: "codex",
       label: "Work",
       shortLabel: "ABC",
-      way: { method: "login" },
+      way: {},
     }),
   ).toEqual({ ok: false, problem: "Use up to two letters, or pick an icon." });
 });
