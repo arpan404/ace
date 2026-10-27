@@ -15,6 +15,8 @@ import XCTest
         let app = launch()
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        // Beside the list there is no tab bar: the sidebar carries Threads and Pull requests.
+        XCTAssertTrue(app.tabBars.buttons["Pulls"].waitForNotHittable(timeout: 5), "a launch in landscape keeps the tab bar hidden")
         // A fresh thread's panel opens on Changes beside Files, the list still beside the thread.
         let toggle = app.buttons["thread.panel"]
         XCTAssertTrue(toggle.waitForHittable(timeout: 10))
@@ -58,6 +60,7 @@ import XCTest
         menuItem("Close other tabs", in: app).tap()
         XCTAssertTrue(agents.waitForNonExistence(timeout: 10))
         XCTAssertTrue(changes.reachable && files.reachable && terminal.reachable)
+        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable, "opening and closing the panel keeps the tab bar hidden")
         screenshot("ipad-panel-pinned")
 
         // Each thread keeps its own panel: another thread starts with none showing.
@@ -96,6 +99,35 @@ import XCTest
         XCTAssertTrue(threads.waitForHittable(timeout: 10))
         XCTAssertTrue(app.buttons["panel.tab.changes"].reachable)
         screenshot("ipad-landscape-panel-after-turn")
+    }
+
+    func testThePanelsEdgeDragsToResizeAndTheWidthIsKept() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        app.buttons["thread.panel"].tap()
+        let panel = app.otherElements["panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        sleep(1)
+        let before = panel.frame
+        let screen = app.coordinate(withNormalizedOffset: .zero)
+        let edge = screen.withOffset(CGVector(dx: before.minX - 2, dy: before.midY))
+        edge.press(forDuration: 0.3, thenDragTo: screen.withOffset(CGVector(dx: before.minX - 120, dy: before.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        sleep(1)
+        let wider = panel.frame.width
+        XCTAssertGreaterThan(wider, before.width + 60, "the edge drags the panel wider")
+        screenshot("ipad-panel-resized")
+        // The width is the thread's: it comes back after a relaunch.
+        sleep(1)
+        app.terminate()
+        let again = launch()
+        open("thread.ios-form", in: again)
+        let kept = again.otherElements["panel"]
+        XCTAssertTrue(kept.waitForExistence(timeout: 20))
+        sleep(1)
+        XCTAssertEqual(kept.frame.width, wider, accuracy: 4)
     }
 
     func testTheKeyboardOpensClosesAndReopensPanelTabs() throws {

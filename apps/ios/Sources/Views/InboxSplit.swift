@@ -38,6 +38,8 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     /// would tell the panel it has room again, bringing the list back, and round again.
     @State private var yieldedList: CGFloat = 0
     @State private var panelPlace = PanelPlace.none
+    /// Set once the window first shows, for the tab bar's place (`TabBarPlace`).
+    @State private var appeared = false
     @State private var panelColumn: PanelColumnWidth?
     /// Each time the system closed the inspector itself.
     @State private var panelDismissed = 0
@@ -65,8 +67,9 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
         .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
-            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path), relayout: panelColumn != nil).frame(width: 0, height: 0) }
+            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path), relayout: "\(panelColumn != nil) \(path.count) \(sizeClass == .regular) \(appeared)").frame(width: 0, height: 0) }
         }
+        .task { try? await Task.sleep(for: .milliseconds(300)); appeared = true }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onGeometryChange(for: CGFloat.self) { proxy in
