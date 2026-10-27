@@ -48,6 +48,7 @@ import {
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
 import { editorLocations, installedEditors, registryAppPath } from "./installed-editors.ts";
 import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
+import { openableProjectFolders } from "./host-open-places.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
 import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
@@ -92,6 +93,10 @@ export interface WorkspaceRuntimeOptions {
   editorPath?: string;
   /** Starts `host.open`'s editor or file manager; a detached process by default. */
   hostSpawn?: HostSpawner;
+  /** The personal skill folders `host.open` lets an `operate` device open in. */
+  hostSkillRoots?: () => readonly string[];
+  /** The home folder `host.open` expands `~` from; this user's by default. */
+  home?: string;
   /** Finds `host.open`'s editors; this machine's installed ones by default. */
   hostEditors?: () => Promise<readonly InstalledEditor[]>;
   /** Launcher folders searched after PATH; the platform's usual ones by default. */
@@ -477,10 +482,11 @@ export class WorkspaceRuntime {
     request: WorkspaceActionRequest,
     signal: AbortSignal = new AbortController().signal,
     /**
-     * Whether the caller may still act, asked again right before an effect on this machine
-     * (`host.open`): its device can be revoked while the read waits on I/O.
+     * Whether the caller may still act with `scope` (the request's own when absent), asked
+     * again right before an effect on this machine (`host.open`): its device can be revoked
+     * while the read waits on I/O.
      */
-    still?: () => boolean,
+    still?: (scope?: "read" | "operate" | "admin") => boolean,
   ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
@@ -592,16 +598,27 @@ export class WorkspaceRuntime {
         editors: await this.#editors(),
       });
     if (op.op === "host.open") {
-      if ((op.threadId === undefined) === (op.workspaceId === undefined))
+      const named = [op.threadId, op.workspaceId, op.hostPath].filter((at) => at !== undefined);
+      if (named.length !== 1 || (op.hostPath !== undefined && op.path !== undefined))
         throw new Error("invalid");
       const root = op.threadId
         ? this.root(op.threadId)
         : op.workspaceId && this.store.getWorkspacePath(op.workspaceId);
-      if (!root) throw new Error("workspace_not_found");
+      if (op.hostPath === undefined && !root) throw new Error("workspace_not_found");
       const platform = this.options.platform ?? process.platform;
       await openOnHost({
-        root,
-        path: op.path,
+        place:
+          op.hostPath !== undefined
+            ? {
+                kind: "host",
+                path: op.hostPath,
+                home: this.options.home ?? homedir(),
+                places: () => ({
+                  projects: openableProjectFolders(this.store),
+                  skills: this.options.hostSkillRoots?.() ?? [],
+                }),
+              }
+            : { kind: "inside", root: root || "", path: op.path },
         line: op.line,
         app: op.app,
         platform,

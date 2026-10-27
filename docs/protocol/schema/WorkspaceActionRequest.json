@@ -833,6 +833,12 @@
                 }
               ]
             },
+            "hostPath": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "Absolute or ~-relative host path without NUL bytes."
+            },
             "line": {
               "exclusiveMinimum": 0,
               "maximum": 10000000,

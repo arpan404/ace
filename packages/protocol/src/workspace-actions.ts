@@ -44,6 +44,13 @@ const repoPath = z
   .max(4096)
   .refine((path) => !path.includes("\0"))
   .meta({ "x-ace-constraint": "Repository-relative path without NUL bytes." });
+/** A path on the machine running ace: absolute, or from the home folder (`~/...`). */
+const hostPath = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((path) => !path.includes("\0"))
+  .meta({ "x-ace-constraint": "Absolute or ~-relative host path without NUL bytes." });
 /** One file `git status` reports in a thread's checkout, with its lines changed against HEAD. */
 export const GitStatusFile = z.object({
   path: repoPath,
@@ -75,7 +82,10 @@ export const WorkspaceActionRequest = z.object({
      * Open a project's or a thread's folder, or a file in it, on the machine running ace: in an
      * editor `editors.list` found there, or the machine's file manager. For clients on another
      * device (a phone); the desktop app opens editors on its own machine (ADR 0057). Exactly one
-     * of `workspaceId` and `threadId`; `path` is relative to that folder and never leaves it.
+     * of `workspaceId`, `threadId` and `hostPath`. `path` is relative to the project's or
+     * thread's folder and never leaves it. `hostPath` is any path on the machine, absolute or
+     * from `~`: inside a project or a personal skill folder it needs `operate`, anywhere else
+     * the owner's `admin` (refused as `owner_only`).
      */
     z.object({
       op: z.literal("host.open"),
@@ -86,6 +96,7 @@ export const WorkspaceActionRequest = z.object({
       workspaceId: WorkspaceId.optional(),
       threadId: ThreadId.optional(),
       path: repoPath.optional(),
+      hostPath: hostPath.optional(),
       line: z.number().int().positive().max(10_000_000).optional(),
     }),
     z.object({ op: z.literal("branches.list"), workspaceId: WorkspaceId }),

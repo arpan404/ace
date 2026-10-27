@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { hostLaunch, hostTarget, openOnHost, spawnDetached, type HostLaunch } from "./host-open.ts";
+import { hostLaunch, openOnHost, spawnDetached, type HostLaunch } from "./host-open.ts";
+import { insideTarget } from "./host-open-target.ts";
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -20,10 +21,8 @@ async function project() {
 }
 
 /** The target inside `root`, failing the test when it is refused. */
-async function inside(root: string, path: string | undefined) {
-  const found = await hostTarget(root, path);
-  if (!found) throw new Error(`${path ?? "."} was refused`);
-  return found;
+function inside(root: string, path: string | undefined) {
+  return insideTarget(root, path);
 }
 
 const code = { id: "code", name: "Visual Studio Code", command: "/usr/local/bin/code" };
@@ -49,8 +48,8 @@ describe("opening a project on the machine running ace", () => {
 
   test("a path that climbs out of the project is refused", async () => {
     const root = await project();
-    expect(await hostTarget(root, "../..")).toBeUndefined();
-    expect(await hostTarget(root, "/etc/hosts")).toBeUndefined();
+    await expect(insideTarget(root, "../..")).rejects.toThrow("path_not_found");
+    await expect(insideTarget(root, "/etc/hosts")).rejects.toThrow("path_not_found");
   });
 
   test("a symlink pointing outside the project is refused", async () => {
@@ -58,7 +57,7 @@ describe("opening a project on the machine running ace", () => {
     const outside = await realpath(await mkdtemp(join(tmpdir(), "ace-host-outside-")));
     folders.push(outside);
     await symlink(outside, join(root, "escape"));
-    expect(await hostTarget(root, "escape")).toBeUndefined();
+    await expect(insideTarget(root, "escape")).rejects.toThrow("path_not_found");
   });
 
   test("the file manager shows a file inside its folder on each platform", async () => {
@@ -112,7 +111,7 @@ describe("an open that waits on the machine", () => {
     const machine = held();
     let allowed = true;
     const opening = openOnHost({
-      root,
+      place: { kind: "inside", root },
       app: { kind: "editor", editorId: "code" },
       platform: "darwin",
       editors: machine.editors,
@@ -131,7 +130,7 @@ describe("an open that waits on the machine", () => {
     const machine = held();
     const controller = new AbortController();
     const opening = openOnHost({
-      root,
+      place: { kind: "inside", root },
       app: { kind: "editor", editorId: "code" },
       platform: "darwin",
       editors: machine.editors,
@@ -150,7 +149,7 @@ describe("an open that waits on the machine", () => {
     const machine = held();
     machine.finish();
     await openOnHost({
-      root,
+      place: { kind: "inside", root },
       app: { kind: "editor", editorId: "code" },
       platform: "darwin",
       editors: machine.editors,
@@ -167,7 +166,7 @@ async function openOnWindows(editor: { id: string; name: string; command: string
   const root = await project();
   const started: HostLaunch[] = [];
   const opening = openOnHost({
-    root,
+    place: { kind: "inside", root },
     app: { kind: "editor", editorId: editor.id },
     platform: "win32",
     editors: async () => [editor],

@@ -45,6 +45,7 @@ export async function startWorkspaceActions({
   }
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
+    hostSkillRoots: () => services.skillLibrary?.personalRoots() ?? [],
     ...options.workspaceActions,
     ...(configuredTimeout != null ? { preparationTimeoutMs: configuredTimeout } : {}),
     git: {
@@ -350,9 +351,10 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           .read(
             message,
             AbortSignal.any([lifetime.signal, controller.signal]),
-            () =>
+            // `host.open` outside every project needs the owner's `admin`, decided on the host.
+            (need = scope) =>
               connected() &&
-              authorize(scope) &&
+              authorize(need) &&
               (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId)),
           )
           .then((result) => {

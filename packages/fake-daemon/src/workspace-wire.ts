@@ -234,6 +234,11 @@ export class FakeWorkspaceWire {
   }
   /** What `host.open` opened on this fake machine, in order: no process starts. */
   readonly opened: { app: string; folder: string; path?: string; line?: number }[] = [];
+  /** Host paths under these folders answer `owner_only`, as for a phone without `admin`. */
+  private ownerOnly: readonly string[] = [];
+  setOwnerOnlyHostPaths(prefixes: readonly string[]): void {
+    this.ownerOnly = [...prefixes];
+  }
   /** The project's scripts as the daemon lists them from package.json, by workspace. */
   private scriptOverrides = new Map<string, readonly string[]>();
   setScripts(workspaceId: string, names: readonly string[]): void {
@@ -329,19 +334,23 @@ export class FakeWorkspaceWire {
     }
     if (op.op === "host.open") {
       const editor = op.app.kind === "editor" ? op.app.editorId : undefined;
-      const folder = op.threadId ?? op.workspaceId;
+      const folder = op.threadId ?? op.workspaceId ?? (op.hostPath ? "host" : undefined);
+      const path = op.hostPath ?? op.path;
       const known = editor === undefined || this.editors.some((entry) => entry.id === editor);
-      if (known && folder)
+      const ownerOnly =
+        op.hostPath !== undefined && this.ownerOnly.some((prefix) => path?.startsWith(prefix));
+      const code = ownerOnly ? "owner_only" : "editor_not_found";
+      if (known && folder && !ownerOnly)
         this.opened.push({
           app: editor ?? "files",
           folder,
-          ...(op.path ? { path: op.path } : {}),
+          ...(path ? { path } : {}),
           ...(op.line ? { line: op.line } : {}),
         });
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: known && folder ? { kind: "opened" } : { kind: "error", code: "editor_not_found" },
+        result: known && folder && !ownerOnly ? { kind: "opened" } : { kind: "error", code },
       });
     }
     if (op.op === "workspaces.list")
