@@ -34,15 +34,15 @@ export type PinnedRefusal = "pin" | "redirect" | "offline" | "limit" | "invalid"
 
 export class PinnedTransportError extends Error {
   readonly refusal: PinnedRefusal;
-  constructor(refusal: PinnedRefusal, message?: string) {
-    super(message ?? pinnedMessage(refusal));
+  constructor(reason: PinnedRefusal, message?: string) {
+    super(message ?? pinnedMessage(reason));
     this.name = "PinnedTransportError";
-    this.refusal = refusal;
+    this.refusal = reason;
   }
 }
 
-function pinnedMessage(refusal: PinnedRefusal): string {
-  switch (refusal) {
+function pinnedMessage(reason: PinnedRefusal): string {
+  switch (reason) {
     case "pin":
       return "This computer's identity doesn't match the pairing link. Nothing was sent.";
     case "redirect":
@@ -206,7 +206,7 @@ export function createPinnedHttp(
         token: request.token,
       });
     } catch (error) {
-      throw refusal(error);
+      throw toPinnedError(error);
     }
     if (typeof response?.status !== "number" || typeof response?.body !== "string") {
       throw new PinnedTransportError("invalid");
@@ -218,7 +218,7 @@ export function createPinnedHttp(
 
 const REFUSALS: readonly PinnedRefusal[] = ["pin", "redirect", "offline", "limit", "invalid"];
 
-function refusal(error: unknown): PinnedTransportError {
+function toPinnedError(error: unknown): PinnedTransportError {
   const reason = error instanceof Error ? error.message : error;
   if (typeof reason === "string" && (REFUSALS as readonly string[]).includes(reason)) {
     return new PinnedTransportError(reason as PinnedRefusal);
@@ -256,8 +256,7 @@ export async function accessJson(
   } catch (error) {
     const reason = error instanceof PinnedTransportError ? error.refusal : "offline";
     trust?.report(reason);
-    if (reason === "pin")
-      throw new ClientError("auth", "TLS public-key fingerprint mismatch");
+    if (reason === "pin") throw new ClientError("auth", "TLS public-key fingerprint mismatch");
     if (reason === "redirect") throw new ClientError("protocol", "Redirect refused");
     if (reason === "limit") throw new ClientError("limit", "Response too large");
     if (reason === "invalid") throw new ClientError("protocol", "Invalid pairing request");

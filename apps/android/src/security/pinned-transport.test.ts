@@ -18,11 +18,13 @@ const TOKEN = "e0".repeat(32);
 const ORIGIN = "https://192.168.1.20:4243/";
 
 /** Native mock that enforces pin-before-send: it throws before recording any send. */
-function nativeMock(hooks: {
-  expectedPin?: string;
-  respond?: (sent: { token?: string | undefined }) => PinnedResponse;
-  refuse?: unknown;
-} = {}): NativePinnedHttp & { sent: { token?: string | undefined }[] } {
+function nativeMock(
+  hooks: {
+    expectedPin?: string;
+    respond?: (sent: { token?: string | undefined }) => PinnedResponse;
+    refuse?: unknown;
+  } = {},
+): NativePinnedHttp & { sent: { token?: string | undefined }[] } {
   const sent: { token?: string | undefined }[] = [];
   const native = (async (input: {
     fingerprint: string;
@@ -72,7 +74,9 @@ it("fails closed on a missing or malformed pin without touching the network", as
   }
   const native = nativeMock();
   const http = createPinnedHttp(native, { origin: ORIGIN, fingerprint: PIN });
-  await expect(http({ method: "POST", path: "/v1/pair", body: "{}", token: "bad" })).rejects.toMatchObject({
+  await expect(
+    http({ method: "POST", path: "/v1/pair", body: "{}", token: "bad" }),
+  ).rejects.toMatchObject({
     refusal: "invalid",
   });
   expect(native.sent).toHaveLength(0);
@@ -132,19 +136,19 @@ it("fails closed on a pin mismatch: the token never leaves", async () => {
 
 it("maps native refusals without leaking request detail", async () => {
   const trust = new TrustMonitor();
-  const offline = createPinnedHttp(
-    nativeMock({ refuse: new Error("boom") }),
-    { origin: ORIGIN, fingerprint: PIN },
-  );
+  const offline = createPinnedHttp(nativeMock({ refuse: new Error("boom") }), {
+    origin: ORIGIN,
+    fingerprint: PIN,
+  });
   await expect(
     accessJson(offline, { method: "GET", path: "/v1/status" }, trust),
   ).rejects.toMatchObject({ code: "offline" });
   expect(trust.failure).toBeUndefined();
 
-  const redirect = createPinnedHttp(
-    nativeMock({ refuse: new Error("redirect") }),
-    { origin: ORIGIN, fingerprint: PIN },
-  );
+  const redirect = createPinnedHttp(nativeMock({ refuse: new Error("redirect") }), {
+    origin: ORIGIN,
+    fingerprint: PIN,
+  });
   await expect(accessJson(redirect, { method: "GET", path: "/v1/status" })).rejects.toMatchObject({
     code: "protocol",
     message: "Redirect refused",
