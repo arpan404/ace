@@ -3,20 +3,19 @@ import SwiftUI
 /// The redesign's shared chrome. System glass draws every floating control on iOS 26; iOS 18
 /// gets the regular material with a hairline edge. Content never sits on glass of its own.
 extension View {
-    /// Glass tinted toward the page, so in dark mode it reads as near-black rather than grey.
-    @available(iOS 26, *) static var darkGlass: Glass { .regular.tint(AceTheme.Colours.background.opacity(0.55)) }
-    /// Glass in `shape`. `interactive` lets iOS 26 react to touches (buttons, capsules).
+    /// Glass in `shape`: the system's own, untinted, so a floating control reads exactly like
+    /// the bar's buttons beside it. `interactive` lets iOS 26 react to touches (buttons, capsules).
     @ViewBuilder func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(interactive ? Self.darkGlass.interactive() : Self.darkGlass, in: shape)
+            self.glassEffect(.regular.interactive(interactive), in: shape)
         } else {
             self.background(.regularMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }
-    /// Liquid glass for the composer: tinted only lightly toward the page, so the transcript
-    /// scrolling behind it shows through, as in the system's own apps.
-    @available(iOS 26, *) static var composerLiquidGlass: Glass { .regular.tint(AceTheme.Colours.background.opacity(0.25)).interactive() }
+    /// Liquid glass for the composer: the system's own, untinted, so the transcript scrolling
+    /// behind it shows through as in the system's own apps.
+    @available(iOS 26, *) static var composerLiquidGlass: Glass { .regular.interactive() }
     /// The composer, its strip and the first message's card: glass the transcript scrolls behind
     /// and shows through, softly blurred, like the system's own bars. iOS 18 gets the thin
     /// material with a hairline edge.
