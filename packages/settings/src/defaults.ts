@@ -8,8 +8,11 @@ export const defaults: SettingsValues = {
     worktrees: 30,
     caches: 7,
     idleThreads: false,
+    worktreeMode: "archived",
   },
   "storage.scheduledCleanup": false,
+  "storage.worktreeRetentionDays": null,
+  "storage.backupWorktrees": false,
   "storage.retentionDays": 120,
   "logs.maxBytes": 1024 ** 3,
   "sourceControl.preferences": {

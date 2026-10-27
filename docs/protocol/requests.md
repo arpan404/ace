@@ -1328,7 +1328,7 @@ Example:
 ```json
 {
   "keys": [
-    "browser.userChrome.storageReads"
+    "browser.downloadDefault"
   ],
   "requestId": "example",
   "scope": {},

@@ -2,6 +2,41 @@
   "$id": "https://ace.local/protocol/v1/StorageUsage.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "backups": {
+      "default": [],
+      "items": {
+        "properties": {
+          "error": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "complete",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "state",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "categories": {
       "items": {
         "properties": {

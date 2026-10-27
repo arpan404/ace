@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { StorageKind, StorageRetention } from "@ace/protocol";
 import {
@@ -22,13 +22,12 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
   const [scheduledDraft, setScheduledDraft] = useState<boolean>();
-  const query = useQuery({
-    queryKey: [client, "storage", "retention"],
-    enabled: ready,
-    queryFn: async () => {
+  const query = useDaemonQuery({
+    queryKey: ["storage", "retention"],
+    read: async (daemon) => {
       const [retention, scheduled] = await Promise.all([
-        client.request({ type: "settings.get", key: "storage.retention", scope: {} }),
-        client.request({ type: "settings.get", key: "storage.scheduledCleanup", scope: {} }),
+        daemon.request({ type: "settings.get", key: "storage.retention", scope: {} }),
+        daemon.request({ type: "settings.get", key: "storage.scheduledCleanup", scope: {} }),
       ]);
       if (!retention.ok || !scheduled.ok) throw new Error("Storage preferences are unavailable.");
       return {
@@ -81,7 +80,12 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
     >
       {values ? (
         StorageKind.options.map((kind) => (
-          <SettingRow key={kind} title={storageLabels[kind]} inline>
+          <SettingRow
+            key={kind}
+            title={storageLabels[kind]}
+            description={kind === "worktrees" ? "Archived threads only." : undefined}
+            inline
+          >
             <input
               aria-label={`${storageLabels[kind]} retention days`}
               type="number"
@@ -107,7 +111,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
       )}
       <SettingRow
         title="Daily cleanup"
-        description="Applies the saved retention every day. Forced worktree removal stays manual."
+        description="Runs every day. Worktrees have their own setting."
         inline
       >
         <Switch
