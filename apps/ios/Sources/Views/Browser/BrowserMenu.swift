@@ -12,7 +12,6 @@ struct BrowserMenu: View {
     @Binding var finding: Bool
     @Binding var clearing: Bool
     var split: Binding<String?>? = nil
-    var pip: () -> Void = {}
     let screenshot: (Bool) -> Void
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
@@ -55,12 +54,6 @@ struct BrowserMenu: View {
                     }
                     .disabled(!page)
                     .accessibilityIdentifier("browser.menu.device")
-                }
-                // Watching the page float needs no control of it: view-only phones have it too.
-                if model.browser.canPictureInPicture {
-                    Button(model.browser.pictureInPicture ? "Exit Picture in Picture" : "Picture in Picture", ace: .pictureInPicture, action: pip)
-                        .disabled(!page)
-                        .accessibilityIdentifier("browser.menu.pip")
                 }
                 if let url {
                     ShareLink(item: url) { Label("Share address", ace: .export) }

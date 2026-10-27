@@ -222,7 +222,6 @@ const extra = [
   "printer",
   "puzzle-piece",
   "chat-circle-text",
-  "picture-in-picture",
   "square-split-horizontal",
   "pencil-simple-line",
   // Device viewing and stream stats.
