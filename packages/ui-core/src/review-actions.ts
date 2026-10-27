@@ -1,8 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { ReviewReply, ReviewSession, ThreadId, WorkspaceId } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
-import type { LocalStore } from "../store.ts";
-import { patch, record, review, type ReviewDraft } from "./drafts.ts";
+import { actionErrorText } from "./action-errors.ts";
+import { patch, record, review, type DraftStore, type ReviewDraft } from "./review-drafts.ts";
 
 /*
  * What a reviewer does beyond sending comments (ADR 0038): apply a suggested change to the
@@ -11,7 +10,7 @@ import { patch, record, review, type ReviewDraft } from "./drafts.ts";
  */
 
 type Thread = { id: ThreadId; workspaceId: WorkspaceId };
-type Drafts = LocalStore<readonly ReviewDraft[]>;
+type Drafts = DraftStore;
 
 const message = (error: unknown) =>
   error instanceof Error ? error.message : actionErrorText(undefined);
@@ -26,6 +25,7 @@ export async function applySuggestion(
   store: Drafts,
   thread: Thread,
   key: string,
+  newId: () => string,
 ): Promise<void> {
   const draft = store.get().find((candidate) => candidate.key === key);
   if (!draft || draft.suggestion === undefined) return;
@@ -33,7 +33,7 @@ export async function applySuggestion(
   const before = draft.state;
   patch(store, only, ({ error: _error, ...d }) => ({ ...d, state: "resolving" }));
   try {
-    const { sessionId, commentIds } = await record(client, store, thread, [draft]);
+    const { sessionId, commentIds } = await record(client, store, thread, [draft], newId);
     const commentId = commentIds[0] ?? "";
     await review(client, { type: "review.applySuggestion", sessionId, commentId });
     await review(client, { type: "review.resolve", sessionId, commentId, resolved: true });

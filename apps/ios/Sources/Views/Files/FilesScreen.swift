@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A file to open, at a line when a link named one.
 struct FileTarget: Hashable, Identifiable {
@@ -29,6 +30,13 @@ struct FilesScreen: View {
     @State private var opened: FileTarget?
     @State private var showTrash = false
     @State private var actions: FileActions
+    @State private var quickLine: Int?
+    @State private var downloading: String?
+    @State private var importing = false
+    @State private var uploadFolder = ""
+    @State private var staged: [StagedAttachment] = []
+    @State private var uploading = false
+    @State private var importProblem: String?
 
     init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?) {
         self.model = model
@@ -52,8 +60,20 @@ struct FilesScreen: View {
         .threadTitle("Files", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { OpenFilesButton(model: model, scope: scope) { opened = FileTarget(path: $0) } }
             if actions.canChange { ToolbarItem(placement: .topBarTrailing) { manageMenu } }
         }
+        .onAppear { model.watchFileMemory(scope) }
+        .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in
+            if case .thread(let id) = scope { FolderDownloadSheet(model: model, threadId: id, folders: folders, folder: pick.folder) }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in stage(result) }
+        .sheet(isPresented: $uploading) {
+            if case .thread(let id) = scope { UploadSheet(model: model, threadId: id, folders: folders, folder: uploadFolder, staged: staged) }
+        }
+        .alert("Couldn't add those files", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(importProblem ?? "") }
         .readWhenConnected(model, id: model.files.revision) { await load() }
         .task(id: query) { await search() }
         .navigationDestination(item: $opened) { target in
@@ -154,7 +174,7 @@ struct FilesScreen: View {
             reveal(row.path)
             query = ""
         } else {
-            opened = FileTarget(path: row.path)
+            opened = FileTarget(path: row.path, line: quickLine)
         }
     }
     private func reveal(_ folder: String) {
@@ -171,9 +191,10 @@ struct FilesScreen: View {
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
         do {
-            let found = try await model.files(scope, ["op": "search", "query": text], as: FileSearch.self)
+            let found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
             guard !Task.isCancelled else { return }
-            results = FileSearch(query: query, rows: found.rows)
+            quickLine = found.line
+            results = FileSearch(query: query, rows: found.rows.map(\.search))
             searchFailure = nil
         } catch is CancellationError {
         } catch {
@@ -196,6 +217,28 @@ struct FilesScreen: View {
         }
     }
 
+    // MARK: Transfers
+
+    private struct DownloadPick: Identifiable { let folder: String; var id: String { folder } }
+    /// Every folder in the tree, the checkout itself first.
+    private var folders: [String] { [""] + (tree?.rows ?? []).filter(\.folder).map { Self.bare($0.path) } }
+    private static func bare(_ path: String) -> String { path.hasSuffix("/") ? String(path.dropLast()) : path }
+
+    /// Copy picked documents into the app's staging folder, then offer where they go.
+    private func stage(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, !urls.isEmpty else { return }
+        var picked: [StagedAttachment] = []
+        for url in urls.prefix(32) {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            if let file = try? AttachmentStaging().stage(copying: url, name: url.lastPathComponent, mimeType: type) { picked.append(file) }
+        }
+        guard !picked.isEmpty else { importProblem = "The files couldn't be read. Try picking them again."; return }
+        staged = picked
+        uploading = true
+    }
+
     // MARK: Changes
 
     private var manageMenu: some View {
@@ -204,6 +247,10 @@ struct FilesScreen: View {
                 .accessibilityIdentifier("files.newFile")
             Button("New folder", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: "")) }
                 .accessibilityIdentifier("files.newFolder")
+            Button("Upload files…", systemImage: "square.and.arrow.up.on.square") { uploadFolder = ""; importing = true }
+                .accessibilityIdentifier("files.upload")
+            Button("Download folder…", systemImage: "arrow.down.circle") { downloading = "" }
+                .accessibilityIdentifier("files.download")
             Divider()
             Button("Recently deleted", systemImage: "trash") { showTrash = true }
                 .accessibilityIdentifier("files.trash")
@@ -217,6 +264,8 @@ struct FilesScreen: View {
         if folder, actions.canChange {
             Button("New file here", systemImage: "doc.badge.plus") { actions.ask(.create(folder: path)) }
             Button("New folder here", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: path)) }
+            Button("Upload files here", systemImage: "square.and.arrow.up.on.square") { uploadFolder = Self.bare(path); importing = true }
+            Button("Download folder", systemImage: "arrow.down.circle") { downloading = Self.bare(path) }
         }
         if !folder, let mention {
             Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }

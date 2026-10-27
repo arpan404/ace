@@ -112,6 +112,10 @@ targets:
       - path: Tests
       - path: .build/bridge-tests.js
         buildPhase: resources
+      # Shared, language-neutral emulator cases (see its README).
+      - path: ../../fixtures/terminal-emulator
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: Ace
     settings:

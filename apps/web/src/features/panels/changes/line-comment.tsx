@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
-import type { ReviewDraft } from "./drafts.ts";
-import { readReplies, reply } from "./review-actions.ts";
+import { readReplies, reply, type ReviewDraft } from "@ace/ui-core/review";
 
 const card =
   "mx-2.5 my-1 rounded-md bg-popover px-2.5 py-2 font-sans text-sm leading-[1.45] whitespace-normal shadow-[0_0_0_1px_var(--border)]";
@@ -123,14 +122,21 @@ const anchorNotes: Record<NonNullable<ReviewDraft["anchor"]>, string> = {
  * A saved comment under its lines, through its life: draft, sending, sent, resolved. A
  * suggestion shows what the lines would read, with Apply; a recorded comment has its replies.
  */
-export function DraftCard(props: {
-  draft: ReviewDraft;
+/** What a person can do with a saved comment. */
+export interface DraftActions {
   onSend(): void;
   onEdit(): void;
   onDiscard(): void;
   onResolve(resolved: boolean): void;
   onApply(): void;
+}
+
+export function DraftCard(props: {
+  draft: ReviewDraft;
+  /** Without them the comment is shown read-only. */
+  actions?: DraftActions | undefined;
 }) {
+  const actions = props.actions;
   const now = useNow();
   const { draft } = props;
   const age = formatAge(draft.createdAt, Math.max(now, draft.createdAt));
@@ -147,9 +153,11 @@ export function DraftCard(props: {
           {draft.applied ? "Applied" : "Resolved"}
         </span>
         <span className="min-w-0 flex-1 truncate">{draft.text}</span>
-        <Button size="sm" variant="ghost" onClick={() => props.onResolve(false)}>
-          Reopen
-        </Button>
+        {actions && (
+          <Button size="sm" variant="ghost" onClick={() => actions.onResolve(false)}>
+            Reopen
+          </Button>
+        )}
       </article>
     );
   const busy = draft.state === "sending" || draft.state === "resolving";
@@ -169,7 +177,7 @@ export function DraftCard(props: {
           {draft.suggestion || " "}
         </pre>
       )}
-      {draft.state === "sent" || draft.state === "resolving" ? (
+      {!actions ? null : draft.state === "sent" || draft.state === "resolving" ? (
         <div className="mt-1.5 flex items-center gap-1.5">
           <CheckIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-muted-foreground">Sent to agent</span>
@@ -177,17 +185,17 @@ export function DraftCard(props: {
             · {anchorNotes[draft.anchor ?? "active"]}
           </span>
           {draft.suggestion !== undefined && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={props.onApply}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={actions.onApply}>
               Apply
             </Button>
           )}
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => props.onResolve(true)}>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => actions.onResolve(true)}>
             {draft.state === "resolving" ? "Resolving…" : "Resolve"}
           </Button>
         </div>
       ) : (
         <div className="mt-1.5 flex items-center gap-1.5">
-          <Button size="sm" variant="primary" disabled={busy} onClick={props.onSend}>
+          <Button size="sm" variant="primary" disabled={busy} onClick={actions.onSend}>
             {draft.state === "sending"
               ? "Sending…"
               : draft.state === "failed"
@@ -195,14 +203,14 @@ export function DraftCard(props: {
                 : "Send to agent"}
           </Button>
           {draft.suggestion !== undefined && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={props.onApply}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={actions.onApply}>
               Apply
             </Button>
           )}
-          <Button size="sm" variant="ghost" disabled={busy} onClick={props.onEdit}>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={actions.onEdit}>
             Edit
           </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={props.onDiscard}>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={actions.onDiscard}>
             Discard
           </Button>
         </div>

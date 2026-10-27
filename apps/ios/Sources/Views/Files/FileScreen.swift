@@ -76,6 +76,14 @@ struct FileScreen: View {
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
+            .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
+    }
+
+    /// The switcher picked another open file: show it here, as a tab switch would.
+    private func switchTo(_ picked: String) {
+        guard picked != path, !editing else { return }
+        content = nil; image = nil; failure = nil; source = false
+        path = picked
     }
 
     // MARK: Content
@@ -92,11 +100,7 @@ struct FileScreen: View {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                ContentUnavailableView {
-                    Label("Too large to show here", systemImage: "doc.text")
-                } description: {
-                    Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
-                } actions: { Button("Share") { shareFile() } }
+                LargeFileView(model: model, scope: scope, path: path, size: content.size)
             case "binary":
                 ContentUnavailableView {
                     Label("Binary file", systemImage: "doc")
@@ -177,6 +181,7 @@ struct FileScreen: View {
 
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
+            OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
             if text != nil, !markdownPreview {
                 Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }

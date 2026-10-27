@@ -1,6 +1,6 @@
 import { ThreadId as ThreadIdSchema } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText } from "./action-errors.ts";
 import type {
   CommandPayload,
   ReviewComment,
@@ -11,7 +11,6 @@ import type {
   ThreadId,
   WorkspaceId,
 } from "@ace/protocol";
-import type { LocalStore } from "../store.ts";
 
 /*
  * Line comments in the Changes tab and their way to the agent (ADR 0038 review mode):
@@ -25,7 +24,16 @@ import type { LocalStore } from "../store.ts";
  * deliver them to the thread's agent. Resolving is a person's call (the daemon never resolves on
  * its own); the daemon also reports when a later edit moved past a comment (outdated) or
  * touched its lines (addressed, waiting for your review).
+ *
+ * Shared by the web's Changes tab and the native apps' Changes sheet: each keeps the drafts in
+ * its own `DraftStore` (a page's local store, a phone's kept value).
  */
+
+/** Where drafts are held: read them all, or replace them from the previous list. */
+export interface DraftStore {
+  get(): readonly ReviewDraft[];
+  set(next: (previous: readonly ReviewDraft[]) => readonly ReviewDraft[]): void;
+}
 
 export type DraftState = "draft" | "sending" | "sent" | "failed" | "resolving" | "resolved";
 
@@ -56,6 +64,11 @@ export interface ReviewDraft {
   /** Displayed selection, checked against the daemon snapshot before recording. */
   fingerprint?: ReviewFingerprint | undefined;
   source?: ReviewSource | undefined;
+  /**
+   * The `review.comment` command sent for it whose answer never arrived, and the session it
+   * went to: a resend reuses the id, so the daemon answers with that comment, not a second.
+   */
+  commentCommand?: { id: string; sessionId: string } | undefined;
   createdAt: number;
 }
 
@@ -69,7 +82,7 @@ export const isPending = (draft: ReviewDraft) =>
 export const isOpen = (draft: ReviewDraft) => draft.state === "sent" || draft.state === "resolving";
 
 export function saveDraft(
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   draft: Omit<ReviewDraft, "key" | "state"> & { key?: string },
 ): void {
   const key =
@@ -80,17 +93,26 @@ export function saveDraft(
     { ...draft, key, state: "draft" },
   ]);
 }
-export function discardDraft(store: LocalStore<readonly ReviewDraft[]>, key: string): void {
+export function discardDraft(store: DraftStore, key: string): void {
   store.set((drafts) => drafts.filter((draft) => draft.key !== key));
 }
 
-/** A review command; a refusal becomes an error saying what happened and what to do. */
+/** The daemon answered and refused: unlike a lost answer, nothing happened. */
+export class ReviewRefusal extends Error {}
+
+/**
+ * A review command, under `id` when given (the same id answers the same result); a refusal
+ * becomes a `ReviewRefusal` saying what happened and what to do.
+ */
 export async function review(
   client: Pick<ClientApi, "command">,
   payload: CommandPayload,
+  id?: string,
 ): Promise<ReviewData> {
-  const result = await client.command(payload);
-  if (!result.ok) throw new Error(actionErrorText(result.error));
+  const result = await (id === undefined
+    ? client.command(payload)
+    : client.command(payload, undefined, id));
+  if (!result.ok) throw new ReviewRefusal(actionErrorText(result.error));
   return result.review ?? {};
 }
 
@@ -103,33 +125,52 @@ export const positionOf = (draft: ReviewDraft) => ({
 });
 
 export function patch(
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   keys: ReadonlySet<string>,
   change: (draft: ReviewDraft) => ReviewDraft,
 ) {
   store.set((drafts) => drafts.map((draft) => (keys.has(draft.key) ? change(draft) : draft)));
 }
 
+/** The session a draft is (or may already be) recorded in. */
+export const recordedIn = (draft: ReviewDraft) =>
+  draft.commentId ? draft.sessionId : draft.commentCommand?.sessionId;
+
 /**
  * Record drafts with the daemon: open (or reuse) the review session for the thread's working
  * tree and add each comment on its lines, unless it is already there. Drafts remember their
- * comment and session, so doing it again records nothing twice.
+ * comment and session, and a comment whose answer was lost remembers its command, so doing it
+ * again records nothing twice. `newId` names each new comment command.
  */
 export async function record(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   drafts: readonly ReviewDraft[],
+  newId: () => string,
 ): Promise<{ sessionId: string; commentIds: string[] }> {
   if (drafts.some((draft) => (!draft.commentId || !draft.sessionId) && !draft.fingerprint))
     throw new Error(
       "These saved lines have no review snapshot: select them again in the current diff.",
     );
-  const previous = drafts[0]?.sessionId;
-  const reuse =
-    previous && drafts.every((draft) => draft.sessionId === previous && draft.commentId);
+  const previous = drafts[0] && recordedIn(drafts[0]);
+  const reuse = previous && drafts.every((draft) => recordedIn(draft) === previous);
+  const forget = () =>
+    patch(store, new Set(drafts.map((draft) => draft.key)), (d) => ({
+      ...d,
+      commentCommand: undefined,
+    }));
   const opened = reuse
-    ? await review(client, { type: "review.list", sessionId: previous, cursor: "", limit: 1 })
+    ? await review(client, {
+        type: "review.list",
+        sessionId: previous,
+        cursor: "",
+        limit: 1,
+      }).catch((error: unknown) => {
+        // The session is gone: the next send opens a new one.
+        if (error instanceof ReviewRefusal) forget();
+        throw error;
+      })
     : await review(client, {
         type: "review.open",
         source: drafts[0]?.source ?? {
@@ -148,23 +189,52 @@ export async function record(
       commentIds.push(draft.commentId);
       continue;
     }
-    const { comment } = await review(client, {
-      type: "review.comment",
-      sessionId,
-      position: positionOf(draft),
-      ...(draft.fingerprint ? { expectedFingerprint: draft.fingerprint } : {}),
-      text: draft.text,
-      ...(draft.suggestion === undefined ? {} : { suggestion: draft.suggestion }),
+    // Kept before it goes, so a resend after a lost answer (or a relaunch) reuses it.
+    const command =
+      draft.commentCommand?.sessionId === sessionId
+        ? draft.commentCommand
+        : { id: newId(), sessionId };
+    const only = new Set([draft.key]);
+    patch(store, only, (d) => ({ ...d, commentCommand: command }));
+    const { comment } = await review(
+      client,
+      {
+        type: "review.comment",
+        sessionId,
+        position: positionOf(draft),
+        ...(draft.fingerprint ? { expectedFingerprint: draft.fingerprint } : {}),
+        text: draft.text,
+        ...(draft.suggestion === undefined ? {} : { suggestion: draft.suggestion }),
+      },
+      command.id,
+    ).catch((error: unknown) => {
+      // Refused: nothing was recorded, so a retry asks afresh.
+      if (error instanceof ReviewRefusal)
+        patch(store, only, (d) => ({ ...d, commentCommand: undefined }));
+      throw error;
     });
     if (!comment) throw new Error("The daemon didn't record the comment: try again.");
     const commentId = comment.id;
     commentIds.push(commentId);
-    patch(store, new Set([draft.key]), (d) => ({
-      ...d,
-      commentId,
-      sessionId,
-      source: opened.session?.source,
-    }));
+    // A refresh that ran while this comment was being recorded may already have added the
+    // daemon's copy of it as a comment from elsewhere: this draft is that comment, so the copy goes.
+    store.set((held) =>
+      held.flatMap((d) =>
+        d.key === draft.key
+          ? [
+              {
+                ...d,
+                commentId,
+                sessionId,
+                source: opened.session?.source,
+                commentCommand: undefined,
+              },
+            ]
+          : d.commentId === commentId
+            ? []
+            : [d],
+      ),
+    );
   }
   return { sessionId, commentIds };
 }
@@ -175,9 +245,10 @@ export async function record(
  */
 export async function sendDrafts(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   keys: readonly string[],
+  newId: () => string,
 ): Promise<void> {
   const picked = new Set(keys);
   const drafts = store.get().filter((draft) => picked.has(draft.key) && isPending(draft));
@@ -188,13 +259,13 @@ export async function sendDrafts(
     // Recorded comments keep their original session and immutable revision on bulk sends.
     const groups = new Map<string, ReviewDraft[]>();
     for (const draft of drafts) {
-      const identity = draft.sessionId ?? JSON.stringify(draft.source ?? null);
+      const identity = recordedIn(draft) ?? JSON.stringify(draft.source ?? null);
       const group = groups.get(identity) ?? [];
       group.push(draft);
       groups.set(identity, group);
     }
     for (const group of groups.values()) {
-      const { sessionId, commentIds } = await record(client, store, thread, group);
+      const { sessionId, commentIds } = await record(client, store, thread, group, newId);
       // The public review command admits at most twenty comments per queued turn.
       for (let offset = 0; offset < commentIds.length; offset += 20) {
         await review(client, {
@@ -217,7 +288,7 @@ export async function sendDrafts(
 /** Mark a sent comment resolved (or open again); the daemon keeps the flag with the comment. */
 export async function resolveDraft(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   key: string,
   resolved: boolean,
 ): Promise<void> {
@@ -247,7 +318,7 @@ export async function resolveDraft(
  */
 export async function refreshDrafts(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   threadId: string,
 ): Promise<ReviewSession | null> {
   const sessions = new Map<string, ReviewSession>();

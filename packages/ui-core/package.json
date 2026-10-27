@@ -31,7 +31,8 @@
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
     "./forge-rich": "./src/forge-rich/index.ts",
-    "./math-render": "./src/math-render.ts"
+    "./math-render": "./src/math-render.ts",
+    "./review": "./src/review.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

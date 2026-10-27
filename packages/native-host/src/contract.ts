@@ -18,6 +18,9 @@ export type OptionalCapability =
   /** `trace`: totals of spans the script times itself (diagnostics only). */
   | "trace";
 
+/** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
+export type KeptValueKey = "review" | "files";
+
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";
 
@@ -60,6 +63,13 @@ export interface HostOperations {
   /** Failed sends the person took back or discarded (`apps/ios/bridge/dismissed-sends.ts`). */
   "storage.dismissed.load": { input: null; body: never };
   "storage.dismissed.save": { input: null; body: string };
+  /**
+   * Small per-device values the shared logic keeps between launches, by key: "review" (Changes
+   * comments and viewed marks), "files" (recent and open files). "" when nothing is kept.
+   */
+  "storage.value.load": { input: { key: KeptValueKey }; body: never };
+  /** A plain replace; native code bounds each value at 1 MiB. */
+  "storage.value.save": { input: { key: KeptValueKey }; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */
@@ -82,6 +92,21 @@ export interface HostOperations {
   credential: { input: null; body: never };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
+  /**
+   * A file the shared logic saves to the device a chunk at a time (a checkout file or a folder's
+   * archive), so its bytes never pile up in the script. `open` starts an empty file named `name`
+   * in the app's temporary storage under the script's `id` (a uuid), replacing any left there.
+   */
+  "download.open": { input: { id: string; name: string }; body: never };
+  /**
+   * Base64 bytes added at `offset`, which must equal the file's current length; anything else
+   * fails "invalid", so a repeated or skipped chunk never corrupts the file.
+   */
+  "download.append": { input: { id: string; offset: number }; body: string };
+  /** The file is complete: answers its absolute path, for the share sheet or Save to Files. */
+  "download.finish": { input: { id: string }; body: never };
+  /** Removes the file (stopped, failed, or shared and done with). Absent is fine. */
+  "download.discard": { input: { id: string }; body: never };
   /** An access runtime's single result. */
   "access.result": { input: null; body: string };
 }

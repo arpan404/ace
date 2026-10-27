@@ -322,7 +322,9 @@ import QuartzCore
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
-                if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
+                // Credit follows parsing, so a fast program is paced to what the phone can draw.
+                let id = patch.id
+                terminal.receive(patch) { [weak self] offset in self?.action(["type": "terminal.credit", "id": id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
             case .itemText: break // `resolveTextEdits` turns these into whole rows first.
             case .inboxReset(let ids):
@@ -441,9 +443,9 @@ import QuartzCore
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
             case .changesSummary(let id, let epoch, let summary):
-                if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary; ThreadOpenTrace.shared.sheetFilled("changes") }
-            case .changesFile(let id, let epoch, let path, let diff):
-                if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
+                if thread?.id == id, thread?.epoch == epoch { sheets.apply(summary); ThreadOpenTrace.shared.sheetFilled("changes") }
+            case .changes(let id, let epoch, let patch):
+                if thread?.id == id, thread?.epoch == epoch { sheets.apply(patch) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             case .gitDraft(let draft): sheets.draft = draft
             case .workSummary(let id, let epoch, let summary):

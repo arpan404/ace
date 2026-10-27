@@ -1,37 +1,35 @@
 import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
 import {
   ThreadId,
-  type ForgePrStatus,
-  type GitStatusFile,
   type SourceControlSelection,
   type ThreadDetails,
   type WorkspaceActionRequest,
 } from "@ace/protocol";
-import {
-  changesNextStep,
-  changesSummary,
-  mobileDiffBudget,
-  mergeMethods,
-  mobileFileDiff,
-  patchFiles,
-  type DiffBudget,
-} from "@ace/ui-core/mobile";
+import type { DiffScope } from "@ace/ui-core";
+import type { DiffRows } from "@ace/ui-core/review";
+import { patchFiles } from "@ace/ui-core/mobile";
 import type { PatchSink, Preview } from "./agents.ts";
+import { sectionDiff, TurnDiffs } from "./changes-diffs.ts";
+import { learnCutVersions } from "./changes-cut-versions.ts";
+import {
+  OpenFiles,
+  openFilesLimits,
+  type OpenFilesLimits,
+  type ReadPage,
+} from "./changes-files.ts";
+import { ChangesKept, type DiffLayout } from "./changes-kept.ts";
+import { SheetReview } from "./changes-review.ts";
+import { ChangesScope, type Reads } from "./changes-scope.ts";
+import { summaryPatch, treePatch } from "./changes-summary.ts";
+
+export type { Reads } from "./changes-scope.ts";
 
 /** What the Changes sheet needs of the SDK: correlated reads and online commands. */
 export type ChangesOwner = Pick<ClientCore, "request" | "command">;
-export type ChangesStore = Pick<ThreadSource, "thread" | "observe">;
-
-interface Reads {
-  files: readonly GitStatusFile[];
-  truncated: boolean;
-  head: string | null | undefined;
-  sections: Map<string, string>;
-  /** The daemon cut the patch at its cap: the last file's section may be incomplete. */
-  patchTruncated: boolean;
-  lastPath: string | undefined;
-  pr: ForgePrStatus | null;
-}
+export type ChangesStore = Pick<
+  ThreadSource,
+  "thread" | "observe" | "order" | "item" | "run" | "agent"
+>;
 
 /** A refusal code from the daemon's workspace service, kept for the shared copy table. */
 export class WorkspaceRefusal extends Error {
@@ -40,6 +38,15 @@ export class WorkspaceRefusal extends Error {
     super(code);
     this.code = code;
   }
+}
+
+export interface ChangesOptions {
+  /** The phone's kept review state, shared by every session. */
+  kept?: ChangesKept;
+  now?: () => number;
+  /** Fresh ids for review commands, so a resend after a lost reply reuses its own. */
+  id?: () => string;
+  limits?: OpenFilesLimits;
 }
 
 /** Whatever of the details a refresh depends on: a commit, a move or a new PR link. */
@@ -54,10 +61,38 @@ const detailsKey = (details: ThreadDetails | undefined) =>
     details?.linkedPrs?.[0]?.state,
   ]);
 
+/** Change keys that can move which files a turn edited. */
+function touchesTurns(store: ChangesStore, keys: ReadonlySet<string>): boolean {
+  for (const key of keys) {
+    if (key === "order" || key === "agents" || key === "history" || key.startsWith("run:"))
+      return true;
+    if (!key.startsWith("item:")) continue;
+    const item = store.item(key.slice(5));
+    if (item?.type === "tool_call" && "changes" in item.call.detail) return true;
+  }
+  return false;
+}
+
+/** Draft times without a clock (tests): increasing, so drafts stay apart and in order. */
+function counter(): () => number {
+  let at = 0;
+  return () => ++at;
+}
+
+const memoryKept = () =>
+  new ChangesKept({ load: async () => undefined, save: async () => {} }, { set: () => () => {} });
+
+/** Review command ids without a host (tests): unique within the session. */
+function sessionIds(threadId: string, epoch: number): () => string {
+  let at = 0;
+  return () => `review-${threadId}-${epoch}-${++at}`;
+}
+
 /**
- * The Changes sheet while it is open. The bridge holds the daemon's bounded reads (at most
- * 500 status rows and a 256 KiB patch) and ships a capped file list, the next step, and one
- * file's diff at a time within `mobileDiffBudget`. Closing releases all of it.
+ * The Changes sheet while it is open. The bridge holds the daemon's bounded reads (at most 500
+ * status rows and a 256 KiB patch) and the thread's turns, and ships the scope's file list, a
+ * tree of it, the next step, the review, and the open files' diffs page by page. Closing
+ * releases all of it.
  */
 export class ChangesSession {
   readonly threadId: string;
@@ -66,16 +101,20 @@ export class ChangesSession {
   #store: ChangesStore;
   #sink: PatchSink;
   #preview: Preview;
-  #budget: DiffBudget;
+  #kept: ChangesKept;
+  #scope: ChangesScope;
+  #diffs = new TurnDiffs();
+  #files: OpenFiles;
+  readonly review: SheetReview;
   #reads: Reads | undefined;
+  #rounds = 0;
   #state: "loading" | "ready" | "error" = "loading";
   #error = "";
   #reading: Promise<void> | undefined;
   #again = false;
   #closed = false;
-  #path: string | undefined;
   #details: string;
-  #stop: () => void;
+  #stops: (() => void)[] = [];
   /** A git action is running; the step is not offered twice. */
   busy = false;
   /**
@@ -95,7 +134,7 @@ export class ChangesSession {
     epoch: number,
     sink: PatchSink,
     preview: Preview,
-    budget: DiffBudget = mobileDiffBudget,
+    options: ChangesOptions = {},
   ) {
     this.#owner = owner;
     this.#store = store;
@@ -103,17 +142,63 @@ export class ChangesSession {
     this.epoch = epoch;
     this.#sink = sink;
     this.#preview = preview;
-    this.#budget = budget;
+    this.#kept = options.kept ?? memoryKept();
+    this.#scope = new ChangesScope(store, this.#diffs);
+    this.#files = new OpenFiles({
+      sink,
+      preview,
+      threadId,
+      epoch,
+      diffs: this.#diffs,
+      limits: options.limits ?? openFilesLimits,
+      layout: () => this.#kept.layout,
+      viewed: (path, version) => this.#viewedAt(path) === version,
+      readPage: this.#readPage,
+      learned: (path, round, version) => {
+        if (this.#reads?.round !== round) return;
+        this.#reads.validators.set(path, version);
+        this.summary();
+      },
+    });
+    this.review = new SheetReview({
+      owner,
+      kept: this.#kept,
+      sink,
+      preview,
+      threadId,
+      epoch,
+      now: options.now ?? counter(),
+      id: options.id ?? sessionIds(threadId, epoch),
+      workingTree: () => this.#scope.workingTree,
+      thread: () => {
+        const thread = this.#store.thread;
+        return thread && { id: thread.id, workspaceId: thread.workspaceId };
+      },
+      diffOf: (path) => this.diffOf(path),
+      applied: () => void this.refresh(),
+    });
     this.#details = detailsKey(store.thread?.details);
     const change: ChangeTap = (keys) => {
-      if (keys !== "all" && !keys.has("thread")) return;
-      const next = detailsKey(this.#store.thread?.details);
-      if (next !== this.#details) {
-        this.#details = next;
-        void this.refresh();
-      } else this.summary();
+      const turns = keys === "all" || touchesTurns(this.#store, keys);
+      if (turns) this.#scope.invalidate();
+      if (keys === "all" || keys.has("thread")) {
+        const next = detailsKey(this.#store.thread?.details);
+        if (next !== this.#details) {
+          this.#details = next;
+          void this.refresh();
+          if (!turns) return;
+        }
+      } else if (!turns) return;
+      this.#update();
     };
-    this.#stop = store.observe(change);
+    this.#stops.push(store.observe(change));
+    // A viewed mark or the layout read back from the phone changes rows and headers.
+    this.#stops.push(
+      this.#kept.subscribe(() => {
+        this.summary();
+        this.#files.headers();
+      }),
+    );
     this.summary();
     void this.refresh();
   }
@@ -141,59 +226,146 @@ export class ChangesSession {
     return this.#reading;
   }
 
-  /** Show one file's diff; it follows refreshes until another file or none is chosen. */
+  /** Show only `path`'s diff, or none (the first sheet's one-file view). */
   file(path: string | undefined): void {
-    this.#path = path;
-    if (path === undefined) {
-      this.#sink.clear("changes:file");
-      return;
+    this.#files.closeAll();
+    if (path !== undefined) this.open(path, true);
+  }
+
+  /** Open or close one file among several; false past the limit of open files. */
+  open(path: string, open: boolean): boolean {
+    if (!open) {
+      this.#files.close(path);
+      this.summary();
+      return true;
     }
-    this.#putFile(path);
+    const opened = this.#files.open(path, this.#scope.sourceOf(path, this.#reads));
+    this.summary();
+    return opened;
+  }
+
+  /** Open every listed file (as many as may be open at once), or close them all. */
+  expand(open: boolean): void {
+    if (!open) this.#files.closeAll();
+    else
+      for (const file of this.#listed()) {
+        if (this.#files.paths.length >= this.#files.limit) break;
+        this.#files.open(file.path, this.#scope.sourceOf(file.path, this.#reads));
+      }
+    this.summary();
+  }
+
+  more(path: string): boolean {
+    return this.#files.more(path);
+  }
+  line(path: string, index: number): boolean {
+    return this.#files.line(path, index);
+  }
+
+  scope(scope: DiffScope): void {
+    this.#scope.request(scope);
+    this.#update();
+  }
+
+  layout(layout: DiffLayout): void {
+    this.#kept.layout = layout;
+    this.#files.relayout();
+  }
+
+  /** Mark a file viewed at its current diff (it closes, as on the web), or clear the mark. */
+  viewed(path: string, viewed: boolean): boolean {
+    const version = this.#scope.versionOf(path, this.#reads);
+    const reads = this.#reads;
+    if (version === undefined && viewed && reads && this.#scope.workingTree) {
+      // A cut file not read yet: its version comes from the daemon first.
+      if (!reads.byPath.has(path)) return false;
+      void this.#learn(reads, [path]).then(() => {
+        if (this.#reads === reads && reads.validators.has(path)) this.viewed(path, true);
+      });
+      return true;
+    }
+    if (version === undefined) return false;
+    this.#kept.view(this.threadId, path, viewed ? version : undefined);
+    if (viewed) this.#files.close(path);
+    this.summary();
+    return true;
+  }
+
+  /** `path`'s rows in the scope: as open, else diffed now (a working-tree cut file must open). */
+  diffOf(path: string): DiffRows | undefined {
+    const open = this.#files.diffOf(path);
+    if (open) return open;
+    const sourced = this.#scope.sourceOf(path, this.#reads);
+    if (sourced?.source.kind === "turn") return this.#diffs.diff(sourced.source.file);
+    if (sourced?.source.kind === "section") return sectionDiff(sourced.source.text);
+    return undefined;
   }
 
   close(): void {
     this.#closed = true;
     this.drafting?.controller.abort();
-    this.#stop();
+    for (const stop of this.#stops) stop();
+    this.#files.closeAll();
+    this.review.close();
     this.#reads = undefined;
     this.#sink.clear("changes:");
   }
 
   summary(): void {
     if (this.#closed) return;
-    this.#sink.put("changes:summary", () => {
-      const reads = this.#reads;
-      const summary = reads ? changesSummary(reads.files, reads.truncated) : undefined;
-      const step = changesNextStep(this.details, reads?.pr, summary?.totals);
-      return {
-        type: "changes.summary",
-        threadId: this.threadId,
-        epoch: this.epoch,
-        state: this.#state,
-        message: this.#error,
-        files: (summary?.files ?? []).map((file) =>
-          Object.assign(file, {
-            path: this.#preview(file.path, 1024),
-            from: file.from === null ? null : this.#preview(file.from, 1024),
+    this.#sink.put("changes:summary", () =>
+      this.#closed
+        ? undefined
+        : summaryPatch({
+            threadId: this.threadId,
+            epoch: this.epoch,
+            preview: this.#preview,
+            details: this.details,
+            reads: this.#reads,
+            state: this.#scope.workingTree ? this.#state : "ready",
+            message: this.#scope.workingTree ? this.#error : "",
+            scope: this.#scope,
+            turnFiles: this.#scope.workingTree ? undefined : this.#scope.turnFiles(),
+            viewed: (path) => {
+              const at = this.#viewedAt(path);
+              return at !== undefined && at === this.#scope.versionOf(path, this.#reads);
+            },
+            open: this.#files.paths,
+            openLimit: this.#files.limit,
+            layout: this.#kept.layout,
+            busy: this.busy,
+            review: this.review.allowed(),
           }),
-        ),
-        hidden: summary?.hidden ?? 0,
-        partial: summary?.partial ?? false,
-        totals: summary?.totals ?? { files: 0, additions: 0, deletions: 0 },
-        patchTruncated: reads?.patchTruncated ?? false,
-        branch: this.#preview(this.details?.branch ?? "", 256),
-        step: {
-          ...step,
-          label: this.#preview(step.label, 128),
-          detail: this.#preview(step.detail, 512),
-          blocked: step.blocked === null ? null : this.#preview(step.blocked, 512),
-          pr: step.pr && { ...step.pr, title: step.pr.title && this.#preview(step.pr.title, 256) },
-        },
-        busy: this.busy,
-        // Every way the forge merges; the phone remembers the last one picked.
-        methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),
-      };
-    });
+    );
+    this.#sink.put("changes:tree", () =>
+      this.#closed
+        ? undefined
+        : treePatch(
+            this.threadId,
+            this.epoch,
+            this.#preview,
+            this.#scope.resolved.scope,
+            this.#listed(),
+          ),
+    );
+  }
+
+  #listed() {
+    if (!this.#scope.workingTree) return this.#scope.turnFiles();
+    return (this.#reads?.files ?? []).slice(0, 200);
+  }
+
+  #viewedAt(path: string): string | undefined {
+    return this.#kept.viewed.get(this.threadId)?.get(path);
+  }
+
+  /** Reads or turns moved: the list, and every open file at its new version. */
+  #update(): void {
+    if (this.#closed) return;
+    for (const path of this.#files.paths)
+      if (!this.#scope.sourceOf(path, this.#reads)) this.#files.close(path);
+    this.#files.sync((path) => this.#scope.sourceOf(path, this.#reads));
+    this.summary();
   }
 
   async #read(): Promise<void> {
@@ -215,15 +387,23 @@ export class ChangesSession {
       const sections = patchFiles(diff.patch);
       this.#reads = {
         files: status.files,
+        byPath: new Map(status.files.map((file) => [file.path, file])),
         truncated: status.truncated,
         head: status.head,
         sections,
         patchTruncated: diff.truncated,
         lastPath: [...sections.keys()].at(-1),
         pr: pr?.kind === "pr" ? pr.status : null,
+        round: ++this.#rounds,
+        validators: new Map(),
       };
       this.#state = "ready";
       this.#error = "";
+      const reads = this.#reads;
+      const marked = this.#kept.viewed.get(this.threadId);
+      const open = new Set(this.#files.paths);
+      const paths = [...(marked?.keys() ?? [])].filter((path) => !open.has(path));
+      if (paths.length) void this.#learn(reads, paths);
     } catch (error) {
       if (this.#closed) return;
       this.#state = "error";
@@ -232,30 +412,45 @@ export class ChangesSession {
           ? error.code
           : "unavailable";
     }
-    this.summary();
-    if (this.#path !== undefined) this.#putFile(this.#path);
+    this.#update();
   }
+
+  /** Versions of cut files from their first pages, then the list's marks again. */
+  #learn(reads: Reads, paths: readonly string[]): Promise<void> {
+    return learnCutVersions({
+      reads,
+      paths,
+      current: () => this.#reads === reads && !this.#closed,
+      readPage: this.#readPage,
+      learned: () => {
+        this.summary();
+        this.#files.headers();
+      },
+    });
+  }
+
+  /** One page of one file's patch; "changed" once the file moved past `expected`. */
+  #readPage: ReadPage = async (path, from, offset, expected) => {
+    try {
+      const result = await this.#workspace({
+        op: "git.diff",
+        threadId: ThreadId.parse(this.threadId),
+        path,
+        ...(from === null ? {} : { from }),
+        offset,
+        ...(expected === undefined ? {} : { expected }),
+      });
+      if (result.kind !== "gitDiff") throw new WorkspaceRefusal("unexpected");
+      return result;
+    } catch (error) {
+      if (error instanceof WorkspaceRefusal && error.code === "diff_changed") return "changed";
+      throw error;
+    }
+  };
 
   async #workspace(operation: WorkspaceActionRequest["operation"]) {
     const reply = await this.#owner.request({ type: "workspace.request", operation });
     if (reply.result.kind === "error") throw new WorkspaceRefusal(reply.result.code);
     return reply.result;
-  }
-
-  #putFile(path: string): void {
-    this.#sink.put("changes:file", () => {
-      const reads = this.#reads;
-      if (!reads || this.#path !== path) return undefined;
-      const section = reads.sections.get(path);
-      // A file missing from a cut patch, or the file the cut fell in, may be incomplete.
-      const cut = reads.patchTruncated && (section === undefined || reads.lastPath === path);
-      return {
-        type: "changes.file",
-        threadId: this.threadId,
-        epoch: this.epoch,
-        path: this.#preview(path, 1024),
-        diff: mobileFileDiff(section, cut, this.#budget, this.#preview),
-      };
-    });
   }
 }

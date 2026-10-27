@@ -21,11 +21,17 @@ import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
+import { ChangesKept } from "./changes-kept.ts";
+import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
+import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
+import { CheckoutDownloads } from "./checkout-downloads.ts";
+import { CheckoutMemory } from "./checkout-memory.ts";
+import { CheckoutUploads } from "./checkout-uploads.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
@@ -103,6 +109,7 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
+let filesActions: FilesActions | undefined;
 const pump = new PatchPump();
 /**
  * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
@@ -110,7 +117,11 @@ const pump = new PatchPump();
  */
 const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
-const sheets = new Sheets(pump, preview);
+const sheets = new Sheets(pump, preview, {
+  kept: new ChangesKept(keptValue("review"), scheduler),
+  now: () => host.now(),
+  id: () => host.uuid(),
+});
 let openThreadId: string | undefined;
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
@@ -252,9 +263,17 @@ async function start(json: string): Promise<void> {
   compose.newThread.readCatalogFrom((workspaceId, provider) =>
     suggest?.draftEntries(workspaceId, provider),
   );
-  const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
-    search.complete(workspaceId, query, limit),
+  const memory = new CheckoutMemory(keptValue("files"), pump, scheduler);
+  const files = new CheckoutFiles(
+    client,
+    (workspaceId, query, limit) => search.complete(workspaceId, query, limit),
+    (scope) => memory.recent(scope),
   );
+  filesActions = {
+    memory,
+    downloads: new CheckoutDownloads(client, pump, { call, uuid: () => host.uuid() }),
+    uploads: new CheckoutUploads(client, pump, nativeChunks),
+  };
   followFileChanges(client, pump);
   const forgeClient = client;
   services?.dispose();
@@ -318,6 +337,12 @@ function action(json: string): void {
     const service = NativeServiceAction.safeParse(raw);
     if (service.success) {
       services?.handle(service.data);
+      return;
+    }
+    const filesAction = NativeFilesAction.safeParse(raw);
+    if (filesAction.success) {
+      if (filesActions) routeFilesAction(filesActions, filesAction.data);
+      else error();
       return;
     }
     const notice = NotificationAction.safeParse(raw);

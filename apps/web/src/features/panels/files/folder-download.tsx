@@ -1,5 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
+import { archiveFailure, archiveLeavesOut, archiveName, archiveSummary } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
@@ -15,7 +16,6 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
 import { checkoutError } from "./checkout-source.ts";
 import { fileManagement } from "./file-management-source.ts";
-import { formatBytes } from "./use-file-actions.ts";
 
 export function ArchiveDialog(props: { threadId: string; path: string; onClose(): void }) {
   const client = useClient();
@@ -39,7 +39,7 @@ export function ArchiveDialog(props: { threadId: string; path: string; onClose()
     setError(undefined);
     try {
       await saveDownload(
-        `${props.path.split("/").at(-1) || "checkout"}.tar.gz`,
+        archiveName(props.path),
         client.downloadFile(
           {
             threadId: ThreadId.parse(props.threadId),
@@ -52,15 +52,9 @@ export function ArchiveDialog(props: { threadId: string; path: string; onClose()
       );
       props.onClose();
     } catch (failure) {
-      const issue = checkoutError(failure);
+      const issue = archiveFailure(failure);
       if (!controller.signal.aborted && issue.code !== "aborted")
-        setError(
-          failure instanceof DownloadError
-            ? failure.message
-            : issue.code === "EXPIRED" || issue.code === "CONFLICT"
-              ? "The folder changed or this preview expired. Close this window and choose Download folder again."
-              : issue.message,
-        );
+        setError(failure instanceof DownloadError ? failure.message : issue.message);
     } finally {
       setBusy(false);
     }
@@ -86,7 +80,7 @@ export function ArchiveDialog(props: { threadId: string; path: string; onClose()
         </label>
         <p role="status" className="text-ui text-muted-foreground">
           {preview.data && !preview.isFetching
-            ? `${preview.data.entries} entries · ${formatBytes(preview.data.bytes)} before compression`
+            ? `${archiveSummary(preview.data)}. ${archiveLeavesOut(includeIgnored)}`
             : "Counting files…"}
         </p>
         {(error || preview.error) && (

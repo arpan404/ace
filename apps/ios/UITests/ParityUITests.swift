@@ -52,13 +52,14 @@ import XCTest
         app.buttons["thread.menu"].tap()
         let terminal = app.threadMenuItem("thread.terminal")
         XCTAssertTrue(terminal.waitForExistence(timeout: 20)); terminal.tap()
-        XCTAssertTrue(app.buttons["New"].waitForExistence(timeout: 10)); app.buttons["New"].tap()
+        XCTAssertTrue(app.buttons["Open a terminal"].waitForExistence(timeout: 10)); app.buttons["Open a terminal"].tap()
         let input = app.textFields["terminal.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: input)
         wait(for: [enabled], timeout: 15)
         input.tap(); input.typeText("pwd\n")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "/fake")).firstMatch.waitForExistence(timeout: 15))
+        let output = app.descendants(matching: .any)["terminal.output"]
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS %@", "/fake"), evaluatedWith: output)], timeout: 15)
         capture("terminal")
     }
 

@@ -1,4 +1,6 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
+import { diffPage, filePatchBytes } from "./git-diff-page.ts";
+import { FilePatchCache } from "./git-diff-cache.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
 import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
@@ -137,6 +139,8 @@ export class WorkspaceRuntime {
   private now: () => number;
   /** Checkouts' `origin`, read once for a while: New thread asks on every machine move. */
   private origins: OriginCache;
+  /** One file's patch, read once for all its pages (`git.diff` with `path`). */
+  private filePatches: FilePatchCache;
   private options: WorkspaceRuntimeOptions;
   private prLifetime = new AbortController();
   private manager: TerminalManager;
@@ -161,6 +165,7 @@ export class WorkspaceRuntime {
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.origins = new OriginCache(this.git.transfer, now);
+    this.filePatches = new FilePatchCache(now);
     this.defaultBranches = new DefaultBranches(now);
     this.media = lazyMedia(
       options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
@@ -682,14 +687,31 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
-      const diff = await this.git.diff({
-        worktree: root,
-        from: { kind: "commit", ref: "HEAD" },
-        to: { kind: "working-tree" },
-        maxPatchBytes: 262144,
+      if (op.path === undefined) {
+        const diff = await this.git.diff({
+          worktree: root,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+          maxPatchBytes: 262144,
+        });
+        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+        return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      }
+      const paths = [op.path, ...(op.from ? [op.from] : [])];
+      const key = JSON.stringify([op.threadId, root, paths]);
+      const file = await this.filePatches.read(key, op.expected, async () => {
+        const diff = await this.git.diff({
+          worktree: root,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+          maxPatchBytes: filePatchBytes,
+          paths,
+        });
+        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+        return { patch: diff.patch, truncated: diff.truncated };
       });
-      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-      return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      const page = diffPage(file.patch, file.truncated, op.offset ?? 0);
+      return wrap({ kind: "gitDiff", ...page, validator: file.validator });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);

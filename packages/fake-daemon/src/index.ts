@@ -53,6 +53,7 @@ export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
+export { outboxDiff, replayTs } from "./scenarios/replay-sources.ts";
 export {
   askingQuestion,
   oneTurnWork,

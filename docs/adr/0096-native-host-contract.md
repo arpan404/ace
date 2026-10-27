@@ -58,7 +58,8 @@ It holds:
 Async operations: `storage.load/save`, `storage.host.load/save`, `storage.records`,
 `storage.write`, `storage.reads.load/save`, `inbox.checkpoint`, `snapshot.get/set/clear`,
 `secret.get/set/delete`, `directory.load/save`, `http`, `credential` (debug fixture only),
-`attachment.chunk`, `access.result`. Error codes: `unsupported`, `storage`, `identity`,
+`attachment.chunk`, `download.open/append/finish/discard` (files saved to the device a chunk
+at a time), `access.result`. Error codes: `unsupported`, `storage`, `identity`,
 `invalid`, `pin`, `redirect`, `offline`, `limit`, `failed`.
 
 Bytes cross without copies where the engine allows: a `Uint8Array` argument is read by pointer
@@ -157,7 +158,8 @@ A Kotlin host implements the same contract; nothing else changes in the shared c
    SQLite (WAL, FULL sync, `BEGIN IMMEDIATE`; the host binding immutable once written),
    snapshots in a separate LRU file (256 records, 32 MiB), secrets in the Android Keystore
    limited to the runtime's own key, the directory file, pinned HTTPS (exact SPKI pin, no
-   redirects, 1 MiB body cap), staged attachment chunks as base64.
+   redirects, 1 MiB body cap), staged attachment chunks as base64, downloads appended to a
+   temporary file only at its current length.
 9. Errors answer with a `HostErrorCode`.
 10. `emit`: accept frames up to 32 KiB, decode them off the UI thread, apply on it, then call
     `aceAck(accepted)`; reassemble `fragment` patches as `BridgeFrames.swift` does. Apply

@@ -1,6 +1,8 @@
 import type { ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { followAgents, type PatchSink, type Preview } from "./agents.ts";
+import { ChangesAction, changesAction } from "./changes-actions.ts";
+import type { ChangesKept } from "./changes-kept.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
@@ -13,7 +15,7 @@ import { clearStaleLock, workAction } from "./work-actions.ts";
  * Git lock needs no sheet: the transcript offers it where a message was stopped.
  */
 
-const SheetAction = z.discriminatedUnion("kind", [
+const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
   z.object({ kind: z.literal("changes.refresh") }),
@@ -32,6 +34,15 @@ const SheetAction = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("lock.clear"), requestId: z.string().min(1).max(64) }),
 ]);
+const SheetAction = z.union([OpenAction, ChangesAction]);
+type SheetAction = z.infer<typeof SheetAction>;
+
+/** What every Changes session shares: the phone's kept review state, a clock and ids. */
+export interface SheetDeps {
+  kept?: ChangesKept;
+  now?: () => number;
+  id?: () => string;
+}
 
 export interface OpenThread {
   owner: ChangesOwner;
@@ -48,9 +59,11 @@ export class Sheets {
   #work: WorkSession | undefined;
   /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
   #line: { threadId: string; subject: WorkSubject } | undefined;
-  constructor(sink: PatchSink, preview: Preview) {
+  #deps: SheetDeps;
+  constructor(sink: PatchSink, preview: Preview, deps: SheetDeps = {}) {
     this.#sink = sink;
     this.#preview = preview;
+    this.#deps = deps;
   }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
@@ -88,6 +101,7 @@ export class Sheets {
               thread.epoch,
               this.#sink,
               this.#preview,
+              this.#deps,
             )
           : undefined;
         return true;
@@ -165,12 +179,17 @@ export class Sheets {
           this.#preview,
         );
         return true;
+      default:
+        return this.#changes
+          ? changesAction(this.#changes, action, this.#sink, this.#preview)
+          : false;
     }
   }
 }
 
-function releases(action: z.infer<typeof SheetAction>): boolean {
+function releases(action: SheetAction): boolean {
   if (action.kind === "agents" || action.kind === "changes" || action.kind === "work")
     return !action.open;
+  if (action.kind === "changes.open" || action.kind === "changes.expand") return !action.open;
   return action.kind === "changes.file" && action.path === null;
 }

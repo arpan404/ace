@@ -50,6 +50,11 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     struct File: Codable, Sendable, Equatable, Identifiable {
         let path: String; let from: String?; let status: String
         let additions: Int; let deletions: Int; let binary: Bool
+        /// False for a turn's file not diffed yet; its counts read 0 until it is opened.
+        var counted: Bool?
+        /// Marked viewed at this exact diff version.
+        var viewed: Bool?
+        var open: Bool?
         var id: String { path }
     }
     struct Totals: Codable, Sendable, Equatable { let files: Int; let additions: Int; let deletions: Int }
@@ -75,6 +80,17 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     let busy: Bool
     /// Merge methods to pick from; the first is the default until the person picks one.
     let methods: [MergeMethodOption]?
+    /// The scope shown and the menu of scopes (Uncommitted, Last turn, This thread, Turn N).
+    let scope: ChangesScope?
+    let scopes: [ChangesScope]?
+    /// Paths open now, in opening order, and how many may be open at once.
+    let open: [String]?
+    let openLimit: Int?
+    /// `unified` or `split`, kept on this phone.
+    let layout: String?
+    /// Whether the scope shown takes line comments, and why not in words.
+    struct Review: Codable, Sendable, Equatable { let allowed: Bool; let reason: String }
+    let review: Review?
 }
 
 /// One file's unified diff within the shared budget; `truncated` sends the rest to the computer.

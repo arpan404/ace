@@ -1,6 +1,12 @@
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
-import { fuzzyPositions, pathParts } from "@ace/ui-core";
+import {
+  fuzzyPositions,
+  parseQuickOpen,
+  pathParts,
+  quickOpenRows,
+  type QuickOpenRow,
+} from "@ace/ui-core";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { CommandDialog } from "@/components/ui/command.tsx";
@@ -13,17 +19,7 @@ import { useRecentFiles } from "./files-state.ts";
 import { openFile } from "./open-file.ts";
 import { useCheckoutSearch, useEditedPaths } from "./use-checkout.ts";
 
-interface Row {
-  path: string;
-  group: string;
-}
-
-/** "src/app.ts:42" → the file to find and the line to show. */
-export function parseQuickOpen(text: string): { query: string; line: number | undefined } {
-  const match = /^(.*?):(\d+)$/.exec(text.trim());
-  if (!match?.[1]) return { query: text.trim(), line: undefined };
-  return { query: match[1], line: Number(match[2]) || undefined };
-}
+type Row = QuickOpenRow;
 
 function Name(props: { path: string; query: string }) {
   const { name, folder } = pathParts(props.path);
@@ -67,19 +63,10 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
   const listId = useId();
-  const rows = useMemo<Row[]>(() => {
-    if (query)
-      return (search.data ?? [])
-        .filter((path) => !path.endsWith("/"))
-        .map((path) => ({ path, group: "Files" }));
-    const opened = recent.slice(0, 8).map((path) => ({ path, group: "Opened recently" }));
-    const seen = new Set(recent.slice(0, 8));
-    const touched = edited
-      .filter((path) => !seen.has(path))
-      .slice(0, 8)
-      .map((path) => ({ path, group: "Edited in this thread" }));
-    return [...opened, ...touched];
-  }, [query, search.data, recent, edited]);
+  const rows = useMemo<Row[]>(
+    () => quickOpenRows(query, search.data ?? [], recent, edited),
+    [query, search.data, recent, edited],
+  );
   const current = Math.min(active, Math.max(0, rows.length - 1));
 
   const choose = (row: Row | undefined) => {
