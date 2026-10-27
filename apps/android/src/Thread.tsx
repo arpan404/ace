@@ -1,10 +1,11 @@
-import { useMemo, useEffect, memo, useState } from "react";
+import { useMemo, useEffect, useRef, useCallback, memo, useState } from "react";
 import { View, Text } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ClientApi, ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
+import { readHistoryWindow } from "./conversation-search.ts";
 import { useSelection, sameIds } from "./selection.ts";
 import { isInstrumentedBuild } from "./native-mode.ts";
 import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
@@ -221,9 +222,98 @@ const TranscriptBlockRow = memo(function TranscriptBlockRow({
     </View>
   );
 });
+const HistoryWindow = memo(function HistoryWindow({
+  history,
+  dismiss,
+  retry,
+}: {
+  history: { target: string; items: readonly Item[]; loading: boolean; problem?: string };
+  dismiss(): void;
+  retry(): void;
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        marginHorizontal: tokens.spacing.lg,
+        marginVertical: tokens.spacing.sm,
+        padding: tokens.spacing.md,
+        backgroundColor: theme.colours.card,
+        borderRadius: tokens.radii.bubble,
+        borderWidth: tokens.dimensions.border,
+        borderColor: theme.colours.separator,
+      }}
+    >
+      <AceHost style={{ width: "100%" }}>
+        <Row horizontalArrangement="spaceBetween">
+          <AceText role="label">Matched history</AceText>
+          <AceButton label="Jump to latest" kind="secondary" onPress={dismiss} />
+        </Row>
+      </AceHost>
+      {history.loading ? (
+        <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}>
+          Opening the match…
+        </Text>
+      ) : history.problem ? (
+        <View style={{ gap: tokens.spacing.sm }}>
+          <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+            {history.problem}
+          </Text>
+          <AceHost style={{ width: "100%" }}>
+            <AceButton label="Retry" kind="secondary" onPress={retry} />
+          </AceHost>
+        </View>
+      ) : (
+        history.items.map((item) => (
+          <HistoryRow key={item.id} item={item} target={history.target} />
+        ))
+      )}
+    </View>
+  );
+});
+
+function HistoryRow({ item, target }: { item: Item; target: string }) {
+  const theme = useTheme();
+  const { text, detail, user, quiet } = transcriptRowContent(item);
+  const matched = item.id === target;
+  return (
+    <View
+      style={{
+        marginVertical: tokens.spacing.xs,
+        alignSelf: user ? "flex-end" : "stretch",
+        maxWidth: user ? "85%" : "100%",
+        backgroundColor: matched ? theme.colours.fill : theme.colours.secondaryBackground,
+        borderRadius: tokens.radii.bubble,
+        padding: tokens.spacing.md,
+      }}
+    >
+      <Text
+        style={{
+          ...textStyle(quiet ? "caption" : "body"),
+          color: theme.colours.foreground,
+        }}
+      >
+        {text}
+      </Text>
+      {detail ? (
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {detail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function isHistoryAbort(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
+}
+
 export function ThreadScreen({
   client,
   id,
+  focusItemId,
   hostId,
   drafts,
   notify,
@@ -231,6 +321,7 @@ export function ThreadScreen({
 }: {
   client: ClientApi;
   id: string;
+  focusItemId?: string | undefined;
   /** Owning machine; null keeps unsent words only while the thread is shown. */
   hostId: string | null;
   drafts: ThreadDraftStore | null;
@@ -259,6 +350,85 @@ export function ThreadScreen({
   const interactions = useSelection(interactionsSelection);
   const pending = useSelection(pendingSelection);
   const status = thread ? statusAppearance(thread.status, theme) : undefined;
+  const listRef = useRef<FlashListRef<Block> | null>(null);
+  type HistoryState = {
+    target: string;
+    items: readonly Item[];
+    loading: boolean;
+    problem?: string;
+  };
+  const [history, setHistory] = useState<HistoryState | null>(() =>
+    focusItemId ? { target: focusItemId, items: [], loading: true } : null,
+  );
+  // A search hit opens its history window beside the live tail: this bounded
+  // `itemsWindow` read never replaces the leased tail. Each fetch owns an
+  // `AbortController` so dismissing the window or leaving the thread cancels
+  // the pending request; the sequence guard ignores late replies after
+  // dismissal or a route change so they cannot corrupt the newly opened
+  // thread. The window renders in the list header above the live tail, so it
+  // is scrolled into view once loaded instead of sitting off-screen.
+  const historySeq = useRef(0);
+  const historyCtrl = useRef<AbortController | null>(null);
+  const loadHistory = useCallback(
+    (target: string) => {
+      const seq = (historySeq.current += 1);
+      historyCtrl.current?.abort();
+      const ctrl = new AbortController();
+      historyCtrl.current = ctrl;
+      void (async () => {
+        try {
+          const items = await readHistoryWindow(client, id, target, {
+            signal: ctrl.signal,
+          });
+          if (historyCtrl.current !== ctrl || historySeq.current !== seq || ctrl.signal.aborted)
+            return;
+          setHistory({ target, items, loading: false });
+        } catch (error) {
+          if (historyCtrl.current !== ctrl || historySeq.current !== seq) return;
+          if (ctrl.signal.aborted || isHistoryAbort(error)) return;
+          notify("That match could not be opened");
+          setHistory({
+            target,
+            items: [],
+            loading: false,
+            problem: "That match could not be opened.",
+          });
+        }
+      })();
+    },
+    [client, id, notify],
+  );
+  const retryHistory = useCallback(
+    (target: string) => {
+      setHistory({ target, items: [], loading: true });
+      loadHistory(target);
+    },
+    [loadHistory],
+  );
+  useEffect(() => {
+    // A pushed search hit always mounts with its `focusItemId`, so the
+    // initial state above already shows its loading row while this fetches.
+    if (focusItemId) loadHistory(focusItemId);
+    // Leaving the thread (or unmounting) cancels the pending history read.
+    return () => {
+      historySeq.current += 1;
+      historyCtrl.current?.abort();
+      historyCtrl.current = null;
+    };
+  }, [focusItemId, loadHistory]);
+  useEffect(() => {
+    // The window renders in the list header above the live tail: once loaded,
+    // bring it into view instead of leaving it off-screen at the top.
+    if (history !== null && !history.loading)
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [history]);
+  const dismissHistory = useCallback(() => {
+    historySeq.current += 1;
+    historyCtrl.current?.abort();
+    historyCtrl.current = null;
+    setHistory(null);
+    listRef.current?.scrollToEnd({ animated: true });
+  }, []);
   // Stress controls exist only in fixture builds; measurement also needs them
   // even though __DEV__ is false there. Production fails closed to no controls.
   const instrumented = useMemo(() => isInstrumentedBuild(), []);
@@ -315,6 +485,7 @@ export function ThreadScreen({
         </AceHost>
       </View>
       <FlashList
+        ref={listRef}
         style={{ flex: 1 }}
         data={blocks}
         keyExtractor={(item) => blockKey(item)}
@@ -325,18 +496,27 @@ export function ThreadScreen({
           startRenderingFromBottom: true,
         }}
         ListHeaderComponent={
-          <AceHost>
-            <Row>
-              <AceButton label="Earlier messages" onPress={() => void older()} kind="secondary" />
-              {instrumented ? (
-                <AceButton
-                  label="Load 2,000"
-                  onPress={() => void stressHistory()}
-                  kind="secondary"
-                />
-              ) : null}
-            </Row>
-          </AceHost>
+          <>
+            {history ? (
+              <HistoryWindow
+                history={history}
+                dismiss={dismissHistory}
+                retry={() => retryHistory(history.target)}
+              />
+            ) : null}
+            <AceHost>
+              <Row>
+                <AceButton label="Earlier messages" onPress={() => void older()} kind="secondary" />
+                {instrumented ? (
+                  <AceButton
+                    label="Load 2,000"
+                    onPress={() => void stressHistory()}
+                    kind="secondary"
+                  />
+                ) : null}
+              </Row>
+            </AceHost>
+          </>
         }
         ListFooterComponent={
           <View>

@@ -1,11 +1,18 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { View, Text, useColorScheme } from "react-native";
+import { View, Text, Button, useColorScheme } from "react-native";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  useNavigation,
+  useRoute,
+} from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { SnackbarHost, Snackbar, type SnackbarHostRef } from "@expo/ui/jetpack-compose";
 import { fixtureRuntime, type Runtime } from "./runtime.ts";
 import { isFixtureMode } from "./execution-mode.ts";
@@ -13,17 +20,30 @@ import { readExecutionMode } from "./native-mode.ts";
 import { ThemeContext, tokens, useTheme, textStyle, AceHost } from "./theme.tsx";
 import { Inbox } from "./Inbox.tsx";
 import { ThreadScreen } from "./Thread.tsx";
+import { ConversationSearchView } from "./ConversationSearch.tsx";
 import { FileScreen, FilesScreen } from "./Files.tsx";
 import { MachinesSheet } from "./sheets.tsx";
 import Inter from "../assets/fonts/Inter.ttf";
 import Mono from "../assets/fonts/JetBrainsMono.ttf";
 
-const Stack = createNativeStackNavigator<{
+type RootStack = {
   Inbox: undefined;
-  Thread: { id: string; title: string };
+  Thread: { id: string; title: string; focusItemId?: string };
   Files: { id: string; title: string };
   File: { id: string; title: string; path: string; line?: number };
-}>();
+  Search: { threadId?: string } | undefined;
+};
+const Stack = createNativeStackNavigator<RootStack>();
+function ThreadSearchAction() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStack, "Thread">>();
+  const route = useRoute<RouteProp<RootStack, "Thread">>();
+  return (
+    <Button
+      title="Search"
+      onPress={() => navigation.push("Search", { threadId: route.params.id })}
+    />
+  );
+}
 function Ready({ runtime }: { runtime: Runtime }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -75,6 +95,7 @@ function Ready({ runtime }: { runtime: Runtime }) {
                   // The fixture loopback is an explicit full-access device; real
                   // pairing leaves this absent (fail closed) until scopes say otherwise.
                   canAct
+                  onSearch={() => navigation.push("Search", undefined)}
                   open={(id) =>
                     navigation.push("Thread", {
                       id,
@@ -85,11 +106,33 @@ function Ready({ runtime }: { runtime: Runtime }) {
               </View>
             )}
           </Stack.Screen>
-          <Stack.Screen name="Thread" options={({ route }) => ({ title: route.params.title })}>
+          <Stack.Screen name="Search" options={{ title: "Search" }}>
+            {({ navigation, route }) => (
+              <ConversationSearchView
+                client={runtime.client}
+                threadId={route.params?.threadId}
+                open={(id, title, itemId) =>
+                  navigation.push("Thread", {
+                    id,
+                    title,
+                    ...(itemId ? { focusItemId: itemId } : {}),
+                  })
+                }
+              />
+            )}
+          </Stack.Screen>
+          <Stack.Screen
+            name="Thread"
+            options={({ route }) => ({
+              title: route.params.title,
+              headerRight: ThreadSearchAction,
+            })}
+          >
             {({ route, navigation }) => (
               <ThreadScreen
                 client={runtime.client}
                 id={route.params.id}
+                focusItemId={route.params.focusItemId}
                 hostId={runtime.hostId}
                 drafts={runtime.drafts}
                 notify={notify}

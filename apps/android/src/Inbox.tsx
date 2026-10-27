@@ -336,6 +336,7 @@ export function Inbox({
   now,
   notify,
   canAct,
+  onSearch,
 }: {
   client: ClientApi;
   open(id: string): void;
@@ -347,6 +348,8 @@ export function Inbox({
    * explicit `true` hides every action, matching iOS (`canOperate ?? false`).
    */
   canAct?: boolean | undefined;
+  /** Opens conversation-content search. Omitted only where search is unavailable. */
+  onSearch?(): void;
 }) {
   const theme = useTheme();
   const operate = canActInbox(canAct);
@@ -536,6 +539,18 @@ export function Inbox({
             Machines ›
           </Text>
         </Pressable>
+        {onSearch ? (
+          <Pressable
+            onPress={onSearch}
+            accessibilityRole="button"
+            accessibilityLabel="Search conversations"
+            style={{ minHeight: tokens.dimensions.touchTarget, justifyContent: "center" }}
+          >
+            <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+              Search ›
+            </Text>
+          </Pressable>
+        ) : null}
         {operate ? null : (
           <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
             View only
