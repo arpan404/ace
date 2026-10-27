@@ -12,10 +12,10 @@
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
-  "devDependencies": {
-    "@ace/themes": "workspace:*"
-  },
   "dependencies": {
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/themes": "workspace:*"
   }
 }
