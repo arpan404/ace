@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",

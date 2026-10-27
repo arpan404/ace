@@ -84,7 +84,7 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
     });
     expect(instructions).toMatchObject({
       systemPrompt: expect.stringContaining(
-        "Pi built-in instructions\n\nace is the app running this session.",
+        "Pi built-in instructions\n\nace runs this session.",
       ),
     });
     expect(instructions).toMatchObject({
