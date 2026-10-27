@@ -3,7 +3,8 @@ import SwiftUI
 /// Everything the ⋯ menu opens: each destination is listed once.
 enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
 
-/// The thread's header: the native back (or the split view's sidebar button), the title centred
+/// The thread's header: the native back over a pushed page, or at the open thread's root the
+/// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
 /// with a small "project · branch" line under it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String

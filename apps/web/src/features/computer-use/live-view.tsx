@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
+import { later } from "@/lib/later.ts";
 import { pictureRenderer } from "@/lib/video/picture-renderer.ts";
 import type { ScreenSession } from "./screen-session.ts";
 import { keyInput, pointerGesture, windowPoint, type ShownPicture } from "./live-input.ts";
@@ -92,6 +93,10 @@ export function LiveView(props: {
     const renderer = pictureRenderer<SourcePicture>({
       decoder: webCodecsDecoder(),
       nextFrame,
+      after: later,
+      stalled: () => {
+        if (!disposed) setNoVideo("The live view stopped. Open the app again.");
+      },
       show: (image, picture) => {
         if (disposed) return;
         drawUpright(element, context, image, picture);

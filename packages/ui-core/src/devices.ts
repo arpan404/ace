@@ -1,4 +1,10 @@
-import type { AppDevice, DeviceFailure, DeviceInput, DeviceState } from "@ace/protocol";
+import type {
+  AppDevice,
+  DeviceFailure,
+  DeviceInput,
+  DevicePosture,
+  DeviceState,
+} from "@ace/protocol";
 
 /** One simulator or emulator as the devices list shows it. */
 export interface DeviceRow {
@@ -14,6 +20,8 @@ export interface DeviceRow {
   live: boolean;
   /** The hardware it simulates (a Simulator's device type), when the daemon says. */
   model?: string | undefined;
+  /** How a foldable sits, which says which of its screens shows; absent for the rest. */
+  posture?: DevicePosture | undefined;
 }
 
 const stateWords: Record<AppDevice["state"], string> = {
@@ -36,7 +44,7 @@ export function deviceRows(
   return [...all.values()]
     .map((device): DeviceRow => {
       const state = byId.get(device.id);
-      return {
+      const row: DeviceRow = {
         id: device.id,
         name: device.name,
         platform: device.platform,
@@ -48,6 +56,8 @@ export function deviceRows(
         live: state?.lifecycle === "live",
         model: device.model,
       };
+      if (state?.posture) row.posture = state.posture;
+      return row;
     })
     .toSorted(
       (a, b) =>

@@ -1,36 +1,55 @@
+import { VideoChunkGate } from "@ace/browser/video-gate";
 import { FrameDecoder, type Frame } from "@ace/screen";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
 
-/** Below this bit rate a viewer can't carry serve-sim's fixed 6 Mbit/s: transcode for it. */
-export const simulatorTranscodeBelow = 5_000_000;
-/** And at or above this, serve-sim's own stream passes through again (hysteresis). */
-export const simulatorPassThroughFrom = 5_500_000;
+/**
+ * The least serve-sim sends while the screen is busy (its documented default is 6 to 30 Mbit/s
+ * by screen size). Until a busier rate has been measured, a viewer is judged against this.
+ */
+export const simulatorSourceFloor = 6_000_000;
+/** Below this share of the source's rate a viewer can't carry it: transcode for it. */
+const transcodeBelow = 5 / 6;
+/** And at or above this share, serve-sim's own stream passes through again (hysteresis). */
+const passThroughFrom = 5.5 / 6;
 
 /**
  * Whether a Simulator live view needs its picture re-encoded: its link can't carry serve-sim's
- * fixed 6 Mbit/s, or its panel is smaller than the Simulator's native picture (an iPad on a
- * phone). `transcoding` is the current state, so the rate has some room before it flips back.
+ * stream (`source`, the measured busy rate, never below the 6 Mbit/s floor), or its panel is
+ * smaller than the Simulator's native picture (an iPad on a phone). `transcoding` is the current
+ * state, so the rate has some room before it flips back.
  */
 export function simulatorNeedsTranscode(input: {
   transcoding: boolean;
   bitrate: number;
   box: { maxWidth: number; maxHeight: number };
   native: { width: number; height: number } | undefined;
+  /** serve-sim's busiest recent rate in bit/s, as measured; the floor when unknown. */
+  source?: number | undefined;
 }): boolean {
   const larger =
     input.native !== undefined &&
     (input.native.width > input.box.maxWidth || input.native.height > input.box.maxHeight);
   if (larger) return true;
-  return input.transcoding
-    ? input.bitrate < simulatorPassThroughFrom
-    : input.bitrate < simulatorTranscodeBelow;
+  const source = Math.max(simulatorSourceFloor, input.source ?? 0);
+  return input.bitrate < source * (input.transcoding ? passThroughFrom : transcodeBelow);
 }
+
+/**
+ * How much input may wait in the transcoder's pipe. Past it, pictures are dropped rather than
+ * queued: a few seconds of backlog would only make the live view late.
+ */
+export const simulatorTranscodeInputLimit = 2 * 1024 * 1024;
 
 /**
  * serve-sim's H.264 re-encoded by the screen helper's `--transcode` mode (a process of its own,
  * hardware decode and encode) at the viewer's size and bit rate. Units go in as serve-sim sends
  * them; frame packets come out in the capture's framing.
+ *
+ * A transcoder that can't keep up gets fewer pictures, never broken ones: once a picture is
+ * dropped, later deltas wait for serve-sim's next IDR (asked for through `needKeyframe`), since
+ * they refer to the one dropped. Settings and keyframe requests are never dropped; while the
+ * pipe is full the newest of each waits and goes ahead of the next picture.
  */
 export interface SimulatorTranscode {
   push(payload: Buffer, keyframe: boolean, seq: number, ts: number): void;
@@ -52,6 +71,8 @@ export function startSimulatorTranscode(options: {
   env: NodeJS.ProcessEnv;
   frame(frame: Frame): void;
   failed(error: unknown): void;
+  /** A dropped picture broke the input's references: serve-sim's next IDR mends them. */
+  needKeyframe(): void;
 }): SimulatorTranscode {
   let stopped = false;
   const child = options.runtime.spawn({
@@ -82,16 +103,38 @@ export function startSimulatorTranscode(options: {
         ),
       );
   });
-  const write = (bytes: Buffer) => {
-    // A transcoder that can't keep up drops input: the newest picture matters, not every one.
-    if (!stopped && child.stdin.writable && child.stdin.writableLength < 8 * 1024 * 1024)
-      child.stdin.write(bytes);
+  const room = () =>
+    !stopped && child.stdin.writable && child.stdin.writableLength < simulatorTranscodeInputLimit;
+  const gate = new VideoChunkGate();
+  let owedSettings: Parameters<SimulatorTranscode["settings"]>[0] | undefined;
+  let owedKeyframe = false;
+  /** Settings and keyframe requests owed since the pipe filled, sent once it has room. */
+  const sendControl = () => {
+    if (!room()) return;
+    if (owedSettings) child.stdin.write(packet({ op: "settings", ...owedSettings }));
+    if (owedKeyframe) child.stdin.write(packet({ op: "keyframe" }));
+    owedSettings = undefined;
+    owedKeyframe = false;
   };
+  child.stdin.on("drain", sendControl);
   return {
-    push: (payload, keyframe, seq, ts) =>
-      write(packet({ op: "frame", keyframe, seq, ts }, payload)),
-    settings: (settings) => write(packet({ op: "settings", ...settings })),
-    keyframe: () => write(packet({ op: "keyframe" })),
+    push: (payload, keyframe, seq, ts) => {
+      sendControl();
+      const outcome = gate.offer("simulator", "input", keyframe, () => {
+        if (!room()) return false;
+        child.stdin.write(packet({ op: "frame", keyframe, seq, ts }, payload));
+        return true;
+      });
+      if (outcome.keyframe && !stopped) options.needKeyframe();
+    },
+    settings: (settings) => {
+      owedSettings = settings;
+      sendControl();
+    },
+    keyframe: () => {
+      owedKeyframe = true;
+      sendControl();
+    },
     async stop() {
       if (stopped) return;
       stopped = true;

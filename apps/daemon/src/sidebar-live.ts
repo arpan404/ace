@@ -12,13 +12,17 @@ const facts = `SELECT threads.id AS id, COALESCE(revisions.revision, 0) AS revis
 /**
  * The sidebar index kept current from the threads table itself. Each sync reads only rows
  * whose revision moved past the last one seen, so direct SQL writes count even without an
- * event. A delete (rare) rebuilds it. Callers sync only inside a read snapshot of committed
- * data: committed revisions are never reused, so nothing a rollback undoes is ever seen.
+ * event, and removes the ids deleted since. Only when the removal log can't account for every
+ * delete (it keeps the newest few thousand) is the index rebuilt from every row. Callers sync
+ * only inside a read snapshot of committed data: committed revisions are never reused, so
+ * nothing a rollback undoes is ever seen.
  */
 export class SidebarLive {
   readonly index = new SidebarIndex();
   private seen: number | undefined;
   private deletes: SQLOutputValue = null;
+  /** The newest removal applied to the index. */
+  private removed = 0;
   private readonly statement: (sql: string) => StatementSync;
   constructor(statement: (sql: string) => StatementSync) {
     this.statement = statement;
@@ -27,7 +31,7 @@ export class SidebarLive {
   sync(): void {
     const deletes =
       this.statement("SELECT count FROM sidebar_thread_deletes WHERE id = 1").get()?.count ?? null;
-    if (this.seen === undefined || deletes !== this.deletes) {
+    if (this.seen === undefined || (deletes !== this.deletes && !this.removeDeleted(deletes))) {
       this.rebuild(deletes);
       return;
     }
@@ -45,6 +49,23 @@ export class SidebarLive {
     this.seen = undefined;
     this.index.clear();
   }
+  /**
+   * Removes the ids deleted since the last sync. Before the rows changed since: an id deleted
+   * and created again has a newer revision, so its new row goes back in. False when the log
+   * doesn't hold every delete counted, and the index must be rebuilt.
+   */
+  private removeDeleted(deletes: SQLOutputValue): boolean {
+    const removals = this.statement(
+      "SELECT revision, thread_id FROM sidebar_thread_removals WHERE revision > ? ORDER BY revision",
+    ).all(this.removed);
+    if (removals.length !== Number(deletes) - Number(this.deletes)) return false;
+    for (const removal of removals) {
+      this.index.remove(String(removal.thread_id));
+      this.removed = Number(removal.revision);
+    }
+    this.deletes = deletes;
+    return true;
+  }
   private rebuild(deletes: SQLOutputValue): void {
     let seen = 0;
     const all = this.statement(
@@ -59,6 +80,11 @@ export class SidebarLive {
     this.index.load(all);
     this.seen = seen;
     this.deletes = deletes;
+    this.removed = Number(
+      this.statement(
+        "SELECT COALESCE(MAX(revision), 0) AS newest FROM sidebar_thread_removals",
+      ).get()?.newest ?? 0,
+    );
   }
 }
 

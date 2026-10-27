@@ -1,4 +1,4 @@
-import { catalogDisplayName } from "@ace/ui-core";
+import { catalogDisplayName, commandArguments } from "@ace/ui-core";
 import type { CatalogEntry, CatalogMention } from "@ace/protocol";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -40,21 +40,9 @@ export function CommandArguments(props: {
           className="contents"
           onSubmit={(event) => {
             event.preventDefault();
-            const parsed: NonNullable<CatalogMention["values"]> = {};
-            for (const [name, parameter] of Object.entries(parameters)) {
-              const value = values[name] ?? "";
-              if (!value && parameter.required) return setError(`Enter ${name} to continue.`);
-              if (!value) continue;
-              if (parameter.type === "number" && !Number.isFinite(Number(value)))
-                return setError(`Enter a number for ${name}.`);
-              parsed[name] =
-                parameter.type === "number"
-                  ? Number(value)
-                  : parameter.type === "boolean"
-                    ? value === "true"
-                    : value;
-            }
-            props.onAccept(parsed);
+            const checked = commandArguments(props.entry, values);
+            if ("error" in checked) return setError(checked.error);
+            props.onAccept(checked.values);
           }}
         >
           <DialogHeader>

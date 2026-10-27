@@ -36,6 +36,13 @@ struct BrowserMenu: View {
                     Label("Take screenshot", ace: .camera)
                 }
                 .disabled(!operate || state?.shown?.private == true)
+                if let device = model.browser.view?.device {
+                    Button(device.toolbar ? "Hide device toolbar" : "Device · \(device.label)", ace: .deviceMobile) {
+                        model.browserDeviceToolbar(!device.toolbar)
+                    }
+                    .disabled(!page)
+                    .accessibilityIdentifier("browser.menu.device")
+                }
                 if let url {
                     ShareLink(item: url) { Label("Share address", ace: .export) }
                     Button("Copy address", ace: .copy) { UIPasteboard.general.url = url }

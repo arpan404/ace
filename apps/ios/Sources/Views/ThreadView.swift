@@ -44,10 +44,12 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
-    /// The composer's own height (field and chips), which the page's floor sits behind.
-    @State private var composerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
+    /// The composer's `@`, `/` and + lists.
+    @State private var suggester = ComposerSuggester()
+    /// "Attach files" picked from `/`: the + menu's three sources are offered.
+    @State private var askAttach = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -80,7 +82,7 @@ struct ThreadView: View {
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
-            .modifier(FloatingBar(height: $barHeight, floor: composerHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -150,6 +152,17 @@ struct ThreadView: View {
                     }
                 }
             }
+            // The next message continued this thread in a new one: open it once its row is here
+            // (ten seconds at most; after that it's in the list to tap).
+            .task(id: screen.continued) {
+                guard let opened = screen.continued else { return }
+                for _ in 0..<100 where model.inbox[opened] == nil {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if Task.isCancelled { return }
+                }
+                screen.continued = nil
+                if model.inbox[opened] != nil { openThread(opened) }
+            }
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
@@ -198,18 +211,20 @@ struct ThreadView: View {
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
                 } else if model.canOperate {
                     ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
-                                 send: { text, alternate in
+                                 send: { text, alternate, references in
                                      let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
-                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
+                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
                                      if saved { acceptedSend += 1 }
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                  files: screen.attachments.count,
-                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
+                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                                 suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
+                                 run: runComposerAction) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
-                    } leading: {
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                    } leading: { pick in
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
@@ -224,7 +239,11 @@ struct ThreadView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
+                    .task(id: thread.id) {
+                        suggester.attach(model)
+                        suggester.scope = .thread(thread.id)
+                        suggester.readAhead()
+                    }
                 } else {
                     ViewOnlyNote.thread
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
@@ -266,6 +285,16 @@ struct ThreadView: View {
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
         }
     }
+    /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
+    private func runComposerAction(_ action: String) {
+        switch action {
+        case "attach": askAttach = true
+        case "plan": Task { _ = await model.setAccess("read-only") }
+        case "model": showModels = true
+        case "review": showChanges = true
+        default: break
+        }
+    }
     /// The composer always reads the same; how a message goes while the agent works is the send
     /// button's to say.
     private let placeholder = "Ask anything"
@@ -296,13 +325,11 @@ private struct GoalPresentation: Identifiable {
 }
 
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, request included, at its end. Behind the composer the
-/// page is solid, fading in just above it, so words never show around the field, in the gap above
-/// the keyboard or behind the home indicator.
+/// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
+/// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
+/// words never show in the gap above the keyboard or behind the home indicator.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
-    /// How tall the composer is, from the bar's lower edge.
-    let floor: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
@@ -311,16 +338,15 @@ private struct FloatingBar<Bar: View>: ViewModifier {
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor(height: floor) }
+                .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour from just above the composer on down, behind the keyboard's translucent edge
-/// and the home indicator.
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
+/// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
-    let height: CGFloat
     private let below = AceTheme.Dimensions.touchTarget * 8
     private let fade = AceTheme.Spacing.lg
     var body: some View {
@@ -329,7 +355,7 @@ private struct BarFloor: View {
                 .frame(height: fade)
             AceTheme.Colours.background
         }
-        .frame(height: height + fade + below)
+        .frame(height: fade + below)
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)

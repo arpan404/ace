@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { createServer, type Server, type Socket } from "node:net";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nodeBinary } from "@ace/provider-kit/testing";
@@ -86,7 +86,7 @@ async function fakeDevice() {
   };
 }
 
-async function fixture() {
+async function fixture(options: { ffmpeg?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ace-scrcpy-capture-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "sdk/platform-tools"), { recursive: true });
@@ -94,11 +94,24 @@ async function fixture() {
   // The long-running `adb shell app_process ...` stays up until ace stops it.
   await nodeBinary(join(root, "sdk/platform-tools"), "adb", "process.stdin.resume();");
   await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
+  // An ffmpeg that notes its pid and runs until its input ends, as one decoding stills does.
+  const pids = join(root, "ffmpeg.pids");
+  if (options.ffmpeg) {
+    await mkdir(join(root, "bin"));
+    await nodeBinary(
+      join(root, "bin"),
+      "ffmpeg",
+      `require("fs").appendFileSync(${JSON.stringify(pids)}, process.pid + "\\n"); process.stdin.resume();`,
+    );
+  }
   const jar = join(root, "scrcpy-server");
   await writeFile(jar, "server");
   const device = await fakeDevice();
   const commands: string[] = [];
-  const env = { PATH: "/usr/bin:/bin", ANDROID_HOME: join(root, "sdk") };
+  const env = {
+    PATH: options.ffmpeg ? `${join(root, "bin")}:/usr/bin:/bin` : "/usr/bin:/bin",
+    ANDROID_HOME: join(root, "sdk"),
+  };
   const platform = new DevicePlatform({
     platform: "linux",
     home: root,
@@ -147,7 +160,9 @@ async function fixture() {
     failure: (error) => failures.push(error),
   });
   cleanup.push(() => capture.stop());
-  return { capture, device, frames, failures, commands };
+  const ffmpegPids = async () =>
+    (await readFile(pids, "utf8").catch(() => "")).split("\n").filter(Boolean).map(Number);
+  return { capture, device, frames, failures, commands, ffmpegPids };
 }
 
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
@@ -290,6 +305,30 @@ it("without ffmpeg, a request for still images keeps the H.264 view rather than 
       bitrate: 4_000_000,
     }),
   ).resolves.toEqual({ codec: "h264" });
+});
+
+it("a device stopped while it switches to still images leaves no ffmpeg running", async () => {
+  const { capture, ffmpegPids } = await fixture({ ffmpeg: true });
+  const switching = capture.configure?.({
+    codec: "jpeg",
+    maxWidth: 1920,
+    maxHeight: 2160,
+    fps: 60,
+    bitrate: 4_000_000,
+  });
+  await capture.stop();
+  await switching?.catch(() => {});
+  // Give a late decoder time to start, then check none outlived the device.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const running = (await ffmpegPids()).filter((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  expect(running).toEqual([]);
 });
 
 it("the view fails when the emulator side of the stream goes away", async () => {

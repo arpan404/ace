@@ -178,17 +178,20 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
 
     // A simulator's drawn hardware (Devices): a graphite metal band and buttons around black
     // glass, on the stage it sits on. Hardware looks the same in every theme, so the metal is a
-    // fixed colour; its rim is one soft hairline (a lit edge), never a drawn outline.
+    // fixed colour, lit from above (brighter at the top and bottom edges, darker through the
+    // middle, as brushed aluminium reads); its rim is one soft hairline (a lit edge), never a
+    // drawn outline. The daemon draws an emulator's body in the same metal.
     "--device-stage": light
       ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 1.5%)`
       : `color-mix(in srgb, ${p.sidebar}, #000 20%)`,
     "--device-body": "#2b2b2f",
+    "--device-metal": "linear-gradient(180deg, #55555b, #2c2c30 50%, #46464b)",
     // A hardware button under the pointer: the body's metal, one step lighter.
     "--device-body-hover": "#3a3a3f",
     "--device-rim": light
-      ? "inset 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 0 0 0.5px rgb(0 0 0 / 0.18)"
-      : "inset 0 0 0 0.5px rgb(255 255 255 / 0.12)",
-    "--device-glass": "#000",
+      ? "inset 0 0 0 1px rgb(255 255 255 / 0.18), 0 0 0 0.5px rgb(0 0 0 / 0.22)"
+      : "inset 0 0 0 1px rgb(255 255 255 / 0.18)",
+    "--device-glass": "#050506",
 
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,

@@ -40,10 +40,22 @@ export interface PictureRendererPorts<P extends LivePicture> {
    * is drawn as it decodes.
    */
   nextFrame?(draw: () => void): () => void;
+  /**
+   * Runs `run` after `ms`; the result cancels it. Given, a decoder that takes pictures but
+   * answers none of them is restarted from a fresh keyframe, and a keyframe asked for is asked
+   * again while it doesn't come, even when the source has gone still and sends nothing more.
+   */
+  after?(ms: number, run: () => void): () => void;
+  /** The decoder stopped answering through every retry: the view says the live view stopped. */
+  stalled?(): void;
 }
 
 /** Decoder errors in a row without a picture before the codec counts as unsupported here. */
 const failureLimit = 3;
+/** Pictures in the decoder whose details are kept for its output: about a second at 60 fps. */
+const submittedLimit = 64;
+/** How long a keyframe asked for may take before it is asked for again. */
+export const keyframeRetryMs = 1000;
 
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
@@ -59,6 +71,46 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   let video: VideoStream | undefined;
   /** The newest H.264 picture handed to the decoder: acks name its stream. */
   let latest: P | undefined;
+  /**
+   * Pictures handed to the current decoder, by sequence, so a picture it hands back late is
+   * shown with its own time, size and rotation rather than the newest picture's.
+   */
+  const submitted = new Map<number, P>();
+  const submit = (picture: P) => {
+    submitted.set(picture.sequence, picture);
+    if (submitted.size <= submittedLimit) return;
+    const oldest = submitted.keys().next();
+    if (!oldest.done) submitted.delete(oldest.value);
+  };
+  /** The picture `sequence` came from; older ones are done with. */
+  const take = (sequence: number): P | undefined => {
+    const found = submitted.get(sequence);
+    for (const key of submitted.keys()) {
+      if (key > sequence) break;
+      submitted.delete(key);
+    }
+    return found;
+  };
+  const forget = () => submitted.clear();
+  /** Cancels the wait for an asked keyframe, after which it is asked for again. */
+  let timer: (() => void) | undefined;
+  /** The picture the outstanding keyframe request was acked with. */
+  let asking: P | undefined;
+  const disarm = () => {
+    timer?.();
+    timer = undefined;
+  };
+  const arm = () => {
+    const after = ports.after;
+    if (!after || closed) return;
+    disarm();
+    timer = after(keyframeRetryMs, () => {
+      timer = undefined;
+      if (closed || unsupported || !needKey || !asking) return;
+      ack(asking, true);
+      arm();
+    });
+  };
   /** Deltas can't be decoded until a keyframe comes; `asked`: one was asked for. */
   let needKey = true;
   let asked = 0;
@@ -91,8 +143,10 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   const recover = (picture: P) => {
     needKey = true;
     asked = 1;
+    asking = picture;
     ports.pressure();
     ack(picture, true);
+    arm();
   };
   const toVideo = (): VideoStream | undefined => {
     const factory = ports.decoder;
@@ -105,49 +159,72 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
           handlers.error(unsupportedCodec);
         },
       });
-    video = new VideoStream(decoder, {
-      present: ({ picture }) => {
-        const shown = latest && { ...latest, sequence: picture.sequence };
-        if (closed || !shown) return picture.close();
-        failures = 0;
-        const nextFrame = ports.nextFrame;
-        if (nextFrame) {
-          // Newest wins: a picture replaced before the refresh is freed undrawn, but acked.
-          queued?.picture.close();
-          queued = { picture, shown };
-          cancelFrame ??= nextFrame(drawQueued);
+    const after = ports.after;
+    video = new VideoStream(
+      decoder,
+      {
+        present: ({ picture }) => {
+          const shown = take(picture.sequence);
+          if (closed || !shown) return picture.close();
+          failures = 0;
+          const nextFrame = ports.nextFrame;
+          if (nextFrame) {
+            // Newest wins: a picture replaced before the refresh is freed undrawn, but acked.
+            queued?.picture.close();
+            queued = { picture, shown };
+            cancelFrame ??= nextFrame(drawQueued);
+            ack(shown, false);
+            return;
+          }
+          try {
+            ports.show(asImage(picture), shown);
+          } finally {
+            picture.close();
+          }
           ack(shown, false);
-          return;
-        }
-        try {
-          ports.show(asImage(picture), shown);
-        } finally {
-          picture.close();
-        }
-        ack(shown, false);
+        },
+        ack: (sequence, keyframe) => {
+          const target = submitted.get(sequence) ?? (latest && { ...latest, sequence });
+          if (!target) return;
+          if (!keyframe) return void ack(target, false);
+          // A decode error: the decoder starts again from a keyframe, or gives up on video.
+          if (refused || ++failures >= failureLimit) giveUp(target);
+          else recover(target);
+        },
+        // The decoder held pictures and answered none in time: it was dropped; start again.
+        stalled: (sequence) => {
+          const target = submitted.get(sequence) ?? (latest && { ...latest, sequence });
+          forget();
+          if (!target) return;
+          if (++failures >= failureLimit) stall(target);
+          else recover(target);
+        },
       },
-      ack: (sequence, keyframe) => {
-        const target = latest && { ...latest, sequence };
-        if (!target) return;
-        if (!keyframe) return void ack(target, false);
-        // A decode error: the decoder starts again from a keyframe, or gives up on video.
-        if (refused || ++failures >= failureLimit) giveUp(target);
-        else recover(target);
-      },
-    });
+      after ? { after } : {},
+    );
     return video;
   };
-  const giveUp = (picture: P) => {
+  const stop = (picture: P) => {
     ack(picture, false);
-    if (unsupported) return;
+    if (unsupported) return false;
     unsupported = true;
+    disarm();
     video?.close();
     video = undefined;
-    ports.fallback();
+    return true;
+  };
+  const giveUp = (picture: P) => {
+    if (stop(picture)) ports.fallback();
+  };
+  const stall = (picture: P) => {
+    if (stop(picture)) (ports.stalled ?? ports.fallback)();
   };
   const reset = () => {
     dropQueued();
+    disarm();
+    asking = undefined;
     video?.reset();
+    forget();
     previous = -1;
     needKey = true;
     asked = 0;
@@ -177,19 +254,24 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         // Ask once, and again only if a second's worth of deltas passed without the keyframe.
         if (!asked || asked++ >= 30) {
           decoder.reset();
+          forget();
           recover(picture);
         } else ack(picture, false);
         return;
       }
       needKey = false;
       asked = 0;
+      asking = undefined;
+      disarm();
       latest = picture;
+      submit(picture);
       decoder.receive({ ...picture, codedWidth: picture.width, codedHeight: picture.height });
     },
     /** Forget the decoder's place (a hidden page, a reconnect): the next keyframe starts over. */
     reset,
     close() {
       closed = true;
+      disarm();
       dropQueued();
       video?.close();
       video = undefined;

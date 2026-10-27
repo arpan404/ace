@@ -1,6 +1,5 @@
 /*
- * The person at the screen-sharing chooser, for end-to-end tests on wlroots-style desktops
- * (Hyprland, Sway). The e2e runner points the portal's chooser at portal-picker.sh, which
+ * The person at the screen-sharing chooser, for end-to-end tests on Hyprland. The e2e runner points the portal's chooser at portal-picker.sh, which
  * answers from the file named by ACE_E2E_PICKER_CHOICE; GNOME sessions have no such file and
  * use seed_portal.py instead. Test scaffolding only: ace never configures a chooser.
  */

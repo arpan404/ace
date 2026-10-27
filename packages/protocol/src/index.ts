@@ -125,6 +125,7 @@ export * from "./permissions.ts";
 export * from "./permission-client.ts";
 
 export * from "./machines.ts";
+export * from "./locked-use.ts";
 
 export * from "./history.ts";
 

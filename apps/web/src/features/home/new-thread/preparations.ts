@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Choices } from "./choices.ts";
 import { ComposerDraftSchema, readDraft } from "@/features/thread/index.ts";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 
 const Preparation = z.object({
   owner: z.string().optional(),
@@ -114,6 +115,10 @@ export function usePreparations(storage: KeyValueStorage | undefined, host: stri
 export function preparations(storage: KeyValueStorage | undefined, host: string) {
   return readJson(storage, storageKey(host), Records, []).map(
     ([key, row]): [string, Preparation] => {
+      // Older chat drafts saved the temporary folder's id in their navigation metadata.
+      // The durable key already names the chat, even after that folder has expired.
+      if (key === preparationKey(host, chatChoice, row.skill, row.issue ?? row.pullRequest))
+        row = { ...row, project: chatChoice };
       const retired = storage && retirements.get(storage)?.get(key);
       if (!retired) return [key, row];
       const waitingForScope = row.draftId === undefined && row.scopeEpoch === retired.epoch;

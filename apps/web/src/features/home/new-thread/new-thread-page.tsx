@@ -424,7 +424,7 @@ function PreparationPage(props: {
       previous?.settingsResolved ?? (!!previous?.provider && !!previous?.choices.model);
     const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
     const saved = savePreparation(storage, props.host, draftKey, {
-      project,
+      project: props.chat ? chatChoice : project,
       from: props.copyFrom,
       owner: editorOwner,
       skill: props.skill,
@@ -924,6 +924,7 @@ function PreparationPage(props: {
                   className={cn(
                     composerEnvironmentSurface,
                     "[&:has([data-notices]:not(:empty))_[data-environment]]:hidden",
+                    "[&:not(:has([data-environment])):has([data-notices]:empty)]:hidden",
                   )}
                 >
                   <div

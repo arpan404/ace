@@ -14,12 +14,10 @@ import SwiftUI
         }
     }
 
-    @Test func aCompactWindowStacksTheListAndTheThread() {
+    @Test func aCompactWindowNeverPutsTheListBesideTheThread() {
         // A phone, the folded Duo, a narrow iPad window.
         #expect(!ThreadColumns.sideBySide(.compact, width: 402))
         #expect(!ThreadColumns.sideBySide(.compact, width: 1000))
-        #expect(ThreadColumns.compactColumn([.thread(open)]) == .detail)
-        #expect(ThreadColumns.compactColumn([]) == .sidebar)
     }
 
     @Test func aRegularWindowTooNarrowForBothGivesTheOpenThreadTheWholeWidth() {
@@ -35,13 +33,21 @@ import SwiftUI
         #expect(ThreadColumns.selection(path) == open)
         #expect(ThreadColumns.detail(path) == [.thread(child)])
         #expect(ThreadColumns.path(path, detail: ThreadColumns.detail(path)) == path)
-        #expect(ThreadColumns.compactColumn(path) == .detail)
     }
 
     @Test func goingBackFromAChildInTheDetailColumnKeepsItsParentOpen() {
         let path: [InboxRoute] = [.thread(open), .thread(child)]
         #expect(ThreadColumns.path(path, detail: []) == [.thread(open)])
         #expect(ThreadColumns.path([], detail: [.thread(child)]) == [])
+    }
+
+    @Test func aTapJustAfterARowActionOpensNothingButALaterOneDoes() {
+        var taps = RowTapGuard()
+        #expect(taps.opens(at: 100))
+        taps.acted(at: 100)
+        // The row sliding in under the finger takes the same touch.
+        #expect(!taps.opens(at: 100.2))
+        #expect(taps.opens(at: 100 + RowTapGuard.window))
     }
 
     @Test func besideTheListTheSidebarCarriesTheTabsAndAPhoneKeepsItsTabBar() {

@@ -32,6 +32,8 @@ export class EncodePacer {
   private lastEncode = -Infinity;
   /** The picture on screen has had its sharper encode since the page last changed. */
   private settled = true;
+  /** The newest frame was skipped: it waits for a slot, as the page may send no other. */
+  private skipped = false;
   constructor(fps: number) {
     this.fps = fps;
   }
@@ -41,12 +43,25 @@ export class EncodePacer {
   }
   /** A captured frame arrived; `busy` is the encoder still working through earlier frames. */
   frame(now: number, busy: boolean): PaceDecision {
-    if (busy) return "skip";
+    if (busy) return this.skip();
     if (this.keyDue(now)) return this.encoded(now, true);
     // Frames arrive on the display's clock with some jitter: one up to half a 60 Hz frame
     // before its slot still takes it, so 30 fps out of 60 Hz doesn't fall to every third frame.
-    if (now < this.nextAt - 8) return "skip";
+    if (now < this.nextAt - 8) return this.skip();
     return this.encoded(now, false);
+  }
+  /**
+   * No frame came since one was skipped: whether to encode that last one now, its slot having
+   * come and the encoder free. Without it the change it shows would wait for the next one.
+   */
+  catchUp(now: number, busy: boolean): boolean {
+    if (!this.skipped || busy || now < this.nextAt - 8) return false;
+    this.encoded(now, false);
+    return true;
+  }
+  private skip(): PaceDecision {
+    this.skipped = true;
+    return "skip";
   }
   /** No frame came for a while: whether to encode the last one again as an owed keyframe. */
   still(now: number, lastFrameAt: number, busy: boolean): boolean {
@@ -62,6 +77,7 @@ export class EncodePacer {
     if (!idle || this.settled || this.keyDue(now)) return false;
     if (now - lastFrameAt < settleMs || now - this.lastEncode < settleMs) return false;
     this.settled = true;
+    this.skipped = false;
     this.lastEncode = now;
     this.nextAt = Math.max(this.nextAt, now + 1000 / this.fps - 8);
     return true;
@@ -76,6 +92,7 @@ export class EncodePacer {
     this.nextAt = Math.max(this.nextAt + interval, now + interval - 8);
     this.lastEncode = now;
     this.settled = false;
+    this.skipped = false;
     if (!key) return "delta";
     this.lastKey = now;
     this.owed = false;
