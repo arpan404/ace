@@ -94,3 +94,25 @@ test("permission withdrawn during credential preparation leaves the remote branc
     await service.close();
   }
 });
+
+test("backing up an already published clean branch makes no push", async () => {
+  const repo = await repository();
+  const path = join(dirname(repo), "published");
+  const remote = join(dirname(repo), "remote.git");
+  await git(repo, "init", "--bare", remote);
+  await git(repo, "remote", "add", "origin", remote);
+  const service = new GitService({ transportProtocols: ["file"] });
+  try {
+    await service.createWorktree({ repo, path, branch: "published", baseRef: "HEAD" });
+    await git(path, "commit", "--allow-empty", "-m", "Topic work");
+    await git(path, "push", "--quiet", "-u", "origin", "HEAD");
+    const head = await scalar(path, "rev-parse", "HEAD");
+    // An unreachable origin proves no push is attempted.
+    await git(path, "remote", "set-url", "origin", join(dirname(repo), "gone.git"));
+    await expect(service.backupWorktree(repo, path, () => {})).resolves.toBe(head);
+    await git(path, "commit", "--allow-empty", "-m", "More work");
+    await expect(service.backupWorktree(repo, path, () => {})).rejects.toBeInstanceOf(Error);
+  } finally {
+    await service.close();
+  }
+});

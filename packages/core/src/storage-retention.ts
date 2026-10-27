@@ -15,6 +15,8 @@ export interface StorageCandidate {
   removeBranch?: boolean;
   settledAt?: number;
   mergedIntoMain?: boolean;
+  /** A worktree owner is neither archived nor deleted, even if settled. */
+  openThreads?: boolean;
 }
 
 const forceable = new Set<StorageReason>(["uncommitted", "unpushed"]);
@@ -39,6 +41,9 @@ export function planStorageItem(
   const settled =
     candidate.kind === "worktrees" &&
     (retention.worktreeMode === "settled" || retention.worktreeMode === "all_settled");
+  // Archived mode keeps worktrees of open threads, settled or not.
+  if (candidate.kind === "worktrees" && !settled && candidate.openThreads)
+    protections.push("live_thread");
   if (settled) {
     if (candidate.settledAt === undefined) protections.push("not_settled");
     if (retention.worktreeMode === "settled" && !candidate.mergedIntoMain)

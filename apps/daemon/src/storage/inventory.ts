@@ -103,7 +103,7 @@ export class StorageInventory {
     const state = await (this.owner.worktrees ?? workspace.git).inspectWorktreeCleanup(repo, path);
     // Git inspection awaits I/O. Ownership is read afterwards, and apply holds root admission.
     if (!this.managed.verify(repo, path)) return undefined;
-    const { ids, protections, threads, settledAt } = this.worktreeOwnership(path);
+    const { ids, protections, threads, settledAt, open } = this.worktreeOwnership(path);
     if (state.main) protections.push("main_worktree");
     if (state.locked) protections.push("locked_worktree");
     if (state.dirty) protections.push("uncommitted");
@@ -135,7 +135,8 @@ export class StorageInventory {
       threadIds: ids,
       ...(settledAt === undefined ? {} : { settledAt }),
       mergedIntoMain: state.mergedIntoMain,
-      fingerprint: fingerprint({ state, owners: ids, prs, settledAt }),
+      openThreads: open,
+      fingerprint: fingerprint({ state, owners: ids, prs, settledAt, open }),
       protections,
       branch: state.branch,
       removeBranch: merged,
@@ -148,6 +149,7 @@ export class StorageInventory {
         head: state.head,
         branch: state.branch,
         ...(settledAt === undefined ? {} : { settledAt }),
+        openThreads: open,
       },
     };
   }
@@ -185,13 +187,17 @@ export class StorageInventory {
       .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
     if (reservation) protections.push("cleanup_in_progress");
+    // Settled but unarchived threads only free their worktree in the settled cleanup modes.
+    const open = threads.some(
+      (thread) => thread.deletedAt === undefined && thread.archivedAt === undefined,
+    );
     const settledAt =
       threads.length && threads.every((thread) => thread.settledAt !== undefined)
         ? Math.max(
             ...threads.map((thread) => Math.max(thread.settledAt ?? 0, thread.activityAt ?? 0)),
           )
         : undefined;
-    return { ids, protections, threads, settledAt };
+    return { ids, protections, threads, settledAt, open };
   }
   async inspect(
     target: StorageTarget,

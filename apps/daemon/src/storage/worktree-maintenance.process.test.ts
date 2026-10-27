@@ -296,3 +296,14 @@ test("daily storage cleanup cannot delete worktrees while their own automatic de
   await f.storage.scheduledCleanup();
   await access(f.path);
 });
+
+test("the regular cleanup preview keeps a settled thread's worktree until the thread is archived", async () => {
+  const f = await setup();
+  const preview = () =>
+    f.storage.plan("owner", { op: "cleanup.plan", kinds: ["worktrees"], forceItems: [] });
+  expect((await preview()).items).toMatchObject([
+    { disposition: "protect", reasons: expect.arrayContaining(["live_thread"]) },
+  ]);
+  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", archivedAt: f.now() }], f.now());
+  expect((await preview()).items[0]?.reasons).not.toContain("live_thread");
+});

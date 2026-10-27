@@ -25,6 +25,7 @@ export const StorageTarget = z.discriminatedUnion("type", [
     path: z.string().max(4096),
     gitFingerprint: z.string(),
     settledAt: z.number().nonnegative().optional(),
+    openThreads: z.boolean().optional(),
     head: z.string().nullable(),
     branch: z.string().nullable(),
   }),

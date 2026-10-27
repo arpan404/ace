@@ -1,4 +1,4 @@
-import { replayCursor, seedRealCatalogs, type SkillSeed } from "@ace/fake-daemon";
+import { replayCursor, seedRealCatalogs, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -48,25 +48,11 @@ test("an open slash menu receives discovered skills without a reload", async () 
 test("the open Skills library receives discovered skills without a reload", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
-  const initial: SkillSeed = {
-    name: "tdd",
-    description: "Write a failing test first.",
-    body: "# Test Driven Development\n\nWrite a failing test first.\n",
-    scope: "personal",
-  };
-  app.daemon.skills.seed([initial]);
+  app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/skills");
   await screen.findByRole("link", { name: /Test Driven Development/ });
   expect(screen.queryByRole("link", { name: /clerk/i })).toBeNull();
-  app.daemon.skills.seed([
-    initial,
-    {
-      name: "clerk",
-      description: "Use the clerk skill.",
-      body: "# Clerk\n\nUse the clerk skill.\n",
-      scope: "personal",
-    },
-  ]);
+  seedRealCatalogs(app.daemon, Date.now());
   expect(await screen.findByRole("link", { name: /clerk/i })).toBeTruthy();
 });
 

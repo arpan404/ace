@@ -28,6 +28,7 @@ export async function executeWorktreeCleanup(
       !allowed() ||
       currentOwners.protections.length ||
       currentOwners.settledAt !== target.settledAt ||
+      (currentOwners.open && target.openThreads === false) ||
       currentOwners.ids.length !== entry.item.threadIds.length ||
       currentOwners.ids.some((id) => !expectedOwners.has(id)) ||
       !inventory.managed.verify(target.repo, target.path)

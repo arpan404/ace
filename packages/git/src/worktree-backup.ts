@@ -16,6 +16,8 @@ export async function backupWorktree(
     if (state.main || state.locked || state.missing)
       throw new GitError("invalid_argument", "Worktree cannot be backed up");
     if (state.mergedIntoMain && !state.dirty) return null;
+    // Already published: skip the network call and any credential prompt it would trigger.
+    if (!state.dirty && !state.unpushed) return state.head;
     const info = await repository.info(path);
     const origin = info.remotes.find((remote) => remote.name === "origin");
     if (!info.branch || ["main", "master"].includes(info.branch) || !origin?.pushUrls.length)
