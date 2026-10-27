@@ -226,6 +226,8 @@ struct AutomationDetailView: View {
     }
 
     private func poll() async {
+        // One the list hasn't read yet (a copy just made) reads its own row first.
+        if row == nil { await readRow() }
         await readRuns()
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(pollMs))
