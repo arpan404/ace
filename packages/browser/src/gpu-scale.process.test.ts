@@ -12,7 +12,13 @@ async function gpuReport(executable: string): Promise<unknown> {
   const profile = await mkdtemp(join(tmpdir(), "ace-gpu-report-"));
   const child = spawn(
     executable,
-    ["--headless=new", "--remote-debugging-pipe", `--user-data-dir=${profile}`, "--no-first-run"],
+    [
+      "--headless=new",
+      "--remote-debugging-pipe",
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--do-not-de-elevate",
+    ],
     { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"], windowsHide: true },
   );
   try {

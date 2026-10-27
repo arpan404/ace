@@ -411,6 +411,8 @@ export async function chromeViews(executablePath: string) {
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // Windows: an elevated test would otherwise see Chrome relaunch unelevated and exit.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--window-size=1280,720",
       "about:blank",
     ],

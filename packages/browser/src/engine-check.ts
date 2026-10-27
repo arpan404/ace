@@ -382,6 +382,8 @@ async function checkWindowsEngine(
         `--user-data-dir=${profile}`,
         "--no-first-run",
         "--no-default-browser-check",
+        // Started elevated, Chrome would relaunch unelevated and drop the pipe.
+        "--do-not-de-elevate",
         ...(sandbox ? [] : ["--no-sandbox"]),
       ],
       timeoutMs,

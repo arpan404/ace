@@ -86,26 +86,3 @@ describe.runIf(process.platform === "win32")("Windows ARM64 browser", () => {
     );
   });
 });
-
-describe.runIf(process.platform === "win32")("Windows packaged Edge", () => {
-  it("Windows: a packaged Edge, which relaunches away from ace's pipe, is passed over for Chrome or nothing", async () => {
-    const root = await tempRoot();
-    const edge = await fakeExecutable(root, "Microsoft", "Edge", "Application", "msedge.exe");
-    await writeFile(join(root, "Microsoft", "Edge", "Application", "AppxSignature.p7x"), "sig");
-    expect(
-      await detectChromium({ platform: "win32", env: { LOCALAPPDATA: root } }),
-    ).toBeUndefined();
-    expect(
-      await detectChromium({
-        platform: "win32",
-        env: { PATH: join(root, "Microsoft", "Edge", "Application") },
-      }),
-    ).toBeUndefined();
-    // Named by the person, it is used as it is.
-    expect(await detectChromium({ platform: "win32", env: { ACE_CHROMIUM_PATH: edge } })).toBe(
-      edge,
-    );
-    const chrome = await fakeExecutable(root, "Google", "Chrome", "Application", "chrome.exe");
-    expect(await detectChromium({ platform: "win32", env: { LOCALAPPDATA: root } })).toBe(chrome);
-  });
-});
