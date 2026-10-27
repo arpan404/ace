@@ -19,8 +19,12 @@ import {
 } from "./production-inbox-actions.ts";
 import {
   armProductionInboxUndoForTests,
+  clearUiUndoForCommand,
+  dismissInboxActionFailed,
   invalidateAllInboxActionUi,
   invalidateInboxActionUiForHost,
+  isInboxActionBusy,
+  operableScopedInboxActionUi,
   pendingProductionInboxFailuresForTests,
   pruneInboxActionUiToHosts,
   reportProductionInboxFailureForTests,
@@ -28,6 +32,7 @@ import {
   scopedInboxActionUi,
   setUiBusy,
   snapshotProductionInboxActionUiForTests,
+  takeInboxActionFailed,
   trackedInboxActionReceiptsForTests,
   trackInboxActionReceipt,
   untrackInboxActionReceipt,
@@ -469,8 +474,8 @@ it("invalidating one host drops only its Undo, failures, busy and receipts", () 
     kind: "settle",
     message: "Studio: This change could not be applied.",
   });
-  setUiBusy("host-1:thread-1:archive", true);
-  setUiBusy("host-2:thread-1:settle", true);
+  setUiBusy("host-1:thread-1:archive", true, "host-1", THREAD);
+  setUiBusy("host-2:thread-1:settle", true, "host-2", THREAD);
   trackInboxActionReceipt("host-1", "cmd-a", () => {
     stopped.push("cmd-a");
   });
@@ -507,7 +512,7 @@ it("pruning to live hosts keeps offline offers and drops only departed listeners
   trackInboxActionReceipt("host-2", "cmd-gone", () => {
     stopped.push("cmd-gone");
   });
-  setUiBusy("host-2:thread-1:archive", true);
+  setUiBusy("host-2:thread-1:archive", true, "host-2", THREAD);
 
   // host-1 is still paired but offline: pruning to [host-1] keeps everything
   // live and drops only the departed host-2 listener.
@@ -530,7 +535,7 @@ it("untracking a terminal receipt forgets it without touching the offer", () => 
     label: "Thread archived",
   });
   trackInboxActionReceipt("host-1", "cmd-a", () => {});
-  untrackInboxActionReceipt("cmd-a");
+  untrackInboxActionReceipt("host-1", "cmd-a");
   expect(trackedInboxActionReceiptsForTests()).toEqual([]);
   expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-a");
   invalidateAllInboxActionUi();
@@ -555,7 +560,7 @@ it("removal clears that host's actions and the next tap fails closed", async () 
       kind: "settle",
       message: "This change could not be applied.",
     });
-    setUiBusy("host-1:thread-1:archive", true);
+    setUiBusy("host-1:thread-1:archive", true, "host-1", THREAD);
     let disposed = 0;
     trackInboxActionReceipt("host-1", "cmd-stale", () => {
       disposed += 1;
@@ -635,6 +640,232 @@ it("disconnect-all clears every host without dropping the admitted command", asy
   } finally {
     await produced.disconnectAll();
   }
+});
+
+it("two hosts keep their own Undo offers until each expires or leaves", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-host-1",
+    label: "Thread archived",
+  });
+  armProductionInboxUndoForTests({
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    commandId: "cmd-host-2",
+    label: "Thread settled",
+  });
+
+  // The second admit no longer destroys the first machine's offer.
+  expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-host-1");
+  expect(scopedInboxActionUi(["host-2"]).undo?.commandId).toBe("cmd-host-2");
+
+  // Tearing down one machine keeps the other's offer and listeners.
+  invalidateInboxActionUiForHost("host-2");
+  expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-host-1");
+  expect(scopedInboxActionUi(["host-2"]).undo).toBeNull();
+  expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-host-1");
+});
+
+it("each host's Undo expires on its own timer", () => {
+  vi.useFakeTimers();
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-host-1",
+    label: "Thread archived",
+  });
+  vi.advanceTimersByTime(4000);
+  armProductionInboxUndoForTests({
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    commandId: "cmd-host-2",
+    label: "Thread settled",
+  });
+  vi.advanceTimersByTime(1000);
+  // host-1's 5s elapsed; host-2 still holds 4s.
+  expect(scopedInboxActionUi(["host-1"]).undo).toBeNull();
+  expect(scopedInboxActionUi(["host-2"]).undo?.commandId).toBe("cmd-host-2");
+  vi.advanceTimersByTime(4000);
+  expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+});
+
+it("a revoked grant hides the Undo without destroying it", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-revoked",
+    label: "Thread archived",
+  });
+  reportProductionInboxFailureForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    message: "This change could not be applied.",
+  });
+
+  // View-only: the banner shows nothing, but the store keeps everything.
+  expect(operableScopedInboxActionUi(["host-1"], () => false).undo).toBeNull();
+  expect(operableScopedInboxActionUi(["host-1"], () => false).failed).toBeNull();
+  expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-revoked");
+
+  // Re-grant: the same offer resurfaces without a second admit.
+  expect(operableScopedInboxActionUi(["host-1"], () => true).undo?.commandId).toBe("cmd-revoked");
+});
+
+it("a throwing grant check fails closed without leaking", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-throwing",
+    label: "Thread archived",
+  });
+  expect(
+    operableScopedInboxActionUi(["host-1"], () => {
+      throw new Error("grants dead");
+    }).undo,
+  ).toBeNull();
+  expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-throwing");
+});
+
+it("a revoked grant keeps the stored Undo while admission fails closed", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    armProductionInboxUndoForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "archive",
+      commandId: "cmd-live-offer",
+      label: "Thread archived",
+    });
+    await produced.grants.setScopes("device-1", ["read"]);
+    const before = sent.length;
+    const outcome = await runProductionInboxAction(produced, "host-1", "settle", THREAD, NOW);
+    expect(outcome.admitted).toBe(false);
+    expect(outcome.error).toMatch(/View only/i);
+    expect(sent.length).toBe(before);
+    // The unavailable offer is hidden, never destroyed.
+    expect(
+      operableScopedInboxActionUi(["host-1"], (host) => produced.canOperate(host)).undo,
+    ).toBeNull();
+    expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-live-offer");
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("re-tracking a receipt disposes the previous listener", () => {
+  const stopped: string[] = [];
+  trackInboxActionReceipt("host-1", "cmd-reused", () => {
+    stopped.push("first");
+  });
+  trackInboxActionReceipt("host-1", "cmd-reused", () => {
+    stopped.push("second");
+  });
+  expect(stopped).toEqual(["first"]);
+  expect(trackedInboxActionReceiptsForTests()).toEqual([
+    { hostId: "host-1", commandId: "cmd-reused" },
+  ]);
+
+  // The same command id on another machine is a separate subscription.
+  trackInboxActionReceipt("host-2", "cmd-reused", () => {
+    stopped.push("other-host");
+  });
+  expect(trackedInboxActionReceiptsForTests()).toHaveLength(2);
+  untrackInboxActionReceipt("host-1", "cmd-reused");
+  expect(trackedInboxActionReceiptsForTests()).toEqual([
+    { hostId: "host-2", commandId: "cmd-reused" },
+  ]);
+  expect(stopped).toEqual(["first"]);
+});
+
+it("host ids with colons survive busy and receipt teardown", () => {
+  setUiBusy("a:b:thread-1:archive", true, "a:b", THREAD);
+  setUiBusy("a:thread-1:settle", true, "a", THREAD);
+  expect(isInboxActionBusy("a:b", THREAD)).toBe(true);
+  expect(isInboxActionBusy("a", THREAD)).toBe(true);
+
+  // Tearing down "a" must not touch the distinct host "a:b".
+  invalidateInboxActionUiForHost("a");
+  expect(isInboxActionBusy("a:b", THREAD)).toBe(true);
+  expect(isInboxActionBusy("a", THREAD)).toBe(false);
+  expect(snapshotProductionInboxActionUiForTests().busy["a:b:thread-1:archive"]).toBe(true);
+
+  pruneInboxActionUiToHosts(["a:b"]);
+  expect(isInboxActionBusy("a:b", THREAD)).toBe(true);
+  pruneInboxActionUiToHosts([]);
+  expect(isInboxActionBusy("a:b", THREAD)).toBe(false);
+
+  const stopped: string[] = [];
+  trackInboxActionReceipt("a:b", "cmd-colon", () => {
+    stopped.push("a:b");
+  });
+  pruneInboxActionUiToHosts(["a"]);
+  expect(stopped).toEqual(["a:b"]);
+  expect(trackedInboxActionReceiptsForTests()).toEqual([]);
+});
+
+it("retry and dismiss act on the visible failure only", () => {
+  const first = {
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    message: "host-1 refused.",
+  } as const;
+  const second = {
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    message: "host-2 refused.",
+  } as const;
+  reportProductionInboxFailureForTests(first);
+  reportProductionInboxFailureForTests(second);
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-1");
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(1);
+
+  // Retrying the queued host-2 failure leaves host-1's visible banner alone.
+  expect(takeInboxActionFailed(second)?.hostId).toBe("host-2");
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-1");
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(0);
+
+  // Dismissing a queued failure never touches the visible one.
+  reportProductionInboxFailureForTests(second);
+  dismissInboxActionFailed(second);
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-1");
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(0);
+});
+
+it("clearing one host's Undo by command keeps the other host and ignores stale clears", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-host-1",
+    label: "Thread archived",
+  });
+  armProductionInboxUndoForTests({
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    commandId: "cmd-host-2",
+    label: "Thread settled",
+  });
+
+  // A stale command id never clears the re-armed offer.
+  clearUiUndoForCommand("host-1", "cmd-old");
+  expect(scopedInboxActionUi(["host-1"]).undo?.commandId).toBe("cmd-host-1");
+
+  clearUiUndoForCommand("host-1", "cmd-host-1");
+  expect(scopedInboxActionUi(["host-1"]).undo).toBeNull();
+  expect(scopedInboxActionUi(["host-2"]).undo?.commandId).toBe("cmd-host-2");
 });
 
 it("offline keeps offers and receipts; only teardown disposes them", async () => {

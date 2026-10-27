@@ -50,8 +50,8 @@ import {
 } from "../inbox-actions.ts";
 import { currentProductionInboxGrant } from "./production-inbox-actions.ts";
 import {
+  operableScopedInboxActionUi,
   pruneInboxActionUiToHosts,
-  scopedInboxActionUi,
 } from "./production-inbox-actions-store.ts";
 import {
   ProductionInboxActionBanner,
@@ -316,8 +316,10 @@ export function MergedMachineInbox({
   const inboxActions = useProductionInboxActions(startup, {
     hostLabel: showNames ? (hostId) => machineLabelFor(hostId, names) : undefined,
   });
-  // Shared store, per-host display: only paired hosts' offers render here.
-  const scoped = scopedInboxActionUi(paired);
+  // Shared store, per-host display: only paired hosts' operable offers render
+  // here. A revoked host keeps its stored offers and listeners; they hide
+  // until the grant returns instead of being destroyed.
+  const scoped = operableScopedInboxActionUi(paired, (host) => startup.canOperate(host));
   const visibleUndo = scoped.undo ?? null;
   const visibleFailed = scoped.failed ?? null;
   function retry(hostId: string): void {
@@ -456,9 +458,9 @@ export function MergedMachineInbox({
       <ProductionInboxActionBanner
         undo={visibleUndo}
         failed={visibleFailed}
-        onUndo={() => void inboxActions.undoNow()}
-        onRetry={() => void inboxActions.retryFailed()}
-        onDismissFailed={inboxActions.dismissFailed}
+        onUndo={() => void inboxActions.undoNow(visibleUndo)}
+        onRetry={() => void inboxActions.retryFailed(visibleFailed)}
+        onDismissFailed={() => inboxActions.dismissFailed(visibleFailed)}
       />
     </View>
   );

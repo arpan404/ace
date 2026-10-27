@@ -6,6 +6,7 @@ import type { InboxActionKind, SnoozePresetId } from "../inbox-actions.ts";
 import { snoozeOptions } from "../inbox-actions.ts";
 import {
   inboxUndoAccessibilityLabel,
+  PRODUCTION_INBOX_VIEW_ONLY_COPY,
   productionInboxRefusalCopy,
   runProductionInboxAction,
   watchProductionInboxReceipt,
@@ -14,13 +15,15 @@ import {
 } from "./production-inbox-actions.ts";
 import {
   armUiUndo,
-  clearUiUndo,
+  clearUiUndoForCommand,
   consumeUiFailedForRetry,
-  dismissUiFailed,
+  dismissInboxActionFailed,
+  isInboxActionBusy,
   readInboxActionUi,
   reportUiFailed,
   setUiBusy,
   subscribeInboxActionUi,
+  takeInboxActionFailed,
   trackInboxActionReceipt,
   untrackInboxActionReceipt,
   type ProductionInboxActionUiOptions,
@@ -47,8 +50,22 @@ export type { ProductionInboxActionUiOptions, ProductionInboxFailed, ProductionI
  * the receipt path. The command itself stays durable in the outbox regardless.
  */
 
-function dismissInboxFailedBanner(): void {
-  dismissUiFailed();
+function dismissInboxFailedBanner(visibleFailed: ProductionInboxFailed | null = null): void {
+  dismissInboxActionFailed(visibleFailed);
+}
+
+/** Read the current grant for one host, fail-closed on throws and unknowns. */
+function canOperateForHost(startup: ProductionInboxActionsStartup, hostId: string): boolean {
+  try {
+    return startup.canOperate(hostId) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the given host has an in-flight action on the given thread. */
+function inboxActionIsBusy(hostId: string, threadId: string): boolean {
+  return isInboxActionBusy(hostId, threadId);
 }
 
 export function useProductionInboxActions(
@@ -73,7 +90,7 @@ export function useProductionInboxActions(
   ): Promise<string | null> {
     const key = `${hostId}:${threadId}:${kind}`;
     if (readInboxActionUi().busy[key] === true) return null;
-    setUiBusy(key, true);
+    setUiBusy(key, true, hostId, threadId);
     try {
       const outcome = await runProductionInboxAction(
         startup,
@@ -94,11 +111,6 @@ export function useProductionInboxActions(
         });
         return withHostAttribution(raw, hostId, options.hostLabel);
       }
-      const seen = readInboxActionUi();
-      if (seen.failed === null) {
-        // Keep a queued failure untouched; otherwise stay clear so the new
-        // Undo offer is visible. The receipt below still reports.
-      }
       const undoKind = undoActionFor(kind);
       if (undoKind !== undefined) {
         armUiUndo({
@@ -117,11 +129,8 @@ export function useProductionInboxActions(
         commandId,
         (error) => {
           firedSynchronously = true;
-          untrackInboxActionReceipt(commandId);
-          const current = readInboxActionUi().undo;
-          if (current !== null && current.commandId === commandId) {
-            clearUiUndo();
-          }
+          untrackInboxActionReceipt(hostId, commandId);
+          clearUiUndoForCommand(hostId, commandId);
           reportUiFailed({
             hostId,
             threadId,
@@ -136,7 +145,7 @@ export function useProductionInboxActions(
         },
         () => {
           firedSynchronously = true;
-          untrackInboxActionReceipt(commandId);
+          untrackInboxActionReceipt(hostId, commandId);
         },
       );
       if (!firedSynchronously) {
@@ -154,37 +163,54 @@ export function useProductionInboxActions(
     }
   }
 
-  async function undoNow(): Promise<string | null> {
-    const current = readInboxActionUi().undo;
+  async function undoNow(visibleUndo?: ProductionInboxUndo | null): Promise<string | null> {
+    const current = visibleUndo === undefined ? readInboxActionUi().undo : visibleUndo;
     if (!current) return null;
     const undoKind = undoActionFor(current.kind);
     if (undoKind === undefined) {
-      clearUiUndo();
+      clearUiUndoForCommand(current.hostId, current.commandId);
       return null;
     }
-    clearUiUndo();
-    return act(current.hostId, undoKind, current.threadId);
+    // A grant revoked after the row mounted must not destroy the offer:
+    // keep it stored (and hidden by the views) instead of clearing it into a
+    // fail-closed refusal.
+    if (!canOperateForHost(startup, current.hostId)) {
+      return PRODUCTION_INBOX_VIEW_ONLY_COPY;
+    }
+    clearUiUndoForCommand(current.hostId, current.commandId);
+    const issue = await act(current.hostId, undoKind, current.threadId);
+    if (issue === PRODUCTION_INBOX_VIEW_ONLY_COPY) {
+      // Lost the grant between the check and the tap: restore the offer.
+      armUiUndo(current);
+    }
+    return issue;
   }
 
-  async function retryFailed(): Promise<string | null> {
-    const current = consumeUiFailedForRetry();
+  async function retryFailed(visibleFailed?: ProductionInboxFailed | null): Promise<string | null> {
+    const current =
+      visibleFailed === undefined
+        ? consumeUiFailedForRetry()
+        : visibleFailed === null
+          ? null
+          : takeInboxActionFailed(visibleFailed);
     if (!current) return null;
+    if (!canOperateForHost(startup, current.hostId)) {
+      reportUiFailed(current);
+      return PRODUCTION_INBOX_VIEW_ONLY_COPY;
+    }
     return act(current.hostId, current.kind, current.threadId, current.preset);
-  }
-
-  function isBusy(hostId: string, threadId: string): boolean {
-    return Object.keys(busy).some((key) => key.startsWith(`${hostId}:${threadId}:`));
   }
 
   return {
     undo,
     failed,
     busy,
-    isBusy,
+    isBusy: inboxActionIsBusy,
     act,
     undoNow,
     retryFailed,
-    dismissFailed: dismissInboxFailedBanner,
+    dismissFailed: (visibleFailed?: ProductionInboxFailed | null) =>
+      dismissInboxFailedBanner(visibleFailed ?? null),
   };
 }
 

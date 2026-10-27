@@ -47,7 +47,7 @@ import {
 } from "./production-inbox-common.tsx";
 import {
   invalidateInboxActionUiForHost,
-  scopedInboxActionUi,
+  operableScopedInboxActionUi,
 } from "./production-inbox-actions-store.ts";
 import { ProductionThreadView } from "./production-thread-view.tsx";
 
@@ -196,10 +196,12 @@ export function ActiveMachineInbox({
   useEffect(() => {
     if (!inboxVisible) invalidateInboxActionUiForHost(hostId);
   }, [hostId, inboxVisible]);
-  // The module store is shared across hosts: only this host's offer renders
-  // here, so switching to another machine never shows a stale cross-host
-  // Undo. Anything hidden stays stored and resurfaces on switch-back.
-  const scoped = scopedInboxActionUi([hostId]);
+  // The module store is shared across hosts: only this host's operable offer
+  // renders here, so switching to another machine never shows a stale
+  // cross-host Undo. A revoked (view-only) grant hides the offer without
+  // destroying it; anything hidden stays stored and resurfaces on switch-back
+  // or re-grant.
+  const scoped = operableScopedInboxActionUi([hostId], (host) => startup.canOperate(host));
   const visibleUndo = inboxVisible ? (scoped.undo ?? null) : null;
   const visibleFailed = inboxVisible ? (scoped.failed ?? null) : null;
 
@@ -408,9 +410,9 @@ export function ActiveMachineInbox({
       <ProductionInboxActionBanner
         undo={visibleUndo}
         failed={visibleFailed}
-        onUndo={() => void inboxActions.undoNow()}
-        onRetry={() => void inboxActions.retryFailed()}
-        onDismissFailed={inboxActions.dismissFailed}
+        onUndo={() => void inboxActions.undoNow(visibleUndo)}
+        onRetry={() => void inboxActions.retryFailed(visibleFailed)}
+        onDismissFailed={() => inboxActions.dismissFailed(visibleFailed)}
       />
     </View>
   );
