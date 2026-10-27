@@ -47,6 +47,8 @@ interface Transfer {
   /** The host's id for the temporary file. */
   fileId: string;
   controller: AbortController;
+  /** Resolves once the transfer stopped touching its temporary file, whatever the outcome. */
+  settled: Promise<void>;
 }
 
 export interface DownloadDoor {
@@ -67,7 +69,7 @@ export class CheckoutDownloads {
 
   handle(action: NativeDownloadAction): void {
     if (action.type === "files.download") {
-      if (!this.#transfers.has(action.id)) void this.#start(action.id, action.scope, action.target);
+      if (!this.#transfers.has(action.id)) this.#start(action.id, action.scope, action.target);
       return;
     }
     const transfer = this.#transfers.get(action.id);
@@ -78,10 +80,12 @@ export class CheckoutDownloads {
     }
     transfer.controller.abort();
     this.#transfers.delete(action.id);
-    void this.#discard(transfer.fileId);
+    // Only once the transfer settles: a discard sent while `download.open` is still on its way
+    // would leave the folder that open then makes.
+    void transfer.settled.then(() => this.#discard(transfer.fileId));
   }
 
-  async #start(transferId: string, scope: FilesScope, target: DownloadTarget): Promise<void> {
+  #start(transferId: string, scope: FilesScope, target: DownloadTarget): void {
     const transfer: Transfer = {
       id: transferId,
       name: downloadName(target),
@@ -89,14 +93,20 @@ export class CheckoutDownloads {
       received: 0,
       fileId: this.#door.uuid(),
       controller: new AbortController(),
+      settled: Promise.resolve(),
     };
     this.#transfers.set(transferId, transfer);
+    transfer.settled = this.#run(transfer, scope, target);
+  }
+
+  async #run(transfer: Transfer, scope: FilesScope, target: DownloadTarget): Promise<void> {
     const signal = transfer.controller.signal;
     this.#show(transfer);
     try {
       const input = this.#input(scope, target);
       if (target.kind === "file") transfer.size = await this.#size(scope, target.path, signal);
       await this.#door.call("download.open", { id: transfer.fileId, name: transfer.name });
+      if (signal.aborted) throw new DOMException("Stopped", "AbortError");
       for await (const chunk of downloadFile(this.#owner, input, { signal, timeoutMs: 60_000 })) {
         await this.#door.call(
           "download.append",
