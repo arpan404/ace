@@ -7,6 +7,7 @@ import { guideTopics, toolFamilies } from "./status.ts";
 import { rankTools } from "./tool-search.ts";
 import { findDelivery } from "./tool-delivery.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
+import { namesDestructiveTools } from "./toolsets.ts";
 
 const maxMatches = 10;
 const Match = z.strictObject({
@@ -146,8 +147,21 @@ export function createMetaRegistry(): ToolRegistry {
   registry.registerContent({
     ...dispatcher,
     async run({ name, arguments: args }, context) {
-      const dispatch = context.session?.dispatch;
+      const session = context.session;
+      const dispatch = session?.dispatch;
       if (!dispatch) throw new PublicToolError("tool_unavailable");
+      // Where destructive tools are listed by name, they keep the client's ask: never dispatched.
+      if (
+        namesDestructiveTools(session.listing, context.client) &&
+        session
+          .catalog()
+          .some(
+            ({ tool }) =>
+              bareToolName(tool.name) === bareToolName(name) &&
+              tool.annotations?.destructiveHint === true,
+          )
+      )
+        throw new PublicToolError("call_directly");
       return dispatch(name, args, context.signal);
     },
   });

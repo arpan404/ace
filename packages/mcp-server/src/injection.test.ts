@@ -67,8 +67,8 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          // Antigravity defers tools it doesn't always load, so it lists every tool.
-          ...(provider === "antigravity" ? [] : [{ name: "X-Ace-Tools", value: "static" }]),
+          // Antigravity and Cursor defer tools they don't load upfront, so they list every tool.
+          ...(provider === "acp" ? [{ name: "X-Ace-Tools", value: "static" }] : []),
         ],
       },
     ]);
@@ -100,7 +100,6 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         Authorization: `Bearer ${connection.bearer}`,
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
-        "X-Ace-Tools": "static",
         "X-Ace-Call-Budget": "50",
       },
     },
@@ -110,10 +109,11 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
 
 it("each provider receives ace's shared guidance exactly once", () => {
   const shared = aceInstructions.split("\n")[0] ?? aceInstructions;
-  for (const provider of ["claude", "opencode", "acp", "antigravity"] as const)
+  for (const provider of ["claude", "opencode", "acp"] as const)
     expect(developerInstructions(provider)).not.toContain(shared);
-  for (const provider of ["codex", "cursor", "pi"] as const)
-    expect(developerInstructions(provider).split(shared)).toHaveLength(2);
+  // Antigravity files server instructions away from its model, so its own prompt carries them.
+  for (const provider of ["codex", "cursor", "pi", "antigravity"] as const)
+    expect(developerInstructions(provider).split(shared), provider).toHaveLength(2);
   // Codex and Cursor opt out of server instructions, so the copy above is the only one.
   expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).toMatchObject({
     "X-Ace-Instructions": "native",
@@ -146,14 +146,17 @@ it("each client asks for the tool listing its tool-list refresh supports", () =>
   const fixed = ["X-Ace-Tools", "static"];
   // OpenCode reloads its tools on tools/list_changed, so it starts small and grows.
   expect(Object.entries(openCodeInjection(connection).server.headers)).toContainEqual(core);
-  // Cursor's SDK and generic ACP agents never reload: they keep a fixed list and tools_call.
-  expect(Object.entries(cursorSdkInjection(connection).mcpServers.ace.headers)).toContainEqual(
-    fixed,
+  // Cursor shows only listed tool names and calls only listed tools: it asks for every tool.
+  expect(Object.keys(cursorSdkInjection(connection).mcpServers.ace.headers)).not.toContain(
+    "X-Ace-Tools",
   );
-  for (const provider of ["cursor", "acp"] as const)
-    expect(
-      acpInjection(connection, provider).mcpServers[0]?.headers.map((h) => [h.name, h.value]),
-    ).toContainEqual(fixed);
+  expect(
+    acpInjection(connection, "cursor").mcpServers[0]?.headers.map((h) => h.name),
+  ).not.toContain("X-Ace-Tools");
+  // Generic ACP agents never reload: they keep a fixed list and tools_call.
+  expect(
+    acpInjection(connection, "acp").mcpServers[0]?.headers.map((h) => [h.name, h.value]),
+  ).toContainEqual(fixed);
   // An ACP agent known to reload grows its list; one on the Claude Agent SDK defers like Claude.
   const acpHeaders = (cli: string) =>
     acpInjection({ ...connection, listing: acpToolListing(cli) }).mcpServers[0]?.headers.map(

@@ -1,10 +1,15 @@
 import type { AccessMode, ProviderKind } from "@ace/protocol";
 import { aceGuidance } from "./status.ts";
 import { codexPrefix } from "./codex-guidance.ts";
-import type { ToolListing } from "./toolsets.ts";
+import { cursorToolListing, type ToolListing } from "./toolsets.ts";
 
-/** Providers whose CLI shows MCP server instructions to the model; the rest opt out. */
-const readsServerInstructions = new Set<ProviderKind>(["claude", "opencode", "acp", "antigravity"]);
+/**
+ * Providers whose CLI shows MCP server instructions to the model; the rest get ace's guidance in
+ * their own channel. Antigravity only files them beside its tool definitions (`instructions.md`),
+ * unread unless its model opens that file. An ACP agent's session says what its CLI does
+ * (`acpShowsServerInstructions`).
+ */
+const readsServerInstructions = new Set<ProviderKind>(["claude", "opencode", "acp"]);
 /** What the daemon knows about this session when it injects guidance. */
 export interface SessionGuidance {
   /** The session brief (facts), rendered by `renderBrief`. */
@@ -19,6 +24,8 @@ export interface SessionGuidance {
   access?: AccessMode | null | undefined;
   /** How this session's client lists ace tools; omitted: the provider's usual listing. */
   listing?: ToolListing | undefined;
+  /** Whether this session's client shows ace's MCP server instructions; omitted: the provider's usual. */
+  serverInstructions?: boolean | undefined;
 }
 /** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
 const skills = "ace's guides except offshift are also installed as skills.";
@@ -31,7 +38,8 @@ const usualListing: Record<ProviderKind, ToolListing> = {
   claude: "all",
   opencode: "core",
   pi: "core",
-  cursor: "static",
+  // Cursor's SDK keeps its MCP meta tool on: names only, every listed tool callable.
+  cursor: cursorToolListing(true),
   antigravity: "all",
   acp: "static",
 };
@@ -67,8 +75,12 @@ const reach: Record<ToolListing, string> = {
 /**
  * How a deferring provider other than Claude reaches a tool it lists but has not loaded.
  * Antigravity loads only always-load tools and keeps each other tool's definition in a file.
+ * Cursor shows only tool names and reaches every MCP tool through its own GetMcpTools and
+ * CallMcpTool.
  */
 const deferredReach: Partial<Record<ProviderKind, string>> = {
+  cursor:
+    'ace tools are listed by name only: GetMcpTools (server "ace", toolName) gives a schema and tools_find finds one by task; call it with CallMcpTool, e.g. thread_start or browser_open.',
   antigravity:
     'Most ace tools are deferred: read the tool\'s definition file, then call it with call_mcp_tool (ServerName "ace", ToolName, Arguments), e.g. ToolName thread_start or browser_open.',
 };
@@ -96,10 +108,11 @@ export function developerInstructions(
   session: SessionGuidance = {},
 ): string {
   const listing = session.listing ?? usualListing[provider];
+  const served = session.serverInstructions ?? readsServerInstructions.has(provider);
   return [
-    readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups, session.tools),
+    served ? undefined : aceGuidance(session.groups, session.tools),
     // Codex's recipe replaces the naming and reach lines: its models call ace from exec.
-    provider === "codex" ? codexPrefix(session.tools, skills) : naming[provider],
+    provider === "codex" ? codexPrefix(session.tools, skills, listing) : naming[provider],
     provider === "codex"
       ? undefined
       : listing === "all"

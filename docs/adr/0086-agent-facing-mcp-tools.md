@@ -114,13 +114,14 @@ below). In core mode a search also opens the families it returned, the way readi
 
 **Listing per client.** `X-Ace-Tools` now takes three values:
 
-- no header (Claude Code, Codex, claude-agent-acp, Antigravity): every tool, with `tools_find`
-  beside their own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
+- no header (Claude Code, Codex on a model with tool search, claude-agent-acp, Antigravity, and
+  Cursor since 2026-10-27): every tool, with `tools_find` beside their own tool search.
+  `tools_call` would only duplicate a direct call there, so it is not offered.
 - `core` (OpenCode, Pi, Gemini CLI over ACP): the core tools plus `tools_find` and `tools_call`,
   growing on `guide`, entry points and searches. These clients reload, so a found tool becomes a
   listed tool with its own annotations. The reload can land a model step late (OpenCode
   debounces it, then lists again), so `tools_call` reaches a found tool until it is listed.
-- `static` (Cursor's SDK, other ACP agents over HTTP and the stdio bridge): the core
+- `static` (other ACP agents over HTTP and the stdio bridge; Cursor's SDK until 2026-10-27): the core
   tools, `tools_find` and `tools_call` (12 tools with the browser and computer use on), and the
   list never grows. Static is the conservative default for an ACP agent not known to reload,
   not a claim that it never refreshes.
@@ -182,6 +183,54 @@ thread's model (`engine_sessions.model`, `acpClaudeToolListing`). ACP fixes a se
 servers when it opens, so a later model switch cannot narrow the list; a session with no model
 known at launch starts on core.
 
+**Codex defers only with tool search (2026-10-27).** Read from Codex 0.163.0's source (tag
+`rust-v0.163.0`: `core/src/tools/spec_plan.rs`, `core/src/mcp_tool_exposure.rs`,
+`models-manager/src/manager.rs`, `model-provider/src/amazon_bedrock/runtime_catalog.rs`,
+`rmcp-client/src/logging_client_handler.rs`, `tools/src/json_schema.rs`):
+
+- Codex defers MCP tools only when the turn's model metadata has `supports_search_tool`.
+  Otherwise it loads every listed tool in full on every request, as function tools or, on
+  code-mode-only models, as declarations in `exec`'s description. A person's `omit_tools_from` or
+  `code_mode.direct_only_tool_namespaces` can also force tools direct.
+- The metadata comes from Codex's catalog: the longest slug the model name starts with, retried
+  after one `provider/` segment, for Codex's own catalog and a `model_catalog_json` file (which
+  wins); an exact slug match for a provider's `model_catalog_url`. Every bundled model has search.
+  A model outside the catalog (Ollama or LM Studio under `--oss`, a custom provider's own names, a
+  dated name under a catalog URL listing only the base slug) gets fallback metadata without it,
+  and `amazon-bedrock-runtime` turns it off for every model. A custom catalog's entries set
+  `supports_search_tool` themselves and `model/list` does not return it, so ace treats a model
+  found there as unknown. `features.code_mode_only_strict_3p_tools` keeps MCP tools deferred
+  on code-mode-only turns regardless. The auth mode only filters what `model/list` shows.
+- The tool mode is the model's own (the gpt-5.6 and gpt-6 families are code-mode-only), else
+  `features.code_mode_only` or `code_mode`, both off by default, so gpt-5.5 runs without `exec`
+  and reaches deferred tools through `tool_search`. Both facts are read per turn, so a model
+  switch can move a thread between modes. Codex fixes a server's tools when it connects, only
+  logs `tools/list_changed`, and `config/mcpServer/reload` re-reads only `config.toml`.
+- Server instructions become the tool namespace's description; ace sends Codex none
+  (`X-Ace-Instructions: native`). Skills are listed with name, description and path.
+- Function calls are never strict. Codex keeps `type`, `description`, `enum`, `items`,
+  `minItems`, `properties`, `required`, `additionalProperties`, `anyOf`/`oneOf`/`allOf` and
+  `$ref`/`$defs`, turns `const` into `enum`, drops every other keyword (`default`, `format`,
+  `pattern`, lengths, `minimum`/`maximum`, `maxItems`, `title`) and strips descriptions from a
+  schema over 5,000 bytes. ace's largest tool definition is under 2,600 characters.
+
+So the adapter reads `config/read` and `model/list` before the thread starts
+(`codexToolListing`), under one 2.5-second deadline: both are local reads that take
+milliseconds, and only a cold catalog goes online under Codex's own 5-second limit. The catalog is
+read beside the config on an app-server that has none yet, skipped where the config decides
+(Bedrock Runtime, Codex's default model), and kept per app-server keyed by the provider, catalog
+file and URL. A fact it cannot read, or that misses the deadline, keeps every tool listed, and a
+late catalog read still fills the cache. A session whose model would load every tool connects
+with the fixed list and pays about 2,910 tokens per request instead of the catalogue (about
+10,050 plus guidance). Codex never asks under ace's read-only access (approval policy `never`)
+and refuses a prompted tool there, so on that list `tools_call` is approved like the other ace
+tools and refuses destructive targets, and `automation_remove`, the one destructive tool, is
+listed by name with Codex's prompt (about 60 tokens; a second, prompted dispatcher would cost
+more). Codex's prefix, `guide` and `tools_find` also name the way in without
+`exec` (its `tool_search`, then `mcp__ace__<name>`) and, on the fixed list, `tools_call`. A
+switch from a catalog model to one without search mid-thread still loads every tool until the
+session reopens, since Codex cannot replace a thread's MCP entry.
+
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every
 other tool's definition is written to `~/.gemini/antigravity-cli/mcp/<server>/<tool>.json`; the
@@ -192,6 +241,67 @@ pays about 2,700 tokens of core schemas per request; its per-request ace context
 3,200 to 2,100 tokens. Its guidance line says deferred ace tools are reached with
 `call_mcp_tool` (server `ace`) after reading their definition. It shares Claude's always-loaded
 set.
+
+**OpenCode 2.1.4 and Pi 1.4.0 (2026-10-27).** Read from the installed OpenCode 2.1.4 binary's
+bundled source and Pi 1.4.0's package (`dist/core/agent-session.js`, `dist/extensions/codemode`,
+`pi-ai/dist/api`, `docs/mcp.md`, `docs/extensions.md`, CHANGELOG). Both keep the core listing:
+
+- OpenCode sends every direct MCP tool's schema on every request and reloads on
+  `tools/list_changed` after a 100 ms debounce. Its Code Mode, on by default per MCP server, puts
+  tools behind an `execute` script tool: the catalog shows each tool's full TypeScript signature
+  (input and output types) within about 2,000 tokens shared with OpenCode's own tools, the rest
+  found by `search()` inside a script, and nested calls reach the transcript only as `execute`
+  metadata. That is no cheaper than ace's core list and loses ace's per-tool rows and approvals,
+  so ace keeps `codemode: false`. OpenCode rewrites tool schemas per model only for Gemini
+  (required trimmed to known properties, tuple items, inlined refs) and Kimi (a type beside an
+  untyped enum); ace's advertised schemas pass both unchanged. It shows MCP server instructions
+  (without an `execute` line when Code Mode is off) whenever one of the server's tools is allowed,
+  and its Plan agent (ace's read-only) denies only edits, so ace's tools stay listed there.
+- Pi has had `codemode`, `tool_search` and an extension tool `exposure` since 0.99. Its tool
+  search lists no names (a query finds deferred tools), so it is no cheaper than ace's core list
+  with `tools_find`. While codemode is active (on by default once any of the person's MCP servers
+  connects), Pi hands active `direct` tools to scripts: it appends a script-call note to each
+  description, or with `codemode.mode: "only"` hides them behind its scripts. ace's extension now
+  registers its tools `model-only` (declared, never script-callable), passes ace's MCP hints as
+  Pi `annotations` for permission extensions, and, because the server's `tools/list_changed` can
+  land after the call's result, reloads its list before returning a call that may open a family,
+  so Pi's next request already declares it. That wait ends after one second or on interrupt;
+  the reload keeps going and list_changed applies it when it lands. Pi sends ace's schemas unchanged on every provider
+  (Gemini `parametersJsonSchema`, OpenAI strict only for tools that opt in); its Anthropic path
+  keeps only a root's `type`, `properties` and `required`, and no ace tool has other root keys.
+  `--tools` patterns still filter extension tools.
+
+Per-request ace context is unchanged by these fixes as measured (OpenCode about 2,650, Pi about
+2,880 tokens); a Pi session with codemode active no longer pays about 15 tokens of script-call
+note per declared ace tool.
+
+**Cursor lists names only (2026-10-27).** The 2026-10-17 reading that Cursor loads MCP tools
+upfront was wrong. Read from `@cursor/sdk` 1.0.35 (what ace pins) and 1.1.0 (`dist/esm`,
+`McpSdkClient`, the request-context builder and `McpMetaToolOptions`), cursor-agent 2026.10.01,
+the recorded SDK fixture `fixtures/cursor-sdk/1.0.35/composer-2.5/nested-task.jsonl` and
+Cursor's own transcripts on this machine:
+
+- The local runtime turns Cursor's MCP meta tool on (`mcpMetaToolEnabled ?? true`; no public
+  option changes it). The model then sees, per server, `<mcp_meta_tool_server name tools="a, b"
+serverUseInstructions>`, with names and the server's instructions but no descriptions or schemas.
+  It reads schemas with `GetMcpTools` (a whole server, one `toolName`, a name `pattern`, or the
+  catalogue) and calls with `CallMcpTool {server, toolName, arguments}`. Every recorded MCP call
+  went through these two. Nothing in the SDK or CLI varies this by model; Cursor's servers build
+  the prompt, so a server-side exception for some model can't be ruled out from shipped code.
+- Schemas reach the model as JSON text in a `GetMcpTools` result, never as function
+  definitions, so no model's function-schema subset applies to ace's schemas.
+- Each server's list is fetched once per connection and cached. A `CallMcpTool` for a name that
+  list lacks fails with `McpToolNotFoundError`. 1.1.0 notes `tools/list_changed` but nothing acts
+  on it; it also keeps a server's valid tools when one is invalid, where 1.0.35 loses the list.
+
+So Cursor gets every tool (`cursorToolListing`): each costs its name, and each is called directly
+with its own annotations instead of through `CallMcpTool` wrapping `tools_call`. Its guidance
+line names `GetMcpTools` and `CallMcpTool`. Measured per request, Cursor's ace context is about
+1,140 tokens (185 of them the 52 names). The old budget of 2,900 counted the static list's 12
+schemas (about 1,900 tokens), which Cursor never loaded; its real cost was about 980. ace keeps
+its guidance in Cursor's always-applied rule rather than as server instructions: the same text
+at the same cost. A group turned on mid-session stays out of Cursor's cached list until the next
+session, as for Antigravity.
 
 **Guidance per session.** The shared server text stays the same for everyone and under 315
 tokens. What differs goes in the provider's own channel, rendered once per session so its
@@ -288,3 +398,32 @@ account (`agents.models`), so a second account's models are never cut off by pag
 **Budgets.** `mcp-agent-budget.process.test.ts` holds each provider's per-request cost and
 `mcp-catalogue-budget.process.test.ts` the whole catalogue, any single tool and a Claude session
 without tool search, each at the measured cost rounded up to the next 50 tokens.
+
+**ACP agents re-read (2026-10-27).** Read from the installed agy 1.4.8 binary and its changelog,
+the registry's agy_acp_server 1.4.3 (its Python sources and bundled harness), Gemini CLI 0.43.0's
+bundle and Qwen Code 0.0.14's package, without starting a session:
+
+- Antigravity's on-demand loading is unchanged: `antigravity/alwaysLoad` (added in agy 1.3.3)
+  marks a tool eager, every other tool's definition goes to `<server>/<tool>.json` and is called
+  through `call_mcp_tool`, and the harness handles `tools/list_changed`. Two flags the backend
+  serves gate it, `supports_deferred_tool_loading` per model and `enable_lazy_load` in its MCP
+  tool config; which models carry the first is not in the binary, so a model without it may load
+  every listed tool in full. A client can force a server eager with
+  `_meta.antigravity.forceAllToolsEager` on the server entry or
+  `_meta.antigravity.eagerMcpServers`; ace sets neither.
+- Antigravity never shows MCP server instructions to its model: it writes them to
+  `instructions.md` beside the tool definitions (seen in the files agy wrote), and its prompt only
+  says the file may exist. ace's shared guidance therefore now travels in Antigravity's
+  system-prompt text with the rest of its session guidance.
+- Gemini CLI loads every MCP tool upfront with its raw input schema, has no tool search, reloads
+  on `tools/list_changed` even without the capability, and adds server instructions to its
+  project context. With folder trust on (the default) it starts no MCP server, ace's included, in
+  a folder not in `trustedFolders.json`, unless `GEMINI_CLI_TRUST_WORKSPACE=true` or `--skip-trust`
+  is given; ace passes neither.
+- Qwen Code 0.0.14 neither reloads nor reads server instructions.
+
+So whether an ACP agent shows server instructions is a per-agent rule
+(`acpShowsServerInstructions`): Gemini CLI and claude-agent-acp do; Antigravity, Qwen Code and
+every agent not reviewed get the guidance in their own channel (system-prompt text where offered,
+else the first prompt). Antigravity's model now receives the shared guidance it lacked, about 235
+tokens; its per-request budget is unchanged because the test already counted that text.

@@ -89,6 +89,7 @@ export const PublicToolCode = z.enum([
   "machine_disconnected",
   "transfers_off",
   "tool_unavailable",
+  "call_directly",
   "thread_not_found",
   "thread_busy",
   "request_conflict",
@@ -403,6 +404,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   sdk_missing: {
     message: "Device SDK is unavailable",
     hint: "Ask the user to install and configure Xcode or Android SDK on the daemon host.",
+  },
+  call_directly: {
+    message: "Call this tool by its own name",
+    hint: "Your client asks the person before this tool, and tools_call would skip that ask. It is in your tool list: call it as mcp__ace__<name> with the same arguments.",
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",

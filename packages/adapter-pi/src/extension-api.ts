@@ -4,6 +4,14 @@
  * `registerTool`) is allowed; action methods throw until the runtime binds, just before
  * `session_start`.
  */
+/** The MCP tool annotations Pi keeps for a tool; a missing hint takes MCP's default. */
+export interface PiToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface PiExtensionApi {
   sendMessage?(
     message: { customType: string; content: string; display: boolean; details: unknown },
@@ -36,6 +44,13 @@ export interface PiExtensionApi {
     description: string;
     /** Pi copies a snippet into its system prompt's tool list; without one the tool is left out. */
     promptSnippet?: string;
+    /**
+     * How the model reaches the tool (Pi 0.99+). `direct` (the default) and `model-only` are
+     * declared to the model while active; only `direct` is also callable from codemode scripts.
+     */
+    exposure?: "direct" | "model-only" | "codemode" | "deferred" | "hidden";
+    /** MCP-style hints Pi reports through `getAllTools()` for permission extensions. */
+    annotations?: PiToolAnnotations;
     parameters: Record<string, unknown>;
     execute: (
       id: string,

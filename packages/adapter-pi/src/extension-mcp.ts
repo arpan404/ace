@@ -3,12 +3,13 @@ import {
   coreToolsHeader,
   developerInstructions,
   maxToolTimeoutMs,
+  openedToolset,
   type AceMcpConnection,
   type SessionGuidance,
 } from "@ace/mcp-server";
-import { bareToolName } from "@ace/provider-kit/ace-tool-names";
+import { aceToolSearch, bareToolName, dispatchedAceCall } from "@ace/provider-kit/ace-tool-names";
 import { obj, str } from "./native.ts";
-import type { PiExtensionApi } from "./extension-api.ts";
+import type { PiExtensionApi, PiToolAnnotations } from "./extension-api.ts";
 
 /** A tool name as ace's MCP server registers it: bare (`context`), or a toolkit's `ace_` name. */
 const AceToolName = z
@@ -30,7 +31,15 @@ const Tools = z.object({
         name: AceToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
-        annotations: z.object({ readOnlyHint: z.boolean().optional() }).passthrough().optional(),
+        annotations: z
+          .object({
+            readOnlyHint: z.boolean().optional(),
+            destructiveHint: z.boolean().optional(),
+            idempotentHint: z.boolean().optional(),
+            openWorldHint: z.boolean().optional(),
+          })
+          .passthrough()
+          .optional(),
         _meta: z
           .object({ "ace/timeoutMs": z.number().int().min(1).max(maxToolTimeoutMs).optional() })
           .passthrough()
@@ -41,6 +50,28 @@ const Tools = z.object({
   nextCursor: z.string().optional(),
 });
 type ListedTool = z.infer<typeof Tools>["tools"][number];
+/**
+ * Whether a successful call may add a family to this session's core list, by the server's own
+ * rule: a guide, an entry point or a search opens families, and `tools_call` opens what calling
+ * its tool directly would.
+ */
+export function mayOpenFamily(mcpName: string, args: unknown): boolean {
+  const call = dispatchedAceCall(mcpName, args);
+  return (
+    bareToolName(call.name) === aceToolSearch || openedToolset(call.name, call.input) !== undefined
+  );
+}
+/** The MCP hints Pi keeps for a tool, so a permission extension reads ace's risk as declared. */
+function piAnnotations(tool: ListedTool): PiToolAnnotations | undefined {
+  const hints = tool.annotations;
+  if (!hints) return undefined;
+  const { readOnlyHint, destructiveHint, idempotentHint, openWorldHint } = hints;
+  return Object.fromEntries(
+    Object.entries({ readOnlyHint, destructiveHint, idempotentHint, openWorldHint }).filter(
+      ([, value]) => value !== undefined,
+    ),
+  );
+}
 /** Which listed ace tools this session offers Pi. */
 export type AceToolFilter = (tool: ListedTool) => boolean;
 export const anyAceTool: AceToolFilter = () => true;
@@ -128,6 +159,32 @@ function callSlots(capacity: number) {
       release();
     };
   };
+}
+/**
+ * How long a finished call that may open a family waits for the reloaded list. ace's server
+ * answers `tools/list` from memory over loopback in milliseconds; a second covers a busy daemon
+ * without holding a result the agent already has, and Pi awaits the call, so a longer wait would
+ * stall the turn.
+ */
+const reloadWaitMs = 1_000;
+
+/** Resolves once `work` settles, `ms` pass or `signal` aborts, whichever is first; never rejects. */
+function settledWithin(
+  work: Promise<unknown>,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    work.then(finish, finish);
+    if (signal?.aborted) finish();
+    else signal?.addEventListener("abort", finish, { once: true });
+  });
 }
 type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["Client"]>;
 
@@ -229,6 +286,7 @@ async function listen(
       const name = piToolName(tool.name);
       if (registered.has(name)) continue;
       registered.add(name);
+      const annotations = piAnnotations(tool);
       pi.registerTool({
         name,
         label: name,
@@ -236,6 +294,12 @@ async function listen(
         // already reads it in the tool's definition), and every family that opens would change
         // that prompt and bill the conversation uncached.
         description: tool.description ?? tool.name,
+        // Declared to the model like a direct tool, but never callable from Pi's codemode scripts
+        // (Pi 1.4.0): with codemode active Pi would otherwise append a script-call note to every
+        // ace tool's description, or with `codemode.mode: "only"` hide them all behind its
+        // scripts, where ace's guidance and core list no longer describe what the model sees.
+        exposure: "model-only",
+        ...(annotations ? { annotations } : {}),
         parameters: tool.inputSchema,
         async execute(_id, params, signal) {
           const args = z.record(z.string(), z.unknown()).parse(params);
@@ -252,6 +316,13 @@ async function listen(
                 },
               ),
             );
+            // The server announces a grown list on its listen stream, which can arrive after this
+            // result; Pi declares tools for the next model request, so the family is registered
+            // here first and the model can call what it just found by name. The wait is bounded
+            // and ends on interrupt: the reload is shared and keeps going, and a list it hasn't
+            // applied yet still arrives through list_changed.
+            if (!result.isError && mayOpenFamily(tool.name, args))
+              await settledWithin(sync(), reloadWaitMs, signal);
             return {
               content: result.content.map((block) => {
                 const value = obj(block);
@@ -278,10 +349,10 @@ async function listen(
       pi.setActiveTools([...native, ...tools.map((tool) => piToolName(tool.name))]);
     }
   };
-  refresh(await client.listTools());
   let refreshPending = false;
   let refreshing: Promise<void> | undefined;
-  client.setNotificationHandler("notifications/tools/list_changed", () => {
+  /** Lists the catalogue again, joining a reload already running so changes apply in order. */
+  const sync = () => {
     refreshPending = true;
     refreshing ??= (async () => {
       while (refreshPending) {
@@ -292,6 +363,8 @@ async function listen(
       refreshing = undefined;
     });
     return refreshing;
-  });
+  };
+  refresh(await client.listTools());
+  client.setNotificationHandler("notifications/tools/list_changed", sync);
   await client.listen({ toolsListChanged: true });
 }
