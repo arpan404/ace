@@ -24,8 +24,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var intake: (([NSItemProvider]) -> Void)? = nil
     /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
     var recall: ((Int) async -> String?)? = nil
-    /// The last message recalled, how far back, and what was typed before it.
-    @State private var recalled: ComposerRecall?
+    /// Previous message's walk back through what was sent.
+    @State private var recaller = ComposerRecaller()
     /// Something is being dragged over the composer.
     @State private var dropping = false
     /// Files on the next message: with any, the message can go without words.
@@ -151,20 +151,13 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     /// holds the last one recalled; otherwise after what is typed, so nothing typed is lost.
     private func recallPrevious() {
         guard let recall else { return }
-        let step = ComposerRecall.next(after: recalled, draft: draft.text)
-        let asked = draft.text
+        let draft = draft
         Task {
-            let found = await recall(step.older)
-            // Typed while it was read: the words now are the person's, not ours to replace.
-            guard draft.text == asked else { return }
-            guard let found else {
-                notice = step.older == 0 ? "No earlier message to use" : "That was the first message"
-                return
+            switch await recaller.recall(into: draft, fetch: recall) {
+            case .recalled: feedback += 1
+            case .none(let words): notice = words
+            case .skipped: break
             }
-            let next = ComposerRecall(older: step.older, recalled: found, baseline: step.baseline)
-            draft.text = next.shown
-            recalled = next
-            feedback += 1
         }
     }
     private var plus: some View {
@@ -239,26 +232,5 @@ struct ComposerRestore: Equatable {
     func merged(into current: String) -> String {
         let typed = current.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         return typed.isEmpty ? text : "\(typed)\n\n\(text)"
-    }
-}
-
-/// Previous message in the composer: the words typed before the first recall stay as the baseline,
-/// and each recall shows the baseline with one earlier message after it, so walking back never
-/// eats what was typed.
-struct ComposerRecall: Equatable {
-    let older: Int
-    let baseline: String
-    /// What the composer shows: the baseline, then the recalled message.
-    let shown: String
-    init(older: Int, recalled: String, baseline: String) {
-        self.older = older
-        self.baseline = baseline
-        shown = ComposerRestore(text: recalled).merged(into: baseline)
-    }
-    /// How far back the next recall goes, and the words it keeps: one further while the composer
-    /// still shows the last recall, else the latest, after what is typed now.
-    static func next(after last: ComposerRecall?, draft: String) -> (older: Int, baseline: String) {
-        if let last, last.shown == draft { return (last.older + 1, last.baseline) }
-        return (0, draft)
     }
 }
