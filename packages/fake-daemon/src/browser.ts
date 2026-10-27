@@ -38,6 +38,8 @@ export interface BrowserView {
   features?: string[];
   /** The connection with annotate mode open (ADR 0082). */
   annotation?: { owner: string };
+  /** A recording of the person's view runs (`browser.recording.start`). */
+  recording?: { by: { kind: "human" | "agent" | "page"; agentId?: string } };
 }
 export interface ScreenFrame {
   sequence: number;
@@ -103,6 +105,10 @@ export class FakeBrowser {
   readonly wireInputs: { threadId: string; tabId?: string; input: BrowserInput }[] = [];
   /** What a person's right click finds under the pointer (`context_target`). */
   contextTarget: { link?: string; image?: string } | undefined;
+  /** The extensions the engine runs (`extensions`); none unless a test or scenario adds them. */
+  extensions: { id: string; name: string; version?: string; enabled: boolean }[] = [];
+  /** A finished download's bytes, for `browser.download.read`; keyed by thread and download. */
+  readonly downloadBytes = new Map<string, Uint8Array>();
   get version(): number {
     return this.revision;
   }
@@ -595,6 +601,14 @@ export class FakeBrowser {
     if (tab?.certificate_error?.url !== url) throw new Error("Certificate error no longer shown");
     delete tab.certificate_error;
     tab.url = url;
+    this.changed();
+  }
+  /** A person's recording of the thread's view starts or stops; the state says so. */
+  setRecording(threadId: string, on: boolean): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    if (on) view.recording = { by: { kind: "human" } };
+    else delete view.recording;
     this.changed();
   }
   downloadsList(threadId: string): BrowserDownload[] {

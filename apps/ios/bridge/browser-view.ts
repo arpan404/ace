@@ -30,6 +30,10 @@ export interface ViewContext {
   /** The agent's name ("Claude", "Reviewer") for an agent id; `undefined` reads "An agent". */
   agentName(agentId: string | undefined): string;
   navigation: Navigation | undefined;
+  /** This phone started the recording that runs now. */
+  recordingHere?: boolean;
+  /** This phone's annotate mode is on, starting, or off. */
+  annotating?: "off" | "starting" | "on";
 }
 
 const blank = (url: string | undefined) => !url || url === "about:blank";
@@ -123,6 +127,18 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
           canGoForward: shown.canGoForward === true,
           zoom: shown.zoom && Math.abs(shown.zoom - 1) > 0.005 ? zoomLabel(shown.zoom) : null,
           ...control(shown, context),
+          muted: shown.muted === true,
+          audible: shown.audible === true,
+          /** "Ask agent about this page": the tab as the composer's `@` mention leaves it. */
+          mention:
+            !blank(shown.url) && shown.private !== true
+              ? {
+                  label: preview(shown.title || displayAddress(shown.url), 512),
+                  tabId: shown.tabId,
+                  url: shown.url,
+                  title: preview(shown.title || displayAddress(shown.url), 1024),
+                }
+              : null,
           // The daemon draws agents' cursors in the page itself when it says so.
           pointer:
             shown.inUse?.kind === "agent" &&
@@ -197,5 +213,36 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
         risky: download.flags.includes("executable"),
       })),
     downloading: downloads.filter((download) => download.state === "pending").length,
+    /** The person's own Chrome (Use my Chrome): ace never prints, zooms or clears it. */
+    ownChrome: state.backend === "user",
+    recording: state.recording
+      ? { byPerson: state.recording.by.kind === "human", here: context.recordingHere === true }
+      : null,
+    annotate: annotateView(state, shown, url, context.annotating ?? "off"),
   };
+}
+
+/**
+ * Annotate mode (ADR 0082) as the browser bar offers it: whether the page can be annotated now,
+ * why not in words when it can't, and whether this phone's mode is on.
+ */
+function annotateView(
+  state: BrowserState,
+  shown: BrowserTab | undefined,
+  url: string | undefined,
+  mode: "off" | "starting" | "on",
+) {
+  const supported = state.features?.includes("annotate") === true;
+  if (!supported) return null;
+  const unavailable =
+    !shown || state.closed
+      ? "Open a page to annotate it"
+      : state.status === "paused"
+        ? "The browser is paused"
+        : state.status === "recovering"
+          ? "The browser is reopening the page"
+          : !/^https?:\/\//i.test(url ?? "")
+            ? "Only web pages can be annotated"
+            : null;
+  return { mode, unavailable, elsewhere: !!state.annotation && mode === "off" };
 }

@@ -14,6 +14,9 @@ import type { PatchSink, Preview } from "./agents.ts";
 import { DeviceAction, devicePresetRows, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
 import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
+import { BrowserPageAction, BrowserPageTools, type PhoneFiles } from "./browser-page-tools.ts";
+import { AnnotateAction, BrowserAnnotate, type ImageStager } from "./browser-annotate.ts";
+import type { ThreadAnnotations } from "./thread-annotations.ts";
 import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -26,7 +29,8 @@ import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 export type BrowserOwner = Pick<
   ClientCore,
   "request" | "send" | "onMessage" | "state" | "connectionState"
->;
+> &
+  Partial<Pick<ClientCore, "onStream">>;
 export type Schedule = (delayMs: number, callback: () => void) => () => void;
 
 /** The codecs the native decoder plays (VideoToolbox H.264), best first. */
@@ -94,6 +98,12 @@ export interface BrowserThreadContext {
   read: ChunkReader;
   /** Where the device toolbar's choices are kept on this phone, and when they have loaded. */
   devices?: { storage: KeyValueStorage; ready: Promise<void> };
+  /** Where a saved download is written on the phone. */
+  files?: PhoneFiles;
+  /** Stages an annotation's image on the phone as a message file. */
+  stage?: ImageStager;
+  /** The open thread's next-message annotations. */
+  annotations?(threadId: string): ThreadAnnotations | undefined;
 }
 const noContext: BrowserThreadContext = {
   agentName: () => "An agent",
@@ -101,6 +111,10 @@ const noContext: BrowserThreadContext = {
   now: () => 0,
   read: nativeChunks,
 };
+const noFiles: PhoneFiles = {
+  write: () => Promise.reject(new Error("This phone can't save files.")),
+};
+const noStage: ImageStager = () => Promise.reject(new Error("This phone can't stage images."));
 
 interface Watch {
   threadId: ThreadId;
@@ -129,6 +143,8 @@ export class BrowserLive {
   #stops: (() => void)[] = [];
   #context: BrowserThreadContext;
   #tools: BrowserTools;
+  #page: BrowserPageTools;
+  #annotate: BrowserAnnotate;
   #devices: PhoneDevices;
   constructor(
     owner: BrowserOwner,
@@ -172,6 +188,31 @@ export class BrowserLive {
         watch.retry = undefined;
         this.#subscribe(watch);
       },
+    });
+    const current = () => {
+      const watch = this.#watch;
+      return watch ? { threadId: watch.threadId, state: watch.state } : undefined;
+    };
+    const changed = () => {
+      if (this.#watch) this.#putView(this.#watch);
+    };
+    this.#page = new BrowserPageTools({
+      owner,
+      sink,
+      preview,
+      now: () => context.now(),
+      files: context.files ?? noFiles,
+      current,
+    });
+    this.#annotate = new BrowserAnnotate({
+      owner,
+      sink,
+      schedule,
+      stage: context.stage ?? noStage,
+      draft: (threadId) => context.annotations?.(threadId),
+      current,
+      now: () => context.now(),
+      changed,
     });
     this.#stops.push(owner.onMessage((message) => this.#receive(message)));
     const connection = owner.connectionState();
@@ -239,9 +280,20 @@ export class BrowserLive {
       return true;
     }
     if (!parsed.success) {
+      if (!this.#watch) return false;
       const tool = BrowserToolAction.safeParse(raw);
-      if (!tool.success || !this.#watch) return false;
-      this.#tools.handle(tool.data);
+      if (tool.success) {
+        this.#tools.handle(tool.data);
+        return true;
+      }
+      const page = BrowserPageAction.safeParse(raw);
+      if (page.success) {
+        this.#page.handle(page.data);
+        return true;
+      }
+      const annotate = AnnotateAction.safeParse(raw);
+      if (!annotate.success) return false;
+      this.#annotate.handle(annotate.data);
       return true;
     }
     const action = parsed.data;
@@ -339,7 +391,9 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    this.#annotate.close();
     this.#tools.close();
+    this.#page.close();
     this.#sink.clear("browser:view");
     this.#sink.clear("browser:presets");
     this.#sink.clear("browser:page");
@@ -401,12 +455,17 @@ export class BrowserLive {
   #receive(message: ServerMessage): void {
     const watch = this.#watch;
     if (!watch) return;
+    if (message.type === "browser.annotation") {
+      this.#annotate.receive(message);
+      return;
+    }
     if (message.type === "browser.state") {
       const state = message.state;
       if (state.threadId !== watch.threadId) return;
       const previous = watch.state;
       watch.state = state;
       this.#tools.observe(state);
+      this.#page.observe(state);
       // A tab shown for the first time gets its device (`browser-device.ts`).
       this.#devices.observe(watch);
       if (
@@ -452,6 +511,8 @@ export class BrowserLive {
               preview: this.#preview,
               agentName: (agentId) => context.agentName(watch.threadId, agentId),
               navigation: this.#tools.navigation,
+              recordingHere: this.#page.recordingHere(watch.threadId),
+              annotating: this.#annotate.mode,
             })
           : null,
       };
