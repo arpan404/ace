@@ -4,6 +4,7 @@ import {
   accentIds,
   defaultCustomAccent,
   defaultThemeId,
+  densityIds,
   themeIds,
   themes,
   transcriptSizeIds,
@@ -19,7 +20,7 @@ export type SurfaceSetting = "translucent" | "solid";
 /** "on" reduces motion; "system" follows `prefers-reduced-motion`. */
 export const ReduceMotion = z.enum(["system", "on", "off"]);
 export type ReduceMotion = z.infer<typeof ReduceMotion>;
-export const Density = z.enum(["comfortable", "compact"]);
+export const Density = z.enum(densityIds);
 export type Density = z.infer<typeof Density>;
 export const TranscriptSize = z.enum(transcriptSizeIds);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;

@@ -37,6 +37,7 @@ import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
 import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
 import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -212,6 +213,17 @@ export class NativeServices {
       const provider = await this.providers.answer(raw, controller.signal);
       if (provider) {
         this.#answer(id, raw, provider.value, read);
+        return;
+      }
+      const accent = CustomAccentRequest.safeParse(raw);
+      if (accent.success) {
+        const fitted = fitCustomAccent(accent.data);
+        this.#reply(
+          id,
+          fitted !== undefined,
+          fitted ?? null,
+          fitted ? "" : "That colour can't be used.",
+        );
         return;
       }
       const limits = UsageLimitsRequest.safeParse(raw);

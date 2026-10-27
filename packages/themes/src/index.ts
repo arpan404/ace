@@ -13,3 +13,4 @@ export * from "./surfaces.ts";
 export * from "./types.ts";
 export * from "./phone.ts";
 export * from "./transcript.ts";
+export * from "./density.ts";

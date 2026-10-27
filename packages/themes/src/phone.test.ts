@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   phoneColourRoles,
   phoneContrastWarnings,
+  phoneCustomAccent,
   phoneOverrides,
   type PhoneColours,
 } from "./phone.ts";
@@ -19,6 +20,18 @@ const base = { light: tokens("light"), dark: tokens("dark") };
 describe("phone themes", () => {
   it("reads at AA on every phone surface in every theme, accent and scheme", () => {
     expect(phoneContrastWarnings(base)).toEqual([]);
+  });
+
+  it("fits hard custom colours to read at AA in every theme and scheme", () => {
+    const hard = ["#FFFFF0", "#FFFFFF", "#050505", "#000000", "#FFE600", "#00FF00", "#FF00FF"];
+    expect(phoneContrastWarnings(base, hard)).toEqual([]);
+  });
+
+  it("fits a custom colour differently for light and dark pages, and refuses a non-colour", () => {
+    const fit = phoneCustomAccent("#FFE600");
+    expect(fit?.paper.light.accent).not.toBe(fit?.paper.dark.accent);
+    expect(phoneCustomAccent("yellow")).toBeUndefined();
+    expect(phoneCustomAccent("#FFE60080")).toBeUndefined();
   });
 
   it("flags a theme whose words would not read", () => {

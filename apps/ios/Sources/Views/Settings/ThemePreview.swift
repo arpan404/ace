@@ -7,13 +7,15 @@ struct ThemePreview: View {
     let theme: String
     let accent: String
     let scheme: ColorScheme
+    @Environment(\.aceDensityId) private var densityId
     static let height: CGFloat = 104
     static let radius = AceTheme.Radii.lg
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        let compact = densityId == "compact"
+        VStack(alignment: .leading, spacing: compact ? AceTheme.Spacing.xxs : AceTheme.Spacing.xs) {
             AceShape.capsule.fill(colour("foreground")).frame(width: 30, height: 4).padding(.bottom, AceTheme.Spacing.xxs)
-            ForEach(0..<3, id: \.self) { row in thread(row) }
+            ForEach(0..<(compact ? 4 : 3), id: \.self) { row in thread(row, compact: compact) }
             Spacer(minLength: 0)
             composer
         }
@@ -27,17 +29,17 @@ struct ThemePreview: View {
         .accessibilityHidden(true)
     }
 
-    private func thread(_ row: Int) -> some View {
+    private func thread(_ row: Int, compact: Bool) -> some View {
         HStack(spacing: AceTheme.Spacing.xs) {
             Circle().fill(row == 0 ? AceTheme.Status.working : colour("decoration")).frame(width: 4, height: 4)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                AceShape.capsule.fill(colour("foreground")).frame(width: [34, 26, 30][row], height: 3)
-                AceShape.capsule.fill(colour("mutedForeground")).frame(width: [22, 28, 18][row], height: 2)
+                AceShape.capsule.fill(colour("foreground")).frame(width: [34, 26, 30, 24][row], height: 3)
+                AceShape.capsule.fill(colour("mutedForeground")).frame(width: [22, 28, 18, 26][row], height: 2)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, AceTheme.Spacing.xs)
-        .frame(height: 14)
+        .frame(height: compact ? 11 : 14)
         .background(row == 0 ? colour("fill") : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
     }
 
@@ -56,7 +58,8 @@ struct ThemePreview: View {
 
     private func colour(_ role: String) -> Color { Self.colour(role, theme: theme, accent: accent, scheme: scheme) }
     static func colour(_ role: String, theme: String, accent: String, scheme: ColorScheme) -> Color {
-        guard let pair = AceTheme.pair(role, theme: theme, accent: accent) else { return .clear }
+        let fitted = NativePaletteBridge.model?.preview(role, theme: theme, accent: accent)
+        guard let pair = fitted ?? AceTheme.pair(role, theme: theme, accent: accent) else { return .clear }
         let value = scheme == .dark ? pair.dark : pair.light
         return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
     }

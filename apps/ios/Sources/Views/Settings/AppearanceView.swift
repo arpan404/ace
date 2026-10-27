@@ -5,6 +5,9 @@ import SwiftUI
 /// iOS's own Dynamic Type, Reduce Motion and Reduce Transparency always apply on top. Colours
 /// saved by the old custom-theme editor still win until they're reset here.
 struct AppearanceView: View {
+    /// Fits a custom accent through any connected machine's runtime.
+    var inbox: MachineInbox? = nil
+    @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
     @AppStorage("ace.appearance") private var appearance = "system"
     @AppStorage(PhoneLook.transcriptKey) private var transcriptSize = "default"
     @AppStorage(PhoneLook.reduceMotionKey) private var reduceMotion = false
@@ -40,9 +43,25 @@ struct AppearanceView: View {
             Section {
                 AccentSwatches(theme: chosenTheme, chosen: chosenAccent, scheme: scheme) { accent in
                     change { palette?.choose(accent: accent) }
+                } custom: {
+                    CustomAccentPicker(inbox: inbox, chosen: chosenAccent == "custom", start: palette?.custom?.colour) { fitted in
+                        change { palette?.choose(custom: fitted) }
+                    }
                 }
                 .pickerRow()
-            } header: { InsetHeader("Accent") }
+            } header: { InsetHeader("Accent") } footer: {
+                if inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true {
+                    Text("A custom colour needs a connected machine.")
+                }
+            }
+            Section {
+                Picker("Density", selection: Binding(get: { density }, set: { next in change { density = next } })) {
+                    ForEach(AceTheme.densities, id: \.id) { choice in Text(choice.name).tag(choice.id) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("appearance.density")
+            } header: { InsetHeader("Density") }
+            .insetRowBackground()
             Section {
                 Picker("Transcript size", selection: $transcriptSize) {
                     ForEach(AceTheme.transcriptSizes, id: \.id) { size in Text(size.name).tag(size.id) }
@@ -82,6 +101,7 @@ struct AppearanceView: View {
         .sensoryFeedback(.selection, trigger: palette?.theme)
         .sensoryFeedback(.selection, trigger: palette?.accent)
         .sensoryFeedback(.selection, trigger: transcriptSize)
+        .sensoryFeedback(.selection, trigger: density)
         .sensoryFeedback(.selection, trigger: reduceMotion)
         .sensoryFeedback(.selection, trigger: solid)
         .navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
@@ -108,11 +128,12 @@ struct AppearanceView: View {
 
 /// The accent choices as swatches in the theme's own colours: Theme keeps the theme's accent,
 /// Ink its text colour. The chosen one is ringed, and its name sits under the row.
-private struct AccentSwatches: View {
+private struct AccentSwatches<Custom: View>: View {
     let theme: String
     let chosen: String
     let scheme: ColorScheme
     let choose: (String) -> Void
+    @ViewBuilder var custom: () -> Custom
 
     var body: some View {
         VStack(spacing: AceTheme.Spacing.xs) {
@@ -131,8 +152,9 @@ private struct AccentSwatches: View {
                     .accessibilityAddTraits(chosen == accent.id ? [.isButton, .isSelected] : .isButton)
                     .accessibilityIdentifier("appearance.accent.\(accent.id)")
                 }
+                custom()
             }
-            Text(AceTheme.accentChoices.first { $0.id == chosen }?.name ?? "Theme")
+            Text(chosen == "custom" ? "Custom" : AceTheme.accentChoices.first { $0.id == chosen }?.name ?? "Theme")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .contentTransition(.opacity)
