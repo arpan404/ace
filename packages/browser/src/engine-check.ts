@@ -356,9 +356,20 @@ async function checkWindowsEngine(
       fix: "Set ACE_CHROMIUM_PATH to a Chromium or Chrome executable for this machine.",
     };
   }
+  // ARM64 with no Chrome or Edge ace can run: the x64 build under emulation, with Chrome's
+  // renderer code integrity off (`emulated-chrome.ts`). The person hears it and how to avoid it.
+  const emulated = arch === "arm64" && !installed && !options.env.ACE_CHROMIUM_PATH;
+  const emulatedFix =
+    "Install Google Chrome or Microsoft Edge for ARM64 so ace's browser runs natively, with Chrome's renderer code integrity on.";
   try {
     await access(engine.path);
   } catch {
+    if (emulated && engine.pinned)
+      return {
+        status: "warn",
+        message: `ace's Chrome ${engine.pinned} (x64, under emulation) downloads on first browser use and runs with Chrome's renderer code integrity off`,
+        fix: emulatedFix,
+      };
     return engine.pinned
       ? {
           status: "ok",
@@ -385,6 +396,7 @@ async function checkWindowsEngine(
         // Started elevated, Chrome would relaunch unelevated and drop the pipe.
         "--do-not-de-elevate",
         ...(sandbox ? [] : ["--no-sandbox"]),
+        ...(emulated ? [(await import("./emulated-chrome.ts")).emulatedChromeFlag] : []),
       ],
       timeoutMs,
       options.signal,
@@ -396,6 +408,12 @@ async function checkWindowsEngine(
         fix: "The machine may be busy; run ace doctor again. If it persists, check the daemon log when an agent opens the browser.",
       };
     if (!started.pageOpened) return problemVerdict({ kind: "unknown" }, started.stderr);
+    if (emulated)
+      return {
+        status: "warn",
+        message: `${name} (x64, under emulation) starts headless with Chrome's renderer code integrity off${sandbox ? "" : " and without its sandbox (ACE_CHROMIUM_NO_SANDBOX=1)"}`,
+        fix: emulatedFix,
+      };
     return sandbox
       ? {
           status: "ok",

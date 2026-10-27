@@ -244,3 +244,22 @@ it.runIf(process.platform === "win32" && process.arch === "arm64")(
   },
   60_000,
 );
+
+it.runIf(process.platform === "win32" && process.arch === "arm64")(
+  "Windows ARM64: with no Chrome or Edge to run, ace doctor warns that the emulated x64 fallback runs with renderer code integrity off",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ace-engine-emulated-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    // No installed browser in this environment, and nothing downloaded yet.
+    const verdict = await checkBrowserEngine({
+      dataDir: dir,
+      env: {},
+      signal: new AbortController().signal,
+      timeoutMs: 20_000,
+    });
+    expect(verdict.status).toBe("warn");
+    expect(verdict.message).toMatch(/x64, under emulation.*renderer code integrity off/);
+    expect(verdict.fix).toMatch(/Install Google Chrome or Microsoft Edge for ARM64/);
+  },
+  60_000,
+);

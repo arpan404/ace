@@ -71,6 +71,7 @@ export function chromeDefaults(
  */
 function windowsJobs(report?: (error: Error) => void) {
   let jobs: ReturnType<typeof import("./chrome-job.ts").chromeJobs> | undefined;
+  let emulated: typeof import("./emulated-chrome.ts").emulatedChromeArgs | undefined;
   const ready = () => {
     if (!jobs) throw new Error("ace's Chrome containment is not loaded on Windows");
     return jobs;
@@ -82,10 +83,16 @@ function windowsJobs(report?: (error: Error) => void) {
           spawn: spawnProcess,
           ...(report && { report }),
         });
+        emulated ??= (await import("./emulated-chrome.ts")).emulatedChromeArgs;
         return jobs.guard(profile);
       },
+      // Each executable gets its own flags: an emulated x64 Chrome on ARM64 is not native.
       spawn: ((command, args, options) =>
-        ready().spawn(command, args, options)) satisfies ChromeLaunch["spawn"],
+        ready().spawn(
+          command,
+          emulated ? emulated(command, args, process.arch) : args,
+          options,
+        )) satisfies ChromeLaunch["spawn"],
     },
     kill: (pid: number) => ready().kill(pid),
   };
@@ -135,6 +142,7 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         )
           acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
             .catch(() =>
+              // Run under emulation, with the flags `emulated-chrome.ts` gives it at launch.
               import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
                 acquireChromium({
                   ...options.acquisition,
