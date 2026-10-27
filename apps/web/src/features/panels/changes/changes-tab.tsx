@@ -33,7 +33,7 @@ export function ChangesTab(props: {
       versions={working ? uncommitted.versions : turn.versions}
       commentable={working}
       body={working ? uncommitted.body : undefined}
-      toolbar={({ layout, prefs, views, refreshReview }) => (
+      renderToolbar={({ layout, prefs, views, refreshReview }) => (
         <ChangesToolbar
           threadId={threadId}
           scope={working ? "working-tree" : turn.scope}

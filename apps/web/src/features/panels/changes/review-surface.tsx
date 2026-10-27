@@ -56,7 +56,7 @@ export function ReviewSurface(props: {
   commentable: boolean;
   /** Names the surface as a region (the Uncommitted diff). */
   label?: string | undefined;
-  toolbar(chrome: SurfaceChrome): ReactNode;
+  renderToolbar(chrome: SurfaceChrome): ReactNode;
   notice?: ReactNode;
   /** Shown instead of the files (reading, empty or failed). */
   body?: ReactNode;
@@ -249,7 +249,7 @@ export function ReviewSurface(props: {
       className="flex h-full min-h-0 flex-col"
       {...(props.label ? { role: "region", "aria-label": props.label } : {})}
     >
-      {props.toolbar({ layout, prefs, views, refreshReview: () => void session.refetch() })}
+      {props.renderToolbar({ layout, prefs, views, refreshReview: () => void session.refetch() })}
       {drafts.length > 0 && (
         <ReviewBar
           drafts={drafts}

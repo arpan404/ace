@@ -393,6 +393,31 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
   expect(app.daemon.review.comments().every((held) => !held.resolved)).toBe(true);
 });
 
+test("a turn's diff takes no new comments, says why, and shows saved ones read-only", async () => {
+  const { panel } = await openUncommitted();
+  await comment(
+    panel,
+    "apps/server/src/replay.ts",
+    /client.send\(\{ type: "resume.ack", headSeq/,
+    "Carry coldStartWindow too?",
+  );
+  await pickScope(panel, "Last turn");
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  expect(within(panel).getByRole("note").textContent).toBe(
+    "Comments go on Uncommitted: a turn's lines can't be anchored.",
+  );
+  expect(within(replay).queryByRole("button", { name: /^Comment on/ })).toBeNull();
+  // The comment's lines are the checkout's, so it isn't placed on a turn's lines.
+  expect(within(replay).queryByRole("article")).toBeNull();
+  const review = within(panel).getByRole("region", { name: "Review" });
+  await userEvent.click(within(review).getByRole("button", { name: "Comments" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Carry coldStartWindow/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Review comment" });
+  expect(within(dialog).getByText("Carry coldStartWindow too?")).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: "Edit" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "Send to agent" })).toBeNull();
+});
+
 test("the review's comments list jumps to a comment's file", async () => {
   const { panel } = await openUncommitted();
   await comment(
