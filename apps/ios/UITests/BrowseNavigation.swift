@@ -24,8 +24,11 @@ extension XCUIApplication {
     func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
-                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
-        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
+                      "thread.logs": "Logs", "thread.offshift": "Offshift run"]
+        // A menu item with a second line reads both in its label: match its first words.
+        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
+                                            labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
     }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.
     var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }

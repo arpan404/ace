@@ -23,7 +23,7 @@ struct AgentsSheet: View {
             List {
                 if let sheet {
                     Section {
-                        ForEach(sheet.rows) { row in agentRow(row).listRowBackground(Color.clear) }
+                        ForEach(sheet.rows) { row in agentRow(row).listRowBackground(Color.clear).listRowSeparator(.hidden) }
                     }
                     .listSectionSeparator(.hidden, edges: .top)
                     if sheet.hidden.agents > 0 {
@@ -36,6 +36,7 @@ struct AgentsSheet: View {
                         Section {
                             ForEach(sheet.tasks) { task in
                                 TaskRowView(task: task, canStop: model.canOperate) { Task { _ = await model.stopTask(task.id) } }
+                                    .listRowSeparator(.hidden)
                             }
                             if sheet.hiddenTasks > 0 {
                                 MoreRow(title: "Show \(min(sheet.hiddenTasks, 30)) more", detail: "\(sheet.hiddenTasks) not shown yet",

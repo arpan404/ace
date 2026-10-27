@@ -29,7 +29,7 @@ export interface SubagentInspection {
   provider: string;
   /** The model's label, else the provider's name. */
   model: string;
-  /** Its parent: the thread's main agent (`agentId` null) or the subagent that started it. */
+  /** Its parent: "the main agent" (`agentId` null) or the subagent that started it, by name. */
   parent: { agentId: string | null; name: string };
   /** What its parent asked it, from the call that started it. */
   prompt: { text: string; at: number } | null;
@@ -140,7 +140,7 @@ export function subagentInspection(
     provider: agent.native.provider,
     model: agent.model ? modelLabel(agent.model) : providerNames[agent.native.provider],
     parent: direct
-      ? { agentId: null, name: thread?.title ?? "Main agent" }
+      ? { agentId: null, name: "the main agent" }
       : { agentId: parent.id, name: agentName(parent, spawnOf(reader, parent)) },
     prompt: promptOf(spawnOf(reader, agent)),
     phase,

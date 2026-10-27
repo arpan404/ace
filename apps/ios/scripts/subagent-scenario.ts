@@ -28,9 +28,7 @@ function launch(item: string, name: string, prompt: string): Fact[] {
 const auditPrompt = [
   "Audit every place the daemon kills a process group.",
   "",
-  "For each call site, check that the group id was recorded by this daemon and that the process",
-  "start time still matches before signalling. List any site that could signal a reused PID,",
-  "with the file and line, and say how to fix it.",
+  "For each call site, check that the group id was recorded by this daemon and that the process start time still matches before signalling. List any site that could signal a reused PID, with the file and line, and say how to fix it.",
 ].join("\n");
 
 export function seedSubagents(daemon: FakeDaemon): void {

@@ -34,7 +34,7 @@ struct OffshiftRunView: View {
                 }
                 if !run.steps.isEmpty {
                     Section {
-                        ForEach(run.steps) { step in StepLine(step: step) }
+                        ForEach(run.steps) { step in RunStepLine(step: step) }
                     } header: { InsetHeader("Steps") }
                 }
                 if !run.criteria.isEmpty {
@@ -88,7 +88,7 @@ private struct LabeledLine: View {
 }
 
 /// A step: done and skipped step back a tier; a skipped one says why underneath.
-private struct StepLine: View {
+private struct RunStepLine: View {
     let step: OffshiftRun.Step
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
