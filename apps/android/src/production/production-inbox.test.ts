@@ -484,9 +484,10 @@ it("keeps a pending question on an evicted anchor and drops it once closed", () 
     },
     { kind: "message", key: "m1", itemId: "new" },
   ];
-  expect(
-    windowBlocksFor(blocks, ["new"], new Set(["q1"])).map((block) => block.key),
-  ).toEqual(["question:q1", "m1"]);
+  expect(windowBlocksFor(blocks, ["new"], new Set(["q1"])).map((block) => block.key)).toEqual([
+    "question:q1",
+    "m1",
+  ]);
   expect(windowBlocksFor(blocks, ["new"]).map((block) => block.key)).toEqual(["m1"]);
 });
 

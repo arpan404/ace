@@ -15,7 +15,13 @@ import { inboxStatus } from "@ace/ui-core/mobile";
 import { approvalCopy, approvalOutcome } from "@ace/ui-core";
 import { blocksEqual, type Block } from "@ace/ui-core/transcript-blocks";
 import { createBlockReader, type Watched } from "@ace/ui-core/transcript-block-reader";
-import { blockKey, blockTestId, endBlockText, forkedBlockText, startedBlockText } from "../transcript.ts";
+import {
+  blockKey,
+  blockTestId,
+  endBlockText,
+  forkedBlockText,
+  startedBlockText,
+} from "../transcript.ts";
 import { startedThreadOf } from "@ace/ui-core";
 import { Markdown } from "../transcript/Markdown.tsx";
 import { useSelection, sameIds } from "../selection.ts";
@@ -460,7 +466,9 @@ function ProductionQuestionRow({
         <Text style={{ ...textStyle("label"), color: theme.colours.foreground }}>
           Approval needed
         </Text>
-        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>{copy.heading}</Text>
+        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+          {copy.heading}
+        </Text>
         {copy.command ? (
           <Text style={{ ...textStyle("caption"), color: theme.colours.foreground }}>
             $ {copy.command}
