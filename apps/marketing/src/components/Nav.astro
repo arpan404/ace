@@ -46,6 +46,8 @@ const current = (path: string) => here === path || here.startsWith(path);
 
 <style>
   .nav {
+    /* Stays put while pages cross-fade (styles/motion.css). */
+    view-transition-name: site-nav;
     position: sticky;
     top: 0;
     z-index: 10;

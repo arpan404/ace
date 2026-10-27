@@ -25,7 +25,7 @@ const { intro = true } = Astro.props;
     )
   }
 
-  <ul class="rule-grid providers reveal" aria-label="Built-in agents">
+  <ul class="rule-grid providers reveal" aria-label="Built-in agents" data-stagger>
     {
       providers.map((provider) => (
         <li>

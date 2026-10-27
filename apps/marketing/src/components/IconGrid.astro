@@ -10,7 +10,7 @@ interface Props {
 const { items, columns } = Astro.props;
 ---
 
-<ul class="icon-grid reveal" style={`--columns: ${columns}`}>
+<ul class="icon-grid reveal" data-stagger style={`--columns: ${columns}`}>
   {
     items.map((item) => (
       <li>

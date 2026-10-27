@@ -40,8 +40,10 @@ const data = graph([
 </Base>
 
 <script>
-  /* Every page's download links follow the newest release and the visitor's chip. */
+  /* Reveals, and download links that follow the newest release and the visitor's chip. */
   import { keepDownloadsCurrent } from "../scripts/latest-release.ts";
+  import { startMotion } from "../scripts/motion.ts";
 
+  startMotion();
   void keepDownloadsCurrent();
 </script>

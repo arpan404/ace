@@ -12,7 +12,7 @@ const { heading, cards } = Astro.props;
 
 <section class="section page">
   {heading && <h2 class="section-title reveal">{heading}</h2>}
-  <ul class="cards reveal">
+  <ul class="cards reveal" data-stagger>
     {
       cards.map((card) => (
         <li>
@@ -45,11 +45,16 @@ const { heading, cards } = Astro.props;
     border: 1px solid var(--border);
     background: var(--card);
     text-decoration: none;
-    transition: border-color var(--motion-fast) var(--ease-out);
+    transition:
+      border-color var(--motion-fast) var(--ease-out),
+      transform 500ms var(--ease-out-expo),
+      box-shadow 500ms var(--ease-out-expo);
   }
 
   a:hover {
     border-color: var(--border-strong);
+    transform: translate3d(0, -2px, 0);
+    box-shadow: 0 24px 60px -32px var(--shadow-deep);
   }
 
   h3 {
@@ -68,6 +73,12 @@ const { heading, cards } = Astro.props;
   a:hover h3 :global(svg) {
     transform: translateX(3px);
     color: var(--foreground);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a:hover {
+      transform: none;
+    }
   }
 
   p {

@@ -21,7 +21,7 @@ const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
   <div class="reveal">
     <h2 class="section-title">{heading}</h2>
   </div>
-  <div class="list reveal">
+  <div class="list reveal" data-stagger>
     {
       items.map((entry) => (
         <details>

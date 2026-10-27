@@ -1,0 +1,223 @@
+/*
+ * The site's motion. Every animation has a job: arriving content settles into place, product
+ * panels assemble in the order you'd read them, hover confirms what is clickable, and pages
+ * cross-fade into each other. Nothing loops for show.
+ *
+ * Reveals are driven by scripts/motion.ts, which tags <html class="motion"> users get only when
+ * scripts run and reduced motion is off, then adds .is-in once an element scrolls into view.
+ * Without either, everything is simply visible.
+ */
+
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --reveal-time: 900ms;
+}
+
+/* Arriving sections: up a little, out of a soft blur, once. Siblings stagger by --i. */
+html.motion .reveal {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+  filter: blur(6px);
+  transition:
+    opacity var(--reveal-time) var(--ease-out-quint),
+    transform calc(var(--reveal-time) + 200ms) var(--ease-out-expo),
+    filter var(--reveal-time) var(--ease-out-quint);
+  transition-delay: calc(var(--i, 0) * 80ms);
+}
+
+html.motion .reveal.is-in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/*
+ * Product panels assemble row by row, and lists marked data-stagger deal out their items, once
+ * their section is in. --row is each row's or item's place (scripts/motion.ts).
+ */
+html.motion
+  :is(
+    .reveal :is(.panel-row, .board li, .machine, .phone),
+    :is(.reveal[data-stagger], .reveal [data-stagger]) > *
+  ) {
+  opacity: 0;
+  transform: translate3d(0, 8px, 0);
+  transition:
+    opacity 600ms var(--ease-out-quint),
+    transform 800ms var(--ease-out-expo);
+  transition-delay: calc(240ms + var(--i, 0) * 80ms + var(--row, 0) * 70ms);
+}
+
+html.motion
+  :is(
+    .reveal.is-in :is(.panel-row, .board li, .machine, .phone),
+    :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > *
+  ) {
+  opacity: 1;
+  transform: none;
+}
+
+/* In the Fleet diagram the phone answers last: the approval is the end of the story. */
+html.motion .reveal .phone {
+  transition-delay: 1100ms;
+}
+
+/* Hero: the headline arrives word by word, then its copy and actions, then the window. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero .word {
+    display: inline-block;
+    animation: word-in 1000ms var(--ease-out-expo) both;
+    animation-delay: calc(120ms + var(--w) * 55ms);
+  }
+
+  /* The ASCII art drifts slower than the page as you leave the hero. */
+  @supports (animation-timeline: scroll()) {
+    .hero > .ascii {
+      animation: drift linear both;
+      animation-timeline: scroll();
+      animation-range: 0 700px;
+    }
+  }
+
+  /* The app window starts tilted back and lies flat as it scrolls up into view. */
+  @supports (animation-timeline: view()) {
+    .hero .stage {
+      transform-origin: 50% 0;
+      animation: lay-flat linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 45%;
+    }
+  }
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.35em, 0);
+    filter: blur(10px);
+  }
+}
+
+@keyframes drift {
+  to {
+    transform: translate3d(0, 140px, 0);
+    opacity: 0.35;
+  }
+}
+
+@keyframes lay-flat {
+  from {
+    transform: perspective(2000px) rotateX(16deg) scale(0.93);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Hover: what is clickable answers the pointer. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .button {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      box-shadow 300ms var(--ease-out-expo),
+      transform 300ms var(--ease-out-expo);
+  }
+
+  .button-primary:hover {
+    transform: translate3d(0, -1px, 0);
+  }
+
+  .button:active {
+    transform: scale(0.98);
+    transition-duration: 80ms;
+  }
+
+  .text-link + svg,
+  .more svg {
+    transition: transform 300ms var(--ease-out-expo);
+  }
+
+  .more:hover svg {
+    transform: translate3d(3px, 0, 0);
+  }
+}
+
+/* Pages cross-fade into each other; the header stays put. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: 160ms ease-in both page-out;
+  }
+
+  ::view-transition-new(root) {
+    animation: 420ms var(--ease-out-expo) both page-in;
+  }
+}
+
+@keyframes page-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
+/*
+ * Feature tiles answer the pointer: the stage's glow brightens and its panel lifts a little.
+ * The glow is a second layer faded in, since gradients themselves don't animate.
+ */
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    80% 65% at 50% 0%,
+    rgb(var(--tint) / calc(var(--stage-glow) * 1.6)) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out-quint);
+}
+
+.stage-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.stage .panel,
+.stage .board,
+.stage .fleet {
+  transition:
+    transform 700ms var(--ease-out-expo),
+    box-shadow 700ms var(--ease-out-expo);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .cell:hover .stage::after,
+  .stage:hover::after {
+    opacity: 1;
+  }
+
+  .cell:hover .stage :is(.panel, .board),
+  .stage:hover :is(.panel, .board) {
+    transform: translate3d(0, -4px, 0);
+    box-shadow: 0 40px 90px -30px var(--shadow-deep);
+  }
+}

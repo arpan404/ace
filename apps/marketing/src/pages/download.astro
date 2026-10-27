@@ -71,7 +71,7 @@ const questions = faq.filter((entry) =>
 
   <section class="section page" aria-labelledby="desktop">
     <h2 id="desktop" class="group">Desktop</h2>
-    <ul class="cards">
+    <ul class="cards reveal" data-stagger>
       {
         platforms.map((platform) => {
           const info = platformInfo[platform];
@@ -102,7 +102,7 @@ const questions = faq.filter((entry) =>
 
   <section class="section page" aria-labelledby="mobile">
     <h2 id="mobile" class="group">Phone and tablet</h2>
-    <ul class="cards">
+    <ul class="cards reveal" data-stagger>
       {
         mobile.map((app) => (
           <li>

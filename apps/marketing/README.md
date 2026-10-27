@@ -69,6 +69,16 @@ before paint: the visitor's saved choice (the nav toggle, stored as `ace-theme`)
 setting, followed live until they choose. Colours are tokens in `src/styles/global.css`; the light
 theme overrides them under `html[data-theme="light"]`.
 
+## Motion
+
+`src/styles/motion.css` holds every animation, and each has a job: sections settle into view
+once (`.reveal`), product panels assemble row by row, lists marked `data-stagger` deal out their
+items, the hero headline arrives word by word, the hero window lies flat as it scrolls into view,
+hover confirms what is clickable, and pages cross-fade (`@view-transition`). `scripts/motion.ts`
+adds `.is-in` as elements come into view. Base.astro only turns motion on (`<html class="motion">`)
+when reduced motion is off, and drops it if the script hasn't started within three seconds, so
+content is never left hidden.
+
 ## Screenshots
 
 `src/assets/shots/` holds light and dark captures of the web app running against the fake daemon's

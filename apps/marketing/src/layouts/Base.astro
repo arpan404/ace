@@ -69,7 +69,8 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
 
     <!--
       Before paint: the theme (the visitor's saved choice, else their system setting, followed
-      live until they choose), and their desktop OS so the matching download button shows.
+      live until they choose), whether to animate, and their desktop OS so the matching download
+      button shows.
     -->
     <script is:inline>
       (() => {
@@ -90,6 +91,16 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
         system.addEventListener("change", () => {
           if (!saved()) apply();
         });
+      })();
+      (() => {
+        // Motion: on unless reduced motion is asked for. If the motion script hasn't started
+        // within three seconds (blocked, failed), drop it so no content stays hidden.
+        const root = document.documentElement;
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        root.classList.add("motion");
+        setTimeout(() => {
+          if (!("motionReady" in root.dataset)) root.classList.remove("motion");
+        }, 3000);
       })();
       (() => {
         const ua = navigator.userAgent;

@@ -12,6 +12,8 @@ import Shot from "./Shot.astro";
 
 /* Built-in agents first, then a few ACP agents, so the row reads as "and more". */
 const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
+/* The headline arrives word by word (styles/motion.css); --w orders the words. */
+const words = product.headline.split(" ");
 ---
 
 <section class="hero">
@@ -19,15 +21,25 @@ const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
   <div class="page hero-copy">
     <ul class="marks" aria-label="Agents ace runs">
       {
-        marks.map((agent) => (
-          <li class="tile" title={agent.label}>
+        marks.map((agent, index) => (
+          <li class="tile" title={agent.label} style={`--m: ${index}`}>
             <BrandMark brand={agent.brand} size={18} />
             <span class="sr-only">{agent.label}</span>
           </li>
         ))
       }
     </ul>
-    <h1>{product.headline}</h1>
+    <h1>
+      {
+        words.map((word, index) => (
+          <>
+            <span class="word" style={`--w: ${index}`}>
+              {word}
+            </span>{" "}
+          </>
+        ))
+      }
+    </h1>
     <p class="summary">{product.summary}</p>
     <div class="actions">
       <DownloadButton />
@@ -136,41 +148,54 @@ const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
     pointer-events: none;
   }
 
+  /*
+   * Load-in: the agent marks, then the headline (word by word, styles/motion.css), the summary,
+   * the actions and the window, each settling out of a soft blur.
+   */
   @media (prefers-reduced-motion: no-preference) {
-    .hero-copy > *,
+    .marks,
+    .summary,
+    .actions,
     .window {
-      animation: arrive 800ms var(--ease-out) both;
+      animation: arrive 1000ms var(--ease-out-expo) both;
     }
 
-    .hero-copy > :nth-child(2) {
-      animation-delay: 60ms;
+    .marks {
+      animation-delay: 40ms;
     }
 
-    .hero-copy > :nth-child(3) {
-      animation-delay: 120ms;
+    .summary {
+      animation-delay: 420ms;
     }
 
-    .hero-copy > :nth-child(4) {
-      animation-delay: 180ms;
+    .actions {
+      animation-delay: 520ms;
     }
 
     .window {
-      animation: rise 1100ms var(--ease-out) 260ms both;
+      animation-duration: 1400ms;
+      animation-delay: 650ms;
+    }
+
+    /* The agent marks pop in one after another. */
+    .marks li {
+      animation: mark-in 700ms var(--ease-out-expo) both;
+      animation-delay: calc(60ms + var(--m) * 35ms);
     }
   }
 
   @keyframes arrive {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translate3d(0, 14px, 0);
+      filter: blur(8px);
     }
   }
 
-  /* The window settles from a slight tilt, like a lid opening onto the page. */
-  @keyframes rise {
+  @keyframes mark-in {
     from {
       opacity: 0;
-      transform: perspective(1600px) rotateX(8deg) translateY(24px);
+      transform: scale(0.85);
     }
   }
 

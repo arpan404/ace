@@ -63,7 +63,7 @@ const others = agentGuides
   <div class="section page columns">
     <section class="reveal">
       <h2>What {name} gets in ace</h2>
-      <ul class="adds">
+      <ul class="adds" data-stagger>
         {
           features.map((feature) => (
             <li>
@@ -77,7 +77,7 @@ const others = agentGuides
     </section>
     <section class="reveal">
       <h2>Set up {name}</h2>
-      <ol class="steps">
+      <ol class="steps" data-stagger>
         {steps.map((step) => <li>{step}</li>)}
       </ol>
     </section>

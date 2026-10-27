@@ -12,7 +12,7 @@ const { headline, intro } = feature("status");
     <div class="copy reveal">
       <h2 class="section-title">{headline}</h2>
       <p class="lede">{intro}</p>
-      <dl class="states">
+      <dl class="states" data-stagger>
         {
           states.map((state) => (
             <div class="state" data-tone={state.tone}>
