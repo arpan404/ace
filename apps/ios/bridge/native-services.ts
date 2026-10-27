@@ -33,6 +33,7 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -189,6 +190,17 @@ export class NativeServices {
           true,
           await readNativeMessage(this.owner, message.data, controller.signal),
           "",
+        );
+        return;
+      }
+      const accent = CustomAccentRequest.safeParse(raw);
+      if (accent.success) {
+        const fitted = fitCustomAccent(accent.data);
+        this.#reply(
+          id,
+          fitted !== undefined,
+          fitted ?? null,
+          fitted ? "" : "That colour can't be used.",
         );
         return;
       }

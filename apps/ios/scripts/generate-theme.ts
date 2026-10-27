@@ -2,6 +2,9 @@ import { DesignTokensSchema } from "@ace/design-tokens";
 import data from "@ace/design-tokens/tokens.json" with { type: "json" };
 import {
   accentNames,
+  densityIds,
+  densityNames,
+  phoneDensities,
   phoneAccentIds,
   phoneColourRoles,
   phoneOverrides,
@@ -88,6 +91,15 @@ const lines = [
   `    static let accentChoices: [(id: String, name: String)] = [${phoneAccentIds.map((id) => `("${id}", "${accentNames[id]}")`).join(", ")}]`,
   "    /// Transcript sizes as (id, name, scale): the scale multiplies the Dynamic Type size.",
   `    static let transcriptSizes: [(id: String, name: String, scale: CGFloat)] = [${transcriptSizeIds.map((id) => `("${id}", "${transcriptSizes[id].label}", ${transcriptScale(id).toFixed(4)})`).join(", ")}]`,
+  "    /// Density's measures (`@ace/themes` phoneDensities): Compact trims padding, never a tier.",
+  "    struct DensityMetrics: Sendable { let settingsRowHeight: CGFloat; let inboxRowPadding: CGFloat; let inboxLineGap: CGFloat; let transcriptRoom: CGFloat }",
+  "    static let densities: [(id: String, name: String, metrics: DensityMetrics)] = [",
+  ...densityIds.map((id) => {
+    const d = phoneDensities[id];
+    return `        ("${id}", "${densityNames[id]}", DensityMetrics(settingsRowHeight: ${d.settingsRowHeight}, inboxRowPadding: ${d.inboxRowPadding}, inboxLineGap: ${d.inboxLineGap}, transcriptRoom: ${d.transcriptRoom})),`;
+  }),
+  "    ]",
+  "    static func density(_ id: String) -> DensityMetrics { (densities.first { $0.id == id } ?? densities[0]).metrics }",
   "    /// A role's colour pair in any theme and accent, for previews of choices not on screen.",
   "    static func pair(_ role: String, theme: String, accent: String) -> NativePalette.Pair? {",
   "        themeOverrides[theme]?[accent]?[role] ?? tokenPairs[role]",
