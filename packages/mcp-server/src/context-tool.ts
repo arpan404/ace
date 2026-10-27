@@ -22,11 +22,7 @@ export const contextToolCatalog = [
     description:
       "Project and session context; call it first in an existing project. status: thread, access, ace groups off. recent: latest threads, outcomes. changes: branch, uncommitted paths. prs: linked PRs, CI. notes: project notes. diagnostics: your failed ace calls, what keeps this thread unsettled.",
     input: z.strictObject({
-      topics: z
-        .array(ContextTopic)
-        .min(1)
-        .max(ContextTopic.options.length)
-        .default(defaultTopics),
+      topics: z.array(ContextTopic).min(1).max(ContextTopic.options.length).default(defaultTopics),
     }),
     output: ContextResult,
     // One open field per topic: the full shapes would cost context on every listing.

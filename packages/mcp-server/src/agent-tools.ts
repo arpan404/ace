@@ -30,9 +30,9 @@ import { withinCallBudget } from "./toolsets.ts";
 export const maxDelegateTasks = maxWaitThreads;
 
 const agents = { toolset: "ace-agents", timeoutMs: controlToolTimeoutMs } as const;
-const childId = ThreadId.describe("A child's threadId, from delegate or agents_status.");
+const childId = ThreadId.describe("From delegate or agents_status.");
 const messagedThread = ThreadId.describe(
-  "A child's or owned thread's id; with full access, any of the person's threads.",
+  "A child's or owned thread's id; with full access, any thread.",
 );
 
 const DelegateTask = z.strictObject({
@@ -132,11 +132,9 @@ const agentsStatus = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, queued messages, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.",
+    "Your delegated children, here or on other machines. Without threadId: a snapshot of every child and descendant (state, step, elapsed, what waits on the person, queue, last output). With threadId: that child, with its result once settled. To block until they settle, use wait.",
   input: z.strictObject({
-    threadId: childId
-      .optional()
-      .describe("One child to read in full, with its result once settled."),
+    threadId: childId.optional().describe("One child to read in full."),
   }),
   output: controlResult(z.union([MonitorSnapshot, ChildView])),
   run: ({ threadId }, control) =>
@@ -150,11 +148,11 @@ const agentMessage = controlTool({
   riskClass: "agent-execution",
   capability: "agents",
   description:
-    "Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.",
+    "Send follow-up work to a child (any machine), a thread you started or, with full access, any of the person's threads; it keeps its permissions. steer joins the running turn at the next tool boundary (Cursor restarts the turn), queue waits for it to end, restart interrupts its tree and replaces queued input. arrival says which applied.",
   input: z.strictObject({
     threadId: messagedThread,
     requestId: fields.requestId,
-    text: MessageText.describe("The message, standing on its own."),
+    text: MessageText.describe("Standing on its own."),
     delivery: z
       .enum(["queue", "steer", "restart"])
       .optional()
@@ -171,7 +169,7 @@ const agentCancel = controlTool({
   riskClass: "thread-write",
   capability: "agents",
   description:
-    "Stop a child and all its descendants, here or on another machine. Acceptance is not proof the tree stopped: confirm with agents_status or wait.",
+    "Stop a child and its descendants, on any machine. Acceptance is not proof it stopped: confirm with agents_status or wait.",
   input: z.strictObject({ threadId: childId, requestId: fields.requestId }),
   output: NoData,
   run: (input, control) => control.run({ op: "agent.cancel", ...input }),
@@ -184,7 +182,7 @@ const machines = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.",
+    "The person's other paired machines: name (pass as machine), online, access, projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; children there join wait and agents_status.",
   input: z.strictObject({}),
   output: controlResult(z.unknown()),
   run: (_, control) => control.run({ op: "machines" }),
@@ -197,24 +195,19 @@ const transfer = controlTool({
   riskClass: "external-effect",
   capability: "agents",
   description:
-    'Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread\'s project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.',
+    "Carry a project (default: this thread's) or this thread to another paired machine, same branch and uncommitted changes included. Returns transferId at once; the result arrives as a new turn, so end yours. Never poll.",
   input: z.strictObject({
-    machine: MachineName.describe("A machine from `machines` whose transfers is true."),
-    project: z
-      .string()
-      .min(1)
-      .max(256)
-      .optional()
-      .describe("A project on this machine, by id or name. Default: this thread's."),
+    machine: MachineName.describe("From machines, with transfers true."),
+    project: z.string().min(1).max(256).optional().describe("A project here, by id or name."),
     thread: z
       .literal("self")
       .optional()
-      .describe("Continue this thread there; the person sends its next message there."),
+      .describe("Continue this thread there as a new thread with its history."),
     includeChanges: z.boolean().optional().describe("Send uncommitted changes. Default true."),
     includeIgnored: z
       .boolean()
       .optional()
-      .describe("Send ignored files like .env. Default: setting."),
+      .describe("Send ignored files like .env. Default: the setting."),
   }),
   output: controlResult(z.looseObject({ transferId: z.string() })),
   run: (input, control) => control.run({ op: "transfer", ...input }),

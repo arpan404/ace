@@ -44,13 +44,13 @@ const Input = z
       .max(128)
       .regex(/^[a-zA-Z0-9_.-]+$/)
       .optional(),
-    requestId: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
-    version: z
-      .number()
-      .int()
-      .nonnegative()
-      .optional()
-      .describe("run.version, as next names it."),
+    requestId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_.-]+$/)
+      .optional(),
+    version: z.number().int().nonnegative().optional().describe("run.version, as next names it."),
     outcome: text.optional(),
     endpoint: text.optional(),
     criteria: OffshiftCriteria.optional(),
@@ -59,7 +59,12 @@ const Input = z
     note: text.optional(),
     playbook: OffshiftPlaybookId.optional(),
     steps: OffshiftStepsInput.optional(),
-    stepId: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
+    stepId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_.-]+$/)
+      .optional(),
     state: z.enum(["done", "skipped"]).optional(),
     evidence: z
       .union([OffshiftEvidenceInput, OffshiftEvidenceBatch])

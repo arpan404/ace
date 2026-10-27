@@ -20,13 +20,13 @@
       "type": "string"
     },
     "text": {
-      "description": "The message, standing on its own.",
+      "description": "Standing on its own.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "threadId": {
-      "description": "A child's or owned thread's id; with full access, any of the person's threads.",
+      "description": "A child's or owned thread's id; with full access, any thread.",
       "minLength": 1,
       "type": "string"
     }

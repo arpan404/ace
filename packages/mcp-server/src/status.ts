@@ -35,7 +35,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       ? "screen_open_app"
       : "screen_state";
   return [
-    "ace runs this session. Your own tools work as usual; use ace's for what only ace can:",
+    "ace runs this session. Your shell, file and web tools work as usual; use ace's for what only ace can:",
     "- you start in an existing project: context first;",
     has("agents")
       ? "- independent or parallel parts: delegate (not your own subagent tool), then wait;"

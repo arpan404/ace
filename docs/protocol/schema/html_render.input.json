@@ -5,20 +5,20 @@
   "properties": {
     "height": {
       "$ref": "https://ace.local/protocol/v1/HtmlHeight.json",
-      "description": "Height in CSS pixels to hold while the page loads; the frame then fits the whole page."
+      "description": "CSS pixels held while loading; the frame then fits the page."
     },
     "html": {
-      "description": "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
+      "description": "A self-contained HTML document: inline CSS, JS, SVG and data: images; no network.",
       "maxLength": 16777216,
       "minLength": 1,
       "type": "string"
     },
     "mode": {
       "$ref": "https://ace.local/protocol/v1/HtmlMode.json",
-      "description": "interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."
+      "description": "interactive runs scripts in a sandbox; static strips them. Default: inferred."
     },
     "title": {
-      "description": "A short caption shown above the page.",
+      "description": "Caption above the page.",
       "maxLength": 160,
       "minLength": 1,
       "pattern": "\\S",

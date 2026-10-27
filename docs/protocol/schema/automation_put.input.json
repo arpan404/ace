@@ -9,14 +9,14 @@
       "type": "boolean"
     },
     "id": {
-      "description": "The automation's id, as you named it in automation_put.",
+      "description": "The id you gave it in automation_put.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
     "missedRun": {
       "default": "skip",
-      "description": "A schedule missed while ace was off: skip (default) or run once.",
+      "description": "A run missed while ace was off: skip it, or run once.",
       "enum": [
         "skip",
         "run_once"
@@ -24,17 +24,17 @@
       "type": "string"
     },
     "prompt": {
-      "description": "The message you receive each run: the whole task, readable without this conversation's context.",
+      "description": "The message each run sends: the whole task, readable without this conversation.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "schedule": {
       "$ref": "https://ace.local/protocol/v1/AgentAutomationSchedule.json",
-      "description": "Run on this schedule: kind rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5). timezone defaults to this machine's, startAt (epoch ms, a whole minute) to now. Omit for runs by hand only."
+      "description": "rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only."
     },
     "title": {
-      "description": "What it does, for the person's list.",
+      "description": "What it does, for the person.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

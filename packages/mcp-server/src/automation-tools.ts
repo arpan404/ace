@@ -18,11 +18,7 @@ const automations = {
   timeoutMs: controlToolTimeoutMs,
   capability: "automations",
 } as const;
-const automationId = z
-  .string()
-  .min(1)
-  .max(256)
-  .describe("The automation's id, as you named it in automation_put.");
+const automationId = z.string().min(1).max(256).describe("The id you gave it in automation_put.");
 
 const automationsList = controlTool({
   ...automations,
@@ -31,12 +27,12 @@ const automationsList = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Automations you or the threads you own created in this project, with each schedule's next run. runs: true reads recent runs instead, newest first, paged with before.",
+    "Automations you or your threads created in this project, with each next run. runs: true reads recent runs instead, newest first, paged with before.",
   input: z.strictObject({
-    runs: z.boolean().default(false).describe("Read recent runs instead of definitions."),
-    automationId: automationId.optional().describe("runs: only this automation's runs."),
+    runs: z.boolean().default(false),
+    automationId: automationId.optional().describe("runs: only this one's."),
     before: z.number().int().positive().optional().describe("runs: the previous page's before."),
-    limit: z.number().int().min(1).max(100).default(20).describe("runs: runs per page."),
+    limit: z.number().int().min(1).max(100).default(20),
   }),
   output: controlResult(z.unknown()),
   async run({ runs, automationId: id, before, limit }, control) {
@@ -76,21 +72,21 @@ const automationPut = controlTool({
   title: "Save an automation",
   riskClass: "agent-execution",
   description:
-    "Create or replace an automation: a message ace sends into this thread when run with automation_run, or on a schedule (RRULE or cron). You answer it here, with this thread's model and access, queued behind any turn already going. Saving the same id again replaces it.",
+    "Create or replace (same id) an automation: a message ace sends into this thread on a schedule or with automation_run. You answer it here with this thread's model and access, queued behind any running turn.",
   input: z.strictObject({
     id: automationId,
-    title: z.string().min(1).max(256).describe("What it does, for the person's list."),
+    title: z.string().min(1).max(256).describe("What it does, for the person."),
     prompt: MessageText.describe(
-      "The message you receive each run: the whole task, readable without this conversation's context.",
+      "The message each run sends: the whole task, readable without this conversation.",
     ),
     schedule: AgentAutomationSchedule.optional().describe(
-      "Run on this schedule: kind rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5). timezone defaults to this machine's, startAt (epoch ms, a whole minute) to now. Omit for runs by hand only.",
+      "rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only.",
     ),
     enabled: z.boolean().default(true).describe("false saves it paused."),
     missedRun: z
       .enum(["skip", "run_once"])
       .default("skip")
-      .describe("A schedule missed while ace was off: skip (default) or run once."),
+      .describe("A run missed while ace was off: skip it, or run once."),
   }),
   output: controlResult(z.unknown()),
   async run({ schedule, ...automation }, control) {
@@ -130,15 +126,13 @@ const automationRun = controlTool({
   title: "Run, pause or resume an automation",
   riskClass: "agent-execution",
   description:
-    "Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.",
+    "Run a saved automation now (action run): its message arrives here after any running turn, and the run shows in automations_list {runs: true}. pause skips a waiting run and stops a running one; resume restarts its schedule from now.",
   input: z
     .strictObject({
       id: automationId,
       action: z.enum(["run", "pause", "resume"]).default("run"),
-      requestId: fields.requestId.optional().describe("run: any stable id; repeats run once."),
-      variables: TriggerVariables.default({}).describe(
-        "run: values for {{name}} placeholders in its prompt.",
-      ),
+      requestId: fields.requestId.optional().describe("run: any stable id; a repeat runs once."),
+      variables: TriggerVariables.default({}).describe("run: values for {{name}} in its prompt."),
     })
     .superRefine((input, context) => {
       if (input.action === "run" && input.requestId === undefined)
@@ -169,7 +163,7 @@ const automationRemove = controlTool({
   title: "Remove an automation",
   riskClass: "thread-write",
   destructive: true,
-  description: "Delete a saved automation and its schedule. Past runs stay in the run list.",
+  description: "Delete a saved automation and its schedule; past runs stay listed.",
   input: z.strictObject({ id: automationId }),
   output: NoData,
   run: ({ id }, control) =>

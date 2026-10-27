@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "edit: entryId and text. cancel, steer: entryId. reorder: order.",
+      "description": "edit: entryId, text. cancel, steer: entryId. reorder: order.",
       "enum": [
         "edit",
         "cancel",
@@ -14,13 +14,12 @@
       "type": "string"
     },
     "entryId": {
-      "description": "The queued entry.",
       "maxLength": 128,
       "minLength": 1,
       "type": "string"
     },
     "order": {
-      "description": "reorder: entry ids in their new order.",
+      "description": "Entry ids, in their new order.",
       "items": {
         "maxLength": 128,
         "minLength": 1,
@@ -38,11 +37,10 @@
       "type": "string"
     },
     "text": {
-      "$ref": "https://ace.local/protocol/v1/MessageText.json",
-      "description": "edit: its new text."
+      "$ref": "https://ace.local/protocol/v1/MessageText.json"
     },
     "threadId": {
-      "description": "A thread you own: this one or one you started. With full access, also any of the person's threads.",
+      "description": "This thread, one you started or, with full access, any.",
       "minLength": 1,
       "type": "string"
     }
