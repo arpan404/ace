@@ -189,8 +189,9 @@ import XCTest
         let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
         // The whole window: the first collection view can be the thread list behind Settings.
         for attempt in 0..<20 {
+            // Its top edge in view is enough: the list's last row can't scroll any higher.
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
-               target.frame.minY > top, target.frame.maxY < bottom { return }
+               target.frame.minY > top, target.frame.minY < bottom { return }
             let down = target.exists ? target.frame.minY >= bottom : attempt < 10
             if down { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
