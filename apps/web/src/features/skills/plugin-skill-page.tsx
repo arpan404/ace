@@ -1,5 +1,6 @@
 import { ArrowsClockwiseIcon, TrashIcon } from "@phosphor-icons/react";
 import { ProviderKind } from "@ace/protocol";
+import { pluginSwitched } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -56,12 +57,7 @@ export function PluginSkillPage(props: {
           }),
       },
     );
-  const setEnabled = (enabled: boolean) =>
-    change({
-      enabled,
-      // Enabling an empty allowlist restores provider choices.
-      ...(enabled && !policy.providers.length ? { providers: ProviderKind.options } : {}),
-    });
+  const setEnabled = (enabled: boolean) => change(pluginSwitched(policy, enabled));
   return (
     <Screen
       title="Skills"
