@@ -38,3 +38,22 @@ enum FleetRuleState: Equatable, Sendable {
 
     var value: ServiceValue? { if case .agreed(let value) = self { value } else { nil } }
 }
+
+extension FleetRuleState {
+    /// What the rule's row shows: the value its control holds (nil: none to show) and the
+    /// line under it, naming machines by `name`.
+    func display(name: (String) -> String) -> (value: ServiceValue?, caption: String?) {
+        switch self {
+        case .agreed(let value): (value, nil)
+        case .differs: (nil, "Differs between machines")
+        case .incomplete(let hosts): (nil, "Couldn't read \(hosts.map(name).joined(separator: ", ")). Pull to refresh.")
+        }
+    }
+
+    /// Each rule's answers from one read of every machine: a read with no value failed.
+    static func answers(from reads: [(key: String, host: String, value: ServiceValue?)]) -> [String: [String: FleetRuleAnswer]] {
+        var answers: [String: [String: FleetRuleAnswer]] = [:]
+        for read in reads { answers[read.key, default: [:]][read.host] = read.value.map(FleetRuleAnswer.value) ?? .failed }
+        return answers
+    }
+}

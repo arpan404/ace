@@ -22,3 +22,29 @@ import Testing
         #expect(state == .agreed(.string("lan")))
     }
 }
+
+@Suite struct FleetRuleRowTests {
+    private let names = ["studio": "Studio", "laptop": "Laptop"]
+
+    @Test func aMachineThatTimedOutShowsNoValueAndNamesTheMachine() {
+        let answers = FleetRuleState.answers(from: [("remote.enabled", "studio", .bool(true)), ("remote.enabled", "laptop", nil)])
+        let shown = FleetRuleState.of(key: "remote.enabled", hosts: ["studio", "laptop"], answers: answers["remote.enabled"] ?? [:])
+            .display { names[$0] ?? $0 }
+        #expect(shown.value == nil)
+        #expect(shown.caption == "Couldn't read Laptop. Pull to refresh.")
+    }
+    @Test func machinesThatDisagreeShowNoValueAndSaySo() {
+        let answers = FleetRuleState.answers(from: [("remote.agentAccess", "studio", .string("off")), ("remote.agentAccess", "laptop", .string("operate"))])
+        let shown = FleetRuleState.of(key: "remote.agentAccess", hosts: ["studio", "laptop"], answers: answers["remote.agentAccess"] ?? [:])
+            .display { names[$0] ?? $0 }
+        #expect(shown.value == nil)
+        #expect(shown.caption == "Differs between machines")
+    }
+    @Test func machinesThatAgreeShowTheirValueWithNoCaption() {
+        let answers = FleetRuleState.answers(from: [("remote.enabled", "studio", .bool(false)), ("remote.enabled", "laptop", .bool(false))])
+        let shown = FleetRuleState.of(key: "remote.enabled", hosts: ["studio", "laptop"], answers: answers["remote.enabled"] ?? [:])
+            .display { names[$0] ?? $0 }
+        #expect(shown.value == .bool(false))
+        #expect(shown.caption == nil)
+    }
+}

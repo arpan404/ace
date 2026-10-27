@@ -64,7 +64,8 @@ struct FleetRulesView: View {
 
     @ViewBuilder private func row(_ rule: FleetRulesReply.Rule) -> some View {
         let state = FleetRuleState.of(key: rule.key, hosts: connected.map(\.hostId), answers: values[rule.key] ?? [:])
-        let current = state.value
+        let shown = state.display { inbox.name($0) }
+        let current = shown.value
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             switch rule.control {
             case "toggle":
@@ -81,11 +82,7 @@ struct FleetRulesView: View {
                     ForEach(rule.options ?? [], id: \.self) { Text($0.label).tag($0.value) }
                 }
             }
-            switch state {
-            case .differs: caption("Differs between machines")
-            case .incomplete(let hosts): caption("Couldn't read \(hosts.map { inbox.name($0) }.joined(separator: ", ")). Pull to refresh.")
-            case .agreed: EmptyView()
-            }
+            if let line = shown.caption { caption(line) }
             let chosen = rule.options?.first { option in if case .string(let text)? = current { text == option.value } else { false } }
             if let note = chosen?.note ?? rule.note {
                 Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -104,7 +101,6 @@ struct FleetRulesView: View {
         guard let first = connected.first else { return }
         do {
             rules = try await first.client.service(["type": "native.fleet", "machine": inbox.name(first.hostId), "request": ["op": "rules"]], as: FleetRulesReply.self).rules
-            var next: [String: [String: FleetRuleAnswer]] = [:]
             let keys = rules.map(\.key)
             // Every machine's every rule is asked at once; each answer lands as it comes.
             let reads = connected.flatMap { session in
@@ -112,11 +108,11 @@ struct FleetRulesView: View {
                     (key, session.hostId, Task { try? await session.client.service(["type": "settings.get", "key": key, "scope": [:] as [String: Any]], as: RuleSettingReply.self) })
                 }
             }
+            var answered: [(key: String, host: String, value: ServiceValue?)] = []
             for (key, host, read) in reads {
-                let value = await read.value?.entries.first(where: { $0.key == key })?.value
-                next[key, default: [:]][host] = value.map(FleetRuleAnswer.value) ?? .failed
+                answered.append((key, host, await read.value?.entries.first(where: { $0.key == key })?.value))
             }
-            values = next
+            values = FleetRuleState.answers(from: answered)
             loaded = true
             problem = nil
         } catch { problem = error.localizedDescription }
