@@ -86,6 +86,7 @@ struct MoveAsk: Identifiable, Equatable {
     func confirmDelete(_ ask: DeleteAsk, in inbox: MachineInbox) async {
         deleting = nil
         var running: [InboxKey] = []
+        var retries: [DeleteQuestion] = []
         var refused: [String] = []
         for group in Self.byMachine(ask.keys) {
             guard let client = inbox.client(group.machineId) else { continue }
@@ -93,16 +94,12 @@ struct MoveAsk: Identifiable, Equatable {
             let gone = Set(outcome.saved).subtracting(outcome.running).subtracting(outcome.refused.map(\.threadId))
             deleted.formUnion(gone.map { InboxKey(machineId: group.machineId, id: $0) })
             running += outcome.running.map { InboxKey(machineId: group.machineId, id: $0) }
+            if let retry = outcome.retry { retries.append(retry) }
             refused += outcome.refused.map(\.message)
         }
         report(refused, doing: "delete")
-        guard !running.isEmpty else { return }
-        let title = running.count == 1 ? (inbox.row(running[0])?.title ?? "") : ""
-        deleting = DeleteAsk(keys: running, question: DeleteQuestion(
-            title: running.count == 1 ? "Delete thread?" : "Delete \(running.count) threads?",
-            message: (running.count == 1 ? "“\(title)”" : "\(running.count) threads") + " will be permanently deleted. Agents or terminals are still running. They will stop before deletion.",
-            running: "Agents or terminals are still running. They will stop before deletion.",
-            confirm: "Stop and delete", force: true))
+        guard let first = retries.first, !running.isEmpty else { return }
+        deleting = DeleteAsk(keys: running, question: retries.count == 1 ? first : Self.combined(retries, count: running.count))
     }
 
     /// One action on several threads, across machines. Settle, archive and pin of several
@@ -129,7 +126,7 @@ struct MoveAsk: Identifiable, Equatable {
     }
 
     /// Move `keys` (all on one machine) to `project`, with Undo back to where each was.
-    func move(_ keys: [InboxKey], to project: NativeProject, in inbox: MachineInbox) async {
+    func move(_ keys: [InboxKey], to project: ComposeProject, in inbox: MachineInbox) async {
         guard let machineId = keys.first?.machineId, let client = inbox.client(machineId) else { return }
         moving = nil
         var from: [InboxKey: String] = [:]

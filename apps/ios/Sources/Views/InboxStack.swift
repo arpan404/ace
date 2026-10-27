@@ -31,7 +31,12 @@ struct InboxStack<Destination: View>: View {
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     let header: InboxHeaderActions
+    /// Delete, move and the bulk actions across machines.
+    let organize: InboxOrganize
     @ViewBuilder let destination: (InboxKey) -> Destination
+    /// Select mode: the threads picked for one action, and whether the list is picking.
+    @State private var selection: Set<InboxKey> = []
+    @State private var selecting = false
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
@@ -59,7 +64,9 @@ struct InboxStack<Destination: View>: View {
         if pulls {
             InboxSplit(path: $path, drawer: $drawer, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
         } else {
-            InboxSplit(path: $path, drawer: $drawer, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
+            InboxSplit(path: $path, drawer: $drawer, empty: "No thread open", showing: tab != .pulls, selecting: selecting) {
+                root.inboxCommands(commands)
+            } page: { page($0) }
         }
     }
 
@@ -76,6 +83,11 @@ struct InboxStack<Destination: View>: View {
                 .navigationTitle(pulls ? "Pull requests" : "Threads")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
+                .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+                    if selecting && !pulls {
+                        InboxSelectionBar(inbox: inbox, selection: selection, organize: organize) { selecting = false; selection = [] }
+                    }
+                }
         }
     }
 
@@ -92,7 +104,8 @@ struct InboxStack<Destination: View>: View {
                 // person searches and is back where it was when they cancel.
                 ZStack {
                     let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil, pair: header.pair)
+                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil,
+                              pair: header.pair, selection: selecting ? $selection : nil)
                         .refreshable { await refresh() }
                         .opacity(results ? 0 : 1)
                         .allowsHitTesting(!results)
@@ -121,7 +134,23 @@ struct InboxStack<Destination: View>: View {
                         },
                         accepts: actions.accepts, settle: actions.settle, unsettle: actions.unsettle,
                         snooze: actions.snooze, snoozeUntil: actions.snoozeUntil, wake: actions.wake,
-                        archive: actions.archive, pin: actions.pin, move: actions.move)
+                        archive: actions.archive, pin: actions.pin, move: actions.move,
+                        organizer: actions.organizer, select: { key in startSelecting(with: key) })
+    }
+    private func startSelecting(with key: InboxKey? = nil) {
+        withAnimation(.smooth) {
+            searching = false
+            selection = key.map { [$0] } ?? []
+            selecting = true
+        }
+    }
+    /// Every thread the list shows outside its folded shelves, for Select all.
+    private var selectable: [InboxKey] {
+        inbox.merged.sections.filter { $0.key != "unsent" }.flatMap { section -> [InboxKey] in
+            if section.key == "snoozed" && !shelves.snoozed { return [] }
+            if section.key == "settled" && !shelves.settled { return [] }
+            return section.rows.filter(includes)
+        }
     }
     /// A pull request, issue or thread picked from the Pulls list.
     private func pick(_ open: () -> Void) {
@@ -159,6 +188,35 @@ struct InboxStack<Destination: View>: View {
     }
 
     @ToolbarContentBuilder private func toolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
+        if selecting && !pulls {
+            selectToolbar
+        } else {
+            listToolbar(holdsTabs: holdsTabs, composeInBar: composeInBar)
+        }
+    }
+    /// Select mode's bar: Select all (or Deselect all), how many are picked, and Done.
+    @ToolbarContentBuilder private var selectToolbar: some ToolbarContent {
+        let all = selectable
+        let everything = !all.isEmpty && all.allSatisfy(selection.contains)
+        ToolbarItem(placement: .topBarLeading) {
+            Button(everything ? "Deselect all" : "Select all") { selection = everything ? [] : Set(all) }
+                .keyboardShortcut("a", modifiers: .command)
+                .accessibilityIdentifier("select.all")
+        }
+        ToolbarItem(placement: .principal) {
+            Text(selection.isEmpty ? "Select threads" : "\(selection.count) selected")
+                .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                .monospacedDigit()
+                .accessibilityIdentifier("select.count")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Done") { withAnimation(.smooth) { selecting = false; selection = [] } }
+                .fontWeight(.semibold)
+                .keyboardShortcut(.escape, modifiers: [])
+                .accessibilityIdentifier("select.done")
+        }
+    }
+    @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         // The title, its menu and the scope or connection problem under it, with no glass. The
         // Pulls tab's title is its list's own, which knows its projects.
@@ -167,6 +225,13 @@ struct InboxStack<Destination: View>: View {
                 ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem(placement: .topBarLeading) { title }
+            }
+            // Select mode, for actions on several threads at once.
+            if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Select") { startSelecting() }.accessibilityIdentifier("inbox.select")
+                }
+                if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             }
         }
         ToolbarItem(placement: .topBarTrailing) { settings }

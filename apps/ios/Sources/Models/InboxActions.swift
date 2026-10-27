@@ -60,6 +60,8 @@ struct BulkOutcome: Decodable, Sendable, Equatable {
     /// Deletes refused only because agents or terminals still run: offer Stop and delete.
     var running: [String] = []
     var waiting: [String] = []
+    /// The question to ask again for `running`.
+    var retry: DeleteQuestion? = nil
 }
 
 /// The shared delete question (`deleteQuestion` in `@ace/ui-core`).

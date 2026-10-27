@@ -15,6 +15,10 @@ struct InboxRowActions {
     let pin: (ThreadRow, InboxKey, Bool) -> Void
     /// Put the row at an index among the other rows of its section, as shown.
     let move: (InboxKey, MergedInbox.Section, Int) -> Void
+    /// The rest of a thread's actions, by its shared menu ids (`ThreadActionItems`).
+    let organizer: ThreadOrganizer
+    /// Starts picking threads for a bulk action, with this one picked.
+    let select: (InboxKey) -> Void
 }
 
 /// Which folded groups at the end of the list are open.
@@ -38,6 +42,8 @@ struct InboxList: View {
     let compose: (() -> Void)?
     /// Opens pairing while no computer is paired; nil while that isn't known yet.
     var pair: (() -> Void)?
+    /// The threads picked while the list is in its Select mode (nil outside it).
+    var selection: Binding<Set<InboxKey>>? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
@@ -50,17 +56,18 @@ struct InboxList: View {
     var body: some View {
         let sections = sections
         ScrollViewReader { proxy in
-            List {
+            List(selection: selection) {
                 if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
                     ViewOnlyNote(message: "View only")
                         .accessibilityHint("Pair with View and act to send, archive or snooze.")
                         .inboxRowChrome()
+                        .selectionDisabled()
                 }
                 let live = sections.filter { !Self.shelved.contains($0.key) }
                 ForEach(live) { section in
                     // One section sorted by hand or by creation needs no heading: the title says it.
                     if live.count > 1 || section.key != "threads" {
-                        InboxSectionHeading(label: section.label).inboxRowChrome()
+                        InboxSectionHeading(label: section.label).inboxRowChrome().selectionDisabled()
                     }
                     rows(section)
                 }
@@ -74,6 +81,7 @@ struct InboxList: View {
                         }
                         .accessibilityIdentifier("inbox.\(key)")
                         .inboxRowChrome()
+                        .selectionDisabled()
                         .padding(.top, AceTheme.Spacing.sm)
                         if open { rows(section) }
                     }
@@ -87,13 +95,17 @@ struct InboxList: View {
                     .buttonStyle(.row)
                     .accessibilityIdentifier("inbox.more")
                     .inboxRowChrome()
+                    .selectionDisabled()
                 }
-                if sections.isEmpty { emptyState.inboxRowChrome() }
+                if sections.isEmpty { emptyState.inboxRowChrome().selectionDisabled() }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(surface)
             .environment(\.defaultMinListRowHeight, 0)
+            // Select mode is the system's own: a check circle on each row, two-finger drag and
+            // (on iPad) Shift or Command with the pointer or arrows to pick several.
+            .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
             .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
@@ -126,16 +138,18 @@ struct InboxList: View {
                     Button { actions.open(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
                         .buttonStyle(.row).accessibilityIdentifier("unsent.\(key.id)")
                         .inboxRowChrome()
+                        .selectionDisabled()
                 }
             }
         } else {
             let movable = inbox.movable(section)
             ForEach(section.rows, id: \.self) { key in
-                InboxThreadCell(inbox: inbox, key: key, section: section, movable: movable, actions: actions).id(key)
+                InboxThreadCell(inbox: inbox, key: key, section: section, movable: movable, actions: actions,
+                                selecting: selection != nil).id(key).tag(key)
             }
             // The system's own drag to reorder: press and hold a row, then move it. Pinned rows
             // always; the Threads list only when it is sorted by hand.
-            .onMove(perform: movable ? { from, to in
+            .onMove(perform: movable && selection == nil ? { from, to in
                 guard let source = from.first, source < section.rows.count else { return }
                 let key = section.rows[source]
                 // `to` counts the moving row; the shared rules count only the others.
@@ -240,6 +254,8 @@ private struct InboxThreadCell: View {
     /// Whether rows here move by hand (Pinned, or Threads sorted by hand).
     let movable: Bool
     let actions: InboxRowActions
+    /// In Select mode a tap picks the row instead of opening it, and it has no swipes.
+    var selecting = false
     /// The thread open beside the list.
     @Environment(\.openThreadRow) private var open
 
@@ -260,17 +276,23 @@ private struct InboxThreadCell: View {
         let canOperate = inbox.client(key.machineId)?.canOperate ?? false
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
-        return Button { actions.open(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
-                           project: inbox.projectLook(key, workspace: row.workspaceId))
+        let label = InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
+                                   project: inbox.projectLook(key, workspace: row.workspaceId))
+        return Group {
+            if selecting {
+                // The list picks the row; a button would open it instead.
+                label.contentShape(Rectangle())
+            } else {
+                Button { actions.open(key) } label: { label }
+                    .buttonStyle(RowPressStyle(selected: open == key))
+            }
         }
-        .buttonStyle(RowPressStyle(selected: open == key))
         .accessibilityAddTraits(open == key ? .isSelected : [])
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
         .inboxRowChrome()
         // Neutral swipe fills: status hues belong to status only.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if canOperate {
+            if canOperate && !selecting {
                 if settled {
                     Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
                 } else if canSettle {
@@ -284,7 +306,7 @@ private struct InboxThreadCell: View {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate {
+            if canOperate && !selecting {
                 pinButton(row, pinned).tint(Color(uiColor: .systemGray))
                 Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2))
             }
@@ -295,21 +317,16 @@ private struct InboxThreadCell: View {
                 if canMoveDown { Button("Move down") { step(1) } }
             }
         }
+        // A long press previews the thread above its actions, as the web's hover card and menu
+        // do. Every action here is also in the open thread's ⋯ and in Select mode's bar.
         .contextMenu {
-            if canOperate {
-                pinButton(row, pinned)
-                if canMoveUp { Button("Move up", ace: .arrowUp) { step(-1) } }
-                if canMoveDown { Button("Move down", ace: .arrowDown) { step(1) } }
-                if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
-                else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
-                if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
-                else if !settled {
-                    Menu {
-                        ForEach(inbox.merged.snooze) { option in Button(option.label) { actions.snoozeUntil(row, key, option.id) } }
-                    } label: { Label("Snooze", ace: .clock) }
-                }
-                Button("Archive", ace: .archive) { actions.archive(row, key) }
+            if !selecting {
+                InboxRowMenu(inbox: inbox, key: key, canOperate: canOperate, actions: actions,
+                             canMoveUp: canMoveUp, canMoveDown: canMoveDown, step: step)
             }
+        } preview: {
+            ThreadPreview(row: row, machine: inbox.showsMachineNames ? inbox.mark(key.machineId) : nil,
+                          project: inbox.projectLook(key, workspace: row.workspaceId))
         }
     }
 
@@ -320,5 +337,35 @@ private struct InboxThreadCell: View {
     private func step(_ by: Int) {
         guard let position = section.rows.firstIndex(of: key) else { return }
         actions.move(key, section, position + by)
+    }
+}
+
+/// A row's long-press menu. Its own view, so reading the machines' shared menu words redraws
+/// only the open menu, never every row when the layout changes.
+private struct InboxRowMenu: View {
+    let inbox: MachineInbox
+    let key: InboxKey
+    let canOperate: Bool
+    let actions: InboxRowActions
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let step: (Int) -> Void
+
+    var body: some View {
+        if let row = inbox.row(key) {
+            if canOperate {
+                let merged = inbox.merged
+                ThreadActionItems(key: key, row: row, labels: merged.menuLabels, sections: merged.menuSections,
+                                  snoozeOptions: merged.snooze, organizer: actions.organizer,
+                                  extra: canMoveUp || canMoveDown ? AnyView(moves) : nil)
+                Section { Button("Select", ace: .checkCircle) { actions.select(key) }.accessibilityIdentifier("thread.action.select") }
+            } else {
+                Button("Copy link", ace: .link) { actions.organizer.perform(key, "copy-link") }
+            }
+        }
+    }
+    @ViewBuilder private var moves: some View {
+        if canMoveUp { Button("Move up", ace: .arrowUp) { step(-1) } }
+        if canMoveDown { Button("Move down", ace: .arrowDown) { step(1) } }
     }
 }
