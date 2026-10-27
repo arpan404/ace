@@ -32,7 +32,12 @@ function turn(id: string, changes: { path: string; oldText: string | null; newTe
         changes: changes.map((change) =>
           change.oldText === null
             ? { path: change.path, kind: "add" as const, newText: change.newText }
-            : { path: change.path, kind: "update" as const, ...change },
+            : {
+                path: change.path,
+                kind: "update" as const,
+                oldText: change.oldText,
+                newText: change.newText,
+              },
         ),
       },
     }),
