@@ -5,6 +5,10 @@ import { DaemonStop } from "./stop-reason.ts";
 type Daemon = Awaited<ReturnType<typeof import("./index.ts").startDaemon>>;
 type Signal = "SIGINT" | "SIGTERM";
 const SHUTDOWN_LIMIT_MS = 7_500;
+interface ConsoleBreak {
+  once(signal: "SIGBREAK", listener: () => void): unknown;
+  removeListener(signal: "SIGBREAK", listener: () => void): unknown;
+}
 /** Install the process lifetime before startup can advertise an endpoint. */
 export async function runDaemonProcess(
   start: (options: DaemonOptions) => Promise<Daemon>,
@@ -24,6 +28,7 @@ export async function runDaemonProcess(
     },
     exit: (code) => process.exit(code),
   },
+  consoleBreak: ConsoleBreak | undefined = process.platform === "win32" ? process : undefined,
 ): Promise<Daemon | undefined> {
   const lifetime = new AbortController();
   let daemon: Daemon | undefined;
@@ -31,6 +36,7 @@ export async function runDaemonProcess(
   const remove = () => {
     signals.removeListener("SIGINT", interrupt);
     signals.removeListener("SIGTERM", terminate);
+    consoleBreak?.removeListener("SIGBREAK", interrupt);
   };
   const stop = (signal: Signal) => {
     cancelExit ??= shutdown.after(() => {
@@ -60,6 +66,8 @@ export async function runDaemonProcess(
   const terminate = () => stop("SIGTERM");
   signals.once("SIGINT", interrupt);
   signals.once("SIGTERM", terminate);
+  // Windows consoles send Ctrl+Break as SIGBREAK, whose default ends the process uncleanly.
+  consoleBreak?.once("SIGBREAK", interrupt);
   try {
     daemon = await start({
       ...options,

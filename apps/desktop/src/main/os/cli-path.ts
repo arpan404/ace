@@ -31,7 +31,9 @@ export type CliPathPlan =
   /** Link `link` to the shim: its folder is already on PATH. */
   | { kind: "link"; link: string }
   /** Add the PATH line to the shell's startup files. */
-  | { kind: "profile" };
+  | { kind: "profile" }
+  /** Windows: add the folder to the per-user PATH in the registry. */
+  | { kind: "user-path" };
 
 /** The person's own `ace`, or one ace already reaches, is left as it is. */
 export function planCliPath(facts: CliPathFacts): CliPathPlan {
@@ -44,8 +46,7 @@ export function planCliPath(facts: CliPathFacts): CliPathPlan {
     };
   if (onPath(facts.directory, facts.path, facts.platform))
     return { kind: "done", status: { state: "ready", command: facts.file } };
-  if (facts.platform === "win32")
-    return { kind: "done", status: { state: "manual", directory: facts.directory } };
+  if (facts.platform === "win32") return { kind: "user-path" };
   const link = localBin(facts.home);
   if (onPath(posix.dirname(link), facts.path, facts.platform)) return { kind: "link", link };
   return { kind: "profile" };

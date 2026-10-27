@@ -7,6 +7,12 @@ export { createTranslator } from "./translator.ts";
 export { capabilities } from "./capabilities.ts";
 export type { ClaudeOptions } from "./session.ts";
 export function createClaudeAdapter(options: ClaudeOptions = {}): ProviderAdapter {
+  // Windows names the person's home USERPROFILE and usually leaves HOME unset. Forks clone
+  // under it; sessions keep the environment they were given.
+  if (process.platform === "win32" && !options.env?.HOME && options.env?.USERPROFILE) {
+    const profile = { ...options, env: { ...options.env, HOME: options.env.USERPROFILE } };
+    return { ...createClaudeAdapter(profile), openSession: (ctx) => openSession(ctx, options) };
+  }
   return {
     provider: "claude",
     capabilities,

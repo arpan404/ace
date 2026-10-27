@@ -77,6 +77,8 @@ export type HostConfig = {
   idleMs: number;
   schedule(callback: () => void, delayMs: number): () => void;
   onRetired(): void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
 };
 
 const holdThreads = 64;
@@ -340,6 +342,16 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = undefined;
     this.#config.onRetired();
+    // Windows has no graceful signal for a windowless console child: closing stdin is
+    // app-server's own clean shutdown, and its recorded tree is ended before retiring resolves.
+    if ((this.#config.platform ?? process.platform) === "win32") {
+      const proc = this.#proc;
+      const graceMs = this.#config.graceMs;
+      this.#retiring = import("@ace/provider-kit/tree-stop")
+        .then(({ stopTreeAfterEof }) => stopTreeAfterEof(proc, graceMs))
+        .then(() => {});
+      return this.#retiring;
+    }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});
     return this.#retiring;
   }

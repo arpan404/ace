@@ -11,6 +11,7 @@ import {
   globalShortcut,
   Menu,
   nativeTheme,
+  Notification,
   powerMonitor,
   shell,
   type WebContents,
@@ -27,6 +28,8 @@ import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
+import { windowsAppUserModelId } from "./notifications/native.ts";
+import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
@@ -53,6 +56,7 @@ import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
 import {
   disableDnsPrefetching,
@@ -89,6 +93,9 @@ if (unsafe) {
   app.exit(1);
 } else {
   app.setPath("userData", userData);
+  // Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
+  if (process.platform === "win32")
+    app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
   // Local crash dumps only (never uploaded), started before any helper process launches.
   const crashDumps = startLocalCrashReporter(userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
@@ -557,6 +564,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+        // Windows: the caption buttons follow the page's theme, not only the OS scheme.
+        if (process.platform === "win32")
+          window.setTitleBarOverlay({
+            symbolColor: captionSymbolColor(
+              windowBackground(value, nativeTheme.shouldUseDarkColors),
+              nativeTheme.shouldUseDarkColors,
+            ),
+          });
       },
       updateKeymap: (next) => {
         bindings = next;
@@ -595,6 +610,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
       handlers,
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
+    // Windows keeps toasts in the notification centre after their objects are gone (and after
+    // a restart). A click, button or reply on one that no live toast answered brings ace
+    // forward with its request still waiting (`activation.ts`).
+    if (process.platform === "win32")
+      Notification.handleActivation((details) => {
+        const at = Date.now();
+        setTimeout(() => {
+          if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open") open();
+        }, liveToastGraceMs);
+      });
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
     powerMonitor.on("shutdown", () => {

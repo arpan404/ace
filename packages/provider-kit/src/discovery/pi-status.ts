@@ -17,6 +17,9 @@ export async function discoverPiStatus(
   const result = await discoverPi(options);
   if (!result.installed || !result.path) return result;
   const env = { ...process.env, ...options.env };
+  // Pi's home is `os.homedir()`, which reads USERPROFILE on Windows, never HOME.
+  if (process.platform === "win32")
+    env.PI_CODING_AGENT_DIR ??= join(env.USERPROFILE || homedir(), ".pi", "agent");
   let provider: string | undefined;
   try {
     const file = await open(

@@ -1,5 +1,6 @@
 import {
   ComputerClient,
+  type ComputerClientOptions,
   graphicalSessionEnvironment,
   installScreenHelper,
   linuxComputerEnvironment,
@@ -8,6 +9,7 @@ import {
   type Simulators,
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
+import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
@@ -65,6 +67,13 @@ export async function startScreen({ config, options, resources, services, store 
         },
       }
     : {};
+  if (process.platform === "win32") {
+    const computer = windowsComputerClient(helper, config.dataDir, timings);
+    resources.own(() => computer.close());
+    services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+    return;
+  }
   const computer =
     process.platform === "darwin"
       ? // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
@@ -81,6 +90,8 @@ export async function startScreen({ config, options, resources, services, store 
             environment: linuxComputerEnvironment(session),
             // Wayland screen-sharing approvals (portal restore tokens) outlive the helper.
             helperArgs: ["--data-dir", join(config.dataDir, "screen")],
+            // The helper restores a borrowed clipboard and releases held keys when stdin closes.
+            stopGraceMs: 1_000,
             ...timings,
           })
         : undefined;
@@ -108,6 +119,29 @@ export async function startScreen({ config, options, resources, services, store 
   }
   services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
 }
+/**
+ * Windows computer use: the session helper's executable, where `--computer` selects the
+ * background engine. Paths the agent names for executables outside the Start menu are
+ * remembered under the data dir. `extra` adds timings, or a test's spawner.
+ */
+export function windowsComputerClient(
+  helper: string,
+  dataDir: string,
+  extra: Partial<ComputerClientOptions> = {},
+): ComputerClient {
+  return new ComputerClient({
+    helper: async () => helper,
+    nextId: randomUUID,
+    helperArgs: ["--data-dir", join(dataDir, "screen")],
+    // The helper restores a borrowed clipboard and releases held keys when stdin closes.
+    stopGraceMs: 1_000,
+    // A console program started from a windowless daemon would open a console window.
+    spawnHelper: (command, args, env) =>
+      spawn(command, [...args], { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true }),
+    ...extra,
+  });
+}
+
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;
   return {

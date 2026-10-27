@@ -65,6 +65,16 @@ Replace the pairing URL authority with the Serve hostname and port 443, preservi
 
 OpenSSL creates an RSA-2048 self-signed certificate valid for ten years under `ACE_HOME/tls`. The directory has mode 0700 and the private key has mode 0600. The pin is the lowercase hex SHA-256 digest of the public key's DER SPKI representation, rather than the certificate's digest. Clients verify the pin and certificate validity before sending HTTP headers. See Node's [HTTPS pinning example](https://github.com/nodejs/node/blob/main/doc/api/https.md) for the underlying primitives. Removing the TLS identity changes the pin and requires pairing again.
 
+## On Windows
+
+Remote access needs no administrator rights on Windows. What differs from macOS and Linux:
+
+- **Tailscale.** ace runs `tailscale.exe` from PATH, else from Tailscale's install folder (`%ProgramFiles%\Tailscale\tailscale.exe`), looked up on every call, so a daemon started before Tailscale was installed still finds it. `ace doctor` looks in the same places. Windows has no `tailscale set --operator`: Tailscale answers `tailscale cert` only for the Windows account connected in the Tailscale app (or an administrator), so a refused certificate says to connect Tailscale from this account. Until the certificate arrives, devices use ace's pinned certificate over the 100.x address, as elsewhere.
+- **TLS identity.** Windows ships no OpenSSL, so ace makes its self-signed, pinned identity with Node's crypto (RSA 2048, SHA-256, ten years, `CN=ace`). Clients pin its public key exactly as they pin the OpenSSL-made one.
+- **LAN address.** Windows lists Hyper-V, WSL, VPN and VM adapters (`vEthernet (WSL)`) beside the real one, often first. Pairing links use the first other IPv4 address that isn't link-local. `ACE_ADVERTISE_HOST` still wins.
+- **Windows Defender Firewall.** The first time ace listens on the LAN or on its Tailscale address, Windows may ask whether to allow ace's Node runtime on private or public networks. Allowing it creates a firewall rule and needs an administrator once. Declining (or a standard account that can't approve) leaves the listener running but blocked: local use keeps working and paired devices can't connect until a rule is added in Windows Security › Firewall & network protection › Allow an app through firewall. Tailscale Serve avoids the prompt entirely, because Tailscale's own service receives the traffic and forwards it to localhost: start ace with `ACE_LISTEN=lan` and `ACE_REMOTE_PORT=4243`, run `tailscale serve --tcp=443 tcp://localhost:4243`, and keep the pairing URL's fragment (the public-key pin) while replacing its authority with the Serve hostname.
+- **Sleep and network changes.** Connections drop while Windows sleeps and paired clients retry when it wakes. Tailscale keeps the 100.x address across network changes; a LAN address can change with the network, so pair again or set `ACE_ADVERTISE_HOST`.
+
 ## HTTP API
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.

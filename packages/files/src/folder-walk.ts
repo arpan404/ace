@@ -44,6 +44,14 @@ async function isLink(path: string): Promise<boolean> {
     throw error;
   }
 }
+/**
+ * Windows: a link target as stored in an archive, with `/` separators. Drive, UNC, rooted and
+ * stream targets (junctions read back as `C:\...`) can only leave the folder: undefined.
+ */
+function windowsLinkTarget(target: string): string | undefined {
+  if (target.includes(":") || /^[\\/]/.test(target)) return undefined;
+  return target.replaceAll("\\", "/");
+}
 /** Names come from the path, then every entry is re-read through the pinned descriptor. */
 async function listNames(directory: PinnedDirectory, path: string, relative: string) {
   const pinned = directory.stat();
@@ -81,6 +89,11 @@ export class FolderReader {
     this.prune = prune;
   }
   private async inside(path: string, target: string): Promise<boolean> {
+    if (process.platform === "win32") {
+      const portable = windowsLinkTarget(target);
+      if (portable === undefined) return false;
+      target = portable;
+    }
     const route = linkRoute(path, target);
     if (!route) return false;
     for (const directory of route) if (await isLink(join(this.canonical, directory))) return false;
@@ -126,6 +139,7 @@ export class FolderReader {
         return undefined;
       }
       member.link = target;
+      if (process.platform === "win32") member.link = windowsLinkTarget(target) ?? target;
     }
     return member;
   }

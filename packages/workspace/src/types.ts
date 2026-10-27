@@ -28,6 +28,7 @@ export function errorCode(error: unknown): unknown {
 export function failure(error: unknown): WorkspaceError {
   if (error instanceof WorkspaceError) return error;
   const code = errorCode(error);
+  if (process.platform === "win32" && code === "EBADF") return windowsChangedPath(error);
   const mapped =
     code === "ENOENT"
       ? "NOT_FOUND"
@@ -39,6 +40,17 @@ export function failure(error: unknown): WorkspaceError {
             ? "PATH_CHANGED"
             : "IO_ERROR";
   return new WorkspaceError(mapped, error instanceof Error ? error.message : String(error), error);
+}
+/**
+ * Win32: realpath fails with EBADF when a link along the path is removed while Windows
+ * resolves it, so the path changed under the request.
+ */
+function windowsChangedPath(error: unknown): WorkspaceError {
+  return new WorkspaceError(
+    "PATH_CHANGED",
+    error instanceof Error ? error.message : String(error),
+    error,
+  );
 }
 export function integer(value: number, name: string, min: number, max: number): number {
   if (!Number.isSafeInteger(value) || value < min || value > max) {

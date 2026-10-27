@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon, linuxScreenHelperName, stageLinuxScreenHelper } from "@ace/release";
 import { stageNodeRuntime } from "@ace/release/node-runtime";
+import { stageWindowsNodeRuntime } from "@ace/release/node-runtime";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
@@ -103,6 +104,26 @@ await stageRipgrep(join(dist, "bin"));
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));
 
+// The Windows installer runs this on the bundled Node for PATH, the `ace` command and
+// uninstall cleanup (src/packaging/setup.ts, build/installer.nsh).
+if (process.platform === "win32") {
+  log("installer helper");
+  await build({
+    entryPoints: [join(desktop, "src/packaging/setup-entry.ts")],
+    outfile: join(dist, "setup/ace-setup.mjs"),
+    bundle: true,
+    minify: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    legalComments: "eof",
+    logLevel: "warning",
+    banner: {
+      js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
+    },
+  });
+}
+
 const releaseTarget = `${process.platform}-${arch}`;
 if (
   releaseTarget === "darwin-arm64" ||
@@ -121,6 +142,13 @@ if (
     cacheDir,
     destination: runtime,
   });
+} else if (releaseTarget === "win32-x64" || releaseTarget === "win32-arm64") {
+  log("node runtime");
+  await stageWindowsNodeRuntime({
+    target: releaseTarget,
+    cacheDir: join(desktop, "node_modules/.cache/ace-node"),
+    destination: join(dist, "runtime"),
+  });
 }
 
 log(`native code for ${process.platform}-${arch}`);
@@ -135,6 +163,11 @@ log(`done: ${dist}`);
 async function stageNodePty(root: string): Promise<void> {
   const require = createRequire(join(repo, "packages/terminal/package.json"));
   const source = dirname(require.resolve("node-pty/package.json"));
+  if (process.platform === "win32") {
+    const { stageWindowsPty } = await import("@ace/release/pty-assets");
+    await stageWindowsPty(source, join(root, "node_modules/node-pty"), `win32-${arch}`);
+    return;
+  }
   const target = join(root, "node_modules/node-pty");
   await mkdir(target, { recursive: true });
   for (const name of ["lib", "package.json", "LICENSE"])

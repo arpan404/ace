@@ -41,6 +41,10 @@ export const remoteAccessPorts: RemoteAccessPorts = {
   network: systemNetwork,
   pairedDevices: (context) => countPairedDevices(join(context.config.dataDir, "events.sqlite")),
 };
+// Windows looks for the installed tailscale.exe exactly as the daemon does.
+if (process.platform === "win32")
+  remoteAccessPorts.tailscale = async (context) =>
+    (await import("../tailscale-command.ts")).findTailscaleExe(context.env);
 
 const DeviceRow = z.object({ scopes: z.string() });
 const Scopes = z.array(DeviceScope);

@@ -5,6 +5,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
+import { windowsPlatform } from "@/lib/keymap.ts";
 import { nextMatch, searchLog } from "./pr-check-model.ts";
 
 /** Past this many lines only the rows near the viewport mount. */
@@ -112,7 +113,7 @@ export function PrCheckLog(props: {
         <IconButton
           icon={CaretUpIcon}
           label="Previous match"
-          keys="⇧↵"
+          keys={windowsPlatform ? "Shift+Enter" : "⇧↵"}
           resolve={false}
           size="sm"
           disabled={!matches.length}

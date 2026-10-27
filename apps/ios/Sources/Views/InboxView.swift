@@ -36,6 +36,7 @@ struct InboxView: View {
     @State private var shelves = InboxShelves()
     @State private var composing = false
     @State private var showingSettings = false
+    @State private var pairing = false
     /// Where Settings opens: its root, or Machines from the connection title.
     @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
@@ -104,7 +105,7 @@ struct InboxView: View {
             // The compose button opens the New thread sheet and leaves the tab where it was.
             guard new == .compose else { return }
             tab = old == .compose ? .threads : old
-            if !inbox.sessions.isEmpty { composing = true }
+            startThread()
         }
         .onChange(of: threadsPath) { old, new in
             pathChanged(.threads, old: old, new: new)
@@ -136,6 +137,29 @@ struct InboxView: View {
             SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
                 .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
         }
+        .sheet(isPresented: $pairing) {
+            if let machines {
+                NavigationStack {
+                    PairingView(machines: machines) { pairing = false }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button { pairing = false } label: { Image(systemName: "xmark") }
+                                    .accessibilityLabel("Close").accessibilityIdentifier("pairing.close")
+                            }
+                        }
+                }
+                .tint(AceTheme.Colours.foreground)
+            }
+        }
+    }
+    /// New thread needs a computer; with none paired it offers pairing instead.
+    private func startThread() {
+        if !inbox.sessions.isEmpty { composing = true } else { pair?() }
+    }
+    /// Add device, once the phone knows no computer is paired.
+    private var pair: (() -> Void)? {
+        guard let machines, machines.loaded, machines.machines.isEmpty else { return nil }
+        return { pairing = true }
     }
 
     /// Open from a transfer's line goes to that machine's thread on the Threads tab.
@@ -159,11 +183,12 @@ struct InboxView: View {
     private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
         InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab, drawer: tab == .pulls ? $pullsDrawer : $threadsDrawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
-                                          startThread: { if !inbox.sessions.isEmpty { composing = true } }),
+                                          startThread: { startThread() }),
                    machine: $machineFilter, project: $projectFilter,
                    shelves: $shelves, reveal: $reveal, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
-                                              machines: { settingsStart = [.machines]; showingSettings = true })) { key in
+                                              machines: { settingsStart = [.machines]; showingSettings = true },
+                                              pair: pair)) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
             if let client = inbox.client(key.machineId) {

@@ -236,3 +236,77 @@ for (const mode of [0o200, 0o000, 0o100]) {
     }
   });
 }
+
+test.runIf(process.platform === "win32")(
+  "Windows: a read-only replacement publishes before losing publication completion and recovers read-only",
+  async () => {
+    let lose = true;
+    const runtime = workspaceRuntime();
+    const filesystem = runtime.filesystem;
+    runtime.filesystem = {
+      ...filesystem,
+      async realpath(path) {
+        const resolved = await filesystem.realpath(path);
+        const final = await filesystem.lstat(join(resolved, "final")).catch(() => undefined);
+        if (lose && final?.size === 4) throw new Error("lost publication completion");
+        return resolved;
+      },
+    };
+    const f = await fixture({ workspaceRuntime: runtime, maxReservedBytes: 4 });
+    const readOnly = async (name: string) =>
+      ((await filesystem.lstat(join(f.root, name))).mode & 0o200) === 0;
+    try {
+      await writeFile(join(f.root, "final"), "old");
+      await chmod(join(f.root, "final"), 0o444);
+      const expected = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      const upload = Upload.parse(
+        await f.service.request("writer", { op: "upload.begin", path: "final", expected, size: 4 }),
+      );
+      await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+      await expect(
+        f.service.request("writer", {
+          op: "upload.commit",
+          uploadId: upload.uploadId,
+          sha256: digest,
+        }),
+      ).rejects.toThrow("lost publication");
+      expect(await readOnly("final")).toBe(true);
+      lose = false;
+      await f.restart();
+      await expect(
+        f.service.request("writer", {
+          op: "upload.commit",
+          uploadId: upload.uploadId,
+          sha256: digest,
+        }),
+      ).resolves.toMatchObject({ path: "final" });
+      expect(await readOnly("final")).toBe(true);
+      const current = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      await expect(
+        f.service.request("writer", {
+          op: "move",
+          path: "final",
+          destination: "moved",
+          destinationExpected: null,
+          expected: current,
+        }),
+      ).resolves.toMatchObject({ destination: "moved" });
+      expect(await readOnly("moved")).toBe(true);
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "next", expected: null, size: 4 }),
+      ).resolves.toMatchObject({ offset: 0 });
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "over", expected: null, size: 4 }),
+      ).rejects.toMatchObject({ code: "QUOTA" });
+      expect(await readFile(join(f.root, "moved"), "utf8")).toBe("data");
+    } finally {
+      lose = false;
+      for (const name of ["final", "moved"]) await chmod(join(f.root, name), 0o666).catch(() => {});
+      await f.close();
+    }
+  },
+);

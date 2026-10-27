@@ -80,6 +80,8 @@ export async function atomicWrite(
   await mkdir(dirname(path), { recursive: true });
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   const directory = await openFile(dirname(path), "r");
+  // Windows can't flush a directory handle (EPERM); NTFS journals the rename itself.
+  if (process.platform === "win32") Object.assign(directory, { sync: async () => {} });
   let temporaryExists = false;
   try {
     const file = await openFile(temp, "wx", 0o600);

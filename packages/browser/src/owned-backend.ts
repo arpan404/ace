@@ -1,6 +1,7 @@
 import { basename, dirname, join } from "node:path";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { acquireChromium } from "./acquisition.ts";
+import { installedWindowsChromium } from "./discovery.ts";
 import { chromiumProcessKiller } from "./chromium-process.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
@@ -24,15 +25,22 @@ const schedule: Schedule = (work, milliseconds) => {
 export function chromeDefaults(
   platform: NodeJS.Platform,
   sandbox = true,
+  /** Windows: where a Chrome tree that outlived its browser is reported. */
+  report?: (error: Error) => void,
 ): {
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
 } {
+  const jobs = platform === "win32" ? windowsJobs(report) : undefined;
   return {
     launch: {
       args: [
         ...(sandbox ? [] : ["--no-sandbox"]),
         ...(platform === "linux" && smallSharedMemory() ? ["--disable-dev-shm-usage"] : []),
+        // Windows: started elevated (an administrator's desktop, UAC off), Chrome and Edge
+        // relaunch themselves unelevated through the shell and the relaunched browser never
+        // gets ace's debugging pipe ("Remote debugging pipe file descriptors are not open").
+        ...(platform === "win32" ? ["--do-not-de-elevate"] : []),
       ],
       ...(platform === "linux" ? { diagnose: linuxLaunchDiagnosis() } : {}),
       deviceScaleFactor: 2,
@@ -45,8 +53,41 @@ export function chromeDefaults(
         platform === "win32"
           ? async () => ({ close: async () => {} })
           : (profile) => guardChromium(profile),
+      // Windows: a kill-on-close job owns each profile's Chrome tree instead.
+      ...(jobs && jobs.launch),
     },
-    cleanup: { timeoutMs: 5_000, schedule, kill: chromiumProcessKiller(platform) },
+    cleanup: {
+      timeoutMs: 5_000,
+      schedule,
+      kill: chromiumProcessKiller(platform),
+      ...(jobs && { kill: jobs.kill }),
+    },
+  };
+}
+
+/**
+ * Windows: the required job containment (`chrome-job.ts`), loaded with the first launch so
+ * other platforms never load it. Every launch's `guard` runs before its `spawn`.
+ */
+function windowsJobs(report?: (error: Error) => void) {
+  let jobs: ReturnType<typeof import("./chrome-job.ts").chromeJobs> | undefined;
+  const ready = () => {
+    if (!jobs) throw new Error("ace's Chrome containment is not loaded on Windows");
+    return jobs;
+  };
+  return {
+    launch: {
+      guard: async (profile: string) => {
+        jobs ??= (await import("./chrome-job.ts")).chromeJobs({
+          spawn: spawnProcess,
+          ...(report && { report }),
+        });
+        return jobs.guard(profile);
+      },
+      spawn: ((command, args, options) =>
+        ready().spawn(command, args, options)) satisfies ChromeLaunch["spawn"],
+    },
+    kill: (pid: number) => ready().kill(pid),
   };
 }
 
@@ -64,7 +105,12 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       }
     }
   };
-  const defaults = chromeDefaults(process.platform, options.sandbox !== false);
+  const defaults =
+    process.platform === "win32"
+      ? chromeDefaults(process.platform, options.sandbox !== false, (error) =>
+          options.onError?.(error),
+        )
+      : chromeDefaults(process.platform, options.sandbox !== false);
   const launch: ChromeLaunch = { ...defaults.launch, ...options.chrome };
   launch.args = [...defaults.launch.args, ...(options.chrome?.args ?? [])];
   const diagnose = launch.diagnose;
@@ -80,6 +126,30 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     (owned = new ChromeBackend({
       executable: () => {
         if (options.executablePath) return Promise.resolve(options.executablePath);
+        // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge, and
+        // without one that ace can drive, the x64 build under Windows' emulation.
+        if (
+          process.platform === "win32" &&
+          process.arch === "arm64" &&
+          !options.acquisition?.artifact
+        )
+          acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
+            .catch(() =>
+              import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
+                acquireChromium({
+                  ...options.acquisition,
+                  artifact: chromiumArtifact("win32", "x64"),
+                  dataDir: options.dataDir,
+                  signal,
+                  progress,
+                }),
+              ),
+            )
+            .catch((error: unknown) => {
+              acquiring = undefined;
+              options.onError?.(error);
+              throw error;
+            });
         acquiring ??= acquireChromium({
           ...options.acquisition,
           dataDir: options.dataDir,
@@ -100,6 +170,13 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         profileDir: join(options.dataDir, "browser", "encoder"),
         idleMs: options.videoEncoderIdleMs ?? 30_000,
       },
+      // Windows without a usable GPU draws ace's Chrome at device scale 1 (`gpu-scale.ts`),
+      // unless the embedder chose a scale.
+      ...(process.platform === "win32" &&
+        options.chrome?.deviceScaleFactor === undefined && {
+          windowsScale: async (gpu: unknown) =>
+            (await import("./gpu-scale.ts")).windowsDeviceScale(gpu, launch.deviceScaleFactor),
+        }),
     }));
   return {
     backend,
