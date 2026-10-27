@@ -93,7 +93,8 @@ import XCTest
         repository.typeText("arpan404/ace")
         choose(app, "automation.event", "When an issue is labelled")
         let label = app.textFields["automation.label"]
-        XCTAssertTrue(label.waitForExistence(timeout: 10))
+        reveal(app, label)
+        XCTAssertTrue(label.exists)
         label.tap()
         label.typeText("needs-triage")
         screenshot("github")
@@ -182,15 +183,17 @@ import XCTest
         option.tap()
     }
     /// Short slow drags, down the list then back up, until `target` shows clear of the bars.
+    /// Scrolls the screen's list until `target` shows clear of the bars: a slow swipe on the list
+    /// itself, down the list while the row isn't loaded yet, then back up it.
     private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
         let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
-        for attempt in 0..<16 {
+        let list = app.collectionViews.firstMatch
+        for attempt in 0..<20 {
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
                target.frame.minY > top, target.frame.maxY < bottom { return }
-            let below = !target.exists ? attempt < 8 : target.frame.minY >= bottom
-            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.65 : 0.35))
-            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.4 : 0.6))
-            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
+            let down = target.exists ? target.frame.minY >= bottom : attempt < 10
+            let surface = list.exists ? list : app
+            if down { surface.swipeUp(velocity: .slow) } else { surface.swipeDown(velocity: .slow) }
         }
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }

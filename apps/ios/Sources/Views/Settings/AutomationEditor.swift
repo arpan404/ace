@@ -143,7 +143,7 @@ struct AutomationEditor: View {
                 }
                 .padding(.vertical, AceTheme.Spacing.xs)
             }
-            if let access = model.compose.access, access.provider == pick?.provider, !access.choices.isEmpty {
+            if let access = model.compose.access, access.provider == provider(form.wrappedValue), !access.choices.isEmpty {
                 // Unset follows the project's (else the machine's) default, as it is saved: the
                 // picker says "Default" for it rather than a mode that would never be stored.
                 Picker("Access", selection: Binding(get: { form.wrappedValue.access ?? "" },
@@ -156,6 +156,18 @@ struct AutomationEditor: View {
                     Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
+            } else {
+                // Until the agent's modes arrive the row still says what is saved: the default
+                // when none is chosen.
+                LabeledContent("Access") {
+                    HStack(spacing: AceTheme.Spacing.xs) {
+                        if model.compose.access?.state == "loading" { ProgressView().controlSize(.mini) }
+                        Text(form.wrappedValue.access.map(accessName) ?? "Default")
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("automation.access")
+                .transition(.opacity)
             }
             Toggle("Run in a worktree", isOn: form.worktree).toggleStyle(.systemSwitch)
                 .accessibilityIdentifier("automation.worktree")
@@ -235,12 +247,19 @@ struct AutomationEditor: View {
         if let agent = editing?.agent { return "\(agent) default" }
         return model.compose.agentsState == "ready" ? "Default" : "Reading…"
     }
+    /// The agent the automation runs on: the picked model's, else the one stored.
+    private func provider(_ form: AutomationFormValues) -> String { pick?.provider ?? form.provider }
+    /// A stored mode's name as the agent's modes word it, else its own words.
+    private func accessName(_ mode: String) -> String {
+        model.compose.access?.choices.first { $0.mode == mode }?.label ?? mode.replacingOccurrences(of: "-", with: " ").capitalized
+    }
     /// The mode an unset access runs at, as the bridge worked it out for this project and model.
     private func defaultAccessLabel(_ access: ComposeAccess) -> String {
         access.label ?? access.choices.first { $0.mode == access.selected }?.label ?? "the project's"
     }
     private var accessKey: String {
-        [form?.workspace, pick?.provider, pick?.key, pick?.account, form?.access].map { $0 ?? "" }.joined(separator: "\u{0}")
+        [form?.workspace, pick?.provider ?? form?.provider, pick?.key, pick?.account, form?.access,
+         model.compose.projects.first { $0.path == form?.workspace }?.id].map { $0 ?? "" }.joined(separator: "\u{0}")
     }
 
     // MARK: Bridge
@@ -283,10 +302,17 @@ struct AutomationEditor: View {
     /// New thread's access rules for this project and model, read by the bridge (`compose.access`).
     private func sendChoice() {
         var choice: [String: Any] = ["kind": "choice"]
-        if let workspace = form?.workspace, !workspace.isEmpty { choice["workspaceId"] = workspace }
+        // The form keeps the project's folder; New thread's access rules know projects by id, so
+        // the project's own default access is found under it.
+        if let workspace = form?.workspace, !workspace.isEmpty {
+            choice["workspaceId"] = model.compose.projects.first { $0.path == workspace }?.id ?? workspace
+        }
         if let pick {
             choice["provider"] = pick.provider; choice["model"] = pick.key
             if let account = pick.account { choice["account"] = account }
+        } else if let provider = form?.provider {
+            // A stored automation with no model of its own runs on its agent's default model.
+            choice["provider"] = provider
         }
         if let access = form?.access { choice["access"] = access }
         model.composeAction(choice)
