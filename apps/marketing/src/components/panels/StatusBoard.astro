@@ -8,33 +8,38 @@ const board: {
   tone: StatusTone;
   word: string;
   child?: boolean;
+  /** Names the row for the story that plays on it (scripts/stories.ts). */
+  key: string;
 }[] = [
   {
     title: "Fix flaky checkout test",
     meta: "billing-api · Claude Code",
     tone: "needs-you",
     word: "Approve",
+    key: "checkout",
   },
   {
     title: "Dedupe thread events after reconnect",
     meta: "ace · Codex · 2 subagents",
     tone: "working",
     word: "Working",
+    key: "dedupe",
   },
-  { title: "Audit reconnect paths", meta: "subagent", tone: "working", word: "Working", child: true },
-  { title: "Write regression test", meta: "subagent", tone: "done", word: "Done", child: true },
+  { title: "Audit reconnect paths", meta: "subagent", tone: "working", word: "Working", child: true, key: "audit" },
+  { title: "Write regression test", meta: "subagent", tone: "done", word: "Done", child: true, key: "test" },
   {
     title: "Retry budget for app-server restarts",
     meta: "relay · Cursor · bun test still running",
     tone: "waiting",
     word: "Waiting",
+    key: "retry",
   },
-  { title: "Bump Astro", meta: "marketing · OpenCode", tone: "failed", word: "Failed" },
-  { title: "Onboarding copy pass", meta: "web · Claude Code · PR #188", tone: "done", word: "Done" },
+  { title: "Bump Astro", meta: "marketing · OpenCode", tone: "failed", word: "Failed", key: "astro" },
+  { title: "Onboarding copy pass", meta: "web · Claude Code · PR #188", tone: "done", word: "Done", key: "copy" },
 ];
 ---
 
-<figure class="board" aria-label="An example task list in ace">
+<figure class="board" aria-label="An example task list in ace" data-story="status">
   <div class="board-head">
     <span>5 threads · 2 subagents</span>
     <span>1 needs you</span>
@@ -42,7 +47,7 @@ const board: {
   <ul>
     {
       board.map((row) => (
-        <li class:list={{ child: row.child }} data-tone={row.tone}>
+        <li class:list={{ child: row.child }} data-tone={row.tone} data-key={row.key}>
           <span class="status-dot" aria-hidden="true" />
           <span class="row-text">
             <span class="row-title">{row.title}</span>

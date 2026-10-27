@@ -1,4 +1,6 @@
 ---
+import Icon from "../Icon.astro";
+
 /* Computer use: who holds each app, with Take over and Stop beside the one in use. */
 const apps = [
   { name: "Simulator", state: "Codex is using it", active: true },
@@ -8,33 +10,50 @@ const apps = [
 ];
 ---
 
-<div class="panel">
+<div class="panel" data-story="computer">
   <div class="panel-row">
     <span class="panel-label">Computer use</span>
     <span class="panel-end panel-quiet">On</span>
   </div>
   {
     apps.map((app) => (
-      <div class="panel-row" data-tone={app.active ? "working" : undefined}>
+      <div
+        class="panel-row"
+        data-tone={app.active ? "working" : undefined}
+        data-key={app.active ? "active" : undefined}
+      >
         {app.active ? (
           <span class="status-dot" aria-hidden="true" />
         ) : (
           <span class="idle" aria-hidden="true" />
         )}
         <span>{app.name}</span>
-        <span class="panel-quiet">{app.state}</span>
+        <span class="panel-quiet" data-state>
+          {app.state}
+        </span>
         {app.active && (
           <span class="panel-end">
-            <span class="panel-action">Take over</span>
-            <span class="panel-action">Stop</span>
+            <span class="panel-action" data-take>
+              Take over
+            </span>
+            <span class="panel-action" data-stop>
+              Stop
+            </span>
           </span>
         )}
       </div>
     ))
   }
+  <span class="pointer" aria-hidden="true"><Icon name="cursor" size={18} /></span>
 </div>
 
 <style>
+  /* Once you take over, the app is no longer an agent's: its dot goes hollow. */
+  .panel-row:not([data-tone]) .status-dot {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--faint);
+  }
+
   .idle {
     width: 7px;
     height: 7px;

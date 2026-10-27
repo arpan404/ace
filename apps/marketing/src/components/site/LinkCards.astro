@@ -16,7 +16,7 @@ const { heading, cards } = Astro.props;
     {
       cards.map((card) => (
         <li>
-          <a href={card.href}>
+          <a class="spot" href={card.href}>
             <h3>
               {card.title}
               <Icon name="arrow-right" size={15} />

@@ -48,7 +48,7 @@ const machines: {
 ];
 ---
 
-<div class="fleet">
+<div class="fleet" data-story="fleet">
   {
     machines.map((machine) => (
       <div class="machine panel">
@@ -88,12 +88,13 @@ const machines: {
 </div>
 
 <style>
+  /* Wide gaps leave room for the lines the Fleet story draws between machines. */
   .fleet {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 44px 56px;
     width: 100%;
-    max-width: 640px;
+    max-width: 760px;
   }
 
   .panel {
@@ -138,6 +139,7 @@ const machines: {
   @media (max-width: 640px) {
     .fleet {
       grid-template-columns: 1fr;
+      gap: 32px;
     }
   }
 </style>

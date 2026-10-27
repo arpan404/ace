@@ -71,13 +71,16 @@ theme overrides them under `html[data-theme="light"]`.
 
 ## Motion
 
-`src/styles/motion.css` holds every animation, and each has a job: sections settle into view
-once (`.reveal`), product panels assemble row by row, lists marked `data-stagger` deal out their
-items, the hero headline arrives word by word, the hero window lies flat as it scrolls into view,
-hover confirms what is clickable, and pages cross-fade (`@view-transition`). `scripts/motion.ts`
-adds `.is-in` as elements come into view. Base.astro only turns motion on (`<html class="motion">`)
-when reduced motion is off, and drops it if the script hasn't started within three seconds, so
-content is never left hidden.
+`src/styles/motion.css` holds every animation. Text never slides or blurs in: section headings
+rise word by word from behind a mask, other text fades, and product visuals unmask from the top.
+The product panels act out their feature once in view (`src/scripts/stories.ts`): subagents finish
+before their parent turns Done, a browser log streams in, a pointer takes over an app, a device
+request is allowed, and lines draw between Fleet machines to the phone. Tiles marked `.spot` carry
+a light under the pointer, and pages cross-fade (`@view-transition`).
+
+`src/scripts/motion.ts` drives it. Base.astro only turns motion on (`<html class="motion">`) when
+reduced motion is off, and drops it if the script hasn't started within three seconds; without it,
+every panel shows its resting state and nothing is hidden.
 
 ## Screenshots
 

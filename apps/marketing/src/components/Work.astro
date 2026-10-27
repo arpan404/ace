@@ -21,7 +21,7 @@ const devices = feature("devices");
   </div>
 
   <div class="bento">
-    <article id="machine" class="cell wide reveal">
+    <article id="machine" class="cell wide reveal spot">
       <div class="copy">
         <h3>{computer.headline}</h3>
         <p>{computer.intro}</p>
@@ -34,7 +34,7 @@ const devices = feature("devices");
       </Stage>
     </article>
 
-    <article id="browser" class="cell reveal">
+    <article id="browser" class="cell reveal spot">
       <Stage mood="ember">
         <BrowserPanel />
       </Stage>
@@ -46,7 +46,7 @@ const devices = feature("devices");
       </div>
     </article>
 
-    <article id="devices" class="cell reveal">
+    <article id="devices" class="cell reveal spot">
       <Stage mood="amber">
         <DevicesPanel />
       </Stage>
@@ -81,6 +81,7 @@ const devices = feature("devices");
   }
 
   .cell :global(.stage) {
+    --clip-r: 12px;
     border-radius: 12px;
   }
 

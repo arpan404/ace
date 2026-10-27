@@ -8,10 +8,10 @@ const steps = [
 ];
 ---
 
-<div class="panel">
+<div class="panel" data-story="browser">
   <div class="panel-row tab">
     <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-    <span class="address panel-mono">localhost:5173/checkout</span>
+    <span class="address panel-mono" data-type>localhost:5173/checkout</span>
   </div>
   <div class="panel-row" data-tone="working">
     <span class="status-dot" aria-hidden="true"></span>
@@ -20,7 +20,7 @@ const steps = [
   </div>
   {
     steps.map((step) => (
-      <div class="panel-row">
+      <div class="panel-row" data-step>
         <span class="panel-mono">{step.tool}</span>
         <span class="panel-end panel-quiet">{step.detail}</span>
       </div>
