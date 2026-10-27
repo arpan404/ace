@@ -169,6 +169,14 @@ async fn portal_screenshot(
     }
     let frame = cast.capture(&session.id, &session.name).await?;
     let logical = (f64::from(frame.logical.0), f64::from(frame.logical.1));
+    // The opaque body found in the picture's pixels, in the logical size marks use.
+    let to_logical = (logical.0 / f64::from(frame.picture.width.max(1)), logical.1 / f64::from(frame.picture.height.max(1)));
+    let body = frame.opaque.map(|(x, y, w, h)| Rect {
+        x: f64::from(x) * to_logical.0,
+        y: f64::from(y) * to_logical.1,
+        w: f64::from(w) * to_logical.0,
+        h: f64::from(h) * to_logical.1,
+    });
     // A window frame shows exactly the window, its content centred in it. A monitor frame
     // can't be related to window-relative positions, so it gets no marks.
     let content = if marks && frame.window {
@@ -178,7 +186,7 @@ async fn portal_screenshot(
     };
     session.shot_offset = None;
     let placed: Option<Vec<Node>> = content.map(|content| {
-        let (dx, dy) = content_offset(logical, content);
+        let (dx, dy) = content_offset(logical, content, body);
         session.shot_offset = Some((dx, dy));
         session
             .nodes

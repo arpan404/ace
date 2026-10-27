@@ -37,7 +37,7 @@ fn gtk4_window_extents_land_inside_the_shadow_margin() {
         w: 690.0,
         h: 510.0,
     };
-    let (dx, dy) = content_offset((700.0, 520.0), content);
+    let (dx, dy) = content_offset((700.0, 520.0), content, None);
     // The content's left edge is then drawn 5 px into the window.
     assert_eq!((-5.0 - dx, -5.0 - dy), (5.0, 5.0));
 }
@@ -194,4 +194,38 @@ fn a_point_names_the_clickable_element_under_or_just_beside_it_and_never_the_win
     // A scroll there starts from the innermost element of any kind.
     assert_eq!(innermost(&nodes, 120.0, 110.0), Some(3));
     assert_eq!(innermost(&nodes, 10.0, 10.0), Some(1));
+}
+
+#[test]
+fn a_stack_page_child_double_counting_its_offset_is_found() {
+    let rect = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, w, h };
+    // GNOME Calculator (GTK 4.18): the keypad's stack at (0, 356), its page at (12, 368), and the
+    // page's child reported at (24, 380), the same size: drawn at (12, 368).
+    let stack = rect(0.0, 356.0, 360.0, 260.0);
+    let page = rect(12.0, 368.0, 336.0, 236.0);
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 336.0, 236.0), page, stack), Some((12.0, 12.0)));
+    // A child filling its parent at the parent's origin is ordinary.
+    assert_eq!(forwarded_offset(page, page, stack), None);
+    // A smaller child inset by the same margin is ordinary too.
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 312.0, 212.0), page, stack), None);
+    // A parent at its own parent's origin gives nothing to double.
+    assert_eq!(forwarded_offset(stack, stack, stack), None);
+    // Empty frames say nothing.
+    assert_eq!(forwarded_offset(rect(24.0, 380.0, 0.0, 0.0), rect(12.0, 368.0, 0.0, 0.0), stack), None);
+}
+
+#[test]
+fn a_shadow_deeper_below_places_content_where_its_opaque_body_is() {
+    let rect = |x: f64, y: f64, w: f64, h: f64| Rect { x, y, w, h };
+    // GNOME Calculator's window stream (GNOME 48): 482x738 with the 360x616 body at (61, 55),
+    // not at the centred (61, 61).
+    let content = rect(0.0, 0.0, 360.0, 616.0);
+    let body = rect(61.0, 55.0, 360.0, 616.0);
+    assert_eq!(content_offset((482.0, 738.0), content, Some(body)), (-61.0, -55.0));
+    // Without alpha, centred.
+    assert_eq!(content_offset((482.0, 738.0), content, None), (-61.0, -61.0));
+    // An opaque area that isn't the content (a translucent window, an opaque shadow) is ignored.
+    assert_eq!(content_offset((482.0, 738.0), content, Some(rect(0.0, 0.0, 482.0, 738.0))), (-61.0, -61.0));
+    // A window with no shadow: the whole frame is opaque and is the content.
+    assert_eq!(content_offset((360.0, 616.0), content, Some(rect(0.0, 0.0, 360.0, 616.0))), (0.0, 0.0));
 }

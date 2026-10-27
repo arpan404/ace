@@ -283,10 +283,13 @@ notifications invokeLast`). The lock screen is left out: only the person's passw
 
 ## Known gaps
 
-- GTK4 reports element positions only relative to its window, and those positions drift by a few
-  pixels inside nested containers, so id marks on GTK4 screenshots can sit slightly off their
-  controls. GTK3 and Qt report screen positions and are exact. Wayland window frames don't change
-  this: the drift is in GTK4's own extents.
+- GTK4 reports element positions only relative to its window. Inside a `GtkStack` they come
+  shifted by the stack child's offset (GTK 4 adds each accessible ancestor's bounds, and a
+  `GtkStackPage` reports its child's bounds, so that offset counts twice); the walk finds that
+  case (a child the page's size, offset by the page's own offset) and takes the shift off the
+  subtree (`outline::forwarded_offset`). A GTK4 window's stream includes its shadow, which is
+  deeper below than above, so marks are placed at the window body found in the frame's alpha,
+  not centred in the frame. GTK3 and Qt report screen positions and are exact.
 - The portal doesn't say which app a window stream shows. If the person picks another window in
   the dialog, that window is what the agent sees for that app until the grant is revoked.
 - The restore path was verified in a headless GNOME Shell with a seeded grant, and end to end on

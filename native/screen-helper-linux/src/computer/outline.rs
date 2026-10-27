@@ -104,14 +104,35 @@ pub fn innermost(nodes: &[Node], x: f64, y: f64) -> Option<u64> {
 }
 
 /// What to subtract from window-relative extents to get pixels of a captured window frame,
-/// given the window's content box: the content sits centred in the frame (GTK4 surrounds it
-/// with an even shadow margin), so its left edge lands at half the spare width.
-pub fn content_offset(window: (f64, f64), content: Rect) -> (f64, f64) {
+/// given the window's content box and, when the frame has alpha, where its opaque body was
+/// found (both in the frame's logical size). The opaque body is where the content is drawn
+/// when it is the content's size: GTK 4 surrounds a window with a shadow that is deeper below
+/// than above (Adwaita: 6 px in GNOME Calculator), so centring it would put every mark low.
+/// Without one that fits, the content is taken as centred in the frame.
+pub fn content_offset(window: (f64, f64), content: Rect, opaque: Option<Rect>) -> (f64, f64) {
+    let fits = |o: &Rect| (o.w - content.w).abs() <= 2.0 && (o.h - content.h).abs() <= 2.0;
+    if let Some(body) = opaque.filter(fits) {
+        return (content.x - body.x, content.y - body.y);
+    }
     let margin = |outer: f64, inner: f64| ((outer - inner) / 2.0).max(0.0);
     (
         content.x - margin(window.0, content.w),
         content.y - margin(window.1, content.h),
     )
+}
+
+/// Where an element's window position double-counts its parent's offset: GTK 4 sums each
+/// accessible ancestor's bounds into window coordinates, but a `GtkStackPage` (an accessible
+/// that is no widget) reports its child widget's bounds, relative to the stack, and that child
+/// reports the same bounds again. So the page's child, and everything inside it, sits shifted
+/// by the child's offset within the stack (GNOME Calculator's keypad by 12 px both ways).
+/// Seen in raw window extents as a child exactly its parent's size, offset from the parent by
+/// exactly the parent's offset from its own parent; a real child that size can only sit at
+/// the parent's origin. Returns the shift to take off the element and its subtree.
+pub fn forwarded_offset(frame: Rect, parent: Rect, grandparent: Rect) -> Option<(f64, f64)> {
+    let offset = (parent.x - grandparent.x, parent.y - grandparent.y);
+    let same_size = frame.w == parent.w && frame.h == parent.h && frame.w > 0.0 && frame.h > 0.0;
+    (same_size && offset != (0.0, 0.0) && (frame.x - parent.x, frame.y - parent.y) == offset).then_some(offset)
 }
 
 /// One outline line.
