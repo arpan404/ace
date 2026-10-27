@@ -108,7 +108,7 @@ async function grants(
   const auth = context.access?.auth;
   if (!store || !auth)
     throw new FleetError("refused", "Linked machines aren't ready on this machine yet.");
-  const at = (context.options.now ?? Date.now)();
+  const at = auth.now();
   // Local credentials (the desktop app, "Use my Chrome") never call as another machine.
   const asked = operation.op === "grants" ? operation.deviceIds : undefined;
   const devices = auth
