@@ -984,8 +984,10 @@ it("a pin failure detaches every subscriber of a selection; teardown never throw
   for (const listener of listeners) listener();
   expect(listeners.size).toBe(0);
   expect(innerUnsubs).toBe(2);
-  expect(callsA).toBe(1);
-  expect(callsB).toBe(1);
+  // Invalidation notifies wrapper listeners once so views re-render into
+  // their fail-closed copy instead of holding the last snapshot.
+  expect(callsA).toBe(2);
+  expect(callsB).toBe(2);
   expect(() => sel.getSnapshot()).toThrow("not connected");
   expect(() => unsubA()).not.toThrow();
   expect(() => unsubB()).not.toThrow();

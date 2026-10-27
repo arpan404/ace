@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AppState, View, type AppStateStatus } from "react-native";
+import { AppState, ScrollView, View, type AppStateStatus } from "react-native";
 import { requireNativeModule } from "expo";
 import * as LocalAuthentication from "expo-local-authentication";
 import { SecurityLevel } from "expo-local-authentication";
@@ -42,6 +42,7 @@ import { createCoalescingFlight } from "./single-flight.ts";
 import { readStoredLockPrefsWithStatus, sqliteAppLockStorage } from "./lock-storage.ts";
 import { networkChange, snapshotNetworkState, type NetworkSnapshot } from "./network-monitor.ts";
 import { machineCards, routeMessage, selectActiveHost } from "./production-wiring.ts";
+import { ActiveMachineInbox } from "./production-inbox.tsx";
 import { PairingScreen } from "../Pairing.tsx";
 import { PairingFlowError, type ConfirmedPairing } from "../pairing/pairing-flow.ts";
 import type { MachineEntry } from "@ace/client/machines";
@@ -785,7 +786,20 @@ function MachinesView({
   }
 
   return (
-    <View style={{ flex: 1, padding: tokens.spacing.xl, gap: tokens.spacing.lg }}>
+    // Outer scrolls on short screens (same ScrollView pattern as Settings /
+    // Pairing): the inbox below keeps a bounded min/max window instead of a
+    // bare `flex:1` between variable siblings, so cards, the list, lock
+    // settings and the footer never starve or clip each other.
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{
+        padding: tokens.spacing.xl,
+        gap: tokens.spacing.lg,
+        // Short screens scroll; tall screens fill so the footer sits at the
+        // bottom and `flex:1` descendants (open thread view) resolve.
+        flexGrow: 1,
+      }}
+    >
       <AceText role="title">Machines</AceText>
       {secureGuardFailed ? (
         <AceText role="caption">
@@ -827,12 +841,13 @@ function MachinesView({
       })}
       {error ? <AceText role="caption">{error}</AceText> : null}
       <AceButton label="Pair another machine" onPress={onPairingOpen} kind="secondary" />
+      {activeHost ? <ActiveMachineInbox startup={startup} hostId={activeHost} /> : null}
       <LockSettings lock={lock} notify={notify} />
       <AceText role="caption">
-        Threads for the active machine arrive with the inbox merge. Mutations stay behind the
-        per-machine gate and fail closed while view-only or offline.
+        Threads show the active machine only; the cross-machine merge is later work. Mutations stay
+        behind the per-machine gate and fail closed while view-only or offline.
       </AceText>
-    </View>
+    </ScrollView>
   );
 }
 
