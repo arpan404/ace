@@ -64,6 +64,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "readiness" ? "source-control" : undefined;
     case "automation.list":
     case "automation.inbox":
+    case "automations.page":
+    case "automations.history":
       return "automations";
     case "usage.limits":
     case "usage.summary":
@@ -105,7 +107,11 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "automation.put":
     case "automation.remove":
     case "automation.run":
+    case "automation.setEnabled":
+    case "automation.retry":
     case "automation.manage":
+    case "automations.save":
+    case "automations.duplicate":
       return ["automations"];
     case "pluginRequest":
       return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];

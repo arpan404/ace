@@ -137,6 +137,11 @@ export class NewThread {
     void this.#access.open();
   }
 
+  /** The coding agents the last read found; undefined until one succeeds. */
+  get loadedAgents(): NewThreadAgents | undefined {
+    return this.#agents;
+  }
+
   /** What the sheet has chosen: the picker leads with it, and its access modes are read. */
   choose(choice: Choice): void {
     this.#choice = choice;

@@ -84,3 +84,17 @@ export {
   type TriggerHealth,
   type ScheduleState,
 } from "./trigger-health.ts";
+export {
+  automationLists,
+  automationErrorMessage,
+  entrySource,
+  type AutomationEntry,
+  type AutomationLists,
+} from "./lists.ts";
+export {
+  sidebarRow,
+  sidebarGroups,
+  nextRunText,
+  type SidebarRow,
+  type SidebarGroup,
+} from "./sidebar-rows.ts";

@@ -1,6 +1,8 @@
-import type { Tone } from "@ace/ui-core";
-import type { AutomationEntry, AutomationLists } from "@/features/automation-data/index.ts";
-import { describeRepeat, formatWhen } from "@/features/automation-schedule/index.ts";
+import type { Automation } from "@ace/protocol";
+import type { Tone } from "../status.ts";
+import type { AutomationEntry, AutomationLists } from "./lists.ts";
+import { describeRepeat, formatNextRun, formatWhen } from "./schedule.ts";
+import { scheduleState, scheduleStateCopy } from "./trigger-health.ts";
 
 /*
  * The Automations sidebar as data: which group each automation sits in, in what order, and its
@@ -116,4 +118,36 @@ export function sidebarGroups(
     },
   ];
   return groups.filter((group) => group.rows.length > 0);
+}
+
+/**
+ * When it runs next, in words: paused, the next start (with its zone when not local), or what
+ * it waits for. A spent schedule says it is finished; one the daemon hasn't placed yet says
+ * that, not a guess. Automations being off on the machine is the caller's to say.
+ */
+export function nextRunText(
+  automation: Automation,
+  nextRunAt: number | undefined,
+  now: number,
+  localZone: string,
+): string {
+  if (!automation.enabled) return "Paused. Resume to schedule the next run.";
+  if (nextRunAt !== undefined) {
+    const zone =
+      automation.trigger.kind === "schedule" ? automation.trigger.schedule.timezone : undefined;
+    const when = formatNextRun(nextRunAt, now, zone);
+    return zone && zone !== localZone ? `${when} (${zone})` : when;
+  }
+  switch (automation.trigger.kind) {
+    case "github":
+      return "On the next matching event";
+    case "file":
+      return "On the next change";
+    case "manual":
+      return "Only when you run it";
+    case "schedule": {
+      const state = scheduleState(automation.trigger.schedule, undefined, now);
+      return state === "exhausted" ? scheduleStateCopy(state) : "Not scheduled yet";
+    }
+  }
 }

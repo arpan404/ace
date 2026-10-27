@@ -1,6 +1,6 @@
 import type { Automation, AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
-import type { AutomationEntry } from "@/features/automation-data/index.ts";
+import type { AutomationEntry } from "./lists.ts";
 import { sidebarGroups } from "./sidebar-rows.ts";
 
 const now = Date.UTC(2026, 9, 21, 12, 0);
