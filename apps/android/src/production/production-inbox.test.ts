@@ -353,6 +353,68 @@ it("keeps route identity stable across fresh-per-read route objects", () => {
   expect(routeKeyFor({ route: "paired" })).not.toBe(revokedA);
 });
 
+it("never resolves or retains a lease for missing or unsupported routes either", () => {
+  expect(
+    shouldResolveLease({
+      route: "pairing",
+      reason: "missing",
+      message: "Pair this machine.",
+    }),
+  ).toBe(false);
+  expect(
+    shouldResolveLease({
+      route: "pairing",
+      reason: "unsupported",
+      message: "Update the computer app.",
+    }),
+  ).toBe(false);
+});
+
+it("closes the open thread for every non-paired route", () => {
+  const reasons = ["missing", "revoked", "pin", "unsupported"] as const;
+  for (const reason of reasons) {
+    expect(openIdForRoute("thread-1", { route: "pairing", reason, message: "m" })).toBe(null);
+  }
+  expect(openIdForRoute("thread-1", { route: "paired" })).toBe("thread-1");
+  expect(openIdForRoute(null, { route: "paired" })).toBe(null);
+});
+
+it("keeps one route key per reason so message edits never re-resolve the lease", () => {
+  const revokedA = routeKeyFor({
+    route: "pairing",
+    reason: "revoked",
+    message: "one",
+  });
+  const revokedB = routeKeyFor({
+    route: "pairing",
+    reason: "revoked",
+    message: "two",
+  });
+  expect(revokedA).toBe(revokedB);
+  const reasons = ["missing", "revoked", "pin", "unsupported"] as const;
+  const keys = new Set(
+    reasons.map((reason) => routeKeyFor({ route: "pairing", reason, message: "m" })),
+  );
+  expect(keys.size).toBe(reasons.length);
+  expect(keys.has(routeKeyFor({ route: "paired" }))).toBe(false);
+});
+
+it("fails closed on any not-connected wording, generic copy otherwise", () => {
+  expect(readingFailureCopy(new Error("NOT CONNECTED"))).toBe("This machine is not connected.");
+  expect(readingFailureCopy(new Error("socket not connected: reset"))).toBe(
+    "This machine is not connected.",
+  );
+  expect(readingFailureCopy("not connected")).toBe("Threads could not be loaded.");
+  expect(readingFailureCopy(null)).toBe("Threads could not be loaded.");
+});
+
+it("keeps only the latest thread rows under a custom limit", () => {
+  const window = threadWindowFor(["a", "b", "c", "d"], 2);
+  expect([...window.shown]).toEqual(["c", "d"]);
+  expect(window.total).toBe(4);
+  expect(window.truncated).toBe(2);
+});
+
 it("never resolves or retains a lease for a revoked route, even on direct mount", () => {
   expect(shouldResolveLease({ route: "paired" })).toBe(true);
   expect(

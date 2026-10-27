@@ -250,6 +250,13 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         data={window.shown}
         keyExtractor={(itemId: string) => itemId}
         renderItem={({ item }: { item: string }) => <ThreadItemRow id={item} store={store} />}
+        // Single scroll owner per region: the bounded window above owns this
+        // region while the Machines screen owns page scroll. `flex:1` fills
+        // the measured window (an unstyled list collapses); on Android the
+        // gesture must be contained or the outer ScrollView steals it.
+        // FlashList v2 has no estimatedItemSize prop: rows self-measure.
+        style={{ flex: 1 }}
+        nestedScrollEnabled
         maintainVisibleContentPosition={{
           autoscrollToBottomThreshold: 0.1,
           startRenderingFromBottom: true,
@@ -404,9 +411,7 @@ export function ProductionThreadView({
     return (
       <View style={{ flex: 1, padding: tokens.spacing.xl, gap: tokens.spacing.md }}>
         <AceButton label="Back" onPress={onBack} kind="secondary" />
-        <AceText role="body">
-          {threadRoute.route === "paired" ? null : threadRoute.message}
-        </AceText>
+        <AceText role="body">{threadRoute.route === "paired" ? null : threadRoute.message}</AceText>
       </View>
     );
   }
@@ -670,6 +675,12 @@ export function ActiveMachineInbox({
         data={entries}
         keyExtractor={(entry) => (entry.kind === "heading" ? entry.id : entry.key)}
         getItemType={(entry) => entry.kind}
+        // Same ownership as the thread list: this bounded window scrolls
+        // internally, the Machines screen scrolls the page. `flex:1` fills
+        // the measured window; `nestedScrollEnabled` contains the gesture on
+        // Android. FlashList v2 has no estimatedItemSize prop.
+        style={{ flex: 1 }}
+        nestedScrollEnabled
         renderItem={({ item: entry }) =>
           entry.kind === "heading" ? (
             <View

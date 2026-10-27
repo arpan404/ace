@@ -792,7 +792,13 @@ function MachinesView({
     // settings and the footer never starve or clip each other.
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={{ padding: tokens.spacing.xl, gap: tokens.spacing.lg }}
+      contentContainerStyle={{
+        padding: tokens.spacing.xl,
+        gap: tokens.spacing.lg,
+        // Short screens scroll; tall screens fill so the footer sits at the
+        // bottom and `flex:1` descendants (open thread view) resolve.
+        flexGrow: 1,
+      }}
     >
       <AceText role="title">Machines</AceText>
       {secureGuardFailed ? (
