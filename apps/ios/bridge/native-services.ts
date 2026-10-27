@@ -133,6 +133,14 @@ export class NativeServices {
     this.care = care;
     this.providers = new ProviderServices(owner);
   }
+  /**
+   * This runtime's services are stopping or being replaced: requests in flight are cancelled and
+   * the provider install controllers stop following the old client.
+   */
+  dispose(): void {
+    for (const controller of this.#pending.values()) controller.abort();
+    this.providers.dispose();
+  }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
       if (!this.#keeping.has(action.id)) this.#pending.get(action.id)?.abort();

@@ -23,34 +23,9 @@ struct ProviderAdvancedSection: View {
 
     var body: some View {
         Section {
-            Toggle("Use \(page.name)", isOn: Binding(get: { page.settings.enabled }, set: { on in save(["kind": "enabled", "on": on]) }))
-                .disabled(page.missing)
-                .accessibilityIdentifier("provider.enabled")
-            if let saved = page.settings.path {
-                LabeledContent("CLI path") {
-                    TextField("Automatic", text: $path)
-                        .multilineTextAlignment(.trailing).monospaced()
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                        .focused($focus, equals: .path).submitLabel(.done)
-                        .onSubmit { commitPath(saved) }
-                        .accessibilityIdentifier("provider.path")
-                }
-                if let pathProblem { problemLine(pathProblem) }
-            }
+            if page.settings.editable { editableRows } else { readOnlyRows }
             if let command = page.settings.approvedCommand {
                 LabeledContent("CLI path") { Text(command).foregroundStyle(AceTheme.Colours.mutedForeground).multilineTextAlignment(.trailing) }
-            }
-            if let saved = page.settings.checkpoint {
-                LabeledContent("Checkpoint budget per thread") {
-                    HStack(spacing: AceTheme.Spacing.xs) {
-                        TextField("32", text: $checkpoint).multilineTextAlignment(.trailing).keyboardType(.numberPad)
-                            .focused($focus, equals: .checkpoint).frame(maxWidth: 64)
-                            .accessibilityIdentifier("provider.checkpoint")
-                        Text("MB").foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }
-                }
-                if let checkpointProblem { problemLine(checkpointProblem) }
-                if focus == .checkpoint { Button("Save budget") { commitCheckpoint(saved) }.frame(minHeight: AceTheme.Dimensions.touchTarget) }
             }
             if let native = page.settings.nativeMode {
                 Picker("Native mode", selection: Binding(get: { native.value }, set: { mode in save(["kind": "nativeMode", "mode": mode]) })) {
@@ -71,7 +46,9 @@ struct ProviderAdvancedSection: View {
                     .accessibilityIdentifier("provider.remove")
             }
             ServiceProblem(message: problem)
-        } header: { InsetHeader("Advanced") }
+        } header: { InsetHeader("Advanced") } footer: {
+            if let locked = page.settings.locked { Text(locked) }
+        }
         .insetRowBackground()
         .toggleStyle(.systemSwitch)
         .disabled(saving || !model.canOperate)
@@ -86,6 +63,49 @@ struct ProviderAdvancedSection: View {
         } message: { Text("The CLI on the computer signs out. Its conversations stay saved.") }
     }
 
+    /// The preferences only an administrator device may change, as fields.
+    @ViewBuilder private var editableRows: some View {
+        Toggle("Use \(page.name)", isOn: Binding(get: { page.settings.enabled }, set: { on in save(["kind": "enabled", "on": on]) }))
+            .disabled(page.missing)
+            .accessibilityIdentifier("provider.enabled")
+        if let saved = page.settings.path {
+            LabeledContent("CLI path") {
+                TextField("Automatic", text: $path)
+                    .multilineTextAlignment(.trailing).monospaced()
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    .focused($focus, equals: .path).submitLabel(.done)
+                    .onSubmit { commitPath(saved) }
+                    .accessibilityIdentifier("provider.path")
+            }
+            if let pathProblem { problemLine(pathProblem) }
+        }
+        if let saved = page.settings.checkpoint {
+            LabeledContent("Checkpoint budget per thread") {
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    TextField("32", text: $checkpoint).multilineTextAlignment(.trailing).keyboardType(.numberPad)
+                        .focused($focus, equals: .checkpoint).frame(maxWidth: 64)
+                        .accessibilityIdentifier("provider.checkpoint")
+                    Text("MB").foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+            }
+            if let checkpointProblem { problemLine(checkpointProblem) }
+            if focus == .checkpoint { Button("Save budget") { commitCheckpoint(saved) }.frame(minHeight: AceTheme.Dimensions.touchTarget) }
+        }
+    }
+    /// The same preferences as values, for a phone the computer lets read them only.
+    @ViewBuilder private var readOnlyRows: some View {
+        LabeledContent("Use \(page.name)", value: page.settings.enabled ? "On" : "Off")
+            .accessibilityIdentifier("provider.enabled.value")
+        if let saved = page.settings.path {
+            LabeledContent("CLI path") {
+                Text(saved.isEmpty ? "Automatic" : saved).monospaced().textSelection(.enabled).multilineTextAlignment(.trailing)
+            }
+            .accessibilityIdentifier("provider.path.value")
+        }
+        if let saved = page.settings.checkpoint {
+            LabeledContent("Checkpoint budget per thread", value: "\(saved.isEmpty ? "32" : saved) MB")
+        }
+    }
     private func problemLine(_ text: String) -> some View {
         Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
             .transition(.opacity)

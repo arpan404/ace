@@ -153,6 +153,7 @@ import Observation
     }
     private func open(_ client: ClientModel, entry: MachineEntry, target: ConnectionTarget) async {
         client.canOperate = canOperate(entry)
+        client.canAdmin = Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canAdmin
         await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }

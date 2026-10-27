@@ -28,7 +28,13 @@ interface Job {
   process?: SupervisedProcess;
   done?: Promise<void>;
   flush?: () => void;
+  /** When it reached a terminal state. */
+  finishedAt?: number;
+  /** Its owner has seen how it ended: live, by poll, or once through `active`. */
+  reported?: boolean;
 }
+/** How long a finished job's result waits for an owner that lost its session (an app relaunch). */
+export const unseenResultMs = 10 * 60_000;
 const terminal = (state: ProviderInstallProgress["state"]) =>
   ["succeeded", "failed", "cancelled", "needs_admin"].includes(state);
 /** Ephemeral sessions survive socket reconnects, retain bounded history, and own every process. */
@@ -127,9 +133,26 @@ export class ProviderInstalls {
             entry.progress.agent === request.agent &&
             entry.progress.acpAgentId === request.acpAgentId,
         );
-      return reply(
-        running ? { ok: true, progress: running.progress } : { ok: false, error: "not_found" },
-      );
+      if (running) return reply({ ok: true, progress: running.progress });
+      // Else how its latest job ended, once, if the owner never saw it and it ended recently.
+      const ended = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            entry.progress.provider === request.provider &&
+            entry.progress.agent === request.agent &&
+            entry.progress.acpAgentId === request.acpAgentId,
+        );
+      if (
+        !ended ||
+        ended.reported ||
+        ended.finishedAt === undefined ||
+        this.runtime.now() - ended.finishedAt > unseenResultMs
+      )
+        return reply({ ok: false, error: "not_found" });
+      ended.reported = true;
+      return reply({ ok: true, progress: ended.progress });
     }
     const job = this.jobs.get(request.session);
     if (!job) return reply({ ok: false, error: "not_found" });
@@ -139,6 +162,8 @@ export class ProviderInstalls {
       await job.process?.stop({ graceMs: 0 });
       await job.done;
     }
+    // Its owner reads how it ended in this reply.
+    if (terminal(job.progress.state)) job.reported = true;
     return reply({ ok: true, progress: job.progress });
   }
   private publish(job: Job, update: Partial<ProviderInstallProgress> = {}): void {
@@ -150,7 +175,13 @@ export class ProviderInstalls {
       sequence: job.progress.sequence + 1,
       lines: [...job.progress.lines],
     };
+    if (terminal(job.progress.state)) job.finishedAt ??= this.runtime.now();
     for (const listener of this.listeners) listener(job.owner, job.progress);
+  }
+  /** The owner's connected client was sent this progress; a terminal one counts as seen. */
+  delivered(progress: ProviderInstallProgress): void {
+    const job = this.jobs.get(progress.session);
+    if (job && terminal(progress.state)) job.reported = true;
   }
   private line(job: Job, text: string): void {
     // Strip terminal control bytes before publishing installer output.

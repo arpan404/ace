@@ -285,6 +285,7 @@ export class ProviderInstalls {
   readonly #machine: () => Promise<string>;
   readonly #waitMs: number;
   #flows = new Map<ProviderKind, Flow>();
+  #disposed = false;
   constructor(owner: InstallClient, machine: () => Promise<string>, waitMs = 20_000) {
     this.#owner = owner;
     this.#machine = machine;
@@ -328,8 +329,16 @@ export class ProviderInstalls {
     return this.#screen(request.provider, flow);
   }
 
+  /**
+   * The runtime is going away (stopped or replaced): every controller stops following the
+   * client, and a screen waiting for a change is answered now rather than holding the call.
+   */
   dispose(): void {
-    for (const flow of this.#flows.values()) flow.controller.dispose();
+    this.#disposed = true;
+    for (const flow of this.#flows.values()) {
+      flow.controller.dispose();
+      for (const wake of flow.waiters) wake();
+    }
     this.#flows.clear();
   }
 
@@ -339,6 +348,7 @@ export class ProviderInstalls {
   }
 
   #flow(provider: ProviderKind): Flow {
+    if (this.#disposed) throw new Error("This machine's runtime closed.");
     const existing = this.#flows.get(provider);
     if (existing) return existing;
     const controller = new CliInstallController(this.#owner, { provider }, { remember: () => {} });

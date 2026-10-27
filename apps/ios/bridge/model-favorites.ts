@@ -1,6 +1,11 @@
 import type { ClientCore } from "@ace/client";
 import { ProviderConfigurations } from "@ace/protocol";
-import { editProviderConfiguration, favoriteModelKeys, withFavoriteToggled } from "@ace/ui-core";
+import {
+  ConfigurationRefused,
+  editProviderConfiguration,
+  favoriteModelKeys,
+  withFavoriteToggled,
+} from "@ace/ui-core";
 import { z } from "zod";
 
 /*
@@ -20,6 +25,13 @@ const Entries = z.object({
   ok: z.boolean().optional(),
   entries: z.array(z.object({ value: z.unknown() })).optional(),
 });
+
+/** Why a star couldn't be saved: refused by the computer, or the connection. */
+export function starProblem(error: unknown): string {
+  return error instanceof ConfigurationRefused
+    ? "Stars are changed in ace on the computer."
+    : "Couldn't save this favourite. Reconnect and try again.";
+}
 
 export class ModelFavorites {
   readonly #owner: Owner;

@@ -8,6 +8,8 @@ struct ProviderPageData: Decodable, Equatable {
     struct Option: Decodable, Equatable, Identifiable { let id: String; let label: String }
     struct NativeMode: Decodable, Equatable { let value: String; let label: String; let options: [Option] }
     struct Settings: Decodable, Equatable {
+        let editable: Bool
+        let locked: String?
         let enabled: Bool
         let path: String?
         let approvedCommand: String?
@@ -33,10 +35,13 @@ struct ProviderPageData: Decodable, Equatable {
     let about: [Fact]
     let settings: Settings
     let models: ProviderModelsData?
-    static func read(_ provider: String) -> [String: Any] { ["type": "provider.page", "provider": provider] }
+    /// `admin`: this phone may change provider preferences (`ClientModel.canAdmin`).
+    static func read(_ provider: String, admin: Bool) -> [String: Any] { ["type": "provider.page", "provider": provider, "admin": admin] }
 }
 
 struct ProviderModelsData: Decodable, Equatable {
+    let editable: Bool
+    let locked: String?
     struct Choice: Decodable, Equatable { let key: String; let id: String; let label: String; let current: Bool }
     struct DefaultModel: Decodable, Equatable { let label: String; let note: String?; let resettable: Bool; let choices: [Choice] }
     struct Row: Decodable, Equatable {

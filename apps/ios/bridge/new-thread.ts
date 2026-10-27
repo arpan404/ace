@@ -21,7 +21,7 @@ import { joinContext, messageContent, References } from "./composer-references.t
 import { readProjects } from "./project-list.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
-import { ModelFavorites } from "./model-favorites.ts";
+import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
 import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
@@ -223,11 +223,8 @@ export class NewThread {
         keys: await this.#favorites.toggle(key, catalogModelIds(this.#catalog)),
         problem: null,
       };
-    } catch {
-      this.#stars = {
-        ...this.#stars,
-        problem: "Couldn't save this favourite. Reconnect and try again.",
-      };
+    } catch (error) {
+      this.#stars = { ...this.#stars, problem: starProblem(error) };
     }
     if (this.#agents) this.#emitAgents(this.#agents);
   }

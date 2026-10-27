@@ -18,6 +18,30 @@ export type ConfigurationClient = Pick<ClientApi, "request">;
 
 const writes = new WeakMap<ConfigurationClient, Promise<void>>();
 
+/**
+ * The computer refused the write: only an administrator device may change provider preferences
+ * (the daemon's `providers.configuration` rule). Callers say where to change it instead.
+ */
+export class ConfigurationRefused extends Error {
+  constructor() {
+    super("Only an administrator device can change provider preferences.");
+    this.name = "ConfigurationRefused";
+  }
+}
+
+/**
+ * The SDK's refusal of a request this device's scopes don't cover: a daemon error, whose code
+ * the SDK carries as its message (`ClientError("daemon", "forbidden")`).
+ */
+function forbidden(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "daemon" &&
+    error.message === "forbidden"
+  );
+}
+
 /** Serialize this client's edits and reread first so fields edited elsewhere survive. */
 export function editProviderConfiguration(
   client: ConfigurationClient,
@@ -35,12 +59,16 @@ export function editProviderConfiguration(
         throw new Error("Couldn't read provider preferences. Reconnect and try again.");
       const before = ProviderConfigurations.parse(reply.entries[0]?.value ?? []);
       const value = ProviderConfigurations.parse(change(before));
-      const saved = await client.request({
-        type: "settings.set",
-        key: "providers.configuration",
-        value,
-        layer: { kind: "global" },
-      });
+      const saved = await client
+        .request({
+          type: "settings.set",
+          key: "providers.configuration",
+          value,
+          layer: { kind: "global" },
+        })
+        .catch((error: unknown) => {
+          throw forbidden(error) ? new ConfigurationRefused() : error;
+        });
       if (!saved.ok)
         throw new Error("Couldn't save provider preferences. Check the values and try again.");
     });

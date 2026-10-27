@@ -26,7 +26,7 @@ struct ProviderPageView<Extra: View>: View {
         self.name = name
         self.start = start
         self.extra = extra
-        _page = State(initialValue: model.kept(ProviderPageData.read(provider), as: ProviderPageData.self))
+        _page = State(initialValue: model.kept(ProviderPageData.read(provider, admin: model.canAdmin), as: ProviderPageData.self))
     }
 
     var body: some View {
@@ -65,7 +65,7 @@ struct ProviderPageView<Extra: View>: View {
         .animation(.smooth, value: page)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: saved)
-        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(ProviderPageData.read(provider))]) {
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(ProviderPageData.read(provider, admin: model.canAdmin))]) {
             if model.connection == "ready" { await read() }
         }
         .task(id: provider) { await ProviderInstallSection.follow(model, provider: provider, screen: $install) }
@@ -79,7 +79,7 @@ struct ProviderPageView<Extra: View>: View {
 
     private func read() async {
         do {
-            let next = try await model.read(ProviderPageData.read(provider), as: ProviderPageData.self)
+            let next = try await model.read(ProviderPageData.read(provider, admin: model.canAdmin), as: ProviderPageData.self)
             withAnimation(.smooth) { page = next; problem = nil }
         } catch {
             // The last page this phone saw stays; the problem shows only when there is none.
