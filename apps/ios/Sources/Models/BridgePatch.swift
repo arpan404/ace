@@ -244,6 +244,8 @@ enum BridgePatch: Decodable, Sendable {
     case files(FilesPatch)
     /// Continue on… and Open on… (`bridge/transfers.ts`).
     case transfers(TransfersPatch)
+    /// A thread's side panel on iPad (`bridge/workspace.ts`).
+    case workspace(PanelView)
     /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
     case screen(String, Int, ScreenPatch)
     /// The thread's live browser view (`bridge/browser-live.ts`).
@@ -258,7 +260,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -334,6 +336,7 @@ enum BridgePatch: Decodable, Sendable {
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
+        case "workspace": self = .workspace(try box.decode(PanelView.self, forKey: .view))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):

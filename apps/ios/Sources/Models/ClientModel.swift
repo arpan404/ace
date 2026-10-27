@@ -78,6 +78,8 @@ import QuartzCore
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
+    /// Each thread's side panel on iPad.
+    let panels = ThreadPanels()
     /// This machine's archive while the archive sheet follows it (`bridge/archive.ts`).
     let archive = ArchiveBrowserModel()
     /// New thread and Add project on this machine; the open thread's Files sheet.
@@ -437,6 +439,7 @@ import QuartzCore
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             case .gitDraft(let draft): sheets.draft = draft
             case .archiveList(let list): archive.apply(list)
+            case .workspace(let view): panels.apply(view)
             case .compose(let patch): compose.apply(patch)
             case .composer(let patch): suggestions.apply(patch)
             case .files(let patch): files.apply(patch)

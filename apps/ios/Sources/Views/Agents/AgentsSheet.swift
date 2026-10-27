@@ -11,6 +11,7 @@ struct AgentsSheet: View {
     var openThread: ((String) -> Void)? = nil
     @State private var stop = StopConfirmation()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.panelHost) private var panelHost
     private var sheet: AgentSheet? { model.sheets.agents }
     private var provider: String { thread.screen.controls?.provider ?? "" }
 
@@ -59,11 +60,13 @@ struct AgentsSheet: View {
             .navigationDestination(for: String.self) { id in
                 if let row = sheet?.rows.first(where: { $0.id == id }) { AgentTranscriptView(row: row, provider: provider, thread: thread) }
             }
-            .escapeCloses { dismiss() }
+            .sheetEscape { dismiss() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
+                if panelHost == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
+                    }
                 }
                 if model.canOperate {
                     ToolbarItem(placement: .primaryAction) {

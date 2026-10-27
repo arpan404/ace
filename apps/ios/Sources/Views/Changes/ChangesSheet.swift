@@ -10,6 +10,7 @@ struct ChangesSheet: View {
     /// A file whose diff opens first (from Files); otherwise the first file's.
     var initial: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.panelHost) private var panelHost
     @State private var open: String?
     @State private var reviewed: Set<String> = []
     @State private var wrap = true
@@ -30,11 +31,13 @@ struct ChangesSheet: View {
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "changes.refresh"]) }
             .navigationBarTitleDisplayMode(.inline)
-            .escapeCloses { dismiss() }
+            .sheetEscape { dismiss() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
+                if panelHost == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
+                    }
                 }
                 ToolbarItem(placement: .principal) { header }
             }

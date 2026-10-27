@@ -26,6 +26,12 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     /// Where a finger holds the drawer. This view never reads it, so a drag never redraws the
     /// thread or the list, only the modifiers that place them (`DrawerPlace`).
     @State private var hold = DrawerHold()
+    /// The list stepped aside for the thread's side panel (`ThreadWorkspace`).
+    @State private var panelYield = false
+    /// Each time the person brought the list back over such a panel.
+    @State private var reclaimed = 0
+    /// The list column's width when it last showed.
+    @State private var listColumn: CGFloat = ThreadColumns.listWidth.ideal
 
     private var layout: ThreadDrawer.Layout { ThreadDrawer.layout(sizeClass, path: path) }
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
@@ -79,7 +85,11 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         // bar leaving) never pick the columns; after that the sidebar button is the person's.
         .onChange(of: visibility) { _, now in
             if settling > 0, now != columns { visibility = columns }
+            // The person showed the list over a panel that had it step aside: the panel gives way.
+            else if panelYield, now != .detailOnly { panelYield = false; reclaimed += 1 }
         }
+        // Nothing open, nothing needs the room.
+        .onChange(of: path.isEmpty) { _, empty in if empty { yieldList(false) } }
         .task(id: settling) {
             guard settling > 0 else { return }
             try? await Task.sleep(for: .milliseconds(800))
@@ -98,6 +108,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 if layout == .beside {
                     listed(onGlass: onSidebarGlass)
                         .background { SidebarPlain().frame(width: 0, height: 0) }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { if $0 > 0 { listColumn = $0 } }
                 } else {
                     Color.clear.accessibilityHidden(true)
                 }
@@ -129,6 +140,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
             }
+            .environment(\.panelRoom, panelRoom)
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -200,7 +212,23 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         return ThreadColumns.sidebarHoldsTabs(sizeClass)
     }
     private var columns: NavigationSplitViewVisibility {
-        ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
+        panelYield ? .detailOnly : ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
+    }
+    /// What the thread's side panel may borrow: the list beside it, to step aside when the two
+    /// don't fit together. Only beside the list; a compact window's tools open over the thread.
+    private var panelRoom: PanelRoom? {
+        guard layout == .beside else { return nil }
+        let listShows = ThreadColumns.sideBySide(sizeClass, width: width) && visibility != .detailOnly
+        return PanelRoom(list: listShows || panelYield ? listColumn : 0, yielded: panelYield, reclaimed: reclaimed, yield: yieldList)
+    }
+    /// The list steps aside for the panel, or comes back once it no longer needs the room.
+    private func yieldList(_ wants: Bool) {
+        guard wants != panelYield else { return }
+        if wants, visibility == .detailOnly { return }
+        withAnimation(motion) {
+            panelYield = wants
+            visibility = columns
+        }
     }
     private var detail: Binding<[InboxRoute]> {
         Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })

@@ -26,7 +26,10 @@ import QuartzCore
             .modifier(PhoneAppearance())
             .overlay(alignment: .topLeading) { PerfProbeView() }
         }
-        .commands { ThreadCommands() }
+        .commands {
+            ThreadCommands()
+            PanelMenuCommands()
+        }
     }
     @ViewBuilder private var renderFixture: some View {
         #if ACE_FIXTURE

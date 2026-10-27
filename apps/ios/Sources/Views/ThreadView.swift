@@ -32,6 +32,8 @@ struct ThreadView: View {
     @State private var showBrowser = false
     @State private var showSearch = false
     @State private var showQueue = false
+    /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
+    @State private var panelPlace = PanelPlace.none
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -75,14 +77,17 @@ struct ThreadView: View {
     }
 
     var body: some View {
+        ThreadWorkspace(model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, openThread: openThread,
+                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil, place: $panelPlace) {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
+        }
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -91,7 +96,8 @@ struct ThreadView: View {
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave))
+                                               open: open, problem: { activityProblem = $0 }, leave: leave),
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -175,7 +181,8 @@ struct ThreadView: View {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
-            .environment(\.openBrowser, { showBrowser = true })
+            .environment(\.openBrowser, { open(.browser) })
+            .panelCommands(panelCommands)
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
@@ -261,7 +268,7 @@ struct ThreadView: View {
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
         switch opens {
-        case "agents": showAgents = true
+        case "agents": open(.agents)
         case "queue": showQueue = true
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
@@ -280,7 +287,7 @@ struct ThreadView: View {
             FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
         case "browser_help":
             BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
+                            openBrowser: { open(.browser) }) { model.resolve(request, answer: $0) }.id(request.id)
         default:
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
         }
@@ -291,7 +298,7 @@ struct ThreadView: View {
         case "attach": askAttach = true
         case "plan": Task { _ = await model.setAccess("read-only") }
         case "model": showModels = true
-        case "review": showChanges = true
+        case "review": open(.changes)
         default: break
         }
     }
@@ -299,6 +306,11 @@ struct ThreadView: View {
     /// button's to say.
     private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
+        // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
+        if panelPlace != .none, let tool = destination.panelTool {
+            panel(["op": "open", "kind": tool.rawValue])
+            return
+        }
         switch destination {
         case .changes: showChanges = true
         case .search: showSearch = true
@@ -310,6 +322,17 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .agents: showAgents = true
         }
+    }
+    /// The panel's keys while it has room beside this thread.
+    private var panelCommands: PanelCommands? {
+        guard panelPlace != .none else { return nil }
+        let view = model.panels.views[thread.id]
+        let shown = view?.open == true ? view?.shown : nil
+        return PanelCommands(act: panel, hasTab: !(view?.tabs.isEmpty ?? true), canReopen: view?.canReopen == true,
+                             closable: shown.flatMap { $0.pinned ? nil : $0.key })
+    }
+    private func panel(_ op: [String: Any]) {
+        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {

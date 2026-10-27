@@ -1,7 +1,26 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
+enum ThreadDestination {
+    case changes, search, files, terminal, browser, devices, computer, tools, agents
+    /// The side panel's tab this opens as on iPad; nil for what always opens over the thread.
+    var panelTool: PanelTool? {
+        switch self {
+        case .changes: .changes
+        case .files: .files
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agents: .agents
+        case .search, .devices, .computer, .tools: nil
+        }
+    }
+}
+
+/// The thread bar's button that shows and hides the side panel (iPad, a wide window).
+struct PanelToggle {
+    let shown: Bool
+    let toggle: () -> Void
+}
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
@@ -12,6 +31,8 @@ struct ThreadToolbar: ToolbarContent {
     let subtitle: String
     let status: StatusDisplay?
     let menu: ThreadMenu
+    /// Nil where the panel has no room: a phone, a narrow window.
+    var panel: PanelToggle? = nil
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
@@ -21,6 +42,13 @@ struct ThreadToolbar: ToolbarContent {
         } else {
             ToolbarItem(placement: .principal) { heading }
             ToolbarItem(placement: .topBarTrailing) { menu }
+        }
+        if let panel {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: panel.toggle) { Image(systemName: "sidebar.right") }
+                    .accessibilityLabel(panel.shown ? "Hide panel" : "Show panel")
+                    .accessibilityIdentifier("thread.panel")
+            }
         }
     }
     private var heading: some View {
