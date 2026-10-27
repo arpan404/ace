@@ -16,6 +16,8 @@ class MemoryRows implements SnapshotRows {
   items = new Map<string, Map<string, string>>();
   writes: ThreadWrite[] = [];
   failNext = false;
+  /** While set, reads and listings are taken at once (in storage order) but answered later. */
+  gate: Promise<void> | undefined;
   clock: { at: number };
   constructor(clock: { at: number }) {
     this.clock = clock;
@@ -33,7 +35,9 @@ class MemoryRows implements SnapshotRows {
     if (!thread) return undefined;
     thread.used = this.clock.at;
     const texts = [...(this.items.get(key)?.values() ?? [])];
-    return { head: JSON.parse(thread.head), items: texts.map((text) => JSON.parse(text)) };
+    const read = { head: JSON.parse(thread.head), items: texts.map((text) => JSON.parse(text)) };
+    await this.gate;
+    return read;
   }
   async putThread(write: ThreadWrite) {
     if (this.failNext) {
@@ -50,6 +54,11 @@ class MemoryRows implements SnapshotRows {
     this.threads.set(write.key, { head: write.head, settled: write.settled, used: this.clock.at });
   }
   async index(): Promise<KeptSnapshot[]> {
+    const listed = this.#list();
+    await this.gate;
+    return listed;
+  }
+  #list(): KeptSnapshot[] {
     return [
       ...[...this.records].map(([key, kept]) => ({
         key,
@@ -62,7 +71,9 @@ class MemoryRows implements SnapshotRows {
         key,
         kind: "thread" as const,
         used: thread.used,
-        bytes: thread.head.length,
+        bytes:
+          thread.head.length +
+          [...(this.items.get(key)?.values() ?? [])].reduce((sum, text) => sum + text.length, 0),
         settled: thread.settled,
       })),
     ];
@@ -224,4 +235,108 @@ test("a whole-thread record from an earlier build is let go", async () => {
   await rows.setRecord("host/sidebar", "[]");
   await new RowSnapshots(rows, { now: () => clock.at }).expire();
   expect([...rows.records.keys()]).toEqual(["host/sidebar"]);
+});
+
+const settledRecord = (id: string) => record(id, [message("a", "hi", true)], { state: "idle" }, 1);
+
+/** Let retention work started by writes finish. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+test("a read that races a clear neither restores the cleared thread nor corrupts the next write", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const value = record("t", [message("a", "hi", true), message("b", "x", true)]);
+  await new RowSnapshots(rows, { now: () => clock.at }).set("host/thread:t", value);
+
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  const { promise, resolve } = Promise.withResolvers<void>();
+  rows.gate = promise;
+  const read = snapshots.get("host/thread:t");
+  await snapshots.clear();
+  rows.gate = undefined;
+  resolve();
+  expect(await read).toBeUndefined();
+
+  // Written again after the clear: every item lands, so the next launch reads it whole.
+  await snapshots.set("host/thread:t", value);
+  expect(await new RowSnapshots(rows, { now: () => clock.at }).get("host/thread:t")).toEqual(value);
+});
+
+test("a thread used while expiry lists what is kept is not let go", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  await new RowSnapshots(rows, { now: () => clock.at }).set(
+    "host/thread:t",
+    record("t", [message("a", "hi", true)]),
+  );
+  clock.at += 8 * day;
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  const { promise, resolve } = Promise.withResolvers<void>();
+  rows.gate = promise;
+  const sweep = snapshots.expire();
+  // Listed eight days unused; opened again before the listing is answered.
+  await snapshots.set("host/thread:t", record("t", [message("a", "hi", true)]));
+  rows.gate = undefined;
+  resolve();
+  await sweep;
+  await settle();
+  expect(rows.threads.has("host/thread:t")).toBe(true);
+});
+
+test("threads that settle after they were first kept are held to the twenty most recent", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  for (let index = 0; index < 21; index++) {
+    clock.at += 1;
+    await snapshots.set(`host/thread:t${index}`, record(`t${index}`, [message("a", "hi", true)]));
+  }
+  await settle();
+  for (let index = 0; index < 21; index++) {
+    clock.at += 1;
+    await snapshots.set(
+      `host/thread:t${index}`,
+      record(`t${index}`, [message("a", "hi", true)], { state: "idle" }, 1),
+    );
+    await settle();
+  }
+  expect(rows.threads.size).toBe(20);
+  expect(rows.threads.has("host/thread:t0")).toBe(false);
+});
+
+test("threads cleared and kept again are held to the twenty most recent again", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  for (let round = 0; round < 2; round++) {
+    for (let index = 0; index < 21; index++) {
+      clock.at += 1;
+      await snapshots.set(`host/thread:s${index}`, settledRecord(`s${index}`));
+      await settle();
+    }
+    expect(rows.threads.size).toBe(20);
+    await snapshots.clear();
+  }
+});
+
+test("a thread growing past the byte cap lets older ones go without any new thread", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const policy = { maxAgeMs: 7 * day, settledThreads: 20, maxBytes: 4_000 };
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at, policy });
+  await snapshots.set("host/thread:old", record("old", [message("a", "hi", true)]));
+  clock.at += 1;
+  await snapshots.set("host/thread:live", record("live", [message("b", "", false)]));
+  await settle();
+  expect(rows.threads.size).toBe(2);
+  // The live answer streams on, rewritten each time while it is unfinished.
+  for (let length = 200; length <= 4_000; length += 200) {
+    clock.at += 1;
+    await snapshots.set(
+      "host/thread:live",
+      record("live", [message("b", "x".repeat(length), false)]),
+    );
+    await settle();
+  }
+  expect([...rows.threads.keys()]).toEqual(["host/thread:live"]);
 });

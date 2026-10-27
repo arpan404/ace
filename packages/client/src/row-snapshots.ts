@@ -78,8 +78,17 @@ export class RowSnapshots implements ReadSnapshotStorage {
   #now: () => number;
   #policy: RetentionPolicy;
   #held = new Map<string, Held>();
-  /** Writes started per thread key, so a read that raced a write never describes storage. */
-  #writes = new Map<string, number>();
+  /** Moves on every clear: whatever was read or listed before it describes nothing now. */
+  #epoch = 0;
+  /**
+   * Moves per key on every write, drop and delete, so a read or listing taken before one never
+   * describes storage. Never reset: it orders changes, it does not say what is kept.
+   */
+  #versions = new Map<string, number>();
+  /** Thread keys this session knows are kept, each with whether it was last kept settled. */
+  #kept = new Map<string, boolean>();
+  /** Bytes written since the last sweep. */
+  #grown = 0;
   #swept = false;
   #sweeping: Promise<void> | undefined;
   #again = false;
@@ -93,22 +102,26 @@ export class RowSnapshots implements ReadSnapshotStorage {
   async get(key: string): Promise<unknown> {
     this.#sweepOnce();
     try {
+      const epoch = this.#epoch;
+      const version = this.#version(key);
       if (!threadKey.test(key)) {
         const text = await this.#rows.record(key);
+        if (this.#stale(key, epoch, version)) return undefined;
         return text === "" ? undefined : JSON.parse(text);
       }
-      const writes = this.#writes.get(key) ?? 0;
       const stored = await this.#rows.thread(key);
-      if (!stored) return undefined;
+      // Cleared, dropped or rewritten while it was read: it neither shows nor counts as kept.
+      if (!stored || this.#stale(key, epoch, version)) return undefined;
       const value = joinThread(stored.head, stored.items);
       if (!value) return undefined;
-      if ((this.#writes.get(key) ?? 0) === writes && !this.#held.has(key)) {
+      if (!this.#held.has(key)) {
         const ids = Object.keys(value.items);
         this.#held.set(key, {
           items: new Set(ids),
           finished: new Set(ids.filter((id) => itemFinished(value.items[id]))),
         });
       }
+      if (!this.#kept.has(key)) this.#kept.set(key, settled(objectOf(value.record.view)?.thread));
       return value.record;
     } catch {
       return undefined;
@@ -134,11 +147,17 @@ export class RowSnapshots implements ReadSnapshotStorage {
       write = undefined;
     }
     if (!write) return Promise.resolve();
-    const first = !this.#writes.has(key);
-    this.#writes.set(key, (this.#writes.get(key) ?? 0) + 1);
+    this.#bump(key);
+    // Pruning is due when a thread is first kept (again), when it settles or unsettles, and after
+    // every sixteenth of the byte cap written.
+    const was = this.#kept.get(key);
+    this.#kept.set(key, write.settled);
+    this.#grown += write.head.length + write.items.reduce((sum, item) => sum + item.text.length, 0);
+    const due =
+      was === undefined || was !== write.settled || this.#grown >= this.#policy.maxBytes / 16;
     return this.#rows.putThread(write).then(
       () => {
-        if (first) this.#sweep();
+        if (due) void this.#sweep();
       },
       () => {
         // Storage may hold any earlier state: the next write replaces it whole.
@@ -148,15 +167,33 @@ export class RowSnapshots implements ReadSnapshotStorage {
   }
 
   async clear(): Promise<void> {
+    this.#epoch++;
     this.#held.clear();
+    this.#kept.clear();
+    this.#grown = 0;
     await this.#rows.clear();
   }
 
   /** Drop one record or thread; the drop is asked before this returns, ahead of any later read. */
   delete(key: string): Promise<void> {
-    this.#held.delete(key);
-    this.#writes.set(key, (this.#writes.get(key) ?? 0) + 1);
+    this.#forget(key);
     return this.#rows.drop([key]);
+  }
+
+  #version(key: string): number {
+    return this.#versions.get(key) ?? 0;
+  }
+  #bump(key: string): void {
+    this.#versions.set(key, this.#version(key) + 1);
+  }
+  #stale(key: string, epoch: number, version: number): boolean {
+    return this.#epoch !== epoch || this.#version(key) !== version;
+  }
+  /** Storage no longer holds `key`, or is about to not. */
+  #forget(key: string): void {
+    this.#bump(key);
+    this.#held.delete(key);
+    this.#kept.delete(key);
   }
 
   /** What is kept: how many threads, and how many bytes the store takes on disk. */
@@ -195,7 +232,15 @@ export class RowSnapshots implements ReadSnapshotStorage {
   }
 
   async #expireNow(): Promise<void> {
-    const kept = await this.#rows.index();
+    this.#grown = 0;
+    const epoch = this.#epoch;
+    const versions = new Map(this.#versions);
+    const listed = await this.#rows.index();
+    if (this.#epoch !== epoch) return;
+    // A key written, dropped or deleted while it was listed is judged at the next sweep.
+    const kept = listed.filter(
+      (entry) => this.#version(entry.key) === (versions.get(entry.key) ?? 0),
+    );
     // Whole-thread records from builds before rows: never read again.
     const legacy = kept.filter((entry) => entry.kind === "record" && threadKey.test(entry.key));
     const current = kept.filter((entry) => !legacy.includes(entry));
@@ -203,8 +248,12 @@ export class RowSnapshots implements ReadSnapshotStorage {
       ...legacy.map((entry) => entry.key),
       ...expiredSnapshots(current, this.#now(), this.#policy),
     ];
+    const dropping = new Set(drop);
+    for (const entry of kept)
+      if (entry.kind === "thread" && !dropping.has(entry.key))
+        this.#kept.set(entry.key, entry.settled);
     if (!drop.length) return;
-    for (const key of drop) this.#held.delete(key);
+    for (const key of drop) this.#forget(key);
     await this.#rows.drop(drop);
   }
 
