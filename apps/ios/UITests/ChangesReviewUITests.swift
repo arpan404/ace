@@ -88,9 +88,13 @@ import XCTest
         capture("approved")
         app.buttons["Done"].firstMatch.tap()
 
-        let viewed = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.reviewed.'")).firstMatch
-        XCTAssertTrue(viewed.waitForExistence(timeout: 10)); viewed.tap()
-        XCTAssertTrue(viewed.isSelected || app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.reviewed.' AND selected == true")).firstMatch.waitForExistence(timeout: 10))
+        // Viewed ticks are kept on the phone between runs: tick one that isn't ticked yet.
+        let unticked = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.reviewed.' AND selected == false")).firstMatch
+        XCTAssertTrue(unticked.waitForExistence(timeout: 10))
+        let id = unticked.identifier
+        unticked.tap()
+        let ticked = expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons[id])
+        wait(for: [ticked], timeout: 10)
         capture("viewed")
     }
 
