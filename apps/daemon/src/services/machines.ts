@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
+import { Command, HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
@@ -71,6 +71,21 @@ export function startMachines(context: ServiceContext): void {
       return { id: project.id, path: project.path };
     },
     newId: randomUUID,
+    // Making room for a new session deletes an idle one exactly as the person's Delete does.
+    async remove(threadId) {
+      const result = await services.threadDeletion?.(
+        Command.parse({
+          id: `guest-session-evicted:${threadId}`,
+          deviceId: "machines",
+          payload: { type: "thread.delete", threadId, force: true },
+        }),
+      );
+      if (!result || (!result.ok && result.error !== "thread_not_found"))
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine couldn't make room for a new session.",
+        );
+    },
   });
   void services.engine
     ?.ready()

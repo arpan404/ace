@@ -28,6 +28,10 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  /** Deletes a thread as the person's Delete does; bound once the server's lifecycle starts. */
+  threadDeletion?: (
+    command: import("@ace/protocol").Command,
+  ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
   sourceControl?: import("../source-control.ts").SourceControl;

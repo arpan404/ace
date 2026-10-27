@@ -32,7 +32,7 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function setup() {
+async function setup(perDevice?: number) {
   const h = await harness([], scriptFrames());
   const threads = new TargetThreads({
     store: h.store,
@@ -56,6 +56,16 @@ async function setup() {
       return { id: WorkspaceId.parse(chat.id), path };
     },
     newId: () => `call-${++ids}`,
+    // As the person's Delete marks a thread deleted.
+    async remove(threadId) {
+      await h.engine.stopForDeletion(threadId);
+      h.store.appendEvents(
+        threadId,
+        [{ type: "thread.client.updated", changes: { deletedAt: 5, autoSettleAt: null } }],
+        5,
+      );
+    },
+    ...(perDevice === undefined ? {} : { perDevice }),
   });
   h.engine.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
   closers.push(async () => {
@@ -189,4 +199,45 @@ it("a command a previous process left running reads cancelled after recovery, an
   await vi.waitFor(() =>
     expect(h.store.getThread(session.threadId)?.status.state).not.toBe("working"),
   );
+});
+
+it("a calling device holds a bounded number of sessions: idle ones make room, busy ones refuse", async () => {
+  const { h, guests, session } = await setup(2);
+  const live = () =>
+    h.store
+      .listThreads()
+      .filter((thread) => thread.details?.guest && thread.deletedAt === undefined)
+      .map((thread) => thread.title);
+  const from = (threadId: string, threadTitle: string) => ({
+    ...origin,
+    threadId: ThreadId.parse(threadId),
+    threadTitle,
+  });
+  const second = await guests.open(device, from("second", "Second"));
+  expect(live().toSorted()).toEqual(["Linux box · Fix the login flow", "Linux box · Second"]);
+
+  // At the bound, a new calling thread's session takes the place of the oldest idle one.
+  h.clock.advance(h.clock.now() + 1000);
+  await guests.run(
+    second,
+    browsing(guests.ticket()),
+    new AbortController().signal,
+    async () => "ok",
+  );
+  await guests.open(device, from("third", "Third"));
+  expect(live().toSorted()).toEqual(["Linux box · Second", "Linux box · Third"]);
+  expect(h.store.getThread(session.threadId)?.deletedAt).toBeDefined();
+
+  // While every session is working, a new one is refused with words that say why.
+  const signal = new AbortController().signal;
+  const third = await guests.open(device, from("third", "Third"));
+  void guests.run(second, browsing(guests.ticket()), signal, hang).catch(() => undefined);
+  void guests.run(third, browsing(guests.ticket()), signal, hang).catch(() => undefined);
+  await expect(guests.open(device, from("fourth", "Fourth"))).rejects.toMatchObject({
+    code: "unavailable",
+    message: expect.stringContaining("already has 2 sessions working on this machine"),
+  });
+  expect(live()).toHaveLength(2);
+  guests.stopThread(second.threadId);
+  guests.stopThread(third.threadId);
 });

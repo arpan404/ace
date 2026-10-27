@@ -26,7 +26,17 @@ export interface GuestSessionDeps {
   chat(): Promise<{ id: WorkspaceId; path: string }>;
   /** Ids for background rows; random in the daemon, counted in tests. */
   newId(): string;
+  /** Deletes an idle session the way the person's Delete does, to make room for a new one. */
+  remove(threadId: ThreadId): Promise<void>;
+  /** Live sessions one calling device may hold here; default `sessionsPerDevice`. */
+  perDevice?: number;
 }
+
+/** Live guest sessions one calling device may hold at once (ADR 0105). */
+export const sessionsPerDevice = 64;
+/** Session states with nothing running and nothing waiting on the person. */
+const idleStates = new Set(["new", "done", "failed", "cancelled"]);
+const Live = z.object({ thread_id: z.string() });
 
 /** Where one calling thread's remote tool use runs on this machine (ADR 0105). */
 export interface GuestSession {
@@ -92,6 +102,8 @@ const Row = z.object({ thread_id: z.string() });
 export class GuestSessions {
   private deps: GuestSessionDeps;
   private opening = new Map<string, Promise<ThreadId>>();
+  /** New sessions are made one at a time per calling device, so the bound holds. */
+  private making = new Map<string, Promise<unknown>>();
   private flights = new Map<string, Flight>();
   private ends = new Set<(end: GuestEnd) => void>();
   private revokes = new Set<(scope: GuestScope) => void>();
@@ -124,7 +136,7 @@ export class GuestSessions {
     const key = JSON.stringify([device.id, origin.hostId, origin.threadId]);
     let pending = this.opening.get(key);
     if (!pending) {
-      pending = this.find(device, origin) ?? this.create(device, origin, engine);
+      pending = this.find(device, origin) ?? this.serialized(device, origin, engine);
       this.opening.set(key, pending);
       void pending.finally(() => this.opening.delete(key)).catch(() => undefined);
     }
@@ -152,6 +164,53 @@ export class GuestSessions {
     const threadId = ThreadId.parse(Row.parse(row).thread_id);
     const thread = this.deps.store.getThread(threadId);
     return thread && thread.deletedAt === undefined ? Promise.resolve(threadId) : undefined;
+  }
+  private serialized(device: Device, origin: MachineCallOrigin, engine: Engine) {
+    const before = this.making.get(device.id) ?? Promise.resolve();
+    const made = before
+      .catch(() => undefined)
+      .then(
+        () =>
+          this.find(device, origin) ??
+          this.makeRoom(device).then(() => this.create(device, origin, engine)),
+      );
+    this.making.set(device.id, made);
+    void made
+      .finally(() => {
+        if (this.making.get(device.id) === made) this.making.delete(device.id);
+      })
+      .catch(() => undefined);
+    return made;
+  }
+  /**
+   * A calling device holds at most `perDevice` live sessions here. At the bound the least
+   * recently active idle one is deleted, as the person's Delete would; when every one is busy
+   * the new session is refused.
+   */
+  private async makeRoom(device: Device): Promise<void> {
+    const limit = this.deps.perDevice ?? sessionsPerDevice;
+    const live = this.deps.store
+      .statement(
+        `SELECT m.thread_id FROM machine_threads m JOIN threads t ON t.id=m.thread_id
+         WHERE m.device_id=? AND m.kind='guest' AND json_extract(t.client,'$.deletedAt') IS NULL`,
+      )
+      .all(device.id)
+      .flatMap((row) => {
+        const thread = this.deps.store.getThread(ThreadId.parse(Live.parse(row).thread_id));
+        return thread && thread.deletedAt === undefined ? [thread] : [];
+      });
+    if (live.length < limit) return;
+    const busy = new Set([...this.flights.values()].map((flight) => flight.session.threadId));
+    const idle = live
+      .filter((thread) => idleStates.has(thread.status.state) && !busy.has(thread.id))
+      .toSorted((a, b) => a.updatedAt - b.updatedAt);
+    const over = live.length - limit + 1;
+    if (idle.length < over)
+      throw new TargetRefusal(
+        "unavailable",
+        `${device.name} already has ${limit} sessions working on this machine. Stop or delete one of them there, then try again.`,
+      );
+    for (const thread of idle.slice(0, over)) await this.deps.remove(thread.id);
   }
   private async create(device: Device, origin: MachineCallOrigin, engine: Engine) {
     // A deleted session is never reused: the next one gets the next generation's id.
