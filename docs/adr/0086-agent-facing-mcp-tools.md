@@ -142,6 +142,38 @@ Claude Agent SDK defers behind its tool search) lists every tool, and every othe
 static. The stdio bridge carries the choice in `ACE_MCP_BRIDGE_TOOLS`. Always-loaded tools also
 carry `antigravity/alwaysLoad`.
 
+**Claude without tool search (2026-10-27).** Claude Code defers MCP tools only while its tool
+search is on; otherwise it loads every listed tool in full, and ace's whole catalogue (52 tools,
+about 17,200 tokens) would ride on every request. Read from Claude Code 2.1.311's bundle and its
+MCP docs, the CLI decides per request:
+
+- off when `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set (only managed settings force it back)
+  or in a HIPAA session;
+- off when `ENABLE_TOOL_SEARCH` is false-like (`false`, `0`, `no`, `off`) or `auto:100`; on when
+  unset, true-like, `auto:0` or unrecognised; `auto` and `auto:N` turn it on only once deferred
+  tools reach N% (default 10) of the context window;
+- off when `ToolSearch` is denied or left out of the tool set;
+- off for models whose name contains `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`,
+  `claude-3-5-sonnet`, `claude-3-5-haiku` or `claude-3-7-sonnet` (a remotely updatable list),
+  and on Vertex for Claude 3 and pre-4.5 models;
+- learned at run time on Foundry deployments hosted on Azure and behind a gateway
+  (`ANTHROPIC_BASE_URL` not `api.anthropic.com`, or `CLAUDE_CODE_USE_GATEWAY`): a refused
+  `defer_loading` makes the CLI resend without tool search and keep it off for the conversation.
+  Before 2.1.304 a custom base URL meant off unless `ENABLE_TOOL_SEARCH` said on.
+
+Settings `env` applies over the launch env. Claude Code refreshes its tool list on
+`tools/list_changed`, in `-p` and SDK sessions too. So the adapter reads the launch env, the
+settings files it loads and the model (`claudeToolSearchFacts`), and `claudeToolListing` gives the
+session the core listing whenever tool search is off or only settled at run time; the core list
+works under tool search as well. A model switch is checked again and can only narrow the listing:
+ace's server is reconnected with the core header and every later MCP replacement keeps it.
+
+claude-agent-acp (0.97.0) runs the same CLI through the Agent SDK, with the person's settings,
+its own `env` and, after `providers/set`, a gateway's base URL; it can also drop the built-in
+tools (`disableBuiltInTools`), which removes `ToolSearch`. It does not defer in every config, so
+the daemon decides its listing with the same rules from its launch env and settings. Its model
+is picked later over ACP, so a Claude 3 model chosen there is not seen.
+
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every
 other tool's definition is written to `~/.gemini/antigravity-cli/mcp/<server>/<tool>.json`; the

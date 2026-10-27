@@ -92,7 +92,7 @@ test("switching to a model without tool search reconnects ace with the core list
     expect(aceHeaders(object(reconnect["request"])["servers"])["X-Ace-Tools"]).toBe("core");
     // A caller replacing the MCP set with its own copy of ace's server does not widen the list.
     await h.session.mcp?.replace({ ace: { type: "http", url: aceMcp.url } });
-    const replaced = h.frames.filter(isSetServers).at(-1);
+    const replaced = h.frames.findLast(isSetServers);
     expect(aceHeaders(object(object(replaced?.data)["request"])["servers"])["X-Ace-Tools"]).toBe(
       "core",
     );
