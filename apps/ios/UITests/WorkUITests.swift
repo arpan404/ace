@@ -65,7 +65,10 @@ import XCTest
         let app = try open("clean")
         app.buttons["thread.subtitle"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["work.pr.31"].waitForExistence(timeout: 15))
-        app.buttons["work.link"].tap()
+        // The sheet opens at half height; Link a PR sits below the fold.
+        let link = app.buttons["work.link"]
+        app.reveal(link)
+        link.tap()
         let field = app.textFields["work.link.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("#77")
