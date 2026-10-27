@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppState, Pressable, View, Text } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import type {
@@ -11,7 +11,8 @@ import type {
 } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
-import { inboxStatus } from "@ace/ui-core/mobile";
+import { inboxSections, inboxStatus, type InboxThread } from "@ace/ui-core/mobile";
+import type { MachineEntry } from "@ace/client/machines";
 import { approvalCopy, approvalOutcome } from "@ace/ui-core";
 import { blocksEqual, type Block } from "@ace/ui-core/transcript-blocks";
 import { createBlockReader, type Watched } from "@ace/ui-core/transcript-block-reader";
@@ -36,6 +37,7 @@ import {
   THREAD_LIST_MAX_HEIGHT,
   THREAD_LIST_MIN_HEIGHT,
   inboxEntriesFor,
+  inboxThreadsFor,
   noUndefinedList,
   openIdForRoute,
   readingFailureCopy,
@@ -62,6 +64,18 @@ import {
 } from "./production-approvals.tsx";
 import type { ThreadDraftStore } from "../thread-drafts.ts";
 import type { ProductionStartup } from "../runtime/production-startup.ts";
+import {
+  machineLabelFor,
+  mergedEntriesFor,
+  mergeInboxSections,
+  openKeyForRoutes,
+  openKeyString,
+  pairedHostsFor,
+  resolveOpenKeyForHosts,
+  showsMachineNames,
+  type ProductionMergedEntry,
+  type ProductionOpenKey,
+} from "./production-merged-inbox.ts";
 
 /**
  * Production inbox for the active machine, read-only.
@@ -193,12 +207,14 @@ function InboxRow({
   machineId,
   now,
   open,
+  machineName = null,
 }: {
   id: string;
   store: SidebarSource;
   machineId: string;
   now: number;
   open(id: string): void;
+  machineName?: string | null;
 }) {
   const theme = useTheme();
   const selection = useMemo(() => {
@@ -231,6 +247,14 @@ function InboxRow({
       <Text style={{ ...textStyle("rowTitle"), color: theme.colours.foreground }} numberOfLines={1}>
         {row.entry.title}
       </Text>
+      {machineName !== null ? (
+        <Text
+          style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}
+          numberOfLines={1}
+        >
+          {machineName}
+        </Text>
+      ) : null}
       <Text style={{ ...textStyle("caption"), color: status.textColour }}>{status.label}</Text>
     </Pressable>
   );
@@ -1332,6 +1356,367 @@ export function ActiveMachineInbox({
           </Text>
         }
       />
+    </View>
+  );
+}
+
+/**
+ * One machine's live rows for the merged inbox. Resolves only that machine's
+ * read-only lease (route-gated, exact-owner pinned, released with this
+ * reader), reports its projected rows up, renders nothing. A dead lease
+ * reports no rows, so one machine's trouble never touches another's.
+ *
+ * No admit path lives here: only `runtimeForReading`, never
+ * `runtimeForMutation` and never the raw client.
+ */
+const noInboxThreads = emptySelection<InboxThread[] | undefined>(undefined);
+
+interface MachineThreadsReport {
+  threads: InboxThread[];
+  dead: boolean;
+  problem: string | null;
+}
+
+function MachineThreadsReader({
+  startup,
+  hostId,
+  retryTick,
+  onChange,
+}: {
+  startup: ProductionStartup;
+  hostId: string;
+  retryTick: number;
+  onChange(hostId: string, report: MachineThreadsReport): void;
+}) {
+  const liveness = useLivenessTick();
+  const [autoRecoveries, setAutoRecoveries] = useState(0);
+  const [autoTick, setAutoTick] = useState(0);
+  const route = startup.route(hostId);
+  const routeKey = routeKeyFor(route);
+  const visible = shouldShowInbox(route);
+  const resolved = useMemo(() => {
+    if (!visible) return { lease: null, problem: null as string | null };
+    try {
+      return { lease: startup.runtimeForReading(hostId).threads(), problem: null as string | null };
+    } catch (error) {
+      return { lease: null, problem: readingFailureCopy(error) };
+    }
+    // Route identity re-resolves (and releases) the lease; the liveness tick
+    // only re-renders so the route flip above is noticed. Retry re-resolves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startup, hostId, routeKey, retryTick, autoTick, visible]);
+  const lease = resolved.lease;
+  const problem = resolved.problem;
+  useEffect(() => () => lease?.release(), [lease]);
+  const threadsSelection = useMemo(() => {
+    if (lease === null) return null;
+    try {
+      // A revoked pin throws instead of handing out a stale snapshot, so
+      // resolve to no selection and report this machine dead below.
+      return lease.store.select(["threads", "ids", "unconfirmed", "sync"], (s) =>
+        inboxThreadsFor(s, hostId),
+      );
+    } catch {
+      return null;
+    }
+  }, [lease, hostId]);
+  const data = useFailClosedSelection(threadsSelection ?? noInboxThreads, undefined);
+  const dead = lease === null || threadsSelection === null || isDeadSelection(threadsSelection);
+  // Auto-recovery where safe: when this machine is fail-closed but a fresh
+  // read handle already reports `ready`, re-resolve this machine's lease.
+  // Revoked routes never reach here (the reader unmounts); disconnect still
+  // needs Retry. Bounded like the single-machine inbox.
+  useEffect(() => {
+    if (!dead || !visible) return;
+    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
+    let fresh: string | null = null;
+    try {
+      fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
+    } catch {
+      return;
+    }
+    if (shouldAutoRecoverReads(true, fresh, autoRecoveries)) {
+      setAutoRecoveries((value) => value + 1);
+      setAutoTick((value) => value + 1);
+    }
+    // Poll on the liveness tick so a transient blip recovers without Retry.
+    // Deps keep the stable `routeKey`/`visible`, never the fresh-per-read
+    // route object, so this fires on the 2s tick — not every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startup, hostId, dead, visible, routeKey, liveness, retryTick, autoTick, autoRecoveries]);
+  useEffect(() => {
+    if (!dead) {
+      setAutoRecoveries(0);
+      setAutoTick(0);
+    }
+  }, [dead]);
+  useEffect(() => {
+    onChange(hostId, { threads: data ?? [], dead, problem });
+  }, [hostId, data, dead, problem, onChange]);
+  return null;
+}
+
+/** One merged row, read from the reported frozen copy: no subscription. */
+function MergedInboxRowView({
+  row,
+  now,
+  machineName,
+  open,
+}: {
+  row: InboxThread;
+  now: number;
+  machineName: string | null;
+  open(key: ProductionOpenKey): void;
+}) {
+  const theme = useTheme();
+  const status = displayAppearance(inboxStatus(row, now), theme);
+  return (
+    <Pressable
+      onPress={() => open({ machineId: row.machineId, id: row.entry.id })}
+      accessibilityRole="button"
+      accessibilityLabel={row.entry.title}
+      style={{
+        paddingHorizontal: tokens.spacing.xl,
+        paddingVertical: tokens.spacing.md,
+        borderBottomWidth: tokens.dimensions.border,
+        borderBottomColor: theme.colours.separator,
+      }}
+    >
+      <Text style={{ ...textStyle("rowTitle"), color: theme.colours.foreground }} numberOfLines={1}>
+        {row.entry.title}
+      </Text>
+      {machineName !== null ? (
+        <Text
+          style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}
+          numberOfLines={1}
+        >
+          {machineName}
+        </Text>
+      ) : null}
+      <Text style={{ ...textStyle("caption"), color: status.textColour }}>{status.label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * The production inbox across every paired machine, merged by rank.
+ *
+ * Mirrors the iOS `MachineInbox.merged` read path over the reviewed
+ * per-machine `runtimeForReading` handles: each paired host keeps its own
+ * lease (resolved and released per host, route-gated, exact-owner pinned),
+ * rows merge by the shared grouping/ranking rules, and a row opens its own
+ * machine's thread. One host's revocation or disconnect drops only its rows;
+ * the open thread closes only when its own host leaves `paired`. Rows stay
+ * readable while view-only; no admit path lives here.
+ */
+export function MergedMachineInbox({
+  startup,
+  entries,
+  drafts,
+  notify,
+}: {
+  startup: ProductionStartup;
+  entries: readonly MachineEntry[];
+  drafts: ThreadDraftStore | null;
+  notify(text: string): void;
+}) {
+  const theme = useTheme();
+  const [openKey, setOpenKey] = useState<ProductionOpenKey | null>(null);
+  const [reports, setReports] = useState<Record<string, MachineThreadsReport>>({});
+  const [retryTicks, setRetryTicks] = useState<Record<string, number>>({});
+  const routeOf = (hostId: string) => startup.route(hostId);
+  // `startup.route()` mints a fresh object per read, so only the host list
+  // and the liveness tick below re-derive pairing — never the route objects.
+  const paired = pairedHostsFor(
+    entries.map((entry) => entry.hostId),
+    routeOf,
+  );
+  const pairedKey = paired.join("");
+  const names = useMemo(
+    () => Object.fromEntries(entries.map((entry) => [entry.hostId, entry.displayName])),
+    [entries],
+  );
+  const gatedOpenKey = openKeyForRoutes(resolveOpenKeyForHosts(openKey, paired), routeOf);
+  // A revoked route or a removed machine must not keep its thread mounted:
+  // clear during render (same derived-state pattern as the host switch) so
+  // the branch below can never paint a stale machine's thread.
+  if (openKey !== null && gatedOpenKey === null) {
+    setOpenKey(null);
+  }
+  const onChange = useCallback((hostId: string, report: MachineThreadsReport) => {
+    setReports((prev) => {
+      const current = prev[hostId];
+      if (
+        current !== undefined &&
+        current.dead === report.dead &&
+        current.problem === report.problem &&
+        current.threads === report.threads
+      )
+        return prev;
+      return { ...prev, [hostId]: report };
+    });
+  }, []);
+  // Drop reports for hosts that left `paired` (revoked, removed): their rows
+  // vanish with their lease instead of lingering as stale state.
+  useEffect(() => {
+    setReports((prev) => {
+      const next: Record<string, MachineThreadsReport> = {};
+      let changed = false;
+      for (const [hostId, report] of Object.entries(prev)) {
+        if (paired.includes(hostId)) next[hostId] = report;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    // `paired` is re-derived per render; the stable key avoids effect churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairedKey]);
+  const now = useNowTick(gatedOpenKey === null);
+  const merged = useMemo(
+    () =>
+      mergeInboxSections(
+        paired.map((hostId) => ({
+          machineId: hostId,
+          sections: inboxSections(reports[hostId]?.threads ?? [], [], now),
+        })),
+      ),
+    // Grouping re-runs on the phone clock like the single-machine inbox.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pairedKey, reports, now],
+  );
+  const data: ProductionMergedEntry[] = useMemo(() => mergedEntriesFor(merged), [merged]);
+  const showNames = showsMachineNames(paired.length);
+  const allViewOnly = paired.length > 0 && paired.every((hostId) => !startup.canOperate(hostId));
+  function retry(hostId: string): void {
+    retryReading(startup, hostId);
+    setRetryTicks((prev) => ({ ...prev, [hostId]: (prev[hostId] ?? 0) + 1 }));
+  }
+  // The liveness tick re-renders so route flips (revocation) and clock
+  // regroups surface; lease re-resolution keys on route identity and retry
+  // ticks, never on this tick, so no lease churn.
+  useLivenessTick();
+
+  if (gatedOpenKey !== null) {
+    return (
+      <ProductionThreadView
+        key={openKeyString(gatedOpenKey)}
+        startup={startup}
+        hostId={gatedOpenKey.machineId}
+        threadId={gatedOpenKey.id}
+        drafts={drafts}
+        notify={notify}
+        onBack={() => setOpenKey(null)}
+      />
+    );
+  }
+  const deadHosts = paired.filter((hostId) => reports[hostId]?.dead !== false);
+  const byKey = new Map<string, InboxThread>();
+  for (const section of merged)
+    for (const row of section.rows) {
+      const found = (reports[row.machineId]?.threads ?? []).find(
+        (thread) => thread.entry.id === row.id,
+      );
+      if (found !== undefined) byKey.set(row.key, found);
+    }
+  return (
+    <View
+      style={{
+        minHeight: INBOX_LIST_MIN_HEIGHT,
+        maxHeight: INBOX_LIST_MAX_HEIGHT,
+        flexShrink: 0,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: tokens.spacing.md,
+          paddingHorizontal: tokens.spacing.xl,
+          paddingVertical: tokens.spacing.sm,
+        }}
+      >
+        <AceText role="rowTitle">Threads</AceText>
+        {allViewOnly ? (
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            View only
+          </Text>
+        ) : null}
+      </View>
+      {paired.map((hostId) =>
+        reports[hostId]?.dead === true ? (
+          <View
+            key={`dead:${hostId}`}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: tokens.spacing.md,
+              paddingHorizontal: tokens.spacing.xl,
+              paddingVertical: tokens.spacing.xs,
+            }}
+          >
+            <AceText role="caption">
+              {machineLabelFor(hostId, names)}:{" "}
+              {reports[hostId]?.problem ?? "This machine is not connected."}
+            </AceText>
+            <AceButton label="Retry" onPress={() => retry(hostId)} kind="secondary" />
+          </View>
+        ) : null,
+      )}
+      <FlashList
+        data={data}
+        keyExtractor={(entry) => (entry.kind === "heading" ? entry.id : entry.key)}
+        getItemType={(entry) => entry.kind}
+        style={{ flex: 1 }}
+        nestedScrollEnabled
+        renderItem={({ item: entry }) =>
+          entry.kind === "heading" ? (
+            <View
+              style={{
+                paddingHorizontal: tokens.spacing.xl,
+                paddingTop: tokens.spacing.lg,
+                paddingBottom: tokens.spacing.xs,
+              }}
+            >
+              <Text style={{ ...textStyle("label"), color: theme.colours.mutedForeground }}>
+                {entry.title}
+              </Text>
+            </View>
+          ) : (
+            (() => {
+              const row = byKey.get(entry.key);
+              if (row === undefined) return null;
+              return (
+                <MergedInboxRowView
+                  row={row}
+                  now={now}
+                  machineName={showNames ? machineLabelFor(entry.machineId, names) : null}
+                  open={setOpenKey}
+                />
+              );
+            })()
+          )
+        }
+        ListEmptyComponent={
+          <Text
+            style={{
+              ...textStyle("body"),
+              color: theme.colours.mutedForeground,
+              paddingHorizontal: tokens.spacing.xl,
+            }}
+          >
+            {deadHosts.length > 0 ? "Connecting to your machines…" : "No threads yet."}
+          </Text>
+        }
+      />
+      {paired.map((hostId) => (
+        <MachineThreadsReader
+          key={hostId}
+          startup={startup}
+          hostId={hostId}
+          retryTick={retryTicks[hostId] ?? 0}
+          onChange={onChange}
+        />
+      ))}
     </View>
   );
 }
