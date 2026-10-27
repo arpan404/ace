@@ -3,17 +3,17 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
- * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
- *   or Antigravity's definition files), so every tool is listed and only a few load upfront
- *   (`registry.ts`). A Claude Code session whose tool search is off gets `core`
- *   (`claudeToolListing`).
+ * - `all` (no header): Claude Code, Codex, Antigravity and Cursor defer MCP tools (behind a tool
+ *   search, Antigravity's definition files, or Cursor's GetMcpTools), so every tool is listed and
+ *   only a few load upfront (`registry.ts`). A Claude Code session whose tool search is off gets
+ *   `core` (`claudeToolListing`).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
  *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
  *   adds a family, and `tools_call` reaches a found tool before the reload lands.
- * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents
- *   not known to refresh). They keep the core tools and `tools_find`, and
- *   reach every other tool through `tools_call`.
+ * - `static`: clients that never reload and load every listed tool upfront (ACP agents not known
+ *   to refresh). They keep the core tools and `tools_find`, and reach every other tool through
+ *   `tools_call`.
  */
 export type ToolListing = "all" | "core" | "static";
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
@@ -79,6 +79,21 @@ export function toolListingHeader(
 export function acpToolListing(cli: string | undefined): ToolListing {
   if (cli === "gemini") return "core";
   return cli === "claude-acp" || cli === "antigravity" ? "all" : "static";
+}
+
+/**
+ * The listing for Cursor, by whether its MCP meta tool is on. Read from the SDK's shipped code
+ * (1.0.35 and 1.1.0) and cursor-agent 2026.10.01, and seen in recorded runs:
+ * - With the meta tool on, the model sees each MCP server's listed tool names and its
+ *   instructions, never a schema. It reads schemas with `GetMcpTools` (a server, one tool, or a
+ *   name pattern) and calls with `CallMcpTool`, which refuses any tool the connection did not
+ *   list. The SDK's local runtime turns it on unless told otherwise, and no public option does.
+ *   Listing every tool costs only their names and lets each be called directly.
+ * - Without it, every listed tool loads in full, and the list, cached for the connection's life,
+ *   never grows: the fixed core list with `tools_call`.
+ */
+export function cursorToolListing(metaTool: boolean): ToolListing {
+  return metaTool ? "all" : "static";
 }
 
 /**

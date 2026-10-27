@@ -1,7 +1,7 @@
 import type { AccessMode, ProviderKind } from "@ace/protocol";
 import { aceGuidance } from "./status.ts";
 import { codexPrefix } from "./codex-guidance.ts";
-import type { ToolListing } from "./toolsets.ts";
+import { cursorToolListing, type ToolListing } from "./toolsets.ts";
 
 /** Providers whose CLI shows MCP server instructions to the model; the rest opt out. */
 const readsServerInstructions = new Set<ProviderKind>(["claude", "opencode", "acp", "antigravity"]);
@@ -31,7 +31,8 @@ const usualListing: Record<ProviderKind, ToolListing> = {
   claude: "all",
   opencode: "core",
   pi: "core",
-  cursor: "static",
+  // Cursor's SDK keeps its MCP meta tool on: names only, every listed tool callable.
+  cursor: cursorToolListing(true),
   antigravity: "all",
   acp: "static",
 };
@@ -67,8 +68,12 @@ const reach: Record<ToolListing, string> = {
 /**
  * How a deferring provider other than Claude reaches a tool it lists but has not loaded.
  * Antigravity loads only always-load tools and keeps each other tool's definition in a file.
+ * Cursor shows only tool names and reaches every MCP tool through its own GetMcpTools and
+ * CallMcpTool.
  */
 const deferredReach: Partial<Record<ProviderKind, string>> = {
+  cursor:
+    'ace tools are listed by name only: GetMcpTools (server "ace", toolName) gives a schema and tools_find finds one by task; call it with CallMcpTool, e.g. thread_start or browser_open.',
   antigravity:
     'Most ace tools are deferred: read the tool\'s definition file, then call it with call_mcp_tool (ServerName "ace", ToolName, Arguments), e.g. ToolName thread_start or browser_open.',
 };
