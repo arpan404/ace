@@ -125,7 +125,6 @@ struct InboxList: View {
                     let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
                     Button { actions.open(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
                         .buttonStyle(.row).accessibilityIdentifier("unsent.\(key.id)")
-                        .inboxRowRule()
                         .inboxRowChrome()
                 }
             }
@@ -199,17 +198,6 @@ extension View {
     func inboxRowChrome() -> some View { modifier(InboxRowChrome()) }
 }
 
-extension View {
-    /// A hairline under a thread row, from the title's leading edge to the row's end, as the
-    /// system's lists draw them.
-    func inboxRowRule() -> some View {
-        self.listRowSeparator(.visible, edges: .bottom)
-            .listRowSeparatorTint(AceTheme.Colours.separator)
-            .alignmentGuide(.listRowSeparatorLeading) { _ in AceTheme.Spacing.md * 2 + 10 }
-            .alignmentGuide(.listRowSeparatorTrailing) { $0.width - AceTheme.Spacing.md }
-    }
-}
-
 /// A section's name over its rows: Needs you, Working, Done.
 struct InboxSectionHeading: View {
     let label: String
@@ -279,7 +267,6 @@ private struct InboxThreadCell: View {
         .buttonStyle(RowPressStyle(selected: open == key))
         .accessibilityAddTraits(open == key ? .isSelected : [])
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
-        .inboxRowRule()
         .inboxRowChrome()
         // Neutral swipe fills: status hues belong to status only.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
