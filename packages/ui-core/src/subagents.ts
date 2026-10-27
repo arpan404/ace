@@ -192,10 +192,25 @@ export function subagentBranchStates(
     // Under another loaded subagent: its branch already counts it.
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];
-    if (work.needsYou.has(agent.id)) return ["human"];
-    const own = subagentState(agent.status);
-    // A child queued for its parent's run slot is unsettled, but not working yet.
-    if (work.running.has(agent.id) && own !== "queued") return ["working"];
-    return [own];
+    return [branchState(agent)];
   });
+  /** One agent with everything under it, as the subagents block's branch rule reads it. */
+  function branchState(agent: RunAgent, seen = new Set<string>()): SubagentState {
+    if (work.needsYou.has(agent.id)) return "human";
+    seen.add(agent.id);
+    // Blocked only on its subagents, it isn't working itself: they say what it is doing.
+    if (agent.status.state === "blocked" && agent.status.on === "subagents") {
+      const below = agents
+        .filter((child) => child.parentId === agent.id && !seen.has(child.id))
+        .map((child) => branchState(child, seen));
+      if (!below.length) return "waiting";
+      const state = below.reduce(rollupSubagent);
+      return subagentTerminal(state) ? "working" : state;
+    }
+    const own = subagentState(agent.status);
+    // Ended but still unsettled (its background work runs on): working. One that waits (a
+    // usage limit, a queue slot for its parent's run) keeps its own word.
+    if (work.running.has(agent.id) && subagentTerminal(own)) return "working";
+    return own;
+  }
 }

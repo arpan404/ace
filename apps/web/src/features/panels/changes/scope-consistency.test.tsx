@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { coldStartUncommitted, showUncommitted } from "@/test/uncommitted.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -78,7 +79,10 @@ test("diff comment controls explain the old or new line on hover and open a comm
   onTestFinished(() => {
     if (original) Object.defineProperty(HTMLElement.prototype, "offsetWidth", original);
   });
-  const panel = await openChanges();
+  const app = harness();
+  app.daemon.workspace.setGitDiff("thread-cold-start", coldStartUncommitted);
+  const panel = await openChanges(app);
+  await showUncommitted(panel);
   for (const layout of ["Unified", "Split"] as const) {
     await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
     await userEvent.click(

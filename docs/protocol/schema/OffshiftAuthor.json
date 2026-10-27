@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/OffshiftAuthor.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "kind": {
+      "const": "agent",
+      "type": "string"
+    },
     "model": {
       "anyOf": [
         {

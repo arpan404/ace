@@ -1,5 +1,7 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
+import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
 import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
@@ -126,6 +128,7 @@ export {
   ThreadView,
 } from "./wire-core.ts";
 import { QueueGet, QueueResult } from "./queue.ts";
+import { OffshiftClientRequest, OffshiftClientResult } from "./offshift-person.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
   HistoryOperationProgress,
@@ -171,11 +174,13 @@ import {
   NotificationMessage,
   NotificationFeedRequest,
   NotificationFeedResult,
+  NotificationAck,
 } from "./notifications.ts";
 
 import {
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
@@ -194,6 +199,8 @@ import {
 export const ClientMessage = z.discriminatedUnion("type", [
   CliRequest,
   StorageRequest,
+  AdmissionRequest,
+  AppUpdateRequest,
   UserBrowserSettings,
   WorktreeCreationRequest,
   TurnsPageRequest,
@@ -218,6 +225,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...AutomationRequest.options,
   ...ActivityReadsRequest.options,
   VerifyRequest,
+  OffshiftClientRequest,
   QueueGet,
   PiControlRequest,
 
@@ -235,6 +243,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ContextRequest,
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
@@ -276,6 +285,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationSettings,
   NotificationSnooze,
   NotificationFeedRequest,
+  NotificationAck,
 
   ...CoreClientMessage.options,
 ]);
@@ -283,6 +293,10 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
+  AdmissionResult,
+  AdmissionChanged,
+  AppUpdateResult,
+  AppUpdateChanged,
   UserBrowserSettingsResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,
@@ -315,6 +329,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ActivityReadsChanged,
   VerifyResult,
   VerifyChanged,
+  OffshiftClientResult,
   QueueResult,
   PiControlResult,
 

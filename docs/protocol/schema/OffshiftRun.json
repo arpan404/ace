@@ -20,6 +20,17 @@
     "criteria": {
       "$ref": "https://ace.local/protocol/v1/OffshiftCriteria.json"
     },
+    "ended": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/OffshiftEnded.json"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "endpoint": {
       "maxLength": 4096,
       "minLength": 1,
@@ -59,11 +70,22 @@
       ],
       "default": null
     },
+    "personChanges": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftPersonChange.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "phase": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
     },
     "playbook": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
+    },
+    "startedBy": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPerson.json"
     },
     "steps": {
       "default": [],

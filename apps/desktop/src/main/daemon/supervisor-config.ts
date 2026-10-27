@@ -14,9 +14,15 @@ export interface SupervisorPorts {
   healthy(daemon: LocalDaemon, timeoutMs: number): Promise<boolean>;
   /** The login service from `ace service install`, when one is installed. */
   service?: { active(): Promise<boolean>; start(): Promise<void> } | undefined;
+  /** The person's pause (the tray's control); resolves with the work still running. */
   setMaintenance(daemon: LocalDaemon, on: boolean): Promise<number>;
+  /** An update's own hold, apart from the person's pause (`drain.ts`). */
+  setUpdateHold(daemon: LocalDaemon, on: boolean): Promise<number>;
   blockers(daemon: LocalDaemon): Promise<number>;
-  maintenance(daemon: LocalDaemon): Promise<{ draining: boolean }>;
+  /** `holds` names what closes admission; daemons that predate holds omit it. */
+  maintenance(
+    daemon: LocalDaemon,
+  ): Promise<{ draining: boolean; holds?: readonly string[] | undefined }>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
   /** Every supervisor decision is logged with the facts behind it, so restarts can be explained. */

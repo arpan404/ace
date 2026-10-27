@@ -16,12 +16,17 @@ enum SpikeConfiguration {
         false
         #endif
     }
+    /// `--spike-late-machines`: the inbox shows from the first frame and its machines attach a few
+    /// seconds later, as a production cold start reads its paired machines after launch.
+    static var lateMachines: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-late-machines") }
     /// The fixture's benchmark window (2,200 items), or the paired app's 200 with `--spike-items 200`.
     static var itemLimit: Int {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--spike-items").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil }
             .map { min(max($0, 50), 2200) } ?? 2200
     }
+    /// `--spike-view-only`: the phone may only view the fixture machine, as a view-only pairing.
+    static var viewOnly: Bool { ProcessInfo.processInfo.arguments.contains("--spike-view-only") }
     /// The thread `--spike-open ID` asks to open at launch.
     static var openOnLaunch: String? {
         let arguments = ProcessInfo.processInfo.arguments

@@ -1,25 +1,56 @@
 import type { ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { followAgents, type PatchSink, type Preview } from "./agents.ts";
+import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
+import { ChangesAction, changesAction } from "./changes-actions.ts";
+import type { ChangesKept } from "./changes-kept.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
+import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
+import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
+import { clearStaleLock, workAction } from "./work-actions.ts";
 
 /*
- * The thread's Agents and Changes sheets. Each follows the open thread only while its sheet is
- * shown, so a closed sheet costs nothing and navigation releases both.
+ * The thread's Agents, Changes and Work sheets. Each follows the open thread only while its sheet
+ * is shown, so a closed sheet costs nothing and navigation releases them all. Clearing a stale
+ * Git lock needs no sheet: the transcript offers it where a message was stopped.
  */
 
-const SheetAction = z.discriminatedUnion("kind", [
+const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
+  /** The next page of the open Agents sheet's agents or background tasks. */
+  z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
+  /** The thread's Logs: opened or closed, or its scope and filter changed while open. */
+  z.object({ kind: z.literal("logs"), open: z.boolean(), query: LogsQuery.optional() }),
+  z.object({ kind: z.literal("logs.earlier") }),
+  /** The shown lines as text for Copy, answered under `logs.copy`. */
+  z.object({ kind: z.literal("logs.copy"), requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("changes.refresh") }),
   z.object({ kind: z.literal("changes.file"), path: z.string().min(1).max(4096).nullable() }),
   z.object({ kind: z.literal("git"), action: z.unknown(), requestId: z.string().min(1).max(64) }),
   /** An AI draft of the commit message or PR title and summary (`git-drafts.ts`). */
   z.object({ kind: z.literal("git.draft"), for: DraftFor, requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("git.draft.cancel"), requestId: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal("work"), open: z.boolean() }),
+  z.object({ kind: z.literal("work.refresh") }),
+  z.object({ kind: z.literal("work.branches") }),
+  z.object({
+    kind: z.literal("work.action"),
+    action: z.unknown(),
+    requestId: z.string().min(1).max(64),
+  }),
+  z.object({ kind: z.literal("lock.clear"), requestId: z.string().min(1).max(64) }),
 ]);
+const SheetAction = z.union([OpenAction, ChangesAction]);
+type SheetAction = z.infer<typeof SheetAction>;
+
+/** What every Changes session shares: the phone's kept review state, a clock and ids. */
+export interface SheetDeps {
+  kept?: ChangesKept;
+  now?: () => number;
+  id?: () => string;
+}
 
 export interface OpenThread {
   owner: ChangesOwner;
@@ -31,18 +62,29 @@ export interface OpenThread {
 export class Sheets {
   #sink: PatchSink;
   #preview: Preview;
-  #agents: (() => void) | undefined;
+  #agents: AgentsFollow | undefined;
+  #logs: LogsFollow | undefined;
   #changes: ChangesSession | undefined;
-  constructor(sink: PatchSink, preview: Preview) {
+  #work: WorkSession | undefined;
+  /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
+  #line: { threadId: string; subject: WorkSubject } | undefined;
+  #deps: SheetDeps;
+  constructor(sink: PatchSink, preview: Preview, deps: SheetDeps = {}) {
     this.#sink = sink;
     this.#preview = preview;
+    this.#deps = deps;
   }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
-    this.#agents?.();
+    this.#agents?.stop();
     this.#agents = undefined;
+    this.#logs?.stop();
+    this.#logs = undefined;
     this.#changes?.close();
     this.#changes = undefined;
+    this.#work?.close();
+    this.#work = undefined;
+    this.#line = undefined;
   }
   /**
    * False when the action can't be read or no thread is open. A sheet's close arriving after
@@ -55,11 +97,46 @@ export class Sheets {
     if (!thread) return releases(action);
     switch (action.kind) {
       case "agents":
-        this.#agents?.();
+        this.#agents?.stop();
         this.#agents = action.open
           ? followAgents(thread.store, thread.threadId, thread.epoch, this.#sink, this.#preview)
           : undefined;
         return true;
+      case "agents.more":
+        this.#agents?.more(action.list);
+        return this.#agents !== undefined;
+      case "logs": {
+        const query = action.query ?? LogsQuery.parse({});
+        if (!action.open) {
+          this.#logs?.stop();
+          this.#logs = undefined;
+          this.#sink.clear("logs.copy:");
+        } else if (this.#logs) this.#logs.query(query);
+        else
+          this.#logs = followLogs(
+            thread.store,
+            thread.threadId,
+            thread.epoch,
+            this.#sink,
+            this.#preview,
+            logTime,
+            query,
+          );
+        return true;
+      }
+      case "logs.earlier":
+        this.#logs?.earlier();
+        return this.#logs !== undefined;
+      case "logs.copy": {
+        const logs = this.#logs;
+        if (!logs) return false;
+        const id = action.requestId;
+        // At most one Copy answer is kept: an earlier one is dropped, and closing Logs drops it.
+        // It stays readable until then, so a redelivered frame still carries the text.
+        this.#sink.clear("logs.copy:");
+        this.#sink.put(`logs.copy:${id}`, () => ({ type: "logs.copy", id, text: logs.copy() }));
+        return true;
+      }
       case "changes":
         this.#changes?.close();
         this.#changes = action.open
@@ -70,6 +147,7 @@ export class Sheets {
               thread.epoch,
               this.#sink,
               this.#preview,
+              this.#deps,
             )
           : undefined;
         return true;
@@ -108,11 +186,68 @@ export class Sheets {
       case "git.draft.cancel":
         if (this.#changes) cancelDraft(this.#changes, action.requestId);
         return this.#changes !== undefined;
+      case "work":
+        this.#work?.close();
+        this.#work = action.open
+          ? new WorkSession(
+              thread.owner,
+              thread.store,
+              thread.threadId,
+              thread.epoch,
+              this.#sink,
+              this.#preview,
+            )
+          : undefined;
+        return true;
+      case "work.refresh":
+        void this.#work?.read();
+        return this.#work !== undefined;
+      case "work.branches":
+        void this.#work?.branches();
+        return this.#work !== undefined;
+      case "work.action": {
+        // The sheet's own session when Work is shown; else the open thread as it stands.
+        if (this.#line?.threadId !== thread.threadId)
+          this.#line = {
+            threadId: thread.threadId,
+            subject: threadSubject(thread.owner, thread.store, thread.threadId),
+          };
+        const subject = this.#work ?? this.#line.subject;
+        void workAction(subject, action.action, action.requestId, this.#sink, this.#preview);
+        return true;
+      }
+      case "lock.clear":
+        void clearStaleLock(
+          thread.owner,
+          thread.threadId,
+          action.requestId,
+          this.#sink,
+          this.#preview,
+        );
+        return true;
+      default:
+        return this.#changes
+          ? changesAction(this.#changes, action, this.#sink, this.#preview)
+          : false;
     }
   }
 }
 
-function releases(action: z.infer<typeof SheetAction>): boolean {
-  if (action.kind === "agents" || action.kind === "changes") return !action.open;
+const clock = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+const logTime = (at: number) => clock.format(at);
+
+function releases(action: SheetAction): boolean {
+  if (
+    action.kind === "agents" ||
+    action.kind === "changes" ||
+    action.kind === "work" ||
+    action.kind === "logs"
+  )
+    return !action.open;
+  if (action.kind === "changes.open" || action.kind === "changes.expand") return !action.open;
   return action.kind === "changes.file" && action.path === null;
 }

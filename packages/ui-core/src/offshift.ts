@@ -1,6 +1,7 @@
 import { modelDisplayName } from "@ace/models/display-name";
 import type { ProviderKind, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import type {
+  OffshiftCardAuthor,
   OffshiftCardCriterion,
   OffshiftEvidenceKind,
   OffshiftEvidenceState,
@@ -70,10 +71,12 @@ export interface OffshiftSummary {
   /** The current phase's steps, in order. */
   steps: OffshiftStepRow[];
   done: boolean;
+  /** The person ended the run: like a done run, it has nothing left to act on. */
+  ended: boolean;
 }
 
 const phases: readonly OffshiftPhase[] = ["plan", "implement", "verify", "review", "delivery"];
-const kindNames: Record<OffshiftEvidenceKind, string> = {
+export const offshiftKindNames: Record<OffshiftEvidenceKind, string> = {
   automated: "Automated check",
   source: "Source review",
   ui: "UI check",
@@ -100,6 +103,15 @@ const stepStateNames: Record<OffshiftStepState, OffshiftStepRow["state"]> = {
   done: "Done",
   skipped: "Skipped",
 };
+/**
+ * Who recorded a check: "You" for the person (on the host's own app) or "You on iPhone" from a
+ * paired device; otherwise the agent's provider and model.
+ */
+export function offshiftAuthor(by: OffshiftCardAuthor): string {
+  if ("kind" in by) return by.device ? `You on ${by.device}` : "You";
+  return who(by.provider, by.model);
+}
+
 /** A provider and model in words, no ids: "Claude Code · Opus 4.5". */
 function who(provider: ProviderKind | undefined, model: string | null | undefined): string {
   return [provider && providerNames[provider], model && modelDisplayName(model).displayName]
@@ -160,6 +172,7 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
       reason: step.reason,
     })),
     done: state.word === "Done",
+    ended: card.ended === true,
   };
 }
 
@@ -179,9 +192,9 @@ function criterionRow(item: OffshiftCardCriterion): OffshiftCriterionRow {
     detail: item.evidence
       .map((evidence) =>
         [
-          kindNames[evidence.kind],
+          offshiftKindNames[evidence.kind],
           stateNames[evidence.state],
-          evidence.by && who(evidence.by.provider, evidence.by.model),
+          evidence.by && offshiftAuthor(evidence.by),
         ]
           .filter(Boolean)
           .join(" · "),

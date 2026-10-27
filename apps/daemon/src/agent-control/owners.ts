@@ -76,6 +76,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   return {
     previews,
     threadAutomations,
+    offshifts,
     async execute(
       caller: McpAttribution,
       operation: ExtensionOperation,

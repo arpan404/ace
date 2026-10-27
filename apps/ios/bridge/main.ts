@@ -1,41 +1,58 @@
 import { host } from "./polyfills.ts";
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
-import { PatchPump, followThread } from "./patches.ts";
-import { LedgerShelf } from "./native-ledger.ts";
+import { ProjectManage } from "./project-manage.ts";
+import { PatchPump } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
-import { ThreadSession } from "./thread-session.ts";
+import { ThreadVisit } from "./thread-visit.ts";
+import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { MachineFollowers } from "./machine-followers.ts";
+import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
+import { ChangesKept } from "./changes-kept.ts";
+import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
+import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
+import { CheckoutDownloads } from "./checkout-downloads.ts";
+import { CheckoutMemory } from "./checkout-memory.ts";
+import { CheckoutUploads } from "./checkout-uploads.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
 import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
+import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
-import { nativeChunks } from "./thread-attachments.ts";
+import { nativeChunks, Picked } from "./thread-attachments.ts";
+import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
+import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
+import { NativeAutomations } from "./automations.ts";
+import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
+import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -84,12 +101,11 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("transfers"), action: TransferAction }),
 ]);
 let client: ClientCore | undefined;
+let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
-let lease: Lease<ThreadSource> | undefined;
-let stopThread: (() => void) | undefined;
-let session: ThreadSession | undefined;
-let epoch = 0;
 let machine: MachineProviders | undefined;
+/** Pause and update state of the machine; replaced on every start. */
+const followers = new MachineFollowers();
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
@@ -100,18 +116,42 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
+let filesActions: FilesActions | undefined;
+let access: ComputerAccess | undefined;
+let workspace: NativeWorkspace | undefined;
 const pump = new PatchPump();
-/**
- * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
- * 4 Mi UTF-16 units go too, the oldest first.
- */
-const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
+const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
-const sheets = new Sheets(pump, preview);
-let openThreadId: string | undefined;
+const sheets = new Sheets(pump, preview, {
+  kept: new ChangesKept(keptValue("review"), scheduler),
+  now: () => host.now(),
+  id: () => host.uuid(),
+});
+/** Subagent retries asked from this phone, kept across visits to their threads. */
+const retries = new SubagentRetries();
+/** The thread open on the phone, and what else follows it. */
+const visit = new ThreadVisit(
+  pump,
+  {
+    leaving() {
+      services?.transcript.close();
+      sheets.close();
+      browser?.close();
+      transfers?.follow(undefined);
+    },
+    opened(threadId, epoch, store) {
+      browser?.probe(threadId, epoch);
+      transfers?.follow({ threadId, epoch, store });
+    },
+    reading: (threadId) => services?.transcript.source(threadId),
+  },
+  (id) => suggest?.entries(id),
+  undefined,
+  retries,
+);
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
-  const agent = threadId === openThreadId ? lease?.store.agent(agentId) : undefined;
+  const agent = threadId === visit.threadId ? visit.store?.agent(agentId) : undefined;
   return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
 }
 function error(): void {
@@ -122,6 +162,7 @@ function error(): void {
 }
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
+  snapshots = nativeReadSnapshots(call, () => host.now());
   const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
@@ -153,14 +194,23 @@ async function start(json: string): Promise<void> {
       },
     },
     // The inbox and opened threads paint from what this phone read last time (ADR 0030).
-    readSnapshots: nativeReadSnapshots(call),
+    readSnapshots: snapshots,
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
   });
   const connection = client.connectionState();
-  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
+  notifications = new NotificationBridge(
+    client,
+    (key, read) => pump.put(key, read),
+    scheduler.set,
+    () => {
+      // The phone's own clock and time zone: quiet hours are local to the phone.
+      const now = new Date(host.now());
+      return now.getHours() * 60 + now.getMinutes();
+    },
+  );
   const owner = client;
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
@@ -169,6 +219,12 @@ async function start(json: string): Promise<void> {
       type: "connection.problem",
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
+  });
+  const dismissed = followDismissed({
+    load: () => call("storage.dismissed.load"),
+    save: async (value) => {
+      await call("storage.dismissed.save", null, value);
+    },
   });
   inbox = followInbox(
     client,
@@ -179,12 +235,14 @@ async function start(json: string): Promise<void> {
     // What the phone draws first at its next launch, before this runtime starts.
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
+    dismissed,
   );
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
+  const admission = followers.replace(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {
     now: () => host.now(),
@@ -231,9 +289,10 @@ async function start(json: string): Promise<void> {
     schedule: scheduler.set,
     now: () => host.now(),
     thread: () => {
-      const thread = openThreadId ? lease?.store.thread : undefined;
-      return thread && openThreadId
-        ? { threadId: openThreadId, workspaceId: thread.workspaceId, provider: thread.provider }
+      const openId = visit.threadId;
+      const thread = openId ? visit.store?.thread : undefined;
+      return thread && openId
+        ? { threadId: openId, workspaceId: thread.workspaceId, provider: thread.provider }
         : undefined;
     },
     threads: () => sidebarThreads(owner),
@@ -242,11 +301,39 @@ async function start(json: string): Promise<void> {
   compose.newThread.readCatalogFrom((workspaceId, provider) =>
     suggest?.draftEntries(workspaceId, provider),
   );
-  const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
-    search.complete(workspaceId, query, limit),
+  const memory = new CheckoutMemory(keptValue("files"), pump, scheduler);
+  const files = new CheckoutFiles(
+    client,
+    (workspaceId, query, limit) => search.complete(workspaceId, query, limit),
+    (scope) => memory.recent(scope),
   );
+  filesActions = {
+    memory,
+    downloads: new CheckoutDownloads(client, pump, { call, uuid: () => host.uuid() }),
+    uploads: new CheckoutUploads(client, pump, nativeChunks),
+  };
   followFileChanges(client, pump);
   const forgeClient = client;
+  services?.dispose();
+  const newThread = compose.newThread;
+  const automations = new NativeAutomations({
+    owner: client,
+    // Whole milliseconds, as the daemon's clock reads them.
+    now: () => Math.floor(host.now()),
+    zone: localTimeZone,
+    agents: async () => {
+      if (!newThread.loadedAgents) await newThread.agents();
+      return newThread.loadedAgents;
+    },
+    threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
+    repository: async (folder) => {
+      const reply = await owner.request(
+        { type: "projects.request", operation: { op: "workspace.inspect", path: folder } },
+        { timeoutMs: 10_000 },
+      );
+      return reply.result.kind === "inspection" ? projectRepository(reply.result) : undefined;
+    },
+  });
   services = new NativeServices(
     client,
     pump,
@@ -262,16 +349,39 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    new ProjectManage(client, scheduler.set),
+    inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
+    new HostCare(client, admission),
+    () => host.now(),
+    automations,
   );
+  // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  services.carried = (threadId) =>
+    threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
+  workspace = new NativeWorkspace(pump, {
+    load: () => call("storage.workspace.load"),
+    save: async (value) => {
+      await call("storage.workspace.save", null, value);
+    },
+  });
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
+  access = new ComputerAccess(client, pump, preview, scheduler.set, () => host.uuid());
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
-      threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
+      threadId === visit.threadId && agentId ? agentName(visit.store?.agent(agentId)) : "An agent",
     workspaceId: (threadId) =>
-      threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
+      threadId === visit.threadId ? visit.store?.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
+    files: {
+      write: (input, body) => call("file.write", input, body),
+      discard: (input) => call("file.discard", input),
+    },
+    stage: async (name, mimeType, data) =>
+      Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
+    annotations: (threadId) =>
+      threadId === visit.threadId ? visit.session?.annotations : undefined,
     devices: phoneDeviceStorage({
       load: () => call("storage.devices.load"),
       save: async (value) => {
@@ -289,6 +399,17 @@ function action(json: string): void {
       devices?.handle(deviceControl.data);
       return;
     }
+    const statsControl = DeviceStatsControl.safeParse(raw);
+    if (statsControl.success) {
+      deviceStats.handle(statsControl.data);
+      return;
+    }
+    const accessControl = ComputerAccessControl.safeParse(raw);
+    if (accessControl.success) {
+      if (access) access.handle(accessControl.data);
+      else error();
+      return;
+    }
     const screenControl = NativeScreenControl.safeParse(raw);
     if (screenControl.success) {
       screen?.handle(screenControl.data);
@@ -299,14 +420,38 @@ function action(json: string): void {
       terminal?.handle(terminalAction.data);
       return;
     }
+    const panel = WorkspaceAction.safeParse(raw);
+    if (panel.success) {
+      if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
     const service = NativeServiceAction.safeParse(raw);
     if (service.success) {
       services?.handle(service.data);
       return;
     }
+    const filesAction = NativeFilesAction.safeParse(raw);
+    if (filesAction.success) {
+      if (filesActions) routeFilesAction(filesActions, filesAction.data);
+      else error();
+      return;
+    }
     const notice = NotificationAction.safeParse(raw);
     if (notice.success) {
       if (notifications) notifications.handle(notice.data);
+      else error();
+      return;
+    }
+    const cache = CacheAction.safeParse(raw);
+    if (cache.success) {
+      if (client && snapshots)
+        void handleCacheAction(cache.data, {
+          client,
+          snapshots,
+          sink: pump,
+          ...visit.reloads(client),
+        });
       else error();
       return;
     }
@@ -324,45 +469,10 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        services?.transcript.close();
-        stopThread?.();
-        sheets.close();
-        lease?.release();
-        openThreadId = value.threadId;
-        lease = client.thread(value.threadId);
-        session?.dispose();
-        {
-          const ledger = ledgers.open(value.threadId, value.warm ?? false);
-          pump.bind(ledger, ++epoch);
-          stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
-        }
-        session = new ThreadSession(
-          client,
-          lease.store,
-          value.threadId,
-          epoch,
-          pump,
-          nativeChunks,
-          (threadId) => suggest?.entries(threadId),
-        );
-        browser?.close();
-        browser?.probe(value.threadId, epoch);
-        transfers?.follow({ threadId: value.threadId, epoch, store: lease.store });
+        visit.open(client, value.threadId, value.warm ?? false);
         break;
       case "back":
-        services?.transcript.close();
-        epoch++;
-        pump.bind(undefined, epoch);
-        ledgers.trim();
-        session?.dispose();
-        session = undefined;
-        stopThread?.();
-        sheets.close();
-        browser?.close();
-        transfers?.follow(undefined);
-        lease?.release();
-        lease = undefined;
-        openThreadId = undefined;
+        visit.back();
         break;
       case "network":
         client.networkOnline(value.online);
@@ -380,7 +490,9 @@ function action(json: string): void {
         void dispatchCommand(client, value.payload, value.requestId, pump);
         break;
       case "thread":
-        routeThreadAction(session, value.epoch, value.action, (key, read) => pump.put(key, read));
+        routeThreadAction(visit.session, value.epoch, value.action, (key, read) =>
+          pump.put(key, read),
+        );
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump, inbox);
@@ -402,10 +514,10 @@ function action(json: string): void {
         else error();
         break;
       case "sheet": {
+        const store = visit.store;
+        const threadId = visit.threadId;
         const thread =
-          lease && openThreadId
-            ? { owner: client, store: lease.store, threadId: openThreadId, epoch }
-            : undefined;
+          store && threadId ? { owner: client, store, threadId, epoch: visit.epoch } : undefined;
         if (!sheets.action(thread, value.action)) error();
         break;
       }

@@ -11,7 +11,7 @@ struct ApprovalCard: View {
     var canAct = true
     let resolve: (ApprovalRow.Option) -> Void
     @State private var details = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md - AceTheme.Spacing.xxs) {
             RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)

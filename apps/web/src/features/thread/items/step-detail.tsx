@@ -16,6 +16,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { patchLines, stepPath, stripAnsi } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { readOutputText } from "@/lib/output-read.ts";
+import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { WebLink } from "@/components/web-link.tsx";
 
 /**
@@ -78,9 +79,24 @@ function CallDetail(props: { threadId: string; item: ToolItem }) {
 
 function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: string }) {
   const { detail, error, raw, title } = props.item.call;
+  // A path the agent read or wrote: open it in the editor, on this computer or its own machine.
+  const fileTarget =
+    detail.kind === "file.read"
+      ? { path: detail.path, line: detail.range?.start }
+      : detail.kind === "file.edit" ||
+          detail.kind === "file.write" ||
+          detail.kind === "file.delete" ||
+          detail.kind === "file.move"
+        ? detail.changes[0]
+          ? { path: detail.changes[0].path, line: undefined as number | undefined }
+          : undefined
+        : undefined;
   return (
     <div className="flex flex-col gap-2">
       {detail.kind === "shell" && detail.output && <ShellOutput output={detail.output} />}
+      {props.threadId && fileTarget && (
+        <FileOpen threadId={props.threadId} path={fileTarget.path} line={fileTarget.line} />
+      )}
       {"changes" in detail &&
         detail.changes.map((change) => (
           <ChangeDiff key={change.path} change={change} cwd={props.cwd} />
@@ -282,6 +298,23 @@ function TodoList(props: { todos: readonly TodoEntry[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/** A path the agent read or wrote, opened in the editor on its own machine. */
+function FileOpen(props: { threadId: string; path: string; line?: number | undefined }) {
+  const editing = useOpenInEditor(props.threadId);
+  const editor = editing.editor;
+  if (!editor) return null;
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="self-start"
+      onClick={() => void editing.open(props.path, props.line)}
+    >
+      Open in {editor.name}
+    </Button>
   );
 }
 

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPersonChange.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "by": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPerson.json"
+    },
+    "summary": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "version": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "at",
+    "by",
+    "summary"
+  ],
+  "type": "object"
+}

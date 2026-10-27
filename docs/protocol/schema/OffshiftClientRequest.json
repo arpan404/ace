@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftClientRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "op": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPersonOperation.json"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "offshift.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "op"
+  ],
+  "type": "object"
+}

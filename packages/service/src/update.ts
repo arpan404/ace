@@ -60,7 +60,8 @@ async function acquire(ports: UpdatePorts, drain: boolean) {
   while (status.blockers > 0) {
     if (!drain || ports.now() >= until) throw new Error("Active threads block update");
     await ports.wait();
-    status = MaintenanceStatus.parse(await ports.maintenance("GET"));
+    // Each poll renews the update's lease, so an interrupted CLI lets go on its own.
+    status = MaintenanceStatus.parse(await ports.maintenance("POST"));
     if (!status.draining) throw new Error("Maintenance lease lost");
   }
   if (!status.draining) throw new Error("Maintenance lease required");

@@ -35,6 +35,16 @@ export async function fetchBrowserDownload(
     /** Defaults to timers; tests pass their own. */
     wait?(ms: number, signal?: AbortSignal): Promise<void>;
     limit?: number;
+    /**
+     * Each verified chunk as it arrives, in order: the file is written as it comes and only one
+     * chunk is held; the returned bytes are then empty. Without it, the whole file is returned.
+     */
+    onChunk?(chunk: {
+      bytes: Uint8Array;
+      offset: number;
+      size: number;
+      done: boolean;
+    }): void | Promise<void>;
   } = {},
 ): Promise<Uint8Array> {
   const onStream = client.onStream?.bind(client);
@@ -73,9 +83,13 @@ export async function fetchBrowserDownload(
         (passing.has(error.code) || (error.code === "daemon" && error.message === downloadBusy))),
     wait: options.wait ?? sleep,
   };
-  return fetchChunked(io, new ChunkedFile(options.limit ?? deviceDownloadMax, chunkBytes), {
+  const file = new ChunkedFile(options.limit ?? deviceDownloadMax, chunkBytes, {
+    keep: !options.onChunk,
+  });
+  return fetchChunked(io, file, {
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    ...(options.onChunk ? { onChunk: options.onChunk } : {}),
   });
 }
 

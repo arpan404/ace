@@ -1,3 +1,4 @@
+import { bringBackWaits } from "@ace/ui-core";
 import { longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { configure, screen, within } from "@testing-library/react";
@@ -169,17 +170,17 @@ test("bringing a summary and code changes back shows the fork's name and edited 
   expect(await screen.findByText("One table is easier to maintain.")).toBeTruthy();
 });
 
-test("bringing back a running fork keeps the summary editable and explains why it must wait", async () => {
+test("a running fork can't be brought back: the summary stays editable and the dialog says why", async () => {
   const { app, child } = await fork();
   finish(app, child.id);
   const dialog = await openMerge();
   app.daemon.apply(child.id, [
     { type: "turn.started", agent: "root", nativeTurnId: "background", trigger: "unknown" },
   ]);
-  await userEvent.click(within(dialog).getByRole("button", { name: "Bring back" }));
-  expect((await within(dialog).findByRole("alert")).textContent).toContain(
-    "Wait for all agents in the fork to finish",
-  );
+  expect((await within(dialog).findByRole("status")).textContent).toBe(bringBackWaits.working);
+  expect(
+    within(dialog).getByRole<HTMLButtonElement>("button", { name: "Bring back" }).disabled,
+  ).toBe(true);
   expect(within(dialog).getByRole<HTMLTextAreaElement>("textbox", { name: "Summary" }).value).toBe(
     "Use a single route table.",
   );

@@ -18,6 +18,9 @@ export type OptionalCapability =
   /** `trace`: totals of spans the script times itself (diagnostics only). */
   | "trace";
 
+/** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
+export type KeptValueKey = "review" | "files";
+
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";
 
@@ -57,12 +60,44 @@ export interface HostOperations {
   /** The browser's device toolbar per tab (`@ace/ui-core/browser-device-settings`). */
   "storage.devices.load": { input: null; body: never };
   "storage.devices.save": { input: null; body: string };
+  /** Failed sends the person took back or discarded (`apps/ios/bridge/dismissed-sends.ts`). */
+  "storage.dismissed.load": { input: null; body: never };
+  "storage.dismissed.save": { input: null; body: string };
+  /**
+   * Small per-device values the shared logic keeps between launches, by key: "review" (Changes
+   * comments and viewed marks), "files" (recent and open files). "" when nothing is kept.
+   */
+  "storage.value.load": { input: { key: KeptValueKey }; body: never };
+  /** A plain replace; native code bounds each value at 1 MiB. */
+  "storage.value.save": { input: { key: KeptValueKey }; body: string };
+  /** Each thread's side panel on a tablet (`@ace/ui-core/tablet-workspace`). */
+  "storage.workspace.load": { input: null; body: never };
+  "storage.workspace.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */
   "snapshot.get": { input: string; body: never };
   "snapshot.set": { input: { key: string }; body: string };
   "snapshot.clear": { input: null; body: never };
+  /**
+   * A thread kept as rows (ADR 0105), keyed like `snapshot.get`: answers "" for a miss, else the
+   * head's JSON and then each item's JSON, one per line.
+   */
+  "snapshot.thread.get": { input: string; body: never };
+  /**
+   * One thread write, all or nothing. `body` is the head's JSON and then the JSON of each item in
+   * `ids`, one per line. `removed` items are deleted; `replace` deletes every item first.
+   */
+  "snapshot.thread.put": {
+    input: { key: string; settled: boolean; ids: string[]; removed: string[]; replace: boolean };
+    body: string;
+  };
+  /** Everything kept: a JSON array of `{key, kind, used, bytes, settled}`. */
+  "snapshot.index": { input: null; body: never };
+  /** Lets the named records and threads go. */
+  "snapshot.drop": { input: { keys: string[] }; body: never };
+  /** How many bytes the snapshot store takes on disk, as decimal text. */
+  "snapshot.size": { input: null; body: never };
   /** Keychain, limited by native code to the keys this runtime may touch. */
   "secret.get": { input: string; body: never };
   "secret.set": { input: { key: string; token: string }; body: never };
@@ -79,8 +114,38 @@ export interface HostOperations {
   credential: { input: null; body: never };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
+  /**
+   * A file the shared logic saves to the device a chunk at a time (a checkout file or a folder's
+   * archive), so its bytes never pile up in the script. `open` starts an empty file named `name`
+   * in the app's temporary storage under the script's `id` (a uuid), replacing any left there.
+   */
+  "download.open": { input: { id: string; name: string }; body: never };
+  /**
+   * Base64 bytes added at `offset`, which must equal the file's current length; anything else
+   * fails "invalid", so a repeated or skipped chunk never corrupts the file.
+   */
+  "download.append": { input: { id: string; offset: number }; body: string };
+  /** The file is complete: answers its absolute path, for the share sheet or Save to Files. */
+  "download.finish": { input: { id: string }; body: never };
+  /** Removes the file (stopped, failed, or shared and done with). Absent is fine. */
+  "download.discard": { input: { id: string }; body: never };
   /** An access runtime's single result. */
   "access.result": { input: null; body: string };
+  /**
+   * Base64 bytes appended at `offset` to the device's copy of a file being saved (a browser
+   * download); `done` closes it so the platform can offer it. `offset` 0 starts the file again.
+   */
+  "file.write": {
+    input: { id: string; name: string; offset: number; done: boolean };
+    body: string;
+  };
+  /** Deletes the device's copy of a file being saved, whole or partial (a failed or cancelled save). */
+  "file.discard": { input: { id: string; name: string }; body: never };
+  /**
+   * A captured image (base64 body) staged as a message file; answers its `Picked` JSON
+   * (`localId`, `name`, `mimeType`, `bytes`, `sha256`).
+   */
+  "capture.stage": { input: { name: string; mimeType: string }; body: string };
 }
 export type HostOperation = keyof HostOperations;
 

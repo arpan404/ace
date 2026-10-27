@@ -12,6 +12,10 @@ enum RemoteInput: Equatable, Sendable {
     case ime(text: String, selectionStart: Int, selectionEnd: Int)
     /// The person's choice in the page's open picker; nil values dismiss it.
     case pick(pickerId: String, values: [String]?)
+    /// A mouse press, move or release with the primary button (annotate mode's click and drag).
+    case mouse(event: String, x: Double, y: Double, held: Bool)
+    /// A wheel scroll at a point, in CSS pixels (annotate mode's two-finger scroll).
+    case scroll(x: Double, y: Double, deltaX: Double, deltaY: Double)
 
     var json: [String: Any] {
         switch self {
@@ -28,6 +32,10 @@ enum RemoteInput: Equatable, Sendable {
             var value: [String: Any] = ["kind": "pick", "pickerId": pickerId]
             if let values { value["values"] = values }
             return value
+        case .mouse(let event, let x, let y, let held):
+            return ["kind": "mouse", "event": event, "x": x, "y": y, "button": "left", "buttons": held ? 1 : 0, "clickCount": 1]
+        case .scroll(let x, let y, let deltaX, let deltaY):
+            return ["kind": "scroll", "x": x, "y": y, "deltaX": deltaX, "deltaY": deltaY]
         }
     }
 }

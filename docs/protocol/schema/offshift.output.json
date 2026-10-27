@@ -130,6 +130,73 @@
                   "type": "array",
                   "x-ace-constraint": "Criterion IDs must be unique."
                 },
+                "ended": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "at": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "by": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "device": {
+                              "anyOf": [
+                                {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "deviceId": {
+                              "anyOf": [
+                                {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "kind": {
+                              "const": "person",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "deviceId",
+                            "device"
+                          ],
+                          "type": "object"
+                        },
+                        "note": {
+                          "maxLength": 4096,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "at",
+                        "by",
+                        "note"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
                 "endpoint": {
                   "maxLength": 4096,
                   "minLength": 1,
@@ -152,43 +219,89 @@
                       "by": {
                         "anyOf": [
                           {
-                            "additionalProperties": false,
-                            "properties": {
-                              "model": {
-                                "anyOf": [
-                                  {
-                                    "maxLength": 256,
-                                    "minLength": 1,
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "device": {
+                                    "anyOf": [
+                                      {
+                                        "maxLength": 256,
+                                        "minLength": 1,
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "deviceId": {
+                                    "anyOf": [
+                                      {
+                                        "minLength": 1,
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "kind": {
+                                    "const": "person",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "deviceId",
+                                  "device"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "kind": {
+                                    "const": "agent",
                                     "type": "string"
                                   },
-                                  {
-                                    "type": "null"
+                                  "model": {
+                                    "anyOf": [
+                                      {
+                                        "maxLength": 256,
+                                        "minLength": 1,
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "provider": {
+                                    "enum": [
+                                      "claude",
+                                      "codex",
+                                      "opencode",
+                                      "cursor",
+                                      "antigravity",
+                                      "acp",
+                                      "pi"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "threadId": {
+                                    "minLength": 1,
+                                    "type": "string"
                                   }
-                                ]
-                              },
-                              "provider": {
-                                "enum": [
-                                  "claude",
-                                  "codex",
-                                  "opencode",
-                                  "cursor",
-                                  "antigravity",
-                                  "acp",
-                                  "pi"
+                                },
+                                "required": [
+                                  "threadId",
+                                  "provider",
+                                  "model"
                                 ],
-                                "type": "string"
-                              },
-                              "threadId": {
-                                "minLength": 1,
-                                "type": "string"
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "threadId",
-                              "provider",
-                              "model"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
                             "type": "null"
@@ -273,6 +386,10 @@
                     {
                       "additionalProperties": false,
                       "properties": {
+                        "kind": {
+                          "const": "agent",
+                          "type": "string"
+                        },
                         "model": {
                           "anyOf": [
                             {
@@ -315,6 +432,76 @@
                   ],
                   "default": null
                 },
+                "personChanges": {
+                  "default": [],
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "by": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "device": {
+                            "anyOf": [
+                              {
+                                "maxLength": 256,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "deviceId": {
+                            "anyOf": [
+                              {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "const": "person",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "deviceId",
+                          "device"
+                        ],
+                        "type": "object"
+                      },
+                      "summary": {
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "version": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "at",
+                      "by",
+                      "summary"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "type": "array"
+                },
                 "phase": {
                   "enum": [
                     "plan",
@@ -336,6 +523,44 @@
                     "land"
                   ],
                   "type": "string"
+                },
+                "startedBy": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "device": {
+                      "anyOf": [
+                        {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "deviceId": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "const": "person",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "deviceId",
+                    "device"
+                  ],
+                  "type": "object"
                 },
                 "steps": {
                   "default": [],
@@ -416,6 +641,8 @@
                 "blocker",
                 "note",
                 "evidence",
+                "personChanges",
+                "ended",
                 "createdAt",
                 "updatedAt"
               ],
@@ -427,7 +654,8 @@
                 "blocked",
                 "needs_evidence",
                 "waiting_on_tree",
-                "complete"
+                "complete",
+                "ended"
               ],
               "type": "string"
             },

@@ -3,7 +3,7 @@ import SwiftUI
 /// What ships inside the app and its licence. The interface uses Apple's system fonts (SF Pro,
 /// SF Mono). The only third-party images are the providers' marks (LobeHub Icons, and OpenAI's
 /// Blossom from its brand kit). The JavaScript bridge bundles ace's own packages, Zod and the
-/// shared HTML renderer's parse5/entities dependencies.
+/// shared HTML renderer's parse5/entities dependencies; answers' math is typeset with KaTeX.
 struct LicencesView: View {
     private struct Entry: Identifiable {
         let name: String
@@ -22,6 +22,7 @@ struct LicencesView: View {
               notice: "OpenAI's trademark, unmodified from OpenAI's brand kit, shown only to identify OpenAI's own products. It is not licensed under ace's licence."),
         Entry(name: "parse5", licence: "MIT", notice: Self.bundledNotice("parse5-license")),
         Entry(name: "entities", licence: "BSD 2-Clause", notice: Self.bundledNotice("entities-license")),
+        Entry(name: "KaTeX", licence: "MIT", notice: Self.bundledNotice("katex-license")),
     ]
     private static func bundledNotice(_ name: String) -> String {
         guard let url = Bundle.main.url(forResource: name, withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "See \(name).txt in the app bundle." }

@@ -23,8 +23,8 @@ import {
   layerMergeBlocker,
   layerStateLabel,
   reviewSignal,
-  type Signal,
-} from "./pr-stack-labels.ts";
+  type StackSignal as Signal,
+} from "@ace/ui-core";
 
 const tone: Record<Signal, string> = {
   good: "text-status-done",

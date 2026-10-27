@@ -1,4 +1,10 @@
-import { ProviderConfiguration, type ProviderKind } from "@ace/protocol";
+import type { ProviderKind } from "@ace/protocol";
+import {
+  binaryPathChange,
+  binaryPathProblem,
+  checkpointChange,
+  checkpointProblem,
+} from "@ace/ui-core";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -17,23 +23,10 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
   const commitBudget = () => {
     if (budget === (value?.maxCheckpointMb === undefined ? "" : String(value.maxCheckpointMb)))
       return;
-    if (budget.trim() === "") {
-      setMbError(false);
-      void update((row) => {
-        const { maxCheckpointMb: _before, ...rest } = row;
-        return rest;
-      }).then((saved) => {
-        if (saved) setMb(undefined);
-      });
-      return;
-    }
-    const parsed = ProviderConfiguration.shape.maxCheckpointMb.safeParse(Number(budget));
-    if (!parsed.success) {
-      setMbError(true);
-      return;
-    }
-    setMbError(false);
-    void update((row) => ({ ...row, maxCheckpointMb: parsed.data })).then((saved) => {
+    const edit = checkpointChange(budget);
+    setMbError(!edit.ok);
+    if (!edit.ok) return;
+    void update(edit.change).then((saved) => {
       if (saved) setMb(undefined);
     });
   };
@@ -66,15 +59,10 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
               disabled={disabled}
               onBlur={() => {
                 if (binary === (value?.binaryPath ?? "")) return;
-                if (binary && !ProviderConfiguration.shape.binaryPath.safeParse(binary).success) {
-                  setError(true);
-                  return;
-                }
-                setError(false);
-                void update((row) => {
-                  const { binaryPath: _before, ...rest } = row;
-                  return binary ? { ...rest, binaryPath: binary } : rest;
-                }).then((saved) => {
+                const edit = binaryPathChange(binary);
+                setError(!edit.ok);
+                if (!edit.ok) return;
+                void update(edit.change).then((saved) => {
                   if (saved) setPath(undefined);
                 });
               }}
@@ -84,7 +72,7 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
       )}
       {error && (
         <p role="alert" className="text-sm text-status-failed">
-          Enter the full path to the executable, or clear it to find the CLI automatically.
+          {binaryPathProblem}
         </p>
       )}
       {props.provider === "cursor" && (
@@ -106,7 +94,7 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
       )}
       {mbError && (
         <p role="alert" className="text-sm text-status-failed">
-          Enter a whole number of megabytes from 1 to 256, or clear it for the default.
+          {checkpointProblem}
         </p>
       )}
       {!props.missing && <NativeModeRow provider={props.provider} />}

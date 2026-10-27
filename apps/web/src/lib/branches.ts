@@ -1,13 +1,6 @@
 import { WorkspaceId, type BranchRef } from "@ace/protocol";
+import { defaultFirst } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-
-const defaults = ["main", "master", "trunk", "develop"];
-
-/** The usual default branch first, then the rest as the daemon listed them. */
-export function defaultFirst(branches: readonly string[]): string[] {
-  const first = defaults.find((name) => branches.includes(name));
-  return first ? [first, ...branches.filter((branch) => branch !== first)] : [...branches];
-}
 
 const none: readonly string[] = [];
 

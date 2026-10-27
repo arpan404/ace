@@ -12,7 +12,9 @@
     "./work-log-reading": "./src/work-log-reading.ts",
     "./command-rank": "./src/command-rank.ts",
     "./acp-registry": "./src/acp-registry.ts",
+    "./acp-registry-data": "./src/acp-registry-data.ts",
     "./counts": "./src/counts.ts",
+    "./phone-keymap": "./src/phone-keymap.ts",
     "./computer-use": "./src/computer-use.ts",
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",
@@ -27,16 +29,27 @@
     "./subagent-group": "./src/subagent-group.ts",
     "./thread-execution": "./src/thread-execution.ts",
     "./mobile": "./src/mobile.ts",
+    "./host-care": "./src/host-care.ts",
+    "./thread-log": "./src/thread-log.ts",
+    "./log-filter": "./src/log-filter.ts",
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
-    "./forge-rich": "./src/forge-rich/index.ts"
+    "./skill-library": "./src/skill-library.ts",
+    "./forge-rich": "./src/forge-rich/index.ts",
+    "./automations": "./src/automations/index.ts",
+    "./math-render": "./src/math-render.ts",
+    "./review": "./src/review.ts",
+    "./workspace-tabs": "./src/workspace-tabs.ts",
+    "./workspace-bounds": "./src/workspace-bounds.ts",
+    "./tablet-workspace": "./src/tablet-workspace.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",

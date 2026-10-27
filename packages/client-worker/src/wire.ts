@@ -22,6 +22,7 @@ export const CallMethod = z.enum([
   "threadsWindow",
   "threadsMore",
   "enqueue",
+  "editFailedSend",
   "command",
   "submitNew",
   "registry",

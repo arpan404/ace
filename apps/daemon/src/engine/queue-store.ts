@@ -288,6 +288,13 @@ export class QueueStore {
       next: rows.length > messages.length ? (messages.at(-1)?.id ?? null) : null,
     });
   }
+  /** The first message the person sees queued: the one a failed-send hold keeps as not sent. */
+  head(id: ThreadId): number | undefined {
+    const row = this.sql(
+      "SELECT id FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 1",
+    ).get(id);
+    return row ? Number(row.id) : undefined;
+  }
   position(id: ThreadId): number {
     return Number(
       this.sql(

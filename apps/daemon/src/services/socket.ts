@@ -53,6 +53,8 @@ export interface SocketContext {
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
   maintenance: MaintenanceGate;
+  /** The desktop app's last update report (`app-update-board.ts`). */
+  appUpdate: import("../app-update-board.ts").AppUpdateBoard;
   device(): DeviceId | undefined;
   authorize(scope: DeviceScope): boolean;
   /** Capture authenticated authority for admitted durable effects across reconnects. */

@@ -31,6 +31,10 @@ struct MergedInbox: Equatable {
     /// Machines with older threads beyond their loaded window.
     let more: [String]
     let snooze: [InboxLayout.SnoozeOption]
+    /// The words for rows' `menu` ids, from the first machine that sends them.
+    var menuLabels: [String: String] = [:]
+    /// The block ("start", "read", "settle", "leave") each menu id belongs to.
+    var menuSections: [String: String] = [:]
     static let empty = MergedInbox(sections: [], more: [], snooze: [])
 
     static func merge(_ parts: [(machineId: String, layout: InboxLayout)]) -> MergedInbox {
@@ -60,6 +64,8 @@ struct MergedInbox: Equatable {
                     unloaded: group.unloaded)
         }
         return MergedInbox(sections: sections, more: parts.filter { $0.layout.more }.map(\.machineId),
-                           snooze: parts.first { !$0.layout.snooze.isEmpty }?.layout.snooze ?? [])
+                           snooze: parts.first { !$0.layout.snooze.isEmpty }?.layout.snooze ?? [],
+                           menuLabels: parts.lazy.compactMap(\.layout.menuLabels).first ?? [:],
+                           menuSections: parts.lazy.compactMap(\.layout.menuSections).first ?? [:])
     }
 }

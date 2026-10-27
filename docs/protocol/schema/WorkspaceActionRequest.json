@@ -561,6 +561,10 @@
             "repository": {
               "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
             },
+            "since": {
+              "pattern": "^[a-fA-F0-9]{40,64}$",
+              "type": "string"
+            },
             "workspaceId": {
               "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
             }
@@ -795,6 +799,76 @@
         },
         {
           "properties": {
+            "app": {
+              "oneOf": [
+                {
+                  "properties": {
+                    "editorId": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "editor",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "editorId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "files",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "hostPath": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "Absolute or ~-relative host path without NUL bytes."
+            },
+            "line": {
+              "exclusiveMinimum": 0,
+              "maximum": 10000000,
+              "type": "integer"
+            },
+            "op": {
+              "const": "host.open",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "Repository-relative path without NUL bytes."
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "app"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "op": {
               "const": "branches.list",
               "type": "string"
@@ -893,9 +967,25 @@
         },
         {
           "properties": {
+            "expected": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "from": {
+              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+            },
+            "offset": {
+              "maximum": 33554432,
+              "minimum": 0,
+              "type": "integer"
+            },
             "op": {
               "const": "git.diff",
               "type": "string"
+            },
+            "path": {
+              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
             },
             "threadId": {
               "$ref": "https://ace.local/protocol/v1/ThreadId.json"

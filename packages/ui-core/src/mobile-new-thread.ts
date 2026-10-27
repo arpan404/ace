@@ -19,7 +19,7 @@ import {
 } from "./model-picker.ts";
 import { providerAccountModel } from "./provider-account-model.ts";
 import { catalogSignal } from "./provider-readiness.ts";
-import { providerAccountState } from "./provider-status.ts";
+import { providerAccountState, type ProviderState } from "./provider-status.ts";
 import { providerDisplayName } from "./providers.ts";
 import { speedLabel, speedOption, type Speed } from "./speed.ts";
 import type { StatusDisplay, StatusToken } from "./mobile-status.ts";
@@ -54,6 +54,8 @@ export interface NewThreadProviderRow {
   ready: boolean;
   /** Its CLI is on the computer, ready or not. */
   installed: boolean;
+  /** Its readiness as the web's provider pickers name it (`providerChoiceLabel`). */
+  state: ProviderState;
   status: StatusDisplay;
   /** Why it can't be picked, in words; absent when it can. */
   reason: string | undefined;
@@ -132,6 +134,7 @@ export function newThreadAgents(input: {
       name: providerDisplayName(row.provider),
       ready,
       installed: state !== "not_installed",
+      state,
       status: {
         label: ready ? "Ready" : label,
         token: ready ? "done" : (tokens[state] ?? "neutral"),

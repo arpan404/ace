@@ -1,0 +1,174 @@
+import { verifySettled, type ForgeCheck, type ForgeCheckRun, type VerifyRun } from "@ace/protocol";
+
+/*
+ * What the PR panel shows for one check, worked out without rendering: which run it reads,
+ * where a search lands in its log, and the log excerpt "Fix with agent" hands over. Pure.
+ */
+
+/** The check run behind a check (`check:<id>`); commit statuses have none. */
+export function checkRunId(check: Pick<ForgeCheck, "id">): number | undefined {
+  const match = /^check:(\d+)$/.exec(check.id);
+  const id = Number(match?.[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+}
+
+/** At most this many matches are found; a search past it narrows instead. */
+export const maxMatches = 5_000;
+
+/** The lines containing `query`, ignoring case, in order. */
+export function searchLog(lines: readonly string[], query: string): number[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const matches: number[] = [];
+  for (let index = 0; index < lines.length && matches.length < maxMatches; index++)
+    if (lines[index]?.toLowerCase().includes(needle)) matches.push(index);
+  return matches;
+}
+
+/** The match at or after `from`, wrapping to the first. */
+export function nextMatch(matches: readonly number[], from: number): number {
+  const index = matches.findIndex((line) => line >= from);
+  return index < 0 ? 0 : index;
+}
+
+/** Annotations that point at a file: runner-level ones name `.github`, not a file. */
+export function fileAnnotation(path: string): boolean {
+  return path !== ".github" && path.length > 0;
+}
+
+const excerptLines = 60;
+const excerptChars = 6_000;
+
+/**
+ * The part of the log an agent needs: the failing step up to just past its last error, at
+ * most 60 lines and 6,000 characters, newest kept. Empty when there is no log.
+ */
+export function logExcerpt(run: Pick<ForgeCheckRun, "log" | "workflow">): string {
+  const log = run.log;
+  if (!log) return "";
+  const lines = log.text.split("\n");
+  const steps = run.workflow?.steps ?? [];
+  const failing = steps.find((step) => step.status === "failure" && step.line !== null);
+  const start = failing?.line ?? 0;
+  const after = steps
+    .map((step) => step.line)
+    .filter((line): line is number => line !== null && line > start)
+    .toSorted((a, b) => a - b)[0];
+  const stop = after ?? lines.length;
+  const errors = log.errors.filter((line) => line >= start && line < stop);
+  const last = errors.at(-1);
+  const end = Math.min(stop, last === undefined ? stop : last + 4);
+  let text = lines.slice(Math.max(start, end - excerptLines), end).join("\n");
+  if (text.length > excerptChars) text = text.slice(text.length - excerptChars);
+  return text;
+}
+
+/** What "Fix with agent" asks about a failing check, with what the panel read of it. */
+export function checkFixRequest(
+  check: { name: string; url: string | null },
+  pr: { number: number; url: string },
+  run: ForgeCheckRun | undefined,
+): string {
+  const head = `The check "${check.name}" fails on PR #${pr.number} (${check.url ?? pr.url}).`;
+  if (!run) return `${head} Read its log, find the cause and push a fix to the PR branch.`;
+  const parts = [head];
+  const findings = run.annotations
+    .filter((annotation) => annotation.level !== "notice")
+    .slice(0, 20)
+    .map((annotation) => {
+      const where = fileAnnotation(annotation.path)
+        ? `${annotation.path}${annotation.startLine ? `:${annotation.startLine}` : ""}: `
+        : "";
+      return `- ${where}${annotation.message.split("\n")[0] ?? ""}`;
+    });
+  if (findings.length) parts.push(`Annotations:\n${findings.join("\n")}`);
+  const failing = run.workflow?.steps.find((step) => step.status === "failure");
+  const excerpt = logExcerpt(run);
+  if (excerpt)
+    parts.push(
+      `Log${failing ? ` of the step "${failing.name}"` : ""}:\n\`\`\`\`text\n${excerpt}\n\`\`\`\``,
+    );
+  else if (run.output.summary) parts.push(`Summary:\n${run.output.summary.slice(0, 4_000)}`);
+  parts.push("Find the cause and push a fix to the PR branch.");
+  return parts.join("\n\n");
+}
+
+/** What can be done to one check from its page, decided once for every client. */
+export interface CheckControls {
+  /** Re-run only the workflow run's failed jobs: a finished run that failed or was cancelled. */
+  rerunFailed: boolean;
+  /** Re-run every job of a finished workflow run. */
+  rerunAll: boolean;
+  /** Stop a workflow run that is still going. */
+  cancel: boolean;
+  /** Hand the failure to an agent: an open PR's failing check. */
+  fix: boolean;
+}
+
+export function checkControls(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "workflow"> | undefined,
+  prOpen: boolean,
+): CheckControls {
+  const workflow = run?.workflow ?? null;
+  const failed = check.status === "failure" || check.status === "cancelled";
+  return {
+    rerunFailed: workflow !== null && failed,
+    rerunAll: workflow !== null && check.status !== "pending",
+    cancel: workflow !== null && check.status === "pending",
+    fix: prOpen && check.status === "failure",
+  };
+}
+
+/** Why a workflow job shows no log, when it has none. */
+export function checkLogNote(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "log" | "workflow" | "logUnavailable">,
+): string | undefined {
+  if (run.log || !run.workflow) return undefined;
+  if (check.status === "pending") return "The log shows once this job finishes.";
+  return run.logUnavailable ? "GitHub has no log for this job any more." : undefined;
+}
+
+/** A check's state in words and the status tone it takes. */
+export const checkLook: Record<ForgeCheck["status"], { word: string; tone: string }> = {
+  success: { word: "Passed", tone: "done" },
+  failure: { word: "Failed", tone: "failed" },
+  pending: { word: "Running", tone: "working" },
+  cancelled: { word: "Cancelled", tone: "idle" },
+  unknown: { word: "Unknown", tone: "idle" },
+};
+
+/** A local check run's state (ADR 0094) in words; a PR head with no run says "Not run". */
+export function localCheckLook(run: Pick<VerifyRun, "state"> | undefined): {
+  word: string;
+  tone: string;
+} {
+  switch (run?.state) {
+    case "queued":
+      return { word: "Queued", tone: "working" };
+    case "running":
+      return { word: "Running", tone: "working" };
+    case "passed":
+      return { word: "Passed", tone: "done" };
+    case "failed":
+      return { word: "Failed", tone: "failed" };
+    case "cancelled":
+      return { word: "Stopped", tone: "idle" };
+    case "interrupted":
+      return { word: "Interrupted", tone: "idle" };
+    default:
+      return { word: "Not run", tone: "idle" };
+  }
+}
+
+/** The one control a PR's local check offers now: start it, start it again, or stop it. */
+export function localCheckAction(run: Pick<VerifyRun, "state"> | undefined): {
+  kind: "start" | "cancel";
+  label: string;
+  disabled: boolean;
+} {
+  if (run && !verifySettled.includes(run.state))
+    return { kind: "cancel", label: "Stop", disabled: run.state === "merging" };
+  return { kind: "start", label: run ? "Run again" : "Run checks", disabled: false };
+}

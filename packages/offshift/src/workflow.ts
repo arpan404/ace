@@ -1,6 +1,7 @@
 import {
   OffshiftRun,
   OffshiftView,
+  type OffshiftActor,
   type OffshiftAuthor,
   type OffshiftCriterion,
   type OffshiftEvidence,
@@ -15,6 +16,13 @@ export class OffshiftError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OffshiftError";
+  }
+}
+/** The run moved past the version a change was made against. */
+export class OffshiftConflict extends OffshiftError {
+  constructor(message: string) {
+    super(message);
+    this.name = "OffshiftConflict";
   }
 }
 export interface Observation {
@@ -32,10 +40,12 @@ export interface Context extends Observation {
 }
 
 /**
- * Whether `by` checked independently of the run owner: another thread on another provider, or
- * on the same provider with a model known to differ. An unknown model or author never counts.
+ * Whether `by` checked independently of the run owner: the person, who checks by hand outside
+ * any model; another thread on another provider; or one on the same provider with a model known
+ * to differ. An unknown model or author never counts.
  */
-export function independentOf(owner: OffshiftAuthor | null, by: OffshiftAuthor | null): boolean {
+export function independentOf(owner: OffshiftAuthor | null, by: OffshiftActor | null): boolean {
+  if (by?.kind === "person") return true;
   if (!owner || !by) return false;
   if (by.threadId === owner.threadId) return false;
   if (by.provider !== owner.provider) return true;
@@ -70,21 +80,23 @@ export function view(run: OffshiftRun, observation: Observation): OffshiftView {
     }
   }
   // Delivery steps still to do (the report itself) keep the run active.
-  const state: OffshiftView["state"] = run.blocker
-    ? "blocked"
-    : run.phase !== "delivery" || todo(run, "delivery").length
-      ? "active"
-      : pending.length
-        ? "needs_evidence"
-        : observation.treeState !== "done"
-          ? "waiting_on_tree"
-          : "complete";
+  const state: OffshiftView["state"] = run.ended
+    ? "ended"
+    : run.blocker
+      ? "blocked"
+      : run.phase !== "delivery" || todo(run, "delivery").length
+        ? "active"
+        : pending.length
+          ? "needs_evidence"
+          : observation.treeState !== "done"
+            ? "waiting_on_tree"
+            : "complete";
   const { revision, treeState } = observation;
   const shape = { run, revision, treeState, state, pending };
   return OffshiftView.parse({ ...shape, next: nextStep(shape, observation.children) });
 }
 
-const phases = ["plan", "implement", "verify", "review", "delivery"] as const;
+export const phases = ["plan", "implement", "verify", "review", "delivery"] as const;
 
 /** The steps of `phase` still to do, in order. */
 export function todo(run: OffshiftRun, phase: OffshiftRun["phase"]): OffshiftStep[] {
@@ -92,7 +104,9 @@ export function todo(run: OffshiftRun, phase: OffshiftRun["phase"]): OffshiftSte
 }
 
 /** A playbook's steps, then the custom ones, in phase order (stable within a phase). */
-function startSteps(request: Extract<OffshiftRequest, { action: "start" }>): OffshiftStep[] {
+export function startSteps(
+  request: Pick<Extract<OffshiftRequest, { action: "start" }>, "playbook" | "steps">,
+): OffshiftStep[] {
   const listed = [
     ...(request.playbook ? playbook(request.playbook).steps : []),
     ...(request.steps ?? []),
@@ -152,10 +166,16 @@ export function transition(
   }
   if (!current)
     throw new OffshiftError(`Run ${request.runId} not found; call list to see this thread's runs`);
-  if (current.version !== request.version)
+  if (current.ended)
     throw new OffshiftError(
-      `Run changed: it is at version ${current.version}; call get with runId "${current.id}", reconcile, then retry with version ${current.version}`,
+      `The person ended run ${current.id}${current.ended.note ? `: ${current.ended.note}` : ""}. Leave it as it is; report, and start a new run only if they ask`,
     );
+  if (current.version !== request.version) {
+    const theirs = current.personChanges.filter((item) => item.version > request.version);
+    throw new OffshiftConflict(
+      `Run changed: it is at version ${current.version}${theirs.length ? `. The person changed it since your version: ${theirs.map((item) => item.summary).join("; ")}. Keep their changes` : ""}; call get with runId "${current.id}", reconcile, then retry with version ${current.version}`,
+    );
+  }
   const next = { ...current, version: current.version + 1, updatedAt: context.now };
   if (request.action === "block") return { ...next, blocker: request.note, note: request.note };
   if (request.action === "resume") return { ...next, blocker: null, note: request.note };
@@ -166,6 +186,21 @@ export function transition(
   if (request.action === "revise") return revise(current, next, request.criterion, request.note);
   if (request.action === "step") return markStep(current, next, request);
   if (request.action === "evidence") return record(current, next, request.evidence, context);
+  return advancePhase(current, next, request.phase, request.note, context);
+}
+
+/**
+ * Moves one phase forward, out of a phase with no steps to do and into delivery only with every
+ * criterion passing; or back to any earlier phase.
+ */
+export function advancePhase(
+  current: OffshiftRun,
+  next: OffshiftRun,
+  phase: OffshiftRun["phase"],
+  note: string,
+  observation: Observation,
+): OffshiftRun {
+  const request = { phase };
   const from = phases.indexOf(current.phase),
     to = phases.indexOf(request.phase);
   // Returning to implementation/verification is necessary after review findings or source edits.
@@ -181,14 +216,14 @@ export function transition(
       `Finish ${current.phase} first: ${open.length} step${open.length === 1 ? "" : "s"} to do (${open.map((step) => step.id).join(", ")}). Call step for each: done with what you observed, or skipped with the reason`,
     );
   if (request.phase === "delivery") {
-    const pending = view(current, context).pending;
+    const pending = view(current, observation).pending;
     const first = pending[0];
     if (first)
       throw new OffshiftError(
         `Delivery requires a counting pass for every criterion: ${pending.length} pending, first ${first.kind} for ${first.criterionId}${first.needs ? " from another provider or model" : ""}; call get and follow next`,
       );
   }
-  return OffshiftRun.parse({ ...next, phase: request.phase, note: request.note });
+  return OffshiftRun.parse({ ...next, phase: request.phase, note });
 }
 
 /**
@@ -231,7 +266,7 @@ function markStep(
  * A revised criterion is a new requirement: earlier passes checked the old wording, so its
  * evidence is dropped and must be gathered again.
  */
-function revise(
+export function revise(
   current: OffshiftRun,
   next: OffshiftRun,
   criterion: OffshiftCriterion,
@@ -273,6 +308,17 @@ function record(
         `Evidence ${key} appears twice; send one result per criterion and kind. Nothing was recorded`,
       );
     seen.add(key);
+    const theirs = current.evidence.find(
+      (item) =>
+        item.criterionId === evidence.criterionId &&
+        item.kind === evidence.kind &&
+        item.by?.kind === "person" &&
+        item.revision === context.revision,
+    );
+    if (theirs)
+      throw new OffshiftError(
+        `The person checked ${key} themselves at this revision (${theirs.result}); their check stands and nothing was recorded. If yours disagrees, tell them, or ask with ask`,
+      );
     if (evidence.revision !== context.revision)
       throw new OffshiftError(
         `Source changed since verification; nothing was recorded. Call get with runId "${current.id}", repeat the checks, then record evidence with the revision get returns`,

@@ -10,12 +10,23 @@ struct ComposerAccessories: View {
     let problem: String?
     private var notice: String? { screen.tune?.notice.isEmpty == false ? screen.tune?.notice : nil }
     /// "Continues in a new thread with your next message": Send does something else now, so it's said.
-    private var continues: String? { screen.controls?.continues == true ? screen.controls?.note : nil }
+    private var continues: String? {
+        guard screen.controls?.continues == true, let note = screen.controls?.note, !note.isEmpty else { return nil }
+        return note
+    }
     var body: some View {
-        if !screen.attachments.isEmpty || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if !screen.annotations.isEmpty {
+                    AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })
+                        .transition(.opacity)
+                }
+                if let locked = screen.attachmentsLocked {
+                    Text(locked).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(2).accessibilityIdentifier("composer.attachLocked")
                 }
                 if let continues {
                     Text(continues).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)

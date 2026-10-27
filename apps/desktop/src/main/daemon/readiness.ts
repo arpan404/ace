@@ -5,7 +5,9 @@ const POLL_MS = 200;
 
 export interface ReadinessPorts {
   find(): Promise<LocalDaemon | undefined>;
-  maintenance(daemon: LocalDaemon): Promise<{ draining: boolean }>;
+  maintenance(
+    daemon: LocalDaemon,
+  ): Promise<{ draining: boolean; holds?: readonly string[] | undefined }>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
   log(level: "warn", message: string, data?: Record<string, unknown>): void;
@@ -34,9 +36,8 @@ export async function waitForDaemon(
 
 /** A found daemon's admission: read, unreadable past the deadline, or no longer wanted. */
 export type Admission =
-  | { kind: "read"; draining: boolean }
-  | { kind: "failed"; reason: string }
-  | { kind: "abandoned" };
+  /** `paused`: the person paused new work; an update or kill-all holding admission isn't that. */
+  { kind: "read"; paused: boolean } | { kind: "failed"; reason: string } | { kind: "abandoned" };
 
 /**
  * Ask a found daemon whether it admits new work, retrying while it is still coming up. The
@@ -52,8 +53,8 @@ export async function readAdmission(
   const deadline = ports.now() + timeoutMs;
   while (live()) {
     try {
-      const { draining } = await ports.maintenance(daemon);
-      return { kind: "read", draining };
+      const admission = await ports.maintenance(daemon);
+      return { kind: "read", paused: personPaused(admission) };
     } catch (error) {
       if (!live()) break;
       if (ports.now() >= deadline)
@@ -63,4 +64,12 @@ export async function readAdmission(
     }
   }
   return { kind: "abandoned" };
+}
+
+/** Whether the person paused new work; daemons that predate holds only say it is closed. */
+export function personPaused(admission: {
+  draining: boolean;
+  holds?: readonly string[] | undefined;
+}): boolean {
+  return admission.holds ? admission.holds.includes("user") : admission.draining;
 }

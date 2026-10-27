@@ -1,6 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { ProjectCommand, WorkspaceId } from "@ace/protocol";
-import { cloneProgress, expectContext } from "@ace/ui-core";
+import { cloneProgress, expectContext, projectProblem } from "@ace/ui-core";
 import { submitCommand } from "./commands.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 
@@ -198,7 +198,9 @@ export class ComposeSearch {
             projectId: result.workspace?.id ?? null,
             message: result.ok
               ? ""
-              : this.#preview(result.error ?? "Couldn't add the project", 2048),
+              : this.#preview(projectProblem(result.error ?? "project_failed").message, 2048),
+            // Outside the machine's project folders: the person can allow it right here.
+            canAllow: !result.ok && projectProblem(result.error ?? "").canAllow === true,
           })),
         requestId,
       );

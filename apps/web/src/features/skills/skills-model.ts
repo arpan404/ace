@@ -7,7 +7,7 @@ import {
   type PluginSkillAvailability,
   type SkillEntry,
 } from "@ace/protocol";
-import { extensionDisplayName } from "@ace/ui-core";
+import { extensionDisplayName, pluginOn } from "@ace/ui-core";
 import { z } from "zod";
 import type { SkillHome } from "./library-model.ts";
 
@@ -152,7 +152,7 @@ export function skillCatalog(
         description: pluginDescription(install, own),
         plugin: install.name,
         path: undefined,
-        enabled: (entry?.enabled ?? true) && (entry?.providers.length ?? 1) > 0,
+        enabled: pluginOn(entry ?? { enabled: true, providers: ProviderKind.options }),
         providers: entry?.providers ?? ProviderKind.options,
         install: {
           version: install.version,
@@ -172,7 +172,7 @@ export function skillCatalog(
     description: component.description,
     plugin: component.plugin,
     path: component.path,
-    enabled: component.enabled && component.providers.length > 0,
+    enabled: pluginOn(component),
     skillAvailability: component.skillAvailability,
     providers: component.providers,
   }));

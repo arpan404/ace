@@ -162,7 +162,10 @@ import XCTest
     }
     private func open(_ id: String, in app: XCUIApplication) {
         let row = app.buttons[id]
-        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        // The fixture's list is longer than a screen: scroll until the row is drawn.
+        _ = app.buttons["inbox.search"].waitForExistence(timeout: 30)
+        for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
     }
     private func title(_ text: String, in app: XCUIApplication) -> XCUIElement {

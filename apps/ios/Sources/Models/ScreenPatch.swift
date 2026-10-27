@@ -77,6 +77,22 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let error: String
     /// The file's type, for drawing a video; absent from older bridges.
     var mimeType: String? = nil
+    /// A file the thread already stores, carried from an edited message: read through that message.
+    var carried: Carried? = nil
+    struct Carried: Codable, Sendable, Equatable { let itemId: String; let ref: String; let thumbnail: Bool }
+}
+/// One browser annotation on the next message (`bridge/thread-annotations.ts`): its marker's
+/// number, the comment, what was pinned, and its crop's upload.
+struct AnnotationChip: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let number: Int
+    let comment: String
+    let region: Bool
+    let label: String
+    /// The crop staged on the phone, for its thumbnail.
+    let image: String?
+    /// uploading, ready or failed.
+    let state: String
 }
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
@@ -150,17 +166,31 @@ enum ScreenPatch: Sendable {
     case stepsReleased(ordinal: Int)
     case tune(TuneRow)
     case access(ThreadAccessRow)
-    case attachments([AttachmentFile])
+    /// `locked`: why no file can be added now (a new thread is starting from this message).
+    case attachments([AttachmentFile], locked: String?)
+    case annotations([AnnotationChip])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
+    /// What the open lane's subagent is: its prompt, branch state, requests and controls.
+    case laneInfo(lane: String, info: SubagentInfo?)
+    /// The thread's Offshift run (`bridge/offshift.ts`).
+    case offshift(OffshiftRun?)
     case pill(PillRow?, GoalRow?)
     /// The next message started a new thread carrying this one's context: open it.
     case continued(String)
     /// A move sent without the question it needs (the rows were older than the thread): ask it.
     case switchAsk(SwitchAsk)
+    /// What stops the checkout, or nil when nothing does.
+    case work(WorkLine?)
+    /// What the thread's menu and messages offer: Retry's answer, the last turn, the parent.
+    case transitions(TransitionsRow)
+    /// The fork written in the composer; nil once it is closed or started.
+    case fork(ForkDraftRow?)
+    /// What bringing this fork back to its parent starts with.
+    case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened }
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.offshift", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items, info, run }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -169,11 +199,20 @@ enum ScreenPatch: Sendable {
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
         case "thread.continued": self = .continued(try box.decode(String.self, forKey: .opened))
         case "thread.switchAsk": self = .switchAsk(try SwitchAsk(from: decoder))
+        case "thread.work": self = .work(try box.decodeIfPresent(WorkLine.self, forKey: .row))
         case "thread.stepsReleased": self = .stepsReleased(ordinal: try box.decode(Int.self, forKey: .ordinal))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
-        case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
+        case "thread.attachments":
+            self = .attachments(try box.decode([AttachmentFile].self, forKey: .files), locked: try box.decodeIfPresent(String.self, forKey: .locked))
+        case "thread.transitions": self = .transitions(try TransitionsRow(from: decoder))
+        case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
+        case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
+        case "thread.annotations": self = .annotations(try box.decode([AnnotationChip].self, forKey: .items))
+        case "thread.offshift": self = .offshift(try box.decodeIfPresent(OffshiftRun.self, forKey: .run))
+        case "thread.laneInfo":
+            self = .laneInfo(lane: try box.decode(String.self, forKey: .lane), info: try box.decodeIfPresent(SubagentInfo.self, forKey: .info))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

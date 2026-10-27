@@ -24,6 +24,7 @@ struct NotificationSettingsView: View {
                 Text("Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
             }
             .insetRowBackground()
+            PhoneNotificationSections(notifications: notifications)
             Section {
                 ForEach(inbox.sessions) { session in
                     NavigationLink {

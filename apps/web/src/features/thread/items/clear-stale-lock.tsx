@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useClient } from "@ace/client-react";
 import { ThreadId, WorkspaceId, type CommandPayload } from "@ace/protocol";
+import { staleLockOutcome, type StaleLockTarget } from "@ace/ui-core";
 import { LockOpenIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -12,9 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-
-/** Whose lock: a thread's checkout (a message it stopped) or a project's repository (a start). */
-export type StaleLockTarget = { threadId: string } | { workspaceId: string };
 
 const clearing = (target: StaleLockTarget): CommandPayload =>
   "threadId" in target
@@ -31,27 +29,17 @@ export function ClearStaleLock(props: { target: StaleLockTarget; onCleared?(): v
   const toast = useToast();
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
-  const thread = "threadId" in props.target;
   const clear = () => {
     setAsking(false);
     setBusy(true);
     void client
       .command(clearing(props.target))
       .then((result) => {
-        if (result.ok) {
-          // Say what happened: a lock that had already cleared on its own isn't "cleared" by this.
-          toast.add({
-            title: result.locksCleared ? "Lock cleared" : "No lock is held now",
-            description: thread ? "Retry to send it." : "Retry to start the thread.",
-          });
+        const outcome = staleLockOutcome(result, props.target);
+        if (outcome.ok) {
+          toast.add({ title: outcome.title, description: outcome.detail });
           props.onCleared?.();
-        } else
-          toast.error({
-            title: "The lock is still held",
-            description:
-              result.detail ??
-              "The ace daemon that holds it may still be running. Stop it, or restart this daemon, then try again.",
-          });
+        } else toast.error({ title: outcome.title, description: outcome.detail });
       })
       .catch(() =>
         toast.error({ title: "Couldn't clear the lock", description: "Try again in a moment." }),

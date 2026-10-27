@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineGrants.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agents": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+    },
+    "browser": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+    },
+    "commands": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+    },
+    "devices": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+    },
+    "screen": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+    }
+  },
+  "required": [
+    "agents",
+    "browser",
+    "devices",
+    "screen",
+    "commands"
+  ],
+  "type": "object"
+}

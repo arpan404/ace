@@ -214,6 +214,19 @@ const extra = [
   "sidebar-simple",
   "tree-structure",
   "user",
+  // The browser's page commands and annotate mode, as the web's browser menu draws them.
+  "speaker-high",
+  "speaker-slash",
+  "broom",
+  "file-code",
+  "printer",
+  "puzzle-piece",
+  "chat-circle-text",
+  "square-split-horizontal",
+  "pencil-simple-line",
+  // Device viewing and stream stats.
+  "frame-corners",
+  "gauge",
   // Reactions and comment actions on pull requests and issues, as the web draws them.
   "thumbs-up",
   "thumbs-down",
@@ -229,6 +242,10 @@ const extra = [
   "eye-slash",
   "bell-slash",
   "envelope-open",
+  // The thread menus' Mark unread, Mark read and auto-settle (`threadMenu`).
+  "envelope-simple",
+  "envelope-simple-open",
+  "clock-countdown",
   "lock-open",
   "flag",
   "play-circle",

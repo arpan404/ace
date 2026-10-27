@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { themedPalette } from "@/theme/accent.ts";
+import { themedPalette } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import type { PreviewSource } from "../sources.ts";
 

@@ -1,4 +1,10 @@
-import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
+import {
+  retryOf,
+  retrySend,
+  type ChangeTap,
+  type ClientCore,
+  type ThreadSource,
+} from "@ace/client";
 import {
   FollowUpBehavior,
   InteractionId,
@@ -6,7 +12,16 @@ import {
   type CatalogEntry,
   type CommandPayload,
 } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
+import {
+  composerReply,
+  isBusy,
+  messageHasContent,
+  modelLabel,
+  sendBusyReason,
+  type QueueAction,
+} from "@ace/ui-core";
+import { runsOn } from "@ace/ui-core/thread-execution";
+import { subagentRetryMessage } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -14,16 +29,28 @@ import { goalCommand, joinContext, messageContent, type Reference } from "./comp
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
-import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
+import {
+  AttachmentTray,
+  nativeChunks,
+  type ChunkReader,
+  type TrayRow,
+} from "./thread-attachments.ts";
+import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { followBlocks } from "./thread-blocks.ts";
+import { followLaneInfo } from "./lane-info.ts";
+import { followOffshift } from "./offshift.ts";
+import { endingOf, SubagentRetries } from "./subagent-retries.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
+import { readQueuedWords } from "./queued-words.ts";
+import { followWorkLine } from "./work-line.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
 import { continuationPayload } from "./thread-continue.ts";
 import { ThreadModelSheet } from "./thread-model-sheet.ts";
 import { TuneFollower } from "./thread-tune.ts";
+import { ThreadTransitions } from "./thread-transitions.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
@@ -38,6 +65,14 @@ const SettingEntries = z.object({
 });
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
 
+/** The parsed choice as the shared `QueueAction`, without an absent account. */
+function queueAction(action: Extract<ThreadAction, { type: "queueAct" }>["action"]): QueueAction {
+  if (action.id !== "migrate_now") return action;
+  return action.instanceId
+    ? { id: action.id, label: action.label, instanceId: action.instanceId }
+    : { id: action.id, label: action.label };
+}
+
 export class ThreadSession {
   readonly #client: ClientCore;
   readonly #store: ThreadSource;
@@ -49,10 +84,15 @@ export class ThreadSession {
   readonly #queue: QueueFollower;
   readonly #blocks: ReturnType<typeof followBlocks>;
   readonly #pill: PillFollower;
+  readonly #offshift: ChangeTap;
+  readonly #retries: SubagentRetries;
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
-  #lane: { agentId: string; tap: ChangeTap } | undefined;
+  readonly #transitions: ThreadTransitions;
+  /** The next message's browser annotations (ADR 0082). */
+  readonly annotations: ThreadAnnotations;
+  #lane: { agentId: string; tap: ChangeTap; info: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
    * Whether the thread's follow-up setting has been read (or given up on). Until then the composer
@@ -76,7 +116,14 @@ export class ThreadSession {
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
+    /** The history window the person reads, when one is open. */
+    reading: () => ThreadSource | undefined = () => undefined,
+    /** The files on the message, kept from the session this one replaces (`keepTray`). */
+    kept?: AttachmentTray,
+    /** Asks to retry a subagent, kept by the bridge across visits to the thread. */
+    retries: SubagentRetries = new SubagentRetries(),
   ) {
+    this.#retries = retries;
     this.#catalog = catalog;
     this.#client = client;
     this.#store = store;
@@ -87,32 +134,68 @@ export class ThreadSession {
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
     this.#pill = new PillFollower(store, put);
-    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
-      this.#pill.queued(count),
+    this.#offshift = followOffshift(store, put);
+    this.#queue = new QueueFollower(
+      client,
+      store,
+      this.#threadId,
+      signal,
+      put,
+      (count, held) => this.#pill.queued(count, held),
+      () => host.now(),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#transitions = new ThreadTransitions(client, store, this.#threadId, {
+      put,
+      reading,
+      changed: () => {
+        this.#controls();
+        this.#sheet.forkChanged();
+      },
+      carry: (itemId, files) => this.#tray.carry(itemId, files),
+      dropCarried: () => this.#tray.dropCarried(),
+    });
     this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
       put,
       now: () => host.now(),
       preview,
       changed: () => this.#controls(),
       files: () => this.#tray.files(),
+      fork: {
+        open: () => this.#transitions.draft !== undefined,
+        picked: () => this.#transitions.draft?.choice,
+        choose: (choice) => this.#transitions.choose(choice),
+      },
     });
     this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
       this.#dispatch(payload, id),
     );
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
-    this.#tray = new AttachmentTray(
+    const trayRows = (files: TrayRow[], locked: string | undefined) =>
+      put("attachments", () => ({
+        type: "thread.attachments",
+        files,
+        ...(locked ? { locked } : {}),
+      }));
+    if (kept) kept.adopt(signal, trayRows);
+    this.#tray =
+      kept ?? new AttachmentTray(client, { threadId: this.#threadId }, signal, trayRows, chunks);
+    const workLine = followWorkLine(store, put, preview);
+    this.annotations = new ThreadAnnotations(
       client,
-      { threadId: this.#threadId },
+      this.#threadId,
       signal,
-      (files) => put("attachments", () => ({ type: "thread.attachments", files })),
+      (patch) => put("annotations", () => patch),
       chunks,
+      preview,
     );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
+      workLine(keys);
       this.#pill.tap(keys);
       this.#lane?.tap(keys);
+      this.#lane?.info(keys);
+      this.#offshift(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
       if (
@@ -131,9 +214,26 @@ export class ThreadSession {
         this.#access.update();
       }
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
-      if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
+      // The root agent's limit failure and the kept message's notice say what holds the queue.
+      if (
+        keys === "all" ||
+        keys.has("queue") ||
+        keys.has("thread") ||
+        keys.has("agents") ||
+        keys.has("order") ||
+        [...keys].some((key) => key.startsWith("agent:"))
+      )
         this.#queue.update();
       if (keys === "all") this.#ready();
+      // Retry, the last turn and Bring back move with the thread's status, its order and its
+      // turns, never with a streamed delta: an item's own change costs them nothing.
+      if (keys === "all") this.#transitions.resend();
+      else if (
+        keys.has("thread") ||
+        keys.has("order") ||
+        [...keys].some((key) => key.startsWith("run:"))
+      )
+        this.#transitions.update();
     });
     this.#blocks.tap("all");
     this.#pill.tap("all");
@@ -142,6 +242,7 @@ export class ThreadSession {
     this.#queue.update();
     this.#tune.update();
     this.#access.update();
+    this.#transitions.update();
     this.#ready();
     void this.#readSetting();
     // Offline, the read waits for the connection; the composer must not wait with it.
@@ -161,11 +262,27 @@ export class ThreadSession {
     return this.#epoch;
   }
 
+  /** The stored files the fork being written carries, which the thread's list must not remove. */
+  carriedFiles(): ReadonlySet<string> {
+    return this.#tray.carried();
+  }
+
+  /**
+   * Hand the message's files to the session that replaces this one for the same thread, so
+   * reading the thread again from its machine never drops them. This one stops showing them.
+   */
+  keepTray(): AttachmentTray {
+    this.#trayKept = true;
+    return this.#tray;
+  }
+  #trayKept = false;
+
   dispose(): void {
     this.#abort.abort();
     this.#stop();
     this.#steps.dispose();
-    this.#tray.dispose();
+    if (!this.#trayKept) this.#tray.dispose();
+    this.annotations.dispose();
   }
 
   handle(raw: unknown): void {
@@ -177,12 +294,17 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        if ((action.continues ?? false) !== (this.#sheet.continued !== undefined))
+        if (
+          (action.continues ?? false) !==
+          (this.#sheet.continued !== undefined || this.#transitions.draft !== undefined)
+        )
           this.#admission(
             action.requestId,
             false,
             "Where this message goes just changed. Check the model and send again.",
           );
+        else if (this.#transitions.draft)
+          this.#fork(action.text, action.requestId, action.references ?? []);
         else if (this.#sheet.continued) this.#continue(action.text, action.requestId);
         // `/goal` goes first, as the web's composer checks it: a pending question never takes it.
         else if (this.#goal(action.text, action.references ?? [], action.requestId)) break;
@@ -262,6 +384,25 @@ export class ThreadSession {
           "That queued message has changed. Check the queue and try again.",
         );
         break;
+      case "queueAct":
+        void this.#queue.act(queueAction(action.action)).then(
+          (payload) => this.#dispatch(payload, action.requestId),
+          () => this.#admission(action.requestId, false, "Couldn't reach the queue. Try again."),
+        );
+        break;
+      case "queueWords": {
+        const id = action.requestId;
+        void readQueuedWords(
+          this.#client,
+          this.#threadId,
+          action.messageId,
+          this.#abort.signal,
+        ).then((reply) => this.#pump.put(`words:${id}`, () => ({ type: "words", id, ...reply })));
+        break;
+      }
+      case "queueMore":
+        this.#queue.more();
+        break;
       case "goal":
         this.#dispatch(
           goalPayload(this.#threadId, this.#store.thread?.goal, this.#pill.editable, action.change),
@@ -282,13 +423,55 @@ export class ThreadSession {
         this.#openLane(action.agentId);
         break;
       case "lane.close":
-        this.#lane = undefined;
+        if (!action.agentId || this.#lane?.agentId === action.agentId) this.#closeLane();
+        break;
+      case "lane.retry":
+        this.#retryLane(action.agentId, action.requestId);
         break;
       case "attach":
         this.#tray.attach(action.file);
         break;
       case "detach":
         this.#tray.detach(action.localId);
+        break;
+      case "fork.open":
+        this.#transitions.open(action.at, action.requestId, (id, ok, message) =>
+          this.#admission(id, ok, message),
+        );
+        break;
+      case "fork.cancel":
+        this.#transitions.cancel();
+        break;
+      case "retry":
+        void this.#transitions.retry(
+          action.answerId,
+          action.requestId,
+          (payload, id) => this.#dispatch(payload, id),
+          (id, ok, message) => this.#admission(id, ok, message),
+        );
+        break;
+      case "rewind":
+        void this.#transitions.rewind(action.itemId, action.requestId, (id, ok, message) =>
+          this.#admission(id, ok, message),
+        );
+        break;
+      case "merge.draft":
+        this.#transitions.mergeDraft();
+        break;
+      case "merge":
+        void this.#transitions.merge(
+          action.summary,
+          action.includeCode,
+          action.requestId,
+          (payload, id) => this.#dispatch(payload, id),
+          (id, ok, message) => this.#admission(id, ok, message),
+        );
+        break;
+      case "annotation.remove":
+        this.annotations.remove(action.id);
+        break;
+      case "annotation.clear":
+        this.annotations.clear();
         break;
     }
   }
@@ -361,13 +544,18 @@ export class ThreadSession {
       return;
     }
     const content = messageContent(text, references, this.#catalog(this.#threadId));
-    if (!messageHasContent(text, this.#tray.size)) {
+    if (!messageHasContent(text, this.#tray.size + this.annotations.count)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
     }
     const files = this.#tray.context();
     if ("refused" in files) {
       this.#admission(id, false, files.refused);
+      return;
+    }
+    const marked = this.annotations.handOff();
+    if (marked && "refused" in marked) {
+      this.#admission(id, false, marked.refused);
       return;
     }
     const payload = sendPayload(this.#store, this.#threadId, text, {
@@ -379,15 +567,23 @@ export class ThreadSession {
       isBusy(this.#store.thread?.status),
       payload.delivery,
     );
-    const context = joinContext(files.context, content.references);
+    const joined = withAnnotations(
+      content.input,
+      joinContext(files.context, content.references),
+      marked,
+    );
     const message: CommandPayload = {
       ...payload,
-      input: content.input,
+      input: joined.input,
       ...(options ? { options } : {}),
-      ...(context ? { context } : {}),
+      ...(joined.context ? { context: joined.context } : {}),
     };
+    const tray = this.#tray;
     void dispatchCommand(this.#client, message, id, this.#pump, {
-      saved: () => this.#tray.sent(),
+      saved: () => {
+        tray.sent(files.ids);
+        if (marked) this.annotations.sent();
+      },
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
       },
@@ -421,42 +617,155 @@ export class ThreadSession {
       this.#admission(id, false, built.refused);
       return;
     }
-    // Swift keeps the words and files until the daemon answers; only a started thread takes them.
+    // Swift keeps the words and files until the daemon answers; only a started thread takes them,
+    // so no file joins meanwhile.
     this.#sheet.continuationSending();
+    const tray = this.#tray;
+    tray.lock("Wait for the new thread to start, then add files.");
     void dispatchCommand(this.#client, built.payload, id, this.#pump, {
-      unsaved: () => this.#sheet.continuationSettled(false),
+      unsaved: () => {
+        this.#sheet.continuationSettled(false);
+        tray.unlock();
+      },
       refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
       receipt: (result) => {
         this.#sheet.continuationSettled(result.ok);
+        if (!("refused" in files) && result.ok) tray.sent(files.ids);
+        tray.unlock();
         if (!result.ok) return;
-        this.#tray.sent();
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));
       },
     });
   }
+  /**
+   * The message starts the fork written in the composer (`thread.fork`) with its files and
+   * references; the app opens it once the daemon names it (`thread.continued`).
+   */
+  #fork(text: string, id: string, references: readonly Reference[]): void {
+    const files = this.#tray.context();
+    if ("refused" in files) return this.#admission(id, false, files.refused);
+    const content = messageContent(text, references, this.#catalog(this.#threadId));
+    const choice = this.#transitions.draft?.choice;
+    this.#transitions.send(
+      {
+        input: text,
+        files: this.#tray.files(),
+        modalities: choice ? this.#sheet.modalities(choice) : undefined,
+        context: joinContext(files.context, content.references),
+      },
+      id,
+      (payload, requestId, hooks) =>
+        void dispatchCommand(this.#client, payload, requestId, this.#pump, {
+          ...hooks,
+          refusal: (error) => `The fork didn't start: ${error ?? "your computer refused it"}.`,
+        }),
+      (requestId, ok, message) => this.#admission(requestId, ok, message),
+      // Only the files this fork carried leave the tray; any added since stay for the next message.
+      () => this.#tray.sent(files.ids),
+    );
+  }
   /** A settled head's answers, which its opened log leaves out. */
   #answersOf(key: string): readonly string[] {
     const block = this.#blocks.block(key);
     return block?.kind === "work" ? (block.answerIds ?? []) : [];
   }
-  /** One native subagent's own blocks, grouped as the transcript is, for its lane sheet. */
+  /**
+   * One native subagent's own blocks, grouped as the transcript is, and what it is (its prompt,
+   * branch state, requests and controls), for its lane view.
+   */
   #openLane(agentId: string): void {
     if (this.#lane?.agentId === agentId) return;
-    const lane = followBlocks(this.#store, (key, read) => this.#put(key, read), { agentId });
-    this.#lane = { agentId, tap: lane.tap };
+    this.#closeLane();
+    const put: Put = (key, read) => this.#put(key, read);
+    const lane = followBlocks(this.#store, put, { agentId });
+    const info = followLaneInfo(
+      this.#store,
+      agentId,
+      put,
+      () => host.now(),
+      () => {
+        const ending = endingOf(this.#store, agentId);
+        return ending && this.#retries.asked(this.#threadId, ending);
+      },
+    );
+    this.#lane = { agentId, tap: lane.tap, info };
     lane.tap("all");
   }
+  #closeLane(): void {
+    if (!this.#lane) return;
+    this.#lane = undefined;
+  }
+  /**
+   * The thread's main agent is sent a short message naming the subagent, its task and how it
+   * ended, so it can relaunch it: queued while it works, a new turn while it is idle. Refused
+   * when the subagent can't be retried now (still going, ended well, or a read-only thread).
+   */
+  #retryLane(agentId: string, id: string): void {
+    const ending = endingOf(this.#store, agentId);
+    // Asked already about this ending: nothing more is sent, and the press is answered.
+    if (ending && this.#retries.asked(this.#threadId, ending)) {
+      this.#admission(id, true, "");
+      return;
+    }
+    const text = subagentRetryMessage(this.#store, agentId, host.now());
+    if (text === undefined || !ending) {
+      this.#admission(id, false, "That subagent can't be retried now. Check its state.");
+      return;
+    }
+    const queued = isBusy(this.#store.thread?.status);
+    this.#retries.begin(this.#threadId, ending);
+    this.#lane?.info("all");
+    void dispatchCommand(
+      this.#client,
+      {
+        type: "thread.send",
+        threadId: this.#threadId,
+        input: [{ type: "text", text }],
+        trigger: "user",
+        delivery: "queue",
+      },
+      id,
+      this.#pump,
+      {
+        saved: () => {
+          this.#retries.settle(this.#threadId, agentId, queued ? "queued" : "sent");
+          this.#lane?.info("all");
+        },
+        unsaved: () => {
+          this.#retries.forget(this.#threadId, agentId);
+          this.#lane?.info("all");
+        },
+      },
+    );
+  }
+
   #controls(): void {
     this.#put("controls", () =>
       this.#settingKnown
         ? {
             type: "thread.controls",
-            row: controlsRow(this.#store, this.#setting, this.#sheet.next()),
+            row: controlsRow(this.#store, this.#setting, this.#next()),
           }
         : undefined,
     );
+  }
+  /** What the model control names: the fork's model while one is written, else the sheet's. */
+  #next() {
+    const draft = this.#transitions.draft;
+    if (!draft) return this.#sheet.next();
+    const selection = runsOn(this.#store.thread);
+    return {
+      provider:
+        draft.choice?.provider ?? selection?.provider ?? this.#store.thread?.provider ?? "codex",
+      model: preview(
+        draft.choice ? draft.choice.model : selection?.model ? modelLabel(selection.model) : "",
+        128,
+      ),
+      note: "",
+      continues: true,
+    };
   }
   #history(): void {
     this.#put("history", () => ({
@@ -496,9 +805,16 @@ export class ThreadSession {
       this.#admission(id, false, "That message isn't waiting for a retry.");
       return;
     }
+    if (this.#client.pendingSend(retryOf(commandId))) {
+      this.#admission(id, false, "It was sent again already: act on the newer one.");
+      return;
+    }
     try {
-      await retrySend(this.#client, commandId, pending.payload);
-      this.#admission(id, true, "");
+      // The send's words as they are when the retry is saved, never as they were when asked.
+      const ran = await this.#client.sendOps.run(commandId, "retrying", () =>
+        retrySend(this.#client, commandId, () => this.#client.pendingSend(commandId)?.payload),
+      );
+      this.#admission(id, ran.ran, ran.ran ? "" : sendBusyReason(ran.running));
     } catch {
       this.#admission(id, false, "Couldn't send it again. It is still here.");
     }

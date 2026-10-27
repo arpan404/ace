@@ -2,7 +2,7 @@ import type { FileDiff } from "@ace/ui-core";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import type { ReviewComposition } from "./compositions.ts";
 import { CompositionEditor } from "./composition-editor.tsx";
-import type { ReviewDraft } from "./drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
 import { FileActions } from "./file-actions.tsx";
 import { FileDiffBlock, inRange, type LineRange, type LineTarget } from "./file-diff.tsx";
 import type { FileView } from "./file-view.ts";
@@ -55,11 +55,13 @@ export function DraftView(props: { draft: ReviewDraft; handlers: ReviewHandlers 
   return (
     <DraftCard
       draft={draft}
-      onSend={() => handlers.send(draft.key)}
-      onEdit={() => handlers.edit(draft)}
-      onResolve={(resolved) => handlers.resolve(draft.key, resolved)}
-      onApply={() => handlers.apply(draft.key)}
-      onDiscard={() => handlers.discard(draft.key)}
+      actions={{
+        onSend: () => handlers.send(draft.key),
+        onEdit: () => handlers.edit(draft),
+        onResolve: (resolved) => handlers.resolve(draft.key, resolved),
+        onApply: () => handlers.apply(draft.key),
+        onDiscard: () => handlers.discard(draft.key),
+      }}
     />
   );
 }
@@ -80,6 +82,8 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
   drafts: readonly ReviewDraft[];
   /** The comment being written, when it is on this file at this version. */
   composition: ReviewComposition | undefined;
+  /** Lines take new comments (the Uncommitted scope only). */
+  commentable: boolean;
   handlers: ReviewHandlers;
 }) {
   const { file, view, handlers, composition, drafts } = props;
@@ -115,7 +119,7 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
         )
       }
       selection={writing}
-      onComment={(range) => handlers.comment(file, range)}
+      onComment={props.commentable ? (range) => handlers.comment(file, range) : undefined}
       onExtend={(range) => {
         if (composition) handlers.extend(composition, file, range);
       }}

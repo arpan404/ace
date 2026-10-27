@@ -94,8 +94,10 @@ export function createProviderInstallsSession(context: SocketContext): SocketSer
     authenticated(channel) {
       if (channel !== undefined || stop || !context.authorize("operate")) return;
       stop = context.options.providerInstalls?.listen((owner, progress) => {
-        if (owner === context.device() && context.connected() && context.authorize("operate"))
+        if (owner === context.device() && context.connected() && context.authorize("operate")) {
           context.send({ type: "provider.install.progress", progress });
+          context.options.providerInstalls?.delivered(progress);
+        }
       });
     },
     close() {

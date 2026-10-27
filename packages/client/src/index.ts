@@ -77,9 +77,20 @@ export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./devi
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
-export { downloadFile, uploadFile } from "./files.ts";
+/** Bounded wire base64 to bytes, natively where the engine can. */
+export { decodeBase64 } from "./base64.ts";
+export {
+  connectionLost,
+  downloadFile,
+  fileDigest,
+  sendResumableUpload,
+  uploadFile,
+  type ResumableUpload,
+} from "./files.ts";
 export {
   readFile,
+  readFileRange,
+  type FileRangeInput,
   type FileReadInput,
   type FileReadOutcome,
   type FileReader,
@@ -123,3 +134,19 @@ export { attachmentReadScope } from "./attachment-scope.ts";
 export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
 
 export { windowSource, type ThreadWindow } from "./window-source.ts";
+export { SendOps, retryOf, type SendOp } from "./send-ops.ts";
+
+export {
+  RowSnapshots,
+  type ItemRow,
+  type RowSnapshotOptions,
+  type SnapshotRows,
+  type ThreadWrite,
+} from "./row-snapshots.ts";
+export {
+  expiredSnapshots,
+  snapshotRetention,
+  type KeptSnapshot,
+  type RetentionPolicy,
+} from "./snapshot-retention.ts";
+export { itemFinished } from "./item-finished.ts";

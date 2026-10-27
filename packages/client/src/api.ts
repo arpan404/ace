@@ -97,6 +97,15 @@ export interface ClientApi {
   connectionState(): Selection<ConnectionState>;
   intent(id: string): Selection<Intent | undefined>;
   pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
+  /** One kept send, as `pendingSends` lists it, read now. */
+  pendingSend(id: string): PendingSend | undefined;
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Retry with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void>;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps: import("./send-ops.ts").SendOps;
   start(): Promise<void>;
   close(): Promise<void>;
   networkOnline(online: boolean): void;

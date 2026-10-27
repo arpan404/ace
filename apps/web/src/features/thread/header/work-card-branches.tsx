@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
+import { checkoutMoveReasons } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { useBranches } from "@/lib/branches.ts";
@@ -7,35 +7,13 @@ import { useCheckoutState } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
 
-/** Agents or terminals are working in the checkout: it can't move under them. */
-const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
-  "working",
-  "needs_you",
-  "waiting",
-  "limited",
-]);
-
 /** Both checkout menus respect the same move admission rules. */
 export function useCheckoutMoves(thread: ThreadRef) {
   const meta = useThreadMeta(thread.id);
   const { checkout, state } = useCheckoutState(thread);
-  const live =
-    meta && liveStates.has(meta.status.state)
-      ? "Wait for the agents to stop: the checkout can't move under live work"
-      : undefined;
-  const noCheckout =
-    state === "loading"
-      ? "Reading the checkout"
-      : checkout
-        ? undefined
-        : state === "error"
-          ? "Couldn't read the checkout"
-          : "Not a git checkout";
   return {
     checkout,
-    switchReason: noCheckout ?? live,
-    worktreeReason:
-      noCheckout ?? (checkout?.mode === "worktree" ? "Already in a worktree of its own" : live),
+    ...checkoutMoveReasons({ status: meta?.status.state, checkout, state }),
   };
 }
 

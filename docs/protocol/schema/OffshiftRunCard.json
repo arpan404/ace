@@ -13,6 +13,9 @@
         }
       ]
     },
+    "byPerson": {
+      "type": "boolean"
+    },
     "criteria": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/OffshiftCardCriterion.json"
@@ -24,6 +27,9 @@
       "maximum": 64,
       "minimum": 1,
       "type": "integer"
+    },
+    "ended": {
+      "type": "boolean"
     },
     "endpoint": {
       "maxLength": 256,

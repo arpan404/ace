@@ -482,7 +482,14 @@ export class GitService {
     );
   }
 
-  async diff(options: { worktree: string; from: DiffSide; to: DiffSide; maxPatchBytes?: number }) {
+  /** `paths` limits the diff to those repository-relative paths (both sides of a rename). */
+  async diff(options: {
+    worktree: string;
+    from: DiffSide;
+    to: DiffSide;
+    maxPatchBytes?: number;
+    paths?: readonly string[];
+  }) {
     const root = await this.repository.root(options.worktree);
     return this.repository.serial(root, () =>
       diff(
@@ -491,6 +498,7 @@ export class GitService {
         options.from,
         options.to,
         options.maxPatchBytes ?? this.maxPatchBytes,
+        options.paths,
       ),
     );
   }

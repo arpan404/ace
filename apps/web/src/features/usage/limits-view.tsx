@@ -23,7 +23,7 @@ export function LimitsView(props: {
   now: number;
   redeem?: RedeemReset | undefined;
 }) {
-  const { providers, quiet } = props.limits;
+  const { providers, quiet, unsure } = props.limits;
   return (
     <div className="flex flex-col gap-10">
       {providers.map((group) => (
@@ -32,6 +32,11 @@ export function LimitsView(props: {
       {quiet.length > 0 && (
         <p className="text-xs text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
       )}
+      {unsure.map((line) => (
+        <p key={line} className="text-xs text-subtle-foreground">
+          {line}
+        </p>
+      ))}
     </div>
   );
 }
