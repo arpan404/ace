@@ -23,6 +23,7 @@ struct SettingsSheet: View {
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @State private var path: [SettingsRoute]
     @State private var toolsMachine = ""
+    @State private var automationUndo = AutomationUndo()
     /// The machine whose archive window is open while the archive or one of its threads shows.
     @State private var following: String?
 
@@ -151,7 +152,8 @@ struct SettingsSheet: View {
             thread: { id in
                 client.open(id)
                 path.append(.thread(machine: machine, id: id))
-            })
+            },
+            undo: automationUndo)
     }
     private func closeMachineViews() {
         if let following { inbox.client(following)?.closeArchive(); self.following = nil }

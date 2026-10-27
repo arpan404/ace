@@ -18,6 +18,8 @@ struct AutomationDetailView: View {
     @State private var deleting = false
     @State private var noting = false
     @State private var feedback = 0
+    /// The copy Duplicate is making, kept until it lands so a retry never makes a second.
+    @State private var copyId: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.automationLinks) private var links
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -277,8 +279,12 @@ struct AutomationDetailView: View {
 
     private func duplicate() async {
         guard let row else { return }
-        let copy = "auto-\(UUID().uuidString.lowercased())"
+        // One id per Duplicate: pressed again after a lost reply, it sends the same copy, which
+        // the bridge counts as made instead of making a second.
+        let copy = copyId ?? "auto-\(UUID().uuidString.lowercased())"
+        copyId = copy
         if await write(["type": "automations.duplicate", "automation": row.automation.any, "id": copy]) != nil {
+            copyId = nil
             links?.replace(copy)
         }
     }
@@ -286,7 +292,11 @@ struct AutomationDetailView: View {
     private func remove() async {
         var request: [String: Any] = ["type": "automation.remove", "id": id, "source": source]
         if let revision = row?.revision { request["expectedRevision"] = revision }
-        if await act(request) != nil { dismiss() }
+        if await act(request) != nil {
+            // The list offers Undo; it makes the automation again from this definition.
+            if let row { links?.undo.deleted = .init(title: row.title, automation: row.automation) }
+            dismiss()
+        }
     }
 }
 

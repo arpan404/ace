@@ -46,6 +46,9 @@ struct AutomationListRow: Decodable, Sendable, Identifiable, Equatable {
 }
 
 struct AutomationPage: Decodable, Sendable {
+    /// Automations are off on the machine: what to say and where to turn them on.
+    struct Off: Decodable, Sendable { let text: String; let fix: String }
+    let off: Off?
     let ok: Bool
     let error: String?
     let unavailable: Bool?
@@ -193,9 +196,23 @@ struct AutomationLinks: ViewModifier {
     let open: (String) -> Void
     let replace: (String) -> Void
     let thread: (String) -> Void
+    /// The automation just deleted, for the list's Undo.
+    let undo: AutomationUndo
     func body(content: Content) -> some View {
         content.environment(\.automationLinks, self)
     }
+}
+
+/// The last automation deleted on this machine's Settings stack: the list offers Undo for it.
+@MainActor @Observable final class AutomationUndo {
+    struct Deleted: Equatable {
+        let id = UUID()
+        let title: String
+        /// The definition as it was, sent back to make it again.
+        let automation: ServiceValue
+        static func == (a: Deleted, b: Deleted) -> Bool { a.id == b.id }
+    }
+    var deleted: Deleted?
 }
 
 extension EnvironmentValues {

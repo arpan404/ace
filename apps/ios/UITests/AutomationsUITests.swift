@@ -127,11 +127,39 @@ import XCTest
         edit.tap()
         let model = app.buttons["automation.model"]
         XCTAssertTrue(model.waitForExistence(timeout: 15))
+        // An automation with no access of its own says it follows the default, which is what it saves.
+        let access = element(app, "automation.access")
+        reveal(app, access)
+        XCTAssertTrue(access.label.contains("Default"), access.label)
         screenshot("edit")
+        reveal(app, model)
         model.tap()
         // New thread's own picker: its tabs and Close.
         XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 20))
         screenshot("model-picker")
+    }
+
+    func testDeleteOffersUndoThatBringsTheAutomationBack() throws {
+        let app = launchIntoAutomations()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20))
+        let manual = app.buttons["automation.row.auto-manual"]
+        reveal(app, manual)
+        manual.tap()
+        let delete = app.buttons["automation.delete"]
+        reveal(app, delete)
+        delete.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Delete", "automation.delete")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        screenshot("delete-confirm")
+        confirm.tap()
+        let undo = app.buttons["Undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["automation.row.auto-manual"].exists)
+        screenshot("undo")
+        undo.tap()
+        reveal(app, app.buttons["automation.row.auto-manual"])
+        XCTAssertTrue(app.buttons["automation.row.auto-manual"].exists)
+        screenshot("undone")
     }
 
     // MARK: Helpers
