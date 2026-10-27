@@ -132,6 +132,27 @@
       "additionalProperties": false,
       "properties": {
         "op": {
+          "const": "agents.models",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "query": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
           "const": "agent.status",
           "type": "string"
         },

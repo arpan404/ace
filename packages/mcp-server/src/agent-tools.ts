@@ -213,19 +213,6 @@ const transfer = controlTool({
   run: (input, control) => control.run({ op: "transfer", ...input }),
 });
 
-const CatalogPage = z.looseObject({
-  models: z.array(
-    z.looseObject({
-      id: z.string(),
-      provider: z.string(),
-      instance: z.string(),
-      accounts: z.array(z.string()).optional(),
-    }),
-  ),
-  instances: z.array(
-    z.looseObject({ provider: z.string(), instance: z.string(), accountId: z.string().optional() }),
-  ),
-});
 const models = controlTool({
   ...agents,
   name: "models",
@@ -233,7 +220,7 @@ const models = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.",
+    "Models a child can run on, grouped by provider: each provider's accounts once (login state, availability, the access modes a child may take), its shared efforts and default, and its current models. A model names its accounts only when not every account serves it. Older releases are left out and counted in omitted; with query, the nearest models to a name across all providers and accounts, legacy included, nearest first. Pass a model's id to delegate.",
   input: z.strictObject({
     provider: ProviderKind.optional().describe("Only this provider's models."),
     query: z
@@ -242,68 +229,15 @@ const models = controlTool({
       .max(256)
       .optional()
       .describe('A model name as the person wrote it, such as "opus 5.5" or "gpt 6.1 sol".'),
-    offset: z.number().int().min(0).max(40_960).default(0).describe("From nextOffset."),
   }),
   output: controlResult(z.unknown()),
-  async run({ provider, query, offset }, control) {
-    const result = await control.run({
-      op: "agents.catalog",
+  run: ({ provider, query }, control) =>
+    control.run({
+      op: "agents.models",
       ...(provider ? { provider } : {}),
       ...(query ? { query } : {}),
-      offset,
-      limit: 20,
-    });
-    const page = CatalogPage.safeParse(result.data);
-    return page.success ? { ...result, data: compactCatalog(page.data) } : result;
-  },
+    }),
 });
-
-const pick = (value: Record<string, unknown>, keys: readonly string[]) =>
-  Object.fromEntries(keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])));
-/** The catalog fields a model chooses by; native selectors and refresh state stay in ace. */
-/** One entry per model, naming the accounts that serve it, in the catalog's order. */
-function compactModels(rows: z.infer<typeof CatalogPage>["models"]) {
-  const byModel = new Map<string, Record<string, unknown> & { accounts: string[] }>();
-  for (const model of rows) {
-    const key = `${model.provider}\u0000${model.id}`;
-    const serving = model.accounts ?? [model.instance];
-    const entry = byModel.get(key);
-    if (entry) {
-      for (const account of serving)
-        if (!entry.accounts.includes(account)) entry.accounts.push(account);
-      continue;
-    }
-    byModel.set(key, {
-      ...pick(model, ["id", "displayName", "provider", "defaultEffort", "isDefault"]),
-      ...(Array.isArray(model["efforts"])
-        ? {
-            efforts: model["efforts"].flatMap((effort: unknown) =>
-              typeof effort === "object" && effort !== null && "id" in effort ? [effort.id] : [],
-            ),
-          }
-        : {}),
-      accounts: [...serving],
-    });
-  }
-  return [...byModel.values()];
-}
-function compactCatalog(page: z.infer<typeof CatalogPage>) {
-  return {
-    models: compactModels(page.models),
-    accounts: page.instances.map((instance) => ({
-      accountId: instance.accountId ?? instance.instance,
-      ...pick(instance, [
-        "provider",
-        "accountLabel",
-        "installed",
-        "auth",
-        "availability",
-        "allowedAccessModes",
-      ]),
-    })),
-    ...pick(page, ["nextOffset", "caller"]),
-  };
-}
 
 export const agentTools = [
   delegate,

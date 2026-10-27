@@ -2337,7 +2337,7 @@ Example:
       "accessibility": true,
       "screenRecording": false
     },
-    "sessionId": "vdlKCoC0pS-fCdqahc76h0-1OKrAke2IlrcNw7T9pM7IS6BakJpfjUTC",
+    "sessionId": "uckJBnBZoR-eBcp_gb65gZ-0NJqzjd1HkqbMv6S8oL6HR5A_jIoeiTSB",
     "target": {
       "kind": "chooser",
       "picked": {
@@ -2368,7 +2368,7 @@ Example:
   "data": null,
   "error": "example",
   "ok": false,
-  "requestId": "FekUxXtH0LzXQ1",
+  "requestId": "EdjTwWsGZKyWP0",
   "type": "screen.result"
 }
 ```
@@ -2388,7 +2388,7 @@ Example:
 ```json
 {
   "ok": false,
-  "requestId": "s",
+  "requestId": "r",
   "type": "devices.result"
 }
 ```
@@ -2415,7 +2415,7 @@ Example:
     },
     "controller": "human",
     "device": {
-      "id": "android:hiPD.-5TTWgH6jvpea9LOmOjkAeXCQKUzyz-vBT1cIEFJ.FZICNT_sRGv_-7tb9y9fzlbN_HCEgnrPW8_zcux9kX.xAFvodMEqJEfkv2Qb-8HpQj48cQu-s..CK2V1rj0KbE.K-vl1-SRu59.YVqWfWW7iCjL2cYbszfQpSflPYof1k1ovL5e25id",
+      "id": "android:ghOC.-4SSVfG5iuod_8KNlNijzdWBPJTyxy-uAS0bHDEI.EYHBMS9rQFu9-6sa8x8eykaM9GBDfmqOV79ybtw8jW.wzEuncLDpIDeju1Pa-7GoPi37bPt-r..BJ1U0qiZJaD.J-uk0-RQt48.XUpVeVV6hBiK1bXaryePoRekOXne0j0nuK4d14hc",
       "name": "example",
       "platform": "android",
       "runtime": "example",
@@ -2483,7 +2483,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:6Fe88abdf5bCf9F0F4a4C458ab02c6E0D69C",
+  "deviceId": "ios:Cb4EE0135B185FbcbA0A8ABE01ce2Cac9CF8",
   "dropped": 5,
   "lines": [],
   "sequence": 0,

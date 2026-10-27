@@ -5,10 +5,14 @@ import {
   type AccessMode,
   type AgentCatalogInput,
   type McpAttribution,
+  type AgentModelsInput,
+  type ModelInstanceStatus,
+  type ThreadId,
 } from "@ace/protocol";
 import { withinJsonBudget } from "@ace/mcp-server";
 import { searchModels } from "@ace/models";
 import { callerThread } from "./authorization.ts";
+import { modelRoster } from "./model-roster.ts";
 import { everyPage } from "./selection-defaults.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
@@ -40,21 +44,15 @@ function searched(deps: DelegationDependencies, filter: ModelFilter, query: stri
   return [...byModel.values()];
 }
 
-/**
- * Read the same retained catalog as models.list; never launch a discovery session. Every
- * account comes back on every page, so an agent sees all it can delegate to in one read.
- */
-export function readAgentCatalog(
+/** Each account with its login state, labels and the access modes a child of `parentId` may take. */
+function catalogAccounts(
   deps: DelegationDependencies,
-  caller: McpAttribution,
-  input: z.infer<typeof AgentCatalogInput>,
+  parentId: ThreadId,
+  statuses: readonly ModelInstanceStatus[],
 ) {
-  const parent = callerThread(deps.store, caller);
-  const { query, ...filter } = input;
-  const page = deps.models.list(filter);
-  const allows = (status: import("@ace/protocol").ModelInstanceStatus, mode: AccessMode) => {
+  const allows = (status: ModelInstanceStatus, mode: AccessMode) => {
     try {
-      deps.engine.childAccess(parent.id, status.provider, mode, {
+      deps.engine.childAccess(parentId, status.provider, mode, {
         ...status,
         accountId: status.instanceId ?? status.instance,
       });
@@ -63,7 +61,7 @@ export function readAgentCatalog(
       return false;
     }
   };
-  const instances = page.instances.map((status) => {
+  const instances = statuses.map((status) => {
     const installed = deps.engine.providerAvailability(status.provider);
     const capabilities = installed.installed
       ? deps.engine.capabilities(status.provider)
@@ -92,6 +90,22 @@ export function readAgentCatalog(
       allowedAccessModes: offers.map((offer) => offer.mode).filter((mode) => allows(status, mode)),
     });
   });
+  return instances;
+}
+
+/**
+ * Read the same retained catalog as models.list; never launch a discovery session. Every
+ * account comes back on every page, so an agent sees all it can delegate to in one read.
+ */
+export function readAgentCatalog(
+  deps: DelegationDependencies,
+  caller: McpAttribution,
+  input: z.infer<typeof AgentCatalogInput>,
+) {
+  const parent = callerThread(deps.store, caller);
+  const { query, ...filter } = input;
+  const page = deps.models.list(filter);
+  const instances = catalogAccounts(deps, parent.id, page.instances);
   const found = query ? searched(deps, filter, query) : undefined;
   const rows = found ? found.slice(input.offset, input.offset + input.limit) : page.models;
   const models = rows.map(({ raw: _raw, ...model }) =>
@@ -130,4 +144,33 @@ export function readAgentCatalog(
   )
     throw new Error("Catalog page exceeds budget");
   return result;
+}
+
+/**
+ * The compact roster the `models` tool shows, built from every page of every account so an
+ * account whose rows sort late is never left without models.
+ */
+export function readModelRoster(
+  deps: DelegationDependencies,
+  caller: McpAttribution,
+  input: AgentModelsInput,
+) {
+  const parent = callerThread(deps.store, caller);
+  const filter = input.provider ? { provider: input.provider } : {};
+  const statuses = deps.models.list({ ...filter, offset: 0, limit: 1 }).instances;
+  const rows = everyPage((options) => deps.models.list(options), filter).map((model) => ({
+    model,
+    account: accountOf(model),
+  }));
+  const model = parent.execution?.model;
+  return modelRoster({
+    rows,
+    accounts: catalogAccounts(deps, parent.id, statuses),
+    caller: {
+      access: deps.engine.access(parent.id),
+      provider: parent.provider,
+      ...(model ? { model } : {}),
+    },
+    query: input.query,
+  });
 }

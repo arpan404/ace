@@ -459,7 +459,7 @@ Example:
 
 ## models
 
-Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.
+Models a child can run on, grouped by provider: each provider's accounts once (login state, availability, the access modes a child may take), its shared efforts and default, and its current models. A model names its accounts only when not every account serves it. Older releases are left out and counted in omitted; with query, the nearest models to a name across all providers and accounts, legacy included, nearest first. Pass a model's id to delegate.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -471,7 +471,6 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | --- | --- | --- | --- |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Only this provider's models."} |
 | query | no | string | {"description":"A model name as the person wrote it, such as \"opus 5.5\" or \"gpt 6.1 sol\".","minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"description":"From nextOffset.","minimum":0,"maximum":40960} |
 
 Example:
 
