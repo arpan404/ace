@@ -118,8 +118,9 @@ struct SettingsPageView: View {
 
     private func change(_ row: SettingsPageData.Row, _ input: SettingsPageInput) {
         guard model.canOperate else { return }
-        let targets = scope?.targets(from: model).send ?? []
-        let machines = targets.isEmpty ? [SettingsScope.Machine(id: "", name: "", client: model)] : targets
+        // Outside Settings' scope (a sheet elsewhere) the change goes to this page's machine.
+        let machines = scope?.targets(from: model) ?? [SettingsScope.Machine(id: "", name: "", client: model)]
+        guard !machines.isEmpty else { return }
         withAnimation(motion) { pending[row.id] = input; rowProblems[row.id] = nil }
         Task {
             var refusals: [(name: String, message: String)] = []

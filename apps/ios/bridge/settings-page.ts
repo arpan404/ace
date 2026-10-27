@@ -1,7 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import { SettingsKey, SettingsProvenance, SettingsValues } from "@ace/protocol";
 import { roleKeys, runRoles } from "@ace/settings/roles";
-import { catalogModelIds } from "@ace/ui-core";
+import { catalogModelIds, settingsScopePlan } from "@ace/ui-core";
 import { z } from "zod";
 import { readAgents, type AgentRead } from "./agent-read.ts";
 import type { Preview } from "./agents.ts";
@@ -61,6 +61,25 @@ export const SettingsModelsRequest = z.object({
   page: PageId,
   row: z.string().min(1).max(128),
 });
+/** Where a change goes and the line that says so (`settingsScopePlan`), for the scope control. */
+export const SettingsScopeRequest = z.object({
+  type: z.literal("settings.scope"),
+  all: z.boolean(),
+  current: z.string().min(1).max(256),
+  machines: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(256),
+        name: z.string().max(256),
+        connected: z.boolean(),
+        canOperate: z.boolean(),
+      }),
+    )
+    .max(64),
+});
+export function readSettingsScope(request: z.infer<typeof SettingsScopeRequest>) {
+  return { type: "settings.scope", ...settingsScopePlan(request) };
+}
 export const SettingsModelStar = z.object({
   type: z.literal("settings.models.star"),
   key: z.string().min(1).max(512),

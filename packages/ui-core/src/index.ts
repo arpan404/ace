@@ -32,6 +32,7 @@ export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";
 export * from "./arrange.ts";
 export * from "./agent-settings.ts";
+export * from "./settings-scope.ts";
 export * from "./attachment-fit.ts";
 export * from "./attachment-limits.ts";
 export * from "./context-errors.ts";

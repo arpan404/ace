@@ -9,6 +9,8 @@ import {
   SettingsModelStar,
   SettingsPageRequest,
   SettingsPageSet,
+  SettingsScopeRequest,
+  readSettingsScope,
   starSettingsModel,
   writeSettingsPage,
   type PagePorts,
@@ -24,6 +26,7 @@ const PageRequest = z.discriminatedUnion("type", [
   SettingsPageSet,
   SettingsModelsRequest,
   SettingsModelStar,
+  SettingsScopeRequest,
 ]);
 export type PageRequest = z.infer<typeof PageRequest>;
 
@@ -46,5 +49,7 @@ export function answerSettingsPage(
       return readSettingsModels(ports, request);
     case "settings.models.star":
       return starSettingsModel(ports, request.key);
+    case "settings.scope":
+      return Promise.resolve(readSettingsScope(request));
   }
 }

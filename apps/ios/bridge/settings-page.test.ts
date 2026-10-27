@@ -4,6 +4,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import {
+  readSettingsScope,
   readSettingsModels,
   readSettingsPage,
   writeSettingsPage,
@@ -381,4 +382,21 @@ test("a role change the machine refuses in part writes none of it", async () => 
   expect(written).toMatchObject({ ok: false, message: "Not on this machine" });
   expect(p.daemon.services.settings.isSet("providers.coder.model")).toBe(false);
   expect(p.daemon.services.settings.isSet("providers.coder.provider")).toBe(false);
+});
+
+test("the scope control never sends a change to a machine this phone may only view", () => {
+  const plan = readSettingsScope({
+    type: "settings.scope",
+    all: true,
+    current: "studio",
+    machines: [
+      { id: "studio", name: "studio", connected: true, canOperate: true },
+      { id: "shared", name: "shared", connected: true, canOperate: false },
+    ],
+  });
+  expect(plan).toEqual({
+    type: "settings.scope",
+    send: ["studio"],
+    footer: "Saved on studio. shared is view-only from this phone.",
+  });
 });
