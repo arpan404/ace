@@ -9,6 +9,7 @@ import { useSelection, sameIds } from "./selection.ts";
 import { isInstrumentedBuild } from "./native-mode.ts";
 import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
 import { Approval } from "./Approval.tsx";
+import { Questions } from "./Questions.tsx";
 import { Composer } from "./Composer.tsx";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
@@ -373,6 +374,7 @@ export function ThreadScreen({
       {interactions.map((interaction) => (
         <View key={interaction} style={{ marginHorizontal: tokens.dimensions.composerInset }}>
           <Approval id={interaction} store={lease.store} client={client} notify={notify} />
+          <Questions id={interaction} store={lease.store} client={client} notify={notify} />
         </View>
       ))}
       <Composer
