@@ -78,6 +78,30 @@ test("invalid trust files cannot partially grant inherited trust", async () => {
   }
 });
 
+test("the last rule for the same normalized folder decides whether a worktree inherits trust", async () => {
+  const f = await fixture();
+  const verdict = async () =>
+    geminiWorkspaceTrust(
+      await readGeminiTrustFacts({
+        env: f.env,
+        userHome: f.home,
+        platform: "darwin",
+        cwd: f.cwd,
+        source: f.source,
+      }),
+    );
+  await writeFile(
+    f.rules,
+    JSON.stringify({ [f.source]: "TRUST_FOLDER", [f.source.toUpperCase()]: "DO_NOT_TRUST" }),
+  );
+  expect(await verdict()).toEqual({ state: "untrusted", denied: false });
+  await writeFile(
+    f.rules,
+    JSON.stringify({ [f.source.toUpperCase()]: "DO_NOT_TRUST", [f.source]: "TRUST_FOLDER" }),
+  );
+  expect(await verdict()).toEqual({ state: "inherited", from: f.source });
+});
+
 test("system defaults, user settings and managed settings decide whether folder trust is enabled", async () => {
   const f = await fixture();
   await writeFile(

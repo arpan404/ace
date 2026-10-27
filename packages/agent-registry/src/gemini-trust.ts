@@ -76,7 +76,7 @@ const Settings = z.looseObject({
     .looseObject({ folderTrust: z.looseObject({ enabled: z.boolean().optional() }).optional() })
     .optional(),
 });
-const Rules = z.record(z.string(), z.unknown());
+const Rules = z.record(z.string(), TrustLevel);
 
 async function jsonc(path: string): Promise<unknown> {
   try {
@@ -151,23 +151,23 @@ export async function readGeminiTrustFacts(input: {
           ),
         );
   const entries = Rules.safeParse(file);
-  if (
-    file !== undefined &&
-    (!entries.success ||
-      Object.values(entries.data).some((value) => !TrustLevel.safeParse(value).success))
-  )
+  if (file !== undefined && !entries.success)
     throw new Error(
       "Invalid Gemini trusted folders configuration; fix trustedFolders.json in the selected Gemini home.",
     );
+  // Gemini normalizes keys while loading its record. A later spelling of the same path
+  // replaces the earlier verdict before longest-match selection or realpath resolution.
+  const normalized = new Map<string, GeminiTrustLevel>();
+  for (const [raw, level] of Object.entries(entries.success ? entries.data : {})) {
+    const absolute = resolve(input.cwd, raw).replaceAll("\\", "/");
+    normalized.set(caseInsensitive ? absolute.toLowerCase() : absolute, level);
+  }
   const rules = await Promise.all(
-    Object.entries(entries.success ? entries.data : {}).flatMap(([raw, value]) => {
-      const level = TrustLevel.safeParse(value);
-      if (!level.success) return [];
-      const absolute = resolve(input.cwd, raw);
-      const key = caseInsensitive ? absolute.toLowerCase() : absolute;
-      const folder = level.data === "TRUST_PARENT" ? dirname(absolute) : absolute;
-      return [real(folder).then((covers) => ({ path: key, level: level.data, covers }))];
-    }),
+    [...normalized].map(async ([path, level]) => ({
+      path,
+      level,
+      covers: await real(level === "TRUST_PARENT" ? dirname(path) : path),
+    })),
   );
   return {
     envTrusted: env[geminiTrustEnv] === "true",
