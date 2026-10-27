@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Readable } from "node:stream";
 import { terminateDirectoryProcesses } from "./directory-processes.ts";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
@@ -33,6 +34,21 @@ export interface ByteProcessOptions {
   /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
   windowsJobFactory?: WindowsJobFactory;
 }
+/** How long a Windows Job may take to empty once it is ended. */
+const windowsJobEndMs = 5_000;
+/**
+ * Windows only. taskkill /T cannot find helpers once the leader has exited, but they stay in
+ * its Job; ending the Job closes pipes a detached helper still holds, standing in for the POSIX
+ * private-folder sweep. Resolves only once the kernel reports the Job empty.
+ */
+async function endWindowsJob(job: WindowsJob | undefined): Promise<void> {
+  job?.terminate?.();
+  const deadline = performance.now() + windowsJobEndMs;
+  while (job?.running?.() === true) {
+    if (performance.now() >= deadline) throw new Error("Windows process tree survived its stop");
+    await delay(25);
+  }
+}
 /** Byte streams for binary CLI output; owns descendants and drains no unbounded line buffers. */
 export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
@@ -63,6 +79,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     if (!cleanup)
       cleanup = (async () => {
         if (pid !== undefined) destroy(pid);
+        if (windows) await endWindowsJob(job);
         // No lsof or /proc on Windows; the taskkill tree stop is the only reaper.
         if (options.ownedCwd && !windows) await terminateDirectoryProcesses([options.ownedCwd]);
       })();

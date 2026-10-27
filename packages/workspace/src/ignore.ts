@@ -1,5 +1,6 @@
 import { ignoreStream } from "./ignore-stream.ts";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { win32 } from "node:path";
 import { z } from "zod";
 import { command } from "./process.ts";
 import { errorCode, WorkspaceError } from "./types.ts";
@@ -77,6 +78,12 @@ export class GitIgnore {
         .max(4096)
         .parse(result.stdout.toString("utf8").replace(/\n$/, ""));
       const absolute = isAbsolute(path) ? path : resolve(this.safe.root, path);
+      // Git prints "D:/..." on Windows; watch notifications name the same file with "\\".
+      if (this.safe.runtime.platform === "win32") {
+        paths.push(win32.resolve(absolute));
+        if (name === "HEAD") head = win32.resolve(absolute);
+        continue;
+      }
       paths.push(absolute);
       if (name === "HEAD") head = absolute;
     }

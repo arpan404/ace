@@ -5,6 +5,7 @@ import type { IncomingTransfer, ThreadId, TransferCommit, WorkspaceId } from "@a
 import type { IncomingRecord } from "./incoming-rows.ts";
 import { lstat } from "node:fs/promises";
 import { folderIdentity, freeFolder, removeIfOwned, removeQuietly } from "./files.ts";
+import { removeIfOwnedSettling } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 
 /**
@@ -250,6 +251,8 @@ class Made {
       if (there && folderIdentity(there) === beside.id) await removeQuietly(beside.path);
     }
     const folder = this.folder;
+    if (process.platform === "win32" && folder?.id)
+      await removeIfOwnedSettling(folder.parent, folder.name, folder.id);
     if (folder?.id) removeIfOwned(folder.parent, folder.name, folder.id);
     this.deps.made({ createdPath: undefined, createdId: undefined, registeredId: undefined });
   }

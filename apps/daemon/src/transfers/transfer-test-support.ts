@@ -44,6 +44,16 @@ const fixturePolicy = {
   protocols: ["file", "http", "https", "ssh"],
 };
 
+/**
+ * Windows: the person's Git reads Git for Windows' system config (its `core.autocrlf`), and so
+ * does ace's own Git, which never inherits `GIT_*`. The fixtures read it too, so both sides
+ * agree on line endings; the test home's switch that hides system config stays for POSIX.
+ */
+const windowsSystemGitConfig =
+  process.platform === "win32"
+    ? { GIT_CONFIG_NOSYSTEM: undefined, GIT_CONFIG_SYSTEM: undefined }
+    : {};
+
 /** Git as the person runs it in the fixtures, with a fixed identity. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await run("git", args, {
@@ -54,6 +64,7 @@ export async function git(cwd: string, ...args: string[]): Promise<string> {
       GIT_AUTHOR_EMAIL: "test@example.com",
       GIT_COMMITTER_NAME: "Test",
       GIT_COMMITTER_EMAIL: "test@example.com",
+      ...windowsSystemGitConfig,
     },
   });
   return stdout.trimEnd();

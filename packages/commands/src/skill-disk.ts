@@ -17,6 +17,8 @@ import {
   renameCommandEntryAs,
   type OpenCommandChild,
 } from "./posix.ts";
+import { exchangeCommandEntriesThrough } from "./posix.ts";
+import { commandEntryExists } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
@@ -86,6 +88,7 @@ export class SkillDisk {
   }
   /** A child directory that is not a link, or `undefined`. */
   async openDirectory(parent: number, name: string): Promise<number | undefined> {
+    if (process.platform === "win32") return this.openWindowsDirectory(parent, name);
     return this.openChild(parent, name, directoryFlags).catch(() => undefined);
   }
   /** Run `work` with the skill root and the skill folder pinned; both close afterwards. */
@@ -178,7 +181,34 @@ export class SkillDisk {
   }
   /** Swap two entries of one pinned directory atomically: there is no moment without either. */
   async exchange(directory: number, first: string, second: string): Promise<void> {
+    if (process.platform === "win32") return this.exchangeOnWindows(directory, first, second);
     if (!(await renameCommandEntryAs("exchange", directory, first, directory, second)))
+      throw new SkillError("unavailable", "Couldn't move this skill's files.");
+  }
+  /** Windows only: the free name each swap backup trades places through, from its journal. */
+  private readonly windowsStaging = new Map<string, string>();
+  /** Record, before any exchange of `backup`, the journal's free staging name for it. */
+  stageWindowsExchange(backup: string, free: string): void {
+    this.windowsStaging.set(backup, free);
+  }
+  /** Windows opens files and folders alike (no O_DIRECTORY), so the type is checked here. */
+  private async openWindowsDirectory(parent: number, name: string): Promise<number | undefined> {
+    const fd = await this.openChild(parent, name, directoryFlags).catch(() => undefined);
+    if (fd === undefined) return undefined;
+    if ((await statFd(fd).catch(() => undefined))?.isDirectory()) return fd;
+    await closeFd(fd);
+    return undefined;
+  }
+  /**
+   * Windows has no atomic exchange. `first` trades places with `second` through the free staging
+   * name its swap journal records (`stageWindowsExchange`), so recovery after a crash between
+   * moves finds every folder at a name the journal knows (ADR 0103, Windows).
+   */
+  private async exchangeOnWindows(directory: number, first: string, second: string) {
+    const free = this.windowsStaging.get(first);
+    if (free === undefined)
+      throw new SkillError("unavailable", "Couldn't move this skill's files.");
+    if (!(await exchangeCommandEntriesThrough(directory, first, second, free)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
   /** Device and inode of an open descriptor: exactly the directory that will be acted on. */
@@ -203,6 +233,7 @@ export class SkillDisk {
   }
   /** Whether anything at all, link or not, is called `name` in the pinned directory. */
   async exists(parent: number, name: string): Promise<boolean> {
+    if (process.platform === "win32") return commandEntryExists(parent, name);
     if ((await this.readLink(parent, name)) !== undefined) return true;
     const fd = await this.openChild(parent, name, fileFlags).catch(() => undefined);
     if (fd === undefined) return false;

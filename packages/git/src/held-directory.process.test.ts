@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { closeSync, openSync, renameSync } from "node:fs";
-import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
@@ -25,6 +26,45 @@ async function held<T>(path: string, work: (fd: number) => Promise<T>): Promise<
   } finally {
     closeSync(fd);
   }
+}
+
+/** A local Git origin that accepts connections and never answers. */
+async function silentOrigin() {
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("error", () => undefined);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No origin port");
+  return {
+    url: `http://127.0.0.1:${address.port}/project.git`,
+    connected: () => sockets.size > 0,
+    close: () => {
+      for (const socket of sockets) socket.destroy();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+async function committedSource(base: string): Promise<string> {
+  const source = join(base, "source");
+  await mkdir(source);
+  await git(source, "init", "--initial-branch=trunk");
+  await writeFile(join(source, "README.md"), "first\n");
+  await git(source, "add", "README.md");
+  await git(
+    source,
+    "-c",
+    "user.name=ace",
+    "-c",
+    "user.email=ace@localhost",
+    "commit",
+    "-m",
+    "first",
+  );
+  return `file:///${source.replaceAll("\\", "/")}`;
 }
 
 async function vacantDrive(): Promise<string> {
@@ -202,6 +242,102 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
         });
     } finally {
       await service.close();
+    }
+  });
+  test("a held clone stopped while its origin never answers leaves the folder usable at once", async () => {
+    const base = await scratch();
+    const source = await committedSource(base);
+    const origin = await silentOrigin();
+    const target = join(base, "project");
+    await mkdir(target);
+    // No waiting at admission: the stopped clone's lease must already be gone.
+    const service = new GitService({ transportProtocols: ["http", "file"], leaseWaitMs: 0 });
+    try {
+      const stopped = await held(target, (fd) =>
+        service.clone(
+          {
+            parent: base,
+            path: target,
+            url: origin.url,
+            directoryFd: fd,
+            signal: new AbortController().signal,
+            progress: () => undefined,
+            transfer: { timeoutMs: 3000 },
+          },
+          { validateUrl: () => undefined, protocols: ["http"] },
+        ),
+      ).catch((error: unknown) => error);
+      expect(stopped).toMatchObject({ code: "git_timeout" });
+      expect(origin.connected()).toBe(true);
+      // The folder stays held until the stopped Git is gone; then it can be removed.
+      await rm(target, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 });
+      await mkdir(target);
+      await held(target, (fd) =>
+        service.clone(
+          {
+            parent: base,
+            path: target,
+            url: source,
+            directoryFd: fd,
+            signal: new AbortController().signal,
+            progress: () => undefined,
+          },
+          { validateUrl: () => undefined, protocols: ["file"] },
+        ),
+      );
+    } finally {
+      await service.close();
+      await origin.close();
+    }
+    expect(await exists(join(target, "README.md"))).toBe(true);
+  });
+
+  test("a held clone whose stopped Git ace couldn't contain keeps its folder blocked", async () => {
+    const base = await scratch();
+    const origin = await silentOrigin();
+    const target = join(base, "project");
+    await mkdir(target);
+    const service = new GitService({
+      transportProtocols: ["http"],
+      leaseWaitMs: 0,
+      processRuntime: {
+        spawn: (command, args, options) => {
+          const child = spawnGitProcess(command, args, options);
+          // A fetch ace can't name a process for never joins a job: nothing proves it ended.
+          if (args.includes("fetch")) Object.defineProperty(child, "pid", { value: undefined });
+          return child;
+        },
+      },
+    });
+    try {
+      const clone = () =>
+        held(target, (fd) =>
+          service.clone(
+            {
+              parent: base,
+              path: target,
+              url: origin.url,
+              directoryFd: fd,
+              signal: new AbortController().signal,
+              progress: () => undefined,
+              transfer: { timeoutMs: 3000 },
+            },
+            { validateUrl: () => undefined, protocols: ["http"] },
+          ),
+        );
+      expect(await clone().catch((error: unknown) => error)).toMatchObject({
+        code: "git_timeout",
+      });
+      expect(await service.mutationState(target)).toMatchObject({ status: "quarantined" });
+      expect(await clone().catch((error: unknown) => error)).toMatchObject({
+        code: "git_quarantined",
+      });
+    } finally {
+      // Only Git itself was ended: its HTTP helper, still in the folder, exits once the origin
+      // hangs up, and the folder can then be removed.
+      await origin.close();
+      await service.close();
+      await rm(target, { recursive: true, force: true, maxRetries: 50, retryDelay: 200 });
     }
   });
 });

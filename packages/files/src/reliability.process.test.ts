@@ -13,6 +13,7 @@ import {
   FileError,
 } from "./index.ts";
 import { fixture } from "./test-support.ts";
+import { basename } from "node:path";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -307,3 +308,58 @@ test("directory deletion refuses a descendant edit made while its preflight fini
   ).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await readFile(path, "utf8")).toBe("provider edit");
 });
+
+test.runIf(process.platform === "win32")(
+  "Windows: directory deletion rechecks agent edits after a failed queued write",
+  async () => {
+    const gate = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const prepared = Promise.withResolvers<void>();
+    let readingDelete = false;
+    const mover = createExclusiveRename();
+    cleanup.push(() => mover.close());
+    const f = await setup({
+      scheduleTimeout() {
+        return () => {
+          if (readingDelete) prepared.resolve();
+        };
+      },
+      exclusiveRename: {
+        async move(source, destination) {
+          if (basename(destination) === "blocked") {
+            entered.resolve();
+            await gate.promise;
+            throw new FileError("IO_ERROR", "Fixture write failed");
+          }
+          await mover.move(source, destination);
+        },
+        close: async () => {},
+      },
+    });
+    await mkdir(join(f.root, "dir"));
+    await writeFile(join(f.root, "dir", "file"), "before");
+    const expected = await version(f, "dir");
+    const blocker = expect(
+      f.service.request("writer", {
+        op: "create",
+        path: "blocked",
+        expected: null,
+        text: "fixture",
+      }),
+    ).rejects.toThrow("Fixture write failed");
+    await entered.promise;
+    readingDelete = true;
+    const deletion = expect(
+      f.service.request("writer", { op: "delete", path: "dir", expected }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    try {
+      await prepared.promise;
+      await writeFile(join(f.root, "dir", "file"), "agent edit");
+    } finally {
+      gate.resolve();
+    }
+    await blocker;
+    await deletion;
+    expect(await readFile(join(f.root, "dir", "file"), "utf8")).toBe("agent edit");
+  },
+);

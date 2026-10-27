@@ -22,6 +22,7 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - packages/commands/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
       - packages/git/src/directory-lease.ts
@@ -114,7 +115,7 @@ jobs:
   windows-native:
     name: Windows native (${{ matrix.os }} ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -329,7 +330,7 @@ jobs:
 
       - name: Run bounded Windows-native Vitest suite
         if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only && inputs.scope != 'browser' }}
-        timeout-minutes: 25
+        timeout-minutes: 60
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
@@ -338,6 +339,19 @@ jobs:
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
+
+      # Workspace listing, watching and Node search timings on native Windows (report only;
+      # the bounded 20,000-file search case in the suite is the gate).
+      - name: Observe Windows workspace search performance (report only)
+        if: ${{ !cancelled() && !inputs.screen_only && inputs.scope != 'browser' }}
+        timeout-minutes: 5
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          node packages/workspace/bench/workspace.ts
+          node packages/workspace/bench/search.ts
+          node packages/workspace/bench/large-tree.ts
 
       - name: Run every browser workflow's tests
         if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}

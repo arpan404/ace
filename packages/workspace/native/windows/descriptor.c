@@ -7,6 +7,7 @@
 #include <node_api.h>
 #include <uv.h>
 #include <windows.h>
+#include <winioctl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -21,6 +22,12 @@
 #define OPT_CREATE 2UL
 #define NT_IS_DIRECTORY 0xC00000BAUL
 #define NT_NOT_DIRECTORY 0xC0000103UL
+
+// FILE_DISPOSITION_INFO_EX (Windows 10 1809+), declared here so older SDK headers still build.
+typedef struct { DWORD Flags; } DISPOSITION_EX_T;
+#define DISPOSITION_EX_CLASS ((FILE_INFO_BY_HANDLE_CLASS)21)
+#define DISPOSITION_DELETE 0x00000001UL
+#define DISPOSITION_IGNORE_READONLY 0x00000010UL
 
 typedef LONG NTSTATUS_T;
 typedef struct { USHORT Length, MaximumLength; PWSTR Buffer; } UNICODE_STRING_T;
@@ -208,9 +215,18 @@ static napi_value delete_at(napi_env env, napi_callback_info info, DWORD directo
   code = attributes_of(child, &attributes);
   if (!code && (attributes & FILE_ATTRIBUTE_DIRECTORY) != directory)
     code = directory ? "ENOTDIR" : "EISDIR";
+  // Delete even a read-only entry (Git's object files are read-only); a file system without the
+  // extended class (Windows 10 before 1809, FAT) keeps the plain disposition.
+  DISPOSITION_EX_T extended = {DISPOSITION_DELETE | DISPOSITION_IGNORE_READONLY};
   FILE_DISPOSITION_INFO disposition = {TRUE};
-  if (!code && !SetFileInformationByHandle(child, FileDispositionInfo, &disposition, sizeof(disposition)))
-    code = last_error();
+  if (!code && !SetFileInformationByHandle(child, DISPOSITION_EX_CLASS, &extended, sizeof(extended))) {
+    DWORD error = GetLastError();
+    if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED &&
+        error != ERROR_INVALID_FUNCTION)
+      code = code_of(error);
+    else if (!SetFileInformationByHandle(child, FileDispositionInfo, &disposition, sizeof(disposition)))
+      code = last_error();
+  }
   if (!CloseHandle(child) && !code) code = last_error();
   return done(env, code);
 }
@@ -218,13 +234,20 @@ static napi_value unlink_at(napi_env env, napi_callback_info info) { return dele
 static napi_value remove_directory_at(napi_env env, napi_callback_info info) {
   return delete_at(env, info, FILE_ATTRIBUTE_DIRECTORY);
 }
-// Replaces `to` in the same parent. Win32's rename wrapper rejects a relative target.
+// Moves `from` to `to` in the same parent. Win32's rename wrapper rejects a relative target.
+// An optional fourth argument `replace` (default true) set to false fails with EEXIST instead
+// of replacing an existing `to`, atomically in the file system.
 static napi_value rename_at(napi_env env, napi_callback_info info) {
-  napi_value args[3];
+  napi_value args[4];
   HANDLE parent = NULL, child = NULL;
   WCHAR from[NAME_BYTES], to[NAME_BYTES];
   DWORD from_length = 0, to_length = 0;
-  const char *code = child_args(env, info, 3, args, &parent, from, &from_length);
+  size_t count = 4;
+  bool replace = true;
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count < 3 || count > 4 ||
+      (count == 4 && napi_get_value_bool(env, args[3], &replace) != napi_ok))
+    return fail(env, "EINVAL");
+  const char *code = child_args(env, info, count, args, &parent, from, &from_length);
   if (!code && !read_name(env, args[2], to, &to_length)) code = "EINVAL";
   if (!code) code = open_child(parent, from, from_length, OPT_REPARSE, DELETE | SYNCHRONIZE,
       OPT_OPEN, &child);
@@ -233,7 +256,7 @@ static napi_value rename_at(napi_env env, napi_callback_info info) {
   FILE_RENAME_INFO *record = (FILE_RENAME_INFO *)calloc(1, size);
   if (record == NULL) code = "ENOMEM";
   else {
-    record->ReplaceIfExists = TRUE;
+    record->ReplaceIfExists = replace ? TRUE : FALSE;
     record->RootDirectory = parent;
     record->FileNameLength = to_length * sizeof(WCHAR);
     memcpy(record->FileName, to, to_length * sizeof(WCHAR));
@@ -241,6 +264,66 @@ static napi_value rename_at(napi_env env, napi_callback_info info) {
     NTSTATUS_T status = nt_set(child, &io, record, size, 10UL);
     if (status < 0) code = code_of(nt_to_dos(status));
     free(record);
+  }
+  CloseHandle(child);
+  return done(env, code);
+}
+// REPARSE_DATA_BUFFER's mount-point form (ntifs.h, not in the SDK's user-mode headers).
+typedef struct {
+  ULONG ReparseTag;
+  USHORT ReparseDataLength, Reserved;
+  USHORT SubstituteNameOffset, SubstituteNameLength, PrintNameOffset, PrintNameLength;
+  WCHAR PathBuffer[1];
+} MOUNT_POINT_T;
+#define TARGET_CHARS 4000
+// Makes `name` in the pinned parent a junction to the drive-absolute `target` (TypeScript checks
+// it). The directory is created and opened in one handle-relative call, so the junction lands in
+// the held folder even if that folder's path now leads elsewhere. On failure it is removed again
+// through the same handle.
+static napi_value junction_at(napi_env env, napi_callback_info info) {
+  napi_value args[3];
+  HANDLE parent = NULL, child = NULL;
+  WCHAR name[NAME_BYTES], target[TARGET_CHARS];
+  DWORD length = 0;
+  char text[TARGET_CHARS * 3 + 1];
+  size_t size = 0;
+  const char *code = child_args(env, info, 3, args, &parent, name, &length);
+  if (!code && (napi_get_value_string_utf8(env, args[2], text, sizeof(text), &size) != napi_ok ||
+      size < 3 || size >= sizeof(text) - 1 || strlen(text) != size)) code = "EINVAL";
+  int count = 0;
+  if (!code) {
+    count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, (int)size, target, TARGET_CHARS);
+    if (count < 3 || target[1] != L':' || target[2] != L'\\') code = "EINVAL";
+  }
+  if (!code) code = open_child(parent, name, length, OPT_DIRECTORY | OPT_REPARSE,
+      FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_READ_ATTRIBUTES | DELETE | SYNCHRONIZE,
+      OPT_CREATE, &child);
+  if (code) return fail(env, code);
+  // Substitute name `\??\X:\...` then print name `X:\...`, each NUL-terminated.
+  USHORT target_bytes = (USHORT)(count * sizeof(WCHAR));
+  USHORT substitute_bytes = (USHORT)(target_bytes + 4 * sizeof(WCHAR));
+  USHORT path_bytes = (USHORT)(substitute_bytes + target_bytes + 2 * sizeof(WCHAR));
+  DWORD total = (DWORD)(offsetof(MOUNT_POINT_T, PathBuffer) + path_bytes);
+  MOUNT_POINT_T *point = (MOUNT_POINT_T *)calloc(1, total);
+  if (point == NULL) code = "ENOMEM";
+  else {
+    point->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    point->ReparseDataLength = (USHORT)(total - offsetof(MOUNT_POINT_T, SubstituteNameOffset));
+    point->SubstituteNameOffset = 0;
+    point->SubstituteNameLength = substitute_bytes;
+    point->PrintNameOffset = (USHORT)(substitute_bytes + sizeof(WCHAR));
+    point->PrintNameLength = target_bytes;
+    memcpy(point->PathBuffer, L"\\??\\", 4 * sizeof(WCHAR));
+    memcpy(point->PathBuffer + 4, target, target_bytes);
+    memcpy(point->PathBuffer + 4 + count + 1, target, target_bytes);
+    DWORD returned = 0;
+    if (!DeviceIoControl(child, FSCTL_SET_REPARSE_POINT, point, total, NULL, 0, &returned, NULL))
+      code = last_error();
+    free(point);
+  }
+  if (code) {
+    FILE_DISPOSITION_INFO disposition = {TRUE};
+    SetFileInformationByHandle(child, FileDispositionInfo, &disposition, sizeof(disposition));
   }
   CloseHandle(child);
   return done(env, code);
@@ -315,9 +398,10 @@ static napi_value stat_fd(napi_env env, napi_callback_info info) {
   const char *code = borrow(fd, &handle);
   return code ? fail(env, code) : describe(env, handle);
 }
-// Lists at most `cap` names; one more is E2BIG. Every entry is bounds-checked.
-static napi_value names(napi_env env, napi_callback_info info) {
-  napi_value args[2], result, value;
+// Lists at most `cap` names; one more is E2BIG. Every entry is bounds-checked. With `facts`,
+// also returns each entry's attributes, size and write time from the same enumeration.
+static napi_value list_names(napi_env env, napi_callback_info info, int facts) {
+  napi_value args[2], result, value, attributes = NULL, sizes = NULL, times = NULL;
   size_t count = 2;
   int32_t fd, cap;
   HANDLE handle;
@@ -332,6 +416,11 @@ static napi_value names(napi_env env, napi_callback_info info) {
   size_t header = offsetof(FILE_ID_EXTD_DIR_INFO, FileName);
   uint32_t accepted = 0;
   napi_create_array(env, &result);
+  if (facts) {
+    napi_create_array(env, &attributes);
+    napi_create_array(env, &sizes);
+    napi_create_array(env, &times);
+  }
   for (FILE_INFO_BY_HANDLE_CLASS kind = FileIdExtdDirectoryRestartInfo; !code;
        kind = FileIdExtdDirectoryInfo) {
     if (!GetFileInformationByHandleEx(handle, kind, batch, 65536)) {
@@ -355,6 +444,15 @@ static napi_value names(napi_env env, napi_callback_info info) {
         else if (size <= 0 || memchr(utf8, '\0', (size_t)size)) code = "EIO";
         else {
           napi_create_string_utf8(env, utf8, (size_t)size, &value);
+          if (facts) {
+            napi_value fact;
+            napi_create_uint32(env, item->FileAttributes, &fact);
+            napi_set_element(env, attributes, accepted, fact);
+            napi_create_double(env, (double)item->EndOfFile.QuadPart, &fact);
+            napi_set_element(env, sizes, accepted, fact);
+            napi_create_bigint_int64(env, item->LastWriteTime.QuadPart, &fact);
+            napi_set_element(env, times, accepted, fact);
+          }
           napi_set_element(env, result, accepted++, value);
         }
       }
@@ -363,7 +461,21 @@ static napi_value names(napi_env env, napi_callback_info info) {
     }
   }
   free(batch);
-  return code ? fail(env, code) : result;
+  if (code) return fail(env, code);
+  if (!facts) return result;
+  napi_value listing;
+  napi_create_object(env, &listing);
+  napi_set_named_property(env, listing, "names", result);
+  napi_set_named_property(env, listing, "attributes", attributes);
+  napi_set_named_property(env, listing, "sizes", sizes);
+  napi_set_named_property(env, listing, "writeTimes", times);
+  return listing;
+}
+static napi_value names(napi_env env, napi_callback_info info) {
+  return list_names(env, info, 0);
+}
+static napi_value names_with_facts(napi_env env, napi_callback_info info) {
+  return list_names(env, info, 1);
 }
 static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
@@ -375,8 +487,10 @@ static napi_value init(napi_env env, napi_value exports) {
     {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"removeDirectoryAt", NULL, remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL},
+    {"junctionAt", NULL, junction_at, NULL, NULL, NULL, napi_default, NULL},
     {"statFd", NULL, stat_fd, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
+    {"namesWithFacts", NULL, names_with_facts, NULL, NULL, NULL, napi_default, NULL},
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
   return exports;

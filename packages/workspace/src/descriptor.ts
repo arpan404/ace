@@ -95,7 +95,9 @@ export function openAt(parent: number, name: string, flags: number): Descriptor 
 }
 export function openMetadataAt(parent: number, name: string): Descriptor {
   if (process.platform === "win32")
-    return new Descriptor(windowsCall(() => windows().openMetadataAt(parent, windowsName(name))));
+    return new Descriptor(
+      windowsCall(() => windowsHot().openMetadataAt(parent, windowsName(name))),
+    );
   try {
     return new Descriptor(binding().openMetadataAt(parent, name));
   } catch (error) {
@@ -185,7 +187,7 @@ export function statAt(parent: number, name: string) {
   if (process.platform === "win32") {
     const child = openMetadataAt(parent, name);
     try {
-      const facts = windowsCall(() => windows().statFd(child.fd));
+      const facts = windowsCall(() => windowsHot().statFd(child.fd));
       const { dev, ino } = fstatSync(child.fd);
       return {
         dev,
@@ -280,10 +282,159 @@ const WindowsBinding = z.object({
     output: z.array(z.string()).max(DIRECTORY_CAP),
   }),
 });
+/** The Windows add-on's link and no-replace calls, which have no POSIX counterpart here. */
+const WindowsLinkBinding = z.object({
+  renameAt: z.function({
+    input: [z.number().int(), z.string(), z.string(), z.literal(false)],
+    output: z.void(),
+  }),
+  junctionAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
+});
+let windowsLinksLoaded: z.infer<typeof WindowsLinkBinding> | undefined;
+function windowsLinks(): z.infer<typeof WindowsLinkBinding> {
+  windowsLinksLoaded ??= WindowsLinkBinding.parse(require("../dist/descriptor.node"));
+  return windowsLinksLoaded;
+}
+/** Windows: moves `from` to `to` in `parent`, failing with EEXIST rather than replacing `to`. */
+export function renameAtNoReplace(parent: number, from: string, to: string): void {
+  if (process.platform !== "win32") throw failed("Only the Windows add-on has this", "ENOTSUP");
+  windowsCall(() => windowsLinks().renameAt(parent, windowsName(from), windowsName(to), false));
+}
+/**
+ * Windows: makes `name` in the pinned `parent` a junction to `target`, a normalized
+ * drive-absolute path. The junction is created through the parent's handle, never its path.
+ */
+export function junctionAt(parent: number, name: string, target: string): void {
+  if (process.platform !== "win32") throw failed("Only the Windows add-on has this", "ENOTSUP");
+  if (
+    !/^[A-Za-z]:\\/.test(target) ||
+    target.includes("/") ||
+    target.includes("\0") ||
+    !target
+      .slice(3)
+      .split("\\")
+      .every(
+        (part, index, parts) =>
+          windowsNameAllowed(part) || (part === "" && index === parts.length - 1),
+      )
+  )
+    throw failed(`Refusing junction target: ${target}`, "EINVAL");
+  windowsCall(() => windowsLinks().junctionAt(parent, windowsName(name), target));
+}
 let windowsLoaded: z.infer<typeof WindowsBinding> | undefined;
 function windows(): z.infer<typeof WindowsBinding> {
   windowsLoaded ??= WindowsBinding.parse(require("../dist/descriptor.node"));
   return windowsLoaded;
+}
+/**
+ * The per-file calls of listing and search without zod's per-call function wrappers, which
+ * cost more than the native call itself. The binding's shape is still parsed once by
+ * windows(); results here are checked by hand.
+ */
+const NativeCall = z.custom<(...args: (number | string)[]) => unknown>(
+  (value) => typeof value === "function",
+);
+const WindowsHotBinding = z.object({
+  openAt: NativeCall,
+  openMetadataAt: NativeCall,
+  statFd: NativeCall,
+  namesWithFacts: NativeCall,
+});
+let windowsHotLoaded:
+  | {
+      openAt(parent: number, name: string): number;
+      openMetadataAt(parent: number, name: string): number;
+      statFd(fd: number): z.infer<typeof WindowsFacts>;
+      namesWithFacts(fd: number, limit: number): unknown;
+    }
+  | undefined;
+function windowsHot(): NonNullable<typeof windowsHotLoaded> {
+  if (!windowsHotLoaded) {
+    windows();
+    const raw = WindowsHotBinding.parse(require("../dist/descriptor.node"));
+    windowsHotLoaded = {
+      openAt: (parent, name) => windowsHandle(raw.openAt(parent, name)),
+      openMetadataAt: (parent, name) => windowsHandle(raw.openMetadataAt(parent, name)),
+      statFd: (fd) => windowsFacts(raw.statFd(fd)),
+      namesWithFacts: (fd, limit) => raw.namesWithFacts(fd, limit),
+    };
+  }
+  return windowsHotLoaded;
+}
+const WindowsListing = z
+  .object({
+    names: z.array(z.string()).max(DIRECTORY_CAP),
+    attributes: z.array(z.number().int().nonnegative()),
+    sizes: z.array(z.number().nonnegative()),
+    writeTimes: z.array(z.bigint()),
+  })
+  .refine(
+    (listing) =>
+      listing.attributes.length === listing.names.length &&
+      listing.sizes.length === listing.names.length &&
+      listing.writeTimes.length === listing.names.length,
+    "Every listed name carries its facts",
+  );
+/**
+ * Win32: what a directory enumeration says about one entry. The enumeration doesn't read file
+ * ids, so `ino` is always 0: these facts carry no identity and must never be compared as one.
+ */
+export type WindowsListingFacts = {
+  dev: number;
+  /** Always 0: never an identity. */
+  ino: 0;
+  mode: number;
+  size: number;
+  mtime: number;
+};
+/**
+ * Win32: a directory's entries with the type, size and write time its enumeration already
+ * read, without opening each entry. NTFS may lag the size and time of a file another process
+ * holds open for writing, so only callers that need just the type (search passes) use this.
+ */
+export function windowsListing(
+  fd: number,
+  limit = DIRECTORY_CAP,
+): { name: string; info: WindowsListingFacts }[] {
+  const listing = WindowsListing.parse(windowsCall(() => windowsHot().namesWithFacts(fd, limit)));
+  const { dev } = fstatSync(fd);
+  return listing.names
+    .map((name, index) => ({
+      name,
+      info: {
+        dev,
+        // A pass compares no identities; the per-entry file id is left unread.
+        ino: 0 as const,
+        mode: windowsMode(listing.attributes[index] ?? 0x400),
+        size: listing.sizes[index] ?? 0,
+        mtime: windowsTime(listing.writeTimes[index] ?? 0n),
+      },
+    }))
+    .toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+function windowsHandle(value: unknown): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  throw failed("The Windows descriptor add-on returned a malformed handle", "EIO");
+}
+function windowsFacts(value: unknown): z.infer<typeof WindowsFacts> {
+  if (typeof value === "object" && value !== null) {
+    const id: unknown = Reflect.get(value, "id");
+    const attributes: unknown = Reflect.get(value, "attributes");
+    const size: unknown = Reflect.get(value, "size");
+    const writeTime: unknown = Reflect.get(value, "writeTime");
+    if (
+      id instanceof Uint8Array &&
+      id.length === 24 &&
+      typeof attributes === "number" &&
+      Number.isInteger(attributes) &&
+      attributes >= 0 &&
+      typeof size === "number" &&
+      size >= 0 &&
+      typeof writeTime === "bigint"
+    )
+      return { id: new Uint8Array(id), attributes, size, writeTime };
+  }
+  throw failed("The Windows descriptor add-on returned malformed file facts", "EIO");
 }
 function failed(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
@@ -323,7 +474,7 @@ function windowsOpenAt(parent: number, name: string, flags: number): number {
   }
   if (flags & (constants.O_WRONLY | constants.O_RDWR))
     throw failed("Windows opens existing files read-only", "ENOTSUP");
-  return windowsCall(() => windows().openAt(parent, name));
+  return windowsCall(() => windowsHot().openAt(parent, name));
 }
 /**
  * Windows identity has one source: dev and ino are always Node's own fstat values, so stats
@@ -339,19 +490,35 @@ export function sameWindowsFile(a: object, b: object): boolean {
   return left === undefined || right === undefined || left === right;
 }
 /** Type from the handle's attributes: a junction or symlink reads as a link, never its target. */
+function windowsMode(attributes: number): number {
+  const readonly = attributes & 0x1;
+  return attributes & 0x400
+    ? 0o120777
+    : attributes & 0x10
+      ? readonly
+        ? 0o40555
+        : 0o40777
+      : readonly
+        ? 0o100444
+        : 0o100666;
+}
 function windowsIdentity(facts: z.infer<typeof WindowsFacts>) {
-  const readonly = facts.attributes & 0x1;
-  const mode =
-    facts.attributes & 0x400
-      ? 0o120777
-      : facts.attributes & 0x10
-        ? readonly
-          ? 0o40555
-          : 0o40777
-        : readonly
-          ? 0o100444
-          : 0o100666;
-  return { mode, [windowsFileId]: Buffer.from(facts.id).toString("hex") };
+  const mode = windowsMode(facts.attributes);
+  return {
+    mode,
+    [windowsFileId]: Buffer.from(facts.id).toString("hex"),
+    [windowsAttributes]: facts.attributes,
+  };
+}
+const windowsAttributes = Symbol("windowsAttributes");
+/**
+ * True when Windows says the file's bytes are on this disk: offline and recall-on-access
+ * files (cloud placeholders such as OneDrive's) may download when read.
+ */
+export function windowsBytesLocal(info: object): boolean {
+  const attributes: unknown = Reflect.get(info, windowsAttributes);
+  // FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+  return typeof attributes === "number" && (attributes & (0x1000 | 0x40000 | 0x400000)) === 0;
 }
 /** FILETIME ticks (100 ns since 1601) as Unix milliseconds; earlier than 1970 stays negative. */
 function windowsTime(ticks: bigint): number {
@@ -360,5 +527,18 @@ function windowsTime(ticks: bigint): number {
 }
 /** Node's fstat with the type and exact file id read from the same Windows handle. */
 export function statWindowsFd(fd: number): Stats {
-  return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windows().statFd(fd))));
+  return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windowsHot().statFd(fd))));
+}
+/** Win32: the exact volume serial and file id behind an open handle, without Node's fstat. */
+export function windowsFdId(fd: number): string {
+  return Buffer.from(windowsCall(() => windowsHot().statFd(fd)).id).toString("hex");
+}
+/** Win32: the exact id of `name` in `parent`; a junction or symlink gives its own id. */
+export function windowsIdAt(parent: number, name: string): string {
+  const entry = openMetadataAt(parent, name);
+  try {
+    return windowsFdId(entry.fd);
+  } finally {
+    closeSync(entry.fd);
+  }
 }

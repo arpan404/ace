@@ -7,9 +7,27 @@ import { limits, normalizePath } from "./manifest.ts";
 import type { PackageFile } from "./types.ts";
 
 export async function assertNoSymlinks(path: string): Promise<void> {
+  if (process.platform === "win32") return assertNoWindowsLinks(path);
   const absolute = resolve(path);
   let current = parse(absolute).root;
   for (const part of absolute.slice(current.length).split("/")) {
+    current = join(current, part);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error(`Symlink forbidden: ${current}`);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  }
+}
+/**
+ * Windows paths separate components with backslashes, so every parent is checked by splitting on
+ * either separator. lstat reports junctions as links too, so neither can redirect a parent.
+ */
+async function assertNoWindowsLinks(path: string): Promise<void> {
+  const absolute = resolve(path);
+  let current = parse(absolute).root;
+  for (const part of absolute.slice(current.length).split(/[\\/]/)) {
+    if (!part) continue;
     current = join(current, part);
     try {
       if ((await lstat(current)).isSymbolicLink()) throw new Error(`Symlink forbidden: ${current}`);
