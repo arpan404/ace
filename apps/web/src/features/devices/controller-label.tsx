@@ -1,4 +1,4 @@
-import { useAgent } from "@ace/client-react";
+import { useAgent, useSidebarThread } from "@ace/client-react";
 import { agentName, agentStatusLabel, type Tone } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -30,7 +30,10 @@ export function AgentDriver(props: {
   className?: string | undefined;
 }) {
   const agent = useAgent(props.threadId, props.agentId);
-  const name = agent ? agentName(agent) : "An agent";
+  const thread = useSidebarThread(props.threadId);
+  // An agent on another machine has no agent row here; its guest session names it, e.g.
+  // "Linux box · Fix the login flow".
+  const name = agent ? agentName(agent) : thread?.details?.guest ? thread.title : "An agent";
   const status: { label: string; tone: Tone } = agent
     ? agentStatusLabel(agent.status)
     : { label: "Working", tone: "working" };

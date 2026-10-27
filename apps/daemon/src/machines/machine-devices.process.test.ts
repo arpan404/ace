@@ -154,17 +154,20 @@ it("Simulators read only lets agents look but not act; off frees the device at o
   await window.close();
 });
 
+const startOn = (simId: string) => ({ op: "devices", tool: "sim_start", args: { simId } }) as const;
+const pressHome = (simId: string) =>
+  ({ op: "devices", tool: "sim_act", args: { simId, action: "key", key: "home" } }) as const;
+
 it("agents from two machines drive two simulators at once, and never share one", async () => {
   const { pair, fake, window } = await lending();
   const laptop = sourceProfile(pair);
   const build = await secondMachine(pair);
   const linux = { host: "linux-box", thread: "fix-login" };
   const server = { host: "build-server", thread: "build-thread" };
-  const start = (simId: string) => ({ op: "devices", tool: "sim_start", args: { simId } }) as const;
 
   const [first, second] = await Promise.all([
-    callAs(laptop, start(ios), linux),
-    callAs(build, start(android), server),
+    callAs(laptop, startOn(ios), linux),
+    callAs(build, startOn(android), server),
   ]);
   expect(first, JSON.stringify(first)).toMatchObject({ ok: true });
   expect(second, JSON.stringify(second)).toMatchObject({ ok: true });
@@ -175,11 +178,9 @@ it("agents from two machines drive two simulators at once, and never share one",
   expect(iosHolder).not.toBe(androidHolder);
 
   // Both act on their own device in parallel.
-  const home = (simId: string) =>
-    ({ op: "devices", tool: "sim_act", args: { simId, action: "key", key: "home" } }) as const;
   const acted = await Promise.all([
-    callAs(laptop, home(ios), linux),
-    callAs(build, home(android), server),
+    callAs(laptop, pressHome(ios), linux),
+    callAs(build, pressHome(android), server),
   ]);
   expect(acted).toEqual([
     expect.objectContaining({ ok: true }),
@@ -188,7 +189,7 @@ it("agents from two machines drive two simulators at once, and never share one",
   expect(fake.platform.effects).toHaveLength(2);
 
   // The build server can't take the Linux box's simulator, and is told whose it is.
-  const taken = await callAs(build, start(ios), server);
+  const taken = await callAs(build, startOn(ios), server);
   if (!taken.ok) throw new Error(taken.message);
   const result = MachineToolResult.parse(taken.body);
   expect(result.isError).toBe(true);

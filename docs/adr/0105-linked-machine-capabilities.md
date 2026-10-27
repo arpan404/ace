@@ -206,6 +206,11 @@ grants here are independent of transport, so adding relay routing later changes 
   with their risk maps, `machine` on `sim_*` and `screen_*` tools and a new `command_run` tool.
 - Releasing leases and screen sessions on the session's end hook.
 - Audit view in Settings › Fleet.
+- Built for `devices`: the target runs its own sim_* tools as the guest owner; leases are
+  released on the session's end hook and on every revocation, even with no call running; a
+  busy device names the machine holding it; device rows name a remote holder by its guest
+  session's title. The calling machine offers sim_* tools while a linked machine lends its
+  devices, even with its own devices off.
 
 ## Verification
 
