@@ -299,9 +299,19 @@ impl Actor<'_> {
                 format!("deleted {} characters", end - start)
             }
             (0x61 | 0x41, _, true) => {
-                set_selection(bus, obj, 0, count)
-                    .await
-                    .map_err(|_| CuError::new("action_failed", "The app would not select its text."))?;
+                if set_selection(bus, obj, 0, count).await.is_err() {
+                    // GTK 4 text views (before 4.22) refuse to set a selection through Text,
+                    // but offer their own select-all action.
+                    let actions = element::action_names(bus, obj).await.unwrap_or_default();
+                    let Some(index) = crate::computer::text_match::select_all_action(&actions) else {
+                        return Err(CuError::new("action_failed", "The app would not select its text."));
+                    };
+                    self.perform(element, index, "select all", "the text").await?;
+                    let all = element::selection(bus, obj).await.is_some_and(|(start, end)| start == 0 && end >= count);
+                    if !all && count > 0 {
+                        return Err(CuError::new("action_failed", "The app would not select its text."));
+                    }
+                }
                 self.changed();
                 "selected all text".to_owned()
             }

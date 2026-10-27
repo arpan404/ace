@@ -104,7 +104,7 @@ X11 session before it starts the helper.
 | `type`, `paste` into a text element                                | in the background (EditableText); into a document, its paragraph with the caret                       |
 | `type`/`paste` with nothing editable focused                       | unsupported, with the reason                                                                          |
 | `type`/`paste` into a Chromium field                               | after `activate` in the batch, in front with the keyboard; otherwise unsupported, saying so           |
-| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text | in the background                                                                                     |
+| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text | in the background (ctrl+A: GTK 4 text views through their `selection.select-all` action)               |
 | `key`: ctrl+C / ctrl+X / ctrl+V in text                            | the text's own CopyText / CutText / PasteText                                                         |
 | `key`: Tab                                                         | a tab in multi-line text; otherwise the focus moves to the next control (where the toolkit allows it) |
 | `key`: a shortcut an app's menu lists (ctrl+s, F5, …)              | presses that menu item, in the background (GTK 3, Qt, LibreOffice accelerators)                       |
@@ -312,3 +312,9 @@ notifications invokeLast`). The lock screen is left out: only the person's passw
 - GTK 4 refuses to move the focus in a background window, so Tab between controls works only
   where the toolkit allows it.
 - LibreOffice Calc's cells take no typed text; its "Input line" field does, with Return to enter.
+- GTK 4 before 4.22 refuses `Text.SetSelection`/`AddSelection` on a text view (GNOME Text
+  Editor), so ctrl+A runs the view's own `selection.select-all` action and reads the selection
+  back. In about one headless session in three the action runs (GTK's action log says so) but
+  no selection results, and the step fails with "The app would not select its text."; the
+  cause is not yet known. `select_text` and caret moves (arrows, Home/End) on such a view have
+  no fallback and fail the same way.
