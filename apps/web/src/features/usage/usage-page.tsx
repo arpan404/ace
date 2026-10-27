@@ -5,10 +5,12 @@ import {
   catalogModelNames,
   dayRange,
   providerNames,
+  usageAccountProviders,
+  usageAccounts,
   usageDay,
   usageLimits,
   usageReport,
-  type UsageAccount,
+  type MachineAccounts,
 } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -80,20 +82,15 @@ export function UsagePage() {
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
-  const listed: UsageAccount[] = accounts.flatMap((entry) =>
-    (entry.accounts ?? [])
-      .filter((account) => provider === all || account.provider === provider)
-      .map((account) => ({
-        account,
-        environment: entry.environment.name,
-        environmentId: entry.environment.id,
-      })),
-  );
+  const machineAccounts: MachineAccounts[] = accounts.map((entry) => ({
+    id: entry.environment.id,
+    name: entry.environment.name,
+    accounts: entry.accounts,
+  }));
+  const listed = usageAccounts(machineAccounts, provider === all ? undefined : provider);
   const providerOptions = [
     { value: all, label: "All providers" },
-    ...[...new Set(accounts.flatMap((entry) => (entry.accounts ?? []).map((a) => a.provider)))].map(
-      (id) => ({ value: id, label: providerName(id) }),
-    ),
+    ...usageAccountProviders(machineAccounts).map((id) => ({ value: id, label: providerName(id) })),
   ];
   const environmentOptions = [
     { value: all, label: "All environments" },

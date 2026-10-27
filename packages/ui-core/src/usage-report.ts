@@ -143,6 +143,8 @@ export function usageReport(
     cacheSavingsUsd: 0,
   };
   const models = new Map<string, ModelUsage & { unpriced: number }>();
+  // A session another machine also reports (a thread continued there) counts once.
+  const sessions = new Set<string>();
   for (const environment of environments) {
     for (const row of environment.daily) {
       const totals = row.totals;
@@ -182,7 +184,11 @@ export function usageReport(
     }
     for (const row of environment.threads) {
       if (!row.dimensions.thread || usageTokens(row.totals) === 0) continue;
-      provider(row.dimensions.provider ?? "other").sessions += 1;
+      const id = row.dimensions.provider ?? "other";
+      const session = `${id}\0${row.dimensions.thread}`;
+      if (sessions.has(session)) continue;
+      sessions.add(session);
+      provider(id).sessions += 1;
       report.sessions += 1;
     }
     if (environment.threadsTruncated) report.sessionsCapped = true;

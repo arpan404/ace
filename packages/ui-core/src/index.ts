@@ -141,6 +141,8 @@ export * from "./usage-days.ts";
 export * from "./usage-growth.ts";
 export * from "./usage-hues.ts";
 export * from "./usage-limits.ts";
+export * from "./usage-machines.ts";
+export * from "./join-names.ts";
 export * from "./usage-report.ts";
 export * from "./step-display.ts";
 export * from "./worktree-creation.ts";
