@@ -62,6 +62,31 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     expect(view.thread("t1")).toBe(view.thread("t1"));
     expect(Object.isFrozen(view.ids)).toBe(true);
 
+    // Interleaved ids stay stable per key: reading `b` must not evict `a`.
+    const rows: Record<string, { id: string }> = {
+      t1: { id: "t1" },
+      t2: { id: "t2" },
+    };
+    const multiLive = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      loaded: true,
+      ids: ["t1", "t2"],
+      homeWindow: undefined,
+      window: undefined,
+      thread: (id: string) => rows[id],
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const multi = projectSidebar(noopCheck, multiLive as never);
+    const firstT1 = multi.thread("t1");
+    multi.thread("t2");
+    expect(multi.thread("t1")).toBe(firstT1);
+    expect(multi.thread("t2")).toBe(multi.thread("t2"));
+
     // Live membership lists allocate per call (Object.keys); same contents stay stable.
     let members = ["a1"];
     const threadLive = {
@@ -103,6 +128,85 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     members = ["a1", "a2"];
     expect(tview.agentIds()).toEqual(["a1", "a2"]);
     expect(tview.agentIds()).not.toBe(firstAgents);
+  });
+
+  it("retains own __proto__ rows instead of dropping them", () => {
+    const threads = {};
+    Object.defineProperty(threads, "__proto__", {
+      value: { id: "__proto__", title: "Proto" },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const live = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      loaded: true,
+      ids: ["__proto__"],
+      homeWindow: undefined,
+      window: undefined,
+      thread: (id: string) =>
+        id === "__proto__" ? (threads as Record<string, unknown>)["__proto__"] : undefined,
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const view = projectSidebar(noopCheck, live as never);
+    // The row survives as an own property without polluting the prototype.
+    expect(Object.hasOwn(view.thread("__proto__") as object, "id")).toBe(true);
+    expect((view.thread("__proto__") as { title: string }).title).toBe("Proto");
+    expect(Object.getPrototypeOf(view.thread("__proto__") as object)).not.toBe(
+      (threads as Record<string, unknown>)["__proto__"],
+    );
+    const snap = snapshotSidebar(live as never);
+    expect((snap.thread("__proto__") as { title: string }).title).toBe("Proto");
+  });
+
+  it("keeps appended optional, matching the live reader", () => {
+    const base = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      thread: undefined,
+      queue: undefined,
+      offshift: undefined,
+      context: undefined,
+      order: [] as string[],
+      cursor: 1,
+      itemsBefore: null,
+      agentIds: () => [] as string[],
+      interactionIds: () => [] as string[],
+      taskIds: () => [] as string[],
+      item: () => undefined,
+      agent: () => undefined,
+      run: () => undefined,
+      interaction: () => undefined,
+      task: () => undefined,
+      usage: () => undefined,
+      contextMeter: () => undefined,
+      usageSnapshot: () => undefined,
+      truncated: () => false,
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const without = projectThread(noopCheck, base as never);
+    expect("appended" in without).toBe(false);
+    expect(without.appended).toBeUndefined();
+    expect(snapshotThread(base as never).appended).toBeUndefined();
+
+    const itemA = { id: "a" };
+    const itemB = { id: "b" };
+    const withLive = { ...base, appended: () => true };
+    const withView = projectThread(noopCheck, withLive as never);
+    expect(typeof withView.appended).toBe("function");
+    expect(withView.appended?.(itemA as never, itemB as never)).toBe(true);
+    const withSnap = snapshotThread(withLive as never);
+    expect(typeof withSnap.appended).toBe("function");
+    expect(withSnap.appended?.(itemA as never, itemB as never)).toBe(true);
   });
 
   it("filters exotic array entries instead of leaking undefined", () => {
@@ -222,7 +326,7 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     const snap = snapshotSidebar(live as never);
     expect(snap.ids).toBe(snap.ids);
     expect(snap.thread("t1")).toBe(snap.thread("t1"));
-    const sel = snap.select(["ids"] as never, (sidebar) => sidebar.ids);
+    const sel = snap.select(["ids"], (sidebar) => sidebar.ids);
     expect(sel.getSnapshot()).toBe(sel.getSnapshot());
 
     const threadSnap = snapshotThread({
@@ -253,10 +357,7 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       },
       observe: () => () => {},
     } as never);
-    const tsel = threadSnap.select(
-      ["order"] as never,
-      (reader) => (reader as { order: unknown }).order,
-    );
+    const tsel = threadSnap.select(["order"], (reader) => reader.order);
     expect(tsel.getSnapshot()).toBe(tsel.getSnapshot());
   });
 });

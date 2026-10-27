@@ -860,6 +860,7 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
     contextMeter: () => undefined,
     usageSnapshot: () => undefined,
     truncated: () => false,
+    appended: () => false,
     select: () => {
       throw new Error("unused");
     },
@@ -1045,7 +1046,7 @@ it("a throwing track rolls back the fresh inner subscription instead of leaking 
   const view = projectSidebar(() => {}, fakeLive as never, throwingTrack as never);
   expect(() => view.observe(() => {})).toThrow("track boom");
   expect(innerUnsubs).toBe(1);
-  const tracked = view.select([] as never, () => 1);
+  const tracked = view.select([], () => 1);
   expect(() => tracked.subscribe(() => {})).toThrow("track boom");
   expect(innerUnsubs).toBe(2);
   expect(trackCalls).toBe(2);

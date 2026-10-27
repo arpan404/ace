@@ -1,5 +1,15 @@
 import { ClientError } from "@ace/client";
-import type { Lease, Selection, SidebarSource, ThreadSource } from "@ace/client";
+import type {
+  Lease,
+  Selection,
+  SidebarKey,
+  SidebarReader,
+  SidebarSource,
+  ThreadKey,
+  ThreadReader,
+  ThreadSource,
+} from "@ace/client";
+import type { Item } from "@ace/protocol";
 
 export type ReadCheck = () => void;
 
@@ -56,7 +66,6 @@ function copyInner(value: unknown, seen: Map<object, unknown>): unknown {
   const out = Object.create(Object.getPrototypeOf(obj)) as Record<string | symbol, unknown>;
   seen.set(obj, out);
   for (const key of Reflect.ownKeys(obj) as (string | symbol)[]) {
-    if (key === "__proto__") continue;
     let desc: PropertyDescriptor | undefined;
     try {
       desc = Object.getOwnPropertyDescriptor(obj, key);
@@ -65,10 +74,21 @@ function copyInner(value: unknown, seen: Map<object, unknown>): unknown {
     }
     if (!desc || !desc.enumerable) continue;
     let raw: unknown;
-    try {
-      raw = (obj as Record<string | symbol, unknown>)[key];
-    } catch {
-      continue;
+    if (key === "__proto__") {
+      // `obj["__proto__"]` would hit `Object.prototype`'s accessor instead
+      // of the own entry; the descriptor holds the real row (wire-core
+      // retains every own opaque ID, including `__proto__`). Only data
+      // descriptors are copied — an accessor here could run live code.
+      // `defineProperty` below creates a plain own property, so this never
+      // pollutes the prototype.
+      if (!("value" in desc)) continue;
+      raw = desc.value;
+    } else {
+      try {
+        raw = (obj as Record<string | symbol, unknown>)[key];
+      } catch {
+        continue;
+      }
     }
     const copied = copyInner(raw, seen);
     if (copied === DROP) continue;
@@ -127,23 +147,19 @@ function memoCopy<T>(getLive: () => T, copy: (value: T) => T): () => T {
 }
 
 function memoCopyArg<A, R>(fn: (arg: A) => R, copy: (value: R) => R): (arg: A) => R {
-  let has = false;
-  let lastArg: unknown;
-  let lastLive: unknown;
-  let lastFrozen: unknown;
+  // Per-key cache: list rendering reads `a` then `b` then `a` again, and
+  // `useSyncExternalStore` needs `Object.is` stability per id. A single
+  // last-one slot thrashes across ids (copy#3 !== copy#1 after interleave);
+  // a `Map` keeps each id stable while its live value is unchanged, matching
+  // real `Sidebar.thread(id)` / `ThreadStore.item(id)` record stability.
+  const cache = new Map<A, { live: unknown; frozen: unknown }>();
   return (arg: A) => {
     const live = fn(arg);
-    if (
-      has &&
-      Object.is(arg, lastArg) &&
-      (Object.is(live, lastLive) || sameStringArray(live, lastLive))
-    )
-      return lastFrozen as R;
+    const held = cache.get(arg);
+    if (held !== undefined && (Object.is(live, held.live) || sameStringArray(live, held.live)))
+      return held.frozen as R;
     const frozen = copy(live);
-    lastArg = arg;
-    lastLive = live;
-    lastFrozen = frozen;
-    has = true;
+    cache.set(arg, { live, frozen });
     return frozen;
   };
 }
@@ -156,7 +172,11 @@ function nullSealed<T extends object>(entries: Record<string | symbol, unknown>)
 
 function copyTapKeys(keys: ReadonlySet<string> | "all"): ReadonlySet<string> | "all" {
   if (keys === "all") return "all";
-  return Object.freeze(new Set(keys));
+  // A defensive copy so a consumer cannot mutate the live set. This is
+  // intentionally not `Object.freeze`d: freezing a `Set` does not stop
+  // `.add`/`.delete`, so the honest contract is `ReadonlySet` isolation
+  // from live, not immutability of the copy itself.
+  return new Set(keys);
 }
 
 /** Teardown never throws: a failing release must not break `release()` callers. */
@@ -390,18 +410,14 @@ export function projectSidebar(
   track?: (release: () => void) => () => void,
 ): SidebarSource {
   const view = Object.create(null) as Record<string, unknown>;
-  const selectInner = (
-    keys: readonly never[],
-    read: (sidebar: SidebarSource) => unknown,
-    equal?: (a: never, b: never) => boolean,
-  ): Selection<unknown> => {
+  const selectInner = <T>(
+    keys: readonly SidebarKey[],
+    read: (sidebar: SidebarReader) => T,
+    equal?: (a: T, b: T) => boolean,
+  ): Selection<T> => {
     check();
     const projected = view as unknown as SidebarSource;
-    const inner = (live.select as (...args: unknown[]) => Selection<unknown>)(
-      keys,
-      () => read(projected),
-      equal,
-    );
+    const inner = live.select(keys, () => read(projected), equal);
     if (track === undefined) return wrapSelection(check, inner);
     return wrapTrackedSelection(check, inner, track);
   };
@@ -454,18 +470,14 @@ export function projectThread(
   track?: (release: () => void) => () => void,
 ): ThreadSource {
   const view = Object.create(null) as Record<string, unknown>;
-  const selectInner = (
-    keys: readonly never[],
-    selector: (reader: unknown) => unknown,
-    equal?: (a: never, b: never) => boolean,
-  ): Selection<unknown> => {
+  const selectInner = <T>(
+    keys: readonly ThreadKey[],
+    selector: (reader: ThreadReader) => T,
+    equal?: (a: T, b: T) => boolean,
+  ): Selection<T> => {
     check();
     const projected = view as unknown as ThreadSource;
-    const inner = (live.select as (...args: unknown[]) => Selection<unknown>)(
-      keys,
-      () => selector(projected),
-      equal,
-    );
+    const inner = live.select(keys, () => selector(projected), equal);
     if (track === undefined) return wrapSelection(check, inner);
     return wrapTrackedSelection(check, inner, track);
   };
@@ -578,11 +590,10 @@ export function projectThread(
     view["itemSeq"] = (id: string) => (check(), live.itemSeq?.(id));
   if (typeof live.deleted === "function")
     view["deleted"] = (id: string) => (check(), live.deleted?.(id));
-  if (typeof live.appended === "function")
-    view["appended"] = (a: unknown, b: unknown) => (
-      check(),
-      (live.appended as (x: never, y: never) => boolean)(a as never, b as never)
-    );
+  if (typeof live.appended === "function") {
+    const appended = live.appended.bind(live);
+    view["appended"] = (previous: Item, next: Item) => (check(), appended(previous, next));
+  }
   view["select"] = selectInner;
   view["observe"] = observeInner;
   return Object.freeze(view) as unknown as ThreadSource;
@@ -639,15 +650,11 @@ export function snapshotSidebar(live: SidebarSource): SidebarSource {
     window: { enumerable: true, get: () => data.window },
   });
   snap["thread"] = (id: string) => rows.get(id) as unknown;
-  snap["select"] = (
-    _keys: readonly unknown[],
-    read: (sidebar: SidebarSource) => unknown,
-    equal?: (a: never, b: never) => boolean,
-  ): Selection<unknown> =>
-    staticSelection(
-      () => read(snap as unknown as SidebarSource),
-      equal as ((a: unknown, b: unknown) => boolean) | undefined,
-    );
+  snap["select"] = <T>(
+    _keys: readonly SidebarKey[],
+    read: (sidebar: SidebarReader) => T,
+    equal?: (a: T, b: T) => boolean,
+  ): Selection<T> => staticSelection(() => read(snap as unknown as SidebarSource), equal);
   snap["observe"] = (): (() => void) => () => {};
   return Object.freeze(snap) as unknown as SidebarSource;
 }
@@ -752,6 +759,7 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
       seqs,
       truncated,
       deleted,
+      appended: typeof live.appended === "function" ? live.appended.bind(live) : undefined,
     });
   }
   const order = [...live.order];
@@ -854,6 +862,7 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     seqs,
     truncated,
     deleted,
+    appended: typeof live.appended === "function" ? live.appended.bind(live) : undefined,
   });
 }
 
@@ -871,9 +880,10 @@ function buildThreadSnapshot(parts: {
   seqs: Map<string, number>;
   truncated: Set<string>;
   deleted: Set<string>;
+  appended: ((previous: Item, next: Item) => boolean) | undefined;
 }): ThreadSource {
   const { data, items, agents, runs, interactions, tasks, usage, meters, usageSnapshots } = parts;
-  const { children, seqs, truncated, deleted } = parts;
+  const { children, seqs, truncated, deleted, appended } = parts;
   const snap = Object.create(null) as Record<string, unknown>;
   Object.defineProperties(snap, {
     error: { enumerable: true, get: () => data["error"] },
@@ -903,16 +913,14 @@ function buildThreadSnapshot(parts: {
   snap["truncated"] = (id: string) => truncated.has(id);
   snap["itemSeq"] = (id: string) => seqs.get(id) as unknown;
   snap["deleted"] = (id: string) => deleted.has(id);
-  snap["appended"] = () => false;
-  snap["select"] = (
-    _keys: readonly unknown[],
-    selector: (reader: unknown) => unknown,
-    equal?: (a: never, b: never) => boolean,
-  ): Selection<unknown> =>
-    staticSelection(
-      () => selector(snap as unknown as ThreadSource),
-      equal as ((a: unknown, b: unknown) => boolean) | undefined,
-    );
+  // `appended` stays optional, matching the live reader: a snapshot of a
+  // source without it omits it instead of inventing a default.
+  if (appended !== undefined) snap["appended"] = appended;
+  snap["select"] = <T>(
+    _keys: readonly ThreadKey[],
+    selector: (reader: ThreadReader) => T,
+    equal?: (a: T, b: T) => boolean,
+  ): Selection<T> => staticSelection(() => selector(snap as unknown as ThreadSource), equal);
   snap["observe"] = (): (() => void) => () => {};
   return Object.freeze(snap) as unknown as ThreadSource;
 }
