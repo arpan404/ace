@@ -1,6 +1,6 @@
 import { InteractionId } from "@ace/protocol";
 import { ViewOnlyError, type ProductionStartup } from "../runtime/production-startup.ts";
-import { refusalMessage } from "../interactions.ts";
+import { canResolveInteraction, mayAct, refusalMessage } from "../interactions.ts";
 
 /**
  * Production approval and question resolution through the per-machine
@@ -124,4 +124,82 @@ export function productionApprovalRefusalCopy(error: string | undefined): string
 /** Name a daemon refusal for a question answer; never invite a retry. */
 export function productionQuestionRefusalCopy(error: string | undefined): string {
   return refusalMessage(error, "These questions could not be answered");
+}
+
+/** Minimal interaction shape the strip needs: pending plus its request kind. */
+export interface CardableInteraction {
+  id: string;
+  state: string;
+  request: { kind: string };
+}
+
+/** True when the strip owns this request: pending approval or question. */
+export function isCardableProductionInteraction(
+  interaction: Pick<CardableInteraction, "state" | "request"> | undefined,
+): boolean {
+  if (interaction === undefined) return false;
+  if (interaction.state !== "pending") return false;
+  return interaction.request.kind === "approval" || interaction.request.kind === "question";
+}
+
+/**
+ * Pending approval/question ids for the strip, in ledger order, deduped.
+ * Pure: the hook below feeds it live selections; tests pin revoke/stale
+ * filtering without a daemon.
+ */
+export function pendingProductionInteractionIds(
+  interactions: readonly (CardableInteraction | undefined)[],
+): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const interaction of interactions) {
+    if (!isCardableProductionInteraction(interaction)) continue;
+    const id = (interaction as CardableInteraction).id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Whether the transcript's read-only question/approval row must stay hidden
+ * because the live strip already shows the full card. Only pending
+ * approval/question ids the strip covers suppress; resolved rows, other
+ * request kinds and uncovered ids keep their historic read-only copy so
+ * nothing vanishes.
+ */
+export function shouldSuppressProductionReadOnly(
+  interaction: Pick<CardableInteraction, "id" | "state" | "request"> | undefined,
+  covered: ReadonlySet<string>,
+): boolean {
+  if (!isCardableProductionInteraction(interaction)) return false;
+  if (interaction === undefined) return false;
+  return covered.has(interaction.id);
+}
+
+/**
+ * Tap-time admission with a freshly read grant. Render-time `acting` drives
+ * only the button's enabled state; every tap re-reads `canOperate(hostId)`
+ * and checks here so a grant revoked after mount still refuses before
+ * touching the lock or the wire.
+ */
+export function canTapProductionCard(
+  state: string,
+  locked: boolean,
+  canOperateNow: boolean,
+): boolean {
+  return canResolveInteraction(state, locked, productionMayAct(canOperateNow) && mayAct(true));
+}
+
+/** Read the current grant fail-closed: unknown hosts and throws read view-only. */
+export function currentProductionGrant(
+  canOperate: (hostId: string) => boolean,
+  hostId: string,
+): boolean {
+  try {
+    return canOperate(hostId) === true;
+  } catch {
+    return false;
+  }
 }

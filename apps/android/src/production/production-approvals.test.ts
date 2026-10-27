@@ -13,12 +13,17 @@ import {
 import {
   buildApprovalResolvePayload,
   buildQuestionResolvePayload,
+  canTapProductionCard,
+  currentProductionGrant,
+  isCardableProductionInteraction,
+  pendingProductionInteractionIds,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
   productionMayAct,
   productionQuestionRefusalCopy,
   resolveProductionApproval,
   resolveProductionQuestion,
+  shouldSuppressProductionReadOnly,
 } from "./production-approvals.ts";
 import {
   createProductionStartup,
@@ -385,4 +390,143 @@ it("a second tap while sending is dropped: first answer wins", () => {
   expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(true);
   markResolutionSending(id);
   expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(false);
+});
+
+it("keeps only pending approval/question ids for the strip, in order and deduped", () => {
+  expect(
+    pendingProductionInteractionIds([
+      { id: "a1", state: "pending", request: { kind: "approval" } },
+      { id: "q1", state: "pending", request: { kind: "question" } },
+      { id: "a1", state: "pending", request: { kind: "approval" } },
+      { id: "done", state: "resolved", request: { kind: "approval" } },
+      { id: "plan", state: "pending", request: { kind: "plan_review" } },
+      { id: "browser", state: "pending", request: { kind: "browser_help" } },
+      undefined,
+    ]),
+  ).toEqual(["a1", "q1"]);
+  expect(isCardableProductionInteraction(undefined)).toBe(false);
+  expect(
+    isCardableProductionInteraction({ state: "pending", request: { kind: "elicitation" } }),
+  ).toBe(false);
+  expect(
+    isCardableProductionInteraction({ state: "resolved", request: { kind: "approval" } }),
+  ).toBe(false);
+});
+
+it("suppresses only the read-only copy the live strip already covers", () => {
+  const covered = new Set(["a1"]);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "a1", state: "pending", request: { kind: "approval" } },
+      covered,
+    ),
+  ).toBe(true);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "q9", state: "pending", request: { kind: "question" } },
+      covered,
+    ),
+  ).toBe(false);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "a1", state: "resolved", request: { kind: "approval" } },
+      covered,
+    ),
+  ).toBe(false);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "a1", state: "pending", request: { kind: "plan_review" } },
+      covered,
+    ),
+  ).toBe(false);
+  expect(shouldSuppressProductionReadOnly(undefined, covered)).toBe(false);
+});
+
+it("tap-time admission rechecks the current grant instead of trusting render state", () => {
+  expect(canTapProductionCard("pending", false, true)).toBe(true);
+  expect(canTapProductionCard("pending", false, false)).toBe(false);
+  expect(canTapProductionCard("pending", true, true)).toBe(false);
+  expect(canTapProductionCard("resolved", false, true)).toBe(false);
+  expect(currentProductionGrant(() => true, "host-1")).toBe(true);
+  expect(currentProductionGrant(() => false, "host-1")).toBe(false);
+  expect(
+    currentProductionGrant(() => {
+      throw new Error("gone");
+    }, "host-1"),
+  ).toBe(false);
+});
+
+it("a grant revoked after mount still fails closed at the gate with nothing on the wire", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const approvalId = seedApproval(daemon);
+    expect(produced.canOperate("host-1")).toBe(true);
+    expect(
+      canTapProductionCard(
+        "pending",
+        false,
+        currentProductionGrant((id) => produced.canOperate(id), "host-1"),
+      ),
+    ).toBe(true);
+    await produced.grants.setScopes("device-1", ["read"]);
+    expect(produced.canOperate("host-1")).toBe(false);
+    expect(
+      canTapProductionCard(
+        "pending",
+        false,
+        currentProductionGrant((id) => produced.canOperate(id), "host-1"),
+      ),
+    ).toBe(false);
+    const before = sent.length;
+    await expect(
+      resolveProductionApproval(produced, "host-1", approvalId, "allow"),
+    ).rejects.toBeInstanceOf(ViewOnlyError);
+    expect(sent.length).toBe(before);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    try {
+      await until(() => lease.store.interaction(approvalId) !== undefined);
+      expect(lease.store.interaction(approvalId)?.state).toBe("pending");
+      expect(
+        pendingProductionInteractionIds([
+          lease.store.interaction(approvalId) === undefined
+            ? undefined
+            : {
+                id: approvalId,
+                state: lease.store.interaction(approvalId)?.state ?? "resolved",
+                request: {
+                  kind: lease.store.interaction(approvalId)?.request.kind ?? "approval",
+                },
+              },
+        ]),
+      ).toEqual([approvalId]);
+    } finally {
+      lease.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("a stale render-time grant never admits after revocation: fresh check wins", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const questionId = seedQuestion(daemon);
+    const renderedActing = true;
+    expect(canTapProductionCard("pending", false, renderedActing)).toBe(true);
+    await produced.grants.setScopes("device-1", ["read"]);
+    const fresh = currentProductionGrant((id) => produced.canOperate(id), "host-1");
+    expect(fresh).toBe(false);
+    expect(canTapProductionCard("pending", false, fresh)).toBe(false);
+    const before = sent.length;
+    await expect(
+      resolveProductionQuestion(produced, "host-1", questionId, { colour: ["red"] }),
+    ).rejects.toBeInstanceOf(ViewOnlyError);
+    expect(sent.length).toBe(before);
+  } finally {
+    await produced.disconnectAll();
+  }
 });

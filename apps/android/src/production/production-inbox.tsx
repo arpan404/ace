@@ -53,6 +53,11 @@ import {
 } from "./production-inbox.ts";
 import { canShowProductionComposer } from "./production-composer.ts";
 import { ProductionComposer } from "./production-composer.tsx";
+import {
+  ProductionInteractionStrip,
+  isCoveredProductionInteraction,
+  usePendingProductionInteractionIds,
+} from "./production-approvals.tsx";
 import type { ThreadDraftStore } from "../thread-drafts.ts";
 import type { ProductionStartup } from "../runtime/production-startup.ts";
 
@@ -415,9 +420,11 @@ function ProductionEndRow({
 function ProductionQuestionRow({
   interactionId,
   store,
+  covered,
 }: {
   interactionId: string;
   store: ThreadSource;
+  covered?: ReadonlySet<string> | undefined;
 }) {
   const theme = useTheme();
   const selection = useMemo(() => {
@@ -438,6 +445,7 @@ function ProductionQuestionRow({
     }
   }, [store, toolCallId]);
   const toolCall = useFailClosedSelection(toolSelection ?? noUndefined, undefined);
+  if (covered !== undefined && isCoveredProductionInteraction(interaction, covered)) return null;
   if (!interaction) {
     return (
       <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
@@ -594,10 +602,12 @@ function ProductionBlockRow({
   block,
   store,
   shown,
+  covered,
 }: {
   block: Block;
   store: ThreadSource;
   shown: ReadonlySet<string>;
+  covered?: ReadonlySet<string> | undefined;
 }) {
   const theme = useTheme();
   if (block.kind === "end") {
@@ -625,7 +635,10 @@ function ProductionBlockRow({
     return null;
   }
   if (block.kind === "question") {
-    return <ProductionQuestionRow interactionId={block.interactionId} store={store} />;
+    if (covered !== undefined && covered.has(block.interactionId)) return null;
+    return (
+      <ProductionQuestionRow interactionId={block.interactionId} store={store} covered={covered} />
+    );
   }
   if (block.kind === "user") {
     if (!shown.has(block.itemId)) return null;
@@ -700,7 +713,13 @@ function ProductionMessageBubble({ id, store }: { id: string; store: ThreadSourc
   );
 }
 
-function ThreadItems({ store }: { store: ThreadSource }) {
+function ThreadItems({
+  store,
+  covered,
+}: {
+  store: ThreadSource;
+  covered?: ReadonlySet<string> | undefined;
+}) {
   const theme = useTheme();
   const orderSelection = useMemo(() => {
     try {
@@ -755,7 +774,7 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         data={visible}
         keyExtractor={(block: Block) => blockKey(block)}
         renderItem={({ item }: { item: Block }) => (
-          <ProductionBlockRow block={item} store={store} shown={shown} />
+          <ProductionBlockRow block={item} store={store} shown={shown} covered={covered} />
         )}
         getItemType={(item: Block) => `${item.kind}:${blockTestId(item)}`}
         // Single scroll owner per region: the bounded window above owns this
@@ -771,6 +790,45 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         }}
       />
     </View>
+  );
+}
+
+function ProductionThreadContent({
+  startup,
+  hostId,
+  store,
+  notify,
+}: {
+  startup: ProductionStartup;
+  hostId: string;
+  store: ThreadSource;
+  notify(text: string): void;
+}) {
+  const pendingIds = usePendingProductionInteractionIds(store);
+  const covered = useMemo(() => new Set(pendingIds), [pendingIds]);
+  return (
+    <>
+      <View>
+        <ThreadItems store={store} covered={covered} />
+      </View>
+      {pendingIds.length > 0 ? (
+        <View
+          style={{
+            paddingHorizontal: tokens.spacing.lg,
+            paddingVertical: tokens.spacing.sm,
+            gap: tokens.spacing.md,
+          }}
+        >
+          <ProductionInteractionStrip
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionIds={pendingIds}
+            notify={notify}
+          />
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -951,9 +1009,12 @@ export function ProductionThreadView({
         </View>
       ) : null}
       {lease === null ? null : (
-        <View>
-          <ThreadItems store={lease.store} />
-        </View>
+        <ProductionThreadContent
+          startup={startup}
+          hostId={hostId}
+          store={lease.store}
+          notify={notify}
+        />
       )}
       {canShowProductionComposer({
         canOperate: startup.canOperate(hostId),

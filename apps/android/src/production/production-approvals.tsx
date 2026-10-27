@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { TextInput } from "react-native";
-import type { ThreadSource } from "@ace/client";
+import type { Selection, ThreadSource } from "@ace/client";
+import type { Interaction } from "@ace/protocol";
 import { approvalCopy, questionOptions, type QuestionDraft as Draft } from "@ace/ui-core";
-import { useSelection } from "../selection.ts";
+import { sameIds, useSelection } from "../selection.ts";
 import { AceHost, tokens, useTheme, textStyle } from "../theme.tsx";
 import {
   AceText,
@@ -37,6 +38,10 @@ import {
   visibleQuestions,
 } from "../interactions.ts";
 import {
+  canTapProductionCard,
+  currentProductionGrant,
+  isCardableProductionInteraction,
+  pendingProductionInteractionIds,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
   productionMayAct,
@@ -106,10 +111,9 @@ export function ProductionApprovalCard({
   const sending = resolution?.phase === "sending" || resolution?.phase === "sent";
   const hasDetails = copy.reason !== undefined || copy.others.length > 0;
   function resolve(optionId: string) {
-    if (
-      !interaction ||
-      !canResolveInteraction(interaction.state, isResolutionLocked(interaction.id), acting)
-    )
+    if (!interaction) return;
+    const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
       return;
     markResolutionSending(interaction.id);
     void resolveProductionApproval(startup, hostId, interaction.id, optionId)
@@ -280,11 +284,9 @@ export function ProductionQuestionCard({
       | { kind: "question"; answers: Record<string, string[]>; dismissed?: true }
       | undefined,
   ) {
-    if (
-      !resolutionValue ||
-      !interaction ||
-      !canResolveInteraction(interaction.state, isResolutionLocked(interaction.id), acting)
-    )
+    if (!resolutionValue || !interaction) return;
+    const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
       return;
     markResolutionSending(interaction.id);
     void resolveProductionQuestion(
@@ -437,13 +439,140 @@ export function ProductionQuestionCard({
  * question card per open request, mirroring the fixture thread's strip and
  * the iOS request strip above the composer. Read-only rows render while
  * view-only; sending stays behind the per-call mutation gate inside each
- * card. The caller mounts this beside (not inside) the transcript list so
- * transcript rendering stays untouched.
- *
- * Not mounted in `ProductionThreadView` yet: this slice lands the cards and
- * their admission, and the strip wiring follows once the open-thread review
- * settles, to keep this change conflict-free.
+ * card plus a fresh grant recheck on every tap. The caller mounts this
+ * beside (not inside) the transcript list so transcript rendering stays
+ * untouched, and hides the transcript's read-only copy for the same ids so
+ * the full card shows once. Mounted in `ProductionThreadView`; a revoked
+ * route or host switch unmounts it with the thread view, and view-only
+ * phones keep the full card details with answering disabled.
  */
+const EMPTY_PENDING_IDS: readonly string[] = Object.freeze([]);
+
+function emptyPendingSelection(): Selection<readonly string[]> {
+  return {
+    getSnapshot: () => EMPTY_PENDING_IDS,
+    subscribe: () => () => {},
+  };
+}
+
+function emptyPendingInteractions(): Selection<readonly (Interaction | undefined)[]> {
+  return {
+    getSnapshot: () => EMPTY_PENDING_IDS as unknown as readonly (Interaction | undefined)[],
+    subscribe: () => () => {},
+  };
+}
+
+/**
+ * Live pending approval/question ids for the strip, in ledger order.
+ * Two selections (membership plus one N-key read) mirror `useOpenQuestionIds`
+ * but keep only the kinds the strip can answer; any pin failure, dead lease
+ * or non-cardable request fails closed to empty so the strip unmounts instead
+ * of crashing. Reads stay available while view-only; only taps gate.
+ */
+export function usePendingProductionInteractionIds(store: ThreadSource): readonly string[] {
+  const idsSelection = useMemo(() => {
+    try {
+      return store.select(["interactions"], (r) => r.interactionIds(), sameIds);
+    } catch {
+      return null;
+    }
+  }, [store]);
+  const fallbackIds = useMemo(() => emptyPendingSelection(), []);
+  const safeIds = useMemo<Selection<readonly string[]>>(
+    () => ({
+      getSnapshot: () => {
+        try {
+          return (idsSelection ?? fallbackIds).getSnapshot();
+        } catch {
+          return EMPTY_PENDING_IDS;
+        }
+      },
+      subscribe: (listener: () => void) => {
+        try {
+          return (idsSelection ?? fallbackIds).subscribe(listener);
+        } catch {
+          return () => {};
+        }
+      },
+    }),
+    [idsSelection, fallbackIds],
+  );
+  const ids = useSelection(safeIds);
+  const key = ids.join("\0");
+  const rowsSelection = useMemo(() => {
+    try {
+      return store.select(
+        ids.map((id) => `interaction:${id}` as const),
+        (r) =>
+          ids.map((id) => {
+            try {
+              return r.interaction(id);
+            } catch {
+              return undefined;
+            }
+          }),
+      );
+    } catch {
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, key]);
+  const fallbackRows = useMemo(() => emptyPendingInteractions(), []);
+  const safeRows = useMemo<Selection<readonly (Interaction | undefined)[]>>(
+    () => ({
+      getSnapshot: () => {
+        try {
+          return (rowsSelection ?? fallbackRows).getSnapshot();
+        } catch {
+          return EMPTY_PENDING_IDS as unknown as readonly (Interaction | undefined)[];
+        }
+      },
+      subscribe: (listener: () => void) => {
+        try {
+          return (rowsSelection ?? fallbackRows).subscribe(listener);
+        } catch {
+          return () => {};
+        }
+      },
+    }),
+    [rowsSelection, fallbackRows],
+  );
+  const rows = useSelection(safeRows);
+  return useMemo(
+    () =>
+      pendingProductionInteractionIds(
+        rows.map((interaction) =>
+          interaction === undefined
+            ? undefined
+            : {
+                id: interaction.id,
+                state: interaction.state,
+                request: { kind: interaction.request.kind },
+              },
+        ),
+      ),
+    [rows],
+  );
+}
+
+/**
+ * Whether the transcript's read-only copy for one interaction is covered by
+ * the live strip. Re-exported here so the thread view hides the duplicate
+ * without reaching into card internals.
+ */
+export function isCoveredProductionInteraction(
+  interaction: Interaction | undefined,
+  covered: ReadonlySet<string>,
+): boolean {
+  return (
+    isCardableProductionInteraction(
+      interaction === undefined
+        ? undefined
+        : { state: interaction.state, request: { kind: interaction.request.kind } },
+    ) && covered.has((interaction as Interaction).id)
+  );
+}
+
 export function ProductionInteractionStrip({
   startup,
   hostId,
