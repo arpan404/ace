@@ -13,6 +13,8 @@ struct HostServices: Sendable {
     var attachments = AttachmentStaging()
     /// New thread's first-message files, kept with its draft across launches.
     var draftAttachments = NewThreadDraftStore.standard().files
+    /// Files saved to the phone a chunk at a time (`download.*`).
+    var downloads = DownloadFiles()
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
@@ -21,7 +23,7 @@ struct HostServices: Sendable {
         return services
     }
 
-    /// Secret, directory and result operations. Returns nil for operations owned elsewhere.
+    /// Secret, directory, attachment, download and result operations. Returns nil for operations owned elsewhere.
     func perform(_ request: HostRequest) throws -> String? {
         let operation = request.operation, input = request.input
         switch operation {
@@ -55,7 +57,7 @@ struct HostServices: Sendable {
             guard let result else { throw HostError.unsupported }
             result(try request.requireBody())
             return ""
-        default: return nil
+        default: return try downloads.perform(request)
         }
     }
 }
