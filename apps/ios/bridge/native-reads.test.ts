@@ -320,3 +320,42 @@ test("an answer the bridge stops keeping leaves Swift's copy too, even one still
   expect(sink.read("service:cache:first")).toEqual({ type: "service.evict", key: "first" });
   expect(sink.read("service:cache:second")).toBeUndefined();
 });
+
+test("a kept answer seven days old is not restored at the next launch; a newer one is", async () => {
+  const day = 24 * 60 * 60 * 1000;
+  let saved = "";
+  let at = 0;
+  const runs: (() => void)[] = [];
+  const storage = {
+    load: async () => saved,
+    save: async (text: string) => {
+      saved = text;
+    },
+  };
+  const first = new NativeReads(fakeOwner().owner, new RecordingSink(), {
+    now: () => at,
+    schedule: (_delay, run) => {
+      runs.push(run);
+      return () => {};
+    },
+    storage,
+  });
+  const old = first.key(projectsRead, "projects");
+  const recent = first.key({ type: "usage.limits" }, "limits");
+  if (!old || !recent) throw new Error("expected kept reads");
+  first.answered(old, { result: { kind: "workspaces", workspaces: [] } });
+  at = 2 * day;
+  first.answered(recent, { providers: [] });
+  for (const run of runs.splice(0)) run();
+  await until(() => saved.includes("limits"), "written");
+
+  const sink = new RecordingSink();
+  at = 7 * day;
+  await new NativeReads(fakeOwner().owner, sink, {
+    now: () => at,
+    schedule: noSchedule,
+    storage,
+  }).restore();
+  expect(sink.read("service:cache:projects")).toBeUndefined();
+  expect(sink.read("service:cache:limits")).toMatchObject({ type: "service.cache", key: "limits" });
+});

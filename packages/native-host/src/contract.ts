@@ -63,6 +63,23 @@ export interface HostOperations {
   "snapshot.get": { input: string; body: never };
   "snapshot.set": { input: { key: string }; body: string };
   "snapshot.clear": { input: null; body: never };
+  /**
+   * A thread kept as rows (ADR 0105), keyed like `snapshot.get`: answers "" for a miss, else the
+   * head's JSON and then each item's JSON, one per line.
+   */
+  "snapshot.thread.get": { input: string; body: never };
+  /**
+   * One thread write, all or nothing. `body` is the head's JSON and then the JSON of each item in
+   * `ids`, one per line. `removed` items are deleted; `replace` deletes every item first.
+   */
+  "snapshot.thread.put": {
+    input: { key: string; settled: boolean; ids: string[]; removed: string[]; replace: boolean };
+    body: string;
+  };
+  /** Everything kept: a JSON array of `{key, kind, used, bytes, settled}`. */
+  "snapshot.index": { input: null; body: never };
+  /** Lets the named records and threads go. */
+  "snapshot.drop": { input: { keys: string[] }; body: never };
   /** Keychain, limited by native code to the keys this runtime may touch. */
   "secret.get": { input: string; body: never };
   "secret.set": { input: { key: string; token: string }; body: never };

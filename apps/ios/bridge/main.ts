@@ -153,7 +153,7 @@ async function start(json: string): Promise<void> {
       },
     },
     // The inbox and opened threads paint from what this phone read last time (ADR 0030).
-    readSnapshots: nativeReadSnapshots(call),
+    readSnapshots: nativeReadSnapshots(call, () => host.now()),
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),

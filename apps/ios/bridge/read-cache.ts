@@ -1,3 +1,4 @@
+import { snapshotRetention } from "@ace/client";
 import { z } from "zod";
 import type { ReadFamily } from "./read-policy.ts";
 
@@ -6,7 +7,8 @@ import type { ReadFamily } from "./read-policy.ts";
  * `freshMs` that nothing has put out of date is given again without asking the daemon; an older
  * or out-of-date one is still drawn (Swift holds a copy) while the daemon is asked again. Each
  * family carries a generation that moves whenever its answers go out of date, so a screen
- * showing one reads it again. Kept answers outlive the app through `ReadKeeper`.
+ * showing one reads it again. Kept answers outlive the app through `ReadKeeper`, and go once
+ * they are seven days old (ADR 0105), the same age as kept threads.
  */
 
 export interface KeptRead {
@@ -23,7 +25,9 @@ export interface ReadCacheOptions {
   now(): number;
   /** The web's default staleTime. */
   freshMs?: number;
-  /** At most this many answers are kept; the most recently given win. */
+  /** Answers older than this are let go: the age kept threads go at too. */
+  maxAgeMs?: number;
+  /** A safety net: at most this many answers are kept; the most recently given win. */
   limit?: number;
 }
 
@@ -33,10 +37,15 @@ export class ReadCache {
   #now: () => number;
   #freshMs: number;
   #limit: number;
+  #maxAgeMs: number;
   constructor(options: ReadCacheOptions) {
     this.#now = options.now;
     this.#freshMs = options.freshMs ?? 5_000;
-    this.#limit = options.limit ?? 120;
+    this.#limit = options.limit ?? 500;
+    this.#maxAgeMs = options.maxAgeMs ?? snapshotRetention.maxAgeMs;
+  }
+  #expired(at: number): boolean {
+    return this.#now() - at >= this.#maxAgeMs;
   }
 
   /** The kept answer when it can be given without asking the daemon. */
@@ -48,7 +57,8 @@ export class ReadCache {
 
   /** The kept answer however old, for drawing while it is read again. */
   latest(key: string): unknown {
-    return this.#entries.get(key)?.value;
+    const entry = this.#entries.get(key);
+    return entry && !this.#expired(entry.at) ? entry.value : undefined;
   }
 
   /** Keep an answer; returns the names of the oldest answers it pushed out. */
@@ -58,12 +68,13 @@ export class ReadCache {
     return this.#trim();
   }
 
+  /** Let the expired go, then the oldest past the limit; returns their names. */
   #trim(): string[] {
     const evicted: string[] = [];
-    for (const old of this.#entries.keys()) {
-      if (this.#entries.size <= this.#limit) break;
-      this.#entries.delete(old);
-      evicted.push(old);
+    for (const [key, entry] of this.#entries) {
+      if (!this.#expired(entry.at) && this.#entries.size <= this.#limit) continue;
+      this.#entries.delete(key);
+      evicted.push(key);
     }
     return evicted;
   }
@@ -115,7 +126,7 @@ export class ReadCache {
     const restored: KeptRead[] = [];
     for (const read of reads) {
       const current = this.#entries.get(read.key);
-      if (current && current.at >= read.at) continue;
+      if (this.#expired(read.at) || (current && current.at >= read.at)) continue;
       this.#entries.set(read.key, { ...read, stale: true });
       restored.push(read);
     }
