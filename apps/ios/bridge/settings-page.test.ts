@@ -186,7 +186,7 @@ test("a setting an environment variable overrides is shown locked and can't be c
         const reply = await p.owner.request(message as never, options as never);
         if (message.type !== "settings.get" || message.key !== "threads.followUpBehavior")
           return reply;
-        const entries = (reply as { entries: { provenance: string }[] }).entries;
+        const entries = (reply as unknown as { entries: { provenance: string }[] }).entries;
         return {
           ...reply,
           entries: entries.map((entry) => Object.assign({}, entry, { provenance: "environment" })),
