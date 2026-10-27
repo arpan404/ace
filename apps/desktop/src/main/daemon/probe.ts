@@ -107,6 +107,14 @@ export async function setMaintenance(daemon: LocalDaemon, on: boolean): Promise<
   );
   return result.blockers;
 }
+/** The update's own hold on admission (`/v1/maintenance/update`); the person's pause is apart. */
+export async function setUpdateHold(daemon: LocalDaemon, on: boolean): Promise<number> {
+  const { MaintenanceStatus } = await protocol();
+  const result = MaintenanceStatus.parse(
+    await request(daemon, "/v1/maintenance/update", { method: on ? "POST" : "DELETE" }),
+  );
+  return result.blockers;
+}
 export async function maintenanceBlockers(daemon: LocalDaemon): Promise<number> {
   const { MaintenanceStatus } = await protocol();
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance")).blockers;

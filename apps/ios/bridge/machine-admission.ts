@@ -27,17 +27,21 @@ export type AdmissionPatch = {
   /** "New work paused · 2 threads are finishing", or null while it takes new work. */
   line: string | null;
   action: string;
+  /** False while an update, kill-all or stop holds admission and the person's pause can't end. */
+  canChange: boolean;
 };
 
 export function admissionPatch(admission: Admission | undefined): AdmissionPatch {
   if (!admission)
-    return { type: "machine.admission", known: false, paused: false, line: null, action: "" };
-  return {
-    type: "machine.admission",
-    known: true,
-    paused: admission.paused,
-    ...admissionWords(admission),
-  };
+    return {
+      type: "machine.admission",
+      known: false,
+      paused: false,
+      line: null,
+      action: "",
+      canChange: false,
+    };
+  return { type: "machine.admission", known: true, ...admissionWords(admission) };
 }
 
 export class MachineAdmission {

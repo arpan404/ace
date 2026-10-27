@@ -126,13 +126,18 @@ export function accessHttp({
           };
         else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          maintenance?.enter();
+          maintenance?.enter("stop");
           result = shutdown.request();
           response.once("finish", () => shutdown.start());
-        } else if (path === "/v1/maintenance" && maintenance) {
+        } else if (
+          (path === "/v1/maintenance" || path === "/v1/maintenance/update") &&
+          maintenance
+        ) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          if (request.method === "POST") result = maintenance.enter();
-          else if (request.method === "DELETE") result = maintenance.leave();
+          // The tray's pause is the person's hold; an update's drain holds admission on its own.
+          const hold = path === "/v1/maintenance" ? "user" : "update";
+          if (request.method === "POST") result = maintenance.enter(hold);
+          else if (request.method === "DELETE") result = maintenance.leave(hold);
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/app-update" && request.method === "PUT" && appUpdate) {

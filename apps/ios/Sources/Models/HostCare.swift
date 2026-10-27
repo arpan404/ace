@@ -9,6 +9,8 @@ struct MachineAdmissionInfo: Codable, Sendable, Equatable {
     let line: String?
     /// "Pause new work" or "Resume new work".
     let action: String
+    /// False while an update, kill-all or stop holds admission: Resume can't end it.
+    let canChange: Bool
 }
 
 /// `machine.appUpdate` (`bridge/machine-app-update.ts`): the desktop app's update, read-only.

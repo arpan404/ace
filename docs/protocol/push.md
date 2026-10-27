@@ -164,8 +164,9 @@ Example:
 ```json
 {
   "admission": {
-    "busy": 6,
-    "paused": true
+    "busy": 1,
+    "holds": [],
+    "waiting": 6
   },
   "type": "admission.changed"
 }

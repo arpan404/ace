@@ -7,13 +7,23 @@
       "minimum": 0,
       "type": "integer"
     },
-    "paused": {
-      "type": "boolean"
+    "holds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MaintenanceHold.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "waiting": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [
-    "paused",
-    "busy"
+    "holds",
+    "busy",
+    "waiting"
   ],
   "type": "object"
 }

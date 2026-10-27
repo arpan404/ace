@@ -16,7 +16,7 @@ struct MachineAdmissionRow: View {
                     Button { set(!admission.paused) } label: {
                         HStack {
                             Text(admission.action).aceFont(InsetStyle.label, relativeTo: .body)
-                                .foregroundStyle(AceTheme.Colours.foreground)
+                                .foregroundStyle(admission.canChange ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                             Spacer(minLength: AceTheme.Spacing.sm)
                             if working { ProgressView().controlSize(.small).transition(.opacity) }
                         }
@@ -24,7 +24,7 @@ struct MachineAdmissionRow: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(working || model.connection != "ready")
+                    .disabled(working || !admission.canChange || model.connection != "ready")
                     .accessibilityIdentifier("machine.admission")
                 }
                 if let line = admission.line {

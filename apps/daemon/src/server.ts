@@ -86,12 +86,16 @@ export async function startServer(options: ServerOptions): Promise<{
   let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
   const maintenance =
-    options.maintenanceGate ?? new MaintenanceGate(() => options.store.updateBlockers());
+    options.maintenanceGate ??
+    new MaintenanceGate(
+      () => options.store.updateBlockers(),
+      () => options.store.waitingBlockers(),
+    );
   let ready = options.ready === undefined;
   void options.ready?.then(() => {
     ready = true;
   });
-  if (options.maintenance) maintenance.enter();
+  if (options.maintenance) maintenance.enter("update");
   const appUpdate = options.appUpdate ?? new AppUpdateBoard();
   const access = {
     auth,

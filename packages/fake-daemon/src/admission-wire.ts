@@ -1,16 +1,18 @@
-import type { AdmissionRequest, ServerMessage } from "@ace/protocol";
+import type { AdmissionRequest, MaintenanceHold, ServerMessage } from "@ace/protocol";
 
 /**
- * The fixture's "pause new work" gate (`admission.request`), shared by every connection: one
- * that read it hears each later change, as the daemon tells its watching sockets.
+ * The fixture's "pause new work" gate (`admission.request`), shared by every connection: a set
+ * of holds, of which clients add and remove only `user`. A scenario may add a system hold (an
+ * update, kill-all) as the daemon would. A connection that read it hears each later change.
  */
 export class FakeAdmission {
-  private paused = false;
+  private readonly holds = new Set<MaintenanceHold>();
   private readonly watchers = new Set<(message: ServerMessage) => void>();
-  /** Seeds or flips the gate from a scenario, as the desktop tray would. */
-  set(paused: boolean): void {
-    if (paused === this.paused) return;
-    this.paused = paused;
+  /** Adds or removes `hold`, as the tray, an update or kill-all would. */
+  set(hold: MaintenanceHold, on: boolean): void {
+    if (on === this.holds.has(hold)) return;
+    if (on) this.holds.add(hold);
+    else this.holds.delete(hold);
     for (const send of this.watchers) send({ type: "admission.changed", admission: this.state() });
   }
   /** One connection's handler; scope refusals happen before it (`request-scopes.ts`). */
@@ -18,7 +20,7 @@ export class FakeAdmission {
     return {
       handle: (request: AdmissionRequest) => {
         this.watchers.add(emit);
-        if (request.operation !== "status") this.set(request.operation === "pause");
+        if (request.operation !== "status") this.set("user", request.operation === "pause");
         emit({
           type: "admission.result",
           requestId: request.requestId,
@@ -32,6 +34,6 @@ export class FakeAdmission {
     };
   }
   private state() {
-    return { paused: this.paused, busy: 0 };
+    return { holds: [...this.holds].toSorted(), busy: 0, waiting: 0 };
   }
 }

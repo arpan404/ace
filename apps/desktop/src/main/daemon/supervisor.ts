@@ -434,16 +434,18 @@ export class DaemonSupervisor {
     if (this.draining) return;
     const revision = this.maintenanceRevision;
     try {
-      const { draining } = await this.ports.maintenance(daemon);
+      const admission = await this.ports.maintenance(daemon);
+      // The tray's Pause is the person's own hold; an update or kill-all holds admission apart.
+      const paused = admission.holds ? admission.holds.includes("user") : admission.draining;
       if (
         !this.stale(generation) &&
         this.daemon === daemon &&
         revision === this.maintenanceRevision &&
         !this.draining &&
         this.status.state === "running" &&
-        draining !== this.status.paused
+        paused !== this.status.paused
       )
-        this.update({ paused: draining });
+        this.update({ paused });
     } catch {
       // The next health check reads it again.
     }
