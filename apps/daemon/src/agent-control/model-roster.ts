@@ -68,8 +68,8 @@ function callerModel(row: CatalogModel, caller: RosterInput["caller"]) {
 }
 
 /**
- * One entry per model across every account that serves it. A model superseded on any account
- * that serves it is legacy: a newer release of its line is one account away.
+ * One entry per model across every account that serves it. A model is legacy only when every
+ * account that serves it calls it legacy: an account whose newest release it is still needs it.
  */
 function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merged[] {
   const byModel = new Map<string, Merged>();
@@ -82,13 +82,13 @@ function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merge
       first: model,
       accounts: [],
       defaultOn: [],
-      legacy: false,
+      legacy: isLegacy(model),
       pinned: false,
     };
     byModel.set(key, entry);
     if (!entry.accounts.includes(account)) entry.accounts.push(account);
     if (model.isDefault) entry.defaultOn.push(account);
-    entry.legacy ||= isLegacy(model);
+    entry.legacy &&= isLegacy(model);
     entry.pinned ||=
       model.favourite === true ||
       (model.isDefault && model.defaultSource === "user") ||

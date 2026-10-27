@@ -31,6 +31,14 @@ describe("default roster", () => {
     expect(claude.omitted).toBe(8);
   });
 
+  test("a model stays listed while any account that serves it still calls it current", () => {
+    const codex = provider(roster(), "codex");
+    // The CLI login's newest Terra; only the second login has a newer one.
+    expect(ids(codex)).toContain("gpt-5.6-terra");
+    expect(setOf(codex, "gpt-5.6-terra")?.legacy).toBeUndefined();
+    expect(ids(codex)).not.toContain("gpt-6-sol");
+  });
+
   test("a large catalogue keeps its default and one release per model line", () => {
     const openCode = provider(roster(), "opencode");
     const listed = ids(openCode);
