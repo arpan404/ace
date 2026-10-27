@@ -9,7 +9,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startStorage(context: ServiceContext): Promise<void> {
   const worktrees = new WorktreeIO();
-  context.resources.own(() => worktrees.close());
+  context.resources.own(() => worktrees.close(), "storage worktree worker");
   const owner = {
     store: context.store,
     services: context.services,
@@ -19,8 +19,14 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     worktrees,
   };
   const storage = new StorageService(owner);
-  context.resources.own(() => storage.close());
-  context.resources.onShutdown(() => storage.stop());
+  context.resources.own(() => storage.close(), "storage operations");
+  context.resources.onShutdown(() => {
+    storage.stop();
+    // Git in the worktree worker is outside the daemon's process stop, and storage's close
+    // waits for the operation using it: cancel that Git work as soon as shutdown begins.
+    // Maintenance inspects every checkout afresh, so a cancelled push or removal runs again.
+    void worktrees.close().catch(() => {});
+  });
   // Recovery finishes after the other listener-phase services have recovered their ownership.
   const scheduled =
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;

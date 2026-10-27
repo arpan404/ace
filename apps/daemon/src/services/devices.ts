@@ -17,7 +17,7 @@ export function startDevices(context: ServiceContext): void {
   const devices = options.devices
     ? LazyDevices.of(options.devices)
     : new LazyDevices(() => buildDevices(context));
-  resources.own(() => devices.close());
+  resources.own(() => devices.close(), "device sessions");
   services.devices = devices;
 }
 /** The devices implementation, imported and built the first time something uses devices. */
