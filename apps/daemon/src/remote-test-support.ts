@@ -9,13 +9,20 @@ export const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 }, 60_000);
-export async function setup(serverOptions: Parameters<typeof fixture>[0] = {}) {
+export async function setup(
+  serverOptions: Parameters<typeof fixture>[0] = {},
+  /** Services that need the fixture's own store and home. */
+  withStore?: Parameters<typeof fixture>[1],
+) {
   let time = 1000;
-  const f = await fixture({
-    ...serverOptions,
-    now: () => time,
-    remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity },
-  });
+  const f = await fixture(
+    {
+      ...serverOptions,
+      now: () => time,
+      remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity },
+    },
+    withStore,
+  );
   cleanups.push(() => f.close());
   const remoteUrl = f.server.remoteUrl;
   if (!remoteUrl) throw new Error("Remote listener missing");
