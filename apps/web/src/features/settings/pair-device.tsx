@@ -3,6 +3,7 @@ import { Navigate, useLocation } from "@tanstack/react-router";
 import { Switch } from "@/components/ui/switch.tsx";
 import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
 import type { PairingScope } from "@ace/protocol";
+import { advancedPairingScopes, deviceAccessLevels, type DeviceAccess } from "@ace/ui-core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useRef, useState, type ReactNode, type Ref } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -29,27 +30,20 @@ import {
 import { useRemoteStatus } from "./data/use-settings.ts";
 import { Paired, PairingCode } from "./pairing-code.tsx";
 
-type Access = "operate" | "read" | "admin";
-const scopesFor: Record<Access, PairingScope[]> = {
-  operate: ["read", "operate"],
-  read: ["read"],
-  admin: ["read", "operate", "admin"],
-};
+type Access = DeviceAccess;
+const scopesFor = Object.fromEntries(
+  deviceAccessLevels.map((level) => [level.value, [...level.scopes]]),
+) as Record<Access, PairingScope[]>;
 
 /** While a code is on screen, the paired list is read this often to catch the new device. */
 const watchMs = 2_000;
 
-const accessDescriptions: Record<Access, string> = {
-  operate: "Follow threads, answer approvals, send messages and stop agents.",
-  read: "Follow threads and read transcripts. Nothing it does changes anything.",
-  admin: "Everything, plus settings, pairing, revoking and computer use.",
-};
+const accessDescriptions = Object.fromEntries(
+  deviceAccessLevels.map((level) => [level.value, level.description]),
+) as Record<Access, string>;
 
 /** Grants apart from the access level, each its own switch. */
-const advancedScopes: readonly { value: "projects" | "accounts"; label: string; what: string }[] = [
-  { value: "projects", label: "Projects", what: "Add and remove project folders." },
-  { value: "accounts", label: "Accounts", what: "Add and remove provider accounts." },
-];
+const advancedScopes = advancedPairingScopes;
 
 const linkOptions = linkLifetimes.map((entry) => ({
   value: String(entry.value),

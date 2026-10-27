@@ -48,34 +48,26 @@ export async function machineDevices(client: ClientApi): Promise<PairedDevice[]>
   const result = await fleet(client, { op: "devices" });
   if (result.kind !== "devices") return [];
   // Local credentials (the desktop app, "Use my Chrome") are not paired devices.
-  return result.devices
-    .filter(
-      (device) =>
-        device.revokedAt === null &&
-        !device.scopes.includes("desktop") &&
-        !device.scopes.includes("user-browser"),
-    )
-    .map((device) =>
-      device.id === result.selfId ? Object.assign(device, { self: true }) : device,
-    );
+  return pairedDevices(result.devices).map((device) =>
+    device.id === result.selfId ? Object.assign(device, { self: true }) : device,
+  );
 }
 
-export const linkLifetimes = [
-  { value: 5 * 60_000, label: "5 minutes" },
-  { value: 60 * 60_000, label: "1 hour" },
-  { value: 24 * 60 * 60_000, label: "1 day" },
-  { value: 7 * 24 * 60 * 60_000, label: "7 days" },
-] as const;
-export type LinkLifetime = (typeof linkLifetimes)[number]["value"];
-
-export const deviceLifetimes = [
-  { value: 0, label: "Until revoked" },
-  { value: 24 * 60 * 60_000, label: "1 day" },
-  { value: 7 * 24 * 60 * 60_000, label: "7 days" },
-  { value: 30 * 24 * 60 * 60_000, label: "30 days" },
-] as const;
-/** 0: the device keeps access until it is revoked. */
-export type DeviceLifetime = (typeof deviceLifetimes)[number]["value"];
+export {
+  deviceLifetimes,
+  linkLifetimes,
+  type DeviceLifetime,
+  type LinkLifetime,
+} from "@ace/ui-core";
+import {
+  linkPairingProblem,
+  linkRedeemProblem,
+  linkScopes,
+  pairedDevices,
+  type DeviceLifetime,
+  type LinkAccess,
+  type LinkLifetime,
+} from "@ace/ui-core";
 
 export interface PairingOptions {
   scopes: PairingScope[];
@@ -112,42 +104,18 @@ export async function revokeDevice(client: ClientApi, deviceId: string): Promise
   await fleet(client, { op: "revoke", deviceId });
 }
 
-/** What agents on a linked machine may do on the machine it reaches. */
-export type LinkAccess = "read" | "operate";
-
-/**
- * Link `from` to `to`: `to` issues a one-time pairing for an agent device (never administrator)
- * and `from` redeems it and keeps it as a link. Agents on `from` then reach `to`, up to the lower
- * of this grant and `to`'s own "Agents from other machines" setting.
- */
-/** Why `to` couldn't make a pairing link for `from`, in words the person acts on. */
-function pairingProblem(error: unknown, to: Machine): string {
-  const code = refusalCode(error);
-  if (code === "unavailable") return `Turn on remote access on ${to.name}.`;
-  if (code === "forbidden")
-    return `This window doesn't have administrator access to ${to.name}. Pair it again as Administrator.`;
-  if (code === "busy") return `${to.name} has too many pairing links open. Cancel one first.`;
-  return `${to.name} didn't make a pairing link.`;
-}
-
-/** Why `from` couldn't use `to`'s pairing link, in words the person acts on. */
-function redeemProblem(error: unknown, from: Machine, to: Machine): string {
-  const code = refusalCode(error);
-  if (code === "unavailable")
-    return `${from.name} couldn't reach ${to.name}. Check that both are on the same network (Tailscale or LAN) and that remote access is on.`;
-  if (code === "refused") return `${to.name} didn't accept ${from.name}. Try again.`;
-  if (code === "limit") return `${from.name} has 64 links already. Remove one first.`;
-  if (code === "forbidden")
-    return `This window doesn't have administrator access to ${from.name}. Pair it again as Administrator.`;
-  return `${from.name} didn't link to ${to.name}.`;
-}
+export type { LinkAccess } from "@ace/ui-core";
 
 export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
+  const pairingProblem = (error: unknown, machine: Machine) =>
+    linkPairingProblem(refusalCode(error), machine.name);
+  const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
+    linkRedeemProblem(refusalCode(error), source.name, target.name);
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;
   const pairing = await createPairing(toClient, {
-    scopes: access === "operate" ? ["read", "operate"] : ["read"],
+    scopes: linkScopes(access),
   }).catch((error: unknown) => {
     throw new Error(pairingProblem(error, to));
   });

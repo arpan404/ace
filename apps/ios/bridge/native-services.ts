@@ -38,6 +38,7 @@ import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
+import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -189,6 +190,11 @@ export class NativeServices {
       const project = NativeProjectRequest.safeParse(raw);
       if (project.success && this.projects) {
         this.#reply(id, true, await this.projects.answer(project.data.request), "");
+        return;
+      }
+      const fleet = NativeFleetRequest.safeParse(raw);
+      if (fleet.success) {
+        this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);
