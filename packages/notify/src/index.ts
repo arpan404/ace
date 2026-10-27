@@ -12,7 +12,14 @@ export type { NoticeWindow } from "./sleep-boundary.ts";
 export { createNotificationRouter } from "./router.ts";
 export type { NotificationChannels } from "./router.ts";
 export { createWebPushTransport } from "./webpush.ts";
-export { encryptWebPush, vapidAuthorization, p256SigningKey } from "./webpush-crypto.ts";
+export {
+  encryptWebPush,
+  vapidAuthorization,
+  p256SigningKey,
+  p256PublicPoint,
+} from "./webpush-crypto.ts";
+export { createPushGatewayTransport, pushPlaintext, pushPlaintextBudget } from "./push-gateway.ts";
+export type { PushGatewayOptions, PushGatewayTarget } from "./push-gateway.ts";
 export { createApnsTransport } from "./apns.ts";
 export type { ApnsTransport } from "./apns.ts";
 export { PresenceIndex } from "./presence.ts";
