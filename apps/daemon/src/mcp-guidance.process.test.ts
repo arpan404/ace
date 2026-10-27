@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  AgentModelsProvider,
   MachineMessageResult,
   MachineSummary,
   MessageArrival,
@@ -173,6 +174,8 @@ it("the agents and threads guides quote only served tools, their fields and valu
     ...MessageArrival.options,
     ...Object.keys(MachineSummary.shape),
     ...Object.keys(Transfer.shape),
+    // The models roster's provider fields, such as how many older releases were left out.
+    ...Object.keys(AgentModelsProvider.shape),
     // Result fields the guides tell the agent to page with; results are advertised as envelopes.
     "itemsBefore",
     "nextOffset",
