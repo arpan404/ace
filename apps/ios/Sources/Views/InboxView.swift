@@ -56,6 +56,7 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            .background { ForEach(inbox.sessions) { DraftWordsDrain(model: $0.client) } }
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
                 ForEach(inbox.merged.snooze) { option in
                     Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }

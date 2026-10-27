@@ -110,6 +110,15 @@ extension ClientModel {
             action(["type": "inbox", "action": ["kind": "takeBackSend", "commandId": commandId], "requestId": id])
         }
     }
+    /// Words taken back for `threadId`'s composer: they go into its saved draft, and the take-back
+    /// `record` is acknowledged once they are there.
+    func giveWords(_ text: String, to threadId: String, record: String?) {
+        givenWords.append(GivenWords(threadId: threadId, text: text, record: record))
+    }
+    /// The words are in the saved draft: the bridge can forget the record.
+    func acknowledgeWords(_ record: String) {
+        action(["type": "inbox", "action": ["kind": "takeBackAck", "id": record], "requestId": admissions.nextId()])
+    }
     /// The queue's list shows its next page.
     func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the

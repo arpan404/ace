@@ -75,7 +75,9 @@ struct ConversationFeed: View {
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
     /// Words taken back from a message that wasn't sent go into the composer.
-    var restore: (String) -> Void = { _ in }
+    /// Words taken back go into the thread's saved draft; the take-back record is acknowledged once
+    /// they are there.
+    var restore: (String, String?) -> Void = { _, _ in }
     @State private var reading = TranscriptReading()
     @State private var following = true
     @State private var initialScroll = false
@@ -128,7 +130,7 @@ struct ConversationFeed: View {
                                            // The send's full words, once its dismissal is saved.
                                            let answer = await model.takeBackSend(row.id)
                                            guard let text = answer.text else { model.error = answer.message; return false }
-                                           restore(text)
+                                           restore(text, answer.record)
                                            return true
                                        },
                                        discard: { await model.dismissSend(row.id) })

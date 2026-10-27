@@ -44,7 +44,7 @@ struct HeldSendRow: View {
     /// the daemon confirmed (`bridge/take-back.ts`).
     let words: (Bool) async -> WordsRequests.Answer
     /// Words taken back go into the composer.
-    let restore: (String) -> Void
+    let restore: (String, String?) -> Void
     @State private var rewording = false
     @State private var draft = ""
     @State private var problem: String?
@@ -58,7 +58,7 @@ struct HeldSendRow: View {
                         // Without files it is taken back, and its words come only once it is gone.
                         let answer = await words(message.attachments == 0)
                         guard let text = answer.text else { problem = answer.message; return false }
-                        if message.attachments > 0 { draft = text; rewording = true } else { restore(text) }
+                        if message.attachments > 0 { draft = text; rewording = true } else { restore(text, answer.record) }
                         return true
                     },
                     remove: { await edit(queued, ["kind": "remove"]) })

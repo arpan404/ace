@@ -7,6 +7,7 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
  * - ios-queue-long: a working thread with 40 follow-ups queued (the sheet lists 32, Show more).
  * - ios-queue-paused: the person paused the queue with two waiting (Resume queue).
  * - ios-held-send: a session start failed: the message is kept as not sent, one more waits.
+ * - ios-held-long: a not-sent message longer than the phone's 8,192-character preview.
  * - ios-limited: Codex ran out of usage with a known reset (Switch, Resume at reset, Continue).
  * - ios-stopped: the person stopped the turn (Continue).
  */
@@ -123,6 +124,25 @@ export function seedQueues(
       },
     },
   ]);
+
+  thread(
+    daemon,
+    details,
+    "ios-held-long",
+    "Rewrite the relay outbox",
+    "Plan the outbox rewrite.",
+    true,
+  );
+  daemon.holdQueue("ios-held-long", "not_sent", {
+    title: "Codex couldn't start a session. The CLI exited with code 1.",
+    code: "session_start_failed",
+  });
+  queue(
+    daemon,
+    "ios-held-long",
+    "ios-held-long-1",
+    `Rewrite the relay outbox: ${"keep every message in order and retry with backoff. ".repeat(220)}END-OF-MESSAGE`,
+  );
 
   thread(
     daemon,

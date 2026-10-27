@@ -195,7 +195,8 @@ test("Edit of a failed send hands back its full words once its dismissal is save
         .find((send) => send.state === "failed")?.commandId,
     "the failed send",
   );
-  expect((latest("pending", id)?.row as { text: string }).text.length).toBeLessThan(long.length);
+  const shown = latest("pending", id)?.row as { text: string } | undefined;
+  expect(shown?.text.length).toBeLessThan(long.length);
   inboxAction(owner, { kind: "takeBackSend", commandId: id }, "s1", pump, inbox);
   await until(() => words("s1"), "the words");
   expect(words("s1")?.text).toBe(long);
