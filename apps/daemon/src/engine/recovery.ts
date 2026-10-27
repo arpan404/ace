@@ -622,24 +622,20 @@ export class Recovery {
     this.schedule();
   }
   /**
-   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, one
-   * that has already cleared (or that a switch left behind), or one the thread is leaving (a
-   * switch to another account, model or provider is ahead of the message). Their message
-   * is the go-ahead: the hold and ace's own continuation are dropped and the queue sends in
-   * order, with their message last, on the new selection when there is one. If the provider
-   * refuses again, its definite signal holds the thread again. A known reset that hasn't passed
-   * keeps holding otherwise, and so does a pause the person chose.
+   * The person sends while a limit holds the thread: their message is the go-ahead, even before
+   * the reset the provider gave, because limits often lift early or at times nobody predicted.
+   * The hold, any resume or snooze timer, and ace's own continuation are dropped, and the queue
+   * sends in order with their message last (on the new selection when a switch is ahead of it).
+   * If the provider still refuses, its definite signal holds the thread again. A pause the
+   * person chose keeps holding.
    */
   releaseLimitHold(id: ThreadId, at: number): void {
     const queue = this.repo.queue.get(id);
     if (!queue.paused) return;
-    const leaving =
-      (queue.reason === "limit" || queue.reason === "snooze") &&
-      this.repo.pending.transition(id)?.kind === "thread.switch";
-    const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
+    const limitHold = queue.reason === "limit" || queue.reason === "snooze";
     // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
     const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
-    if (!leaving && (queue.resumeAt !== null || (!resetless && !cleared))) return;
+    if (!limitHold && !cleared) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.lift(id, at);
   }

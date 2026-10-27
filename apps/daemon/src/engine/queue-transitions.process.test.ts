@@ -12,15 +12,22 @@ function setup(options: Parameters<typeof transitionHarness>[0]) {
 }
 
 test("forking a limited thread leaves its held server queue and quota on the source", async () => {
-  // A definite limit that says when it resets: the source stays held until then.
+  // Queue the follow-ups before the provider reports its limit.
   const options = {
     native: true,
-    limited: true,
+    limited: false,
     forkPoints: ["end" as const],
     recovery: { resetAt: () => 5000 },
   };
   const h = setup(options);
   const source = await h.create();
+  h.emit(source, {
+    type: "turn.started",
+    agent: "root",
+    nativeTurnId: "limited-turn",
+    trigger: "user",
+  });
+  await h.engine.flush();
   for (const text of ["one", "two"])
     expect(
       h.command({
@@ -29,6 +36,11 @@ test("forking a limited thread leaves its held server queue and quota on the sou
         input: [{ type: "text", text }],
       }).ok,
     ).toBe(true);
+  h.emit(
+    source,
+    { type: "turn.ended", agent: "root", nativeTurnId: "limited-turn", outcome: "failed" },
+    { type: "retry", agent: "root", on: "rate_limit", message: "Quota exhausted" },
+  );
   await h.engine.flush();
   const before = h.engine.queue(source);
   options.limited = false;
@@ -94,7 +106,7 @@ for (const destination of ["provider", "account"] as const) {
   test(`switching a limited ${destination} preserves held order and resumes recovery on the destination`, async () => {
     const options = {
       native: true,
-      limited: true,
+      limited: false,
       recovery: { resetAt: () => 5000 },
       preferences: { limitPolicy: "resume_at_reset" as const },
       io: {
@@ -122,6 +134,13 @@ for (const destination of ["provider", "account"] as const) {
     });
     await h.engine.flush();
     expect(meter()?.usedTokens).toBe(800);
+    h.emit(id, {
+      type: "turn.started",
+      agent: "root",
+      nativeTurnId: "limited-turn",
+      trigger: "user",
+    });
+    await h.engine.flush();
     for (const text of ["one", "two"])
       expect(
         h.command({
@@ -130,6 +149,11 @@ for (const destination of ["provider", "account"] as const) {
           input: [{ type: "text", text }],
         }).ok,
       ).toBe(true);
+    h.emit(
+      id,
+      { type: "turn.ended", agent: "root", nativeTurnId: "limited-turn", outcome: "failed" },
+      { type: "retry", agent: "root", on: "rate_limit", message: "Quota exhausted" },
+    );
     await h.engine.flush();
     const before = h.engine.queue(id);
     expect(before.resumeAt).toBe(5000);
@@ -181,7 +205,7 @@ for (const settle of ["before", "after"] as const) {
   test(`a message sent ${settle === "before" ? "right after" : "once"} switching away from a limited provider goes out at once, with no ace Continue`, async () => {
     const options = {
       native: true,
-      limited: true,
+      limited: false,
       recovery: { resetAt: () => 5000 },
       preferences: { limitPolicy: "resume_at_reset" as const },
       io: {
@@ -197,9 +221,21 @@ for (const settle of ["before", "after"] as const) {
     };
     const h = setup(options);
     const id = await h.create();
+    h.emit(id, {
+      type: "turn.started",
+      agent: "root",
+      nativeTurnId: "limited-turn",
+      trigger: "user",
+    });
+    await h.engine.flush();
     expect(
       h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "one" }] }).ok,
     ).toBe(true);
+    h.emit(
+      id,
+      { type: "turn.ended", agent: "root", nativeTurnId: "limited-turn", outcome: "failed" },
+      { type: "retry", agent: "root", on: "rate_limit", message: "Quota exhausted" },
+    );
     await h.engine.flush();
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit" });
     options.limited = false;

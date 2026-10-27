@@ -305,15 +305,21 @@ export class IntentDelivery {
       this.dependencies.repo.queue.clearUncertain(intent.id);
       this.dependencies.repo.mark(intent, "queued", message);
       this.dependencies.repo.beginSend(intent, undefined);
+      const queue = this.dependencies.repo.queue.get(intent.threadId);
+      // A definite limit owns its recovery controls and deadline. Returning an unread input
+      // to the strip must not turn that hold into a generic delivery failure.
+      const failure = { lastFailure: retainedFailure(message, unavailable, details) };
       this.dependencies.repo.queue.set(
         intent.threadId,
-        {
-          paused: true,
-          reason: unavailable ? "model_unavailable" : "not_sent",
-          lastFailure: retainedFailure(message, unavailable, details),
-          resumeAt: null,
-          timerAction: null,
-        },
+        queue.limited && !unavailable
+          ? failure
+          : {
+              ...failure,
+              paused: true,
+              reason: unavailable ? "model_unavailable" : "not_sent",
+              resumeAt: null,
+              timerAction: null,
+            },
         this.dependencies.clock.now(),
       );
       this.reportFailure(intent, message, "input_queued", details);

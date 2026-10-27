@@ -148,9 +148,10 @@ the default `manual` policy a known reset only clears the limit: the thread and 
 as available and held messages wait for the person's Resume or next message. Only
 `resume_at_reset` sends at the reset, as before; snooze still expires into a manual hold. A
 fresh account reading below the limit clears the limit the same way (a chosen resume-at-reset
-or snooze deadline stays). A completed turn lifts the hold. With no reset, or once the limit
-has cleared, the person's next message is the go-ahead: the hold and ace's "continue" are
-dropped and the queue sends in order. If the provider refuses again, its signal holds the
+or snooze deadline stays). A completed turn lifts the hold. The person's next message is the
+go-ahead even before a known reset, because a limit can lift earlier than advertised. It drops
+the hold, any resume or snooze timer and ace's "continue", then sends the queue in order.
+A manual pause stays held. If the provider refuses again, its signal holds the
 thread again.
 
 ## Amendment 2026-10-17: the person can always talk to the agent

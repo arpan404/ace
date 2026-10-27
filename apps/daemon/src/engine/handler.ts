@@ -460,8 +460,9 @@ export function engineHandler(
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
         // carries on: it releases that hold, drops ace's own "continue", and the queue sends in
-        // order with it last. It is also the go-ahead past a limit that gave no reset, and past
-        // inputs whose delivery stayed uncertain: those leave the queue, never sent again.
+        // order with it last. It is also the go-ahead past a usage limit, even before its
+        // reset (a limit can lift early), and past inputs whose delivery stayed uncertain: those
+        // leave the queue, never sent again.
         if (p.type === "thread.send") {
           retireUncertainInputs(repo, threadId, now());
           releaseInterruptedHold(repo, threadId, now());
