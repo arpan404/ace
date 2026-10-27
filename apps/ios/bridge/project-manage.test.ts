@@ -1,9 +1,11 @@
 import "./test-host.ts";
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
+import { WorkspaceId } from "@ace/protocol";
 import { ProjectManage } from "./project-manage.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
+const web = WorkspaceId.parse("web");
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
@@ -18,7 +20,7 @@ const schedule = (delay: number, run: () => void) => {
 async function machine() {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
-  daemon.createThread({ id: "t1", workspaceId: "web", title: "Fix checkout", provider: "codex" });
+  daemon.createThread({ id: "t1", workspaceId: web, title: "Fix checkout", provider: "codex" });
   daemon.apply("t1", [facts.rootAgent("codex"), facts.turn("root")]);
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
@@ -72,21 +74,21 @@ describe("managing a project from the phone", () => {
 
   test("removing a project with a running thread is refused until the person stops them", async () => {
     const { daemon, manage } = await machine();
-    const refused = await manage.answer({ op: "remove", workspaceId: "web", stopRunning: false });
+    const refused = await manage.answer({ op: "remove", workspaceId: web, stopRunning: false });
     expect(refused).toEqual({
       ok: false,
       code: "workspace_threads_running",
       message: "Threads in this project are still running.",
     });
     expect(daemon.projects.get("web")).toBeDefined();
-    const removed = await manage.answer({ op: "remove", workspaceId: "web", stopRunning: true });
+    const removed = await manage.answer({ op: "remove", workspaceId: web, stopRunning: true });
     expect(removed).toEqual({ ok: true, queued: false });
     expect(daemon.projects.get("web")).toBeUndefined();
   });
 
   test("defaults offer the machine's local branches", async () => {
     const { manage } = await machine();
-    const options = await manage.answer({ op: "options", workspaceId: "web", current: {} });
+    const options = await manage.answer({ op: "options", workspaceId: web, current: {} });
     expect(options).toMatchObject({ ok: true, git: true });
     expect((options as { branches: string[] }).branches).toContain("main");
   });

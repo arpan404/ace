@@ -11,10 +11,17 @@ import {
   maxProjectNotes,
 } from "@ace/protocol";
 import {
+  accessDescription,
+  accessLabel,
+  accessModes,
   newThreadOptions,
+  projectBrowserProfiles,
+  projectGlyphIcons,
   projectDefaultModels,
   projectEdit,
+  projectInitials,
   projectProblem,
+  providerNames,
   readModelCatalog,
   type ModelCatalog,
 } from "@ace/ui-core";
@@ -60,6 +67,8 @@ export const NativeProjectRequest = z.object({
         .default({}),
     }),
     z.object({ op: z.literal("save"), project: Project, draft: Draft }),
+    /** The badge's initials for a name the person is typing. */
+    z.object({ op: z.literal("initials"), name: z.string().max(1024) }),
     z.object({
       op: z.literal("remove"),
       workspaceId: WorkspaceId,
@@ -109,6 +118,8 @@ export class ProjectManage {
           ...result.edit,
         });
       }
+      case "initials":
+        return { ok: true, initials: projectInitials(request.name) };
       case "remove":
         return this.write({
           type: "workspace.remove",
@@ -173,6 +184,7 @@ export class ProjectManage {
         : [];
     return {
       ok: true,
+      choices,
       models: models ?? [],
       modelsFailed: models === undefined,
       branches: [...new Set(names)].slice(0, 200),
@@ -197,9 +209,33 @@ export class ProjectManage {
       }));
     // Accounts only order a model's rows; every listed model is offered once.
     const options = newThreadOptions(catalog.models, [], statuses);
-    return projectDefaultModels(options.models, current).slice(0, 400);
+    return projectDefaultModels(options.models, current)
+      .slice(0, 400)
+      .map((model) => ({ ...model, label: `${model.label} · ${providerNames[model.provider]}` }));
   }
 }
+
+const capital = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+/** The editor's fixed choices, in the web's words and order. */
+const choices = {
+  access: accessModes.map((mode) => ({
+    id: mode,
+    label: accessLabel(mode),
+    note: accessDescription(mode),
+  })),
+  browserProfiles: projectBrowserProfiles.map((profile) => ({
+    id: profile.value ?? null,
+    label: profile.label,
+    note: profile.note,
+  })),
+  glyphs: ProjectGlyph.options.map((glyph) => ({
+    id: glyph,
+    icon: projectGlyphIcons[glyph],
+    label: capital(glyph),
+  })),
+  colours: BadgeColor.options.map((colour) => ({ id: colour, label: capital(colour) })),
+};
 
 function refused(code: string, message: string): WriteOutcome {
   return { ok: false, code, message };

@@ -6,7 +6,7 @@ let serviceSignposter = OSSignposter(subsystem: "app.ace.ios", category: "servic
 let serviceLog = Logger(subsystem: "app.ace.ios", category: "service")
 
 /// Schema-validated SDK service replies. Each screen decodes the fields it uses into its DTO.
-indirect enum ServiceValue: Codable, Sendable {
+indirect enum ServiceValue: Codable, Sendable, Equatable {
     case object([String: ServiceValue]), array([ServiceValue]), string(String), number(Double), bool(Bool), null
     init(from decoder: any Decoder) throws {
         let box = try decoder.singleValueContainer()

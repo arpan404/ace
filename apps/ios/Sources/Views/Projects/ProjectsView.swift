@@ -1,12 +1,5 @@
 import SwiftUI
 
-struct NativeProject: Decodable, Identifiable {
-    let id: String
-    let name: String
-    let path: String
-    /// `chat` for a chat's hidden project (ADR 0099), which no project list shows.
-    var kind: String? = nil
-}
 struct ProjectListReply: Decodable {
     struct Result: Decodable {
         let kind: String
@@ -35,7 +28,7 @@ struct ProjectsView: View {
     @State private var problem: String?
     @State private var query = ""
     @State private var adding = false
-    private static let firstPage: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
+    static let firstPage: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
 
     /// Opens on the last projects this phone saw, read again behind them.
     init(model: ClientModel) {
@@ -110,36 +103,5 @@ struct ProjectsView: View {
             loaded = true
             projects = (more ? projects : []) + (reply.result.projects ?? []); next = reply.result.next
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
-    }
-}
-
-private struct ProjectDetailView: View {
-    let model: ClientModel
-    let project: NativeProject
-    var body: some View {
-        List {
-            Section {
-                Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
-            }
-            .insetRowBackground()
-            Section {
-                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: "folder") }
-                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
-            }
-            .insetRowBackground()
-            // Shown only while this machine links to another (ADR 0101).
-            if model.canOperate, model.transfers.linked {
-                Section {
-                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: { InsetRow("Open on…", systemImage: "desktopcomputer") }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("project.openOn")
-                }
-                .insetRowBackground()
-            }
-        }
-        .insetGroupedList()
-        .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)
-        .transferSheet(model: model, kind: "project")
     }
 }
