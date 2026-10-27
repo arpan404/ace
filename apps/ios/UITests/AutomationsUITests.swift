@@ -93,13 +93,13 @@ import XCTest
         choose(app, "automation.trigger", "On pull requests or issues")
         let repository = app.textFields["automation.repository"]
         reveal(app, repository)
-        repository.tap()
+        focus(repository)
         repository.typeText("arpan404/ace")
         choose(app, "automation.event", "When an issue is labelled")
         let label = app.textFields["automation.label"]
         reveal(app, label)
         XCTAssertTrue(label.exists)
-        label.tap()
+        focus(label)
         label.typeText("needs-triage")
         screenshot("github")
         choose(app, "automation.trigger", "When files change")
@@ -199,6 +199,14 @@ import XCTest
                target.frame.minY > top, target.frame.minY < bottom { return }
             let down = target.exists ? target.frame.minY >= bottom : attempt < 10
             if down { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
+        }
+    }
+    /// Taps a field until it holds the keyboard: a field still fading in can miss the first tap.
+    private func focus(_ field: XCUIElement) {
+        for _ in 0..<4 {
+            field.tap()
+            if (field.value(forKey: "hasKeyboardFocus") as? Bool) == true { return }
+            Thread.sleep(forTimeInterval: 0.5)
         }
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
