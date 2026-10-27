@@ -18,6 +18,9 @@ export type OptionalCapability =
   /** `trace`: totals of spans the script times itself (diagnostics only). */
   | "trace";
 
+/** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
+export type KeptValueKey = "review" | "files";
+
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";
 
@@ -57,6 +60,13 @@ export interface HostOperations {
   /** The browser's device toolbar per tab (`@ace/ui-core/browser-device-settings`). */
   "storage.devices.load": { input: null; body: never };
   "storage.devices.save": { input: null; body: string };
+  /**
+   * Small per-device values the shared logic keeps between launches, by key: "review" (Changes
+   * comments and viewed marks), "files" (recent and open files). "" when nothing is kept.
+   */
+  "storage.value.load": { input: { key: KeptValueKey }; body: never };
+  /** A plain replace; native code bounds each value at 1 MiB. */
+  "storage.value.save": { input: { key: KeptValueKey }; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */

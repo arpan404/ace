@@ -58,6 +58,16 @@ final class DurableStore {
             guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('browserDevices',?)", [value]) }
             return ""
+        // Small values the shared logic keeps per key (`storage.value.*`): a plain replace.
+        case "storage.value.load":
+            let key = try keptKey(request)
+            return try query("SELECT value FROM metadata WHERE id=?", [key]).first ?? ""
+        case "storage.value.save":
+            let key = try keptKey(request)
+            let value = try request.requireBody()
+            guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES (?,?)", [key, value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }
@@ -78,10 +88,19 @@ final class DurableStore {
         }
         guard sqlite3_step(statement) == SQLITE_DONE else { throw HostError.storage }
     }
-    private func query(_ sql: String) throws -> [String] {
+    /// The metadata row a `storage.value.*` key owns; unknown keys are refused.
+    private func keptKey(_ request: HostRequest) throws -> String {
+        let key = try JSONDecoder().decode(KeptKey.self, from: request.input).key
+        guard ["review", "files"].contains(key) else { throw HostError.storage }
+        return "kept." + key
+    }
+    private func query(_ sql: String, _ values: [String] = []) throws -> [String] {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw HostError.storage }
         defer { sqlite3_finalize(statement) }
+        for (index, value) in values.enumerated() {
+            guard sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient) == SQLITE_OK else { throw HostError.storage }
+        }
         var values: [String] = []
         while true {
             let result = sqlite3_step(statement)
@@ -92,4 +111,5 @@ final class DurableStore {
     }
 }
 private struct RecordId: Decodable { let id: String }
+private struct KeptKey: Decodable { let key: String }
 enum HostError: Error { case storage, identity, unsupported, encoding, entropy, transport }
