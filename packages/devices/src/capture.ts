@@ -1,7 +1,7 @@
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { deviceWindowBundles, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
-import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
+import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
 import { screenrecordCapture } from "./android-screenrecord.ts";
@@ -40,7 +40,6 @@ export interface DeviceCapture extends Capture {
 }
 export async function startCapture(options: {
   device: Device;
-  scope?: ScreenAgentScope;
   streamId: string;
   fps: number;
   platform: DevicePlatform;
@@ -147,9 +146,8 @@ export async function startCapture(options: {
       windowId: window.windowId,
       content: true,
     };
-    const state = options.scope
-      ? await screen.start(target, options.fps, options.scope)
-      : await screen.startHumanDeviceView(target, options.fps);
+    // The device service decides who controls it, so moving threads never restarts the view.
+    const state = await screen.startHumanDeviceView(target, options.fps);
     let stopped = false;
     let terminated = false;
     let stopping: Promise<void> | undefined;

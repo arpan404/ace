@@ -312,6 +312,29 @@ describe("in-app device ownership", () => {
     await expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({ code: "busy" });
     h.clearStopFailure();
   });
+  it("taking control from another thread, or handing it to an agent there, keeps the live view running", async () => {
+    const h = await harness();
+    await h.request({ op: "enable", enabled: true });
+    await h.request({ op: "start", deviceId });
+    const live = h.service.states()[0];
+    expect(live?.lifecycle).toBe("live");
+    const exited = vi.fn();
+    void h.nativeExit().then(exited);
+    // The person opened the device from the Devices tab, then touches it inside a thread.
+    await h.request({ op: "controller", deviceId, controller: "human", threadId: "thread-1" });
+    // An agent in another thread takes it, then the person takes it back.
+    await delegateTo(h, "thread-2");
+    await h.request({ op: "controller", deviceId, controller: "human", threadId: "thread-1" });
+    const after = h.service.states()[0];
+    expect(after).toMatchObject({
+      lifecycle: "live",
+      streamId: live?.streamId,
+      threadId: "thread-1",
+      controller: "human",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(exited).not.toHaveBeenCalled();
+  });
   it("moving a device to another thread clears old log tails, log subscriptions and recordings", async () => {
     const h = await harness();
     await bind(h);
@@ -353,16 +376,14 @@ describe("in-app device ownership", () => {
     const stopping = h.request({ op: "record.stop", deviceId });
     const rejected = expect(stopping).rejects.toMatchObject({ code: "busy" });
     await h.publishing.promise;
-    const entered = deferred<void>();
-    h.service.watch((state) => {
-      if (state.lifecycle === "stopping") entered.resolve();
-    });
     let moved = false;
     const moving = delegateTo(h, "thread-2").then(() => {
       moved = true;
     });
-    await entered.promise;
+    // The move waits for the recording to close; the live view itself keeps running.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(moved).toBe(false);
+    expect(h.service.states()[0]?.lifecycle).toBe("live");
     gate.resolve();
     await rejected;
     await moving;

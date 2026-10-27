@@ -73,7 +73,8 @@ export class SessionControllers {
   ): void {
     const session = this.live(id);
     delete session.frameEpoch;
-    if (controller === "agent" && session.humanView) throw new ScreenDelegationError();
+    // A device view is handed to an agent only by the device service, which holds the lease.
+    if (controller === "agent" && session.humanView && !binding) throw new ScreenDelegationError();
     // The desktop shares this view without input (KDE, portals without RemoteDesktop).
     const watchOnly = session.state.capabilities?.watchOnly;
     if (controller === "human" && watchOnly)

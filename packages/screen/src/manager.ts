@@ -372,7 +372,10 @@ export class ScreenManager {
       operation.op,
     );
   }
-  /** Local device viewing, which no agent can be delegated, and cannot be started through MCP. */
+  /**
+   * Local device viewing, never started through MCP. Only the device service, which holds the
+   * device lease, can hand it to an agent; nobody delegates it directly.
+   */
   startHumanDeviceView(target: ScreenTarget, fps = 10): Promise<ScreenState> {
     return this.lifecycle.startHumanView(target, fps);
   }
