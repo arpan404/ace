@@ -56,7 +56,8 @@ const naming: Record<ProviderKind, string> = {
   claude: "",
   opencode: `OpenCode names ace tools ace_<tool> (ace_guide, ace_delegate). ${skills} Load them with your skill tool.`,
   cursor: `ace tools come from the ace MCP server. ${skills}`,
-  antigravity: "ace tools come from the ace MCP server.",
+  antigravity:
+    'Read a definition file if needed; call ace tools with call_mcp_tool (ServerName "ace", ToolName, Arguments).',
   acp: "ace tools come from the ace MCP server.",
   pi: `ace tools are your ace_<tool> extension tools: guide is ace_guide and delegate is ace_delegate. ${skills}`,
 };
@@ -115,12 +116,11 @@ export function developerInstructions(
     provider === "codex" ? codexPrefix(session.tools, skills, listing) : naming[provider],
     provider === "codex"
       ? undefined
-      : listing === "all"
-        ? (deferredReach[provider] ?? reach.all)
-        : reach[listing],
-    provider === "antigravity" && listing !== "all"
-      ? 'Read a listed tool\'s definition file if needed, then use call_mcp_tool (ServerName "ace", ToolName, Arguments).'
-      : undefined,
+      : provider === "antigravity" && listing === "core"
+        ? "guide or tools_find grows your tool list; tools_call {name, arguments} reaches unlisted tools."
+        : listing === "all"
+          ? (deferredReach[provider] ?? reach.all)
+          : reach[listing],
     provider === "claude" ? claudeSkills : undefined,
     session.access === "read-only" ? readOnly : undefined,
     session.roles,

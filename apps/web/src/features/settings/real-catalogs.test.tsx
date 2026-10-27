@@ -49,10 +49,13 @@ test("the open Skills library receives discovered skills without a reload", asyn
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.skills.seed([]);
   await app.open("/skills");
-  await screen.findByRole("link", { name: /Test Driven Development/ });
+  await screen.findByRole("link", { name: /^Code review/ });
   expect(screen.queryByRole("link", { name: /clerk/i })).toBeNull();
-  seedRealCatalogs(app.daemon, Date.now());
+  app.daemon.skills.seed([
+    { name: "clerk", description: "Clerk authentication", body: "# Clerk\n", scope: "personal" },
+  ]);
   expect(await screen.findByRole("link", { name: /clerk/i })).toBeTruthy();
 });
 
