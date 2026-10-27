@@ -15,6 +15,7 @@ export { createNpxPackage } from "./npx-package.ts";
 export {
   linuxScreenHelperName,
   linuxScreenHelperPath,
+  RustToolchainError,
   stageLinuxScreenHelper,
 } from "./screen-helper-assets.ts";
 export async function bundleDaemon(
