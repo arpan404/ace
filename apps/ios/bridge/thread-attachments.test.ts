@@ -9,10 +9,13 @@ import {
   open,
   pump,
   reset,
+  slowSaves,
   sent,
   until,
 } from "./thread-harness.ts";
-import { ThreadSession } from "./thread-session.ts";
+import type { ClientCore } from "@ace/client";
+import { handleCacheAction } from "./chat-cache.ts";
+import { ThreadVisit } from "./thread-visit.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -222,9 +225,37 @@ test("a refused upload says what to do in the web's words, not the daemon's code
   );
 });
 
-test("a file still uploading when the thread is read again from its machine stays on the message", async () => {
+/** The phone's open thread as `main.ts` keeps it, with no other screens following it. */
+function visiting(client: ClientCore, read: ChunkReader) {
+  const visit = new ThreadVisit(pump, { leaving() {}, opened() {} }, undefined, read);
+  visit.open(client, "files", false);
+  return visit;
+}
+/** Reload from machine, through the bridge's own cache action. */
+function reload(client: ClientCore, visit: ThreadVisit) {
+  return handleCacheAction(
+    { type: "cache.reload", threadId: "files" },
+    {
+      client,
+      snapshots: { usage: async () => ({ threads: 0, bytes: 0 }) },
+      sink: pump,
+      ...visit.reloads(client),
+    },
+  );
+}
+function picked(localId: string, bytes: Buffer) {
+  staged.set(localId, bytes);
+  return {
+    localId,
+    name: `${localId}.png`,
+    mimeType: "image/png",
+    bytes: bytes.length,
+    sha256: sha(bytes),
+  };
+}
+
+test("a file still uploading when the thread is reloaded from its machine stays on the message", async () => {
   const photo = Buffer.alloc(120 * 1024, 9);
-  staged.set("photo-0002", photo);
   // The second chunk waits until the transcript has been read again.
   const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   const slow: ChunkReader = async (localId, offset, limit) => {
@@ -232,32 +263,46 @@ test("a file still uploading when the thread is read again from its machine stay
     return chunks(localId, offset, limit);
   };
   const client = connect(idle());
-  const first = open(client, "files", slow);
+  const visit = visiting(client, slow);
   await until(() => latest("thread.controls"), "the composer");
-  first.handle({
-    type: "attach",
-    file: {
-      localId: "photo-0002",
-      name: "screen.png",
-      mimeType: "image/png",
-      bytes: photo.length,
-      sha256: sha(photo),
-    },
-  });
+  visit.session?.handle({ type: "attach", file: picked("photo-0002", photo) });
   await until(() => tray()?.files[0]?.state === "uploading", "the upload under way");
 
-  // Reload from machine: this session goes and a new one shows the thread.
-  const kept = first.keepTray();
-  first.dispose();
-  const lease = client.thread("files");
-  const second = new ThreadSession(client, lease.store, "files", 2, pump, slow, undefined, kept);
+  await reload(client, visit);
+  expect(visit.epoch).toBe(2);
   release();
   await until(() => tray()?.files[0]?.state === "ready", "the upload finished");
-  second.handle({ type: "send", text: "And now?", opposite: false, requestId: "m2" });
+  visit.session?.handle({ type: "send", text: "And now?", opposite: false, requestId: "m2" });
   await until(() => commands("thread.send").length === 1, "the message");
   expect(commands("thread.send")[0]?.context).toMatchObject({
     attachments: [{ sha256: sha(photo) }],
   });
-  second.dispose();
-  lease.release();
+  visit.back();
+});
+
+test("a message saved after a reload takes only its own files, not ones added since", async () => {
+  const first = Buffer.alloc(8 * 1024, 1);
+  const second = Buffer.alloc(8 * 1024, 2);
+  const client = connect(idle());
+  const visit = visiting(client, chunks);
+  await until(() => latest("thread.controls"), "the composer");
+  visit.session?.handle({ type: "attach", file: picked("photo-0003", first) });
+  await until(() => tray()?.files[0]?.state === "ready", "the first upload");
+
+  // The message with the first photo isn't saved on the phone yet when the thread reloads...
+  const { promise, resolve } = Promise.withResolvers<void>();
+  slowSaves.gate = promise;
+  visit.session?.handle({ type: "send", text: "Here", opposite: false, requestId: "m3" });
+  await reload(client, visit);
+  // ...and a second photo is picked on the reloaded thread before that save lands.
+  visit.session?.handle({ type: "attach", file: picked("photo-0004", second) });
+  await until(
+    () => tray()?.files.find((file) => file.id === "photo-0004")?.state === "ready",
+    "the second upload",
+  );
+  slowSaves.gate = undefined;
+  resolve();
+  await until(() => tray()?.files.length === 1, "the first photo gone with its message");
+  expect(tray()?.files.map((file) => file.id)).toEqual(["photo-0004"]);
+  visit.back();
 });

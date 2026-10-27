@@ -314,7 +314,7 @@ export class NewThread {
       admission(false, "Write the first message or attach a file.");
       return false;
     }
-    const files = tray?.context() ?? { context: undefined };
+    const files = tray?.context() ?? { context: undefined, ids: [] };
     if ("refused" in files) {
       admission(false, files.refused);
       return false;
@@ -355,7 +355,7 @@ export class NewThread {
         payload,
         () => {
           // The thread takes the files and their draft scope with it.
-          tray?.sent();
+          tray?.sent(files.ids);
           if (draftId) this.#files.adopt(draftId);
           admission(true, "");
         },

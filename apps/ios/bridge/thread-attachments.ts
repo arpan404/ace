@@ -127,14 +127,17 @@ export class AttachmentTray {
     return [...this.#files.values()].map((file) => ({ name: file.name, mimeType: file.mimeType }));
   }
 
-  /** Why the message can't go yet, or the context carrying the held files. */
-  context(): { refused: string } | { context: MessageContext | undefined } {
+  /**
+   * Why the message can't go yet, or the context carrying the held files and their local ids,
+   * which `sent` takes once that message is saved.
+   */
+  context(): { refused: string } | { context: MessageContext | undefined; ids: readonly string[] } {
     const files = [...this.#files.values()];
     if (files.some((file) => file.state === "uploading"))
       return { refused: "Wait for your files to finish uploading." };
     if (files.some((file) => file.state === "failed"))
       return { refused: "Remove the files that didn't upload, then send." };
-    if (!files.length) return { context: undefined };
+    if (!files.length) return { context: undefined, ids: [] };
     const draftId = files.find((file) => file.draftId)?.draftId;
     return {
       context: {
@@ -142,14 +145,18 @@ export class AttachmentTray {
         mentions: [],
         attachments: [...new Set(files.map((file) => file.sha256))].map((sha256) => ({ sha256 })),
       },
+      ids: files.map((file) => file.localId),
     };
   }
 
-  /** The message carrying the files was saved: they go with it. */
-  sent(): void {
-    if (!this.#files.size) return;
-    this.#files.clear();
-    this.#publish();
+  /**
+   * The message carrying the files `ids` was saved: they go with it. Files added since stay for
+   * the next message, even when the save lands late or from a screen the tray has moved on from.
+   */
+  sent(ids: readonly string[]): void {
+    let changed = false;
+    for (const id of ids) changed = this.#files.delete(id) || changed;
+    if (changed) this.#publish();
   }
 
   /**

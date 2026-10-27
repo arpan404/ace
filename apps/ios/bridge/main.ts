@@ -1,15 +1,14 @@
 import { host } from "./polyfills.ts";
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
-import { PatchPump, followThread } from "./patches.ts";
-import { LedgerShelf } from "./native-ledger.ts";
+import { PatchPump } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
-import { ThreadSession } from "./thread-session.ts";
+import { ThreadVisit } from "./thread-visit.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
@@ -31,7 +30,7 @@ import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
 import { BrowserLive } from "./browser-live.ts";
-import { nativeChunks, type AttachmentTray } from "./thread-attachments.ts";
+import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -87,10 +86,6 @@ const Action = z.discriminatedUnion("type", [
 let client: ClientCore | undefined;
 let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
-let lease: Lease<ThreadSource> | undefined;
-let stopThread: (() => void) | undefined;
-let session: ThreadSession | undefined;
-let epoch = 0;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
@@ -103,17 +98,28 @@ let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
 const pump = new PatchPump();
-/**
- * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
- * 4 Mi UTF-16 units go too, the oldest first.
- */
-const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
-let openThreadId: string | undefined;
+/** The thread open on the phone, and what else follows it. */
+const visit = new ThreadVisit(
+  pump,
+  {
+    leaving() {
+      services?.transcript.close();
+      sheets.close();
+      browser?.close();
+      transfers?.follow(undefined);
+    },
+    opened(threadId, epoch, store) {
+      browser?.probe(threadId, epoch);
+      transfers?.follow({ threadId, epoch, store });
+    },
+  },
+  (id) => suggest?.entries(id),
+);
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
-  const agent = threadId === openThreadId ? lease?.store.agent(agentId) : undefined;
+  const agent = threadId === visit.threadId ? visit.store?.agent(agentId) : undefined;
   return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
 }
 function error(): void {
@@ -234,9 +240,10 @@ async function start(json: string): Promise<void> {
     schedule: scheduler.set,
     now: () => host.now(),
     thread: () => {
-      const thread = openThreadId ? lease?.store.thread : undefined;
-      return thread && openThreadId
-        ? { threadId: openThreadId, workspaceId: thread.workspaceId, provider: thread.provider }
+      const openId = visit.threadId;
+      const thread = openId ? visit.store?.thread : undefined;
+      return thread && openId
+        ? { threadId: openId, workspaceId: thread.workspaceId, provider: thread.provider }
         : undefined;
     },
     threads: () => sidebarThreads(owner),
@@ -270,9 +277,9 @@ async function start(json: string): Promise<void> {
   transfers = new NativeTransfers(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
-      threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
+      threadId === visit.threadId && agentId ? agentName(visit.store?.agent(agentId)) : "An agent",
     workspaceId: (threadId) =>
-      threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
+      threadId === visit.threadId ? visit.store?.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
     devices: phoneDeviceStorage({
@@ -283,52 +290,6 @@ async function start(json: string): Promise<void> {
     }),
   });
   await client.start();
-}
-/** Files on the open thread's message, carried across a reload from the machine. */
-let keptTray: AttachmentTray | undefined;
-/** Show `threadId` under the next navigation generation, as native's `open` does. */
-function openThread(threadId: string, warm: boolean, kept?: AttachmentTray): void {
-  if (!client) return;
-  services?.transcript.close();
-  stopThread?.();
-  sheets.close();
-  lease?.release();
-  openThreadId = threadId;
-  lease = client.thread(threadId);
-  session?.dispose();
-  {
-    const ledger = ledgers.open(threadId, warm);
-    pump.bind(ledger, ++epoch);
-    stopThread = followThread(lease.store, threadId, epoch, pump, ledger);
-  }
-  session = new ThreadSession(
-    client,
-    lease.store,
-    threadId,
-    epoch,
-    pump,
-    nativeChunks,
-    (id) => suggest?.entries(id),
-    kept,
-  );
-  browser?.close();
-  browser?.probe(threadId, epoch);
-  transfers?.follow({ threadId, epoch, store: lease.store });
-}
-/** Stop following the open thread and let its lease go; the caller moves the generation. */
-function leaveThread(): void {
-  services?.transcript.close();
-  ledgers.trim();
-  session?.dispose();
-  session = undefined;
-  stopThread?.();
-  stopThread = undefined;
-  sheets.close();
-  browser?.close();
-  transfers?.follow(undefined);
-  lease?.release();
-  lease = undefined;
-  openThreadId = undefined;
 }
 function action(json: string): void {
   try {
@@ -366,16 +327,7 @@ function action(json: string): void {
           client,
           snapshots,
           sink: pump,
-          openThread: () => openThreadId,
-          leave: () => {
-            // The message's files stay on it while the transcript is read again.
-            keptTray = session?.keepTray();
-            leaveThread();
-          },
-          reopen: (threadId) => {
-            openThread(threadId, false, keptTray);
-            keptTray = undefined;
-          },
+          ...visit.reloads(client),
         });
       else error();
       return;
@@ -394,12 +346,10 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        openThread(value.threadId, value.warm ?? false);
+        visit.open(client, value.threadId, value.warm ?? false);
         break;
       case "back":
-        epoch++;
-        pump.bind(undefined, epoch);
-        leaveThread();
+        visit.back();
         break;
       case "network":
         client.networkOnline(value.online);
@@ -417,7 +367,9 @@ function action(json: string): void {
         void dispatchCommand(client, value.payload, value.requestId, pump);
         break;
       case "thread":
-        routeThreadAction(session, value.epoch, value.action, (key, read) => pump.put(key, read));
+        routeThreadAction(visit.session, value.epoch, value.action, (key, read) =>
+          pump.put(key, read),
+        );
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump, inbox);
@@ -439,10 +391,10 @@ function action(json: string): void {
         else error();
         break;
       case "sheet": {
+        const store = visit.store;
+        const threadId = visit.threadId;
         const thread =
-          lease && openThreadId
-            ? { owner: client, store: lease.store, threadId: openThreadId, epoch }
-            : undefined;
+          store && threadId ? { owner: client, store, threadId, epoch: visit.epoch } : undefined;
         if (!sheets.action(thread, value.action)) error();
         break;
       }

@@ -401,8 +401,9 @@ export class ThreadSession {
       ...(options ? { options } : {}),
       ...(context ? { context } : {}),
     };
+    const tray = this.#tray;
     void dispatchCommand(this.#client, message, id, this.#pump, {
-      saved: () => this.#tray.sent(),
+      saved: () => tray.sent(files.ids),
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
       },
@@ -444,7 +445,7 @@ export class ThreadSession {
       receipt: (result) => {
         this.#sheet.continuationSettled(result.ok);
         if (!result.ok) return;
-        this.#tray.sent();
+        if (!("refused" in files)) this.#tray.sent(files.ids);
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));
