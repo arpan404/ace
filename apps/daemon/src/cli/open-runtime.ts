@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
 import { join } from "node:path";
+import { windowsSystemExecutable } from "@ace/provider-kit/process-owner";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { DaemonHealth } from "@ace/protocol";
@@ -110,5 +111,12 @@ export function opener(
 ): { command: string; args: string[] } {
   if (platform === "darwin") return { command: "open", args: [target] };
   if (platform === "linux") return { command: "xdg-open", args: [target] };
+  // No shell: the URL protocol handler opens web pages. ace:// needs the desktop app's
+  // registration, so its refusal below sends the caller to the web page instead.
+  if (platform === "win32" && /^https?:\/\//.test(target))
+    return {
+      command: windowsSystemExecutable("rundll32.exe"),
+      args: ["url.dll,FileProtocolHandler", target],
+    };
   throw new CliFailure("needs-human", `Open ${target} in ace or your browser`);
 }

@@ -1,8 +1,8 @@
 # Daemon releases
 
-The runtime is pinned to Node 24.13.0. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v24.13.0/SHASUMS256.txt). Bun's lockfile pins the JS and macOS node-pty inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
+The runtime is pinned to Node 26.12.1. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v26.12.1/SHASUMS256.txt). Bun's lockfile pins the JS and macOS node-pty inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
 
-Build from a committed checkout after `bun install --frozen-lockfile`, with Node 24.13.0 on PATH. The builder rejects other host runtime versions so tar/gzip output uses a fixed implementation. Generate a release authority outside the repository, or use an existing authority from the release secret manager. The build accepts only the public key. Keep the private key offline and outside this checkout, and never pass its contents as an argument or environment variable.
+Build from a committed checkout after `bun install --frozen-lockfile`, with Node 26.12.1 on PATH. The builder rejects other host runtime versions so tar/gzip output uses a fixed implementation. Generate a release authority outside the repository, or use an existing authority from the release secret manager. The build accepts only the public key. Keep the private key offline and outside this checkout, and never pass its contents as an argument or environment variable.
 
 ```sh
 openssl genpkey -algorithm ED25519 -out /secure/offline/ace-key.pem
@@ -13,9 +13,9 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
 
-node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 24.13.0 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
+node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 26.12.1 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
 
 ```sh
 # Inside the debian:12 container on a host of the target architecture, from the checkout:
@@ -80,6 +80,17 @@ Inside the desktop app, the bundled `ace update` hands the update to the app ins
 Automatic daily updates are enabled by default. Set ACE_AUTO_UPDATE=0 when installing the service to select manual updates. Under systemd, Linux launches the updater in a separate transient user unit, so stopping the service cannot kill it; without a systemd user session (containers, WSL) it starts detached, and `ace service` reports that it needs a session. The external updater survives its own service stop. The updater journals intent before service stop, then marks the snapshot complete only after syncing it. Recovery ignores incomplete snapshots and validates completed snapshots against their durable original database inventory before touching live databases. Empty/subset directories cannot silently discard databases; older journals missing the required inventory fail closed and need operator recovery from verified backups. A retained update journal keeps the candidate's command admission closed until health succeeds; rerunning the updater restores the previous binary and all pre-migration SQLite snapshots. An exclusive SQLite transaction serializes installation, updates and removal. The OS releases that lock when a process crashes, without stale-owner files or manual lock cleanup. A supervisor retries pending recovery independently of ACE_AUTO_UPDATE, with exponential backoff capped at 60 seconds. It finishes admission release even if the original updater committed just before crashing. Linux waits for the transient recovery unit outcome. It closes logs and timers on spawn failures, allowing normal service-manager crash restart. The mutex uses a .db suffix so migration snapshots exclude it.
 
 Uninstall stops and disables only ace's service and removes its executable pointers and releases. SQLite databases, access tokens and configuration stay in ACE_HOME. Delete that directory separately if you intend to erase data.
+
+### Windows (win32-x64, win32-arm64)
+
+Windows installs through `install.ps1`, for the current user and without administrator rights ([ADR 0095](../../docs/adr/0095-native-windows-daemon.md)). Download `install.ps1` and `install.ps1.sha256` from the same GitHub release, check that the script's SHA-256 matches the value in `install.ps1.sha256` and the release announcement, then run it with Windows PowerShell:
+
+```powershell
+(Get-FileHash .\install.ps1 -Algorithm SHA256).Hash.ToLower()
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon`, which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
 
 ## Verification
 

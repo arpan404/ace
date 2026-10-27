@@ -1,6 +1,10 @@
 #[cfg(windows)]
 fn main() {
     use ace_screen_helper_windows::{codec, windows::Host};
+    // `--computer [--data-dir <dir>]`: the agent computer-use engine on stdin and stdout.
+    if std::env::args().nth(1).as_deref() == Some("--computer") {
+        std::process::exit(ace_screen_helper_windows::computer::run());
+    }
     let result = (|| {
         let args: Vec<String> = std::env::args().collect();
         if args.len() != 3 || args[1] != "--endpoint" {

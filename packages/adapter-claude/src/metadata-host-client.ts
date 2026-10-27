@@ -23,6 +23,13 @@ export async function askClaudeMetadata(
   const { what, ask } = metadataQuestions[question];
   if (input.spawn) return askClaude(input, what, ask);
   input.signal.throwIfAborted();
+  // Windows: the host's tree (it and the CLI it starts) is recorded, then ended and awaited.
+  const treeStop =
+    (input.platform ?? process.platform) === "win32"
+      ? await import("@ace/provider-kit/tree-stop")
+      : undefined;
+  let hostTree: import("@ace/provider-kit/tree-stop").RecordedTree | undefined;
+  let eofStop: Promise<unknown> | undefined;
   const host = spawnSupervised({
     command: process.execPath,
     args: [
@@ -52,10 +59,18 @@ export async function askClaudeMetadata(
       cli = started.cli;
       const pid = cli;
       registerGroup(pid, (graceMs) => stopRetainedGroup(pid, graceMs), { name: "claude" });
+      if (treeStop && host.pid !== undefined) hostTree = treeStop.recordTree(host.pid);
       return;
     }
     reply ??= Reply.safeParse(data).data;
   });
+  // Windows never delivers SIGTERM to the host: its stdin closing is the graceful stop there,
+  // ahead of the tree stop below, which still forces it after the grace.
+  const windows = (input.platform ?? process.platform) === "win32";
+  const closeInput = () => {
+    eofStop ??= treeStop?.stopTreeAfterEof(host, 2000);
+  };
+  if (windows) input.signal.addEventListener("abort", closeInput, { once: true });
   // The host exits on SIGTERM and takes its CLI with it; the grace lets it do so.
   const stop = () => void host.stop({ graceMs: 2000 });
   input.signal.addEventListener("abort", stop, { once: true });
@@ -65,6 +80,11 @@ export async function askClaudeMetadata(
     if (!reply?.ok) throw new Error(`Claude ${what} failed`);
     return reply.value;
   } finally {
+    if (windows) {
+      input.signal.removeEventListener("abort", closeInput);
+      await eofStop;
+      await hostTree?.end();
+    }
     input.signal.removeEventListener("abort", stop);
     await host.stop({ graceMs: 2000 });
     // Normally the helper already stopped it; this ends a CLI the helper left behind.

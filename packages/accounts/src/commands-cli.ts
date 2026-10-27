@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { NativeAccountProvider } from "@ace/protocol/accounts";
 import { openRegistry } from "./registry.ts";
+import { profileHome } from "./paths.ts";
 import { createInstance, discoverHomes, loginStatus } from "./instances.ts";
 import { addAccount } from "./login.ts";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
@@ -20,6 +21,7 @@ export async function runAccountsCommand(
     loginOutput?: "stdout" | "stderr";
     sdkDiscovery?: typeof discoverCursorSdk;
     cursorAuth?: () => Promise<CursorCliAuth>;
+    platform?: NodeJS.Platform;
   } = {},
 ) {
   const env = options.env ?? process.env;
@@ -34,8 +36,11 @@ export async function runAccountsCommand(
   const driver = async () =>
     cursorDaemonDriver((auth ??= await (options.cursorAuth ?? (() => daemonCursorAuth(env)))()));
   const [namespace, command, ...rest] = args;
+  const windows = (options.platform ?? process.platform) === "win32";
   // The registry writes into the home, so its format is settled first, as the daemon does.
-  const dataDir = prepareDaemonHome(resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME)).root;
+  const dataDir = prepareDaemonHome(
+    resolveDaemonHome(windows ? profileHome(env, homedir) : (env.HOME ?? homedir()), env.ACE_HOME),
+  ).root;
   const path = env["ACE_ACCOUNTS_DB"] ?? join(dataDir, "accounts.sqlite");
   if (namespace !== "accounts" || !["add", "list", "status", "discover"].includes(command ?? ""))
     throw new Error(
@@ -96,7 +101,10 @@ export async function runAccountsCommand(
         `${JSON.stringify(registry.summaries(now()).find((a) => a.id === account.instance.id))}\n`,
       );
     } else if (command === "discover") {
-      for (const instance of await discoverHomes(env.HOME ?? homedir(), env))
+      for (const instance of await discoverHomes(
+        windows ? profileHome(env, homedir) : (env.HOME ?? homedir()),
+        env,
+      ))
         write(`${JSON.stringify(instance)}\n`);
     } else write(`${JSON.stringify(registry.summaries(now()))}\n`);
   } finally {

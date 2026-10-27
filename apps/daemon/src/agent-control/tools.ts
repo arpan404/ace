@@ -248,6 +248,10 @@ export function createAgentControlPort(
         const { op: _op, ...input } = operation;
         return { ok: true, data: service.catalog(caller, input) };
       }
+      case "agents.models": {
+        const { op: _op, ...input } = operation;
+        return { ok: true, data: service.models(caller, input) };
+      }
       case "agent.status":
       case "agent.result": {
         const child = childTaskView(store, service.journal, operation.threadId);
@@ -421,7 +425,12 @@ export function createAgentControlPort(
                 operation.text,
                 delivery,
               );
-        if (!result.ok) return { ok: false, code: "unavailable" };
+        if (!result.ok)
+          return {
+            ok: false,
+            code: "unavailable",
+            ...(result.detail ? { hint: result.detail } : {}),
+          };
         // Says whether the message went in now or waits, so the sender never assumes delivery.
         const reading = service.arrival(
           caller,

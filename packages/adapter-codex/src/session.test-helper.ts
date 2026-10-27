@@ -26,6 +26,24 @@ export async function sessionHarness(
     `#!${process.execPath}\nimport ${JSON.stringify(new URL("./testing/cli.ts", import.meta.url).href)};\n`,
   );
   await chmod(binary, 0o755);
+  // Windows installs are `.cmd` shims: launch the same fake through cmd.exe. The narrowed PATH
+  // keeps System32 so cmd.exe itself still resolves.
+  const windows =
+    process.platform === "win32"
+      ? {
+          overrides: {
+            codex: await (
+              await import("@ace/provider-kit/testing/cmd-shim")
+            ).writeCmdShim(directory, "codex", binary),
+          },
+          env: {
+            ACE_FAKE_RESUME: mode,
+            PATH: `${directory};${join(process.env["SystemRoot"] ?? "C:\\Windows", "System32")}`,
+            HOME: directory,
+            USERPROFILE: directory,
+          },
+        }
+      : {};
   let now = 0;
   const scheduled = new Map<() => void, number>();
   const adapter = createCodexAdapter({
@@ -45,6 +63,7 @@ export async function sessionHarness(
     discovery: {
       overrides: { codex: binary },
       env: { ACE_FAKE_RESUME: mode, PATH: directory, HOME: directory },
+      ...windows,
     },
   });
   const controller = new AbortController();

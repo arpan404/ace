@@ -16,6 +16,8 @@ const macArch = { "darwin-arm64": "arm64", "darwin-x64": "x86_64" } as const;
  * on a matching host, like node-pty.
  */
 export function stageTerminalGuardian(repo: string, root: string, target: string): void {
+  // Windows terminals are owned by a kill-on-close Job Object instead (ADR 0095).
+  if (target.startsWith("win32-")) return;
   const platform = ReleaseTarget.parse(target);
   const source = join(repo, "packages/terminal/native/group-keeper.c");
   const flags = ["-std=c11", "-O2", "-Wall", "-Wextra"];

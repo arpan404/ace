@@ -42,6 +42,8 @@ export async function beginUpload(
   const file = await open(join(options.root, "uploads", id), "wx", 0o600);
   await file.close();
   const directory = await open(join(options.root, "uploads"), "r");
+  // Windows can't flush a directory handle (EPERM); NTFS journals the new directory entry itself.
+  if (process.platform === "win32") Object.assign(directory, { sync: async () => {} });
   try {
     await directory.sync();
   } finally {

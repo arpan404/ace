@@ -26,6 +26,9 @@ export class CommittedWriteError extends Error {
 }
 export type AtomicFileRuntime = { syncDirectory?: (directory: string) => Promise<void> };
 async function syncDirectory(path: string): Promise<void> {
+  // Windows cannot open a directory through fs.open (EISDIR), so it has no directory fsync to
+  // offer; the renamed file was already synced. Failing here would void every committed save.
+  if (process.platform === "win32") return;
   const directory = await open(path, "r");
   try {
     await directory.sync();

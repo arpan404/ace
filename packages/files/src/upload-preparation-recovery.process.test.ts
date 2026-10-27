@@ -153,3 +153,148 @@ for (const replacement of ["file", "symlink", "hardlink"] as const) {
     }
   });
 }
+
+// Windows has one permission bit, the read-only attribute; a private temp reads back as 0o666.
+const windows = process.platform === "win32";
+const readOnly = async (path: string) => ((await lstat(path)).mode & 0o200) === 0;
+
+for (const restart of [false, true]) {
+  for (const fault of ["intent", "prepared"] as const) {
+    test.runIf(windows)(
+      `Windows: a read-only replacement resumes acknowledged bytes after interrupted ${fault}${restart ? " and restart" : " in the running service"}`,
+      async () => {
+        let temp: string | undefined;
+        let lose = true;
+        const runtime = workspaceRuntime();
+        const filesystem = runtime.filesystem;
+        runtime.filesystem = {
+          ...filesystem,
+          async realpath(path) {
+            const resolved = await filesystem.realpath(path);
+            if (fault === "prepared" && lose && temp && (await readOnly(temp)))
+              throw new Error("lost upload preparation");
+            return resolved;
+          },
+        };
+        const f = await fixture({ workspaceRuntime: runtime, maxReservedBytes: 4 });
+        const db = new DatabaseSync(join(f.home, "data", "files.sqlite"));
+        const final = join(f.root, "final");
+        try {
+          await writeFile(final, "old");
+          await chmod(final, 0o444);
+          const original = await lstat(final);
+          const expected = Stat.parse(
+            await f.service.request("writer", { op: "stat", path: "final" }),
+          ).version;
+          const upload = Upload.parse(
+            await f.service.request("writer", {
+              op: "upload.begin",
+              path: "final",
+              expected,
+              size: 4,
+            }),
+          );
+          temp = join(f.root, `.ace-upload-${upload.uploadId}`);
+          await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+          if (fault === "intent")
+            db.exec(`CREATE TRIGGER lose_preparation BEFORE UPDATE ON resources
+          WHEN OLD.kind='upload' AND json_type(NEW.body,'$.publishing')='text'
+          BEGIN SELECT RAISE(ABORT,'lost upload preparation'); END`);
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+          ).rejects.toThrow("lost upload preparation");
+          if (fault === "intent") db.exec("DROP TRIGGER lose_preparation");
+          lose = false;
+          expect((await lstat(final)).ino).toBe(original.ino);
+          expect(await readOnly(final)).toBe(true);
+          expect(await readOnly(temp)).toBe(fault === "prepared");
+          if (restart) await f.restart();
+          await expect(
+            f.service.request("writer", { op: "upload.resume", uploadId: upload.uploadId }),
+          ).resolves.toMatchObject({ offset: 4, size: 4 });
+          expect(await readOnly(temp)).toBe(false);
+          expect(await readFile(temp, "utf8")).toBe("data");
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+          ).resolves.toMatchObject({ path: "final" });
+          expect(await readOnly(final)).toBe(true);
+          expect(await readFile(final, "utf8")).toBe("data");
+          await f.restart();
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+          ).resolves.toMatchObject({ path: "final" });
+          await expect(
+            f.service.request("writer", {
+              op: "upload.begin",
+              path: "next",
+              expected: null,
+              size: 4,
+            }),
+          ).resolves.toMatchObject({ offset: 0 });
+        } finally {
+          lose = false;
+          db.close();
+          await chmod(final, 0o666).catch(() => {});
+          await f.close();
+        }
+      },
+    );
+  }
+}
+
+test.runIf(windows)(
+  "Windows: unpublished read-only recovery leaves a replacement file untouched",
+  async () => {
+    let temp: string | undefined;
+    let lose = true;
+    const runtime = workspaceRuntime();
+    const filesystem = runtime.filesystem;
+    runtime.filesystem = {
+      ...filesystem,
+      async realpath(path) {
+        const resolved = await filesystem.realpath(path);
+        if (lose && temp && (await readOnly(temp))) throw new Error("lost preparation");
+        return resolved;
+      },
+    };
+    const f = await fixture({ workspaceRuntime: runtime, maxReservedBytes: 8 });
+    const final = join(f.root, "final");
+    try {
+      await writeFile(final, "old");
+      await chmod(final, 0o444);
+      const expected = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      const upload = Upload.parse(
+        await f.service.request("writer", { op: "upload.begin", path: "final", expected, size: 4 }),
+      );
+      temp = join(f.root, `.ace-upload-${upload.uploadId}`);
+      await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+      await expect(
+        f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+      ).rejects.toThrow("lost preparation");
+      lose = false;
+      await rename(temp, join(f.home, "owned-original"));
+      await writeFile(temp, "safe");
+      await chmod(temp, 0o444);
+      await f.restart();
+      expect(await readOnly(temp)).toBe(true);
+      expect(await readFile(temp, "utf8")).toBe("safe");
+      expect(await readOnly(join(f.home, "owned-original"))).toBe(true);
+      await expect(
+        f.service.request("writer", { op: "upload.resume", uploadId: upload.uploadId }),
+      ).rejects.toBeInstanceOf(Error);
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "other", expected: null, size: 4 }),
+      ).resolves.toMatchObject({ offset: 0 });
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "over", expected: null, size: 1 }),
+      ).rejects.toMatchObject({ code: "QUOTA" });
+    } finally {
+      lose = false;
+      for (const path of [final, temp, join(f.home, "owned-original")])
+        if (path) await chmod(path, 0o666).catch(() => {});
+      await f.close();
+    }
+  },
+);

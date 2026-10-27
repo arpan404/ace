@@ -181,3 +181,49 @@ test("a click on an embedded frame pins the frame and never reaches the framed p
     await person.evaluate("getComputedStyle(document.querySelector('#embed')).pointerEvents"),
   ).toBe("auto");
 }, 60_000);
+
+// The original pins `#scroller > div` at its centre, which lies below the 200 px scroller, so it
+// pins <html>; at device scale 2 the 1024 px long-edge rule happens to shrink that crop under the
+// bound, at scale 1 (Windows software rendering) it doesn't. This pins the spacer through the
+// part the scroller shows, and checks the crop is that visible part.
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: an element crop is the element with an 8 px margin, and a tall one inside a scroller is the part the scroller shows",
+  async () => {
+    const f = await annotationFixture();
+    const person = await f.annotating();
+    const ratio = Number(await person.evaluate("devicePixelRatio"));
+    // An element's crop is the element with an 8 px margin.
+    const lead = await f.pin(person, "p.lead", "Lead copy");
+    const box = await person.box("p.lead");
+    const crop = BrowserAnnotationCapture.parse(
+      await person.execute({
+        action: "annotate_capture",
+        target: { kind: "annotation", id: lead.id },
+      }),
+    );
+    expect(crop.mimeType).toBe("image/png");
+    expect(Math.abs(crop.width - (box.width + 16) * ratio)).toBeLessThanOrEqual(1);
+    expect(Math.abs(crop.height - (box.height + 16) * ratio)).toBeLessThanOrEqual(1);
+    const scroller = await person.box("#scroller");
+    const spacer = await person.box("#scroller > div");
+    const before = person.events().length;
+    await person.click(spacer.x + spacer.width / 2, scroller.y + scroller.height / 2);
+    await person.type("Empty space");
+    await person.press("Enter");
+    const pinned = (await person.event("saved", before)).annotation;
+    expect(pinned).toMatchObject({ kind: "element", element: { tag: "div" } });
+    const tall = BrowserAnnotationCapture.parse(
+      await person.execute({
+        action: "annotate_capture",
+        target: { kind: "annotation", id: pinned.id },
+      }),
+    );
+    expect(Math.max(tall.width, tall.height)).toBeLessThanOrEqual(1024);
+    // The scroller's visible height plus the 8 px margin each side, in device pixels.
+    expect(Math.abs(tall.height - (scroller.height + 16) * ratio)).toBeLessThanOrEqual(1);
+    await expect(
+      person.execute({ action: "annotate_capture", target: { kind: "annotation", id: "missing" } }),
+    ).rejects.toThrow();
+  },
+  60_000,
+);

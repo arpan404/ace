@@ -11,6 +11,7 @@ import {
   globalShortcut,
   Menu,
   nativeTheme,
+  Notification,
   powerMonitor,
   shell,
   type WebContents,
@@ -29,6 +30,8 @@ import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
+import { windowsAppUserModelId } from "./notifications/native.ts";
+import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
@@ -54,7 +57,9 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { QuitGate } from "./os/quit-gate.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
 import {
   disableDnsPrefetching,
@@ -91,6 +96,9 @@ if (unsafe) {
   app.exit(1);
 } else {
   app.setPath("userData", userData);
+  // Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
+  if (process.platform === "win32")
+    app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
   // Local crash dumps only (never uploaded), started before any helper process launches.
   const crashDumps = startLocalCrashReporter(userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
@@ -222,16 +230,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
 
-  let quitting = false;
   let systemShutdown = false;
-  /** The browser backend tells the daemon first, then the daemon this app started stops. */
-  const shutDown = async () => {
-    globalShortcut.unregisterAll();
-    // Before the daemon stops or the app goes: no client should keep showing this app's update.
-    await updateReport.withdraw();
-    await background.stop();
-    await runtime.stop();
-  };
   // Paired clients read the app's update status from its daemon (read-only there).
   const updateReport = new UpdateReporter({
     send: async (report) => reportAppUpdate(await runtime.local(), report),
@@ -241,6 +240,25 @@ function main(target: DaemonTarget, crashDumps: string): void {
   });
   runtime.onStatus((status) => updateReport.connected(status.state === "running"));
   updateReport.connected(runtime.current().state === "running");
+  /**
+   * Every quit waits here until the daemon this app started has exited: the browser backend
+   * tells the daemon first, then that daemon stops (SIGTERM, then SIGKILL after its grace).
+   */
+  const quitGate = new QuitGate({
+    shutDown: async () => {
+      globalShortcut.unregisterAll();
+      // Before the daemon stops or the app goes: no client should keep showing this app's update.
+      await updateReport.withdraw();
+      await background.stop();
+      await runtime.stop();
+    },
+    quit: () => {
+      if (relaunch) relaunchAfterExit(relaunch);
+      app.quit();
+    },
+    timers,
+    log: logger("quit"),
+  });
   const updates = appUpdates({
     version: info.version,
     packaged: app.isPackaged,
@@ -258,10 +276,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
     // Quit's own question is skipped: the person already confirmed Restart.
-    prepareQuit: async () => {
-      quitting = true;
-      await shutDown();
-    },
+    prepareQuit: () => quitGate.shutDown(),
     quit: () => app.quit(),
     log: logger("updates"),
   });
@@ -414,11 +429,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (isDirectory(path)) open({ kind: "open-folder", path });
   });
 
+  // Electron quits only once the gate has finished shutting down; every earlier request, a
+  // second Cmd+Q while the daemon stops included, is held back and waits for that shutdown.
   app.on("before-quit", (event) => {
-    if (quitting) return;
+    if (quitGate.finished) return;
     event.preventDefault();
     // One clear question, only while agents are mid-browse; an answer of Quit is final.
-    if (background.agentsBrowsing(Date.now(), systemShutdown)) {
+    if (!quitGate.started && background.agentsBrowsing(Date.now(), systemShutdown)) {
       const choice = dialog.showMessageBoxSync({
         type: "warning",
         buttons: ["Quit", "Cancel"],
@@ -432,13 +449,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
         return;
       }
     }
-    quitting = true;
-    void shutDown()
-      .catch((error: unknown) => log("error", String(error)))
-      .finally(() => {
-        if (relaunch) relaunchAfterExit(relaunch);
-        app.quit();
-      });
+    quitGate.request();
   });
   // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
   // works or a thread has a browser page. Listening here stops Electron quitting on its own.
@@ -574,6 +585,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+        // Windows: the caption buttons follow the page's theme, not only the OS scheme.
+        if (process.platform === "win32")
+          window.setTitleBarOverlay({
+            symbolColor: captionSymbolColor(
+              windowBackground(value, nativeTheme.shouldUseDarkColors),
+              nativeTheme.shouldUseDarkColors,
+            ),
+          });
       },
       updateKeymap: (next) => {
         bindings = next;
@@ -612,6 +631,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
       handlers,
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
+    // Windows keeps toasts in the notification centre after their objects are gone (and after
+    // a restart). A click, button or reply on one that no live toast answered brings ace
+    // forward with its request still waiting (`activation.ts`).
+    if (process.platform === "win32")
+      Notification.handleActivation((details) => {
+        const at = Date.now();
+        setTimeout(() => {
+          if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open") open();
+        }, liveToastGraceMs);
+      });
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
     powerMonitor.on("shutdown", () => {

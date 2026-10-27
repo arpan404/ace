@@ -287,3 +287,114 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
     keeping.bridge.close();
   }, 90_000);
 });
+
+/**
+ * Windows: the same in-page decode, fed in batches. Windows software encoders make larger
+ * keyframes, and one evaluate expression holds at most 64 KiB.
+ */
+async function decodeInBatches(f: Fixture, chunks: readonly BrowserVideoChunk[]) {
+  const first = chunks[0];
+  if (!first?.key) throw new Error("Decoding must start at a keyframe");
+  const config = {
+    codec: first.codec,
+    codedWidth: first.codedWidth,
+    codedHeight: first.codedHeight,
+    ...(first.description
+      ? { description: Buffer.from(first.description).toString("base64") }
+      : {}),
+  };
+  await f.evaluate(`(() => {
+    window.aceBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const config = ${JSON.stringify(config)};
+    window.aceDecoded = { pictures: [], errors: [] };
+    window.aceDecoder = new VideoDecoder({
+      output: (frame) => { aceDecoded.pictures.push([frame.displayWidth, frame.displayHeight]); frame.close(); },
+      error: (error) => aceDecoded.errors.push(String(error)),
+    });
+    aceDecoder.configure({ ...config, ...(config.description ? { description: aceBytes(config.description) } : {}) });
+    return true;
+  })()`);
+  // Each piece of base64 goes in under the expression limit; a chunk may span several.
+  for (const chunk of chunks) {
+    const data = Buffer.from(chunk.bytes).toString("base64");
+    await f.evaluate("window.acePending = ''");
+    for (let offset = 0; offset < data.length; offset += 48_000)
+      await f.evaluate(
+        `window.acePending += ${JSON.stringify(data.slice(offset, offset + 48_000))}`,
+      );
+    await f.evaluate(
+      `aceDecoder.decode(new EncodedVideoChunk({ type: ${JSON.stringify(chunk.key ? "key" : "delta")}, timestamp: ${chunk.sequence}, data: aceBytes(acePending) }))`,
+    );
+  }
+  const result = await f.evaluate(
+    "aceDecoder.flush().catch((error) => aceDecoded.errors.push(String(error))).then(() => JSON.stringify(aceDecoded))",
+  );
+  return JSON.parse(String(result)) as { pictures: [number, number][]; errors: string[] };
+}
+
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: a viewer that asks for video starts at a keyframe sized for its screen, plays decodable video and never gets JPEG",
+  async () => {
+    // Scale 2 as an embedder may choose it: GPU-less Windows would otherwise draw at 1.
+    const f = await fixture({ chrome: { deviceScaleFactor: 2 } });
+    await f.navigate();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+    const viewer = videoViewer(f);
+    await viewer.subscribe();
+    await f.evaluate(animate);
+    await viewer.until(() => viewer.video().length > 0);
+    const key = viewer.video()[0];
+    if (!key) throw new Error("No video");
+    expect(key.key).toBe(true);
+    expect(viewer.streamed[0]?.kind).toBe("browser.video");
+    expect(key).toMatchObject({ width: 640, height: 400, codec: "avc1.42E033" });
+    expect([key.codedWidth, key.codedHeight]).toEqual([1280, 800]);
+    for (let index = 0; index < 6; index++) {
+      const shown = viewer.video().at(-1);
+      if (shown) await viewer.ack(shown.sequence);
+      const count = viewer.video().length;
+      await viewer.until(() => viewer.video().length > count);
+    }
+    const played = viewer.video();
+    expect(played.filter((chunk) => !chunk.key).length).toBeGreaterThan(0);
+    const decoded = await decodeInBatches(f, played);
+    expect(decoded.errors).toEqual([]);
+    expect(decoded.pictures.length).toBe(played.length);
+    expect(decoded.pictures[0]).toEqual([1280, 800]);
+    expect(viewer.streamed.filter((message) => message.kind === "browser.frame")).toEqual([]);
+    expect(viewer.sent.filter((type) => type === "browser.frame")).toEqual([]);
+    await f.evaluate("window.animating=false");
+    viewer.bridge.close();
+  },
+  90_000,
+);
+
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: a viewer whose screen changes scale gets a keyframe sized for the new screen",
+  async () => {
+    const f = await fixture({ chrome: { deviceScaleFactor: 2 } });
+    await f.navigate();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+    const viewer = videoViewer(f);
+    await viewer.subscribe();
+    await f.evaluate(animate);
+    await viewer.until(() => viewer.video().some((chunk) => chunk.key));
+    expect(viewer.video().find((chunk) => chunk.key)?.codedWidth).toBe(1280);
+    const before = viewer.video().length;
+    await viewer.rescale(1);
+    const resized = () =>
+      viewer
+        .video()
+        .slice(before)
+        .find((chunk) => chunk.key);
+    await viewer.until(() => {
+      const shown = viewer.video().at(-1);
+      if (shown) void viewer.ack(shown.sequence);
+      return resized()?.codedWidth === 640;
+    });
+    expect(resized()).toMatchObject({ width: 640, height: 400, codedWidth: 640, codedHeight: 400 });
+    await f.evaluate("window.animating=false");
+    viewer.bridge.close();
+  },
+  90_000,
+);

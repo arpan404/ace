@@ -95,26 +95,33 @@ export type BrowserMachineRoute = (
   call: { machine: string; tool: string; args: Record<string, unknown>; timeoutMs: number },
   context: ToolContext,
 ) => Promise<unknown>;
+const machineName = z
+  .string()
+  .regex(/^[\w.-]{1,64}$/)
+  .optional();
 /** The optional `machine` argument every browser tool takes when routing is available. */
 export const browserMachineInput = {
-  machine: z
-    .string()
-    .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
-    .optional()
-    .describe("Another paired machine's browser (machines); omit for this machine."),
+  machine: machineName.describe("From machines; omit for this machine."),
 };
 /**
  * The optional `browser` argument every browser tool takes when "Use my Chrome" is available
  * (ADR 0084): ace's own browser, or the person's own Chrome.
  */
+const browserName = z.enum(["ace", "user"]).optional();
 export const browserChoiceInput = {
-  browser: z
-    .enum(["ace", "user"])
-    .optional()
-    .describe(
-      'Omit (or "ace") for ace\'s browser, which the person watches in ace. "user": the person\'s own Chrome (Use my Chrome), signed in as them, only for work that needs their session; pass it on every call for that page. Tabs they shared are in browser_tabs list with openedBy human. Not with machine.',
-    ),
+  browser: browserName.describe(
+    '"user": the person\'s own Chrome, only when the work needs their session; then pass it on every call.',
+  ),
 };
+/**
+ * The routing fields are explained once, on the tools where an agent picks its browser and
+ * machine; every other tool takes the same fields bare.
+ */
+const explainedRouting = new Set(["browser_open", "browser_tabs"]);
+const routing = (name: string, route: boolean, user: boolean) =>
+  explainedRouting.has(name)
+    ? { ...(route ? browserMachineInput : {}), ...(user ? browserChoiceInput : {}) }
+    : { ...(route ? { machine: machineName } : {}), ...(user ? { browser: browserName } : {}) };
 
 type Risk = NonNullable<ApprovalTarget["riskClass"]>;
 type Args = Record<string, unknown>;
@@ -177,7 +184,7 @@ const tabTools: Tool[] = [
     name: "browser_open",
     title: "Open browser page",
     description:
-      "Navigate to a URL or report the current page in this thread's ace browser, a real Chromium the person watches and can take over. Pass url to load it in your tab; omit it to report where you are. Prefer it to web fetch to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
+      "Load a URL in your tab of the thread's browser, which the person watches; omit url to report your page. Prefer it to web fetch for UI checks, dev servers, console and network. Guide: ace-browser.",
     riskClass: "external-effect",
     input: browserOpenShape,
     timeoutMs: 300_000,
@@ -209,7 +216,7 @@ const tabTools: Tool[] = [
     name: "browser_tabs",
     title: "Open, switch or close browser tabs",
     description:
-      "List, open, select, keep or close tabs in this thread's browser. list shows who opened and drives each tab, which agent works there (inUse), tabs the person keeps agents out of (private), and what waits on the person (pending_auth, certificate_error); current marks yours. open gives you a new labelled tab that becomes your current tab. Tabs you open are temporary and close when your turn ends: pass keep true on open, or action keep with tabId, for a tab the person should still find (a deliverable or handoff). Parallel agents each work in a tab of their own: commands in different tabs run at the same time. Closing the last tab closes the browser.",
+      "List, open, select, keep or close this thread's browser tabs; tabs you open close after your turn unless kept.",
     riskClass: "external-effect",
     input: browserTabsShape,
     refine: checkTabs,
@@ -244,7 +251,7 @@ const pageTools: Tool[] = [
     name: "browser_snapshot",
     title: "Read page structure",
     description:
-      'Read the page as compact indented text: one line per meaningful element, e.g. `- button "Save" [ref=e3-41]`. Refs feed browser_act and stay valid until the page navigates. At the default size it costs fewer tokens than a screenshot. Large pages are cut at maxNodes: narrow with ref (a container), depth, interactiveOnly or browser_find. A very large page comes back as an outline of landmarks and headings to scope with ref.',
+      'Read the page as lines with refs for browser_act, e.g. `- button "Save" [ref=e3-41]`; refs last until it navigates. Cheaper than a screenshot.',
     riskClass: "read-only",
     input: browserSnapshotShape,
     timeoutMs: 60_000,
@@ -257,7 +264,7 @@ const pageTools: Tool[] = [
     name: "browser_act",
     title: "Act on page element",
     description:
-      "Click, type, fill a form, press a key, hover, select, check, uncheck, drag, focus, upload, scroll or answer a dialog, using refs from browser_snapshot or browser_find. A ref is clicked once it holds still and only where it takes the click itself: covered or not_hittable means nothing was clicked. While the person works in the tab, type and fill_form add after their text and leave their caret alone (kept_text), and your input waits while they are busy. Accepting a leave-page dialog on a page the person used fails with unsaved_changes. After an action that navigates, call browser_wait_for, then browser_snapshot for new refs.",
+      "Act on the page by ref from browser_snapshot or browser_find. covered or not_hittable: nothing was clicked. After a navigation, browser_wait_for then a new snapshot.",
     riskClass: "external-effect",
     input: browserActShape,
     refine: checkAct,
@@ -291,8 +298,7 @@ const pageTools: Tool[] = [
   {
     name: "browser_wait_for",
     title: "Wait for page",
-    description:
-      "Wait for a page condition: url, text, an element state, network idle, a fixed time or downloads. url is exact or a glob with * (through DOMContentLoaded); ref takes state visible or hidden; networkIdle means no request in flight for 500 ms; downloads waits for the tab's downloads. Pass exactly one of url, text, ref, networkIdle, timeMs or downloads. Safe to call after the change already happened.",
+    description: "Wait for exactly one condition; safe after it already happened.",
     riskClass: "read-only",
     input: browserWaitShape,
     refine: checkWait,
@@ -312,7 +318,7 @@ const pageTools: Tool[] = [
     name: "browser_find",
     title: "Find page elements",
     description:
-      "Find elements by accessible role and/or name (substring, case-insensitive) in every frame and return their snapshot lines with refs, without reading the whole page. With text instead, report whether that visible text is on the page.",
+      "Find elements by role and/or name, returning snapshot lines with refs; text instead reports whether it is on the page.",
     riskClass: "read-only",
     input: browserFindShape,
     timeoutMs: 60_000,
@@ -334,7 +340,7 @@ const pageTools: Tool[] = [
     name: "browser_screenshot",
     title: "Screenshot page",
     description:
-      "See one tab as an image (JPEG, at most 1536 px): the viewport, fullPage for the whole page, or ref for one element. It never changes the tab the person sees. Beside the image: its width, height, scale (CSS pixels per image pixel) and origin; to click image pixel (px, py) pass x = origin.x + px * scale, y = origin.y + py * scale. sizes checks a responsive layout instead: one image per size (phone, tablet, desktop), then the tab's own size comes back. format pdf prints the tab to a PDF file and returns its path. Use browser_snapshot to read structure and get refs.",
+      "See a tab as a JPEG without changing what the person sees. To click image pixel (px, py): x = origin.x + px * scale, y = origin.y + py * scale.",
     riskClass: "read-only",
     input: browserScreenshotShape,
     refine: checkScreenshot,
@@ -398,7 +404,7 @@ const pageTools: Tool[] = [
     name: "browser_logs",
     title: "Read console and network",
     description:
-      "Read recent console messages and network requests, filtered by kind, level, url or status. Pass requestId from a network entry to read that response's body (bounded, secrets redacted). kind downloads lists the files the thread's tabs downloaded.",
+      "Read recent console and network entries. requestId reads one response body; kind downloads lists downloaded files.",
     riskClass: "read-only",
     input: browserLogsShape,
     timeoutMs: 60_000,
@@ -420,7 +426,7 @@ const pageTools: Tool[] = [
     name: "browser_evaluate",
     title: "Run page script",
     description:
-      "Evaluate a JavaScript expression in the page and return its JSON value. mode read-only runs in an isolated world and refuses anything with a side effect; use it for reads. Prefer browser_snapshot or browser_find for reading content.",
+      "Evaluate a JavaScript expression in the page and return its JSON value; read-only refuses side effects.",
     riskClass: "external-effect",
     input: browserEvaluateShape,
     timeoutMs: waitTimeoutMs,
@@ -430,7 +436,7 @@ const pageTools: Tool[] = [
     name: "browser_history",
     title: "Page history",
     description:
-      "Go back, forward, reload or stop loading a tab (direction). Without direction, list its recent history entries and whether back/forward work.",
+      "Go back, forward, reload or stop (direction); without direction, list the tab's history.",
     riskClass: "external-effect",
     input: browserHistoryShape,
     timeoutMs: waitTimeoutMs,
@@ -445,7 +451,7 @@ const pageTools: Tool[] = [
     name: "browser_settings",
     title: "Browser settings",
     description:
-      "Resize a tab, emulate a device, record a tab, list extensions or close the browser. emulate sets scale, mobile, touch, colour scheme and user agent; record_start and record_stop record one tab (yours, or tabId) to a thread artifact.",
+      "Resize or emulate a tab, record one to a thread artifact, list extensions, or close the whole browser.",
     riskClass: "external-effect",
     input: browserSettingsShape,
     refine: checkSettings,
@@ -468,7 +474,7 @@ const pageTools: Tool[] = [
     name: "browser_measure",
     title: "Measure page smoothness",
     description:
-      "Measure page smoothness: frame timing while observing, or while performing one browser_act-style interaction. Latency is input to next visual update; settle needs 250 ms of stillness. Hitch time per second: below 5 ms smooth, 5-10 minor, above 10 janky. Low confidence means few frames, host load or capture overhead; read notes. Repeat returns median/worst metrics plus one timestamped filmstrip.",
+      "Measure frame timing while observing or during one interaction. Hitch ms per second: under 5 smooth, over 10 janky.",
     riskClass: "external-effect",
     input: browserMeasureShape,
     timeoutMs: waitTimeoutMs,
@@ -509,8 +515,7 @@ export function browserToolkit(
       for (const tool of [...tabTools, ...pageTools]) {
         const shape = z.strictObject({
           ...tool.input,
-          ...(route ? browserMachineInput : {}),
-          ...(user ? browserChoiceInput : {}),
+          ...routing(tool.name, route !== undefined, user !== undefined),
         });
         const input = tool.refine ? shape.superRefine(tool.refine) : shape;
         registry.registerContent({

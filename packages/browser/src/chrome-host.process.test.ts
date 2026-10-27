@@ -207,3 +207,24 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
     expect(await f.evaluate("document.querySelector('input').value")).toBe("");
   }, 60_000);
 });
+
+// The original gives every command, the setup's navigation and screenshots included, a 1 s
+// budget; a new tab's first navigation takes about 2 s on an ARM64 Windows machine. The deadline
+// here is above any setup command measured there, and the hung command must fail at it.
+it.runIf(process.platform === "win32" && executablePath)(
+  "Windows: fails a command with no reply at its deadline while later commands still run",
+  async () => {
+    const deadline = 10_000;
+    const f = await fixture({ chrome: { commandTimeoutMs: deadline } });
+    await f.navigate();
+    const pid = await browserPid(f.home);
+    const started = performance.now();
+    await expect(f.evaluate("new Promise(() => {})")).rejects.toThrow();
+    const waited = performance.now() - started;
+    expect(waited).toBeGreaterThanOrEqual(deadline - 50);
+    expect(waited).toBeLessThan(deadline + 5_000);
+    expect(await f.evaluate("2 + 2")).toBe(4);
+    expect(await browserPid(f.home)).toBe(pid);
+  },
+  90_000,
+);

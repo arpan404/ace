@@ -82,10 +82,3 @@ test("uninstall removes this ace's manifests and launcher but leaves another dat
   expect(await installedNativeHosts({ platform: "linux", home, dataDir: mine })).toEqual([]);
   await expect(stat(launcherPath(mine))).rejects.toThrow();
 });
-
-test("windows is refused instead of writing manifests Chrome would never read", async () => {
-  const home = await temp();
-  await expect(
-    installNativeHost({ platform: "win32", home, dataDir: home, node: "node.exe" }),
-  ).rejects.toThrow(/platform/);
-});

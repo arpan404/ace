@@ -4,6 +4,7 @@ import { GitCli, textOutput } from "./cli.ts";
 import { transportEnv } from "./non-executing.ts";
 import { GitError } from "./types.ts";
 import { parseRemotes, parseWorktrees } from "./parse.ts";
+import { nativeWorktreePaths } from "./parse.ts";
 import { within } from "./repository.ts";
 
 export function validateCloneUrl(value: string): void {
@@ -53,6 +54,10 @@ export async function cloneRepository(
       SSH_ASKPASS: "",
       SSH_ASKPASS_REQUIRE: "never",
     };
+  }
+  if (cli.platform === "win32" && input.directoryFd !== undefined) {
+    const { cloneInSteps } = await import("./held-clone.ts");
+    return cloneInSteps(cli, input, protocols, env);
   }
   let pending = "";
   let previous = "";
@@ -213,6 +218,7 @@ export async function projectInfo(
     (await cli.call(path, ["worktree", "list", "--porcelain", "-z"], { directoryFd, signal }))
       .stdout,
   );
+  if (cli.platform === "win32") nativeWorktreePaths(trees);
   const root = trees
     .filter((tree) => !tree.bare && within(tree.path, path))
     .toSorted((a, b) => b.path.length - a.path.length)[0]?.path;

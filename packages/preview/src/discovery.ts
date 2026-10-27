@@ -22,6 +22,20 @@ export function parseListeningPorts(text: string, format: "lsof" | "proc"): Set<
   }
   return ports;
 }
+/** Windows `netstat -a -n -o` rows: TCP listeners only (netstat.exe prints LISTENING). */
+export function parseNetstatListeningPorts(text: string): Set<number> {
+  if (text.length > 4_194_304) throw new Error("Listener table exceeds limit");
+  const ports = new Set<number>();
+  for (const line of text.split("\n")) {
+    const [proto, local = "", , state = ""] = line.trim().split(/\s+/);
+    if ((proto !== "TCP" && proto !== "TCPv6") || !["LISTENING", "LISTEN"].includes(state))
+      continue;
+    const port = /:(\d+)$/.exec(local)?.[1];
+    const result = PreviewPort.safeParse(Number(port));
+    if (port !== undefined && result.success) ports.add(result.data);
+  }
+  return ports;
+}
 export async function discoverListeningPorts(
   platform: NodeJS.Platform = process.platform,
 ): Promise<Set<number>> {
@@ -42,6 +56,14 @@ export async function discoverListeningPorts(
       }),
     ]);
     return parseListeningPorts(tables.join("\n"), "proc");
+  }
+  if (platform === "win32") {
+    const output = await probeOutput("netstat", ["-a", "-n", "-o"], {
+      maxBytes: 4_194_304,
+      timeoutMs: 5000,
+    });
+    if (output.code !== 0) throw new Error("netstat listener discovery failed");
+    return parseNetstatListeningPorts(output.stdout);
   }
   throw new Error(`Unsupported preview discovery platform: ${platform}`);
 }

@@ -13,8 +13,15 @@ import { z } from "zod";
 import {
   ProcessIdentity,
   processIdentity,
+  childHasExited,
   processGroupIsGone,
 } from "@ace/provider-kit/process-identity";
+import {
+  WindowsSid,
+  windowsTreeRuntime,
+  type WindowsProcessRecord,
+} from "@ace/provider-kit/process-identity";
+import { windowsTreeRecorded } from "@ace/provider-kit/process-inventory";
 import type { ProcessLease } from "@ace/provider-kit/process";
 
 export const skillLeaseFilename = "skill-processes.json";
@@ -32,12 +39,29 @@ export interface SkillProcessRuntime {
   /** undefined means confirmed absent; unavailable inspection must throw. */
   identity(pid: number): ProcessIdentity | undefined;
   groupGone(group: number): boolean;
+  /** Non-consuming proof of a child exit before Node reaps it. */
+  childExited?(pid: number): boolean;
+  /**
+   * Windows only: no process groups exist. A leader's tree holds the projection while the
+   * process journal still records it or any process may still belong to it.
+   */
+  windowsTree?: { held(leader: WindowsProcessRecord, journal: string | undefined): boolean };
+  /** Windows only: the process journal beside the projection's sessions directory. */
+  windowsJournal?: string;
 }
 export const skillProcessRuntime: SkillProcessRuntime = {
   ownerPid: process.pid,
   identity: processIdentity,
+  childExited: childHasExited,
   groupGone: processGroupIsGone,
+  ...(process.platform === "win32" ? { windowsTree: { held: windowsTreeHeld } } : {}),
 };
+function windowsTreeHeld(leader: WindowsProcessRecord, journal: string | undefined): boolean {
+  // Without its journal a tree's recorded descendants are unknown, so the projection stays.
+  if (journal === undefined || windowsTreeRecorded(journal, leader)) return true;
+  const state = windowsTreeRuntime.state([leader]);
+  return state.live.length > 0 || state.ambiguous.length > 0;
+}
 
 /** All inputs are validated before they can authorize deletion. Never follow a metadata symlink. */
 function readLease(root: string): LeaseRecord {
@@ -77,6 +101,12 @@ export function builtinSkillRootUnused(
   root: string,
   runtime: SkillProcessRuntime = skillProcessRuntime,
 ): boolean {
+  // Roots live in <home>/builtin-skill-sessions/<root>; the journal is <home>/processes.sqlite.
+  if (runtime.windowsTree)
+    return leaseUnused(readLease(root), {
+      windowsJournal: join(root, "..", "..", "processes.sqlite"),
+      ...runtime,
+    });
   return leaseUnused(readLease(root), runtime);
 }
 /** Same decision for a lease the caller read without following links (storage cleanup). */
@@ -92,6 +122,14 @@ function leaseUnused(record: LeaseRecord, runtime: SkillProcessRuntime): boolean
   for (const saved of record.processes) {
     if (saved.uid !== record.owner.uid || saved.group !== saved.pid)
       throw new Error("Invalid provider process ownership");
+    if (
+      runtime.windowsTree &&
+      runtime.windowsTree.held(
+        { pid: saved.pid, start: saved.start, uid: WindowsSid.parse(saved.uid) },
+        runtime.windowsJournal,
+      )
+    )
+      return false;
     if (sameProcess(saved, runtime.identity(saved.pid)) || !runtime.groupGone(saved.group))
       return false;
   }
@@ -123,6 +161,9 @@ export function builtinSkillProcessLease(
     spawned(pid) {
       if (record.closed || !record.launching) throw new Error("No pending skill process launch");
       const identity = runtime.identity(pid);
+      // No identity can be recorded for an unreaped fast exit. Keep the launch evidence
+      // unresolved so projection cleanup still refuses any unproven surviving descendants.
+      if (!identity && runtime.childExited?.(pid)) return;
       if (!identity || identity.pid !== pid || identity.uid !== owner.uid || identity.group !== pid)
         throw new Error("Cannot identify owned provider process");
       record = { ...record, processes: [...record.processes, identity], launching: false };

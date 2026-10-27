@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { matchesChord } from "./hotkeys.ts";
 import {
   bindingsFor,
@@ -128,3 +128,25 @@ test("rebindings of unknown or fixed shortcuts are ignored", () => {
   expect(resolved.reorderQueued).toBe("alt+arrowup");
   expect(resolved.palette).toBe("shift+mod+y");
 });
+
+test.runIf(process.platform === "win32")(
+  "in a Windows app or browser, labels put Ctrl first, then Shift, then Alt",
+  async () => {
+    vi.resetModules();
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron" });
+    try {
+      const windows = await import("./keymap.ts");
+      expect(windows.formatKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+      expect(windows.formatKeys("alt+shift+mod+r")).toBe("Ctrl+Shift+Alt+R");
+      expect(windows.formatKeys("mod++")).toBe("Ctrl++");
+      expect(windows.formatKeys("g h")).toBe("G H");
+      expect(windows.formatChordParts("shift+mod+k")).toEqual(["Ctrl", "Shift", "K"]);
+      expect(windows.describeKeys("shift+mod+n")).toBe("Ctrl+Shift+N");
+      // Asked for Apple glyphs, the order stays Apple's.
+      expect(windows.formatKeys("shift+mod+n", true)).toBe("⇧⌘N");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  },
+);

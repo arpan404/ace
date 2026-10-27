@@ -1,7 +1,8 @@
 # ace marketing site
 
-A static Astro site: one page plus `llms.txt`, `robots.txt`, `sitemap.xml`, a web manifest and a
-404 page.
+A static Astro site: the home page, `/download/`, `/features/` with a page per feature,
+`/agents/` with a page per built-in agent, `/mcp/`, `/security/` and `/faq/`, plus `llms.txt`,
+`llms-full.txt`, `robots.txt`, `sitemap.xml`, a web manifest and a 404 page.
 
 ```sh
 bun run --filter @ace/marketing dev     # local preview
@@ -31,20 +32,64 @@ router handles it.
 
 ## Download links
 
-Every "Download for Mac" button points at the Apple-silicon `.dmg` of the latest published
-release, looked up from GitHub at build time (`src/content/release.ts`). Rebuild after each
-release so the site links the new version. If GitHub can't be reached, the build still succeeds and
-the buttons open the latest release page instead.
+Each "Download for <platform>" button points at that platform's installer in the latest published
+release, looked up from GitHub at build time (`src/content/release.ts`): the Apple-silicon `.dmg`
+for Mac, the x64 `-setup.exe` for Windows and the x64 `.AppImage` for Linux. The page shows the
+button for the visitor's system (Base.astro tags `<html data-os>` before paint; anything else sees
+Mac). A platform the release has no installer for, or a build that can't reach GitHub, links the
+release page instead. Rebuild after each release so the site links the new version.
 
 ## Content
 
-Copy lives in `src/content/`: `product.ts` (headline, statuses, features, computer use, Fleet, MCP
-tools, FAQ) and `agents.ts` (read from `@ace/ui-core`, so the agent list matches the app). The page,
-its JSON-LD structured data (`src/seo/`) and `llms.txt` are all built from these files, so they never
-disagree.
+Copy lives in `src/content/`, never in components:
+
+| File              | What it holds                                                                    |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `product.ts`      | Headline, statuses, capabilities, Fleet points, MCP families, FAQ, boundaries    |
+| `features.ts`     | Every feature page: title, meta description, sections, tools, questions          |
+| `agent-guides.ts` | A page per built-in agent (the agent list itself comes from `@ace/ui-core`)      |
+| `mcp.ts`          | The full tool reference on `/mcp/`                                               |
+| `routes.ts`       | Every indexable page; nav, footer, breadcrumbs, sitemap and llms.txt all read it |
+
+A new page goes in `routes.ts` first; `trail()` refuses a path that isn't listed, so a page can't
+ship unlinked or missing from the sitemap.
+
+## SEO
+
+Every page goes through `layouts/Page.astro`, which writes its title, description, canonical URL,
+Open Graph and Twitter cards, and one JSON-LD graph: `WebSite`, the page, `BreadcrumbList` on inner
+pages, plus what the page adds (`SoftwareApplication` on home and download, `FAQPage` wherever
+questions are shown, `ItemList` on index pages). Node builders live in `src/seo/schema.ts`.
+`llms.txt` indexes every page; `llms-full.txt` carries all of their content in one file.
+
+## Themes
+
+The site has a dark and a light theme. A script in Base.astro's head sets `<html data-theme>`
+before paint: the visitor's saved choice (the nav toggle, stored as `ace-theme`), else their system
+setting, followed live until they choose. Colours are tokens in `src/styles/global.css`; the light
+theme overrides them under `html[data-theme="light"]`.
+
+## Motion
+
+`src/styles/motion.css` holds every animation. Text never slides or blurs in: section headings
+rise word by word from behind a mask, other text fades, and product visuals unmask from the top.
+The product panels act out their feature once in view (`src/scripts/stories.ts`): subagents finish
+before their parent turns Done, a browser log streams in, a pointer takes over an app, a device
+request is allowed, and lines draw between Fleet machines to the phone. Tiles marked `.spot` carry
+a light under the pointer, and pages cross-fade (`@view-transition`).
+
+The home page walks through the features in one tour (`src/components/Tour.astro`): steps on the
+left, one pinned stage on the right whose scene changes as each step reaches the middle of the
+screen (`src/scripts/tour.ts`); narrow screens show each step's scene inline instead.
+
+`src/scripts/motion.ts` drives it. Base.astro only turns motion on (`<html class="motion">`) when
+reduced motion is off, and drops it if the script hasn't started within three seconds; without it,
+every panel shows its resting state and nothing is hidden.
 
 ## Screenshots
 
-`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon
-(`bun run dev:fake`), at 1440×900 and 2× scale. Replace both modes together. `public/og.png` is the
-1200×630 social card.
+`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon's
+small showcase world (`bun run web:dev:fake`, then `/t/thread-cold-start?fakeWorld=showcase`), at
+1440×900 and 2× scale: `home` (the hero) and `review` (the same thread with the right panel on
+Changes). Replace both modes
+together; `Shot.astro` shows the one matching the theme. `public/og.png` is the 1200×630 social card.

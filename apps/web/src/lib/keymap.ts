@@ -219,6 +219,9 @@ export function keymapEntry(id: KeymapId): KeymapEntry {
 const apple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
 /** ⌘ is the command key here (Apple platforms); elsewhere "mod" is Ctrl. */
 export const applePlatform = apple;
+const windows = /Windows/.test(globalThis.navigator?.userAgent ?? "");
+/** Windows, where labels read modifiers in its own order: Ctrl+Shift+N. */
+export const windowsPlatform = windows;
 
 export interface Chord {
   key: string;
@@ -259,7 +262,21 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   arrowright: ["→", "→"],
 };
 
+/** Windows: modifiers before the key in Ctrl, Shift, Alt order, as its own menus write them. */
+const windowsModifierOrder = ["mod", "ctrl", "shift", "alt"];
+function windowsRank(part: string): number {
+  const index = windowsModifierOrder.indexOf(part.toLowerCase());
+  return index === -1 ? windowsModifierOrder.length : index;
+}
+function windowsChord(chord: string): string {
+  return chord
+    .split(/\+(?!$)/)
+    .toSorted((a, b) => windowsRank(a) - windowsRank(b))
+    .join("+");
+}
+
 function formatChord(chord: string, isApple: boolean): string {
+  if (windows && !isApple) chord = windowsChord(chord);
   return chord
     .split(/\+(?!$)/)
     .map((part) => {
@@ -275,6 +292,7 @@ function formatChord(chord: string, isApple: boolean): string {
  */
 /** The keys in one chord as individual platform labels, without joining punctuation. */
 export function formatChordParts(keys: string, isApple = apple): string[] {
+  if (windows && !isApple) keys = windowsChord(keys);
   return keys.split(/\+(?!$)/).map((part) => {
     const glyph = glyphs[part.toLowerCase()];
     return glyph ? glyph[isApple ? 0 : 1].replace(/\+$/, "") : part.toUpperCase();

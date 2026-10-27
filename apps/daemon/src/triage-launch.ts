@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { findExecutable, parseVersion } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
+import { toWindowsCommand } from "@ace/provider-kit/process";
 import {
   triageInvocation,
   triageProviders,
@@ -66,6 +67,7 @@ export async function runTriageHandoff(
   cwd: string,
 ): Promise<number> {
   const launch = await triageLaunch(provider, prompt, env);
+  if (process.platform === "win32") return runWindowsHandoff(launch, env, cwd);
   // Start in the triage folder so the agent doesn't edit whatever project the shell was in.
   const child = spawn(launch.command, launch.args, { stdio: "inherit", env, cwd });
   const forward = (signal: NodeJS.Signals) => () => {
@@ -85,5 +87,33 @@ export async function runTriageHandoff(
     process.off("SIGINT", ignore);
     process.off("SIGTERM", onTerm);
     process.off("SIGHUP", onHup);
+  }
+}
+
+/**
+ * Windows: npm installs provider CLIs as `.cmd` shims, which Node won't start without cmd.exe
+ * (CVE-2024-27980), so those run through it. Ctrl-C reaches every process on the console, so ace
+ * ignores it and the CLI handles it; closing the console ends them all, so nothing is forwarded.
+ */
+async function runWindowsHandoff(
+  launch: { command: string; args: string[] },
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+): Promise<number> {
+  const target = toWindowsCommand(launch.command, launch.args);
+  const child = spawn(target.command, target.args, {
+    stdio: "inherit",
+    env,
+    cwd,
+    windowsVerbatimArguments: target.verbatim,
+  });
+  process.on("SIGINT", ignore);
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code, signal) => resolve(signal ? 1 : (code ?? 1)));
+    });
+  } finally {
+    process.off("SIGINT", ignore);
   }
 }

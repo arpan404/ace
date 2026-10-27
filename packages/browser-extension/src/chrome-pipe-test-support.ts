@@ -31,6 +31,8 @@ export async function launchTestChrome(
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // Windows: an elevated test would otherwise see the browser relaunch without its pipe.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       ...extraArgs,
       "about:blank",
     ],

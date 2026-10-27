@@ -7,6 +7,8 @@ import { SafeRoot, GitIgnore, walkWorkspace, isWorkspaceTransferTemporary } from
 import { z } from "zod";
 import { CHUNK_SIZE, codeOf, FileError, version, checkVersion } from "./types.ts";
 import type { UploadRecord } from "./catalog.ts";
+import { chmod } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 export async function observed(
   safe: SafeRoot,
@@ -134,11 +136,43 @@ export async function atomicWrite(
     await checkedTarget(safe, path, expected);
     await target.verify();
     if (expected !== null) await handle.chmod(await replacementMode(target.path));
+    if (process.platform === "win32" && expected !== null) {
+      await windowsReplace(temp, target.path);
+      await target.verify();
+      return;
+    }
     if (expected === null) await exclusive.move(temp, target.path);
     else await rename(temp, target.path);
     await target.verify();
   } finally {
     await handle.close();
     await rm(temp, { force: true });
+  }
+}
+
+/**
+ * Windows: rename `temp` over an existing file. Windows refuses that while the file is
+ * read-only, or while another program holds it open without delete sharing. The read-only
+ * attribute is lifted just before the rename and put back if the rename fails; the incoming
+ * file already carries the same mode, so a read-only file stays read-only. Sharing violations
+ * are retried for under a second, then reported.
+ */
+export async function windowsReplace(temp: string, destination: string): Promise<void> {
+  const before = await lstat(destination);
+  const readOnly = before.isFile() && (before.mode & 0o200) === 0;
+  if (readOnly) await chmod(destination, 0o666);
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(temp, destination);
+        return;
+      } catch (error) {
+        if (attempt >= 5 || !["EBUSY", "EPERM", "EACCES"].includes(codeOf(error))) throw error;
+        await delay(25 * 2 ** attempt);
+      }
+    }
+  } catch (error) {
+    if (readOnly) await chmod(destination, before.mode & 0o777).catch(() => {});
+    throw error;
   }
 }

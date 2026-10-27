@@ -50,7 +50,7 @@ it.skipIf(!enabled)(
         bundle: true,
         format: "esm",
         platform: "node",
-        target: "node24",
+        target: "node26",
         external: ["electron"],
         banner: {
           js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',

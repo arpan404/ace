@@ -16,7 +16,7 @@ type Operation = Extract<
   { type: "fleet.request" }
 >["operation"];
 
-async function fleet(client: ClientApi, operation: Operation) {
+export async function fleet(client: ClientApi, operation: Operation) {
   const reply = await client.request({ type: "fleet.request", operation });
   return reply.result;
 }

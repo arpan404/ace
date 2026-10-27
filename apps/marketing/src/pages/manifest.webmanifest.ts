@@ -10,8 +10,8 @@ export const GET: APIRoute = () =>
       description: product.description,
       start_url: "/",
       display: "browser",
-      background_color: "#0c0c0c",
-      theme_color: "#0c0c0c",
+      background_color: "#11100f",
+      theme_color: "#11100f",
       icons: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },

@@ -23,6 +23,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { windowsHelpActions } from "@/boot/help-actions.ts";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
@@ -327,6 +328,18 @@ export function usePaletteGroups(
         run: run(() => void navigate({ to: entry.page, hash: entry.id })),
       })),
     });
+    // Windows: the menu bar's Help items, which its frameless window doesn't show.
+    const help = windowsHelpActions();
+    if (help)
+      groups.push({
+        value: "Help",
+        items: help.map((action) => ({
+          id: `help-${action.id}`,
+          label: action.label,
+          icon: "action",
+          run: run(() => void action.run().catch(() => {})),
+        })),
+      });
     return groups;
   }, [
     close,

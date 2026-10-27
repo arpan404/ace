@@ -15,8 +15,11 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { computerToolkit, screenToolkit } from "@ace/screen";
-import { cancelLockedUseWhenTurnedOff, computerLockedUseGate } from "../computer-locked-use.ts";
+import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
+import { screenToolkit, computerToolNames } from "@ace/screen";
+import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
+export { computerPlatform } from "../computer-tools.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { toolFailureReporter } from "../tool-failure-log.ts";
@@ -31,7 +34,6 @@ import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
   const devices = services.devices;
-  const lockedUse = computerLockedUseGate(services);
   const stopLockedUseWatch = await cancelLockedUseWhenTurnedOff(services);
   if (stopLockedUseWatch) resources.own(stopLockedUseWatch);
 
@@ -145,6 +147,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
+      // Commands on other paired machines; a local agent uses its own shell (ADR 0105).
+      commandToolkit(async (caller, call, signal) => {
+        const machines = services.machines;
+        if (!machines) throw new PublicToolError("machine_unavailable");
+        return machines.caller.command(caller, call.machine, call.tool, call.args, {
+          timeoutMs: call.timeoutMs,
+          signal,
+        });
+      }),
       ...(services.browser
         ? [
             browserToolkit(
@@ -162,25 +173,48 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             ),
           ]
         : []),
-      ...(help ? [browserHelpToolkit(help)] : []),
-      // Registered at startup; the devices implementation loads on an agent's first call.
-      ...(devices ? [devicesToolkit(() => devices.load())] : []),
-      // Agents use the background engine on macOS and Linux; Windows keeps the session tools.
-      ...(services.computer
+      ...(help
         ? [
-            computerToolkit(services.computer, {
-              platform: process.platform === "linux" ? "linux" : "macos",
-              // Read on every call, so a change in Settings applies to the next one.
-              blockedApps: async () =>
-                (await services.settings?.get("computer.blockedApps"))?.value ?? [],
-              using: (threadId, app) =>
-                services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
-              ...(lockedUse ? { lockedUse } : {}),
+            browserHelpToolkit(help, async (call, { caller, signal }) => {
+              const machines = services.machines;
+              if (!machines) throw new PublicToolError("machine_unavailable");
+              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+                timeoutMs: call.timeoutMs,
+                signal,
+              });
             }),
           ]
-        : services.screen
-          ? [screenToolkit(services.screen)]
-          : []),
+        : []),
+      // Registered at startup; the devices implementation loads on an agent's first call.
+      ...(devices
+        ? [
+            devicesToolkit(
+              () => devices.load(),
+              undefined,
+              async (call, { caller, signal }) => {
+                const machines = services.machines;
+                if (!machines) throw new PublicToolError("machine_unavailable");
+                return machines.caller.hosted(
+                  caller,
+                  call.machine,
+                  { op: "devices", tool: call.tool, args: call.args },
+                  { timeoutMs: call.timeoutMs, signal },
+                );
+              },
+            ),
+          ]
+        : []),
+      // Agents use the background engine on macOS, Linux and Windows; with `machine`, another
+      // paired machine's apps (ADR 0105).
+      daemonComputerToolkit(services, services.computer, async (call, { caller, signal }) => {
+        const machines = services.machines;
+        if (!machines) throw new PublicToolError("machine_unavailable");
+        return machines.caller.screen(caller, call.machine, call.tool, call.args, {
+          timeoutMs: call.timeoutMs,
+          signal,
+        });
+      }),
+      ...(!services.computer && services.screen ? [screenToolkit(services.screen)] : []),
     ],
     observations,
     (caller) => {
@@ -194,16 +228,23 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         askAvailable:
           thread?.provider === "cursor" ||
           !!services.agentControl?.delegations.journal.get(caller.threadId),
+        unavailableTools: [
+          ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
+          ...(services.computer || services.machines?.caller.serves("screen")
+            ? []
+            : computerToolNames),
+        ],
         disabled: {
           ...(!services.browser
             ? { browser: "ace's built-in browser failed to start in this daemon." }
             : {}),
-          ...(!services.screen?.isEnabled()
+          ...(!services.screen?.isEnabled() && !services.machines?.caller.serves("screen")
             ? {
                 screen: "Computer use is disabled.",
               }
             : {}),
-          ...(!services.devices?.isEnabled()
+          // Off here, but offered while a linked machine lends its devices (ADR 0105).
+          ...(!services.devices?.isEnabled() && !services.machines?.caller.serves("devices")
             ? {
                 devices: "Devices are disabled.",
               }
@@ -250,7 +291,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { McpProviderRequest, ThreadId, type McpSources } from "@ace/protocol";
+import { McpProviderRequest, type McpSources } from "@ace/protocol";
 const mcpTypes = new Set<string>(
   McpProviderRequest.options.map((option) => option.shape.type.value),
 );

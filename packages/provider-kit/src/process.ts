@@ -10,9 +10,13 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { toWindowsCommand } from "./windows-command.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { toWindowsCommand } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 export {
   stopOwnedGroups,
@@ -105,7 +109,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     else killGroup(pid, "SIGKILL");
   };
   const stopRetained = (pid: number, graceMs: number) =>
-    windows ? stopRetainedWindowsTree(pid, graceMs, killTree) : stopRetainedGroup(pid, graceMs);
+    windows
+      ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
+      : stopRetainedGroup(pid, graceMs);
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -402,3 +408,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   return output.stdout;
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
+export { toWindowsCommand, type WindowsCommand } from "./process-owner.ts";

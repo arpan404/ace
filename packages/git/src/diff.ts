@@ -52,6 +52,7 @@ export async function diff(
   ];
   // Literal pathspecs: a path is never read as a glob or as pathspec magic.
   const pathspecs = paths.map((path) => `:(literal)${path}`);
+  if (repository.cli.platform === "win32") windowsOrderFile(args);
   const metadata = await repository.cli.call(root, [
     ...args,
     "--raw",
@@ -88,4 +89,11 @@ export async function diff(
     patch: patchOutput({ stdout: bytes, truncated, stderr: "", exitCode: 0 }),
     truncated,
   };
+}
+
+/** Windows: Git for Windows maps `/dev/null` itself; Node's `\\.\nul` reaches it as `//./nul`. */
+function windowsOrderFile(args: string[]): void {
+  const order = args.indexOf(`-O${devNull}`);
+  if (order < 0) throw new GitError("git_failed", "Diff order file argument missing");
+  args[order] = "-O/dev/null";
 }

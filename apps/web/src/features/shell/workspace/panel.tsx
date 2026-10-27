@@ -2,6 +2,7 @@ import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } 
 import { Button } from "@/components/ui/button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
+import { windowsPlatform } from "@/lib/keymap.ts";
 import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
@@ -88,6 +89,8 @@ export function WorkspacePanel(props: {
       onFocus={dismissable ? undefined : focusBack.onFocus}
       onBlur={dismissable ? undefined : focusBack.onBlur}
       data-edge={layout.sheet || bottom ? "bottom" : "right"}
+      // Windows: docked beside the column, its strip clears the caption buttons, not the header.
+      data-docked={windowsPlatform && !dismissable && !expanded && !bottom ? "right" : undefined}
       style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
         "relative flex min-h-0 min-w-0 flex-col bg-panel",

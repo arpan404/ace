@@ -11,6 +11,9 @@ export async function releaseFiles(root: string): Promise<string[]> {
     throw new Error(
       `Release exceeds the supported updater entry budget: ${result.length} files, at most ${releaseArchiveLimits.entries}`,
     );
+  // Windows: tar entries always use "/", and Windows names cannot contain a backslash.
+  if (process.platform === "win32")
+    return result.map((path) => path.replaceAll("\\", "/")).toSorted();
   return result.toSorted();
 }
 

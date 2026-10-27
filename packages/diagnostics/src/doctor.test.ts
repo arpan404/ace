@@ -11,7 +11,7 @@ import {
 import { deferred } from "./test-support.ts";
 function healthy(): DoctorProbes {
   return {
-    node: async () => "v24.1.0",
+    node: async () => "v26.1.0",
     provider: async () => ({
       installed: true,
       version: "1.2.3",
@@ -52,8 +52,8 @@ const unhealthy: readonly (readonly [
   string,
   string,
 ])[] = [
-  ["node", { node: async () => "v23.9.0" }, "fail", "Node v23.9.0", "Node 24"],
-  ["node", { node: async () => "not a version" }, "fail", "not a version", "Node 24"],
+  ["node", { node: async () => "v25.9.0" }, "fail", "Node v25.9.0", "Node 26"],
+  ["node", { node: async () => "not a version" }, "fail", "not a version", "Node 26"],
   ["git", { git: async () => undefined }, "fail", "git not found", "Install git"],
   ["node-pty", { pty: async () => false }, "fail", "cannot load", "Reinstall/rebuild node-pty"],
   [

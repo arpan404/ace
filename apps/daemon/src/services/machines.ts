@@ -1,17 +1,27 @@
+import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { HostId, MachineDescription, ThreadId } from "@ace/protocol";
+import { Command, HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { createMachineTarget } from "../machines/target.ts";
+import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
+import { TargetDevices } from "../machines/target-devices.ts";
+import { TargetScreen } from "../machines/target-screen.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
+import { GuestSessions } from "../machines/guest-sessions.ts";
+import { MachineGrantStore } from "../machines/grant-store.ts";
+import { switchRevocation } from "../machines/grant-rules.ts";
+import { commandHost } from "../machines/command-host-shell.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
+import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { TransferClient, transferTransport } from "../transfers/client.ts";
 import type { ServiceContext } from "./types.ts";
@@ -51,12 +61,98 @@ export function startMachines(context: ServiceContext): void {
   // A raised or cleared limit starts children other machines left waiting here at once.
   const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
   if (stopFollowing) resources.own(stopFollowing);
-  const browser = new TargetBrowser({
+  const guests = new GuestSessions({
     store,
     engine,
-    browser: () => services.browser,
     threads,
+    chat: async () => {
+      if (!services.projects)
+        throw new TargetRefusal("unavailable", "Projects are starting on this machine.");
+      const project = await services.projects.createChat();
+      return { id: project.id, path: project.path };
+    },
+    newId: randomUUID,
+    // Making room for a new session deletes an idle one exactly as the person's Delete does.
+    async remove(threadId) {
+      const result = await services.threadDeletion?.(
+        Command.parse({
+          id: `guest-session-evicted:${threadId}`,
+          deviceId: "machines",
+          payload: { type: "thread.delete", threadId, force: true },
+        }),
+      );
+      if (!result || (!result.ok && result.error !== "thread_not_found"))
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine couldn't make room for a new session.",
+        );
+    },
   });
+  void services.engine
+    ?.ready()
+    .then(() => guests.recover())
+    .catch((error: unknown) => log.log("warn", "Guest sessions not recovered", logError(error)));
+  const grants = new MachineGrantStore(store, now);
+  // Turning a capability down stops what it no longer allows at once (ADR 0105).
+  resources.own(
+    grants.onChange(({ deviceId, capability, level }) => {
+      if (level !== "operate") guests.revoke({ deviceId, capability, level });
+    }),
+  );
+  resources.own(store.devices.onRevoke((deviceId) => guests.revoke({ deviceId })));
+  void services.settings
+    ?.subscribe({ keys: ["remote.agentAccess"], scope: {} }, (event) => {
+      if (event.type !== "changed") return;
+      const entry = event.entries.find((candidate) => candidate.key === "remote.agentAccess");
+      const access = MachineAgentAccess.safeParse(entry?.value);
+      const scope = access.success ? switchRevocation(access.data) : undefined;
+      if (scope) guests.revoke(scope);
+    })
+    .then((release) => resources.own(release))
+    .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
+  services.engine?.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
+  const commands = commandHost({
+    store,
+    engine,
+    guests,
+    threads,
+    dataDir: config.dataDir,
+    now,
+    log,
+  });
+  // A closing daemon ends the commands it runs: nothing would own them after the restart.
+  resources.own(() => commands.close(), "machine commands");
+  // Deleting a guest session stops the calls it holds; their callers hear why.
+  resources.own(
+    store.subscribe((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.deletedAt === "number" &&
+          guests.guest(event.threadId)
+        ) {
+          guests.stopThread(event.threadId);
+          commands.forget(event.threadId);
+        }
+    }),
+  );
+  const browser = new TargetBrowser({
+    store,
+    browser: () => services.browser,
+    guests,
+    help: () => services.browserHelp,
+  });
+  const devices = new TargetDevices({
+    devices: () => services.devices,
+    guestMachine: (threadId) => store.getThread(ThreadId.parse(threadId))?.details?.guest?.name,
+  });
+  resources.own(devices.follow(guests));
+  const screen = new TargetScreen({
+    computer: () => services.computer,
+    enabled: () => services.screen?.isEnabled() ?? false,
+    toolkit: (computer) => daemonComputerToolkit(services, computer),
+  });
+  resources.own(screen.follow(guests));
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -64,6 +160,14 @@ export function startMachines(context: ServiceContext): void {
     engine,
     threads,
     browser,
+    guests,
+    grants,
+    commandJobs: (session, jobIds) => commands.states(session, jobIds),
+    hosts: {
+      devices,
+      screen,
+      commands,
+    },
     log: record("info"),
   });
 
@@ -80,6 +184,8 @@ export function startMachines(context: ServiceContext): void {
     transfers: async (profile) =>
       new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
     log: record("info"),
+    // Sim tools are offered here while a linked machine lends its devices, even with ours off.
+    served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
   services.fleet = new FleetLinks({
@@ -93,6 +199,7 @@ export function startMachines(context: ServiceContext): void {
             hostName: ((await hostName()) || "ace").slice(0, 256),
             threadId: ThreadId.parse("settings"),
             threadTitle: "Settings",
+            ceiling: "operate",
           },
           { op: "describe" },
           { timeoutMs: 4000 },
@@ -158,6 +265,28 @@ export function startMachines(context: ServiceContext): void {
   });
   resources.own(() => children.close());
   resources.onShutdown(() => children.close());
+  const jobs = new RemoteJobs({
+    store,
+    engine,
+    now,
+    schedule,
+    pollMs,
+    poll: async (machine, thread, ids) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.commandJobs(machine, thread, ids);
+    },
+    stop: async (machine, thread, agent, jobId) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      await caller.stopCommandJob(machine, thread, agent, jobId);
+    },
+    device: (machine) => directory.device(machine),
+    label: (machine) => directory.label(machine),
+    log: record("warn"),
+  });
+  resources.own(() => jobs.close());
+  resources.onShutdown(() => jobs.close());
+  // The person's Stop on a remote job's row stops it on its machine.
+  services.engine?.bindExternalTaskStop(remoteJobPrefix, (task) => jobs.stop(task));
   caller = new MachineCaller({
     store,
     hostId,
@@ -167,6 +296,8 @@ export function startMachines(context: ServiceContext): void {
     mirror,
     schedule,
     pollMs,
+    jobs: () => jobs,
+    ceiling: (threadId) => (services.engine?.access(threadId) === "read-only" ? "read" : "operate"),
   });
   const machines = caller;
   const cancel = (id: string) => {
@@ -189,6 +320,7 @@ export function startMachines(context: ServiceContext): void {
     // The person's Stop on a thread another machine delegated here cancels its waiting launch.
     delegations.onStopped = (thread) => {
       threads.launches.cancel(thread);
+      guests.stopThread(thread);
     };
   }
   services.machines = { caller, children };

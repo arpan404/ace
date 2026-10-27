@@ -355,3 +355,12 @@ body
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
 }
+
+/*
+ * Windows desktop app: Windows' own code faces. Cascadia Mono ships with Windows 11 and
+ * Windows Terminal, Consolas with every Windows; the shared stack would otherwise pick
+ * whatever JetBrains Mono the person happens to have. Outranks the theme rule's `--font-mono`.
+ */
+:root[data-platform="win32"][data-theme][data-scheme] {
+  --font-mono: "Cascadia Mono", Consolas, monospace;
+}

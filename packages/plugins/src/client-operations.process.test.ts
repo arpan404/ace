@@ -351,3 +351,25 @@ test("physical UTF-8 source pages advance and reconstruct the accepted content",
     await f.close();
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "on Windows cached catalog metadata cannot authorize source reads through a replaced parent junction",
+  async () => {
+    const f = await fixture();
+    try {
+      const install = await f.manager.accept(await f.prepare());
+      await f.manager.catalog(0, 50);
+      const skills = join(f.managerRoot, "versions", install.hash, "skills");
+      const outside = join(f.root, "outside");
+      await mkdir(join(outside, "review"), { recursive: true });
+      await writeFile(join(outside, "review", "SKILL.md"), "Do not disclose outside content");
+      await rename(skills, join(f.root, "original-skills"));
+      await symlink(outside, skills, "junction");
+      await expect(f.manager.source("sample", "skills/review/SKILL.md", 0, 65536)).rejects.toThrow(
+        "Symlink forbidden",
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);

@@ -3,6 +3,7 @@
 import { parentPort } from "node:worker_threads";
 import koffi from "koffi";
 import { z } from "zod";
+import { win32 } from "node:path";
 
 const Request = z.object({
   source: z.string().min(1).max(16384),
@@ -30,6 +31,10 @@ function posixResult(result: unknown): Reply {
     message: "Exclusive rename failed",
   };
 }
+/** Windows: the `\\?\` form of an absolute path, which lifts MAX_PATH for Win32 calls. */
+function windowsLongPath(path: string): string {
+  return win32.toNamespacedPath(win32.resolve(path));
+}
 /** Bind once in this dedicated I/O worker; syscall and errno stay on the same thread. */
 function systemMover(): (source: string, destination: string) => Reply {
   if (process.platform === "darwin") {
@@ -52,16 +57,32 @@ function systemMover(): (source: string, destination: string) => Reply {
       "int __stdcall MoveFileExW(str16 source, str16 destination, unsigned int flags)",
     );
     const lastError = library.func("unsigned int __stdcall GetLastError(void)");
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    // Flags 0: never replace and never copy across volumes.
     return (source, destination) => {
-      const result = integer.parse(rename(source, destination, 0));
-      const error = integer.parse(lastError());
-      return result !== 0
-        ? { ok: true }
-        : {
-            ok: false,
-            code: [80, 183].includes(error) ? "CONFLICT" : error === 17 ? "EXDEV" : "IO_ERROR",
-            message: "Exclusive rename failed",
-          };
+      for (let attempt = 0; ; attempt++) {
+        const result = integer.parse(
+          rename(windowsLongPath(source), windowsLongPath(destination), 0),
+        );
+        const error = integer.parse(lastError());
+        if (result !== 0) return { ok: true };
+        // Access denied (5) and sharing violations (32) clear once another program lets go.
+        if ([5, 32].includes(error) && attempt < 5) {
+          Atomics.wait(pause, 0, 0, 25 * 2 ** attempt);
+          continue;
+        }
+        return {
+          ok: false,
+          code: [80, 183].includes(error)
+            ? "CONFLICT"
+            : error === 17
+              ? "EXDEV"
+              : [2, 3].includes(error)
+                ? "NOT_FOUND"
+                : "IO_ERROR",
+          message: "Exclusive rename failed",
+        };
+      }
     };
   }
   return () => ({

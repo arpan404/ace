@@ -9,6 +9,8 @@ export type PiRuntime = {
   schedule: Schedule;
   spawn: typeof spawnTextSupervised;
   discover: typeof discoverPi;
+  /** Host platform; tests inject "win32" to cover the Windows stop path. */
+  platform?: NodeJS.Platform;
 };
 export const runtime: PiRuntime = {
   processKey: randomUUID,

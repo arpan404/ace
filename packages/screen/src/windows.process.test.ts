@@ -10,8 +10,9 @@ import {
   computerUseHandler,
   type Frame,
 } from "./index.ts";
-import { spawnWindowsHelper } from "./windows-process.ts";
+import { spawnWindowsHelper } from "./helper.ts";
 import { deferred, ids, target } from "./testing/support.ts";
+import { windowsFakeOverrides } from "./testing/support.ts";
 async function fixture(env: NodeJS.ProcessEnv = {}) {
   const directory = await mkdtemp(join(tmpdir(), "screen-v2-"));
   const options = {
@@ -21,6 +22,7 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
     platform: "win32" as const,
     endpoint: `unix:${join(directory, "pipe")}`,
     env,
+    ...windowsFakeOverrides(directory),
   };
   return { options, directory, clean: () => rm(directory, { recursive: true, force: true }) };
 }

@@ -6,7 +6,7 @@ Date: 2026-10-02. Status: accepted.
 
 | Concern                  | Choice                                                                                             | Reason                                                                                                                                                     |
 | ------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Daemon runtime           | Node 24+                                                                                           | Electron ships Node, so the desktop app runs the daemon with no extra runtime. Built-in `node:sqlite`, mature `node-pty`, native TypeScript type stripping |
+| Daemon runtime           | Node 26+                                                                                           | Electron ships Node, so the desktop app runs the daemon with no extra runtime. Built-in `node:sqlite`, mature `node-pty`, native TypeScript type stripping |
 | Package manager, scripts | Bun                                                                                                | Fast installs and workspace scripts                                                                                                                        |
 | Language                 | TypeScript, erasable syntax only                                                                   | Node runs `.ts` directly; no build step for internal packages                                                                                              |
 | Schemas                  | Zod 4                                                                                              | Works in Node, browsers and React Native; exports JSON Schema for non-TS consumers                                                                         |
@@ -27,3 +27,7 @@ SwiftUI + shared `@ace/client` via JavaScriptCore architecture. This names the c
 spike, not a passed shipping gate. Phase 1 remains held because stable 60/120 fps
 rendering has not been established. An approach change requires the maintainer's
 decision after reviewing the measurements.
+
+2026-10-27: the minimum moves to Node 26, and releases pin Node 26.12.1
+(`tools/release/src/node-runtime.ts`). The pinned Node 24.13.0 crashed at exit with
+0xC0000409 on Windows ARM64; Node 26 does not.

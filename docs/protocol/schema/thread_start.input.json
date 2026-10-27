@@ -5,22 +5,22 @@
   "properties": {
     "access": {
       "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
-      "description": "Default inherit; never broader than yours."
+      "description": "Default inherit; never above yours."
     },
     "effort": {
-      "description": "Reasoning effort, such as high.",
+      "description": "e.g. high.",
       "maxLength": 64,
       "minLength": 1,
       "type": "string"
     },
     "model": {
-      "description": "A model id from `models`, or its name as written (\"opus 5.5\").",
+      "description": "Id from models, or a name (\"opus 5.5\").",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
     "project": {
-      "description": "Another project on this machine: its name, folder path or id from projects_find. Default: this project.",
+      "description": "Another local project's name, path or id, from projects_find.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
@@ -30,20 +30,20 @@
       "description": "Default: yours."
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "text": {
-      "description": "The first message, standing on its own.",
+      "description": "First message, standing on its own.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "title": {
-      "description": "The sidebar title.",
+      "description": "Sidebar title.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
@@ -53,7 +53,7 @@
       "default": {
         "kind": "project"
       },
-      "description": "Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."
+      "description": "Default: the project's checkout."
     }
   },
   "required": [

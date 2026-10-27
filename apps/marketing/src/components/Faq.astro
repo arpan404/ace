@@ -1,72 +1,129 @@
 ---
-import { faq } from "../content/product.ts";
+/*
+ * Questions with answers that open in place. Answers stay in the HTML when closed, so search
+ * engines read them, and the page's FAQPage data (schema.ts) lists the same entries.
+ */
+import Icon from "./Icon.astro";
+
+interface Props {
+  items: { question: string; answer: string }[];
+  heading?: string;
+  /** A link to every question, when this shows only some. */
+  moreHref?: string;
+  /** An anchor id, for the one question list a page links to. */
+  id?: string;
+}
+
+const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
 ---
 
-<section id="faq" class="faq page">
-  <h2 class="section-title reveal">Frequently asked questions</h2>
-  <div class="list">
+<section id={id} class="section page faq">
+  <div class="reveal">
+    <h2 class="section-title">{heading}</h2>
+  </div>
+  <div class="list reveal" data-stagger>
     {
-      faq.map((entry) => (
-        <div class="entry reveal">
-          <h3>{entry.question}</h3>
+      items.map((entry) => (
+        <details>
+          <summary>
+            <h3>{entry.question}</h3>
+            <span class="sign" aria-hidden="true" />
+          </summary>
           <p>{entry.answer}</p>
-        </div>
+        </details>
       ))
     }
   </div>
+  {
+    moreHref && (
+      <p class="more">
+        <a class="text-link" href={moreHref}>
+          All questions
+        </a>
+        <Icon name="arrow-right" size={14} />
+      </p>
+    )
+  }
 </section>
 
 <style>
   .faq {
-    display: grid;
-    gap: 40px;
-    padding-block: 120px;
+    max-width: calc(760px + var(--gutter) * 2);
+  }
+
+  .faq > div:first-child {
+    text-align: center;
   }
 
   .list {
-    display: grid;
-    margin: 0;
+    margin-top: 48px;
     border-top: 1px solid var(--border);
   }
 
-  .entry {
-    display: grid;
-    gap: 8px;
-    padding-block: 24px;
+  .more {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: 32px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  details {
     border-bottom: 1px solid var(--border);
   }
 
-  .entry:last-child {
-    border-bottom: none;
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 22px 0;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
   }
 
   h3 {
-    font-size: 17px;
+    font-size: 16px;
   }
 
-  p {
-    max-width: 44em;
+  /* A plus that turns into a minus when the answer is open. */
+  .sign {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    color: var(--subtle);
+  }
+
+  .sign::before,
+  .sign::after {
+    content: "";
+    position: absolute;
+    inset: 5.5px 0 auto;
+    height: 1px;
+    background: currentColor;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+
+  .sign::after {
+    transform: rotate(90deg);
+  }
+
+  details[open] .sign::after {
+    transform: rotate(0deg);
+  }
+
+  details p {
+    max-width: 40em;
+    padding-bottom: 24px;
     color: var(--muted);
+    line-height: 1.7;
   }
 
-  @media (min-width: 1024px) {
-    .faq {
-      grid-template-columns: 320px 1fr;
-      gap: 64px;
-      align-items: start;
-    }
-
-    .faq h2 {
-      position: sticky;
-      top: 96px;
-      font-size: 40px;
-    }
-  }
-
-  @media (max-width: 767px) {
-    .faq {
-      padding-block: 72px;
-      gap: 24px;
-    }
-  }
 </style>

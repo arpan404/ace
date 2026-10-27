@@ -15,6 +15,7 @@ import { Repository } from "./repository.ts";
 import { withSnapshotIndex } from "./snapshot-index.ts";
 import { GitError, type Checkpoint } from "./types.ts";
 import { longWriteTimeoutMs } from "./deadlines.ts";
+import { bytesTree, forgetBytes, recordBytes } from "./checkpoint-bytes.ts";
 
 export { withIndex } from "./temporary-index.ts";
 
@@ -111,6 +112,9 @@ export async function createCheckpoint(
 ): Promise<Checkpoint> {
   const prefix = checkpointPrefix(threadId);
   const tree = await snapshot(repository, root, ownership);
+  // Windows: `tree` is what Git stores after line-ending conversion; a restore needs the bytes.
+  let bytes: string | undefined;
+  if (repository.cli.platform === "win32") bytes = await bytesTree(repository, root, tree);
   const createdAt = (await repository.now()).toISOString();
   let lastFailure = "Checkpoint refs changed repeatedly; retry the operation";
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -141,6 +145,8 @@ export async function createCheckpoint(
         }),
       ),
     );
+    if (bytes !== undefined && bytes !== tree)
+      await recordBytes(repository, root, threadId, sha, bytes, createdAt);
     const id = `${prefix}${sequence}`;
     const input = `start\ncreate ${id} ${sha}\nupdate ${counterRef(threadId)} ${sha} ${previous.sha ?? "0".repeat(sha.length)}\nprepare\ncommit\n`;
     const result = await repository.cli.call(root, ["update-ref", "--stdin"], {
@@ -239,6 +245,7 @@ export async function deleteCheckpoints(
     "",
   ].join("\n");
   await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
+  if (repository.cli.platform === "win32") await forgetBytes(repository, root, threadId);
   repository.numbers.forget(root, threadId);
   return { deleted: refs.length };
 }

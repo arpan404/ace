@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { isolatedTestEnvironment } from "./test-home-policy.ts";
 import { assertTestHomeIsolation, parseTestEnvironment } from "@ace/provider-kit/test-isolation";
 
@@ -24,5 +25,8 @@ export function testHomeEnvironment(
     const directory = env[name];
     if (directory) mkdirSync(directory, { recursive: true, mode: 0o700 });
   }
+  if (process.platform === "win32")
+    for (const name of ["APPDATA", "LOCALAPPDATA"])
+      mkdirSync(env[name] ?? join(home, name), { recursive: true, mode: 0o700 });
   return env;
 }

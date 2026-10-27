@@ -15,6 +15,8 @@ import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 import { waitForOutput } from "@ace/provider-kit/flow-control";
 import { transientFailure } from "./recovery-failure.ts";
+import type { LaunchedTree, TreeLeader } from "./launched-tree.ts";
+import type { WindowsTreeMember } from "@ace/provider-kit/process-identity";
 export { eventSession } from "./boundaries.ts";
 export type ServerConsumer = {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
@@ -80,6 +82,15 @@ export class OpenCodeServer {
   private client: OpenCodeClient | undefined;
   private factory: typeof OpenCode | undefined;
   private identity: z.infer<typeof Identity> | undefined;
+  /** Windows: the launched tree and the member accepted as its server, per owned process. */
+  private launch:
+    | {
+        process: SupervisedProcess;
+        tree: LaunchedTree;
+        leader: TreeLeader;
+        member?: WindowsTreeMember;
+      }
+    | undefined;
   private deliberate = false;
   private recovering = false;
   private recoveryStarted = 0;
@@ -217,6 +228,7 @@ export class OpenCodeServer {
           password,
         });
         this.process = proc;
+        if ((this.runtime.platform ?? process.platform) === "win32") await this.recordLaunch(proc);
         // stdout/stderr are intentionally not observed: startup/config logs may contain secrets.
         const generation = this.controller;
         void proc.exited.then(() => {
@@ -280,6 +292,8 @@ export class OpenCodeServer {
   }
   private async verify(expected: string): Promise<void> {
     const info = Identity.parse(await this.client?.server.info({ signal: this.controller.signal }));
+    if ((this.runtime.platform ?? process.platform) === "win32")
+      return this.verifyShimmed(info, expected);
     if (
       info.version !== expected ||
       !version(info.version) ||
@@ -289,6 +303,40 @@ export class OpenCodeServer {
       // The binary changed between discovery and start (e.g. an update): rediscover and retry.
       throw new IdentityChanged("OpenCode process/version identity mismatch");
     this.identity = info;
+  }
+  /**
+   * Windows launches an npm install through its `.cmd` shim (cmd.exe, then Node's launcher), so
+   * the pid ace spawned is never the server's own. The server's pid must belong to the tree ace
+   * launched and keep its creation time across later checks.
+   */
+  private verifyShimmed(info: z.infer<typeof Identity>, expected: string): void {
+    if (
+      info.version !== expected ||
+      !version(info.version) ||
+      (this.identity && info.pid !== this.identity.pid)
+    )
+      throw new IdentityChanged("OpenCode process/version identity mismatch");
+    if (this.process) {
+      // Only a member of ace's own launch may answer: a stale URL can name another server.
+      const launch = this.launch;
+      if (launch?.process !== this.process)
+        throw new IdentityChanged("OpenCode launch identity unavailable");
+      const member = launch.tree.members(launch.leader).find((m) => m.pid === info.pid);
+      // A recorded member must keep its creation time, so a reused pid is someone else.
+      if (!member || (launch.member && launch.member.start !== member.start))
+        throw new IdentityChanged("OpenCode server is outside the process tree ace launched");
+      launch.member = member;
+    }
+    this.identity = info;
+  }
+  /** Windows: records the launched process's identity before anything can reuse its pid. */
+  private async recordLaunch(proc: SupervisedProcess): Promise<void> {
+    const tree =
+      this.runtime.launchedTree ??
+      (await (await import("./launched-tree.ts")).nativeLaunchedTree());
+    const leader = proc.pid === undefined ? undefined : tree.leader(proc.pid);
+    if (!leader) throw new IdentityChanged("OpenCode launch identity unavailable");
+    this.launch = { process: proc, tree, leader };
   }
   reconcileNow(): Promise<void> {
     this.beginRecovery();

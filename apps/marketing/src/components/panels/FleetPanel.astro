@@ -1,0 +1,145 @@
+---
+/*
+ * Agents working across linked machines: each machine's threads with their status, one using a
+ * simulator on another machine, one using a browser opened from another, and a phone answering
+ * the approval one of them waits on.
+ */
+import type { StatusTone } from "../../content/product.ts";
+import Icon, { type IconName } from "../Icon.astro";
+
+const machines: {
+  name: string;
+  mark: IconName;
+  threads: { title: string; tone: StatusTone; word: string; note?: string }[];
+}[] = [
+  {
+    name: "MacBook Pro",
+    mark: "apple-logo",
+    threads: [
+      { title: "Ship the checkout redesign", tone: "working", word: "Working" },
+      { title: "Fix iOS sign-in", tone: "done", word: "Done" },
+    ],
+  },
+  {
+    name: "build-server",
+    mark: "linux-logo",
+    threads: [
+      {
+        title: "Test sign-in on iPhone 17 Pro",
+        tone: "working",
+        word: "Working",
+        note: "Simulator on MacBook Pro",
+      },
+      { title: "Migrate orders table", tone: "needs-you", word: "Approve" },
+    ],
+  },
+  {
+    name: "workstation",
+    mark: "windows-logo",
+    threads: [
+      {
+        title: "Check the staging checkout",
+        tone: "waiting",
+        word: "Waiting",
+        note: "Opened by an agent on MacBook Pro",
+      },
+    ],
+  },
+];
+---
+
+<div class="fleet" data-story="fleet">
+  {
+    machines.map((machine) => (
+      <div class="machine panel">
+        <div class="panel-row head">
+          <Icon name={machine.mark} size={14} />
+          <span>{machine.name}</span>
+          <span class="panel-end panel-quiet">Linked</span>
+        </div>
+        {machine.threads.map((thread) => (
+          <div class="panel-row thread" data-tone={thread.tone}>
+            <span class="status-dot" aria-hidden="true" />
+            <span class="text">
+              <span>{thread.title}</span>
+              {thread.note && <span class="note">{thread.note}</span>}
+            </span>
+            <span class="panel-end status-word">{thread.word}</span>
+          </div>
+        ))}
+      </div>
+    ))
+  }
+  <div class="phone panel" data-tone="needs-you">
+    <div class="panel-row">
+      <Icon name="apple-logo" size={14} />
+      <span>iPhone</span>
+      <span class="panel-end panel-quiet">Paired</span>
+    </div>
+    <div class="panel-row ask">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span class="text">
+        <span>Migrate orders table</span>
+        <span class="note">build-server asks to run a migration</span>
+      </span>
+      <span class="panel-end"><span class="panel-action">Approve</span></span>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Wide gaps leave room for the lines the Fleet story draws between machines. */
+  .fleet {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 44px 56px;
+    width: 100%;
+    max-width: 760px;
+  }
+
+  .panel {
+    max-width: none;
+  }
+
+  .head {
+    background: var(--raised);
+  }
+
+  .head :global(svg) {
+    color: var(--muted);
+  }
+
+  .thread {
+    align-items: flex-start;
+  }
+
+  .thread .status-dot {
+    margin-top: 5px;
+  }
+
+  .text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .note {
+    color: var(--subtle);
+    font-size: 11.5px;
+  }
+
+  .phone {
+    align-self: end;
+  }
+
+  .ask {
+    background: color-mix(in srgb, var(--status-needs-you) 7%, transparent);
+  }
+
+  @media (max-width: 640px) {
+    .fleet {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

@@ -1,58 +1,72 @@
 ---
 import reviewDark from "../assets/shots/review-dark.png";
 import reviewLight from "../assets/shots/review-light.png";
-import ThemeShot from "./ThemeShot.astro";
+import Shot from "./Shot.astro";
+import MoreLink from "./site/MoreLink.astro";
+import Stage from "./Stage.astro";
+import { feature } from "../content/features.ts";
+
+const { headline, intro } = feature("review");
 ---
 
-<section id="review" class="review page">
-  <div class="review-copy reveal">
-    <h2 class="section-title">Review the diff next to the conversation.</h2>
-    <p class="lede">
-      Give a thread its own git worktree and its changes stay apart. Comment on a line, send the
-      comment to the agent, then commit and push from the same panel.
-    </p>
+<section id="review" class="section page">
+  <div class="head reveal">
+    <h2 class="section-title">{headline}</h2>
+    <p class="lede">{intro}</p>
+    <MoreLink href="/features/review/" label="More on worktrees and review" />
   </div>
-  <div class="window reveal">
-    <ThemeShot
-      light={reviewLight}
-      dark={reviewDark}
-      alt="A thread with its Changes panel open: a file tree with added and removed line counts, a diff, and a line comment ready to send to the agent."
-      sizes="(min-width: 1280px) 1200px, calc(100vw - 48px)"
-      widths={[720, 1200, 1800, 2400]}
-    />
+  <div class="frame reveal">
+    <Stage bleed>
+      <div class="crop">
+        <Shot
+          dark={reviewDark}
+        light={reviewLight}
+          alt="A thread with its Changes panel open beside the conversation: a file tree with added and removed line counts, the diff of two files, and Commit & push."
+          sizes="(min-width: 1232px) 1700px, 150vw"
+          widths={[1440, 2880]}
+        />
+      </div>
+    </Stage>
   </div>
 </section>
 
 <style>
-  .review {
+  .head {
     display: grid;
-    gap: 48px;
-    padding-block: 120px;
+    justify-items: center;
+    text-align: center;
   }
 
-  .review-copy {
-    display: grid;
-    gap: 20px;
-    max-width: 760px;
+  .head .lede {
+    margin-inline: auto;
   }
 
-  .window {
+  .frame {
+    margin-top: 56px;
+  }
+
+  /* Hide the sidebar: show the conversation and the diff with its unsent comment. */
+  .crop {
+    width: 100%;
+    max-height: 620px;
     overflow: hidden;
-    border-radius: 12px;
-    border: 1px solid var(--border-strong);
-    box-shadow:
-      0 1px 2px rgb(var(--shadow) / 0.06),
-      0 24px 64px -24px rgb(var(--shadow) / 0.22);
+    border-top-left-radius: 10px;
+    border: 1px solid var(--edge);
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: 0 30px 80px -30px var(--shadow-deep);
+  }
+
+  .crop :global(img) {
+    width: 124%;
+    max-width: none;
+    margin-left: -29%;
   }
 
   @media (max-width: 767px) {
-    .review {
-      padding-block: 72px;
-      gap: 32px;
-    }
-
-    .window {
-      border-radius: 8px;
+    .crop :global(img) {
+      width: 260%;
+      margin-left: -158%;
     }
   }
 </style>

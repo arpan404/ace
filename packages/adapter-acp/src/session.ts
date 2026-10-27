@@ -137,6 +137,11 @@ class AcpSession implements ProviderSession {
   promptFrames = 0;
   readonly started: number;
   readonly now: () => number;
+  /**
+   * Windows has no SIGTERM for a console child: taskkill without /F cannot end it. Closing the
+   * agent's stdin is the polite stop there, before the tree stop escalates.
+   */
+  readonly windows: boolean;
   constructor(
     ctx: SessionContext,
     quirks: AcpQuirks,
@@ -146,6 +151,7 @@ class AcpSession implements ProviderSession {
   ) {
     this.launch = launch;
     this.now = runtime.now;
+    this.windows = (runtime.platform ?? process.platform) === "win32";
     this.started = runtime.now();
     this.shells = new ShellSettlement(quirks);
     this.routing = new SessionRouting(ctx.threadId, ctx.resume?.nativeSessionId ?? "");
@@ -224,6 +230,10 @@ class AcpSession implements ProviderSession {
     this.cancelQuestions();
     this.rejectQueue(error);
     this.rpc.stopRequests(error);
+    if (this.windows) {
+      void this.stopTree();
+      return;
+    }
     void this.proc.stop();
   }
   abort = (): void => {
@@ -575,8 +585,21 @@ class AcpSession implements ProviderSession {
       this.ctx.signal.removeEventListener("abort", this.abort);
     }
     this.ctx.mcp?.end();
+    if (this.windows) {
+      await this.stopTree();
+      this.rpc.close();
+      return;
+    }
     await this.proc.stop();
     this.rpc.close();
+  }
+  /** Windows: EOF is the polite stop; the recorded tree is gone before this resolves. */
+  #treeStop: Promise<unknown> | undefined;
+  stopTree(): Promise<unknown> {
+    this.#treeStop ??= import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
+      stopTreeAfterEof(this.proc, 5_000),
+    );
+    return this.#treeStop;
   }
   rejectQueue(error: Error): void {
     for (const job of this.queue.splice(0)) job.reject(error);

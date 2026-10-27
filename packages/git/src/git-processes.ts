@@ -270,6 +270,7 @@ async function linux(): Promise<GitProcess[] | undefined> {
 
 /** The platform's process listing, without this daemon's own running Git children. */
 export function scanGitProcesses(platform: NodeJS.Platform): GitProcessScan {
+  if (platform === "win32") return scanWindowsGitProcesses();
   const list = platform === "darwin" ? darwin : platform === "linux" ? linux : undefined;
   return async () => {
     const found = await list?.();
@@ -279,4 +280,74 @@ export function scanGitProcesses(platform: NodeJS.Platform): GitProcessScan {
       if (entry.cwd !== undefined) entry.checkout = await checkoutOf(entry.cwd);
     return others;
   };
+}
+
+/**
+ * Windows: every live Git for Windows process (`git.exe` and its `git-*.exe` helpers) from the
+ * system's own `tasklist`. Their working directories aren't listed, so each may be working
+ * anywhere and keeps any lease or lock it could hold in place.
+ */
+/** Windows creation time (100 ns ticks since 1601) in epoch milliseconds, rounded down. */
+async function windowsStart(pid: number): Promise<number | undefined> {
+  try {
+    const { processIdentity } = await import("@ace/provider-kit/process-identity");
+    const start = processIdentity(pid)?.start;
+    if (start === undefined || !/^\d+$/.test(start)) return;
+    return Number(BigInt(start) / 10_000n - 11_644_473_600_000n);
+  } catch {
+    return undefined;
+  }
+}
+
+function scanWindowsGitProcesses(): GitProcessScan {
+  return async () => {
+    const tasklist = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tasklist.exe");
+    const output = await run(tasklist, ["/FI", "IMAGENAME eq git*", "/FO", "CSV", "/NH"]);
+    if (output === undefined) return;
+    const found: GitProcess[] = [];
+    for (const line of output.split(/\r?\n/)) {
+      // "git.exe","1234","Console","1","10,000 K"; with no match, an INFO line instead.
+      const match = /^"([^"]*)","(\d+)"/.exec(line);
+      if (!match?.[2] || !/^git[^\\/]*\.exe$/i.test(match[1] ?? "")) continue;
+      const pid = Number(match[2]);
+      if (!runningChildren.has(pid)) found.push({ pid, startedAt: await windowsStart(pid) });
+    }
+    return windowsGitFacts(found);
+  };
+}
+
+/** Only "no such process" proves an exit; a refusal to inspect leaves the process in place. */
+function exited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ESRCH";
+  }
+}
+
+/**
+ * Each listed Git's working directory and checkout, as lsof and /proc give them elsewhere, and
+ * without the long-lived fsmonitor daemon. A process Windows won't describe keeps no `cwd`.
+ */
+async function windowsGitFacts(found: GitProcess[]): Promise<GitProcess[]> {
+  if (!found.length) return found;
+  const { gitProcessFacts } = await import("./git-process-facts.ts");
+  const { realpath } = await import("node:fs/promises");
+  const facts = gitProcessFacts(found.map((entry) => entry.pid));
+  const kept: GitProcess[] = [];
+  for (const entry of found) {
+    const fact = facts.get(entry.pid);
+    if (fact?.commandLine !== undefined && longLived(fact.commandLine)) continue;
+    // Short-lived Git (an editor's status poll) often exits between the listing and this read.
+    if (fact?.cwd === undefined && exited(entry.pid)) continue;
+    const cwd = fact?.cwd;
+    if (cwd !== undefined) {
+      // The same canonical form lease roots and lock paths are compared in.
+      entry.cwd = await realpath(cwd).catch(() => cwd);
+      entry.checkout = await checkoutOf(entry.cwd);
+    }
+    kept.push(entry);
+  }
+  return kept;
 }

@@ -1,7 +1,7 @@
 import type { PinnedDirectory } from "@ace/workspace";
 import { basename, join } from "node:path";
 import type { WorkspaceId } from "@ace/protocol";
-import { folderIdentity, freeFolder, removeIfOwned } from "./files.ts";
+import { folderIdentity, freeFolder, removeIfOwned, removeIfOwnedSettling } from "./files.ts";
 import type { LandingDeps, TransferParent } from "./landing-types.ts";
 import { TransferError } from "./ports.ts";
 
@@ -101,6 +101,8 @@ export class Made {
     if (this.registered)
       await this.deps.projects.unregister(this.registered).catch(() => undefined);
     const folder = this.folder;
+    if (process.platform === "win32" && folder?.id)
+      await removeIfOwnedSettling(folder.parent, folder.name, folder.id);
     if (folder?.id) removeIfOwned(folder.parent, folder.name, folder.id);
     this.deps.made({ createdPath: undefined, createdId: undefined, registeredId: undefined });
   }

@@ -13,6 +13,7 @@ import {
   codexClientHeader,
   coreToolsHeader,
   dispatches,
+  namesDestructiveTools,
   toolListing,
 } from "./toolsets.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
@@ -65,6 +66,7 @@ export async function startMcpServer(options: McpServerOptions) {
   options.registry.setAvailability((caller) => {
     const state = options.status?.(caller);
     return (name, capability) => {
+      if (state?.unavailableTools?.includes(bareToolName(name))) return false;
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (bareToolName(name) === "ask" && state?.askAvailable === false) return false;
       return true;
@@ -342,14 +344,24 @@ async function createHandler(
         ? listing === "core" && toolsets.add(principal, foundFamilies(result.structuredContent))
         : toolsets.opened(principal, call.name, call.input);
     };
+    const namesDestructive = namesDestructiveTools(listing, client);
     server.setRequestHandler("tools/list", async () => ({
       tools: [
         ...status.list(principal),
         ...meta.list(principal),
         ...options.registry.list(principal),
-      ].filter((tool) =>
-        toolsets.lists(principal, listing, tool.name, options.registry.toolset(tool.name)),
-      ),
+      ]
+        .filter(
+          (tool) =>
+            toolsets.lists(principal, listing, tool.name, options.registry.toolset(tool.name)) ||
+            (namesDestructive && tool.annotations?.destructiveHint === true),
+        )
+        // There tools_call never reaches a destructive tool, and its annotations say so.
+        .map((tool) =>
+          namesDestructive && bareToolName(tool.name) === aceToolDispatch
+            ? notDestructive(tool)
+            : tool,
+        ),
     }));
     server.setRequestHandler("tools/call", async (request, context) => {
       let pending = calls.get(principal);
@@ -443,3 +455,10 @@ async function createHandler(
   return { handler, legacy, nodeHandler, validateHost, validateOrigin };
 }
 function noop(): void {}
+
+/** A listed tool whose annotations say it never reaches a destructive tool. */
+function notDestructive<T extends { annotations?: Record<string, unknown> | undefined }>(
+  tool: T,
+): T {
+  return { ...tool, annotations: { ...tool.annotations, destructiveHint: false } };
+}

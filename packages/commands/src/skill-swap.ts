@@ -129,6 +129,7 @@ export class SkillSwap {
       installed,
       lockTemporary: input.lockTemporary,
     };
+    if (process.platform === "win32") this.disk.stageWindowsExchange(old, next);
     try {
       await this.journals.write(journal);
       await this.swap(root, journal, input);
@@ -258,6 +259,7 @@ export class SkillSwap {
     }
   }
   private async settle(root: number, journal: SwapJournal, committed: boolean): Promise<void> {
+    if (process.platform === "win32") this.disk.stageWindowsExchange(journal.old, journal.next);
     const plan = swapRecoveryPlan(journal, {
       name: await this.disk.identity(root, journal.name),
       nameTaken: await this.disk.exists(root, journal.name),

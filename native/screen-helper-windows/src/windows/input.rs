@@ -3,7 +3,7 @@ pub use crate::input::Action;
 use crate::{
     coordinates::Mapping,
     errors::{Code, Error, Result},
-    input::{Event, plan},
+    input::{plan, Event},
 };
 use windows::Win32::{
     Foundation::POINT,

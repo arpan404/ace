@@ -1,0 +1,143 @@
+---
+import type { StatusTone } from "../../content/product.ts";
+
+/* An example task list, shaped like the app's sidebar: one thread needs you, one still waits. */
+const board: {
+  title: string;
+  meta: string;
+  tone: StatusTone;
+  word: string;
+  child?: boolean;
+  /** Names the row for the story that plays on it (scripts/stories.ts). */
+  key: string;
+}[] = [
+  {
+    title: "Fix flaky checkout test",
+    meta: "billing-api · Claude Code",
+    tone: "needs-you",
+    word: "Approve",
+    key: "checkout",
+  },
+  {
+    title: "Dedupe thread events after reconnect",
+    meta: "ace · Codex · 2 subagents",
+    tone: "working",
+    word: "Working",
+    key: "dedupe",
+  },
+  { title: "Audit reconnect paths", meta: "subagent", tone: "working", word: "Working", child: true, key: "audit" },
+  { title: "Write regression test", meta: "subagent", tone: "done", word: "Done", child: true, key: "test" },
+  {
+    title: "Retry budget for app-server restarts",
+    meta: "relay · Cursor · bun test still running",
+    tone: "waiting",
+    word: "Waiting",
+    key: "retry",
+  },
+  { title: "Bump Astro", meta: "marketing · OpenCode", tone: "failed", word: "Failed", key: "astro" },
+  { title: "Onboarding copy pass", meta: "web · Claude Code · PR #188", tone: "done", word: "Done", key: "copy" },
+];
+---
+
+<figure class="board" aria-label="An example task list in ace" data-story="status">
+  <div class="board-head">
+    <span>5 threads · 2 subagents</span>
+    <span>1 needs you</span>
+  </div>
+  <ul>
+    {
+      board.map((row) => (
+        <li class:list={{ child: row.child }} data-tone={row.tone} data-key={row.key}>
+          <span class="status-dot" aria-hidden="true" />
+          <span class="row-text">
+            <span class="row-title">{row.title}</span>
+            {!row.child && <span class="row-meta">{row.meta}</span>}
+          </span>
+          <span class="status-word">{row.word}</span>
+        </li>
+      ))
+    }
+  </ul>
+</figure>
+
+<style>
+  .board {
+    margin: 0;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    box-shadow: 0 40px 100px -50px var(--shadow-deep);
+  }
+
+  .board-head {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .board li {
+    display: grid;
+    grid-template-columns: 7px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .board li:last-child {
+    border-bottom: 0;
+  }
+
+  .board li[data-tone="needs-you"] {
+    background: color-mix(in srgb, var(--status-needs-you) 6%, transparent);
+  }
+
+  .board li.child {
+    padding-block: 10px;
+    padding-left: 40px;
+  }
+
+  .row-text {
+    display: grid;
+    min-width: 0;
+  }
+
+  .row-title {
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .child .row-title {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .row-meta {
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .board li[data-tone="working"] .status-dot {
+      animation: pulse 1.8s var(--ease-out) infinite;
+    }
+  }
+
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-working) 50%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+
+</style>

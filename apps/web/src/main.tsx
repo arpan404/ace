@@ -20,12 +20,14 @@ import {
   hasDesktopBridge,
   setDesktopWindowBackground,
 } from "./boot/desktop.ts";
+import { desktopColorScheme } from "./boot/desktop-color-scheme.ts";
 import { webStorage } from "./boot/web-storage.ts";
 import { BareBootFailure, BootFailure, DesktopFailureScreen } from "./features/connect/index.ts";
 import { StartupPending } from "./features/startup/index.ts";
 import { createStartup } from "./lib/startup/startup.tsx";
 import { watchVisibleHeight } from "./lib/visible-height.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
+import { loadAppearance } from "./theme/appearance.ts";
 import { glassEngine } from "./theme/glass.ts";
 import "./styles/index.css";
 
@@ -41,6 +43,19 @@ const environment = {
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
 };
+// Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`),
+// asked before the first render so a reload after a Windows switch starts in the right scheme.
+const colorScheme = desktopColorScheme(environment.matchMedia);
+environment.matchMedia = colorScheme.matchMedia;
+if (colorScheme.ready) {
+  await colorScheme.ready;
+  // The splash too: index.html resolved "System" from the page's stale guess.
+  if (loadAppearance(local).mode === "system")
+    document.documentElement.dataset.scheme = colorScheme.matchMedia("(prefers-color-scheme: dark)")
+      .matches
+      ? "dark"
+      : "light";
+}
 const stores = { local, session };
 
 /** `navigator.userAgentData.brands` where the browser has it (Chromium); not in every DOM lib. */

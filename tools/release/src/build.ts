@@ -106,6 +106,8 @@ async function main() {
  */
 async function assertTargetNatives(root: string, target: string) {
   const [platform, arch] = target.split("-");
+  if (platform === "win32" && (arch === "arm64" || arch === "x64"))
+    return assertWindowsNatives(root, target, arch);
   if ((platform !== "linux" && platform !== "darwin") || (arch !== "arm64" && arch !== "x64"))
     throw new Error(`Unsupported release target ${target}`);
   const mismatched = await mismatchedBinaries([root], platform, arch);
@@ -117,6 +119,17 @@ async function assertTargetNatives(root: string, target: string) {
   if (platform === "linux")
     for (const known of await assertLinuxRuntimeFloor([root]))
       console.warn(`Above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
+}
+/** Windows releases are built on a native runner of the target architecture. */
+async function assertWindowsNatives(root: string, target: string, arch: "arm64" | "x64") {
+  if (target !== `${process.platform}-${process.arch}`)
+    throw new Error(`Build the ${target} release on a ${target} host`);
+  const mismatched = await mismatchedBinaries([root], "win32", arch);
+  if (mismatched.length)
+    throw new Error(
+      `Native files built for another architecture than ${target}:\n  ` +
+        mismatched.map((found) => `${found.path} (${found.arches.join("+")})`).join("\n  "),
+    );
 }
 await main().catch((error) => {
   console.error(error);

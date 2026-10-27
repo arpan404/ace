@@ -5,7 +5,10 @@ import {
   type ByteProcessOptions,
 } from "@ace/provider-kit/process-bytes";
 import { createWriteStream } from "node:fs";
+import { mkdtempSync, rmdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, isAbsolute } from "node:path";
 import type { Readable } from "node:stream";
 import { Transform } from "node:stream";
@@ -32,6 +35,7 @@ export interface GitRuntime {
 export function gitRuntime(): GitRuntime {
   return {
     spawn: spawnBytes,
+    ...(process.platform === "win32" && { spawn: spawnWindowsGit }),
     command: "git",
     env: { PATH: process.env.PATH },
     async release(root) {
@@ -41,7 +45,49 @@ export function gitRuntime(): GitRuntime {
       const timer = setTimeout(callback, milliseconds);
       return () => clearTimeout(timer);
     },
+    ...(process.platform === "win32" && windowsGitDefaults(process.env)),
   };
+}
+/**
+ * Windows has no lsof or /proc: every Git process runs in a kill-on-close Job and stops as a
+ * whole tree, so nothing is left to sweep from the private folder but the folder itself. Git for Windows also needs
+ * the system folders (SystemRoot for sockets, ComSpec and the temp folder) beside PATH.
+ */
+function windowsGitDefaults(env: NodeJS.ProcessEnv): Pick<GitRuntime, "env" | "release"> {
+  const keep = ["PATH", "SystemRoot", "windir", "ComSpec", "TEMP", "TMP", "PATHEXT"];
+  const lower = new Map(Object.keys(env).map((key) => [key.toLowerCase(), key]));
+  const picked: NodeJS.ProcessEnv = {};
+  for (const name of keep) {
+    const key = lower.get(name.toLowerCase());
+    if (key !== undefined && env[key] !== undefined) picked[name] = env[key];
+  }
+  return {
+    env: picked,
+    // A just-ended helper's folder handle can outlive its Job's last process for a moment
+    // (EBUSY); the private folder goes now, retrying briefly, so callers' removal finds it gone.
+    release: (root) => rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }),
+  };
+}
+// Git for Windows resolves `/dev/null/<hook>` under the drive root (C:\dev\null\...), a path
+// another user could populate. On Windows hooks point at a private empty folder instead.
+let windowsHooks: string | undefined;
+function spawnWindowsGit(options: ByteProcessOptions): ByteProcess {
+  if (windowsHooks === undefined) {
+    const created = mkdtempSync(join(tmpdir(), "ace-plugin-hooks-"));
+    windowsHooks = created;
+    process.once("exit", () => {
+      try {
+        rmdirSync(created);
+      } catch {
+        // Best effort; nothing is ever written here.
+      }
+    });
+  }
+  const hooks = `core.hooksPath=${windowsHooks}`;
+  return spawnBytes({
+    ...options,
+    args: options.args.map((arg) => (arg === "core.hooksPath=/dev/null" ? hooks : arg)),
+  });
 }
 async function runGit<T>(
   args: string[],

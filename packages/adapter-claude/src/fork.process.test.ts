@@ -93,3 +93,26 @@ test("idle Claude forks keep equal source ids in separate homes isolated and lea
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "a Windows Claude adapter with only USERPROFILE forks under the profile's .claude",
+  async () => {
+    const { createClaudeAdapter } = await import("./index.ts");
+    const profile = await mkdtemp(join(tmpdir(), "ace-claude-profile-"));
+    try {
+      const source = await transcript(profile, "profile");
+      const adapter = createClaudeAdapter({ env: { USERPROFILE: profile } });
+      const forked = await adapter.forkSession?.({
+        nativeSessionId: sourceId,
+        signal: new AbortController().signal,
+      });
+      expect(forked).toMatch(/^[0-9a-f-]{36}$/);
+      expect((await readdir(source.project)).toSorted()).toEqual(
+        [`${forked}.jsonl`, `${sourceId}.jsonl`].toSorted(),
+      );
+      expect(await readFile(source.file, "utf8")).toBe(source.bytes);
+    } finally {
+      await rm(profile, { recursive: true, force: true });
+    }
+  },
+);

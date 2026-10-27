@@ -15,6 +15,7 @@ import { attributeDroppedLine, type LineAttribution } from "./dropped-line.ts";
 import { HostRouter, type Route } from "./host-routing.ts";
 import { obj, str } from "./native.ts";
 import { parentOf } from "./session-state.ts";
+import { CodexCatalogCache } from "./tool-facts.ts";
 
 /** A process exit, or `detached` when a shared process stopped serving one channel. */
 export type HostExit = Omit<ProcessExit, "reason"> & {
@@ -65,6 +66,8 @@ export interface CodexChannel {
   retire(): Promise<void>;
   /** The thread provably belongs to another channel on this process. */
   foreign(thread: string): boolean;
+  /** Model catalogs this process has served, shared by its channels (`tool-facts.ts`). */
+  readonly catalogs: CodexCatalogCache;
 }
 
 export type HostConfig = {
@@ -77,6 +80,8 @@ export type HostConfig = {
   idleMs: number;
   schedule(callback: () => void, delayMs: number): () => void;
   onRetired(): void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
 };
 
 const holdThreads = 64;
@@ -117,6 +122,9 @@ class Tenant implements CodexChannel {
   }
   get alone(): boolean {
     return this.host.alone(this);
+  }
+  get catalogs(): CodexCatalogCache {
+    return this.host.catalogs;
   }
   request(
     method: string,
@@ -165,6 +173,7 @@ class Tenant implements CodexChannel {
  */
 export class CodexHost {
   readonly dedicated: boolean;
+  readonly catalogs = new CodexCatalogCache();
   readonly #config: HostConfig;
   readonly #router = new HostRouter<Tenant>();
   readonly #tenants = new Set<Tenant>();
@@ -340,6 +349,16 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = undefined;
     this.#config.onRetired();
+    // Windows has no graceful signal for a windowless console child: closing stdin is
+    // app-server's own clean shutdown, and its recorded tree is ended before retiring resolves.
+    if ((this.#config.platform ?? process.platform) === "win32") {
+      const proc = this.#proc;
+      const graceMs = this.#config.graceMs;
+      this.#retiring = import("@ace/provider-kit/tree-stop")
+        .then(({ stopTreeAfterEof }) => stopTreeAfterEof(proc, graceMs))
+        .then(() => {});
+      return this.#retiring;
+    }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});
     return this.#retiring;
   }

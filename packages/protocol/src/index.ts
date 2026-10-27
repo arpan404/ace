@@ -91,6 +91,7 @@ export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
+export * from "./machine-grants.ts";
 export * from "./fleet.ts";
 export * from "./transfers.ts";
 export * from "./machine-transfers.ts";
@@ -165,6 +166,7 @@ export {
 export * from "./worktree-creation.ts";
 
 export * from "./agent-orchestration.ts";
+export * from "./agent-models.ts";
 
 export * from "./forge-browser.ts";
 export * from "./forge-file-content.ts";

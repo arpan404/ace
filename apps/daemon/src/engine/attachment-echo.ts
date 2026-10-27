@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Fact } from "@ace/core";
 import type { Attachment, ContentPart } from "@ace/protocol";
 import { elidedDigest } from "@ace/provider-kit/binary-elision";
+import { base64DataUrl, isBase64 } from "@ace/provider-kit/data-url";
 import { attachmentPayload } from "./attachment-payload.ts";
 
 function pathHash(value: string): string | undefined {
@@ -14,11 +15,8 @@ function imageHash(value: string): string | undefined {
     value.startsWith("data:") ? value.slice(value.indexOf(",") + 1) : value,
   );
   if (elided) return elided;
-  const data = value.startsWith("data:")
-    ? /^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/.exec(value)?.[1]
-    : value;
-  if (!data || data.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data))
-    return undefined;
+  const data = value.startsWith("data:") ? base64DataUrl(value)?.data : value;
+  if (!data || data.length > 6 * 1024 * 1024 || !isBase64(data)) return undefined;
   return createHash("sha256").update(Buffer.from(data, "base64")).digest("hex");
 }
 function contentHash(part: ContentPart): string | undefined {

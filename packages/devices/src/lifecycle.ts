@@ -87,7 +87,6 @@ export async function startDevice(
     owner.emit(session);
     return (options.capture ?? startCapture)({
       device,
-      ...(session.threadId ? { scope: { threadId: session.threadId, agentId: "human" } } : {}),
       streamId,
       fps,
       signal: controller.signal,
@@ -219,19 +218,10 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
       if (session.capture === owned) delete session.capture;
       if (session.startup === startup) delete session.startup;
     };
-    const cleanupRecording = async () => {
-      const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
-      const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
-      const errors = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      delete session.recording;
-      if (errors.length) throw new AggregateError(errors, "Device recording cleanup failed");
-    };
     const results = await Promise.allSettled([
       cleanupCapture(),
       session.logs.stop(),
-      cleanupRecording(),
+      closeDeviceRecording(session),
     ]);
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
@@ -255,6 +245,15 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
   session.stopping = stopping;
   owner.emit(session);
   return stopping;
+}
+
+/** Ends any recording the device has open or is opening; the capture keeps running. */
+export async function closeDeviceRecording(session: DeviceSession): Promise<void> {
+  const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
+  const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
+  const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+  delete session.recording;
+  if (errors.length) throw new AggregateError(errors, "Device recording cleanup failed");
 }
 
 export { recordDevice, stopDeviceRecording } from "./recording.ts";

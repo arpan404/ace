@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nativeCommandInputs } from "@ace/commands/invocation";
+import { base64DataUrl } from "@ace/provider-kit/data-url";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type {
   PermissionResult,
@@ -69,15 +70,15 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
       };
     }
     const mime = ImageMime.safeParse(part.mimeType);
-    const data = /^data:([^;,]+);base64,(.+)$/s.exec(part.url);
-    if (!data || !mime.success || data[1] !== part.mimeType)
+    const image = base64DataUrl(part.url);
+    if (!image?.data || !mime.success || image.mimeType !== part.mimeType)
       throw new Error("Claude image inputs require a matching base64 data URL");
     return {
       type: "image" as const,
       source: {
         type: "base64" as const,
         media_type: mime.data,
-        data: data[2] ?? "",
+        data: image.data,
       },
     };
   });

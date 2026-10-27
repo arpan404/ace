@@ -23,6 +23,11 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 }, 60_000);
 
+interface ComputerUse {
+  screen: import("@ace/screen").ScreenManager;
+  computer: import("@ace/screen").ComputerClient;
+}
+
 const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
 
 /**
@@ -37,6 +42,11 @@ export async function pairedMachines(
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
+    /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
+    targetDevices?: import("@ace/devices").DevicesService;
+    /** Each machine's computer use: its switch and the engine its agents drive. */
+    targetScreen?: ComputerUse;
+    sourceScreen?: ComputerUse;
   } = {},
 ) {
   const target = await daemonFixture(
@@ -45,12 +55,15 @@ export async function pairedMachines(
       browser: browser(),
       machines: { pollMs: 50 },
       ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
+      ...(options.targetDevices ? { devices: options.targetDevices } : {}),
+      ...options.targetScreen,
     },
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
   const source = await daemonFixture(undefined, {
     browser: browser(),
+    ...options.sourceScreen,
     machines: {
       pollMs: 50,
       ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
@@ -100,9 +113,13 @@ export async function pairedMachines(
 
   /** Plays provider output into a thread the target runs. */
   async function emit(threadId: ThreadId, ...facts: Fact[]) {
-    await vi.waitFor(() => {
-      if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
-    });
+    // A provider session opens in a child process, which can take seconds on a loaded machine.
+    await vi.waitFor(
+      () => {
+        if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
+      },
+      { timeout: 10_000 },
+    );
     target.h.contexts.get(threadId)?.onFrame(target.h.frames.frame(...facts));
     await target.daemon.engine?.flush();
   }

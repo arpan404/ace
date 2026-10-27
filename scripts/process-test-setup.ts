@@ -30,6 +30,8 @@ export default async function setup(project: TestProject) {
       process.env,
       context.enclosingRepository?.checkouts,
     );
+    // Windows ships no OpenSSL, but Git for Windows (which ace needs anyway) carries one.
+    if (process.platform === "win32") await (await import("./git-openssl.ts")).addGitOpenssl(env);
     // Bundle output lives outside the real home. Only dependency code resolves into the checkout.
     await symlink(
       join(project.config.root, "apps/daemon/node_modules"),

@@ -19,6 +19,8 @@ export interface HelperConnectionOptions {
   maxReplyBytes: number;
   /** How long a cancelled or overdue request may take to reply before its helper is killed. */
   graceMs: number;
+  /** Windows: how long a helper may take to exit after stdin closes before it is killed. */
+  stopGraceMs?: number;
   /** Called when nothing is queued or running any more, and when work arrives again. */
   idle: (idle: boolean) => void;
   timing?: { now: () => number; report: (timing: ComputerRequestTiming) => void };
@@ -286,6 +288,15 @@ export class HelperConnection {
     this.child = undefined;
     if (!child) return;
     child.stdin.end();
+    // Windows: a kill can't be caught, so the helper first gets to stop on its own (it puts
+    // back a borrowed clipboard and releases held keys when stdin closes).
+    const stopGraceMs = this.options.stopGraceMs;
+    if (stopGraceMs !== undefined) {
+      this.options.scheduler.after(stopGraceMs, () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      });
+      return;
+    }
     // SIGTERM lets the helper put back the clipboard it borrowed for a paste.
     child.kill("SIGTERM");
   }

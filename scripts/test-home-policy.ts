@@ -38,6 +38,9 @@ export function isolatedTestEnvironment(
     XDG_DATA_DIRS: join(home, ".local/share"),
     APPDATA: join(home, ".config"),
     LOCALAPPDATA: join(home, ".local/share"),
+    ...(process.platform === "win32"
+      ? { APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local") }
+      : {}),
     TMPDIR: join(home, "tmp"),
     TMP: join(home, "tmp"),
     TEMP: join(home, "tmp"),
@@ -90,6 +93,9 @@ export function isolatedTestEnvironment(
     // and every real-Chromium suite would skip.
     ...(ambient.ACE_CHROMIUM_PATH !== undefined
       ? { ACE_CHROMIUM_PATH: ambient.ACE_CHROMIUM_PATH }
+      : {}),
+    ...(process.platform === "win32" && ambient.ACE_WINDOWS_SCREEN_HELPER !== undefined
+      ? { ACE_WINDOWS_SCREEN_HELPER: ambient.ACE_WINDOWS_SCREEN_HELPER }
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };

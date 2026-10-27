@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ServicePlan } from "./plan.ts";
+import type { TaskPlan } from "./plan.ts";
 
 const variables = new Set([
   "ACE_HOME",
@@ -148,4 +149,79 @@ export function assertLoadedService(plan: ServicePlan, output: string): boolean 
   } catch (cause) {
     throw incompatibleService(plan, cause);
   }
+}
+
+export function incompatibleTask(plan: TaskPlan, cause?: unknown): Error {
+  return new Error(
+    `Incompatible or legacy ace service task ${plan.name}. Refusing to adopt, start or modify it. Choose a separate ACE_HOME; leave migration to the owner.`,
+    { cause },
+  );
+}
+
+/** ace's own record of the task must be exactly what this build generates for the home. */
+export function assertTaskRegistration(plan: TaskPlan, content: string): void {
+  if (content !== plan.content)
+    throw incompatibleTask(plan, new Error("Unrecognized task registration"));
+}
+
+const decode = (value: string) =>
+  value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
+
+function only(xml: string, tag: string): string {
+  const found = [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>(.*?)</${tag}>`, "gs"))];
+  if (found.length !== 1 || found[0]?.[1] === undefined)
+    throw new Error(`Expected exactly one ${tag}`);
+  return found[0][1];
+}
+
+/**
+ * Validates the task Task Scheduler holds (`schtasks /Query /XML`), independently of ace's
+ * record: one logon trigger and one program, both ace's, for this user.
+ */
+export function assertLoadedTask(plan: TaskPlan, output: string): void {
+  try {
+    if (output.length > 64 * 1024) throw new Error("Loaded task output limit exceeded");
+    const actions = only(output, "Actions");
+    if (/<(?:ComHandler|SendEmail|ShowMessage)\b/.test(actions))
+      throw new Error("Unrecognized task action");
+    const exec = only(actions, "Exec");
+    if (/<WorkingDirectory\b/.test(exec)) throw new Error("Unrecognized task working directory");
+    if (
+      decode(only(exec, "Command").trim()).toLowerCase() !== plan.program.toLowerCase() ||
+      decode(only(exec, "Arguments").trim()) !== plan.arguments
+    )
+      throw new Error("Loaded task program mismatch");
+    const triggers = only(output, "Triggers");
+    if ([...triggers.matchAll(/<(\w+Trigger)\b/g)].map((m) => m[1]).join() !== "LogonTrigger")
+      throw new Error("Unrecognized task triggers");
+    const principal = only(only(output, "Principals"), "Principal");
+    if (
+      decode(only(principal, "UserId").trim()).toLowerCase() !== plan.user.toLowerCase() ||
+      only(principal, "LogonType").trim() !== "InteractiveToken"
+    )
+      throw new Error("Loaded task principal mismatch");
+  } catch (cause) {
+    throw incompatibleTask(plan, cause);
+  }
+}
+
+/** Task Scheduler's "task is currently running" result (`SCHED_S_TASK_RUNNING`), not localized. */
+const taskRunning = "267009";
+
+/** Whether `schtasks /Query /V /FO CSV /NH` output shows the task's program running. */
+export function taskActive(plan: TaskPlan, output: string): boolean {
+  const rows = output
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) =>
+      [...line.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => (m[1] ?? "").replaceAll('""', '"')),
+    );
+  const row = rows.find((cells) => cells[1]?.toLowerCase() === plan.name.toLowerCase());
+  if (!row || row.length < 9) throw incompatibleTask(plan, new Error("Unrecognized task status"));
+  return row[6] === taskRunning;
 }

@@ -1,7 +1,14 @@
 import { constants } from "node:fs";
+import { accessSync, statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, resolve } from "node:path";
+import { win32 } from "node:path";
 import { scriptExecutablePaths } from "../installers/locations.ts";
+import {
+  windowsInstallDirectories,
+  windowsShimCommands,
+  windowsShimDirectories,
+} from "../installers/locations.ts";
 export { scriptExecutablePaths } from "../installers/locations.ts";
 
 async function executable(path: string, windows: boolean): Promise<boolean> {
@@ -14,12 +21,15 @@ async function executable(path: string, windows: boolean): Promise<boolean> {
   }
 }
 
-/** Windows environment keys are case-insensitive (`Path` vs `PATH`). */
-function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  for (const [key, value] of Object.entries(env)) {
-    if (key.toUpperCase() === name && value !== undefined) return value;
-  }
-  return undefined;
+/**
+ * Windows environment keys are case-insensitive (`Path` vs `PATH`). With several spellings,
+ * the one a spawned child sees wins: Node sorts the keys and keeps the first of each name.
+ */
+export function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env)
+    .toSorted()
+    .find((candidate) => candidate.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
 }
 
 /** An extensionless name tries only PATHEXT matches: npm's bin dir pairs an
@@ -33,27 +43,70 @@ function withExtensions(command: string, extensions: readonly string[]): string[
 /** Windows default search extensions when PATHEXT is unset. */
 const defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 
+/** Ordered Windows candidates. A relative PATH entry would resolve against the daemon cwd and
+ * let it win a bare lookup, so Windows skips them. */
+function windowsCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
+  const extensions = (windowsEnv(env, "PATHEXT") ?? defaultPathExt.join(";"))
+    .split(";")
+    .filter((part) => part !== "");
+  if (isAbsolute(command) || command.includes("/") || command.includes("\\"))
+    return withExtensions(resolve(command), extensions);
+  return (windowsEnv(env, "PATH") ?? "")
+    .split(";")
+    .filter((directory) => isAbsolute(directory) || win32.isAbsolute(directory))
+    .flatMap((directory) => withExtensions(resolve(directory, command), extensions));
+}
+
+/**
+ * Extensionless paths where Windows installers put a known bare command, for when the daemon's
+ * PATH predates the install. Vendor directories come before package-manager shims.
+ */
+export function windowsFallbackPaths(command: string, env: NodeJS.ProcessEnv): string[] {
+  const directories = [
+    ...(Object.hasOwn(windowsInstallDirectories, command)
+      ? (windowsInstallDirectories[command] ?? [])
+      : []),
+    ...(windowsShimCommands.has(command) ? windowsShimDirectories : []),
+  ];
+  const paths: string[] = [];
+  for (const [base, path] of directories) {
+    const root = windowsEnv(env, base);
+    if (root && win32.isAbsolute(root)) paths.push(win32.join(root, path, command));
+  }
+  return [...new Set(paths)];
+}
+
 async function findWindowsExecutable(
   command: string,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
+  for (const candidate of windowsCandidates(command, env)) {
+    if (await executable(candidate, true)) return candidate;
+  }
   const extensions = (windowsEnv(env, "PATHEXT") ?? defaultPathExt.join(";"))
     .split(";")
     .filter((part) => part !== "");
-  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
-    for (const candidate of withExtensions(resolve(command), extensions)) {
-      if (await executable(candidate, true)) return candidate;
-    }
-    return undefined;
-  }
-  const directories = (windowsEnv(env, "PATH") ?? "").split(";");
-  for (const directory of directories) {
-    if (directory === "") continue;
-    for (const candidate of withExtensions(resolve(directory, command), extensions)) {
+  for (const fallback of windowsFallbackPaths(command, env)) {
+    for (const candidate of withExtensions(fallback, extensions)) {
       if (await executable(candidate, true)) return candidate;
     }
   }
   return undefined;
+}
+
+/** Sync Windows lookup for terminal shell selection, which runs inside a synchronous open. */
+export function findWindowsExecutableSync(
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return windowsCandidates(command, env).find((candidate) => {
+    try {
+      accessSync(candidate, constants.F_OK);
+      return statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Resolve directly, without a shell or a platform-specific `which` subprocess. */

@@ -37,6 +37,12 @@ export interface ComputerClientOptions {
   deadlineMs?: (op: string) => number;
   /** How long a cancelled or overdue request may take to reply before its helper is killed. */
   graceMs?: number;
+  /**
+   * Windows: how long a helper may take to exit after its stdin closes before it is killed.
+   * A kill there is immediate, so the helper gets this long to put back a borrowed clipboard
+   * and release held keys. Unset elsewhere, where SIGTERM lets it do that.
+   */
+  stopGraceMs?: number;
   /** How long an app's helper may sit idle before it exits. */
   idleMs?: number;
   /** App helpers kept alive at once. */
@@ -138,6 +144,9 @@ export class ComputerClient {
         scheduler: this.scheduler,
         maxReplyBytes: this.options.maxReplyBytes ?? 32 * 1024 * 1024,
         graceMs: this.options.graceMs ?? 3_000,
+        ...(this.options.stopGraceMs !== undefined
+          ? { stopGraceMs: this.options.stopGraceMs }
+          : {}),
         idle: (idle) => this.idleChanged(key, entry, idle),
         ...(this.options.timing
           ? {

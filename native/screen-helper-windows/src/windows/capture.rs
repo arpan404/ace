@@ -57,22 +57,20 @@ impl Capture {
             }
             let resources = initialize(&target, &worker_signal);
             match resources {
-                Ok((gpu, item, pool, session, frame_token, closed_token, size)) => {
+                Ok((gpu, item, mut feed, closed_token)) => {
                     let _ = ready_tx.send(Ok(()));
                     let result = run(
                         &worker_signal,
-                        &pool,
+                        &mut feed,
+                        &item,
                         &target,
                         &allowlist,
                         gpu,
                         stream,
                         writer,
-                        size,
                     );
-                    let _ = pool.RemoveFrameArrived(frame_token);
                     let _ = item.RemoveClosed(closed_token);
-                    let _ = session.Close();
-                    let _ = pool.Close();
+                    feed.close();
                     if let Err(error) = result {
                         eprintln!("screen capture: {error}");
                         std::process::exit(1);
@@ -106,12 +104,54 @@ impl Capture {
 type Resources = (
     Gpu,
     GraphicsCaptureItem,
-    Direct3D11CaptureFramePool,
-    GraphicsCaptureSession,
+    Feed,
     windows::Foundation::EventRegistrationToken,
-    windows::Foundation::EventRegistrationToken,
-    SizeInt32,
 );
+/// One frame pool at one size and the capture session filling it.
+struct Feed {
+    pool: Direct3D11CaptureFramePool,
+    session: GraphicsCaptureSession,
+    token: windows::Foundation::EventRegistrationToken,
+    size: SizeInt32,
+}
+impl Feed {
+    fn open(
+        gpu: &Gpu,
+        item: &GraphicsCaptureItem,
+        signal: &Arc<(Mutex<Signal>, Condvar)>,
+        size: SizeInt32,
+    ) -> Result<Self> {
+        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+            &gpu.winrt,
+            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            2,
+            size,
+        )?;
+        let session = pool.CreateCaptureSession(item)?;
+        let arrival = signal.clone();
+        let token = pool.FrameArrived(&TypedEventHandler::new(move |_, _| {
+            let (lock, wake) = &*arrival;
+            lock.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pending
+                .arrived();
+            wake.notify_one();
+            Ok(())
+        }))?;
+        session.StartCapture()?;
+        Ok(Self {
+            pool,
+            session,
+            token,
+            size,
+        })
+    }
+    fn close(&self) {
+        let _ = self.pool.RemoveFrameArrived(self.token);
+        let _ = self.session.Close();
+        let _ = self.pool.Close();
+    }
+}
 fn initialize(target: &Target, signal: &Arc<(Mutex<Signal>, Condvar)>) -> Result<Resources> {
     let gpu = Gpu::new()?;
     let interop: IGraphicsCaptureItemInterop =
@@ -125,23 +165,6 @@ fn initialize(target: &Target, signal: &Arc<(Mutex<Signal>, Condvar)>) -> Result
     };
     let size = item.Size()?;
     crate::coordinates::output_size(size.Width as u32, size.Height as u32)?;
-    let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-        &gpu.winrt,
-        DirectXPixelFormat::B8G8R8A8UIntNormalized,
-        2,
-        size,
-    )?;
-    let session = pool.CreateCaptureSession(&item)?;
-    let arrival = signal.clone();
-    let frame_token = pool.FrameArrived(&TypedEventHandler::new(move |_, _| {
-        let (lock, wake) = &*arrival;
-        lock.lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pending
-            .arrived();
-        wake.notify_one();
-        Ok(())
-    }))?;
     let closed = signal.clone();
     let closed_token = item.Closed(&TypedEventHandler::new(move |_, _| {
         let (lock, wake) = &*closed;
@@ -149,8 +172,14 @@ fn initialize(target: &Target, signal: &Arc<(Mutex<Signal>, Condvar)>) -> Result
         wake.notify_one();
         Ok(())
     }))?;
-    session.StartCapture()?;
-    Ok((gpu, item, pool, session, frame_token, closed_token, size))
+    let feed = match Feed::open(&gpu, &item, signal, size) {
+        Ok(feed) => feed,
+        Err(error) => {
+            let _ = item.RemoveClosed(closed_token);
+            return Err(error);
+        }
+    };
+    Ok((gpu, item, feed, closed_token))
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -162,6 +191,16 @@ impl Drop for Capture {
         }
     }
 }
+/// The performance counter in 100 ns units, the clock of a frame's SystemRelativeTime.
+fn counter_100ns() -> Option<i64> {
+    use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut count, mut frequency) = (0i64, 0i64);
+    unsafe {
+        QueryPerformanceCounter(&mut count).ok()?;
+        QueryPerformanceFrequency(&mut frequency).ok()?;
+    }
+    (frequency > 0).then(|| (i128::from(count) * 10_000_000 / i128::from(frequency)) as i64)
+}
 fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -171,17 +210,18 @@ fn now_ms() -> f64 {
 }
 fn run(
     signal: &Arc<(Mutex<Signal>, Condvar)>,
-    pool: &Direct3D11CaptureFramePool,
+    feed: &mut Feed,
+    item: &GraphicsCaptureItem,
     target: &Target,
     allowlist: &[String],
     mut gpu: Gpu,
     stream: Arc<Mutex<Stream>>,
     writer: Writer,
-    mut pool_size: SizeInt32,
 ) -> Result<()> {
     let start = Instant::now();
     let epoch = now_ms();
     let clock = || epoch + start.elapsed().as_secs_f64() * 1000.0;
+    let mut last_captured = 0.0;
     loop {
         let (lock, wake) = &**signal;
         let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -212,14 +252,19 @@ fn run(
         drop(state);
         target.validate(allowlist)?;
         let mut newest: Option<Direct3D11CaptureFrame> = None;
+        // TryGetNextFrame returns null when the pool is empty:
+        // https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframepool.trygetnextframe
+        // The windows-rs 0.58 projection surfaces S_OK/null as Err with code S_OK (0)
+        // via Type::from_abi -> Error::empty(); E_POINTER is also tolerated below.
+        // This empty-pool recognition applies only to this dequeue loop.
         for _ in 0..2 {
-            match pool.TryGetNextFrame() {
+            match feed.pool.TryGetNextFrame() {
                 Ok(frame) => {
                     if let Some(old) = newest.replace(frame) {
                         let _ = old.Close();
                     }
                 }
-                Err(error) if error.code().0 as u32 == 0x80004003 => break,
+                Err(error) if error.code().0 == 0 || error.code().0 as u32 == 0x80004003 => break,
                 Err(error) => return Err(error.into()),
             }
         }
@@ -231,17 +276,25 @@ fn run(
             frame.Close()?;
             continue;
         }
-        let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
-        let texture: ID3D11Texture2D = unsafe { access.GetInterface()? };
-        if size != pool_size {
+        let surface = frame
+            .Surface()
+            .map_err(|e| Error::from(e).context("frame-surface"))?;
+        let access: IDirect3DDxgiInterfaceAccess = surface
+            .cast()
+            .map_err(|e| Error::from(e).context("surface-cast-access"))?;
+        let texture: ID3D11Texture2D = unsafe {
+            access
+                .GetInterface()
+                .map_err(|e| Error::from(e).context("surface-getinterface-texture2d"))?
+        };
+        if size != feed.size {
             frame.Close()?;
-            pool.Recreate(
-                &gpu.winrt,
-                DirectXPixelFormat::B8G8R8A8UIntNormalized,
-                2,
-                size,
-            )?;
-            pool_size = size;
+            // A new pool at the new size, with a new session: recreating the pool in place
+            // drops the frames it queued, and capture only sends another frame when the
+            // window changes again, so a window that finished repainting first would keep its
+            // old size in live view. A new session always sends a first frame.
+            feed.close();
+            *feed = Feed::open(&gpu, item, signal, size)?;
             continue;
         }
         let output = crate::coordinates::output_size(size.Width as u32, size.Height as u32)?;
@@ -251,14 +304,23 @@ fn run(
         } else {
             output.0 as f64 / size.Width as f64
         };
+        let captured_100ns = frame.SystemRelativeTime().map(|time| time.Duration).ok();
         let (rgb, width, height) = gpu.read(&texture, size.Width as u32, size.Height as u32)?;
-        let packet = stream.lock().unwrap_or_else(|e| e.into_inner()).frame(
-            rgb,
-            width,
-            height,
-            scale,
-            clock(),
-        )?;
+        let now = clock();
+        // The header's ts is when the picture was taken, not when the readback finished.
+        let captured = match (captured_100ns, counter_100ns()) {
+            (Some(frame_time), Some(counter)) => {
+                crate::stream::captured_at(now, counter, frame_time, last_captured)
+            }
+            _ => now,
+        };
+        let packet = stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .frame_at(rgb, width, height, scale, now, captured)?;
+        if packet.is_some() {
+            last_captured = captured;
+        }
         frame.Close()?;
         if let Some(packet) = packet {
             let generation = stream

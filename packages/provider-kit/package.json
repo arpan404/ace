@@ -19,10 +19,12 @@
     "./sse": "./src/sse.ts",
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
+    "./data-url": "./src/data-url.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
+    "./testing/cmd-shim": "./src/testing/cmd-shim.ts",
     "./test-isolation": "./src/test-isolation.ts",
     "./jsonl": "./src/jsonl.ts",
     "./streams": "./src/streams.ts",
@@ -38,7 +40,10 @@
     "./cleanup": "./src/cleanup.ts",
     "./cursor-selection": "./src/cursor-selection.ts",
     "./process-identity": "./src/process-identity.ts",
-    "./process-inventory": "./src/process-inventory.ts"
+    "./process-inventory": "./src/process-inventory.ts",
+    "./process-containment": "./src/process-containment.ts",
+    "./process-owner": "./src/process-owner.ts",
+    "./tree-stop": "./src/tree-stop.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -51,6 +56,6 @@
     "zod": "^4.6.5"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

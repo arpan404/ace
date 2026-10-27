@@ -58,8 +58,11 @@ export function windowOptions(options: {
       titleBarStyle: "hidden",
       titleBarOverlay: {
         color: "#00000000",
-        symbolColor: titleBarSymbolColor(options.dark),
-        height: 50,
+        symbolColor: options.background
+          ? captionSymbolColor(options.background)
+          : titleBarSymbolColor(options.dark),
+        // The page's top bar (`--header-h`), so the glyphs share its centre line.
+        height: captionHeight(1),
       },
     };
   return base;
@@ -70,9 +73,37 @@ export function solidBackground(dark: boolean): string {
   return dark ? "#0C0C0C" : "#ffffff";
 }
 
+/** The page's top bar in CSS pixels (`--header-h`). */
+const headerHeight = 44;
+
+/**
+ * Windows: the caption buttons' height for the page's zoom. The top bar grows with zoom, so the
+ * buttons do too and keep its centre line (Chromium zooms from 25% to 500%).
+ */
+export function captionHeight(zoomFactor: number): number {
+  const factor = Number.isFinite(zoomFactor) ? Math.min(5, Math.max(0.25, zoomFactor)) : 1;
+  return Math.round(headerHeight * factor);
+}
+
 /** Windows: the colour of the caption buttons drawn over the page. */
 export function titleBarSymbolColor(dark: boolean): string {
   return dark ? "#e8e8ea" : "#1d1d20";
+}
+
+/**
+ * Windows: the caption buttons' colour on the window's own background. The page's theme can be
+ * light while the OS is dark (and the other way round), so the OS scheme alone could draw
+ * light glyphs on a light page. `background` is `#rrggbb`; anything else keeps the OS choice.
+ */
+function linear(channel: number): number {
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
+export function captionSymbolColor(background: string, osDark = false): string {
+  const hex = /^#([0-9a-f]{6})$/i.exec(background)?.[1];
+  if (!hex) return titleBarSymbolColor(osDark);
+  const [r, g, b] = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
+  const luminance = 0.2126 * linear(r ?? 0) + 0.7152 * linear(g ?? 0) + 0.0722 * linear(b ?? 0);
+  return titleBarSymbolColor(luminance < 0.18);
 }
 
 /**
@@ -91,4 +122,19 @@ export const macTitleBarCss = `
 :root:not([data-fullscreen]) [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
 :root:not([data-fullscreen]) [data-sidebar="hidden"] [data-panel] [data-slot="header-nav"] { margin-left: 72px; }
 :root:not([data-fullscreen]) [data-sidebar="sheet"] [data-slot="header-nav"] { margin-left: 68px; }
+`;
+
+/**
+ * Windows: the caption buttons (`titleBarOverlay`) cover the window's top-right corner, the
+ * width the `titlebar-area-*` env values leave over. The screen header keeps its controls clear
+ * of them while it reaches the window's right edge; beside a side panel docked at the right
+ * (`data-docked="right"`, set on Windows only), the panel's own strip makes that room.
+ */
+export const windowsTitleBarCss = `
+:root header:has(> [data-slot="header-nav"]) {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px);
+}
+:root:has([data-panel][data-docked="right"]) header:has(> [data-slot="header-nav"]) {
+  padding-right: 10px;
+}
 `;

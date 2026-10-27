@@ -60,6 +60,17 @@ export async function resolveAndroidSDK(
   );
 }
 
+/**
+ * Windows can't run the iOS Simulator (it needs Xcode). Said in the device list, and as the
+ * refusal of every Simulator action, so people and agents know where that work goes instead.
+ */
+export function iosNeedsMac(): DeviceError {
+  return new DeviceError(
+    "not_supported",
+    "iOS Simulators need a paired Mac",
+    "Pair a Mac running ace in Settings › Fleet and use its Simulators there; agents can delegate that work to the Mac. Android emulators and phones work on this Windows machine.",
+  );
+}
 /** Said once in the device list on Linux arm64, where Google publishes no Android Emulator. */
 export function armEmulatorNote(): DeviceError {
   return new DeviceError(
@@ -69,6 +80,7 @@ export function armEmulatorNote(): DeviceError {
   );
 }
 export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
+  if (options.platform === "win32") throw iosNeedsMac();
   if (options.platform !== "darwin")
     throw new DeviceError(
       "not_supported",

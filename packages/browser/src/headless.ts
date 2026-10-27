@@ -31,6 +31,11 @@ export interface ChromeBackendOptions {
    * directory, and how long it runs after its last capture. Absent: no such encoder.
    */
   encoder?: { profileDir: string; idleMs: number };
+  /**
+   * Windows: the device scale for this machine, from the managed browser's own GPU report
+   * (`SystemInfo.getInfo`, `gpu-scale.ts`). Asked once per backend, before the first tab is sized.
+   */
+  windowsScale?(gpu: unknown): Promise<number>;
 }
 const Png = z.object({ data: z.string().max(64 * 1024 * 1024) });
 
@@ -97,6 +102,48 @@ export class ChromeBackend implements BrowserBackend {
     }
     return video;
   }
+  /** Windows: the scale settles once; every open waits for it under its own signal. */
+  private scaleSettling: Promise<void> | undefined;
+  private async settledScale(request: BackendOpen): Promise<void> {
+    const settling = (this.scaleSettling ??= this.settleScale(request.profileDir).catch(
+      (error: unknown) => {
+        this.scaleSettling = undefined;
+        throw error;
+      },
+    ));
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => reject(new Error("Browser launch cancelled"));
+      if (request.signal.aborted) return abort();
+      request.signal.addEventListener("abort", abort, { once: true });
+      settling
+        .then(resolve, reject)
+        .finally(() => request.signal.removeEventListener("abort", abort));
+    });
+  }
+  /**
+   * Starts the profile's browser as it always runs and asks it for its GPU report. When it draws
+   * at another scale than this machine needs, the browser restarts at that scale before any tab
+   * is sized. The start and the report are bounded by the launch's own deadlines.
+   */
+  private async settleScale(profileDir: string): Promise<void> {
+    const scaleFor = this.options.windowsScale;
+    if (!scaleFor) return;
+    const host = this.host(profileDir);
+    const lease = await host.acquire(new AbortController().signal);
+    let scale: number;
+    try {
+      const gpu = await lease.instance.connection
+        .send("SystemInfo.getInfo", undefined, { timeoutMs: this.options.launch.startTimeoutMs })
+        .catch(() => undefined);
+      scale = await scaleFor(gpu);
+    } finally {
+      lease.release();
+    }
+    if (scale === this.options.launch.deviceScaleFactor) return;
+    this.options.launch.deviceScaleFactor = scale;
+    if (this.hosts.get(profileDir) === host) this.hosts.delete(profileDir);
+    await host.close();
+  }
   private host(profileDir: string): ChromeHost {
     let host = this.hosts.get(profileDir);
     if (!host) {
@@ -114,6 +161,8 @@ export class ChromeBackend implements BrowserBackend {
   }
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
     request.signal.throwIfAborted();
+    if (this.options.platform === "win32" && this.options.windowsScale)
+      await this.settledScale(request);
     const host = this.host(request.profileDir);
     const isolated = request.options.profile !== "persistent";
     const tabs = new ChromeTabs(

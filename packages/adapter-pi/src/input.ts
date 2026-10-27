@@ -1,4 +1,5 @@
 import { ContentPart } from "@ace/protocol";
+import { base64DataUrl, isBase64 } from "@ace/provider-kit/data-url";
 /** Validate and budget caller input before assembling a native command. */
 export function piInput(input: ContentPart[]) {
   const parts = ContentPart.array().max(256).parse(input);
@@ -14,10 +15,10 @@ export function piInput(input: ContentPart[]) {
     if (part.type === "text") text.push(part.text);
     else if (part.type === "file") text.push(`File: ${part.path}`);
     else {
-      const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(part.url);
-      if (!match?.[2] || match[1] !== part.mimeType)
+      const image = base64DataUrl(part.url);
+      if (!image || !isBase64(image.data) || image.mimeType !== part.mimeType)
         throw new Error("Pi images require a matching base64 data URL");
-      images.push({ type: "image", data: match[2], mimeType: part.mimeType });
+      images.push({ type: "image", data: image.data, mimeType: part.mimeType });
     }
   }
   const message = text.join("\n");

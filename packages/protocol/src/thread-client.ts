@@ -138,6 +138,11 @@ export const ThreadDetails = z.object({
       icon: MachineIcon.optional(),
     })
     .optional(),
+  /**
+   * A guest session: an agent on another machine uses this machine's tools through it, with no
+   * provider running here (ADR 0105). `name` is the calling machine's.
+   */
+  guest: z.object({ host: z.string().min(1).max(256), name: z.string().max(256) }).optional(),
   diff: z
     .object({
       files: z.number().int().nonnegative(),

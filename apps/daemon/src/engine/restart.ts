@@ -19,6 +19,8 @@ export function recoverEngine(
   },
   /** Whether the thread's provider can reopen its native session. */
   canContinue: (id: ThreadId) => boolean = () => false,
+  /** Windows only: some process of the previous run may still be running. */
+  processesUnverified = false,
 ): void {
   /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
   const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain" | "waitingOnPerson">>();
@@ -156,6 +158,37 @@ export function recoverEngine(
             ],
             clock.now(),
           );
+        if (live && processesUnverified) {
+          repo.apply(
+            state.threadId,
+            [
+              {
+                type: "process.exited",
+                deliberate: false,
+                message:
+                  "Daemon restarted; previous provider processes could not be verified as stopped",
+              },
+              { type: "queue.changed", source: "provider", count: 0 },
+              {
+                type: "item.upsert",
+                agent: state.rootKey ?? "root",
+                item: "recovery:unverified-processes",
+                draft: {
+                  type: "notice",
+                  level: "warning",
+                  code: "recovery_uncertain",
+                  title: "Recovery needed",
+                  text: "Some processes from the previous run may still be running",
+                  complete: true,
+                },
+              },
+            ],
+            clock.now(),
+          );
+          // Never start the work again beside processes that may still be doing it.
+          interruptedWork.delete(state.threadId);
+          return;
+        }
         if (live)
           repo.apply(
             state.threadId,

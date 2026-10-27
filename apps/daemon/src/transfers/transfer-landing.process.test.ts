@@ -1,6 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { test } from "vitest";
 import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
 
 const status = (path: string) => git(path, "status", "--porcelain", "--untracked-files=all");
@@ -168,3 +169,36 @@ it("lands on a branch of its own beside a dirty checkout already at the same com
     "app-there",
   ]);
 });
+
+test.runIf(process.platform === "win32")(
+  "on Windows, a repository sent whole lands with its files as the person's own Git there writes them",
+  async () => {
+    const m = await transferMachines();
+    const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
+    await git(path, "remote", "set-url", "origin", "https://example.invalid/app.git");
+    await writeFile(join(path, "new.txt"), "new\n");
+    await git(path, "add", "-A");
+    await git(path, "commit", "-m", "new");
+    const workspaceId = await m.addProject(m.source, path);
+
+    await m.here.command({
+      type: "workspace.transfer",
+      workspaceId,
+      hostId: m.targetHostId,
+      includeChanges: false,
+    });
+    const transfer = await m.settled();
+    expect(transfer).toMatchObject({ phase: "completed", method: "bundle" });
+    const landed = transfer.result?.path ?? "";
+    expect(await git(landed, "log", "--format=%s")).toBe("new\nfirst");
+    // Their own clone of the same commit: its line endings follow their core.autocrlf.
+    const own = join(m.targetRoot, "own");
+    await git(m.targetRoot, "clone", "--quiet", path, own);
+    expect(await readFile(join(landed, "new.txt"))).toEqual(await readFile(join(own, "new.txt")));
+    expect(await status(landed)).toBe("");
+    expect(await git(landed, "remote", "get-url", "origin")).toBe(
+      "https://example.invalid/app.git",
+    );
+    expect(await git(landed, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/main");
+  },
+);

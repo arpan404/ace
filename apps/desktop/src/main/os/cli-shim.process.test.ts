@@ -180,3 +180,46 @@ describe.skipIf(process.platform === "win32")("the ace command on launch", () =>
     await expect(stat(shim)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
+
+/** Runs one cmd line; /s takes the outer quotes off, so the line is left as written. */
+function cmd(line: string): Promise<{ code: number | null; stdout: string }> {
+  return new Promise((resolve) =>
+    execFile(
+      "cmd.exe",
+      ["/d", "/s", "/c", `"${line}"`],
+      { windowsVerbatimArguments: true, encoding: "utf8" },
+      (error, stdout) =>
+        resolve({ code: error ? Number(error.code ?? 1) : 0, stdout: String(stdout) }),
+    ),
+  );
+}
+
+describe.runIf(process.platform === "win32")("the ace command on Windows", () => {
+  it("runs from a profile with non-ASCII letters and puts the person's code page back", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "ace-cli-shim-")));
+    roots.push(root);
+    const app = join(root, "José", "ace");
+    await mkdir(join(app, "runtime"), { recursive: true });
+    await mkdir(join(app, "daemon"), { recursive: true });
+    const { copyFile } = await import("node:fs/promises");
+    await copyFile(process.execPath, join(app, "runtime", "node.exe"));
+    await writeFile(
+      join(app, "daemon", "ace.mjs"),
+      "console.log(JSON.stringify(process.argv.slice(2))); process.exit(3);\n",
+    );
+    const home = join(root, "José", ".ace");
+    const result = await installCliShim({
+      dataHome: home,
+      platform: "win32",
+      node: join(app, "runtime", "node.exe"),
+      entry: join(app, "daemon", "ace.mjs"),
+    });
+    expect(result.state).toBe("created");
+    const shim = join(home, "bin", "ace.cmd");
+    const ran = await cmd(`chcp 850 >nul & "${shim}" status "two words"`);
+    expect(ran.code).toBe(3);
+    expect(ran.stdout.trim().split(/\r?\n/).at(-1)).toBe('["status","two words"]');
+    const after = await cmd(`chcp 850 >nul & "${shim}" & chcp`);
+    expect(after.stdout).toMatch(/:\s*850\.?\s*$/);
+  }, 60_000);
+});

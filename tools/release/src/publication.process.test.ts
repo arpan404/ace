@@ -126,3 +126,34 @@ test("publication refuses targets built for different versions", async () => {
     stderr: expect.stringContaining("Publication versions differ"),
   });
 });
+
+test(
+  "a full macOS and Linux release writes the Homebrew formula and no Windows installer",
+  { timeout: 60_000 },
+  async () => {
+    const targets = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
+    const { directory, key, hashes } = await dist(targets);
+    await publish(directory, key);
+    const formula = await readFile(join(directory, "homebrew/ace.rb"), "utf8");
+    for (const target of targets) expect(formula).toContain(hashes[target]);
+    expect(formula).not.toMatch(/@[A-Z0-9_]+_SHA256@/);
+    await expect(readFile(join(directory, "install.ps1"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);
+
+test(
+  "a release with a Windows build publishes install.ps1 pinning it, with its checksum",
+  { timeout: 60_000 },
+  async () => {
+    const { directory, key, hashes } = await dist(["win32-x64"]);
+    await publish(directory, key);
+    const installer = await readFile(join(directory, "install.ps1"), "utf8");
+    expect(installer).toContain(`$pinned = '${hashes["win32-x64"]}'`);
+    expect(installer).toContain("$pinned = ''");
+    expect(await readFile(join(directory, "install.ps1.sha256"), "utf8")).toBe(
+      `${await hashFile(join(directory, "install.ps1"))}  install.ps1\n`,
+    );
+  },
+);

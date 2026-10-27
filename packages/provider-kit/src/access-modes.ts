@@ -29,7 +29,7 @@ export const cursorMode = (enabled: boolean, autoReview: boolean) =>
 /** Pi's own read-only tool allowlist (`pi --tools read,grep,find,ls`). */
 export const piReadOnlyTools = ["read", "grep", "find", "ls"] as const;
 /**
- * Pi's `--tools` also filters extension tools (only `mcp__` names are exempt, Pi 1.3.0), so
+ * Pi's `--tools` also filters extension tools (only `mcp__` names are exempt, Pi 1.3.0 to 1.4.0), so
  * Read-only keeps ace's `ace_` extension tools by pattern. In that mode ace's extension
  * registers only the tools ace's server marks read-only, so the pattern never admits a write.
  */
@@ -140,6 +140,9 @@ export function instanceAccessModes(
   identity: AccessIdentity,
   reported: readonly PermissionMode[],
 ): AccessModeOffer[] {
+  // Cursor's SDK has no file sandbox on Windows: its sandboxed Auto review is never offered.
+  if (identity.provider === "cursor" && process.platform === "win32")
+    return accessModeOffers(identity, (native) => native === cursorMode(false, false));
   switch (identity.provider) {
     case "codex":
       // No profile list reported yet: the built-in profiles every Codex has.

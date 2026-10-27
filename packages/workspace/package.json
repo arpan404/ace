@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./branch-name": "./src/branch-name.ts",
+    "./descriptor": "./src/descriptor.ts",
     "./pinned-directory": "./src/pinned-directory.ts"
   },
   "scripts": {

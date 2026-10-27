@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
-import { killWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
-import { toWindowsCommand } from "./windows-command.ts";
-import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
+import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { toWindowsCommand } from "./process-owner.ts";
+import {
+  createKillOnCloseJob,
+  type WindowsJob,
+  type WindowsJobFactory,
+} from "./process-containment.ts";
 import type { ProcessExit } from "./process.ts";
 export type InteractiveProcess = {
   exited: Promise<ProcessExit>;

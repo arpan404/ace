@@ -1,0 +1,38 @@
+---
+import Closing from "../../components/Closing.astro";
+import Features from "../../components/Features.astro";
+import LinkCards from "../../components/site/LinkCards.astro";
+import PageIntro from "../../components/site/PageIntro.astro";
+import { features } from "../../content/features.ts";
+import Page from "../../layouts/Page.astro";
+import { itemList, schemaFor } from "../../seo/schema.ts";
+
+const path = "/features/";
+const schema = schemaFor(Astro.site);
+const cards = features.map((feature) => ({
+  href: `/features/${feature.slug}/`,
+  title: feature.name,
+  body: feature.intro,
+}));
+const list = itemList(
+  schema,
+  features.map((feature) => ({ name: feature.name, path: `/features/${feature.slug}/` })),
+);
+---
+
+<Page
+  path={path}
+  title="Features: computer use, multi-machine agents and more: ace"
+  description="What ace adds to Claude Code, Codex, Cursor and every agent you run: computer use, Fleet across machines, a real browser, simulators, worktrees and review."
+  pageType="CollectionPage"
+  schema={[list]}
+>
+  <PageIntro
+    headline="Everything your agents need beyond the terminal"
+    intro="ace gives every coding agent the same powers, whichever CLI runs it: your desktop apps, a real browser, phone simulators, other machines, and a status you can trust."
+    secondary={{ href: "/agents/", label: "Supported agents" }}
+  />
+  <LinkCards cards={cards} />
+  <Features />
+  <Closing />
+</Page>

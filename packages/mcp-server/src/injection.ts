@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   codexClientHeader,
   coreToolsHeader,
-  staticToolsHeader,
   callBudgetHeader,
   toolListingHeader,
   type ToolListing,
@@ -40,8 +39,19 @@ export {
 } from "./session-guidance.ts";
 /** A lease plus, when the daemon has one, this session's guidance (read once at injection). */
 type Injected = AceMcpConnection & { session?: (() => SessionGuidance) | undefined };
-export function codexInjection(input: Injected) {
+/**
+ * Codex defers ace's tools where the turn's model supports its tool search; elsewhere it would
+ * load every listed tool upfront and never reload, so the adapter connects those sessions with
+ * the fixed list (`codexToolListing` in the Codex adapter).
+ */
+export function codexInjection(input: Injected & { listing?: ToolListing | undefined }) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const listing = input.listing ?? usualToolListing("codex");
+  const header = toolListingHeader(listing);
+  // On the fixed list the destructive tools are listed by name, so they keep Codex's prompt and
+  // tools_call, which refuses them there, is approved like every other ace tool: Codex never asks
+  // in read-only access, so a prompted tools_call would refuse even a read-only target.
+  const prompted = destructiveAceTools;
   return {
     config: {
       "mcp_servers.ace": {
@@ -50,35 +60,48 @@ export function codexInjection(input: Injected) {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
-          // Codex lists every tool, but its code-mode models never see a schema: guide and
-          // tools_find return schemas and the exec call form to it.
+          // Codex's code-mode models never see a schema: guide and tools_find return schemas
+          // and the exec call form to it.
           [codexClientHeader.name]: codexClientHeader.value,
+          ...(header ? { [header.name]: header.value } : {}),
         },
         tool_timeout_sec: maxToolTimeoutMs / 1000,
         // Codex otherwise gates every ace tool it can't prove read-only and never remembers
         // the answer. ace's tools are always allowed once called and ace never asks inside
         // them, so only the tools that overwrite work or commit spending keep Codex's prompt.
         default_tools_approval_mode: "approve",
-        tools: Object.fromEntries(
-          destructiveAceTools.map((tool) => [tool, { approval_mode: "prompt" }]),
-        ),
+        tools: Object.fromEntries(prompted.map((tool) => [tool, { approval_mode: "prompt" }])),
       },
     },
-    developerInstructions: developerInstructions("codex", input.session?.()),
+    developerInstructions: developerInstructions("codex", { ...input.session?.(), listing }),
   };
 }
-export function claudeInjection(input: Injected) {
+/**
+ * Claude Code defers MCP tools behind its tool search, so it lists every tool. Where tool search
+ * will be off (`claudeToolListing`), every listed tool costs its full definition on every
+ * request: the session gets the core listing and Claude Code reloads on `tools/list_changed`.
+ */
+export function claudeInjection(input: Injected & { listing?: ToolListing | undefined }) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const listing = input.listing ?? usualToolListing("claude");
   return {
     env: { MCP_TOOL_TIMEOUT: String(maxToolTimeoutMs) },
-    mcpServers: {
-      ace: {
-        type: "http" as const,
-        url,
-        headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
-      },
+    mcpServers: { ace: claudeAceServer({ url, bearer }, listing) },
+    developerInstructions: developerInstructions("claude", { ...input.session?.(), listing }),
+  };
+}
+/** ace's server entry for a Claude Code session with this listing. */
+export function claudeAceServer(input: AceMcpConnection, listing: ToolListing) {
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const header = toolListingHeader(listing);
+  return {
+    type: "http" as const,
+    url,
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      "X-Ace-Notifications": "stream",
+      ...(header ? { [header.name]: header.value } : {}),
     },
-    developerInstructions: developerInstructions("claude", input.session?.()),
   };
 }
 export function openCodeInjection(input: Injected) {
@@ -91,8 +114,11 @@ export function openCodeInjection(input: Injected) {
     oauth: false as const,
     protocol: "2026-07-28" as const,
     timeout: { execution: maxToolTimeoutMs },
-    // OpenCode lists every MCP tool upfront and reloads them on tools/list_changed (2.0.22,
-    // packages/core/src/tool/mcp.ts): ace offers its core tools and opens the rest on use.
+    // OpenCode (2.1.4) sends every direct MCP tool's schema on every request and reloads the list
+    // on tools/list_changed after a 100 ms debounce: ace offers its core tools and opens the rest
+    // on use. `codemode: false` keeps them direct; OpenCode's Code Mode would put ace's tools
+    // behind its `execute` script tool, with full TypeScript signatures in a catalog capped at
+    // about 2,000 tokens and nested calls the transcript sees only as one `execute` call.
     headers: {
       Authorization: `Bearer ${bearer}`,
       "X-Ace-Notifications": "stream",
@@ -104,16 +130,22 @@ export function openCodeInjection(input: Injected) {
     developerInstructions: developerInstructions("opencode", input.session?.()),
   };
 }
-/** An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`). */
-type AcpInjected = Injected & { listing?: ToolListing | undefined };
+/**
+ * An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`) and
+ * whether the agent shows server instructions (`acpShowsServerInstructions`).
+ */
+type AcpInjected = Injected & {
+  listing?: ToolListing | undefined;
+  serverInstructions?: boolean | undefined;
+};
 export function acpInjection(
   input: AcpInjected,
   provider: "cursor" | "antigravity" | "acp" = "acp",
 ) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   // ACP leaves tools/list_changed to each agent. Without a known agent the provider's usual
-  // listing applies: Antigravity defers like Claude; the rest keep the core tools, tools_find
-  // and tools_call, the one listing every agent can use.
+  // listing applies: Antigravity and Cursor defer like Claude; the rest keep the core tools,
+  // tools_find and tools_call, the one listing every agent can use.
   const listing = input.listing ?? usualToolListing(provider);
   const header = toolListingHeader(listing);
   return {
@@ -129,7 +161,13 @@ export function acpInjection(
         ],
       },
     ],
-    developerInstructions: developerInstructions(provider, { ...input.session?.(), listing }),
+    developerInstructions: developerInstructions(provider, {
+      ...input.session?.(),
+      listing,
+      ...(input.serverInstructions === undefined
+        ? {}
+        : { serverInstructions: input.serverInstructions }),
+    }),
   };
 }
 
@@ -139,25 +177,27 @@ export const cursorCallBudgetSeconds = 50;
 /** Cursor's public SDK HTTP MCP transport, never local.customTools. */
 export function cursorSdkInjection(input: Injected) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  // Cursor's model sees only the names of the tools its connection listed and calls none it did
+  // not list (`cursorToolListing`), so ace lists every tool.
+  const listing = usualToolListing("cursor");
+  const header = toolListingHeader(listing);
   return {
     mcpServers: {
       ace: {
         type: "http" as const,
         url,
-        // Guidance travels once, in Cursor's always-applied rule. Cursor's SDK caches the tool
-        // list per connection and never handles tools/list_changed, so it keeps the core tools
-        // plus tools_find and reaches the rest through tools_call.
+        // Guidance travels once, in Cursor's always-applied rule.
         headers: {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
-          [staticToolsHeader.name]: staticToolsHeader.value,
+          ...(header ? { [header.name]: header.value } : {}),
           // Cursor's SDK cancels any MCP call after 60 seconds; waiting tools end before that.
           [callBudgetHeader.name]: String(cursorCallBudgetSeconds),
         },
       },
     },
-    developerInstructions: developerInstructions("cursor", input.session?.()),
+    developerInstructions: developerInstructions("cursor", { ...input.session?.(), listing }),
   };
 }
 

@@ -24,33 +24,27 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project.",
+        "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name.",
       ),
-    threadId: ThreadId.optional().describe(
-      "A thread you own, or with full access any of the person's. Default: this thread.",
-    ),
+    threadId: ThreadId.optional().describe("Default: this thread."),
     requestId: fields.requestId.optional(),
-    title: z.string().min(1).max(256).optional().describe("rename: the new title."),
+    title: z.string().min(1).max(256).optional(),
     onlyIfProvisional: z
       .boolean()
       .optional()
-      .describe("rename: only replace a title ace generated, never one the person chose."),
+      .describe("Only replace a title ace generated, never the person's."),
     model: z
       .string()
       .min(1)
       .max(256)
       .optional()
-      .describe(
-        'configure: a model id from `models`, or its name ("opus 5.5") on the thread\'s account.',
-      ),
-    effort: z.string().min(1).max(64).optional().describe("configure: reasoning effort."),
-    serviceTier: z.enum(["default", "priority", "flex"]).optional().describe("configure."),
-    branch: z.string().min(1).max(256).optional().describe("handoff: the new branch name."),
-    until: Timestamp.nullable()
-      .optional()
-      .describe("snooze: epoch milliseconds, or null to unmute."),
-    previewId: z.string().min(1).max(128).optional().describe("close_preview: from thread_read."),
-    name: z.string().min(1).max(256).optional().describe("rename_project: the new name."),
+      .describe('Id from models, or a name ("opus 5.5") on its account.'),
+    effort: z.string().min(1).max(64).optional(),
+    serviceTier: z.enum(["default", "priority", "flex"]).optional(),
+    branch: z.string().min(1).max(256).optional(),
+    until: Timestamp.nullable().optional().describe("Epoch ms, or null to unmute."),
+    previewId: z.string().min(1).max(128).optional().describe("From thread_read."),
+    name: z.string().min(1).max(256).optional(),
   })
   .superRefine((input, context) => {
     for (const field of needs[input.action])
@@ -123,7 +117,7 @@ export const threadControl = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Rename, configure, hand off, interrupt, settle, unsettle or snooze a thread you own, close its preview server, or rename this project. You own this thread and those you started; with full access, any of the person's threads. configure changes its model; handoff moves it to a new worktree; settle this thread too when its work is finished. Each action's fields are named in action's description.",
+    "Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle this thread too when its work is done.",
   input: Input,
   output: controlResult(z.unknown()),
   async run(input, control) {

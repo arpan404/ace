@@ -1,0 +1,90 @@
+---
+/* A grid of links to other pages, each with a name and a line on what's there. */
+import Icon from "../Icon.astro";
+
+interface Props {
+  heading?: string;
+  cards: { href: string; title: string; body: string }[];
+}
+
+const { heading, cards } = Astro.props;
+---
+
+<section class="section page">
+  {heading && <h2 class="section-title reveal">{heading}</h2>}
+  <ul class="cards reveal" data-stagger>
+    {
+      cards.map((card) => (
+        <li>
+          <a class="spot" href={card.href}>
+            <h3>
+              {card.title}
+              <Icon name="arrow-right" size={15} />
+            </h3>
+            <p>{card.body}</p>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 12px;
+    margin-top: 40px;
+  }
+
+  a {
+    display: block;
+    height: 100%;
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    text-decoration: none;
+    transition:
+      border-color var(--motion-fast) var(--ease-out),
+      transform 500ms var(--ease-out-expo),
+      box-shadow 500ms var(--ease-out-expo);
+  }
+
+  a:hover {
+    border-color: var(--border-strong);
+    transform: translate3d(0, -2px, 0);
+    box-shadow: 0 24px 60px -32px var(--shadow-deep);
+  }
+
+  h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 17px;
+  }
+
+  h3 :global(svg) {
+    color: var(--subtle);
+    transition: transform var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover h3 :global(svg) {
+    transform: translateX(3px);
+    color: var(--foreground);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a:hover {
+      transform: none;
+    }
+  }
+
+  p {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+</style>

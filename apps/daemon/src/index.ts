@@ -1,5 +1,6 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
@@ -12,6 +13,7 @@ import { connectedDoctorReport, fixDoctorReport } from "./diagnostics-report.ts"
 import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
+export { DaemonLockHeldError } from "./local-files.ts";
 export type { StopReason } from "./stop-reason.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
@@ -184,6 +186,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
   try {
     inventory.recover();
+    if (process.platform === "win32") {
+      // The engine decides what the previous run left running only once ended processes are
+      // verifiably gone; anything unproven is reported as such, never as stopped.
+      const recovery = await verifyWindowsRecovery(inventory);
+      if (!recovery.verified) {
+        log.log(
+          "warn",
+          "Previous run's processes could not all be verified as stopped",
+          logFields([["unresolved", recovery.unresolved]]),
+        );
+        options = { ...options, engine: { ...options.engine, previousProcessesUnverified: true } };
+      }
+    }
   } catch (error) {
     inventory.close();
     loop.close();
@@ -423,10 +438,21 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,
-      log: (error) => log.log("error", "WebSocket failure", logError(error)),
+      log: (error) => {
+        // Shutdown aborts socket work in flight: that cancellation is expected, not a failure.
+        if (lifetime.signal.aborted && error instanceof Error && error.name === "AbortError")
+          return;
+        log.log("error", "WebSocket failure", logError(error));
+      },
       warn: (message, fields) => log.log("warn", message, fields),
     };
     bindLiveServices(serverOptions, services);
+    // Late-bound: the lifecycle exists once the server below has started its transports.
+    services.threadDeletion = async (command) => {
+      const lifecycle = serverOptions.threadLifecycle;
+      if (!lifecycle) return { commandId: command.id, ok: false, error: "not_ready" };
+      return lifecycle.delete(command);
+    };
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();

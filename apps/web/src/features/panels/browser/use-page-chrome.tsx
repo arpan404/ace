@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { desktopBrowserViews, type BrowserContextAction } from "@/boot/desktop-browser.ts";
 import { useToast } from "@/components/ui/toast.tsx";
+import { windowsPlatform } from "@/lib/keymap.ts";
 import type { BrowserTabView, BrowserView, ForwardedInput, PreviewSource } from "../sources.ts";
 import { requestAnnotate } from "./annotate-request.ts";
 import { useBrowsingHistory } from "./browsing-history.ts";
@@ -154,7 +155,7 @@ export function usePageChrome(input: {
         .catch(() =>
           toast.error({
             title: "Couldn't paste",
-            description: "Clipboard access is blocked in this browser. Use ⌘V in the page.",
+            description: `Clipboard access is blocked in this browser. Use ${windowsPlatform ? "Ctrl+V" : "⌘V"} in the page.`,
           }),
         );
     },

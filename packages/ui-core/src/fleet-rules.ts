@@ -24,9 +24,10 @@ export const agentAccessOptions = [
 ] as const;
 
 export const agentAccessNotes: Record<(typeof agentAccessOptions)[number]["value"], string> = {
-  off: "Agents on other machines can't use this one.",
-  read: "They can check status and read pages here, never start work.",
-  operate: "They can start threads here, answer and use its browser.",
+  off: "Agents on other machines can't use this one, whatever each machine is allowed.",
+  read: "Agents on other machines may only read here, whatever each machine is allowed.",
+  operate:
+    "Each linked machine gets what its page allows. Agents and the browser start at Read and act.",
 };
 
 /** One fleet-wide rule: an on/off switch or a choice, with what each choice means. */

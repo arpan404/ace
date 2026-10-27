@@ -1,0 +1,74 @@
+---
+/*
+ * Several accounts per provider: each account's usage, the default, and a thread that hit a
+ * limit, which its story moves to another account (scripts/stories.ts).
+ */
+const accounts = [
+  { name: "Claude · Work", note: "Default", used: 38 },
+  { name: "Claude · Personal", note: "Resets 4:20 PM", used: 100, key: "spent" },
+  { name: "Codex · Team", note: "Resets tomorrow", used: 61 },
+];
+---
+
+<div class="panel" data-story="accounts">
+  <div class="panel-row">
+    <span class="panel-label">Accounts</span>
+    <span class="panel-end panel-quiet">3 signed in</span>
+  </div>
+  {
+    accounts.map((account) => (
+      <div class="panel-row account" data-key={account.key}>
+        <span class="who">{account.name}</span>
+        <span class="meter" aria-hidden="true">
+          <i style={`--used: ${account.used}%`} />
+        </span>
+        <span class="panel-end panel-quiet">{account.note}</span>
+      </div>
+    ))
+  }
+  <div class="panel-row" data-tone="needs-you" data-key="thread">
+    <span class="status-dot" aria-hidden="true"></span>
+    <span class="text">
+      <span>Refactor billing webhooks</span>
+      <span class="note" data-state>Claude · Personal hit its limit</span>
+    </span>
+    <span class="panel-end"><span class="panel-action" data-move>Move to Work</span></span>
+  </div>
+</div>
+
+<style>
+  .who {
+    min-width: 132px;
+  }
+
+  .meter {
+    position: relative;
+    flex: 1;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--active);
+    overflow: hidden;
+  }
+
+  .meter i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--used);
+    border-radius: inherit;
+    background: var(--muted);
+  }
+
+  [data-key="spent"] .meter i {
+    background: var(--status-needs-you);
+  }
+
+  .text {
+    display: grid;
+    gap: 2px;
+  }
+
+  .note {
+    color: var(--subtle);
+    font-size: 11.5px;
+  }
+</style>

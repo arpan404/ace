@@ -42,7 +42,11 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
     mcpServer: z.object({ name: z.string(), source: z.string() }).passthrough().optional(),
     permissionUpdates: z.array(z.unknown()).optional(),
   }),
-  z.object({ kind: z.literal("question"), questions: z.array(Question) }),
+  z.object({
+    kind: z.literal("question"),
+    questions: z.array(Question),
+    target: ApprovalTarget.optional(),
+  }),
   z.object({
     kind: z.literal("plan_review"),
     title: z.string().optional(),
@@ -68,6 +72,7 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
    */
   z.object({
     kind: z.literal("browser_help"),
+    target: ApprovalTarget.optional(),
     tabId: z.string().min(1).max(256),
     reason: BrowserHelpReason,
     message: z.string().max(1000),

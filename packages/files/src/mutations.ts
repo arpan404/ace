@@ -1,6 +1,8 @@
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { lstat, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { basename, dirname } from "node:path";
+import { PinnedDirectory } from "@ace/workspace";
 import { SafeRoot, GitIgnore, walkWorkspace } from "@ace/workspace";
 import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, TrashRecord } from "./catalog.ts";
@@ -82,6 +84,10 @@ export class Mutations {
       case "move": {
         if (operation.destination === operation.path)
           throw new FileError("INVALID_PATH", "Source equals destination");
+        if (process.platform === "win32" && (await this.windowsCaseRename(operation, target))) {
+          destination = operation.destination;
+          break;
+        }
         // Replacing a target must never permanently discard it. Move to an absent path only.
         if (operation.destinationExpected !== null)
           throw new FileError(
@@ -166,6 +172,37 @@ export class Mutations {
       ...(trashId ? { trashId } : {}),
     };
   }
+  /**
+   * Windows: names differing only in case usually name one file, so the destination looks
+   * taken by the source itself. Renames it in place when both names open the same file (same
+   * volume serial and exact file id); a different file there still conflicts.
+   */
+  private async windowsCaseRename(
+    operation: Extract<Mutation, { op: "rename" | "move" }>,
+    source: { path: string; verify(): Promise<void> },
+  ): Promise<boolean> {
+    if (operation.destinationExpected !== null) return false;
+    const dest = await this.safe.target(operation.destination);
+    const from = basename(source.path);
+    const to = basename(dest.path);
+    if (dirname(source.path) !== dirname(dest.path) || from === to) return false;
+    if (from.toLowerCase() !== to.toLowerCase()) return false;
+    const parent = PinnedDirectory.open(dirname(source.path));
+    try {
+      if (!windowsSameFile(parent.metadata(from), parent.metadata(to))) return false;
+    } catch (error) {
+      if (codeOf(error) === "ENOENT") return false;
+      throw error;
+    } finally {
+      parent.closeSync();
+    }
+    await source.verify();
+    await dest.verify();
+    await this.exclusive.move(source.path, dest.path);
+    await source.verify();
+    await dest.verify();
+    return true;
+  }
   async expire(record: TrashRecord): Promise<void> {
     await rm(
       record.location
@@ -175,4 +212,22 @@ export class Mutations {
     );
     this.catalog.delete(record.id);
   }
+}
+
+/** Windows: the keys that identify a file in the workspace's stats. */
+function windowsIdentityKeys(value: object): (string | symbol)[] {
+  return [
+    "dev",
+    "ino",
+    ...Object.getOwnPropertySymbols(value).filter((key) => key.description === "windowsFileId"),
+  ];
+}
+/**
+ * Windows: same volume serial, file id and the exact 128-bit id the workspace attaches to its
+ * stats (Node rounds file ids above 2^53).
+ */
+function windowsSameFile(a: object, b: object): boolean {
+  const keys = windowsIdentityKeys(a);
+  if (keys.length !== 3 || windowsIdentityKeys(b).length !== 3) return false;
+  return keys.every((key) => Reflect.get(a, key) === Reflect.get(b, key));
 }

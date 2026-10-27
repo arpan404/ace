@@ -150,6 +150,10 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
+      // Windows: a just-written profile file can stay open a moment after ace's Chrome has gone
+      // (an antivirus scan of a new file), so removal retries there.
+      if (process.platform === "win32")
+        await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       await rm(home, { recursive: true, force: true });
     }
   });

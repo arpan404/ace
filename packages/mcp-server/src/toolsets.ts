@@ -3,15 +3,18 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
- * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
- *   or Antigravity's definition files), so every tool is listed and `tools_find` loads upfront.
+ * - `all` (no header): Claude Code, Codex, Antigravity and Cursor defer MCP tools (behind a tool
+ *   search, Antigravity's definition files, or Cursor's GetMcpTools), so every tool is listed and
+ *   only a few load upfront (`registry.ts`). A Claude Code session whose tool search is off gets
+ *   `core` (`claudeToolListing`); a Codex session whose model has no tool search gets `static`,
+ *   since Codex never reloads (`codexToolListing` in the Codex adapter).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
- *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
+ *   (OpenCode 2.1.4 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
  *   adds a family, and `tools_call` reaches a found tool before the reload lands.
- * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents
- *   not known to refresh). They keep the core tools and `tools_find`, and
- *   reach every other tool through `tools_call`.
+ * - `static`: clients that never reload and load every listed tool upfront (ACP agents not known
+ *   to refresh). They keep the core tools and `tools_find`, and reach every other tool through
+ *   `tools_call`.
  */
 export type ToolListing = "all" | "core" | "static";
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
@@ -66,16 +69,48 @@ export function toolListingHeader(
  * - Gemini CLI (0.43, ace's floor for it) sends every tool upfront and reloads on
  *   `tools/list_changed`, so it starts with the core tools and grows.
  * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
- *   search and honours `anthropic/alwaysLoad`, as Claude Code does.
- * - Antigravity (checked live on 1.4.2) loads only tools marked `antigravity/alwaysLoad` in full;
- *   it writes every other tool's definition to a file its agent reads, then calls the tool
- *   through its own `call_mcp_tool`. So it lists every tool, as Claude does.
+ *   search and honours `anthropic/alwaysLoad`, as Claude Code does. The daemon narrows it to
+ *   core where its launch env or settings turn tool search off (`claudeToolListing`).
+ * - Antigravity (checked live on 1.4.2; agy 1.4.8 and agy_acp_server 1.4.3 read the same way)
+ *   loads only tools marked `antigravity/alwaysLoad` in full; it writes every other tool's
+ *   definition to a file its agent reads, then calls the tool through its own `call_mcp_tool`.
+ *   So it lists every tool, as Claude does. It also refreshes on `tools/list_changed`.
  * - Every other agent stays static: a conservative default for agents not verified to reload,
  *   not a claim that they never refresh.
  */
 export function acpToolListing(cli: string | undefined): ToolListing {
   if (cli === "gemini") return "core";
   return cli === "claude-acp" || cli === "antigravity" ? "all" : "static";
+}
+
+/**
+ * The listing for Cursor, by whether its MCP meta tool is on. Read from the SDK's shipped code
+ * (1.0.35 and 1.1.0) and cursor-agent 2026.10.01, and seen in recorded runs:
+ * - With the meta tool on, the model sees each MCP server's listed tool names and its
+ *   instructions, never a schema. It reads schemas with `GetMcpTools` (a server, one tool, or a
+ *   name pattern) and calls with `CallMcpTool`, which refuses any tool the connection did not
+ *   list. The SDK's local runtime turns it on unless told otherwise, and no public option does.
+ *   Listing every tool costs only their names and lets each be called directly.
+ * - Without it, every listed tool loads in full, and the list, cached for the connection's life,
+ *   never grows: the fixed core list with `tools_call`.
+ */
+export function cursorToolListing(metaTool: boolean): ToolListing {
+  return metaTool ? "all" : "static";
+}
+
+/**
+ * Whether an ACP agent puts MCP server instructions in its model's context, by the reviewed
+ * CLI behind it. Where it doesn't, ace's shared guidance travels in the agent's own channel
+ * (system-prompt text, else the first prompt):
+ * - Gemini CLI (0.43) adds each server's instructions to its project context.
+ * - claude-agent-acp runs Claude Code, which shows them.
+ * - Antigravity (agy 1.4.8, agy_acp_server 1.4.3) writes them to `instructions.md` beside the
+ *   server's tool definition files, which its model reads only when it opens that file.
+ * - Qwen Code 0.0.14 never reads them, and an agent not reviewed is not assumed to: a second
+ *   copy costs a few hundred tokens, a missing one leaves the agent without ace's guidance.
+ */
+export function acpShowsServerInstructions(cli: string | undefined): boolean {
+  return cli === "gemini" || cli === "claude-acp";
 }
 
 /**
@@ -151,6 +186,20 @@ export class OpenToolsets {
     if (listing === "static") return false;
     return toolset === undefined || (this.open.get(principal)?.has(toolset) ?? false);
   }
+}
+
+/**
+ * Whether a session lists its destructive tools by name and `tools_call` refuses them. Codex on
+ * the fixed list approves `tools_call`, so a read-only target still runs where Codex never asks
+ * (read-only access); a destructive target there would skip Codex's ask, so it is listed with
+ * the prompt of its own (`codexInjection`). Only `automation_remove` is destructive today, about
+ * 80 tokens per request where a second, prompted dispatcher would cost more.
+ */
+export function namesDestructiveTools(
+  listing: ToolListing,
+  client: AceClient | undefined,
+): boolean {
+  return client === "codex" && listing === "static";
 }
 
 /**

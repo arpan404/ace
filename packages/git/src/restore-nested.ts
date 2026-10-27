@@ -6,6 +6,7 @@ import { hash, malformed } from "./decode.ts";
 import { textOutput } from "./cli.ts";
 import type { Repository } from "./repository.ts";
 import { withSnapshotIndex } from "./snapshot-index.ts";
+import { exactCheckoutArgs } from "./checkpoint-bytes.ts";
 
 // The caller holds the outer root. Acquire descendants in hierarchy order and
 // retain every lock through safety capture and all filesystem changes.
@@ -64,6 +65,17 @@ export async function restoreWorktree(
     const from = await ownedTree(before, env);
     const to = await ownedTree(target, env);
     await repository.cli.call(root, ["read-tree", from], { write: true, env });
+    // Windows: the trees hold the files' own bytes; check them out without any conversion.
+    const exact =
+      repository.cli.platform === "win32" ? await exactCheckoutArgs(repository, root) : undefined;
+    if (exact) {
+      await repository.cli.call(
+        root,
+        [...exact, "read-tree", "--reset", "-u", "--no-sparse-checkout", to],
+        { write: true, env },
+      );
+      return;
+    }
     await repository.cli.call(root, ["read-tree", "--reset", "-u", "--no-sparse-checkout", to], {
       write: true,
       env,

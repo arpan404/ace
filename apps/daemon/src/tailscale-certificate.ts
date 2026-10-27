@@ -130,10 +130,27 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
 
 function certificateError(name: string, cause: unknown): Error {
   const detail = cause instanceof Error ? cause.message : "";
+  if (process.platform === "win32") return windowsCertificateError(name, detail, cause);
   // Linux tailscaled lets only root or its operator fetch certificates.
   const fix = /access denied|permission/i.test(detail)
     ? "Run `sudo tailscale set --operator=$USER` so ace can fetch it."
     : "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console; ace keeps trying.";
+  return new Error(
+    `Browsers won't trust ${name} until Tailscale issues its HTTPS certificate. ${fix}`,
+    { cause },
+  );
+}
+
+/**
+ * Windows has no operator setting: Tailscale answers only the Windows account that connected it
+ * in the Tailscale app (or an administrator), and ace never asks for administrator rights.
+ */
+function windowsCertificateError(name: string, detail: string, cause: unknown): Error {
+  const fix = /access denied|permission|in use by/i.test(detail)
+    ? "Connect Tailscale from this Windows account in the Tailscale app, so ace can fetch it; ace keeps trying."
+    : /not found|ENOENT|not recognized/i.test(detail)
+      ? "Install Tailscale for Windows and connect it; ace keeps trying."
+      : "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console; ace keeps trying.";
   return new Error(
     `Browsers won't trust ${name} until Tailscale issues its HTTPS certificate. ${fix}`,
     { cause },

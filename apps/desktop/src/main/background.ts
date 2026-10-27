@@ -97,8 +97,14 @@ export class Background {
       send: (command) =>
         this.link?.enqueue(command.id, command.payload) ?? Promise.reject(new Error("offline")),
       log: options.log,
+      now: Date.now,
     });
     options.runtime.onStatus((status) => this.tray.update({ status }));
+  }
+
+  /** Windows: whether a live toast answered an activation at or after `at` (`activation.ts`). */
+  toastHandledSince(at: number): boolean {
+    return this.notifier.handledSince(at);
   }
 
   /**

@@ -1,0 +1,60 @@
+---
+/*
+ * The surface a product visual sits on: neutral, with a faint dot grid that fades toward the
+ * edges so the visual reads as the subject. No colour and no gradient wash, in either theme.
+ * `bleed` lets a screenshot run off the bottom-right edge.
+ */
+interface Props {
+  bleed?: boolean;
+}
+
+const { bleed = false } = Astro.props;
+---
+
+<div class:list={["stage", { bleed }]}>
+  <div class="stage-inner"><slot /></div>
+</div>
+
+<style>
+  .stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--stage-bg);
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, var(--stage-dot) 1px, transparent 1.4px);
+    background-size: 22px 22px;
+    background-position: center;
+    mask-image: radial-gradient(ellipse 75% 65% at 50% 50%, #000 20%, transparent 80%);
+  }
+
+  .stage-inner {
+    display: grid;
+    place-items: center;
+    min-height: 380px;
+    padding: 40px;
+  }
+
+  .bleed .stage-inner {
+    place-items: start;
+    padding: 48px 0 0 48px;
+  }
+
+  @media (max-width: 640px) {
+    .stage-inner {
+      min-height: 0;
+      padding: 24px 16px;
+    }
+
+    .bleed .stage-inner {
+      padding: 24px 0 0 20px;
+    }
+  }
+</style>

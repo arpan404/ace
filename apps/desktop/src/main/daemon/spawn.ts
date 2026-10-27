@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
 import type { Launch } from "./launch-priority.ts";
+import { requestStop } from "./stop-request.ts";
 import type { DaemonProcess } from "./supervisor.ts";
 
 /** Files the packaged app ships next to the daemon. */
@@ -49,6 +50,8 @@ export interface SpawnOptions {
   onOutput(line: string, stream: "stdout" | "stderr"): void;
   /** The launch to spawn for the plain one (`daemonLaunchPolicy`); unset spawns it as is. */
   prioritize?: ((launch: Launch) => Launch) | undefined;
+  /** The OS the daemon runs on; `process.platform` unless a test says otherwise. */
+  platform?: NodeJS.Platform | undefined;
 }
 
 /**
@@ -134,6 +137,26 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
     options.onOutput(`spawn failed: ${error.message}`, "stderr");
     if (child.pid === undefined) finish(null, null, error.message);
   });
+  // Windows: SIGTERM would be TerminateProcess, so a graceful stop asks the daemon to shut down
+  // and ends the process only if it refuses; SIGKILL ends it, and its job takes the children.
+  if ((options.platform ?? process.platform) === "win32")
+    return {
+      kill: (signal) => {
+        const running = () => child.exitCode === null && child.signalCode === null;
+        if (!running()) return;
+        if (signal !== "SIGTERM" || child.pid === undefined) {
+          child.kill(signal);
+          return;
+        }
+        void requestStop(options.home, child.pid).then((accepted) => {
+          if (!accepted && running()) child.kill(signal);
+        });
+      },
+      onExit: (listener) => {
+        if (result) listener(...result);
+        else listeners.add(listener);
+      },
+    };
   return {
     kill: (signal) => {
       if (child.exitCode === null && child.signalCode === null) child.kill(signal);

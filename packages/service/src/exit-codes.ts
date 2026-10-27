@@ -6,6 +6,8 @@
  * (its `ace-format.json`, `HOME_FORMAT_VERSION` in `home-format.ts`). 65 is sysexits' EX_DATAERR.
  * `incompatible-data`: a store under ACE_HOME is in a format this build does not read
  * (`@ace/provider-kit/incompatible-data`); its message names the file and the recovery.
+ * `lock-held`: `ace start` could not take ACE_HOME's daemon lock because another daemon holds
+ * it, usually one still starting up or shutting down.
  */
 export const exitCodes = {
   ok: 0,
@@ -15,6 +17,7 @@ export const exitCodes = {
   refused: 4,
   uncertain: 5,
   "address-in-use": 6,
+  "lock-held": 7,
   "newer-data": 65,
   "incompatible-data": 66,
 } as const;

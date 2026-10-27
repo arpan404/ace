@@ -4,6 +4,7 @@ import {
   openMetadataAt,
   statAt,
   descriptorNames,
+  sameWindowsFile,
   type Descriptor,
 } from "./descriptor.ts";
 import { constants, type Stats } from "node:fs";
@@ -11,9 +12,18 @@ import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
 import { isAbsolute, join, relative, sep, win32, dirname, basename } from "node:path";
 import { failure, errorCode, WorkspaceError } from "./types.ts";
+import {
+  passesWindowsRelativePathPolicy,
+  windowsInternal,
+  windowsTransferTemporary,
+} from "./path-policy.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { windowsBytesLocal, windowsListing } from "./descriptor.ts";
+import { LocalFileDescriptor, PassDirectories } from "./pass-directories.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
 export function validRelativePath(input: string): boolean {
+  if (process.platform === "win32" && !passesWindowsRelativePathPolicy(input)) return false;
   return !(
     input.includes("\0") ||
     input.includes("\\") ||
@@ -23,6 +33,7 @@ export function validRelativePath(input: string): boolean {
   );
 }
 function same(a: Stats, b: Stats): boolean {
+  if (process.platform === "win32" && !sameWindowsFile(a, b)) return false;
   return a.dev === b.dev && a.ino === b.ino;
 }
 export class SafeRoot {
@@ -41,6 +52,7 @@ export class SafeRoot {
     runtime: WorkspaceRuntime = workspaceRuntime(),
   ): Promise<SafeRoot> {
     try {
+      if (process.platform === "win32") windowsRootRequest(root);
       const fs = runtime.filesystem;
       const canonical = await fs.realpath(root);
       const descriptor = openRoot(canonical);
@@ -91,6 +103,8 @@ export class SafeRoot {
       }
       return resolved;
     } catch (error) {
+      if (process.platform === "win32" && errorCode(error) === "ENOENT")
+        await this.windowsFileParent(path);
       if (errorCode(error) === "EINVAL")
         throw new WorkspaceError(
           "PATH_CHANGED",
@@ -98,6 +112,25 @@ export class SafeRoot {
           error,
         );
       throw failure(error);
+    }
+  }
+  /**
+   * Win32 reports a file used as a folder ("a.txt/b") as missing, where POSIX says ENOTDIR.
+   * Throws NOT_DIRECTORY when an existing component before the leaf is not a directory.
+   */
+  private async windowsFileParent(path: string): Promise<void> {
+    const parts = path.split("/").filter(Boolean);
+    let prefix = this.root;
+    for (const part of parts.slice(0, -1)) {
+      prefix = join(prefix, part);
+      let info: Stats;
+      try {
+        info = await this.fs.stat(prefix);
+      } catch {
+        return;
+      }
+      if (!info.isDirectory())
+        throw new WorkspaceError("NOT_DIRECTORY", "A parent of the path is not a directory");
     }
   }
   async verify(input: string, resolved: string, expected: Stats): Promise<void> {
@@ -130,6 +163,16 @@ export class SafeRoot {
   async file(
     input: string,
   ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
+    const passDirectories =
+      process.platform === "win32" ? this.windowsPasses?.getStore() : undefined;
+    if (passDirectories) {
+      const pinned = await this.windowsPassFile(passDirectories, input);
+      if (pinned) return pinned;
+    }
+    if (process.platform === "win32") {
+      const canonical = await this.windowsCanonicalFile(input);
+      if (canonical) return canonical;
+    }
     let handle: FileHandle | Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
@@ -143,6 +186,88 @@ export class SafeRoot {
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
       await this.verify(input, resolved, info);
       return { handle, info, resolved };
+    } catch (error) {
+      await handle?.close();
+      throw failure(error);
+    }
+  }
+  /** Win32: this async context's pass handles; null marks a pass that could not pin the root. */
+  private windowsPasses: AsyncLocalStorage<PassDirectories | null> | undefined;
+  /** Win32: whether this async context already runs inside a pass. */
+  windowsInPass(): boolean {
+    return this.windowsPasses?.getStore() !== undefined;
+  }
+  /**
+   * Win32: runs one search pass holding directory handles, so files it reads open relative to
+   * their parent. Reads outside the pass, and any pass that can't pin the root, take the
+   * general path.
+   */
+  async windowsPass<T>(run: () => Promise<T>): Promise<T> {
+    if (process.platform !== "win32" || this.windowsInPass()) return run();
+    this.windowsPasses ??= new AsyncLocalStorage();
+    let root: Descriptor | undefined;
+    try {
+      root = openRoot(this.root);
+      if (!same(await root.stat(), this.identity)) throw new Error("Workspace root was replaced");
+    } catch {
+      await root?.close().catch(() => {});
+      // The general path reports the root's real state; null keeps the pass from restarting.
+      return this.windowsPasses.run(null, run);
+    }
+    const directories = new PassDirectories(root);
+    try {
+      return await this.windowsPasses.run(directories, run);
+    } finally {
+      await directories.close();
+    }
+  }
+  /** Win32: one open relative to a pass-held parent; links and odd names take the general path. */
+  private async windowsPassFile(directories: PassDirectories, input: string) {
+    const path = this.path(input);
+    // "~" may be an 8.3 alias (".ACE-UP~1"); those keep the general path's resolved checks.
+    if (!path || path.includes("~") || transferTemporary(path)) return undefined;
+    let handle: Descriptor | undefined;
+    try {
+      handle = directories.file(path);
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        await handle.close();
+        return undefined;
+      }
+      const resolved = join(this.root, ...path.split("/"));
+      if (windowsBytesLocal(info))
+        return { handle: new LocalFileDescriptor(handle.fd), info, resolved };
+      return { handle, info, resolved };
+    } catch {
+      await handle?.close().catch(() => {});
+      return undefined;
+    }
+  }
+  /**
+   * Win32: every handle open walks from the drive root, so the general path (resolve, lstat,
+   * open, resolve again) costs ~50 opens per file. When the request is already the canonical
+   * on-disk path (no links, case or 8.3 aliases) the root-anchored handle chain, which refuses
+   * links, confines the open by itself; the lstat identity check still detects replacement.
+   * Anything else returns undefined for the general path to decide.
+   */
+  private async windowsCanonicalFile(input: string) {
+    const path = this.path(input);
+    if (!path || transferTemporary(path)) return undefined;
+    const lexical = join(this.root, ...path.split("/"));
+    try {
+      if ((await this.fs.realpath(lexical)) !== lexical) return undefined;
+    } catch {
+      return undefined;
+    }
+    let handle: FileHandle | Descriptor | undefined;
+    try {
+      const expected = await this.fs.lstat(lexical);
+      if (!expected.isFile()) return undefined;
+      handle = await this.anchored(lexical, constants.O_RDONLY);
+      const info = await handle.stat();
+      if (!info.isFile() || !same(info, expected))
+        throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
+      return { handle, info, resolved: lexical };
     } catch (error) {
       await handle?.close();
       throw failure(error);
@@ -212,7 +337,22 @@ export class SafeRoot {
     } catch (error) {
       if (errorCode(error) !== "ENOENT") throw error;
     }
+    // Windows: realpath returns on-disk long names, so case and 8.3 aliases (GIT~1) of
+    // reserved entries are caught on the resolved parent and the existing leaf.
+    if (process.platform === "win32") await this.windowsReservedTarget(resolved, destination);
     return { path: destination, verify: () => this.verify(parent, resolved, expected) };
+  }
+  private async windowsReservedTarget(resolved: string, destination: string): Promise<void> {
+    let leaf: string | undefined;
+    try {
+      // A link leaf was refused above, so realpath names the leaf itself.
+      leaf = basename(await this.fs.realpath(destination));
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    const parent = relative(this.root, resolved).split(sep).join("/");
+    if (internal(parent) || (leaf !== undefined && internal(leaf)))
+      throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
   }
   async metadata(input: string) {
     try {
@@ -230,6 +370,8 @@ export class SafeRoot {
         await parent.close();
       }
       if (proof.dev !== expected.dev || proof.ino !== expected.ino)
+        throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
+      if (process.platform === "win32" && !sameWindowsFile(proof, expected))
         throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
       const info = expected;
       info.size = proof.size;
@@ -261,6 +403,16 @@ export class SafeRoot {
       if (!same(await handle.stat(), expected))
         throw new WorkspaceError("PATH_CHANGED", "Directory was replaced");
       const fd = handle.fd;
+      // Windows search passes need only each entry's type, which the enumeration already read.
+      if (process.platform === "win32" && this.windowsPasses?.getStore()) {
+        const listed = windowsListing(fd).map(({ name, info }) => ({
+          name,
+          info,
+          type: windowsEntryType(info.mode),
+        }));
+        await this.verify(input, resolved, expected);
+        return listed;
+      }
       const entries = descriptorNames(fd).flatMap((name) => {
         try {
           const info = statAt(fd, name);
@@ -288,10 +440,22 @@ export class SafeRoot {
     }
   }
 }
+/** Win32: projects open from a local drive; network shares and device paths are refused. */
+function windowsRootRequest(root: string): void {
+  if (/^[\\/]{2}[?.][\\/]|^\\\?\?\\/.test(root))
+    throw new WorkspaceError("INVALID_PATH", `Device paths can't be opened as projects: ${root}`);
+  if (/^[\\/]{2}/.test(root))
+    throw new WorkspaceError(
+      "INVALID_PATH",
+      `Network folders (\\\\server\\share) can't be opened as projects; clone or copy it to a local drive: ${root}`,
+    );
+}
 export function transferTemporary(path: string): boolean {
+  if (process.platform === "win32") return windowsTransferTemporary(path);
   return path.split("/").some((part) => part.startsWith(".ace-upload-"));
 }
 export function internal(path: string): boolean {
+  if (process.platform === "win32") return windowsInternal(path);
   return path.split("/").includes(".git") || transferTemporary(path);
 }
 export function transient(error: unknown): boolean {
@@ -299,4 +463,15 @@ export function transient(error: unknown): boolean {
     error instanceof WorkspaceError &&
     ["NOT_FOUND", "PATH_ESCAPE", "PATH_CHANGED", "NOT_DIRECTORY"].includes(error.code)
   );
+}
+/** Win32 search passes: the entry type for a listed mode, as entries() derives it. */
+function windowsEntryType(mode: number) {
+  const kind = mode & 0o170000;
+  return kind === 0o100000
+    ? ("file" as const)
+    : kind === 0o040000
+      ? ("directory" as const)
+      : kind === 0o120000
+        ? ("symlink" as const)
+        : ("other" as const);
 }

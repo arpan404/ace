@@ -19,6 +19,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { FolderArchiveError, measureFolder, packFolder, unpackArchive } from "./index.ts";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import tar from "tar-stream";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -189,3 +192,87 @@ it("streams a large file through pack and unpack without holding it in memory", 
   expect(peak - baseline).toBeLessThan(96 * 1024 * 1024);
   expect(await sha256(join(t.destination, "large.bin"))).toBe(expected.digest("hex"));
 });
+
+const windows = process.platform === "win32";
+/** Headers as an independent tar reader sees them. */
+async function windowsMembers(file: string) {
+  const extract = tar.extract();
+  const members: { name: string; type: string; linkname?: string | null }[] = [];
+  extract.on("entry", (header, stream, next) => {
+    members.push({ name: header.name, type: header.type ?? "", linkname: header.linkname });
+    stream.on("end", next);
+    stream.resume();
+  });
+  await pipeline(createReadStream(file), extract);
+  return members;
+}
+
+it.runIf(windows)(
+  "Windows: round-trips nested files, empty dirs, binaries, read-only files, Unicode and long paths",
+  async () => {
+    const t = await temp();
+    const binary = randomBytes(300_001);
+    const deep = Array.from({ length: 4 }, (_, index) => `${"d".repeat(70)}${index}`);
+    await mkdir(join(t.source, ...deep), { recursive: true });
+    await mkdir(join(t.source, "empty"));
+    await writeFile(join(t.source, ".env"), "dotfile");
+    await writeFile(join(t.source, "blob.bin"), binary);
+    await writeFile(join(t.source, "界 ünïcode.txt"), "unicode");
+    await writeFile(join(t.source, ...deep, "deep.txt"), "deep text");
+    await utimes(join(t.source, ...deep, "deep.txt"), 1_600_000_000, 1_600_000_000);
+    await writeFile(join(t.source, "locked.txt"), "read only");
+    await chmod(join(t.source, "locked.txt"), 0o444);
+    expect(join(t.destination, ...deep, "deep.txt").length).toBeGreaterThan(260);
+
+    const packed = await packFolder(t.source, t.archive);
+    expect(packed.sha256).toBe(await sha256(t.archive));
+    expect(packed.skipped).toBe(0);
+    expect(await measureFolder(t.source)).toEqual({
+      bytes: packed.bytes,
+      entries: packed.entries,
+      skipped: 0,
+    });
+    const unpacked = await unpackArchive(t.archive, t.destination);
+    expect(unpacked.entries).toBe(packed.entries);
+
+    const out = (...path: string[]) => join(t.destination, ...path);
+    expect(await readFile(out(".env"), "utf8")).toBe("dotfile");
+    expect(Buffer.compare(await readFile(out("blob.bin")), binary)).toBe(0);
+    expect(await readFile(out("界 ünïcode.txt"), "utf8")).toBe("unicode");
+    expect(await readFile(out(...deep, "deep.txt"), "utf8")).toBe("deep text");
+    expect(Math.floor((await stat(out(...deep, "deep.txt"))).mtimeMs / 1000)).toBe(1_600_000_000);
+    expect(await readdir(out("empty"))).toEqual([]);
+    expect((await stat(out("locked.txt"))).mode & 0o200).toBe(0);
+    expect((await stat(out("blob.bin"))).mode & 0o200).toBe(0o200);
+    await chmod(join(t.source, "locked.txt"), 0o666);
+    await chmod(out("locked.txt"), 0o666);
+  },
+);
+
+it.runIf(windows)(
+  "Windows: packs links with portable targets, skips junctions leaving the folder, and unpacks no links",
+  async () => {
+    const t = await temp();
+    await writeFile(join(t.source, "kept.txt"), "kept");
+    await mkdir(join(t.source, "dir"));
+    await symlink("..\\kept.txt", join(t.source, "dir", "back"));
+    await symlink(t.root, join(t.source, "junction"), "junction");
+    await symlink(t.root, join(t.source, "absolute"));
+
+    const packed = await packFolder(t.source, t.archive);
+    expect(packed.skipped).toBe(2);
+    expect(await measureFolder(t.source)).toEqual({
+      bytes: packed.bytes,
+      entries: packed.entries,
+      skipped: 2,
+    });
+    expect(await windowsMembers(t.archive)).toContainEqual(
+      expect.objectContaining({ name: "dir/back", type: "symlink", linkname: "../kept.txt" }),
+    );
+    const unpacked = await unpackArchive(t.archive, t.destination);
+    expect(unpacked.entries).toBe(packed.entries - 1);
+    expect((await readdir(t.destination)).toSorted()).toEqual(["dir", "kept.txt"]);
+    expect(await readdir(join(t.destination, "dir"))).toEqual([]);
+    expect(await readdir(t.root)).toEqual(expect.arrayContaining(["dest", "src"]));
+  },
+);

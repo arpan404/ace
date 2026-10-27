@@ -16,6 +16,8 @@ import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
  *   indexes (it has no 1024 px directory, so a lone 1024 px icon is never found);
  * - `resources/trayTemplate.png` and `trayTemplate@2x.png`: black and alpha only, which macOS
  *   treats as a template image and tints for the menu bar;
+ * - `resources/trayColor.png` and `trayColor@2x.png`: the app tile at tray size, for Linux
+ *   panels and the Windows taskbar, which never tint tray icons;
  * - the web app's `public/favicon.png` (from `public/favicon.svg`, for browsers without SVG
  *   favicons) and `public/apple-touch-icon.png` (from `brand/apple-touch-icon.svg`).
  *
@@ -130,6 +132,9 @@ try {
     })),
     { svg: tray, size: 18, out: join(resources, "trayTemplate.png"), template: true },
     { svg: tray, size: 36, out: join(resources, "trayTemplate@2x.png"), template: true },
+    // The colour tile for trays that never tint their icons: Linux panels and Windows' taskbar.
+    { svg: icon, size: 24, out: join(resources, "trayColor.png"), template: false },
+    { svg: icon, size: 48, out: join(resources, "trayColor@2x.png"), template: false },
     { svg: favicon, size: 64, out: join(web, "public", "favicon.png"), template: false },
     { svg: touch, size: 180, out: join(web, "public", "apple-touch-icon.png"), template: false },
   ];
