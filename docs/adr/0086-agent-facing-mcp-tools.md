@@ -218,8 +218,9 @@ list is incomplete: a core client calls a found tool directly once its list relo
 Measured with `mcp-agent-budget.process.test.ts` (characters / 4, browser and computer use on),
 Claude paid about 2,620 tokens of ace context on every request: guidance and session facts,
 the skill listing, five always-loaded schemas and the deferred names. It now pays about 1,540,
-and the whole catalogue a client pays when it loads every tool fell from 68,776 to about 57,000
-characters.
+and the whole catalogue a client pays when it loads every tool fell from about 17,200 to about
+10,050 tokens (68,776 to about 40,000 characters), with browser, computer-use and simulator
+descriptions cut by 45% and their detail moved into the guides.
 
 **Claude loads only `context` and `delegate` upfront.** Claude Code and the Claude Agent SDK
 search deferred tools themselves and list ace's guides as skills, so three of the five
@@ -245,7 +246,8 @@ descriptions say what each is for and when, in about half the words.
 so the advertised schema stays valid in the strict subsets Gemini and OpenAI models accept, and
 the registry keeps validating against the full Zod schema:
 
-- string `pattern`s and every string length;
+- string `pattern`s and every string length, except a pattern marked `keepPattern` because it is
+  the field's only list of allowed values (`screen_input` and `screen_measure` key names);
 - a `minimum` of 0 or 1, a `maximum` of 1,000 or more;
 - `minItems: 1`, and a `maxItems` of 32 or more or at least the size of the item enum;
 - a `description` that only restates the field's default or enum values;
@@ -257,3 +259,17 @@ Pi on Gemini models) refuses an enum without one, and no client tells ace which 
 the saving is not worth a per-client branch. A call that breaks a dropped bound gets an
 `invalid_arguments` issue naming it (`array <= 64 in length`, `a string matching /^…$/`), so one
 retry fixes it.
+
+**`models` returns one compact roster.** The default call lists every provider's current models
+in one result (about 1,500 characters on a realistic install, down from 5,400 for the first of
+five pages): models sharing efforts and serving accounts are one set, each account is listed
+once with only its unusual fields, and superseded releases are counted in `omitted`. A model is
+superseded only when every account that serves it says so, so an account's newest release stays
+listed even when another account has a newer one. Large catalogues keep favourites, the default
+and the newest release of each line, up to eight. `query` searches every account and every
+release; `delegate` still takes any catalogue model. The roster reads every page of every
+account (`agents.models`), so a second account's models are never cut off by paging.
+
+**Budgets.** `mcp-agent-budget.process.test.ts` holds each provider's per-request cost and
+`mcp-catalogue-budget.process.test.ts` the whole catalogue, any single tool and a Claude session
+without tool search, each at the measured cost rounded up to the next 50 tokens.

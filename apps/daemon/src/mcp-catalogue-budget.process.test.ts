@@ -26,14 +26,14 @@ const descriptor = ({ name, description, inputSchema }: ListedTool) =>
   JSON.stringify({ name, description, inputSchema });
 
 /** Every tool a full-access thread with the browser and computer use on is offered. */
-const catalogueCap = 17_200;
+const catalogueCap = 10_050;
 /** Any one tool's advertised definition: its name, description and input schema. */
-const perToolCap = 1_700;
+const perToolCap = 650;
 /**
  * A Claude session without tool search: guidance with the brief, the core tools in full, and the
  * skill listing. It never pays for the full catalogue (claude-tool-search.ts).
  */
-const claudeWithoutToolSearchCap = 3_750;
+const claudeWithoutToolSearchCap = 2_650;
 
 let world: EvalWorld | undefined;
 afterEach(async () => {

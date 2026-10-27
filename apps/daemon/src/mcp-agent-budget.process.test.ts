@@ -48,14 +48,14 @@ const reloading = new Set<ProviderKind>(["opencode", "pi"]);
  * deferred names and the skill listing. Codex pays its developer text only.
  */
 const budgets: Record<ProviderKind, number> = {
-  claude: 2_650,
-  // Raised from 1_150 for the transfer tool's name (ADR 0101).
-  codex: 1_200,
-  opencode: 3_800,
-  cursor: 3_800,
-  antigravity: 2_100,
-  acp: 3_200,
-  pi: 3_800,
+  // Lowered from 2_650 when schemas were compacted and Claude preloaded only context and delegate.
+  claude: 1_550,
+  codex: 1_150,
+  opencode: 2_650,
+  cursor: 2_900,
+  antigravity: 1_600,
+  acp: 2_350,
+  pi: 2_900,
 };
 
 let world: EvalWorld | undefined;
@@ -118,10 +118,8 @@ async function skillListing(): Promise<string> {
   return guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n");
 }
 
-it("ace's shared guidance stays under 315 tokens and each provider's own lines stay short", () => {
-  // Raised from 300 for one clause naming offshift (#899): it loads only on request, so the
-  // instructions are the one place an agent learns it exists.
-  expect(tokens(aceInstructions)).toBeLessThanOrEqual(315);
+it("ace's shared guidance stays under 250 tokens and each provider's own lines stay short", () => {
+  expect(tokens(aceInstructions)).toBeLessThanOrEqual(250);
   // What varies by provider and listing (naming, how to reach an unlisted tool) is the provider's
   // own prefix, never the shared text. Codex's prefix carries its exec recipe instead of any
   // schema or name listing; mcp-codex-discovery.process.test.ts holds it under 900 tokens whole.
@@ -219,10 +217,10 @@ it("a core-mode session lists offshift only once an agent reads the offshift gui
   await core.close();
 });
 
-it("the shipped skills cost under 600 tokens in a native skill listing", async () => {
+it("the shipped skills cost under 350 tokens in a native skill listing", async () => {
   const guides = await builtinGuides();
   const listing = guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n");
-  expect(tokens(listing)).toBeLessThanOrEqual(600);
+  expect(tokens(listing)).toBeLessThanOrEqual(350);
 });
 
 it("every shipped guide is reachable from the always-on guidance and serves through guide", async () => {
@@ -283,7 +281,7 @@ it.runIf(process.platform === "win32")(
   },
 );
 
-it("Claude's per-request ace context stays under 1,600 tokens", async () => {
+it("Claude's per-request ace context stays under 1,550 tokens", async () => {
   const agents = await session();
   const text = guidance("claude", agents.facts);
   // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.
@@ -294,5 +292,5 @@ it("Claude's per-request ace context stays under 1,600 tokens", async () => {
     await skillListing(),
   ].join("\n");
   expect(text).toContain("installed as skills");
-  expect(tokens(always)).toBeLessThanOrEqual(1_600);
+  expect(tokens(always)).toBeLessThanOrEqual(budgets.claude);
 });
