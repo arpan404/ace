@@ -158,7 +158,7 @@ export class QueueFollower {
     const hold = queueHold(this.#store, page, this.#now());
     // The message that wasn't sent is the transcript's, not queued work.
     const messages = (page?.messages ?? []).filter((message) => message.id !== hold.head);
-    this.#counted(messages.length, hold.strip !== null);
+    this.#counted(messages.length, hold.strip?.kind === "limit");
     this.#put("queue", () => {
       const thread = this.#store.thread;
       const root = thread?.rootAgentId ? this.#store.agent(thread.rootAgentId) : undefined;
