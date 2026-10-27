@@ -35,11 +35,13 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             split
-                .modifier(DrawerPlace(part: .page, hold: hold, open: drawer.isOpen, window: width, reduceMotion: reduceMotion))
+                .modifier(DrawerPlace(part: .page, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
                 // Behind the drawer the page is one element, the closer over it.
                 .accessibilityHidden(layout == .list || (layout == .page && drawer.isOpen))
             if layout != .beside { drawerLayer }
         }
+        // The list's own page colour behind the pushed page, so its rounded corners show.
+        .background { if layout != .beside { AceTheme.Colours.background.ignoresSafeArea() } }
         .gesture(DrawerEdgePan(enabled: ThreadDrawer.edgeOpens(layout, path: path) && !drawer.isOpen, follows: !reduceMotion,
                                began: beginHold, moved: { [hold, listWidth] in hold.move($0, width: listWidth) },
                                ended: { release(velocity: $1) }))
@@ -136,10 +138,10 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     /// with the escape gesture (Esc on a keyboard), the dimmed page one Close sidebar button.
     private var drawerLayer: some View {
         ZStack(alignment: .topLeading) {
-            DrawerCloser(hold: hold, layout: layout, open: drawer.isOpen, window: width, listWidth: listWidth, reduceMotion: reduceMotion,
+            DrawerCloser(hold: hold, layout: layout, stop: drawer.stop, window: width, listWidth: listWidth, reduceMotion: reduceMotion,
                          close: closeDrawer, ended: { release(velocity: $0) })
             NavigationStack { listed(onGlass: false) }
-                .modifier(DrawerPlace(part: .list, hold: hold, open: drawer.isOpen, window: width, reduceMotion: reduceMotion))
+                .modifier(DrawerPlace(part: .list, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
             if layout == .page && drawer.isOpen { Color.clear.frame(width: 0, height: 0).escapeCloses(closeDrawer) }
         }
         .accessibilityElement(children: .contain)
@@ -172,13 +174,13 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     private func toggleDrawer() { if drawer.isOpen { closeDrawer() } else { openDrawer() } }
     private func beginHold() {
         dismissKeyboard()
-        if reduceMotion { openDrawer() } else { hold.begin(from: false) }
+        if reduceMotion { openDrawer() } else { hold.begin(from: 0, full: ThreadDrawer.full(window: width)) }
     }
     private func release(velocity: CGFloat) {
         let wasOpen = drawer.isOpen
         withAnimation(motion) {
-            guard let open = hold.release(velocity: velocity) else { return }
-            if open { drawer.open(in: layout) } else { drawer.close() }
+            guard let stop = hold.release(velocity: velocity) else { return }
+            drawer.settle(stop, in: layout)
         }
         if wasOpen && !drawer.isOpen { closed() }
     }

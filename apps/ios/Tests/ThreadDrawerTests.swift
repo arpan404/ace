@@ -73,15 +73,47 @@ import SwiftUI
     }
 
     @Test func aDragFollowsTheFingerAndSettlesAtTheNearerEndUnlessFlicked() {
-        #expect(ThreadDrawer.progress(from: false, translation: 161, width: 322) == 0.5)
-        #expect(ThreadDrawer.progress(from: false, translation: -40, width: 322) == 0)
-        #expect(ThreadDrawer.progress(from: true, translation: -161, width: 322) == 0.5)
-        #expect(ThreadDrawer.progress(from: true, translation: 80, width: 322) == 1)
-        #expect(ThreadDrawer.settlesOpen(progress: 0.6, velocity: 0))
-        #expect(!ThreadDrawer.settlesOpen(progress: 0.4, velocity: 0))
-        // A quick flick goes its way however little the list moved.
-        #expect(ThreadDrawer.settlesOpen(progress: 0.1, velocity: 900))
-        #expect(!ThreadDrawer.settlesOpen(progress: 0.9, velocity: -900))
+        #expect(ThreadDrawer.progress(from: 0, translation: 161, width: 322, limit: 1) == 0.5)
+        #expect(ThreadDrawer.progress(from: 0, translation: -40, width: 322, limit: 1) == 0)
+        #expect(ThreadDrawer.progress(from: 1, translation: -161, width: 322, limit: 1) == 0.5)
+        #expect(ThreadDrawer.progress(from: 1, translation: 80, width: 322, limit: 1) == 1)
+        #expect(ThreadDrawer.settles(progress: 0.6, velocity: 0, full: 1.25) == .open)
+        #expect(ThreadDrawer.settles(progress: 0.4, velocity: 0, full: 1.25) == .closed)
+        // A quick flick goes its way however little the list moved, never across the window.
+        #expect(ThreadDrawer.settles(progress: 0.1, velocity: 900, full: 1.25) == .open)
+        #expect(ThreadDrawer.settles(progress: 0.9, velocity: -900, full: 1.25) == .closed)
+        #expect(ThreadDrawer.settles(progress: 1, velocity: 900, full: 1.25) == .open)
+    }
+
+    @Test func pullingTheListHardPastItsWidthTakesItAcrossTheWholeWindow() {
+        let window: CGFloat = 402
+        let width = ThreadDrawer.listWidth(window: window), full = ThreadDrawer.full(window: window)
+        #expect(abs(full * width - window) < 0.001)
+        // The pull goes on past the list's width, up to the window's.
+        #expect(ThreadDrawer.progress(from: 1, translation: width, width: width, limit: full) == full)
+        // Past halfway to the window, or flicked on, it settles across the window.
+        #expect(ThreadDrawer.settles(progress: 1 + (full - 1) * 0.6, velocity: 0, full: full) == .full)
+        #expect(ThreadDrawer.settles(progress: 1.01, velocity: 900, full: full) == .full)
+        // A short pull goes back beside the page; flicked back from the pull, the list closes.
+        #expect(ThreadDrawer.settles(progress: 1 + (full - 1) * 0.3, velocity: 0, full: full) == .open)
+        #expect(ThreadDrawer.settles(progress: full, velocity: -900, full: full) == .closed)
+
+        // Across the window the list is the window's width and the page is out of sight.
+        let across = ThreadDrawer.placement(.page, progress: full, window: window, reduceMotion: false)
+        #expect(across.listWidth == window && across.listOffset == 0 && abs(across.pageOffset - window) < 0.001)
+        // Mid-pull the list keeps its width while the page follows the finger.
+        let pulling = ThreadDrawer.placement(.page, progress: 1 + (full - 1) / 2, window: window, reduceMotion: false)
+        #expect(pulling.listWidth == width && pulling.pageOffset > width && pulling.pageOffset < window && pulling.dim == 1)
+
+        var drawer = ThreadDrawer()
+        drawer.settle(.full, in: .page)
+        #expect(drawer.isOpen && drawer.stop == .full)
+        // Out of sight, the page takes no taps; the list's rows bring it back.
+        #expect(!ThreadDrawer.closerShown(.page, stop: .full, held: nil))
+        #expect(!drawer.pick(open, open: open, in: .page).opens && drawer.stop == .closed)
+        // Only an open page has a drawer to rest across.
+        drawer.settle(.full, in: .list)
+        #expect(drawer.stop == .closed)
     }
 
 
@@ -114,12 +146,12 @@ import SwiftUI
 
     @MainActor @Test func dragTheDimmedThreadPastTheListsFullWidthAndItStillLetsGoClosed() {
         let hold = DrawerHold()
-        hold.begin(from: true)
+        hold.begin(from: 1, full: 1.25)
         hold.move(-322 * 1.5, width: 322)
         #expect(hold.progress == 0)
         // The dimmed thread stays to take the end of the drag with the list all the way in.
-        #expect(ThreadDrawer.closerShown(.page, open: true, held: hold.progress))
-        #expect(hold.release(velocity: 0) == false)
+        #expect(ThreadDrawer.closerShown(.page, stop: .open, held: hold.progress))
+        #expect(hold.release(velocity: 0) == .closed)
         #expect(hold.progress == nil)
         // Its end, after the system cancelled the drag, changes nothing more.
         #expect(hold.release(velocity: 0) == nil)
@@ -127,9 +159,16 @@ import SwiftUI
 
     @MainActor @Test func aCancelledDragSettlesWhereTheFingerLeftIt() {
         let hold = DrawerHold()
-        hold.begin(from: false)
+        hold.begin(from: 0, full: 1.25)
         hold.move(250, width: 322)
-        #expect(hold.release(velocity: 0) == true)
-        #expect(!ThreadDrawer.closerShown(.page, open: false, held: hold.progress))
+        #expect(hold.release(velocity: 0) == .open)
+        #expect(!ThreadDrawer.closerShown(.page, stop: .closed, held: hold.progress))
+    }
+
+    @MainActor @Test func oneHardSwipeFromTheEdgeCanTakeTheListAcrossTheWindow() {
+        let hold = DrawerHold()
+        hold.begin(from: 0, full: 1.25)
+        hold.move(322 * 1.2, width: 322)
+        #expect(hold.release(velocity: 0) == .full)
     }
 }
