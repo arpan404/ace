@@ -123,7 +123,7 @@ export class CommandHost implements CapabilityHost {
       timeoutMs: timeout * 1000,
       tailBytes: args.background ? backgroundTailBytes : foregroundTailBytes,
     };
-    if (args.background) return this.background(session, args.command, spec, limits);
+    if (args.background) return this.background(session, args.command, spec, limits, signal);
     signal.throwIfAborted();
     const run = runCommand(this.deps.spawn, this.deps.clock, spec, limits);
     const key = `ace-command:${this.deps.newId()}`;
@@ -156,6 +156,7 @@ export class CommandHost implements CapabilityHost {
     command: string,
     spec: { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv },
     limits: { timeoutMs: number; tailBytes: number },
+    signal: AbortSignal,
   ): Promise<MachineToolResult> {
     const mine = [...this.jobs.values()].filter((job) => job.session.threadId === session.threadId);
     if (mine.filter((job) => !job.outcome).length >= runningPerSession)
@@ -169,11 +170,15 @@ export class CommandHost implements CapabilityHost {
     const controller = new AbortController();
     const made: { job?: Job } = {};
     const label = `${clip(command, 120)} from ${this.caller(session)}`;
+    // This call's own flight already caught any Stop or revocation since its grant was read,
+    // so a ticket taken now, with that flight still live, misses nothing.
+    signal.throwIfAborted();
+    const ticket = this.deps.guests.ticket();
     // The row opens first, so the job shows and keeps the session from reading done while it
     // runs; the person's Stop, a lowered grant or command_stop ends its whole process tree.
     const held = this.deps.guests.run(
       session,
-      { capability: "commands", risk: "operate", label },
+      { capability: "commands", risk: "operate", label, ticket },
       controller.signal,
       (stop) => {
         const run = runCommand(this.deps.spawn, this.deps.clock, spec, limits);
