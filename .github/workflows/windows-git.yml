@@ -1,0 +1,81 @@
+name: Windows Git and forge
+
+# Git, forge and review suites against the runner's own Git for Windows and gh, on native
+# x64 and ARM64, for finding Windows gaps. Fixtures need no MSVC build: install skips postinstall.
+
+# Dispatch only: the broad default also runs shared suites whose fixtures assume POSIX
+# (shebang proxies, process groups, control characters in file names).
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Comma-separated test globs (defaults to the Git, forge and review suites)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-git:
+    name: Windows Git (${{ matrix.arch }}, autocrlf ${{ matrix.autocrlf }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            autocrlf: "true"
+          - os: windows-latest
+            arch: x64
+            autocrlf: "false"
+          - os: windows-11-arm
+            arch: arm64
+            autocrlf: "true"
+          - os: windows-11-arm
+            arch: arm64
+            autocrlf: "false"
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+      ACE_WINDOWS_GIT_TESTS: ${{ inputs.tests || 'packages/git/src/**/*.test.ts,packages/forge/src/**/*.test.ts,packages/review/src/**/*.test.ts' }}
+    steps:
+      # The checkout keeps LF; the runner's system core.autocrlf stays as installed for tests.
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.arch }}
+      # "true" is Git for Windows' installed default; "false" is what most shared fixtures expect.
+      # The checkout above already happened, so this only shapes the tests' own repositories.
+      - name: Set the system line-ending conversion for the tests
+        run: git config --system core.autocrlf ${{ matrix.autocrlf }}
+      - name: Git and gh on this runner
+        run: |
+          node -p "JSON.stringify({ arch: process.arch, version: process.version })"
+          git --version
+          git config --system --list --show-origin
+          gh --version
+      - name: Run Windows Git suite
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-git-native.config.ts

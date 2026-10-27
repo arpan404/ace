@@ -31,6 +31,9 @@ import {
   planUpdateLaunch,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
+import { rename } from "node:fs/promises";
+import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
+import { recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
@@ -116,6 +119,8 @@ function updatePorts(): UpdatePorts {
         "migrate-check",
         copy,
       ]);
+      // The check ran the candidate's node.exe; Windows can hold its files a moment after exit.
+      if (process.platform === "win32") await renamable(candidate);
     },
   };
 }
@@ -192,6 +197,9 @@ export async function installArtifact(
     await mkdir(join(root, "bin"), { recursive: true });
     const { writeFile } = await import("node:fs/promises");
     await writeFile(join(root, "bin/ace"), renderLauncher(root), { mode: 0o755 });
+    // Windows runs the launcher by its extension: bin\ace.cmd.
+    if (process.platform === "win32")
+      await rename(join(root, "bin/ace"), join(root, "bin", CMD_LAUNCHER));
     await syncTree(join(root, target));
     await syncDirectory(join(root, "releases"));
     await atomicPointer(join(root, "current"), target);
@@ -278,6 +286,7 @@ export async function supervise() {
 }
 export async function releaseCommand(args: string[]): Promise<boolean> {
   if (args[0] === "update") await updateCli(args.slice(1));
+  else if (args[0] === "supervise" && process.platform === "win32") await superviseTask();
   else if (args[0] === "supervise") await supervise();
   else if (args[0] === "migrate-check" && args.length === 2 && args[1])
     await migrateCheck(resolve(args[1]));
@@ -285,4 +294,67 @@ export async function releaseCommand(args: string[]): Promise<boolean> {
     await installArtifact(resolve(args[1]));
   else return false;
   return true;
+}
+
+/** Waits until nothing holds `directory` open, so the updater's rename of it succeeds. */
+async function renamable(directory: string): Promise<void> {
+  await retrySharing(() => rename(directory, `${directory}.probe`));
+  await retrySharing(() => rename(`${directory}.probe`, directory));
+}
+
+const TaskEnvironment = ServiceEnvironment.extend({
+  ACE_HOME: z.string().min(1),
+  PATH: z.string(),
+  ACE_AUTO_UPDATE: z.enum(["0", "1"]),
+}).strict();
+
+/**
+ * `supervise` under Windows' Task Scheduler task. A task has no environment of its own, so the
+ * service environment `ace service install` captured is applied first. Task Scheduler restarts
+ * only a task that fails to start, so a daemon that exits with an error is restarted here, as
+ * launchd's KeepAlive and systemd's Restart=always do; a clean exit (`POST /v1/stop`) ends it.
+ */
+async function superviseTask(): Promise<void> {
+  const root = dataDir();
+  const saved = await readFile(join(root, "service", "environment.json"), "utf8").catch(
+    () => undefined,
+  );
+  if (saved !== undefined) {
+    const environment = TaskEnvironment.parse(JSON.parse(saved));
+    if (resolve(environment.ACE_HOME).toLowerCase() !== resolve(root).toLowerCase())
+      throw new Error("The service environment names another ACE_HOME");
+    Object.assign(process.env, environment);
+  }
+  await untilCleanExit({
+    // supervise() records its own failures in logs/daemon.err.log.
+    async once() {
+      process.exitCode = undefined;
+      await supervise();
+      return typeof process.exitCode === "number" ? process.exitCode : undefined;
+    },
+    wait: (ms) => new Promise((wake) => setTimeout(wake, ms)),
+  });
+}
+
+/**
+ * Runs the supervisor until it ends with exit code 0. A daemon that exited with an error is
+ * restarted after 15 seconds; a supervisor that failed (a missing release, an unreadable home)
+ * is retried with the update recovery's backoff, as an ended task would never be restarted.
+ */
+export async function untilCleanExit(ports: {
+  once(): Promise<number | undefined>;
+  wait(ms: number): Promise<void>;
+}): Promise<void> {
+  for (let failures = 0; ;) {
+    let delay: number;
+    try {
+      if ((await ports.once()) === 0) return;
+      failures = 0;
+      delay = 15_000;
+    } catch {
+      delay = recoveryDelay(failures);
+      failures = Math.min(failures + 1, 6);
+    }
+    await ports.wait(delay);
+  }
 }

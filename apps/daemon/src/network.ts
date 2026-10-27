@@ -69,6 +69,22 @@ export const systemNetwork: Readonly<NetworkRuntime> = {
       )
     ).stdout,
 };
+// Windows runs only an installed tailscale.exe, by absolute path (tailscale-command.ts).
+if (process.platform === "win32")
+  Object.assign(systemNetwork, {
+    status: async () =>
+      (await import("./tailscale-command.ts")).runTailscale(
+        process.env,
+        ["status", "--json"],
+        5000,
+      ),
+    certificate: async (name: string) =>
+      (await import("./tailscale-command.ts")).runTailscale(
+        process.env,
+        ["cert", "--cert-file", "-", "--key-file", "-", "--", name],
+        120_000,
+      ),
+  });
 export async function remoteListener(
   config: Config,
   runtime: Pick<NetworkRuntime, "interfaces" | "status" | "identity"> = systemNetwork,
@@ -81,6 +97,10 @@ export async function remoteListener(
     host = "0.0.0.0";
     advertisedHost =
       config.advertiseHost ??
+      // Windows picks a physical adapter, and throws rather than advertise a virtual one.
+      (process.platform === "win32"
+        ? (await import("./network-adapters.ts")).windowsLanAddress(runtime.interfaces())
+        : undefined) ??
       Object.values(runtime.interfaces())
         .flat()
         .find((entry) => entry && !entry.internal && entry.family === "IPv4")?.address ??
@@ -103,6 +123,9 @@ export async function remoteListener(
       );
     }
   }
+  // Windows ships no OpenSSL: ace's own identity is made with node:crypto before it's loaded.
+  if (process.platform === "win32" && runtime.identity === loadIdentity)
+    await (await import("./node-tls-identity.ts")).ensureIdentity(config.dataDir);
   return {
     host,
     advertisedHost,

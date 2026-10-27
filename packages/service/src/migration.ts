@@ -68,6 +68,12 @@ export async function restoreDatabases(
   }
   for (const name of names) {
     await copyFile(join(snapshot, name), join(dataDir, name));
+    // Windows flushes only through a writable handle.
+    if (process.platform === "win32") {
+      const writable = await open(join(dataDir, name), "r+");
+      await writable.sync().finally(() => writable.close());
+      continue;
+    }
     const file = await open(join(dataDir, name), "r");
     try {
       await file.sync();

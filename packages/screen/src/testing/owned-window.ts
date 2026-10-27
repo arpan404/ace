@@ -6,7 +6,7 @@ import { onTestFinished } from "vitest";
 import { z } from "zod";
 import { lineReader, type ProcessExit } from "@ace/provider-kit/process";
 import { Helper } from "../helper.ts";
-import { spawnWindowsHelper } from "../windows-process.ts";
+import { spawnWindowsHelper } from "../helper.ts";
 import type { Frame } from "../frames.ts";
 import { windowsEndpoint } from "../transport.ts";
 

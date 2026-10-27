@@ -2,6 +2,23 @@ import { DeepLink } from "../shared/contract.ts";
 
 export const protocolScheme = "ace";
 
+const windows = process.platform === "win32";
+
+/**
+ * Windows: a path naming another computer or a device: two leading slashes or backslashes, as in
+ * a UNC share, a `\\?\UNC` long path or a `\\.` device path. Merely looking at one makes
+ * Windows connect over SMB and offer the person's credentials, so a link or argument from
+ * outside never names one.
+ */
+export function isNetworkPath(path: string): boolean {
+  return /^[\\/]{2}/.test(path);
+}
+
+/** Windows: a link that would open a folder on another computer (`isNetworkPath`). */
+export function opensNetworkFolder(link: DeepLink): boolean {
+  return link.kind === "open-folder" && isNetworkPath(link.path);
+}
+
 /**
  * Parses `ace://` links:
  * `ace://thread/<id>[/item/<itemId>]`, `ace://settings[/<page>]`,
@@ -44,6 +61,7 @@ export function parseDeepLink(input: string): DeepLink | undefined {
   })();
   if (kind === "settings" && first && !/^[a-z-]{1,40}$/.test(first)) return undefined;
   const parsed = DeepLink.safeParse(candidate);
+  if (parsed.success && windows && opensNetworkFolder(parsed.data)) return undefined;
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -63,6 +81,8 @@ export function linksFromArgv(
       if (link) links.push(link);
     } else {
       const path = localPath(argument);
+      // Windows: checked before `isDirectory`, whose stat would already reach the server.
+      if (path && windows && isNetworkPath(path)) continue;
       if (path && isDirectory(path)) links.push({ kind: "open-folder", path });
     }
   }

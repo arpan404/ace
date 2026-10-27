@@ -148,3 +148,15 @@ process.once("SIGTERM", () => {
   process.exitCode = 0;
   process.stdin.destroy();
 });
+// Windows sends a console child no SIGTERM; ace's polite stop there closes stdin instead.
+if (process.platform === "win32")
+  process.stdin.once("end", () => {
+    write({
+      method: "session/update",
+      params: {
+        sessionId: "synthetic-session",
+        update: { sessionUpdate: "future_shutdown", final: true },
+      },
+    });
+    process.exitCode = 0;
+  });

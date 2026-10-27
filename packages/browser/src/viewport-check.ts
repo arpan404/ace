@@ -48,6 +48,7 @@ export async function expectViewport(
   zoom: number,
 ): Promise<void> {
   await settled(cdp);
+  if (process.platform === "win32") await windowsApplied(cdp, size, zoom);
   const seen = await pageViewport(cdp);
   const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const width = size.width / factor;
@@ -60,4 +61,27 @@ export async function expectViewport(
     undefined,
     `The page lays out at ${Math.round(seen.width)}×${Math.round(seen.height)} CSS pixels, not ${Math.round(width)}×${Math.round(height)}.`,
   );
+}
+
+/**
+ * Windows: an unseen tab draws no frames, and on a slow machine its renderer can take longer than
+ * `settled` to apply a new emulated size (measured on GitHub's Windows runners: still at the old
+ * 1280 × 720 after both waits). Waits up to 2 s for the size to apply; the check that follows is
+ * unchanged, so a size that never applies still fails.
+ */
+async function windowsApplied(
+  cdp: BrowserCdp,
+  size: { width: number; height: number },
+  zoom: number,
+): Promise<void> {
+  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  for (const deadline = performance.now() + 2_000; performance.now() < deadline;) {
+    const seen = await pageViewport(cdp);
+    if (
+      Math.abs(seen.width - size.width / factor) <= 1 &&
+      Math.abs(seen.height - size.height / factor) <= 1
+    )
+      return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }

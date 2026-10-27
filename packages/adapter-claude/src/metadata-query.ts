@@ -16,6 +16,8 @@ export interface MetadataQueryInput {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   /** The started CLI's pid, as soon as it exists, so an outer owner can contain its group. */
   onCliProcess?: (pid: number) => void;
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
 }
 
 /**

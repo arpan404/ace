@@ -10,7 +10,13 @@ import {
 import { installMainWindowDownloads } from "./downloads.ts";
 import { navigationDecision } from "./navigation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
+import {
+  captionHeight,
+  captionSymbolColor,
+  macTitleBarCss,
+  windowOptions,
+  windowsTitleBarCss,
+} from "./options.ts";
 import { linuxShowGraceMs, showWhenReady } from "./show-when-ready.ts";
 import { timers } from "../os/timers.ts";
 
@@ -101,16 +107,20 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   contents.on("did-navigate", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("dom-ready", () => {
     if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss).catch(() => {});
+    if (process.platform === "win32") void contents.insertCSS(windowsTitleBarCss).catch(() => {});
   });
   // Light and dark can change while ace runs; the window behind the page follows.
   const themeChanged = () => {
     if (window.isDestroyed()) return;
     const dark = nativeTheme.shouldUseDarkColors;
     if (process.platform === "win32")
-      window.setTitleBarOverlay({ symbolColor: titleBarSymbolColor(dark) });
+      window.setTitleBarOverlay({
+        symbolColor: captionSymbolColor(options.background(dark), dark),
+      });
     window.setBackgroundColor(options.background(dark));
   };
   nativeTheme.on("updated", themeChanged);
+  if (process.platform === "win32") followZoomWithCaption(window);
   window.once("closed", () => nativeTheme.off("updated", themeChanged));
   // Retry while the dev server starts. Packaged builds load from disk; if that ever fails,
   // a few retries are enough and an endless reload loop would only burn CPU.
@@ -145,6 +155,24 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   window.on("close", () => void save(window, options.statePath));
   void window.loadURL(options.url).catch(() => {});
   return window;
+}
+
+/**
+ * Windows: the caption buttons follow the page's zoom (`captionHeight`): Chromium restores a
+ * saved zoom on load, and View › Zoom sets the window's page zoom level.
+ */
+function followZoomWithCaption(window: BrowserWindow): void {
+  const contents = window.webContents;
+  const sync = () => {
+    if (window.isDestroyed()) return;
+    window.setTitleBarOverlay({ height: captionHeight(contents.getZoomFactor()) });
+  };
+  const setZoomLevel = contents.setZoomLevel.bind(contents);
+  contents.setZoomLevel = (level: number) => {
+    setZoomLevel(level);
+    sync();
+  };
+  contents.on("did-finish-load", sync);
 }
 
 function readSaved(path: string): SavedWindow | undefined {

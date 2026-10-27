@@ -42,11 +42,20 @@ export function renderCliShim(target: CliShimTarget, platform: NodeJS.Platform):
     if (platform === "win32" && /["%]/.test(path))
       throw new Error(`Unsupported path for the ace command: ${path}`);
   }
+  // cmd reads a batch file in the console's code page, so the paths (a profile such as
+  // C:\Users\José) are read as UTF-8 under code page 65001, and the person's code page is put
+  // back afterwards. Every line before `chcp 65001` is ASCII.
   if (platform === "win32")
     return [
       "@echo off",
       `REM ${cliShimMarker}`,
+      "setlocal",
+      `for /f "tokens=2 delims=:." %%p in ('chcp') do set "ACE_CODE_PAGE=%%p"`,
+      "chcp 65001 >nul",
       `"${target.node}" --disable-warning=ExperimentalWarning "${target.entry}" %*`,
+      `set "ACE_EXIT=%ERRORLEVEL%"`,
+      "chcp %ACE_CODE_PAGE% >nul",
+      "exit /b %ACE_EXIT%",
       "",
     ].join("\r\n");
   return [

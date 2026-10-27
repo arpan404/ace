@@ -272,3 +272,18 @@ guardian stays armed during that wait and stale callbacks cannot affect a later 
 Runtime tests substitute OS/guardian boundaries and do not establish that loginwindow can
 be driven. The production service, daemon transport, verified OS driver, independent guardian
 and installation remain required before enabling this feature.
+
+## Amendment 2026-10-26: the engine on Windows
+
+Windows gets the same agent surface. `ace-screen-helper-windows --computer` (Rust,
+`native/screen-helper-windows/src/computer/`) serves the wire above, and the daemon registers
+`computerToolkit` with Windows wording on win32 instead of the session tools. UI Automation
+replaces AX: one cached subtree read per look, patterns for clicks, values, selection,
+toggles, expansion, text and scrolling, all of which work on windows in the background.
+Classic menu bars are driven by posting the item's `WM_COMMAND`, which also serves shortcuts
+in the background when a menu item is bound to them; edit controls take text by
+`EM_REPLACESEL`. Synthesized input reaches only a window already in front, so pointer
+positions, hover, drags and unbound shortcuts need `activate`; locked or secure desktops and
+apps running as administrator are refused. The person's real input in the app in front and
+Esc stop the agent, as on macOS. Details and the CI tests:
+[the helper README](../../native/screen-helper-windows/README.md).

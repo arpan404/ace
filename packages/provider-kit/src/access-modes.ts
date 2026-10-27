@@ -140,6 +140,9 @@ export function instanceAccessModes(
   identity: AccessIdentity,
   reported: readonly PermissionMode[],
 ): AccessModeOffer[] {
+  // Cursor's SDK has no file sandbox on Windows: its sandboxed Auto review is never offered.
+  if (identity.provider === "cursor" && process.platform === "win32")
+    return accessModeOffers(identity, (native) => native === cursorMode(false, false));
   switch (identity.provider) {
     case "codex":
       // No profile list reported yet: the built-in profiles every Codex has.

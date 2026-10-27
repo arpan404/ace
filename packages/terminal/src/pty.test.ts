@@ -72,6 +72,7 @@ function conpty({
       failDispose = false;
       throw new Error("Windows handle close failed");
     },
+    release: noop,
   };
   const manager = new TerminalManager({
     graceMs: 0,
@@ -153,6 +154,7 @@ describe.runIf(process.platform === "win32")("a ConPTY terminal", () => {
     const api: WindowsJobApi = {
       create: () => "job",
       setKillOnClose: () => true,
+      clearLimits: () => true,
       openProcess: () => "process",
       assignProcess: () => true,
       close: noop,

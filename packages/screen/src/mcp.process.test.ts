@@ -3,7 +3,7 @@ import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
 import { screenToolkit } from "./index.ts";
 import { manager, ready, target } from "./testing/support.ts";
-import { windowsFixture } from "./testing/windows-fixture.ts";
+import { helperFixture } from "./testing/support.ts";
 
 it("screen reads expose read-only approval actions and native actions remain effects", async () => {
   const h = await manager({ FAKE_V2: "1" });
@@ -127,7 +127,7 @@ const windowsBundle = "c:\\program files\\ace fixture\\editor.exe";
 const windowsCaller = { threadId: "thread", agentId: "root" };
 
 async function windowsApp(env: NodeJS.ProcessEnv = {}) {
-  const fixture = await windowsFixture({
+  const fixture = await helperFixture("win32", {
     env: { ...env, TARGET_BUNDLE: windowsBundle, PAYLOAD_VALUE: "1" },
   });
   onTestFinished(() => fixture.close());

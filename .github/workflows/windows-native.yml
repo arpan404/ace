@@ -16,6 +16,7 @@ on:
       - .github/workflows/windows-native.yml
       - scripts/vitest-windows-native.config.ts
       - scripts/vitest-windows-screen.config.ts
+      - scripts/vitest-windows-browser.config.ts
       - scripts/prepare-windows-screen.ps1
       - scripts/test-home-global-setup.ts
       - scripts/test-home-setup.ts
@@ -24,12 +25,40 @@ on:
       - packages/commands/**
       - packages/git/src/cli.ts
       - packages/git/src/disabled-hooks*
+      - packages/git/src/directory-lease.ts
+      - packages/git/src/pinned-process.ts
+      - packages/git/src/git-binary.ts
+      - packages/git/src/reviewer-hooks*
+      - packages/git/src/held-directory*
+      - packages/git/src/checkout-paths*
+      - packages/forge/src/command*
+      - packages/forge/src/testing/**
+      - packages/git/src/worktrees.ts
+      - packages/git/src/diff.ts
+      - packages/git/src/git-processes.ts
+      - packages/git/src/parse-repository.ts
+      - packages/git/src/repository.ts
+      - packages/git/src/projects.ts
+      - packages/git/src/held-clone.ts
+      - packages/git/src/process-runtime.ts
+      - packages/git/src/test-repo.ts
+      - packages/git/src/junction-test-fixtures.ts
+      - scripts/git-template-setup.ts
       - packages/files/src/upload*
       - packages/files/src/filesystem.ts
       - apps/daemon/src/local-files*
+      - apps/daemon/src/daemon-*
+      - apps/daemon/src/process-daemon.ts
+      - apps/daemon/src/builtin-skill-*
+      - apps/daemon/src/process-recovery.ts
+      - apps/daemon/src/console-control-test-support.ts
+      - apps/daemon/src/engine/restart*
       - packages/preview/**
       - native/screen-helper-windows/**
       - packages/screen/**
+      - apps/daemon/src/services/screen.ts
+      - apps/daemon/src/services/mcp.ts
+      - apps/daemon/src/services/computer-wiring.process.test.ts
       - packages/browser/**
       - packages/browser-extension/**
       - packages/provider-kit/src/process*
@@ -38,11 +67,42 @@ on:
       - tools/release/src/pty-assets.ts
       - tools/release/src/node-runtime*.ts
       - tools/release/src/archive*.ts
+      - tools/release/**
       - packages/provider-kit/package.json
       - packages/provider-kit/src/discovery/**
+      - packages/provider-kit/src/installers/**
+      - packages/provider-kit/src/sdk.ts
+      - packages/provider-kit/src/access-modes.ts
+      - packages/adapter-*/**
+      - packages/accounts/**
+      - packages/agent-registry/**
+      - packages/history-import/**
+      - packages/mcp-server/src/private-config.ts
+      - apps/daemon/src/network.ts
+      - apps/daemon/src/tailscale-*
+      - apps/daemon/src/tls-identity*
+      - apps/daemon/src/self-signed-certificate.ts
+      - apps/daemon/src/triage-*
+      - apps/daemon/src/doctor/**
+      - packages/devices/src/sdk*.ts
+      - packages/devices/src/android-sdk-install*
       - package.json
       - bun.lock
+      - apps/desktop/**
+      - packages/service/**
+      - tools/release/src/bundle.ts
+      - tools/release/src/*-assets.ts
   workflow_dispatch:
+    inputs:
+      screen_only:
+        description: "Run only the native screen helper checks (skip the browser and the rest of the native suite)"
+        type: boolean
+        default: false
+      scope:
+        description: "full: every native check; browser: only the browser workflows and video profile"
+        type: choice
+        options: [full, browser]
+        default: full
 
 permissions:
   contents: read
@@ -223,6 +283,7 @@ jobs:
       # step captures no screenshots and moves no user pointer.
       - name: Build + test native screen helper (Rust)
         id: screen-build
+        if: ${{ inputs.scope != 'browser' }}
         timeout-minutes: 15
         shell: cmd
         env:
@@ -242,14 +303,18 @@ jobs:
           rem Run from the crate so .cargo/config.toml enables its static CRT.
           pushd native\screen-helper-windows || exit /b 1
           cargo build --locked --target %RUST_TARGET% || exit /b 1
+          rem The owned Win32 window the computer-use engine tests drive.
+          cargo build --locked --target %RUST_TARGET% --example computer_fixture || exit /b 1
           cargo test --locked --target %RUST_TARGET% || exit /b 1
           popd
 
       - name: Clear runner shell overlays before owned screen tests
+        if: ${{ inputs.scope != 'browser' }}
         run: ./scripts/prepare-windows-screen.ps1
 
-      - name: Verify real screen helper pipe, owned capture, UIA and input
-        timeout-minutes: 3
+      - name: Verify real screen helper pipe, owned capture, UIA, input and the computer-use engine
+        if: ${{ inputs.scope != 'browser' }}
+        timeout-minutes: 10
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
           TEMP: ${{ runner.temp }}
@@ -259,12 +324,12 @@ jobs:
 
       - name: Prepare real Windows browser for streaming checks
         id: browser-prepare
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && (steps.screen-build.outcome == 'success' || inputs.scope == 'browser') && !inputs.screen_only }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
-        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' && !inputs.screen_only && inputs.scope != 'browser' }}
         timeout-minutes: 60
         env:
           TEMP: ${{ runner.temp }}
@@ -278,7 +343,7 @@ jobs:
       # Workspace listing, watching and Node search timings on native Windows (report only;
       # the bounded 20,000-file search case in the suite is the gate).
       - name: Observe Windows workspace search performance (report only)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && !inputs.screen_only && inputs.scope != 'browser' }}
         timeout-minutes: 5
         env:
           TEMP: ${{ runner.temp }}
@@ -287,6 +352,60 @@ jobs:
           node packages/workspace/bench/workspace.ts
           node packages/workspace/bench/search.ts
           node packages/workspace/bench/large-tree.ts
+
+      - name: Run every browser workflow's tests
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 30
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-browser.config.ts
+
+      - name: Profile Windows browser video (report only)
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 8
+        run: node packages/browser/bench/video-profile.ts
+
+      # The desktop's parking window (apps/desktop/src/main/browser/parking.ts) must keep drawing
+      # while offscreen and transparent: compare its page frame rate and capture with and
+      # without Chromium's Windows occlusion tracking.
+      - name: Probe the desktop parking window on Windows (report only)
+        if: ${{ !cancelled() && steps.browser-prepare.outcome == 'success' }}
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = "Stop"
+          $electron = node -e "process.stdout.write(require(require('node:module').createRequire(require('node:path').resolve('apps/desktop/package.json')).resolve('electron')))"
+          # The first require downloads Electron and says so before the path.
+          $electron = ($electron -split "`r?`n" | Where-Object { $_ -match 'electron\.exe$' } | Select-Object -Last 1)
+          $probe = Join-Path $env:RUNNER_TEMP "parking-probe.cjs"
+          @'
+          const { app, BaseWindow, WebContentsView, screen } = require("electron");
+          const variant = process.argv.at(-1);
+          if (variant === "no-occlusion") app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+          setTimeout(() => { console.log(JSON.stringify({ variant, error: "timeout" })); app.exit(1); }, 40000);
+          app.whenReady().then(async () => {
+            const win = new BaseWindow({ show: false, focusable: false, skipTaskbar: true, frame: false, hasShadow: false,
+              fullscreenable: false, title: "ace browser", x: -10000, y: -10000, opacity: 0, hiddenInMissionControl: true, width: 1280, height: 800 });
+            win.setPosition(-10000, -10000);
+            const view = new WebContentsView({ webPreferences: { backgroundThrottling: false } });
+            win.contentView.addChildView(view);
+            view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+            win.showInactive();
+            await view.webContents.loadURL("data:text/html,<body style='height:30000px;font:16px system-ui'>" + "<p>Parked page text 0123456789</p>".repeat(400) + "<script>let y=0;(function s(){scrollTo(0,y=(y+4)%29000);requestAnimationFrame(s)})()</script>");
+            await new Promise((r) => setTimeout(r, 1500));
+            const fps = await view.webContents.executeJavaScript("new Promise(r=>{let f=0,t=performance.now();(function k(){f++;performance.now()-t<5000?requestAnimationFrame(k):r(f/((performance.now()-t)/1000))})()})");
+            const started = performance.now();
+            const image = await view.webContents.capturePage();
+            const captureMs = Math.round(performance.now() - started);
+            console.log(JSON.stringify({ variant, arch: process.arch, pageFps: Math.round(fps),
+              visibility: await view.webContents.executeJavaScript("document.visibilityState"),
+              capture: image.getSize(), captureEmpty: image.isEmpty(), captureMs, bounds: win.getBounds(),
+              scaleFactor: screen.getPrimaryDisplay().scaleFactor }));
+            app.quit();
+          });
+          '@ | Set-Content -Path $probe -Encoding utf8
+          foreach ($variant in "default", "no-occlusion") { & $electron $probe $variant; Write-Host "exit $LASTEXITCODE" }
 
       # Collect native Windows throughput after the serial functional checks.
       # The existing check:perf thresholds remain the acceptance gate.
@@ -304,3 +423,311 @@ jobs:
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           bun --version
           Get-ChildItem packages/workspace/dist/descriptor.node | Format-List Name, Length, LastWriteTime
+
+  # Builds the per-user NSIS installer on a native runner of each architecture, installs it
+  # silently, starts the app and its bundled daemon, runs `ace` from a fresh PATH, updates in
+  # place while it runs, uninstalls and checks the data home is kept
+  # (apps/desktop/scripts/installer-smoke.ps1). Unsigned: no certificate in CI.
+  windows-installer:
+    name: Windows installer (${{ matrix.os }} ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            msvc_arch: x64
+            rust_target: x86_64-pc-windows-msvc
+            node_subdir: win-x64
+          - os: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
+            rust_target: aarch64-pc-windows-msvc
+            node_subdir: win-arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+      FIRST_VERSION: 0.0.1-ci.1
+      SECOND_VERSION: 0.0.1-ci.2
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+
+      - name: Restore Bun download cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+
+      - name: Fetch official Node headers + node.lib and verify SHASUMS256
+        id: headers
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Dist = "https://nodejs.org/dist/v${{ env.NODE_VERSION }}"
+          $Temp = $env:RUNNER_TEMP
+          $Shasums = Join-Path $Temp "SHASUMS256.txt"
+          $HeadersTar = Join-Path $Temp "node-headers.tar.gz"
+          $NodeLib = Join-Path $Temp "node.lib"
+          $Stage = Join-Path $Temp "node-headers"
+          Invoke-WebRequest -Uri "$Dist/SHASUMS256.txt" -OutFile $Shasums
+          Invoke-WebRequest -Uri "$Dist/node-v${{ env.NODE_VERSION }}-headers.tar.gz" -OutFile $HeadersTar
+          Invoke-WebRequest -Uri "$Dist/${{ matrix.node_subdir }}/node.lib" -OutFile $NodeLib
+          $wantHeaders = ((Select-String -Path $Shasums -Pattern "node-v${{ env.NODE_VERSION }}-headers.tar.gz").Line -split '\s+')[0]
+          $wantLib = ((Select-String -Path $Shasums -Pattern "${{ matrix.node_subdir }}/node.lib").Line -split '\s+')[0]
+          if ((Get-FileHash $HeadersTar -Algorithm SHA256).Hash.ToLower() -ne $wantHeaders) { throw "headers SHA256 mismatch" }
+          if ((Get-FileHash $NodeLib -Algorithm SHA256).Hash.ToLower() -ne $wantLib) { throw "node.lib SHA256 mismatch" }
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          tar -xzf $HeadersTar -C $Stage
+          $HeadersDir = (Get-ChildItem -Path $Stage -Filter "node_api.h" -Recurse | Select-Object -First 1).DirectoryName
+          "headers-dir=$HeadersDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "node-lib=$NodeLib" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate MSVC developer environment
+        id: msvc
+        run: |
+          $ErrorActionPreference = "Stop"
+          $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
+          "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install dependencies (builds descriptor.node)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          bun install --frozen-lockfile --os=win32 --cpu=${{ matrix.arch }} || exit /b 1
+
+      - name: Rust toolchain for the screen helper
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup target add ${{ matrix.rust_target }} --toolchain stable
+          rustup default stable
+
+      - name: Run the Windows install unit tests
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          apps/desktop/src/packaging/setup.test.ts
+          apps/desktop/src/packaging/user-path.test.ts
+          apps/desktop/src/main/os/cli-path.test.ts
+          apps/desktop/src/main/daemon/target.test.ts
+
+      - name: Package ${{ env.FIRST_VERSION }} (NSIS, unsigned)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_VERSION: ${{ env.FIRST_VERSION }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          node apps/desktop/scripts/package.ts --full --unsigned --arch ${{ matrix.arch }} || exit /b 1
+
+      - name: Package ${{ env.SECOND_VERSION }} from the same build
+        env:
+          ACE_VERSION: ${{ env.SECOND_VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $release = "apps/desktop/dist/release"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/installers" | Out-Null
+          Move-Item "$release/ace-${{ env.FIRST_VERSION }}-${{ matrix.arch }}-setup.exe" "$env:RUNNER_TEMP/installers/"
+          foreach ($file in @("apps/desktop/dist/app/package.json", "apps/desktop/dist/daemon/desktop-app.json")) {
+            $json = Get-Content $file -Raw | ConvertFrom-Json
+            $json.version = "${{ env.SECOND_VERSION }}"
+            $json | ConvertTo-Json -Depth 10 | Set-Content -NoNewline -Encoding utf8NoBOM $file
+          }
+          node apps/desktop/scripts/package.ts --full --unsigned --skip-build --arch ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { throw "second package failed" }
+          Move-Item "$release/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe" "$env:RUNNER_TEMP/installers/"
+          Get-ChildItem $release -Filter "latest*.yml" | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+
+      - name: Keep the installers for manual checks
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.arch }}
+          path: ${{ runner.temp }}/installers/*.exe
+          retention-days: 3
+
+      - name: Install, run, update and uninstall
+        timeout-minutes: 20
+        env:
+          ACE_SMOKE_SCREENSHOTS: ${{ runner.temp }}/screenshots
+        run: >-
+          ./apps/desktop/scripts/installer-smoke.ps1
+          -First "$env:RUNNER_TEMP/installers/ace-${{ env.FIRST_VERSION }}-${{ matrix.arch }}-setup.exe"
+          -Second "$env:RUNNER_TEMP/installers/ace-${{ env.SECOND_VERSION }}-${{ matrix.arch }}-setup.exe"
+          -SecondVersion "${{ env.SECOND_VERSION }}"
+
+      - name: Gather app logs and desktop screenshots
+        if: always()
+        run: |
+          $out = "$env:RUNNER_TEMP/smoke-artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($dir in @("$env:APPDATA/ace-next/logs", "$env:USERPROFILE/.ace/logs", "$env:RUNNER_TEMP/screenshots")) {
+            if (Test-Path $dir) { Copy-Item -Recurse -Force $dir (Join-Path $out (Split-Path -Leaf (Split-Path -Parent $dir)) ) }
+          }
+
+      - name: Upload app logs and desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs-${{ matrix.arch }}
+          path: ${{ runner.temp }}/smoke-artifacts
+          if-no-files-found: ignore
+
+  # The standalone daemon on Windows: the archive build, its smoke check, the per-user login
+  # task and install.ps1 end to end. Lighter than the job above: no screen or browser work.
+  windows-standalone:
+    name: Windows standalone daemon (${{ matrix.os }} ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            msvc_arch: x64
+            node_subdir: win-x64
+          - os: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
+            node_subdir: win-arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+
+      - name: Assert native Node arch
+        run: |
+          $nodeArch = (node -p "process.arch").Trim()
+          if ($nodeArch -ne "${{ matrix.arch }}") { throw "Node arch mismatch: got $nodeArch, want ${{ matrix.arch }}" }
+
+      - name: Restore Bun download cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+
+      - name: Fetch official Node headers + node.lib and verify SHASUMS256
+        id: headers
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Version = "${{ env.NODE_VERSION }}"
+          $Dist = "https://nodejs.org/dist/v$Version"
+          $Temp = $env:RUNNER_TEMP
+          $Shasums = Join-Path $Temp "SHASUMS256.txt"
+          $HeadersTar = Join-Path $Temp "node-v$Version-headers.tar.gz"
+          $NodeLib = Join-Path $Temp "node.lib"
+          $Stage = Join-Path $Temp "node-headers"
+          Invoke-WebRequest -Uri "$Dist/SHASUMS256.txt" -OutFile $Shasums
+          Invoke-WebRequest -Uri "$Dist/node-v$Version-headers.tar.gz" -OutFile $HeadersTar
+          Invoke-WebRequest -Uri "$Dist/${{ matrix.node_subdir }}/node.lib" -OutFile $NodeLib
+          $expectedHeaders = ((Select-String -Path $Shasums -Pattern "node-v$Version-headers.tar.gz").Line -split '\s+')[0]
+          $expectedLib = ((Select-String -Path $Shasums -Pattern "${{ matrix.node_subdir }}/node.lib").Line -split '\s+')[0]
+          if ((Get-FileHash -Path $HeadersTar -Algorithm SHA256).Hash.ToLower() -ne $expectedHeaders) { throw "headers SHA256 mismatch" }
+          if ((Get-FileHash -Path $NodeLib -Algorithm SHA256).Hash.ToLower() -ne $expectedLib) { throw "node.lib SHA256 mismatch" }
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          tar -xzf $HeadersTar -C $Stage
+          $HeadersDir = (Get-ChildItem -Path $Stage -Filter "node_api.h" -Recurse | Select-Object -First 1).DirectoryName
+          "headers-dir=$HeadersDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "node-lib=$NodeLib" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate MSVC developer environment
+        id: msvc
+        run: |
+          $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
+          "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Clean install (builds the Windows descriptor)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          bun install --frozen-lockfile --os=win32 --cpu=${{ matrix.arch }} || exit /b 1
+          if not exist packages\workspace\dist\descriptor.node node packages/workspace/build.ts || exit /b 1
+
+      - name: Login task, launcher and update tests
+        id: tests
+        timeout-minutes: 15
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts packages/service/src/task.process.test.ts tools/release/src/task-supervisor.test.ts
+
+      - name: Throwaway release key
+        if: ${{ !cancelled() }}
+        run: |
+          node -e "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519');f.writeFileSync(process.argv[1],k.privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync(process.argv[2],k.publicKey.export({type:'spki',format:'pem'}))" "$env:RUNNER_TEMP\ace-key.pem" "$env:RUNNER_TEMP\ace-public.pem"
+
+      - name: Build the win32-${{ matrix.arch }} daemon archive
+        id: build
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: node tools/release/src/build.ts 0.0.0-ci win32-${{ matrix.arch }} "$env:RUNNER_TEMP\ace-public.pem"
+
+      - name: Smoke the archive (ConPTY, daemon start, status, stop)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 5
+        run: node tools/release/src/smoke.ts tools/release/dist/win32-${{ matrix.arch }}
+
+      - name: install.ps1 end to end
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target win32-${{ matrix.arch }} -PrivateKey "$env:RUNNER_TEMP\ace-key.pem" -PublicKey "$env:RUNNER_TEMP\ace-public.pem" -Work "$env:RUNNER_TEMP\install-check"

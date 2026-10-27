@@ -1,0 +1,108 @@
+name: Windows desktop
+
+# The Electron app on a real Windows desktop against the fake daemon: window chrome, caption
+# buttons, shortcut labels, fonts, deep links and toasts (apps/desktop/e2e/desktop-chrome.e2e.ts).
+# Full-screen captures at each scale and scheme are uploaded for a person to look at.
+
+on:
+  push:
+    branches: [main, ace/win-desktop-ui]
+    paths: &desktop-paths
+      - .github/workflows/windows-desktop.yml
+      - apps/desktop/src/**
+      - apps/desktop/e2e/desktop-chrome.e2e.ts
+      - apps/desktop/e2e/fixtures/**
+      - apps/desktop/vitest.e2e.config.ts
+      - apps/desktop/scripts/**
+      - apps/desktop/resources/**
+      - apps/desktop/build/**
+      - apps/web/**
+      - packages/ui-core/**
+      - scripts/prepare-windows-screen.ps1
+  pull_request:
+    paths: *desktop-paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Windows desktop (x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # The fake daemon needs none of the native addons the root postinstall builds.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # The Windows branches' own unit tests (each is gated to run on Windows only).
+      - name: Windows-only unit tests
+        timeout-minutes: 10
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          apps/web/src/lib/keymap.test.ts
+          apps/web/initial-preloads.test.ts
+          apps/web/src/boot/desktop-color-scheme.test.ts
+          apps/web/src/boot/help-actions.test.ts
+          apps/desktop/src/main/window/options.test.ts
+          apps/desktop/src/main/paths.test.ts
+          apps/desktop/src/main/notifications/activation.test.ts
+          apps/desktop/src/main/deep-link.test.ts
+
+      - name: Use a 1920×1080 display
+        continue-on-error: true
+        run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
+      - name: Close runner overlays
+        run: ./scripts/prepare-windows-screen.ps1
+
+      - name: Window chrome and integration
+        timeout-minutes: 20
+        working-directory: apps/desktop
+        env:
+          ACE_E2E_ELECTRON: "1"
+          ACE_E2E_SCALES: "1,1.5"
+        run: node ../../node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts e2e/desktop-chrome.e2e.ts
+
+      - name: Upload screen captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-desktop-screens
+          path: apps/desktop/dist/e2e/screens/
+          if-no-files-found: warn

@@ -69,6 +69,11 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  /**
+   * Windows only: startup recovery could not prove every process of the previous run gone, so
+   * restart recovery must not report that run's provider work as stopped.
+   */
+  previousProcessesUnverified?: boolean;
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
   onModelUnavailable?(
     provider: import("@ace/protocol").ProviderKind,
@@ -422,6 +427,7 @@ export class Engine {
         (id) => this.wake(id),
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
+        options.previousProcessesUnverified === true,
       );
     const recovery = this.recovery;
     const repo = this.repo;

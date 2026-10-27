@@ -223,3 +223,24 @@ describe("ace doctor's browser check", () => {
     60_000,
   );
 });
+
+it.runIf(process.platform === "win32" && process.arch === "arm64")(
+  "Windows ARM64: ace doctor checks the installed Chrome or Edge instead of a download that doesn't exist",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ace-engine-arm-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    const { ACE_CHROMIUM_PATH: _named, ...env } = process.env;
+    const verdict = await checkBrowserEngine({
+      dataDir: dir,
+      env,
+      signal: new AbortController().signal,
+      timeoutMs: 20_000,
+    });
+    expect(verdict).toMatchObject({ status: "ok" });
+    // Named from its install folder ("chrome 156.0.4314.42"), never by opening a window.
+    expect(verdict.message).toMatch(
+      /^(chrome|msedge) \d+\.\d+\.\d+\.\d+ starts headless with its sandbox$/,
+    );
+  },
+  60_000,
+);

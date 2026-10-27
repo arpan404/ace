@@ -27,6 +27,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/browser-extension": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/release": "workspace:*",
     "@electron/rebuild": "4.2.0",

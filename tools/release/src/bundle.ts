@@ -47,6 +47,9 @@ export async function bundleDaemon(
                 /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
             },
             async (args) => {
+              // Windows paths arrive with backslashes; the rewrites below match `/` paths.
+              if (process.platform === "win32")
+                args = { ...args, path: args.path.replaceAll("\\", "/") };
               let contents = await readFile(args.path, "utf8");
               for (const [source, worker, output] of [
                 ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],
@@ -107,6 +110,9 @@ export async function bundleDaemon(
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
+              // A Windows bundle's Windows binding loads the same addon a second time.
+              if (target.startsWith("win32-") && args.path.endsWith("/workspace/src/descriptor.ts"))
+                contents = contents.replaceAll('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/terminal/src/pty.ts"))
                 contents = contents.replace(guardianSourcePath, guardianBundlePath);
               if (args.path.endsWith("/workspace/src/node-search.ts"))

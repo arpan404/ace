@@ -22,6 +22,8 @@ export type WindowsJobFactory = () => WindowsJob | undefined;
 export type WindowsJobApi = {
   create: () => unknown;
   setKillOnClose: (job: unknown) => boolean;
+  /** Clears every limit, kill-on-close included, so members outlive the job's last handle. */
+  clearLimits: (job: unknown) => boolean;
   openProcess: (pid: number) => unknown;
   assignProcess: (job: unknown, target: unknown) => boolean;
   close: (handle: unknown) => void;
@@ -63,6 +65,10 @@ function loadWindowsJobApi(): WindowsJobApi {
         info.writeUInt32LE(0x2000, 16);
         return integer.parse(setInfo(job, 9, info, info.length)) !== 0;
       },
+      clearLimits: (job) => {
+        const info = Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
+        return integer.parse(setInfo(job, 9, info, info.length)) !== 0;
+      },
       // PROCESS_SET_QUOTA | PROCESS_TERMINATE are the rights AssignProcessToJobObject needs.
       openProcess: (pid) => openProcess(0x0100 | 0x0001, 0, pid),
       assignProcess: (job, target) => integer.parse(assign(job, target)) !== 0,
@@ -86,12 +92,24 @@ function loadWindowsJobApi(): WindowsJobApi {
   }
 }
 
+let sharedApi: WindowsJobApi | undefined;
+/**
+ * kernel32 bound once and kept for the process, for callers that create a job per short-lived
+ * child (each Git call): `createRetainedJob(sharedWindowsJobApi)`.
+ */
+export function sharedWindowsJobApi(): WindowsJobApi {
+  sharedApi ??= { ...loadWindowsJobApi(), unload: () => {} };
+  return sharedApi;
+}
+
 /** Retains the kernel job independently of its original shell's lifetime. */
 export interface RetainedJob {
   assign(pid: number): void;
   activeCount(): number;
   terminate(): void;
   dispose(): void;
+  /** Lets the current members outlive the job, as if never joined, then closes it. */
+  release(): void;
 }
 
 function nullHandle(value: unknown): boolean {
@@ -133,6 +151,10 @@ export function createRetainedJob(load: () => WindowsJobApi = loadWindowsJobApi)
     },
     activeCount: () => z.number().int().nonnegative().parse(api.activeCount(open())),
     terminate: () => api.terminate(open()),
+    release() {
+      if (!api.clearLimits(open())) throw new Error("Windows job release failed");
+      this.dispose();
+    },
     dispose() {
       // A failed close or unload can retry without double-closing.
       if (!handleClosed) {

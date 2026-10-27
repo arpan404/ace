@@ -1,5 +1,6 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 export { StorageService } from "./storage/service.ts";
@@ -182,6 +183,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
   try {
     inventory.recover();
+    if (process.platform === "win32") {
+      // The engine decides what the previous run left running only once ended processes are
+      // verifiably gone; anything unproven is reported as such, never as stopped.
+      const recovery = await verifyWindowsRecovery(inventory);
+      if (!recovery.verified) {
+        log.log(
+          "warn",
+          "Previous run's processes could not all be verified as stopped",
+          logFields([["unresolved", recovery.unresolved]]),
+        );
+        options = { ...options, engine: { ...options.engine, previousProcessesUnverified: true } };
+      }
+    }
   } catch (error) {
     inventory.close();
     loop.close();
