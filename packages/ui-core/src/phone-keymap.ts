@@ -24,8 +24,18 @@ export interface PhoneKeymapEntry {
 }
 
 /** Shortcuts the iPad menu bar keeps on fixed keys, in one group. */
-function fixed(group: string, rows: readonly (readonly [string, string, string])[]): PhoneKeymapEntry[] {
-  return rows.map(([id, label, keys]) => ({ id, label, keys, scope: "global", group, fixed: true }));
+function fixed(
+  group: string,
+  rows: readonly (readonly [string, string, string])[],
+): PhoneKeymapEntry[] {
+  return rows.map(([id, label, keys]) => ({
+    id,
+    label,
+    keys,
+    scope: "global",
+    group,
+    fixed: true,
+  }));
 }
 
 export const phoneKeymap: readonly PhoneKeymapEntry[] = [

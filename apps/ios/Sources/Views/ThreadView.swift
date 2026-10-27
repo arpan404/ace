@@ -8,7 +8,6 @@ struct ThreadView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
-    @Environment(\.startNewThread) private var startNewThread
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -96,6 +95,12 @@ struct ThreadView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            content(pageWidth: geometry.size.width)
+        }
+    }
+
+    private func content(pageWidth: CGFloat) -> some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
@@ -110,12 +115,12 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), pageWidth: pageWidth,
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
                                                open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
-                              openWork: { showWork = true }, newThread: startNewThread,
+                              openWork: { showWork = true },
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
             }
             .navigationTitle(metadata?.title ?? "Thread")

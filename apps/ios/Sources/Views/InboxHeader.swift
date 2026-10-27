@@ -58,14 +58,14 @@ struct InboxHeading<Choices: View>: View {
             }
             InboxTitle(scope: scope, problem: problem, openMachines: openMachines)
         }
-        .fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func label(chevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 if chevron {
                     Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -95,11 +95,11 @@ struct InboxTitle: View {
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .fixedSize()
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
+                .accessibilityLabel([scope, shown.text].compactMap { $0 }.joined(separator: " · "))
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
             } else if let scope {

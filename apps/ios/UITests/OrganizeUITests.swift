@@ -70,19 +70,23 @@ import XCTest
     }
 
     func testTheOpenThreadsMenuOffersTheSameActions() throws {
-        let app = launch()
-        reveal(app, "thread.ios-done").tap()
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-done"]
+        app.launch()
         let menu = app.buttons["thread.menu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 15))
+        XCTAssertTrue(menu.waitForExistence(timeout: 30))
         menu.tap()
-        // The panel fits without scrolling; a short screen may still need one drag.
-        for _ in 0..<4 where !app.buttons["Delete thread"].exists {
-            let low = app.buttons["Skills and tools"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            low.press(forDuration: 0.05, thenDragTo: app.buttons["Changes"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        for id in ["thread.options.conversation", "thread.options.tools", "thread.options.organize"] {
+            let group = app.buttons[id]
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            XCTAssertGreaterThanOrEqual(group.frame.height, 44)
         }
-        XCTAssertTrue(app.buttons["Delete thread"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Move to project…"].exists)
-        XCTAssertTrue(app.buttons["Turn off auto-settle"].exists)
+        XCTAssertFalse(app.buttons["thread.action.delete"].exists, "Organize actions stay out of the initial sheet")
+        screenshot("compact-thread-menu")
+        app.buttons["thread.options.organize"].tap()
+        for label in ["Copy link", "Pin", "Move to project…", "Turn off auto-settle", "Delete thread"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "The grouped menu retains \(label)")
+        }
         screenshot("thread-menu")
     }
 

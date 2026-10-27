@@ -58,7 +58,14 @@ test("the person starts a run, marks a step and records an independent check as 
       runId: "login",
       outcome: "Login shows a helpful error",
       endpoint: "Local change",
-      criteria: [{ id: "error", description: "Bad password shows an error", requiredKinds: ["ui"], independent: true }],
+      criteria: [
+        {
+          id: "error",
+          description: "Bad password shows an error",
+          requiredKinds: ["ui"],
+          independent: true,
+        },
+      ],
       playbook: "fix",
     },
     "start",
@@ -99,7 +106,9 @@ test("a stale version is refused as a conflict, and a retry id replays without r
       runId: "login",
       outcome: "Login shows a helpful error",
       endpoint: "Local change",
-      criteria: [{ id: "error", description: "Bad password shows an error", requiredKinds: ["ui"] }],
+      criteria: [
+        { id: "error", description: "Bad password shows an error", requiredKinds: ["ui"] },
+      ],
       playbook: "fix",
     },
     "start",

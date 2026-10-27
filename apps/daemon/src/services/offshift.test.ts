@@ -43,15 +43,17 @@ test("messages for other services are ignored", async () => {
 
 test("a read the device may see calls the person's read and answers it", async () => {
   const sent: unknown[] = [];
-  const person = vi
-    .fn()
-    .mockResolvedValue({ ok: true, view: { run: { id: "login" } } });
+  const person = vi.fn().mockResolvedValue({ ok: true, view: { run: { id: "login" } } });
   const session = createOffshiftSession(context({ sent, offshifts: { person: person as never } }));
   const op = { action: "get", runId: "login" } as const;
   await expect(
     handled(session, { type: "offshift.request", requestId: "r1", threadId, op }),
   ).resolves.toBe(true);
-  expect(person).toHaveBeenCalledWith(threadId, op, "r1", { kind: "person", deviceId: null, device: null });
+  expect(person).toHaveBeenCalledWith(threadId, op, "r1", {
+    kind: "person",
+    deviceId: null,
+    device: null,
+  });
   expect(sent).toMatchObject([{ type: "offshift.result", requestId: "r1", ok: true }]);
 });
 
@@ -70,11 +72,17 @@ test("a change needs operate scope and a readable thread", async () => {
     threadId,
     op: { action: "step", runId: "login", expectedVersion: 5, stepId: "repro", state: "done" },
   });
-  expect(forbidden).toMatchObject([{ type: "offshift.result", requestId: "r2", ok: false, error: "forbidden" }]);
+  expect(forbidden).toMatchObject([
+    { type: "offshift.result", requestId: "r2", ok: false, error: "forbidden" },
+  ]);
 
   const unreadable: unknown[] = [];
   const unreadableSession = createOffshiftSession(
-    context({ sent: unreadable, canRead: false, offshifts: { person: (async () => ({ ok: true })) as never } }),
+    context({
+      sent: unreadable,
+      canRead: false,
+      offshifts: { person: (async () => ({ ok: true })) as never },
+    }),
   );
   await handled(unreadableSession, {
     type: "offshift.request",

@@ -1,9 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import type { ThreadId } from "@ace/protocol";
-import type {
-  OffshiftPersonOperation,
-  OffshiftClientResult,
-} from "@ace/protocol/offshift-person";
+import type { OffshiftPersonOperation, OffshiftClientResult } from "@ace/protocol/offshift-person";
 import type { OffshiftView } from "@ace/protocol/offshift";
 
 /*
@@ -18,7 +15,11 @@ import type { OffshiftView } from "@ace/protocol/offshift";
 export class OffshiftRefused extends Error {
   readonly code: NonNullable<OffshiftClientResult["error"]>;
   readonly view: OffshiftView | undefined;
-  constructor(code: NonNullable<OffshiftClientResult["error"]>, message?: string, view?: OffshiftView) {
+  constructor(
+    code: NonNullable<OffshiftClientResult["error"]>,
+    message?: string,
+    view?: OffshiftView,
+  ) {
     super(message ?? `Offshift refused: ${code}`);
     this.name = "OffshiftRefused";
     this.code = code;

@@ -8,6 +8,20 @@ import XCTest
 @MainActor final class ThreadDrawerUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testALongThreadTitleStaysBetweenTheSidebarAndMenuButtons() throws {
+        let app = try launch()
+        open("thread.ios-agents", in: app)
+        let heading = title("Add ace stop and a safe kill-all", in: app)
+        XCTAssertTrue(heading.waitForExistence(timeout: 20))
+        let sidebar = app.buttons["thread.sidebar"]
+        let menu = app.buttons["thread.menu"]
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        XCTAssertTrue(menu.waitForHittable(timeout: 10))
+        XCTAssertGreaterThanOrEqual(heading.frame.minX, sidebar.frame.maxX)
+        XCTAssertLessThanOrEqual(heading.frame.maxX, menu.frame.minX)
+        screenshot("long-thread-title")
+    }
+
     func testTheSidebarButtonBringsTheListOverTheThreadAndAPickedRowOpensInItsPlace() throws {
         let app = try launch()
         let width = app.windows.firstMatch.frame.width

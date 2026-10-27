@@ -20,8 +20,7 @@ extension XCUIApplication {
         return control
     }
     /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
-    /// so the item is found by either. The panel fits without scrolling; a sheet that needs it
-    /// scrolls to the item first.
+    /// so the item is found by either. Secondary actions are grouped in native menus.
     @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
@@ -36,6 +35,12 @@ extension XCUIApplication {
         let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
                                                 labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
         if item.waitForExistence(timeout: 2) && item.isHittable { return item }
+        let conversation: Set<String> = ["thread.search", "thread.turns", "thread.attachments", "thread.menu.rename", "thread.forkLast", "thread.merge"]
+        let group = identifier == "thread.continueOn" || identifier.hasPrefix("thread.action.") ? "organize"
+            : conversation.contains(identifier) ? "conversation" : "tools"
+        let category = buttons["thread.options.\(group)"]
+        if category.waitForExistence(timeout: 2) { category.tap() }
+        _ = item.waitForExistence(timeout: 3)
         let menu = collectionViews.firstMatch
         for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
         return item

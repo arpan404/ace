@@ -479,7 +479,7 @@ are on one branch. The shared rules already offer it as "Run and preview" (kind 
 2. In `ThreadDestination.panelTool` (`Sources/Views/ThreadToolbar.swift`): `case .scripts: .preview`.
 3. In `PanelContent` (`Sources/Views/Workspace/PanelContent.swift`):
    `case .preview: NavigationStack { ProjectScriptsView(model: model, threadId: thread.id) { url in
-   model.browserNewTab(url); model.panel(thread.id, ["op": "open", "kind": "browser"]) } }`, so a
+model.browserNewTab(url); model.panel(thread.id, ["op": "open", "kind": "browser"]) } }`, so a
    dev server opens in the panel's Browser tab rather than over the thread.
 
 ## Agents and Changes sheets
