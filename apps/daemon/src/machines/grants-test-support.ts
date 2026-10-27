@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CommandId,
   DeviceId,
   HostId,
   PairingResponse,
@@ -50,7 +51,24 @@ export async function fleetWindow(target: Target) {
       return message.result;
     }
   }
+  /** The person deletes a thread from the target's window, as the sidebar's Delete does. */
+  async function remove(threadId: string) {
+    const id = `delete-${++sequence}`;
+    client.send({
+      type: "command",
+      command: {
+        id: CommandId.parse(id),
+        deviceId: DeviceId.parse("window"),
+        payload: { type: "thread.delete", threadId: ThreadId.parse(threadId), force: true },
+      },
+    });
+    for (;;) {
+      const message = await client.next();
+      if (message.type === "commandResult" && message.commandId === id) return message;
+    }
+  }
   return {
+    remove,
     grants: () => request({ op: "grants" }),
     set: (deviceId: string, capability: MachineCapability, level: MachineGrantLevel) =>
       request({ op: "grant", deviceId: DeviceId.parse(deviceId), capability, level }),

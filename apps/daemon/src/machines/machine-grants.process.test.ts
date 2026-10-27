@@ -196,3 +196,75 @@ it("turning a capability off stops that machine's work in flight, and the sessio
   );
   await window.close();
 });
+
+it("this machine's switch at read caps every capability at read only", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const window = await fleetWindow(pair.target);
+  const laptop = sourceProfile(pair);
+  await window.set(laptop.deviceId, "commands", "operate");
+  await pair.access("read");
+  // Every capability reads at most, even commands the person set to Read and act.
+  const [studio] = Machines.parse((await pair.source.call({ op: "machines" })).data).machines;
+  expect(studio?.grants).toMatchObject({ browser: "read", devices: "read", commands: "read" });
+  const command = { op: "commands", tool: "command_run", args: { command: "ls" } } as const;
+  expect(await callAs(laptop, command)).toMatchObject({
+    ok: false,
+    code: "machine_forbidden",
+    message: expect.stringContaining("only read"),
+  });
+  expect(await callAs(laptop, open)).toMatchObject({ ok: false, code: "machine_forbidden" });
+  expect(await callAs(laptop, { op: "browser.session" })).toMatchObject({ ok: true });
+  await window.close();
+});
+
+it("a machine that may only read its agents isn't described as one it can delegate to", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const window = await fleetWindow(pair.target);
+  // Agents read only, while the browser stays Read and act.
+  await window.set(sourceProfile(pair).deviceId, "agents", "read");
+  const [studio] = Machines.parse((await pair.source.call({ op: "machines" })).data).machines;
+  expect(studio).toMatchObject({ access: "read", grants: { agents: "read", browser: "operate" } });
+  await window.close();
+});
+
+it("deleting a guest session stops the calls it holds", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const window = await fleetWindow(pair.target);
+  const laptop = sourceProfile(pair);
+  const from = { host: "linux-box", thread: "deleted" };
+  expect(await callAs(laptop, open, from)).toMatchObject({ ok: true });
+  const session = await callAs(laptop, { op: "browser.session" }, from);
+  if (!session.ok) throw new Error(session.message);
+  const { threadId } = MachineSessionResult.parse(session.body);
+  const started = Date.now();
+  const waiting = callAs(
+    laptop,
+    { op: "browser", tool: "browser_wait_for", args: { timeMs: 25_000 } },
+    from,
+  );
+  await vi.waitFor(
+    () => expect(pair.target.daemon.store.getThread(threadId)?.status.state).toBe("waiting"),
+    { timeout: 10_000 },
+  );
+  expect(await window.remove(threadId)).toMatchObject({ ok: true });
+  expect(await waiting).toMatchObject({
+    ok: false,
+    message: expect.stringContaining("stopped it"),
+  });
+  expect(Date.now() - started).toBeLessThan(20_000);
+  await window.close();
+});
+
+it("a revoked pairing takes its grants with it", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const window = await fleetWindow(pair.target);
+  const build = await secondMachine(pair);
+  await window.set(build.deviceId, "commands", "operate");
+  const { store } = pair.target.daemon;
+  const rows = () =>
+    store.statement("SELECT capability FROM machine_grants WHERE device_id=?").all(build.deviceId);
+  expect(rows()).toHaveLength(1);
+  store.devices.revoke(build.deviceId, pair.target.h.clock.now());
+  expect(rows()).toEqual([]);
+  await window.close();
+});

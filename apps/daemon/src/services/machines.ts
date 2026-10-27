@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { HostId, MachineDescription, ThreadId } from "@ace/protocol";
+import { HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
@@ -12,6 +12,7 @@ import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
 import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
+import { switchRevocation } from "../machines/grant-rules.ts";
 import { unservedHost } from "../machines/capability-hosts.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
@@ -84,9 +85,9 @@ export function startMachines(context: ServiceContext): void {
     ?.subscribe({ keys: ["remote.agentAccess"], scope: {} }, (event) => {
       if (event.type !== "changed") return;
       const entry = event.entries.find((candidate) => candidate.key === "remote.agentAccess");
-      // The switch caps every capability: read stops acting calls of all of them, off all calls.
-      if (entry?.value === "off") guests.revoke();
-      if (entry?.value === "read") guests.revoke({ level: "read" });
+      const access = MachineAgentAccess.safeParse(entry?.value);
+      const scope = access.success ? switchRevocation(access.data) : undefined;
+      if (scope) guests.revoke(scope);
     })
     .then((release) => resources.own(release))
     .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));

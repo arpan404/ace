@@ -55,6 +55,22 @@ describe("this machine's switch is a ceiling on every capability", () => {
   });
 });
 
+const respond = (interactionId: string) =>
+  MachineCall.parse({
+    op: "respond",
+    threadId: "session",
+    interactionId,
+    resolution: { kind: "approval", optionId: "yes" },
+  });
+const only = (capability: "browser" | "devices") => ({
+  ...facts("operate"),
+  grants: grantsFor("operate", {
+    agents: "off",
+    browser: capability === "browser" ? "operate" : "off",
+    devices: capability === "devices" ? "operate" : "off",
+  }),
+});
+
 describe("the capability a call on a guest session needs", () => {
   const pending = new Map<string, InteractionRequest>([
     ["help", { kind: "browser_help", tabId: "tab-1", reason: "login", message: "Sign in" }],
@@ -73,21 +89,6 @@ describe("the capability a call on a guest session needs", () => {
     guest: (threadId) => threadId === "session",
     request: (_threadId, id) => pending.get(id),
   };
-  const respond = (interactionId: string) =>
-    MachineCall.parse({
-      op: "respond",
-      threadId: "session",
-      interactionId,
-      resolution: { kind: "approval", optionId: "yes" },
-    });
-  const only = (capability: "browser" | "devices") => ({
-    ...facts("operate"),
-    grants: grantsFor("operate", {
-      agents: "off",
-      browser: capability === "browser" ? "operate" : "off",
-      devices: capability === "devices" ? "operate" : "off",
-    }),
-  });
 
   it("an answer needs the capability whose tool asked, not any guest capability", () => {
     // Simulators on, browser off: the browser's request can't be answered from there.

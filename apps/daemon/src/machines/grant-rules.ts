@@ -44,6 +44,16 @@ export function grantsFor(
   return { ...defaultGrants(master), ...chosen };
 }
 
+/**
+ * Which calls in flight stop when this machine's switch is set: off stops all of them, read
+ * stops acting calls of every capability, operate stops none.
+ */
+export function switchRevocation(access: MachineAgentAccess): { level?: "read" } | undefined {
+  if (access === "off") return {};
+  if (access === "read") return { level: "read" };
+  return undefined;
+}
+
 /** What the calling device's pairing lets it do anywhere here. */
 export function pairingLevel(scope: { read: boolean; operate: boolean }): MachineGrantLevel {
   return scope.operate ? "operate" : scope.read ? "read" : "off";

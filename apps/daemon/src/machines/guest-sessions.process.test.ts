@@ -6,6 +6,7 @@ import { harness, scriptFrames } from "../engine/test-support.ts";
 import { ProjectStorage } from "../project-storage.ts";
 import { GuestSessions, type GuestWork } from "./guest-sessions.ts";
 import { TargetThreads } from "./target-threads.ts";
+import { switchRevocation } from "./grant-rules.ts";
 
 /*
  * Guest sessions over a real engine and store: the person's Stop, a lowered grant and a deleted
@@ -65,6 +66,9 @@ async function setup() {
   const rows = () => Object.values(h.store.snapshotThread(session.threadId).backgroundTasks);
   return { h, guests, session, rows };
 }
+/** A call that runs until it is stopped. */
+const hang = (stop: AbortSignal) =>
+  new Promise<string>((_resolve, reject) => stop.addEventListener("abort", reject));
 const browsing = (ticket: number, risk: GuestWork["risk"] = "operate"): GuestWork => ({
   capability: "browser",
   risk,
@@ -127,13 +131,8 @@ it("stopping a row no call is behind ends it instead of leaving it running", asy
 it("a call that finishes after its session was deleted still returns its own result", async () => {
   const { h, guests, session } = await setup();
   const signal = new AbortController().signal;
-  let finish: (value: string) => void = () => undefined;
-  const finished = guests.run(
-    session,
-    browsing(guests.ticket()),
-    signal,
-    () => new Promise<string>((resolve) => (finish = resolve)),
-  );
+  const call = Promise.withResolvers<string>();
+  const finished = guests.run(session, browsing(guests.ticket()), signal, () => call.promise);
   // The person deletes the session while the call runs; it finishes after the thread is gone.
   await h.engine.stopForDeletion(session.threadId);
   h.store.appendEvents(
@@ -144,6 +143,27 @@ it("a call that finishes after its session was deleted still returns its own res
   // Storage cleanup purges a deleted thread's records.
   h.store.atomic(() => h.store.purgeThreadData(session.threadId));
   h.engine.forgetPurged(session.threadId);
-  finish("page opened");
+  call.resolve("page opened");
   await expect(finished).resolves.toBe("page opened");
 });
+
+it("this machine's switch going to read stops acting calls of every capability and spares reads", async () => {
+  const { guests, session } = await setup();
+  const signal = new AbortController().signal;
+  const ticket = guests.ticket();
+  const acting = guests.run(session, { ...browsing(ticket), capability: "devices" }, signal, hang);
+  let read: string | undefined;
+  const reading = guests
+    .run(session, browsing(ticket, "read"), signal, (stop) => hang(stop).catch(() => "aborted"))
+    .then((value) => (read = value));
+  const scope = switchRevocation("read");
+  if (scope) guests.revoke(scope);
+  await expect(acting).rejects.toMatchObject({ code: "machine_forbidden" });
+  await Promise.resolve();
+  expect(read).toBeUndefined();
+  expect(switchRevocation("operate")).toBeUndefined();
+  // Off stops the reading call too.
+  const off = switchRevocation("off");
+  if (off) guests.revoke(off);
+  await expect(reading).rejects.toMatchObject({ code: "machine_forbidden" });
+}, 10_000);
