@@ -66,7 +66,14 @@ async function open(daemon: FakeDaemon) {
     (await ask<{ missing: OtherProvider[] }>({ type: "providers.others" })).missing.map(
       (row) => row.provider,
     );
-  return { act, watch, settle, missing };
+  /** The running job's session, as the daemon reports it to this phone. */
+  const running = async (provider: "codex") => {
+    const reply = await owner.request({ type: "provider.install.active", provider });
+    return reply.result.ok && "progress" in reply.result
+      ? reply.result.progress.session
+      : undefined;
+  };
+  return { act, watch, settle, missing, running, close: () => owner.close() };
 }
 
 function fixture(): FakeDaemon {
@@ -157,4 +164,38 @@ test("removing a CLI asks first, in red", async () => {
   expect(plan.message).toBe(
     "Remove Codex's CLI from studio? Sign-ins and conversations stay saved.",
   );
+});
+
+test("after a relaunch the page reattaches to the install still running and sees it finish", async () => {
+  const daemon = fixture();
+  daemon.services.providerInstalls.autoComplete = false;
+  const before = await open(daemon);
+  await before.act("codex", { kind: "plan", action: "update" });
+  const running = await before.act("codex", { kind: "run" });
+  expect(running.busy).toBe(true);
+  await before.close();
+
+  // A new runtime on the same paired phone: no session id kept anywhere on it.
+  const after = await open(daemon);
+  const reattached = await after.settle("codex", (screen) => screen.busy);
+  expect(reattached).toMatchObject({ busy: true, cancel: true, title: "Update Codex" });
+  const session = await after.running("codex");
+  if (!session) throw new Error("expected the running job");
+  daemon.services.providerInstalls.complete(session);
+  const done = await after.settle("codex", (screen) => screen.finished);
+  expect(done.status).toEqual({ label: "Installed", token: "done" });
+});
+
+test("after a relaunch with nothing running the page shows the provider, not a progress bar", async () => {
+  const daemon = fixture();
+  const before = await open(daemon);
+  await before.act("codex", { kind: "plan", action: "update" });
+  await before.act("codex", { kind: "run" });
+  await before.settle("codex", (screen) => screen.finished);
+  await before.close();
+  const after = await open(daemon);
+  const screen = await after.watch("codex", -1);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.idle).toBe(true);
+  expect((await after.watch("codex", -1)).idle).toBe(true);
 });

@@ -8,6 +8,7 @@
 { type: "provider.install.run", requestId, provider, action, method: "npm" | "bun" | "brew" | "script" | "registry", agent?, acpAgentId? }
 { type: "provider.install.poll", requestId, session }
 { type: "provider.install.cancel", requestId, session }
+{ type: "provider.install.active", requestId, provider, agent?, acpAgentId? }
 ```
 
 For `provider: "acp"`, `agent` chooses a reviewed manifest entry: `gemini`, `qwen-code`, `claude-acp`, `codex-acp`, `goose`, or `auggie`. Other providers omit it. `acpAgentId` selects an official catalog entry for registry-owned installation and binding. Antigravity selects its official catalog identity internally. Clients cannot supply packages, versions, scripts, paths or command text. Registry plans/runs also require admin scope.
@@ -21,7 +22,7 @@ A plan carries `provider`, optional `agent`, `action`, `status`, `method`, `meth
 - `sign_in`: Cursor's SDK ships with ace. Open the existing sign-in flow.
 - `unavailable`: required manager, installed runtime or reviewed ACP target is missing, or the selected manager differs from the existing owner.
 
-Run returns an ephemeral `session` immediately in `planning`. Subscribe to `provider.install.progress { progress }`, and use poll after reconnect or remount. A retry with the same request ID and owning device returns the retained session. Progress contains `sequence`, zero-based `step`, the selected plan, `lines` as a replacement tail rather than append deltas, optional numeric/null `exit`, `version`, and a safe `message`. Ignore older sequences. Retain no more than the returned tail.
+Run returns an ephemeral `session` immediately in `planning`. Subscribe to `provider.install.progress { progress }`, and use poll after reconnect or remount. A client that lost the session id (an app relaunch) asks `provider.install.active` for the target: it returns this device's still-running session as `{ ok: true, progress }`, or `not_found` once the job finished, was evicted or the daemon restarted, when the client shows readiness instead. A retry with the same request ID and owning device returns the retained session. Progress contains `sequence`, zero-based `step`, the selected plan, `lines` as a replacement tail rather than append deltas, optional numeric/null `exit`, `version`, and a safe `message`. Ignore older sequences. Retain no more than the returned tail.
 
 States are `planning`, `running`, `verifying`, `succeeded`, `failed`, `cancelled`, and `needs_admin`. The last four are terminal. Cancel waits for process cleanup. Failure and cancellation can leave partial package-manager changes; refresh readiness before retrying. Sessions belong to devices, survive socket disconnects, and are evicted oldest-terminal-first after 32 retained sessions. They do not survive daemon restart.
 

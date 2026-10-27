@@ -208,3 +208,31 @@ test("a script update whose installer download returns 404 says so and keeps the
     await f.close();
   }
 });
+
+test("a device that lost its session finds its running install, and nothing once it ends", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await writeFile(join(f.home, "mode"), "hang");
+    const active = (device?: string) =>
+      f.request({ type: "provider.install.active", requestId: "find", provider: "codex" }, device);
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+    const started = await f.request({
+      type: "provider.install.run",
+      requestId: "run",
+      provider: "codex",
+      action: "install",
+      method: "npm",
+    });
+    if (!started.result.ok || !("progress" in started.result)) throw new Error("Expected session");
+    const session = started.result.progress.session;
+    await f.wait((event) => event.lines.some((line) => line.startsWith("child=")));
+    expect(await active()).toMatchObject({ result: { ok: true, progress: { session } } });
+    expect(await active("other-device")).toMatchObject({
+      result: { ok: false, error: "not_found" },
+    });
+    await f.request({ type: "provider.install.cancel", requestId: "cancel", session });
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+  } finally {
+    await f.close();
+  }
+});
