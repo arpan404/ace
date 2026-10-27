@@ -1079,6 +1079,87 @@ Example:
 }
 ```
 
+## Admission
+
+[JSON Schema](schema/Admission.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| paused | yes | boolean |  |
+| busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "busy": 7,
+  "paused": true
+}
+```
+
+## AdmissionChanged
+
+[JSON Schema](schema/AdmissionChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.changed"` |  |
+| admission | yes | [Admission.json](schema/Admission.json) |  |
+
+Example:
+
+```json
+{
+  "admission": {
+    "busy": 7,
+    "paused": true
+  },
+  "type": "admission.changed"
+}
+```
+
+## AdmissionRequest
+
+[JSON Schema](schema/AdmissionRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | ["status","pause","resume"] |  |
+
+Example:
+
+```json
+{
+  "operation": "status",
+  "requestId": "example",
+  "type": "admission.request"
+}
+```
+
+## AdmissionResult
+
+[JSON Schema](schema/AdmissionResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| ok | yes | boolean |  |
+| admission | no | [Admission.json](schema/Admission.json) |  |
+| error | no | ["forbidden","unavailable"] |  |
+
+Example:
+
+```json
+{
+  "ok": true,
+  "requestId": "example",
+  "type": "admission.result"
+}
+```
+
 ## Agent
 
 [JSON Schema](schema/Agent.json), input validation.

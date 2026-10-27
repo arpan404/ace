@@ -397,7 +397,11 @@ export class DaemonSupervisor {
       failures: healthFailures,
       // The request itself may run past the check's own deadline, so a late answer still
       // counts as one; it ends before the next check could send another.
-      probe: () => this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs),
+      probe: async () => {
+        const ok = await this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs);
+        if (ok) void this.followAdmission(generation, daemon);
+        return ok;
+      },
       timers: this.ports.timers,
       log: (level, message, data) => {
         if (!this.stale(generation)) this.ports.log(level, message, data);
@@ -420,6 +424,29 @@ export class DaemonSupervisor {
         void this.start();
       },
     });
+  }
+
+  /**
+   * A paired client can pause or resume new work too (`admission.request`), so each health check
+   * reads admission again and the tray follows. A pause or drain of our own in flight wins.
+   */
+  private async followAdmission(generation: number, daemon: LocalDaemon): Promise<void> {
+    if (this.draining) return;
+    const revision = this.maintenanceRevision;
+    try {
+      const { draining } = await this.ports.maintenance(daemon);
+      if (
+        !this.stale(generation) &&
+        this.daemon === daemon &&
+        revision === this.maintenanceRevision &&
+        !this.draining &&
+        this.status.state === "running" &&
+        draining !== this.status.paused
+      )
+        this.update({ paused: draining });
+    } catch {
+      // The next health check reads it again.
+    }
   }
 
   private stopPorts(): StopPorts {

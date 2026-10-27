@@ -1,4 +1,5 @@
 import { FakeStorageWire } from "./storage-wire.ts";
+import { FakeAdmission } from "./admission-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeSkillLibrary, type SkillSeed } from "./skill-library.ts";
@@ -75,6 +76,8 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  */
 export class FakeServicesWire {
   private storage: FakeStorageWire;
+  /** "Pause new work", shared by every connection. */
+  readonly admission = new FakeAdmission();
   readonly prompts = new FakePromptFiles();
   readonly skills = new FakeSkillLibrary();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
@@ -162,6 +165,7 @@ export class FakeServicesWire {
     });
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
+    const admission = this.admission.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
     const browser = fakeBrowserSession(
@@ -208,6 +212,7 @@ export class FakeServicesWire {
 
         browser.close();
         files.close();
+        admission.close();
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
@@ -225,6 +230,10 @@ export class FakeServicesWire {
         }
         if (message.type === "storage.request") {
           emit(this.storage.handle(device, message));
+          return;
+        }
+        if (message.type === "admission.request") {
+          admission.handle(message);
           return;
         }
         if (this.history.handle(message, emit)) return;

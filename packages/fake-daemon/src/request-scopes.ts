@@ -35,6 +35,15 @@ export function scopeRefusal(
       ...(requestId ? { requestId } : {}),
     };
   }
+  if (message.type === "admission.request" && message.operation !== "status") {
+    if (scopes?.includes("operate")) return undefined;
+    return {
+      type: "admission.result",
+      requestId: message.requestId,
+      ok: false,
+      error: "forbidden",
+    };
+  }
   if (message.type.startsWith("provider.install.")) {
     if (scopes?.includes("operate")) return undefined;
     return requestId

@@ -229,6 +229,21 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().paused).toBe(false);
   });
 
+  it("follows a pause and resume made by a paired client on its next health checks", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
+    m.state.maintenance = true; // A phone paused new work over the socket.
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(true);
+    m.state.maintenance = false;
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
   it("reports resumed admission after replacing a paused app daemon", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports);
