@@ -1,14 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createPrivateKey, randomBytes, verify } from "node:crypto";
+import { createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
-import { vapidAuthorization } from "@ace/notify/webpush-crypto";
+import { p256PublicPoint, vapidAuthorization } from "@ace/notify/webpush-crypto";
+import { sealHandle } from "./handles.ts";
 import { apnsKeyPair, signingKeyPem, startFakeApns } from "./testing/fake-apns.ts";
 
 const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
 const token = "ab".repeat(32);
 const otherToken = "cd".repeat(40);
+const sealKey = randomBytes(32);
 let apns: Awaited<ReturnType<typeof startFakeApns>>;
 let child: ChildProcess;
 let origin = "";
@@ -32,7 +34,7 @@ beforeAll(async () => {
       ACE_PUSH_APNS_KEY: apnsKey.pem,
       ACE_PUSH_APNS_TOPIC: "app.ace.ios",
       ACE_PUSH_APNS_ORIGIN: apns.origin,
-      ACE_PUSH_SEAL_KEY: randomBytes(32).toString("base64url"),
+      ACE_PUSH_SEAL_KEY: sealKey.toString("base64url"),
       ACE_PUSH_LIMIT_PER_HANDLE: "6",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -202,9 +204,29 @@ it("limits pushes per phone", async () => {
   const limited = "56".repeat(32);
   const handle = await handleFor(limited);
   const statuses: number[] = [];
-  for (let i = 0; i < 8; i++) statuses.push((await push(handle)).status);
+  let retryAfter: string | null = null;
+  for (let i = 0; i < 8; i++) {
+    const response = await push(handle);
+    statuses.push(response.status);
+    retryAfter ??= response.headers.get("retry-after");
+  }
   expect(statuses.slice(0, 6)).toEqual([201, 201, 201, 201, 201, 201]);
   expect(statuses.slice(6)).toEqual([429, 429]);
+  expect(Number(retryAfter)).toBeGreaterThan(0);
+});
+
+it("rejects an expired handle even when it is otherwise well-formed", async () => {
+  const daemon = createHash("sha256")
+    .update(Buffer.from(p256PublicPoint(daemonKey), "base64url"))
+    .digest("base64url");
+  const expired = sealHandle(
+    sealKey,
+    { token, environment: "production", daemon, expiresAt: Date.now() - 1000 },
+    randomBytes(12),
+  );
+  const before = apns.calls.length;
+  expect((await push(expired)).status).toBe(404);
+  expect(apns.calls.length).toBe(before);
 });
 
 it("logs no device token, handle, key or IP", async () => {

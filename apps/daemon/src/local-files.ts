@@ -1,4 +1,11 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createPrivateKey,
+  generateKeyPairSync,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+  type KeyObject,
+} from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
@@ -70,6 +77,33 @@ export function loadHostId(dataDir: string): string {
     if (!isExists(error)) throw error;
   }
   return readFileSync(path, "utf8");
+}
+/**
+ * This daemon's P-256 identity at the push gateway (ADR 0106), generated on first start. The
+ * gateway binds each phone handle to it, so a leaked handle is useless without this key.
+ */
+export function loadPushKey(dataDir: string): string {
+  const path = join(dataDir, "push-key.pem");
+  try {
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    writeFileSync(path, privateKey.export({ type: "pkcs8", format: "pem" }), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if (!isExists(error)) throw error;
+  }
+  chmodSync(path, 0o600);
+  const pem = readFileSync(path, "utf8");
+  let key: KeyObject;
+  try {
+    key = createPrivateKey(pem);
+  } catch (error) {
+    throw new Error("Invalid push signing key file", { cause: error });
+  }
+  if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1")
+    throw new Error("Invalid push signing key file");
+  return pem;
 }
 function isExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
