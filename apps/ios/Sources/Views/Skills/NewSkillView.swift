@@ -56,7 +56,17 @@ struct NewSkillView: View {
                     SourceTextView(document: SourceDocument(key: "new", text: "", colours: [], runs: [], marks: [:]),
                                    wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
                         .frame(height: 220)
+                        .overlay(alignment: .topLeading) {
+                            if !bodyDirty {
+                                Text("Steps, rules and examples the agent follows")
+                                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                                    .padding(.leading, 52).padding(.top, AceTheme.Spacing.sm)
+                                    .allowsHitTesting(false).transition(.opacity)
+                            }
+                        }
                         .clipShape(AceShape.group)
+                        .overlay(AceShape.group.strokeBorder(AceTheme.Colours.fill, lineWidth: 1.5))
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .accessibilityIdentifier("skill.new.body")
