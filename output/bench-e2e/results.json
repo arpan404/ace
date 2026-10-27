@@ -1,0 +1,422 @@
+{
+  "direct.raw": {
+    "profile": "direct",
+    "compression": "raw",
+    "negotiatedA": [
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 18.433542000000017,
+      "parseMs": 0.12154200000000515,
+      "wireDown": 128112,
+      "wireUp": 377,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 8.403834000000018,
+      "parseMs": 0.03500000000002501,
+      "wireDown": 27709,
+      "wireUp": 169,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 2.686083999999994,
+      "parseMs": 0.013958999999999833,
+      "wireDown": 5795,
+      "wireUp": 120,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 4.207833999999991,
+      "parseMs": 0.05854199999998855,
+      "wireDown": 44771,
+      "wireUp": 117,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 4.584249999999997,
+      "parseMs": 0.0998339999999871,
+      "wireDown": 100324,
+      "wireUp": 117,
+      "snapshotBytes": 100314
+    }
+  },
+  "4G.raw": {
+    "profile": "4G",
+    "compression": "raw",
+    "negotiatedA": [
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 582.261042,
+      "parseMs": 0.5093329999999696,
+      "wireDown": 128112,
+      "wireUp": 377,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 245.91070800000034,
+      "parseMs": 0.042374999999992724,
+      "wireDown": 27709,
+      "wireUp": 169,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 77.15308300000015,
+      "parseMs": 0.08279200000015408,
+      "wireDown": 5795,
+      "wireUp": 120,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 105.94095900000002,
+      "parseMs": 0.38216700000020865,
+      "wireDown": 44771,
+      "wireUp": 117,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 143.4265419999997,
+      "parseMs": 0.2510840000004464,
+      "wireDown": 100324,
+      "wireUp": 117,
+      "snapshotBytes": 100314
+    }
+  },
+  "slow3G.raw": {
+    "profile": "slow3G",
+    "compression": "raw",
+    "negotiatedA": [
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 5021.253208,
+      "parseMs": 0.9417090000006283,
+      "wireDown": 128112,
+      "wireUp": 377,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 1781.294084000001,
+      "parseMs": 0.08608300000196323,
+      "wireDown": 27709,
+      "wireUp": 169,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 520.4149159999979,
+      "parseMs": 0.01525000000037835,
+      "wireDown": 5795,
+      "wireUp": 120,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 1304.3123750000013,
+      "parseMs": 0.4119170000012673,
+      "wireDown": 44771,
+      "wireUp": 117,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 2415.2204589999965,
+      "parseMs": 0.1217499999984284,
+      "wireDown": 100324,
+      "wireUp": 117,
+      "snapshotBytes": 100314
+    }
+  },
+  "direct.deflate": {
+    "profile": "direct",
+    "compression": "permessage-deflate",
+    "negotiatedA": [
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 26.70495800000208,
+      "parseMs": 0.3412079999980051,
+      "wireDown": 9507,
+      "wireUp": 300,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 11.531083000001672,
+      "parseMs": 0.16504100000020117,
+      "wireDown": 3235,
+      "wireUp": 140,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 3.345708000000741,
+      "parseMs": 0.02049999999871943,
+      "wireDown": 67,
+      "wireUp": 14,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 4.770749999996042,
+      "parseMs": 0.14254199999413686,
+      "wireDown": 3797,
+      "wireUp": 81,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 6.123291999996582,
+      "parseMs": 0.26454199999716366,
+      "wireDown": 5986,
+      "wireUp": 14,
+      "snapshotBytes": 100314
+    }
+  },
+  "4G.deflate": {
+    "profile": "4G",
+    "compression": "permessage-deflate",
+    "negotiatedA": [
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 466.7195000000065,
+      "parseMs": 0.48637500000040745,
+      "wireDown": 9507,
+      "wireUp": 300,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 228.61595800000214,
+      "parseMs": 0.10749999999825377,
+      "wireDown": 3235,
+      "wireUp": 140,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 74.57666600000084,
+      "parseMs": 0.2138749999940046,
+      "wireDown": 67,
+      "wireUp": 14,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 78.41937499999767,
+      "parseMs": 0.19262500000331784,
+      "wireDown": 3703,
+      "wireUp": 14,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 82.6352079999997,
+      "parseMs": 0.4132919999974547,
+      "wireDown": 5986,
+      "wireUp": 14,
+      "snapshotBytes": 100314
+    }
+  },
+  "slow3G.deflate": {
+    "profile": "slow3G",
+    "compression": "permessage-deflate",
+    "negotiatedA": [
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 2638.415041,
+      "parseMs": 0.4661249999917345,
+      "wireDown": 9507,
+      "wireUp": 300,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 1287.8199999999997,
+      "parseMs": 0.2499169999937294,
+      "wireDown": 3235,
+      "wireUp": 140,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 405.61420799999905,
+      "parseMs": 0.04016599999886239,
+      "wireDown": 67,
+      "wireUp": 14,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 481.27337499999703,
+      "parseMs": 0.20941700000548735,
+      "wireDown": 3703,
+      "wireUp": 14,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 527.8414170000033,
+      "parseMs": 0.225125000004482,
+      "wireDown": 5986,
+      "wireUp": 14,
+      "snapshotBytes": 100314
+    }
+  }
+}
