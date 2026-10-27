@@ -161,3 +161,60 @@ describe("an open that waits on the machine", () => {
     expect(machine.started).toEqual([{ command: "/usr/local/bin/code", args: [root] }]);
   });
 });
+
+describe("opening an editor on Windows", () => {
+  test("a .cmd launcher opens through the executable it runs, never a shell script", async () => {
+    const root = await project();
+    const install = await realpath(await mkdtemp(join(tmpdir(), "ace-host-editor-")));
+    folders.push(install);
+    await mkdir(join(install, "bin"));
+    const launcher = join(install, "bin", "code.cmd");
+    await writeFile(
+      launcher,
+      [
+        "@echo off",
+        "setlocal",
+        "set ELECTRON_RUN_AS_NODE=1",
+        '"%~dp0..\\Code.exe" "%~dp0..\\resources\\app\\out\\cli.js" %*',
+        "endlocal",
+      ].join("\r\n"),
+    );
+    await writeFile(join(install, "Code.exe"), "");
+    const started: HostLaunch[] = [];
+    await openOnHost({
+      root,
+      app: { kind: "editor", editorId: "code" },
+      platform: "win32",
+      editors: async () => [{ id: "code", name: "Visual Studio Code", command: launcher }],
+      spawn: async (launch) => {
+        started.push(launch);
+      },
+      allowed: () => true,
+      signal: new AbortController().signal,
+    });
+    expect(started).toEqual([{ command: join(install, "Code.exe"), args: [root] }]);
+  });
+
+  test("a launcher whose executable is gone is refused rather than run", async () => {
+    const root = await project();
+    const install = await realpath(await mkdtemp(join(tmpdir(), "ace-host-editor-")));
+    folders.push(install);
+    const launcher = join(install, "code.cmd");
+    await writeFile(launcher, '"%~dp0..\\Code.exe" %*');
+    const started: HostLaunch[] = [];
+    await expect(
+      openOnHost({
+        root,
+        app: { kind: "editor", editorId: "code" },
+        platform: "win32",
+        editors: async () => [{ id: "code", name: "Visual Studio Code", command: launcher }],
+        spawn: async (launch) => {
+          started.push(launch);
+        },
+        allowed: () => true,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("editor_not_found");
+    expect(started).toEqual([]);
+  });
+});

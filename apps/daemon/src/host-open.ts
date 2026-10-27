@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { InstalledEditor } from "@ace/protocol";
 
 /*
@@ -116,6 +116,8 @@ export async function openOnHost(input: {
   /** Whether the caller may still act: connected, `operate`, and access to the thread. */
   allowed: () => boolean;
   signal: AbortSignal;
+  /** Reads a Windows launcher script; the filesystem by default. */
+  readLauncher?: (path: string) => Promise<string>;
 }): Promise<void> {
   const found = await hostTarget(input.root, input.path);
   if (!found) throw new Error("path_not_found");
@@ -124,9 +126,32 @@ export async function openOnHost(input: {
     app.kind === "editor"
       ? (await input.editors()).find((entry) => entry.id === app.editorId)
       : undefined;
-  const launch = hostLaunch({ platform: input.platform, app, ...found, line: input.line, editor });
-  if (!launch) throw new Error("editor_not_found");
+  const shim = hostLaunch({ platform: input.platform, app, ...found, line: input.line, editor });
+  if (!shim) throw new Error("editor_not_found");
+  const launch =
+    input.platform === "win32" ? await windowsExecutable(shim, input.readLauncher) : shim;
   input.signal.throwIfAborted();
   if (!input.allowed()) throw new Error("forbidden");
   await input.spawn(launch);
+}
+
+/**
+ * On Windows editors install `.cmd` launchers (`code.cmd`), which start only through a shell.
+ * The executable the launcher runs (`"%~dp0..\Code.exe"`) starts directly instead, with the
+ * same arguments and still no shell. A launcher naming no executable that exists is refused.
+ */
+async function windowsExecutable(
+  launch: HostLaunch,
+  read: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
+): Promise<HostLaunch> {
+  if (!/\.(?:cmd|bat)$/i.test(launch.command)) return launch;
+  const script = await read(launch.command).catch(() => "");
+  const named = /"([^"]*\.exe)"/i.exec(script)?.[1];
+  if (!named) throw new Error("editor_not_found");
+  const folder = dirname(launch.command);
+  const target = named.replace(/%~dp0/gi, `${folder}${sep}`).replaceAll("\\", sep);
+  const executable = isAbsolute(target) ? resolve(target) : resolve(join(folder, target));
+  const found = await stat(executable).catch(() => undefined);
+  if (!found?.isFile()) throw new Error("editor_not_found");
+  return { command: executable, args: launch.args };
 }
