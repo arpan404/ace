@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { commands, connect, fixture, latest, open, reset, sent, until } from "./thread-harness.ts";
+import {
+  commands,
+  connect,
+  fixture,
+  latest,
+  open,
+  pump,
+  reset,
+  sent,
+  until,
+} from "./thread-harness.ts";
+import { ThreadSession } from "./thread-session.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -209,4 +220,45 @@ test("a refused upload says what to do in the web's words, not the daemon's code
   expect(file?.error).toBe(
     "Attachment limit reached. Open Attachments from the thread menu and remove files you no longer need.",
   );
+});
+
+test("a file still uploading when the thread is read again from its machine stays on the message", async () => {
+  const photo = Buffer.alloc(120 * 1024, 9);
+  staged.set("photo-0002", photo);
+  // The second chunk waits until the transcript has been read again.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const slow: ChunkReader = async (localId, offset, limit) => {
+    if (offset > 0) await gate;
+    return chunks(localId, offset, limit);
+  };
+  const client = connect(idle());
+  const first = open(client, "files", slow);
+  await until(() => latest("thread.controls"), "the composer");
+  first.handle({
+    type: "attach",
+    file: {
+      localId: "photo-0002",
+      name: "screen.png",
+      mimeType: "image/png",
+      bytes: photo.length,
+      sha256: sha(photo),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "uploading", "the upload under way");
+
+  // Reload from machine: this session goes and a new one shows the thread.
+  const kept = first.keepTray();
+  first.dispose();
+  const lease = client.thread("files");
+  const second = new ThreadSession(client, lease.store, "files", 2, pump, slow, undefined, kept);
+  release();
+  await until(() => tray()?.files[0]?.state === "ready", "the upload finished");
+  second.handle({ type: "send", text: "And now?", opposite: false, requestId: "m2" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]?.context).toMatchObject({
+    attachments: [{ sha256: sha(photo) }],
+  });
+  second.dispose();
+  lease.release();
 });

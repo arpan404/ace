@@ -52,8 +52,8 @@ interface Staged extends Picked {
 export class AttachmentTray {
   readonly #client: Pick<ClientCore, "request">;
   readonly #target: UploadTarget;
-  readonly #signal: AbortSignal;
-  readonly #emit: (rows: TrayRow[]) => void;
+  #signal: AbortSignal;
+  #emit: (rows: TrayRow[]) => void;
   readonly #read: ChunkReader;
   readonly #files = new Map<string, Staged>();
 
@@ -149,6 +149,16 @@ export class AttachmentTray {
   sent(): void {
     if (!this.#files.size) return;
     this.#files.clear();
+    this.#publish();
+  }
+
+  /**
+   * Move to a new screen for the same thread (its transcript was read again from the machine):
+   * the files and their uploads carry on, and the rows go to that screen.
+   */
+  adopt(signal: AbortSignal, emit: (rows: TrayRow[]) => void): void {
+    this.#signal = signal;
+    this.#emit = emit;
     this.#publish();
   }
 

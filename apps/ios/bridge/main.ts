@@ -31,7 +31,7 @@ import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
 import { BrowserLive } from "./browser-live.ts";
-import { nativeChunks } from "./thread-attachments.ts";
+import { nativeChunks, type AttachmentTray } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -284,8 +284,10 @@ async function start(json: string): Promise<void> {
   });
   await client.start();
 }
+/** Files on the open thread's message, carried across a reload from the machine. */
+let keptTray: AttachmentTray | undefined;
 /** Show `threadId` under the next navigation generation, as native's `open` does. */
-function openThread(threadId: string, warm: boolean): void {
+function openThread(threadId: string, warm: boolean, kept?: AttachmentTray): void {
   if (!client) return;
   services?.transcript.close();
   stopThread?.();
@@ -299,8 +301,15 @@ function openThread(threadId: string, warm: boolean): void {
     pump.bind(ledger, ++epoch);
     stopThread = followThread(lease.store, threadId, epoch, pump, ledger);
   }
-  session = new ThreadSession(client, lease.store, threadId, epoch, pump, nativeChunks, (id) =>
-    suggest?.entries(id),
+  session = new ThreadSession(
+    client,
+    lease.store,
+    threadId,
+    epoch,
+    pump,
+    nativeChunks,
+    (id) => suggest?.entries(id),
+    kept,
   );
   browser?.close();
   browser?.probe(threadId, epoch);
@@ -358,8 +367,15 @@ function action(json: string): void {
           snapshots,
           sink: pump,
           openThread: () => openThreadId,
-          leave: leaveThread,
-          reopen: (threadId) => openThread(threadId, false),
+          leave: () => {
+            // The message's files stay on it while the transcript is read again.
+            keptTray = session?.keepTray();
+            leaveThread();
+          },
+          reopen: (threadId) => {
+            openThread(threadId, false, keptTray);
+            keptTray = undefined;
+          },
         });
       else error();
       return;
