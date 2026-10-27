@@ -134,6 +134,16 @@ export async function reportAppUpdate(
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }
 
+/** Takes this app's update report back (host token only), as the app quits. */
+export async function withdrawAppUpdate(daemon: LocalDaemon): Promise<void> {
+  const response = await fetch(new URL("/v1/app-update", daemon.origin), {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${daemon.token}` },
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+}
+
 /** Authoritative admission state of the daemon now serving this endpoint. */
 export async function maintenanceStatus(daemon: LocalDaemon) {
   const { MaintenanceStatus } = await protocol();

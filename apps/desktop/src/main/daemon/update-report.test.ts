@@ -19,12 +19,16 @@ const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
 
 /** A daemon that keeps what it was told and can refuse while it is down. */
 function daemon() {
-  const told: AppUpdateReport[] = [];
+  const told: (AppUpdateReport | "withdrawn")[] = [];
   let up = true;
   const reporter = new UpdateReporter({
     send: async (report) => {
       if (!up) throw new Error("connect ECONNREFUSED");
       told.push(report);
+    },
+    withdraw: async () => {
+      if (!up) throw new Error("connect ECONNREFUSED");
+      told.push("withdrawn");
     },
     log: () => {},
   });
@@ -101,5 +105,26 @@ describe("app update reporting", () => {
     reporter.connected(true);
     await reporter.settled();
     expect(told.at(-1)).toMatchObject({ available: "1.4.2" });
+  });
+
+  it("quitting takes the report back, and nothing is sent after", async () => {
+    const { told, reporter } = daemon();
+    reporter.connected(true);
+    reporter.status(status({ state: "downloaded", version: "1.4.2" }));
+    await reporter.settled();
+    await reporter.withdraw();
+    reporter.status(status({ state: "current" }));
+    reporter.connected(false);
+    reporter.connected(true);
+    await reporter.settled();
+    expect(told.at(-1)).toBe("withdrawn");
+    expect(told).toHaveLength(2);
+  });
+
+  it("an app that never reported has nothing to withdraw", async () => {
+    const { told, reporter } = daemon();
+    reporter.connected(true);
+    await reporter.withdraw();
+    expect(told).toEqual([]);
   });
 });

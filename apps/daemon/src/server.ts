@@ -96,7 +96,7 @@ export async function startServer(options: ServerOptions): Promise<{
     ready = true;
   });
   if (options.maintenance) maintenance.enter("update");
-  const appUpdate = options.appUpdate ?? new AppUpdateBoard();
+  const appUpdate = options.appUpdate ?? new AppUpdateBoard(runtime);
   const access = {
     auth,
     pairing,
@@ -516,6 +516,7 @@ export async function startServer(options: ServerOptions): Promise<{
     await dynamicRemote?.close();
     await transports?.close();
     await preview?.close();
+    appUpdate.close();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);

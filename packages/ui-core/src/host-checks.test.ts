@@ -54,23 +54,26 @@ const report = {
 };
 
 test("the desktop app's update reads as its version and one line, loud only for a restart", () => {
-  expect(appUpdateWords({ report: null })).toEqual({
+  expect(appUpdateWords({ reportedAt: 1, report: null })).toEqual({
     version: "Unknown",
     line: null,
     needsYou: false,
   });
-  expect(appUpdateWords({ report })).toEqual({
+  expect(appUpdateWords({ reportedAt: 1, report })).toEqual({
     version: "1.4.1",
     line: "Up to date",
     needsYou: false,
   });
-  expect(appUpdateWords({ report: { ...report, available: "1.4.2", downloaded: true } })).toEqual({
+  expect(
+    appUpdateWords({ reportedAt: 1, report: { ...report, available: "1.4.2", downloaded: true } }),
+  ).toEqual({
     version: "1.4.1",
     line: "Update 1.4.2 available",
     needsYou: false,
   });
   expect(
     appUpdateWords({
+      reportedAt: 1,
       report: { ...report, available: "1.4.2", downloaded: true, restartRequired: true },
     }),
   ).toEqual({ version: "1.4.1", line: "Restart to finish updating", needsYou: true });

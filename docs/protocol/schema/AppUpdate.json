@@ -11,10 +11,23 @@
           "type": "null"
         }
       ]
+    },
+    "reportedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
-    "report"
+    "report",
+    "reportedAt"
   ],
   "type": "object"
 }

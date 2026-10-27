@@ -3533,6 +3533,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
+| reportedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 
 Example:
 
@@ -3544,7 +3545,8 @@ Example:
     "releaseUrl": "https://example.invalid/",
     "restartRequired": false,
     "version": "example"
-  }
+  },
+  "reportedAt": null
 }
 ```
 
@@ -3569,7 +3571,8 @@ Example:
       "releaseUrl": "https://example.invalid/",
       "restartRequired": false,
       "version": "example"
-    }
+    },
+    "reportedAt": 1
   }
 }
 ```
@@ -3632,6 +3635,7 @@ Example:
 
 ```json
 {
+  "error": "forbidden",
   "ok": true,
   "requestId": "example",
   "type": "appUpdate.result",
@@ -3642,7 +3646,8 @@ Example:
       "releaseUrl": null,
       "restartRequired": true,
       "version": "example"
-    }
+    },
+    "reportedAt": null
   }
 }
 ```

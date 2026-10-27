@@ -20,7 +20,7 @@ import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
-import { reportAppUpdate } from "./daemon/probe.ts";
+import { reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
@@ -227,12 +227,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
   /** The browser backend tells the daemon first, then the daemon this app started stops. */
   const shutDown = async () => {
     globalShortcut.unregisterAll();
+    // Before the daemon stops or the app goes: no client should keep showing this app's update.
+    await updateReport.withdraw();
     await background.stop();
     await runtime.stop();
   };
   // Paired clients read the app's update status from its daemon (read-only there).
   const updateReport = new UpdateReporter({
     send: async (report) => reportAppUpdate(await runtime.local(), report),
+    withdraw: async () => withdrawAppUpdate(await runtime.local()),
     log: (message) => log("warn", message),
   });
   runtime.onStatus((status) => updateReport.connected(status.state === "running"));

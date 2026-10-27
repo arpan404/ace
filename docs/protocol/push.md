@@ -196,7 +196,8 @@ Example:
       "releaseUrl": "https://example.invalid/",
       "restartRequired": false,
       "version": "example"
-    }
+    },
+    "reportedAt": null
   }
 }
 ```
@@ -214,7 +215,8 @@ Example:
 {
   "type": "appUpdate.changed",
   "update": {
-    "report": null
+    "report": null,
+    "reportedAt": 7
   }
 }
 ```
