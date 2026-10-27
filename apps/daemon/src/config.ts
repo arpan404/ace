@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { resolveDaemonHome } from "@ace/service";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { WebOrigins } from "./web-origins.ts";
-import { LogMaxBytes, RetentionDays, type SettingsValues } from "@ace/protocol";
+import { LogMaxBytes, RetentionDays, SettingsValues } from "@ace/protocol";
 import { parseByteSize } from "@ace/diagnostics/log-policy";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
@@ -60,6 +60,8 @@ const Environment = z.object({
     })
     .pipe(LogMaxBytes)
     .optional(),
+  /** Overrides the saved `notifications.pushGatewayUrl` while set (ADR 0106). */
+  ACE_PUSH_GATEWAY_URL: SettingsValues.shape["notifications.pushGatewayUrl"].optional(),
   /** Overrides the saved `worktree.preparationTimeoutMs` while set, in milliseconds. */
   ACE_WORKTREE_PREPARATION_TIMEOUT_MS: z.coerce
     .number()
@@ -94,7 +96,10 @@ export interface Config {
   settingsOverrides?: Partial<
     Pick<
       SettingsValues,
-      "storage.retentionDays" | "logs.maxBytes" | "worktree.preparationTimeoutMs"
+      | "storage.retentionDays"
+      | "logs.maxBytes"
+      | "worktree.preparationTimeoutMs"
+      | "notifications.pushGatewayUrl"
     >
   >;
   /** How long worktree preparation may take when settings are unavailable (ACE_WORKTREE_PREPARATION_TIMEOUT_MS). */
@@ -161,6 +166,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
         : {}),
       ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined
         ? { "worktree.preparationTimeoutMs": settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS }
+        : {}),
+      ...(settings.ACE_PUSH_GATEWAY_URL !== undefined
+        ? { "notifications.pushGatewayUrl": settings.ACE_PUSH_GATEWAY_URL }
         : {}),
     },
     ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined

@@ -174,6 +174,7 @@ import {
   NotificationMessage,
   NotificationFeedRequest,
   NotificationFeedResult,
+  NotificationAck,
 } from "./notifications.ts";
 
 import {
@@ -284,6 +285,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationSettings,
   NotificationSnooze,
   NotificationFeedRequest,
+  NotificationAck,
 
   ...CoreClientMessage.options,
 ]);

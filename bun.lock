@@ -203,6 +203,15 @@
         "zod": "^4.6.5",
       },
     },
+    "apps/push-gateway": {
+      "name": "@ace/push-gateway",
+      "dependencies": {
+        "@ace/notify": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/relay": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "apps/relay": {
       "name": "@ace/relay",
       "dependencies": {
@@ -1199,6 +1208,8 @@
     "@ace/protocol-docs": ["@ace/protocol-docs@workspace:tools/protocol-docs"],
 
     "@ace/provider-kit": ["@ace/provider-kit@workspace:packages/provider-kit"],
+
+    "@ace/push-gateway": ["@ace/push-gateway@workspace:apps/push-gateway"],
 
     "@ace/real-smoke": ["@ace/real-smoke@workspace:tools/real-smoke"],
 
