@@ -68,7 +68,7 @@ export function linuxComputerChecks(context: DoctorContext, ports: LinuxComputer
         };
       },
     },
-    helperCheck(context, ports),
+    helperCheck(context, ports, load),
     onBus(
       "computer.accessibility",
       "Install at-spi2-core (it comes with GNOME and KDE), log out and back in.",
@@ -138,7 +138,11 @@ export function linuxComputerChecks(context: DoctorContext, ports: LinuxComputer
   ];
 }
 
-function helperCheck(context: DoctorContext, ports: LinuxComputerPorts): Check {
+function helperCheck(
+  context: DoctorContext,
+  ports: LinuxComputerPorts,
+  load: () => Promise<LinuxComputerFacts>,
+): Check {
   const fix =
     "Start ace from the desktop app or the release archive, which include the screen helper.";
   return {
@@ -154,12 +158,30 @@ function helperCheck(context: DoctorContext, ports: LinuxComputerPorts): Check {
           message: "ace is running without its screen helper, so computer use is unavailable",
           fix,
         };
-      if (facts.kind === "failed")
+      if (facts.kind === "failed") {
+        // Without a Wayland session the daemon refuses before it starts the helper, so the
+        // helper never had a chance to answer and toggling computer use changes nothing.
+        const { session } = await load();
+        if (session === "x11" || /\bX11 session\b/.test(facts.message))
+          return {
+            status: "warn",
+            message:
+              "Screen helper not started: this desktop runs an X11 session, and computer use on Linux needs Wayland",
+            fix: sessionFix,
+          };
+        if (session === "none")
+          return {
+            status: "warn",
+            message:
+              "Screen helper not started: nobody is logged in to a desktop session ace can reach",
+            fix: sessionFix,
+          };
         return {
           status: "warn",
           message: `The screen helper didn't answer: ${facts.message.slice(0, 512)}`,
           fix: "Turn computer use off and on in Settings › Computer use. If it still fails, run ace triage.",
         };
+      }
       return { status: "ok", message: "Screen helper is running", fix };
     },
   };
