@@ -244,13 +244,30 @@ test("a project skill opens its SKILL.md on the computer through host.open", asy
   ]);
 });
 
-test("a personal skill offers no Open on computer and opens nothing", async () => {
+test("a personal skill opens its SKILL.md on the computer by its path", async () => {
   const { daemon, ask, named } = await library();
+  daemon.workspace.setEditors([{ id: "code", name: "VS Code", command: "/usr/local/bin/code" }]);
   const [row] = await named("research");
-  expect((await ask({ op: "skill", id: row?.id })).open).toBeNull();
-  expect(await ask({ op: "open", id: row?.id, app: { kind: "files" } })).toMatchObject({
+  expect((await ask({ op: "skill", id: row?.id })).open).toEqual({
+    hostPath: "~/.agents/skills/research/SKILL.md",
+  });
+  expect(await ask({ op: "open", id: row?.id, app: { kind: "editor", editorId: "code" } })).toEqual(
+    { ok: true },
+  );
+  expect(daemon.workspace.opened).toEqual([
+    { app: "code", folder: "host", path: "~/.agents/skills/research/SKILL.md" },
+  ]);
+});
+
+test("a skill the machine keeps for its owner says only the owner can open it", async () => {
+  // As for a skill folder linked in from outside the personal skills folder.
+  const { daemon, ask, named } = await library();
+  daemon.workspace.setOwnerOnlyHostPaths(["~/.agents/skills/research"]);
+  const [row] = await named("research");
+  expect(await ask({ op: "open", id: row?.id, app: { kind: "files" } })).toEqual({
     ok: false,
-    code: "unavailable",
+    code: "owner_only",
+    message: "Only the machine's owner can open this.",
   });
   expect(daemon.workspace.opened).toEqual([]);
 });

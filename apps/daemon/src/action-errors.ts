@@ -48,6 +48,9 @@ export function actionErrorCode(error: unknown): string {
       "script_not_found",
       "script_shell_unsupported",
       "editor_not_found",
+      "path_not_found",
+      "path_not_openable",
+      "owner_only",
       "terminal_limit",
     ].includes(error.message)
   )

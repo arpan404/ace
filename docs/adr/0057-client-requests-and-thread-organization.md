@@ -75,3 +75,43 @@ Threat model: someone able to replace files in the person's editor install or on
 already runs code as that person, so a race between checking and starting the editor's own
 binary is out of scope. Containment applies to what the client can influence, the target path.
 The desktop app still opens editors on its own machine through the launch descriptor above.
+
+#### Any path on the machine (amended 2026-10-27)
+
+`host.open` also takes `hostPath`: any path on the machine, absolute or from `~` (the daemon's
+own home). It lets a client open personal skills and any path an agent printed, not only paths
+inside a project. Who may open it depends on where it resolves to, never on how the client
+wrote it:
+
+- Inside a registered project's folder or a live thread's checkout: `operate`, as before.
+- Inside a personal skill folder: `operate`. The folders come from the daemon's own skills
+  configuration (`SkillLibrary.personalRoots`, the same homes the skill library reads, such
+  as `~/.agents/skills`), never from the client.
+- Anywhere else: `admin`, the machine's owner, refused as `owner_only` otherwise. A phone
+  paired with `operate` drives agents in projects; it must not point the host's editor or file
+  manager at arbitrary system paths.
+
+Every rule applies to the resolved path. The target and each project and skill folder are
+resolved through symlinks first, so a link inside a project that points outside it needs the
+owner, and `..` is judged where it lands. Paths that don't exist are refused
+(`path_not_found`), and so is anything that isn't a regular file or a folder: devices, sockets
+and pipes (`path_not_openable`). On Windows, network (`\\server\share`) and device (`\\?\`)
+paths are refused before anything reads them, since resolving them alone could reach another
+machine.
+
+The target is only ever opened in an editor or shown in the file manager, never run. On macOS
+`open` runs a bundle folder it is handed, so a folder whose name has an extension (`Tool.app`)
+is revealed in its parent instead. Linux's file manager gets a file's folder, never the file.
+Still no shell.
+
+Right before the process starts, the target is resolved again and must be the same file or
+folder, and the caller must still hold the scope the target needed: a device that loses
+`admin` or `operate`, or a symlink swapped while editors are found, starts nothing.
+
+Threat model, for host paths: the attacker of interest is a paired device with `operate` but
+not `admin`, or a stolen phone with that access. It can name any string, so it gets only what
+the resolved target allows, and outside projects and skill folders that is nothing. A project
+registered at a broad folder (`~` or `/`) widens what `operate` can open; registering it is the
+owner's own choice. Opening never runs the target, so the worst an owner-only open can do is
+show a file in an editor on the owner's own screen. A local process that can swap a symlink
+between the recheck and the spawn already runs as the person, the same as above.

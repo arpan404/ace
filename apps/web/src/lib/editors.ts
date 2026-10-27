@@ -21,6 +21,8 @@ export function useEditors(): {
   choose(id: string): void;
   error: Error | null;
   unavailable: string | undefined;
+  /** The daemon machine's file manager by name ("Finder"), for `host.open`'s files app. */
+  fileManager: string | undefined;
 } {
   const { storage } = useLayout();
   const ready = useConnectionState() === "ready";
@@ -37,10 +39,10 @@ export function useEditors(): {
       const result = reply.result;
       if (result.kind === "error") throw new Error(result.code);
       if (result.kind !== "editors") throw new Error("Unexpected editor discovery response");
-      return result.editors;
+      return result;
     },
   });
-  const editors = ready && !query.error && !query.isFetching ? query.data : undefined;
+  const editors = ready && !query.error && !query.isFetching ? query.data?.editors : undefined;
   return {
     editors,
     current: editors?.find((editor) => editor.id === picked) ?? editors?.[0],
@@ -49,6 +51,7 @@ export function useEditors(): {
       writeJson(storage, storageKey, id);
     },
     error: query.error,
+    fileManager: ready && !query.error && !query.isFetching ? query.data?.fileManager : undefined,
     unavailable: !ready
       ? "Connect to this machine to list editors"
       : query.error

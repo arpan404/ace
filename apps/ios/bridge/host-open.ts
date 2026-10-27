@@ -4,8 +4,10 @@ import { z } from "zod";
 
 /*
  * Open in, from the phone: the editors the machine running ace has, and opening a project's or
- * thread's folder, or a file in it, in one of them or the machine's file manager there
- * (`workspace.request` `host.open`). The phone has no editor of its own for the host's files.
+ * thread's folder, a file in it, or any path on the machine (`hostPath`), in one of them or the
+ * machine's file manager there (`workspace.request` `host.open`). The phone has no editor of its
+ * own for the host's files. Paths outside every project and personal skill folder open only for
+ * the machine's owner; the machine decides, and the phone shows its answer.
  */
 
 const quiet = { timeoutMs: 15_000 };
@@ -21,6 +23,8 @@ export const HostOpenRequest = z.discriminatedUnion("op", [
     workspaceId: WorkspaceId.optional(),
     threadId: ThreadId.optional(),
     path: z.string().min(1).max(4096).optional(),
+    /** Any path on the machine: absolute, or from `~`. */
+    hostPath: z.string().min(1).max(4096).optional(),
     line: z.number().int().positive().optional(),
   }),
 ]);
@@ -30,6 +34,8 @@ const problems: Record<string, string> = {
   editor_not_found:
     "That editor isn't available to open from here on that computer. Show it in the file manager instead.",
   path_not_found: "That isn't on the machine any more.",
+  path_not_openable: "That isn't a file or folder ace can open.",
+  owner_only: "Only the machine's owner can open this.",
   workspace_not_found: "That project is gone.",
   forbidden: "This phone can only view this machine.",
 };
