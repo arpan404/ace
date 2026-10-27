@@ -19,6 +19,31 @@ import Foundation
     }
 }
 
+/// Requests for a message's full words (`words` patches): resolves with the words, or nil and why.
+@MainActor final class WordsRequests {
+    struct Answer: Sendable, Equatable {
+        var ok: Bool = true
+        let text: String?
+        let message: String
+        /// The queue revision the words were read at; nil for a send in the outbox.
+        var revision: Int? = nil
+    }
+    nonisolated static let unsent = Answer(ok: false, text: nil, message: "Couldn't reach the bridge. Try again.")
+    private var waiting: [String: CheckedContinuation<Answer, Never>] = [:]
+    func wait(id: String, dispatch: () -> Bool) async -> Answer {
+        await withCheckedContinuation { continuation in
+            waiting[id] = continuation
+            if !dispatch() { resolve(id, Self.unsent) }
+        }
+    }
+    func resolve(_ id: String, _ answer: Answer) { waiting.removeValue(forKey: id)?.resume(returning: answer) }
+    func cancel() {
+        let pending = waiting.values
+        waiting = [:]
+        for continuation in pending { continuation.resume(returning: Self.unsent) }
+    }
+}
+
 /// Requests that wait past admission for the daemon's receipt (a goal change): the screen keeps
 /// the action pending until the daemon took it or refused it, never just until it was saved on
 /// this phone. Resolves with nil when taken, else the refusal's words.
@@ -38,5 +63,27 @@ import Foundation
         let pending = waiting.values
         waiting = [:]
         for continuation in pending { continuation.resume(returning: Self.closed) }
+    }
+}
+
+/// The last answer to a bulk action that went out with threads still waiting on the machine
+/// (`inbox.bulk.final`), by the phone's ticket. One that arrives before anyone waits is kept
+/// for them; closing the connection answers every waiter with nil, and they stay pending.
+@MainActor final class BulkFinals {
+    private var waiting: [String: CheckedContinuation<BulkOutcome?, Never>] = [:]
+    private var arrived: [String: BulkOutcome] = [:]
+    func wait(_ ticket: String) async -> BulkOutcome? {
+        if let outcome = arrived.removeValue(forKey: ticket) { return outcome }
+        return await withCheckedContinuation { waiting[ticket] = $0 }
+    }
+    func resolve(_ ticket: String, _ outcome: BulkOutcome) {
+        if let continuation = waiting.removeValue(forKey: ticket) { continuation.resume(returning: outcome) }
+        else { arrived[ticket] = outcome }
+    }
+    func cancel() {
+        let pending = waiting.values
+        waiting = [:]
+        arrived = [:]
+        for continuation in pending { continuation.resume(returning: nil) }
     }
 }

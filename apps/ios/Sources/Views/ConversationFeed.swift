@@ -63,7 +63,7 @@ private final class TranscriptScrollIntent {
 /// accessibility client attached (VoiceOver, Voice Control, UI automation), a drag against that
 /// standing target re-places the lazy rows on every update and pins the main thread.
 struct ConversationFeed: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let thread: ThreadModel
     let acceptedSend: Int
@@ -74,6 +74,7 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Words taken back from a message that wasn't sent go into the composer.
     @State private var reading = TranscriptReading()
     @State private var following = true
     @State private var initialScroll = false
@@ -121,8 +122,19 @@ struct ConversationFeed: View {
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                        PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }
+                        PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
+                                       words: { await model.sendWords(row.id) },
+                                       saveWords: { await model.editFailedSend(row.id, text: $0) },
+                                       discard: { await model.dismissSend(row.id) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                    }
+                    if let held = thread.screen.queue?.notSent {
+                        HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
+                                    edit: { message, change in await model.editQueued(message, change: change) },
+                                    words: { await model.queuedWords(held.id) },
+                                    saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .transition(.opacity)
                     }
                 }
                 // Room for the composer, its strip and the keyboard, and under the last row so it
@@ -133,7 +145,10 @@ struct ConversationFeed: View {
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
+            .modifier(TranscriptTextSize())
             .padding(.top, AceTheme.Spacing.sm)
+            // A message that wasn't sent fades in and out where it was written.
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
@@ -144,6 +159,9 @@ struct ConversationFeed: View {
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
         .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
+        // ⇧⌥⌘↑ and ↓ on a hardware keyboard, as on the web: the turn before and after the one on
+        // top. They repeat the thread menu's Turns list, never the only way.
+        .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (reading.paged ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
@@ -270,12 +288,32 @@ struct ConversationFeed: View {
         settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.toEnd : nil },
                    wait: { intent.animating }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
+    /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
+    /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
+    private func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+        let rows = TranscriptFeedRow.rows(shown)
+        let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
+        let top = intent.metrics.topInset
+        let first = rows.firstIndex { (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
+        following = false
+        if direction > 0 {
+            if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
+            reading.live(model: model, thread: thread); following = true; toEnd(proxy)
+            return
+        }
+        let here = starts.last { $0 <= first }
+        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceTheme.Spacing.sm } ?? false
+        if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
+        if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
+        if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread) }
+    }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {
         guard thread.loaded, let focus = model.focusOnOpen, focus.thread == thread.id else { return }
         model.focusOnOpen = nil
         following = false
-        reading.jump(to: focus.item, model: model, live: thread)
+        if let turn = focus.turn { reading.jump(toTurn: turn, model: model, live: thread) }
+        else { reading.jump(to: focus.item, model: model, live: thread) }
     }
     /// Following the end, the end stays in place as rows change height: older history filling in
     /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
@@ -330,5 +368,20 @@ private struct TranscriptTopEdge: ViewModifier {
             content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         }
+    }
+}
+
+/// The previous and next turn on a hardware keyboard, listed in the ⌘ overlay by name.
+private struct TurnKeys: View {
+    let step: (Int) -> Void
+    var body: some View {
+        VStack {
+            Button("Previous turn") { step(-1) }.keyboardShortcut(.upArrow, modifiers: [.shift, .option, .command])
+            Button("Next turn") { step(1) }.keyboardShortcut(.downArrow, modifiers: [.shift, .option, .command])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

@@ -11,10 +11,20 @@ const line = (index: number) =>
   `${new Date(1_790_000_000_000 + index * 1000).toISOString()} relay: ack seq=${index}`;
 
 export function seedProjects(daemon: FakeDaemon): void {
-  daemon.projects.seedFolders("/Users/arpan", [
-    { path: "/Users/arpan/code/notes", git: true },
-    { path: "/Users/arpan/code/dotfiles", git: true },
-    { path: "/Users/arpan/code/scratch" },
+  // The seeded projects live under /tmp; allowing it lets Projects list and manage them.
+  daemon.projects.seedFolders(
+    "/Users/arpan",
+    [
+      { path: "/Users/arpan/code/notes", git: true },
+      { path: "/Users/arpan/code/dotfiles", git: true },
+      { path: "/Users/arpan/code/scratch" },
+    ],
+    { roots: ["/Users/arpan", "/tmp"] },
+  );
+  // Open in lists the host's editors; nothing starts in the fixture.
+  daemon.workspace.setEditors([
+    { id: "code", name: "Visual Studio Code", command: "/usr/local/bin/code" },
+    { id: "zed", name: "Zed", command: "/usr/local/bin/zed" },
   ]);
   for (let index = 0; index < 240; index++)
     daemon.checkouts.seed(

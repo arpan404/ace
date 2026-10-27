@@ -9,7 +9,7 @@ struct ComposerFloaters: View {
     let behind: Bool
     let open: (String) -> Void
     let scrollToEnd: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if let pill { LivePillCapsule(pill: pill, open: open).transition(arrival) }

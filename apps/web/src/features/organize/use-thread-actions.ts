@@ -6,9 +6,13 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
-import type { OrganizePatch } from "@ace/ui-core";
+import {
+  deleteQuestion,
+  runningWork,
+  stopAndDeleteQuestion,
+  type OrganizePatch,
+} from "@ace/ui-core";
 import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
-import { runningWork } from "./running-work.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -366,7 +370,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       if (!live.length) return;
       confirmation.open({
         title: only ? only.entry.title : count(live.length),
-        running: "Agents or terminals are still running. They will stop before deletion.",
+        running: stopAndDeleteQuestion(live.map((refusal) => refusal.entry.title)).running,
         confirm: () =>
           removeAll(
             live.map((refusal) => refusal.entry),
@@ -473,13 +477,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       const lease = client.threads();
       const status = lease.store.thread(entry.id)?.status;
       lease.release();
-      const running = status && !["done", "failed", "stopped"].includes(status.state);
+      const question = status ? deleteQuestion([{ title: entry.title, status }]) : undefined;
       confirmation.open({
         title: entry.title,
-        running: running
-          ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
-          : "",
-        confirm: () => removeAll([entry], !!running),
+        running: question?.running ?? "",
+        confirm: () => removeAll([entry], question?.force === true),
       });
     },
     newThreadOnMain: (entry) =>

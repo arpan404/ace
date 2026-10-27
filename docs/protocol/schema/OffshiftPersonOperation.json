@@ -1,0 +1,294 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPersonOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "start",
+          "type": "string"
+        },
+        "criteria": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftCriteria.json"
+        },
+        "endpoint": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "outcome": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "playbook": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "outcome",
+        "endpoint",
+        "criteria"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "get",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "step",
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "note": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "done",
+            "todo"
+          ],
+          "type": "string"
+        },
+        "stepId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion",
+        "stepId",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "evidence",
+          "type": "string"
+        },
+        "criterionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+        },
+        "link": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "fail"
+          ],
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion",
+        "criterionId",
+        "kind",
+        "result",
+        "revision",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "revise",
+          "type": "string"
+        },
+        "criterion": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion",
+        "criterion"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "advance",
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "phase": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion",
+        "phase"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "resume",
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "end",
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "expectedVersion"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -52,13 +52,14 @@ import XCTest
         app.buttons["thread.menu"].tap()
         let terminal = app.threadMenuItem("thread.terminal")
         XCTAssertTrue(terminal.waitForExistence(timeout: 20)); terminal.tap()
-        XCTAssertTrue(app.buttons["New"].waitForExistence(timeout: 10)); app.buttons["New"].tap()
+        XCTAssertTrue(app.buttons["Open a terminal"].waitForExistence(timeout: 10)); app.buttons["Open a terminal"].tap()
         let input = app.textFields["terminal.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: input)
         wait(for: [enabled], timeout: 15)
         input.tap(); input.typeText("pwd\n")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "/fake")).firstMatch.waitForExistence(timeout: 15))
+        let output = app.descendants(matching: .any)["terminal.output"]
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS %@", "/fake"), evaluatedWith: output)], timeout: 15)
         capture("terminal")
     }
 
@@ -111,9 +112,9 @@ import XCTest
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         app.openBrowseDestination("settings.machines")
         app.buttons["machines.row.ios-spike-host"].tap()
-        // The tab bar keeps its own Threads tab: scope the row to the pushed list.
-        for _ in 0..<6 where !app.collectionViews.buttons["Threads"].isHittable { app.swipeUp() }
-        app.collectionViews.buttons["Threads"].tap()
+        let agents = app.buttons["machine.settings.Agents"].firstMatch
+        for _ in 0..<6 where !agents.isHittable { app.swipeUp() }
+        agents.tap()
         XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
         capture("machine-settings")
     }

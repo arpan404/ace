@@ -1,5 +1,11 @@
 import type { ClientCore } from "@ace/client";
-import type { ContextOperation, ContextResult, MessageContext, ThreadId } from "@ace/protocol";
+import type {
+  Attachment,
+  ContextOperation,
+  ContextResult,
+  MessageContext,
+  ThreadId,
+} from "@ace/protocol";
 import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } from "@ace/ui-core";
 import { z } from "zod";
 import { call } from "./host.ts";
@@ -23,6 +29,11 @@ export type ChunkReader = (localId: string, offset: number, limit: number) => Pr
 export type UploadTarget = { threadId: ThreadId } | { draftId: () => Promise<string> };
 /** One file's row for the tray Swift draws. */
 export type TrayRow = Record<string, unknown>;
+/**
+ * Where a tray's rows go, with why no file can be added now (a message starting a thread is on
+ * its way), or undefined when files can be added.
+ */
+export type TrayEmit = (rows: TrayRow[], locked: string | undefined) => void;
 
 export const chunkBytes = 48 * 1024;
 
@@ -41,6 +52,11 @@ export type Picked = z.infer<typeof Picked>;
 
 interface Staged extends Picked {
   state: "uploading" | "ready" | "failed";
+  /**
+   * A file the thread already stores, carried from a message (an edited one): it goes by
+   * reference, never uploads again, and leaving the message never releases it from the thread.
+   */
+  carried: { itemId: string; thumbnail: boolean } | undefined;
   progress: number;
   error: string;
   uploadId: string | undefined;
@@ -52,16 +68,17 @@ interface Staged extends Picked {
 export class AttachmentTray {
   readonly #client: Pick<ClientCore, "request">;
   readonly #target: UploadTarget;
-  readonly #signal: AbortSignal;
-  readonly #emit: (rows: TrayRow[]) => void;
+  #signal: AbortSignal;
+  #emit: TrayEmit;
   readonly #read: ChunkReader;
   readonly #files = new Map<string, Staged>();
+  #locked: string | undefined;
 
   constructor(
     client: Pick<ClientCore, "request">,
     target: UploadTarget,
     signal: AbortSignal,
-    emit: (rows: TrayRow[]) => void,
+    emit: TrayEmit,
     read: ChunkReader,
   ) {
     this.#client = client;
@@ -81,8 +98,10 @@ export class AttachmentTray {
   attach(picked: Picked): void {
     if (this.#files.has(picked.localId)) return;
     const held = [...this.#files.values()].filter((file) => file.state !== "failed");
-    const problem =
-      held.length >= attachmentLimits.perMessage
+    // Refused on its own row, never dropped unseen: the thread its message starts would leave it.
+    const problem = this.#locked
+      ? this.#locked
+      : held.length >= attachmentLimits.perMessage
         ? `A message carries up to ${attachmentLimits.perMessage} files`
         : attachmentSizeProblem(
             picked.bytes,
@@ -95,11 +114,57 @@ export class AttachmentTray {
       error: problem ?? "",
       uploadId: undefined,
       draftId: undefined,
+      carried: undefined,
       abort: new AbortController(),
     };
     this.#files.set(picked.localId, file);
     this.#publish();
     if (!problem) void this.#upload(file);
+  }
+
+  /**
+   * Put files message `itemId` carries on this message as they are: the same stored files, by
+   * reference. Ones already on it, or past the per-message limit, are left off.
+   */
+  carry(itemId: string, files: readonly Attachment[]): void {
+    for (const attachment of files) {
+      if (this.#files.size >= attachmentLimits.perMessage) break;
+      if ([...this.#files.values()].some((file) => file.sha256 === attachment.sha256)) continue;
+      const localId = `carried-${attachment.sha256.slice(0, 32)}`;
+      this.#files.set(localId, {
+        localId,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        bytes: attachment.bytes,
+        sha256: attachment.sha256,
+        state: "ready",
+        progress: 1,
+        error: "",
+        uploadId: undefined,
+        draftId: undefined,
+        carried: { itemId, thumbnail: attachment.thumbnailAvailable === true },
+        abort: new AbortController(),
+      });
+    }
+    this.#publish();
+  }
+
+  /** The stored files carried on the message, which the thread must keep while it is written. */
+  carried(): ReadonlySet<string> {
+    return new Set(
+      [...this.#files.values()].filter((file) => file.carried).map((file) => file.sha256),
+    );
+  }
+
+  /** Take the carried files back off the message (the edit it came with was closed). */
+  dropCarried(): void {
+    let dropped = false;
+    for (const [localId, file] of this.#files)
+      if (file.carried) {
+        this.#files.delete(localId);
+        dropped = true;
+      }
+    if (dropped) this.#publish();
   }
 
   /** Take a file off the message: an upload stops, a held file is released. */
@@ -109,6 +174,8 @@ export class AttachmentTray {
     this.#files.delete(localId);
     file.abort.abort();
     this.#publish();
+    // The thread keeps a carried file: its message still shows it.
+    if (file.carried) return;
     const release: ContextOperation | undefined =
       file.state === "ready"
         ? "threadId" in this.#target
@@ -127,14 +194,17 @@ export class AttachmentTray {
     return [...this.#files.values()].map((file) => ({ name: file.name, mimeType: file.mimeType }));
   }
 
-  /** Why the message can't go yet, or the context carrying the held files. */
-  context(): { refused: string } | { context: MessageContext | undefined } {
+  /**
+   * Why the message can't go yet, or the context carrying the held files and their local ids,
+   * which `sent` takes once that message is saved.
+   */
+  context(): { refused: string } | { context: MessageContext | undefined; ids: readonly string[] } {
     const files = [...this.#files.values()];
     if (files.some((file) => file.state === "uploading"))
       return { refused: "Wait for your files to finish uploading." };
     if (files.some((file) => file.state === "failed"))
       return { refused: "Remove the files that didn't upload, then send." };
-    if (!files.length) return { context: undefined };
+    if (!files.length) return { context: undefined, ids: [] };
     const draftId = files.find((file) => file.draftId)?.draftId;
     return {
       context: {
@@ -142,13 +212,41 @@ export class AttachmentTray {
         mentions: [],
         attachments: [...new Set(files.map((file) => file.sha256))].map((sha256) => ({ sha256 })),
       },
+      ids: files.map((file) => file.localId),
     };
   }
 
-  /** The message carrying the files was saved: they go with it. */
-  sent(): void {
-    if (!this.#files.size) return;
-    this.#files.clear();
+  /**
+   * The message carrying the files `ids` was saved: they go with it. Files added since stay for
+   * the next message, even when the save lands late or from a screen the tray has moved on from.
+   */
+  sent(ids: readonly string[]): void {
+    let changed = false;
+    for (const id of ids) changed = this.#files.delete(id) || changed;
+    if (changed) this.#publish();
+  }
+
+  /**
+   * A message starting a new thread from these files is on its way: no file joins until it is
+   * refused (`unlock`), since a started thread takes only the files it was sent with.
+   */
+  lock(reason: string): void {
+    this.#locked = reason;
+    this.#publish();
+  }
+  unlock(): void {
+    if (this.#locked === undefined) return;
+    this.#locked = undefined;
+    this.#publish();
+  }
+
+  /**
+   * Move to a new screen for the same thread (its transcript was read again from the machine):
+   * the files and their uploads carry on, and the rows go to that screen.
+   */
+  adopt(signal: AbortSignal, emit: TrayEmit): void {
+    this.#signal = signal;
+    this.#emit = emit;
     this.#publish();
   }
 
@@ -243,7 +341,12 @@ export class AttachmentTray {
         state: file.state,
         progress: file.progress,
         error: file.error,
+        /** Where a carried file is read from (`native.attachment`), as its message shows it. */
+        carried: file.carried
+          ? { itemId: file.carried.itemId, ref: file.sha256, thumbnail: file.carried.thumbnail }
+          : null,
       })),
+      this.#locked,
     );
   }
 }

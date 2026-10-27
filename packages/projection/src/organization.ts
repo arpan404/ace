@@ -9,6 +9,7 @@ import {
 
 export const organizationCommands = [
   "thread.rename",
+  "thread.title.regenerate",
   "thread.archive",
   "thread.unarchive",
   "thread.delete",
@@ -60,6 +61,11 @@ export function organizationDecision(
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
       };
     case "thread.unsettle":
+      if (p.undo)
+        return {
+          type: "thread.client.updated",
+          changes: { settledAt: null, settledReason: null },
+        };
       // The person wants it in the list: the rules that settled it must not settle it again.
       return {
         type: "thread.client.updated",

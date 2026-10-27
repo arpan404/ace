@@ -11,12 +11,15 @@ export const native = {
   frames: [] as Record<string, unknown>[],
   ack: (_accepted: boolean) => {},
   calls: new Map<string, NodeOperation>(),
+  /** What the bridge asks of its native socket: open, send or close. */
+  socket: (_id: string, _action: string, _value: string) => {},
 };
 let fragments = "";
 
 export const host = createNodeHost({
   operations: native.calls,
   randomBytes: (count) => new Uint8Array(count).fill(7),
+  socket: (id, action, value) => native.socket(id, action, value),
   emit(frame) {
     for (const patch of JSON.parse(frame) as Record<string, unknown>[]) {
       if (patch.type !== "fragment") {

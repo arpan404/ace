@@ -4,8 +4,8 @@ import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { childLimitChoices, childLimitNote } from "@ace/ui-core";
 
-const presets = [1, 2, 4, 8, 16, 32];
 const none = "none";
 
 /**
@@ -16,22 +16,12 @@ export function ChildLimitRow() {
   const row = settingRow("agents.maxRunningChildren");
   const limit = useSettingControl(settingKeys.maxRunningChildren, row.title);
   // A count saved elsewhere (a settings file) stays visible, so the page never lies.
-  const counts = new Set(limit.value === null ? presets : [...presets, limit.value]);
-  const options: SelectOption<string>[] = [
-    { value: none, label: "No limit" },
-    ...[...counts]
-      .toSorted((a, b) => a - b)
-      .map((count) => ({ value: String(count), label: String(count) })),
-  ];
+  const options: SelectOption<string>[] = childLimitChoices(limit.value).map((choice) => ({
+    value: choice.value === null ? none : String(choice.value),
+    label: choice.label,
+  }));
   return (
-    <SettingRow
-      {...row}
-      description={
-        limit.value === null
-          ? "Agents a thread hands work to all start at once."
-          : "More agents a thread hands work to wait and start as these finish."
-      }
-    >
+    <SettingRow {...row} description={childLimitNote(limit.value)}>
       <DaemonSlot control={limit}>
         <Select
           label={row.title}

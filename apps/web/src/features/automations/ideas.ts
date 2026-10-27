@@ -1,4 +1,4 @@
-import type { AutomationForm } from "./automation-values.ts";
+import type { AutomationForm } from "@ace/ui-core/automations";
 
 /** A starting point New automation offers: the prompt, when it runs, and that in a few words. */
 export interface Idea {

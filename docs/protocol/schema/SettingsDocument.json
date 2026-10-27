@@ -117,6 +117,17 @@
         "logs.maxBytes": {
           "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
         },
+        "notifications.pushGatewayUrl": {
+          "examples": [
+            "https://push.acehq.dev"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1."
+        },
+        "notifications.remotePush": {
+          "type": "boolean"
+        },
         "projects.roots": {
           "items": {
             "maxLength": 4096,

@@ -28,6 +28,10 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  /** Deletes a thread as the person's Delete does; bound once the server's lifecycle starts. */
+  threadDeletion?: (
+    command: import("@ace/protocol").Command,
+  ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
   sourceControl?: import("../source-control.ts").SourceControl;
@@ -44,6 +48,8 @@ export interface Services {
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  /** Offshift runs, for the person's own controls (`offshift.request`). */
+  offshifts?: import("../agent-control/offshift.ts").Offshifts;
   /** Local checks and verified batch merges of pull requests (ADR 0094). */
   verify?: import("../verify/verify-service.ts").Verify;
   icons?: import("../icons/icon-service.ts").IconService;

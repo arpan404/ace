@@ -1,3 +1,4 @@
+import type { PrProblem } from "@ace/ui-core";
 import { useThreadMeta } from "@ace/client-react";
 import type { ForgePrStatus, ThreadDetails } from "@ace/protocol";
 import { checkoutOf, prPollInterval, type Checkout } from "@ace/ui-core";
@@ -37,7 +38,7 @@ export function useCheckout(thread: ThreadRef): Checkout | undefined {
  * Why the linked PR's state may be stale: the daemon couldn't verify the link with GitHub, the
  * PR's repository is gone, or the forge read failed.
  */
-export type PrProblem = "unverified" | "deleted" | "unreadable";
+export type { PrProblem } from "@ace/ui-core";
 
 /**
  * The checkout with how far its read got: `loading` until the daemon has answered, `none` when

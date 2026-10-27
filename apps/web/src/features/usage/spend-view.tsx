@@ -4,7 +4,9 @@ import {
   formatShare,
   formatTokens,
   formatUsd,
+  usageGrowth,
   type ProviderUsage,
+  type UsageGrowth,
   type TokenTypes,
   type UsageReport,
 } from "@ace/ui-core";
@@ -27,9 +29,16 @@ const typeOrder = ["input", "cacheRead", "cacheWrite", "output"] as const;
 const estimateNote =
   "API estimate: what these tokens would cost at each model's list API price. Subscriptions bill differently; models ace has no price for are left out.";
 
-/** Tokens or money over the range: the total, each provider, each day, each type, each model. */
+/**
+ * Tokens or money over the range: the total with growth against the days before, each provider,
+ * each day, each type, each model.
+ */
 export function SpendView(props: {
   report: UsageReport;
+  /** The same number of days just before the range; undefined while it reads. */
+  previous: UsageReport | undefined;
+  /** What growth compares with: "vs previous 30 days". */
+  basis: string;
   metric: Metric;
   providerName(id: string): string;
   modelName(provider: string, model: string): string;
@@ -40,6 +49,9 @@ export function SpendView(props: {
     money ? b.usd - a.usd || b.tokens - a.tokens : b.tokens - a.tokens,
   );
   const sessions = `${plural(report.sessions, "session")}${report.sessionsCapped ? "+" : ""}`;
+  const value = (entry: { tokens: number; usd: number }) => (money ? entry.usd : entry.tokens);
+  const growth = props.previous && usageGrowth(value(report), value(props.previous));
+  const before = new Map(props.previous?.providers.map((entry) => [entry.provider, entry]));
   return (
     <div>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
@@ -48,6 +60,15 @@ export function SpendView(props: {
             {money ? formatUsd(report.usd) : formatTokens(report.tokens)}
           </p>
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+            {growth && growth.direction !== "none" && (
+              <>
+                <span data-testid="usage-growth">
+                  <span className="font-medium text-foreground tabular-nums">{growth.label}</span>{" "}
+                  {props.basis}
+                </span>
+                <span aria-hidden>·</span>
+              </>
+            )}
             {sessions}
             {money && (
               <>
@@ -73,6 +94,11 @@ export function SpendView(props: {
                 name={props.providerName(provider.provider)}
                 report={report}
                 money={money}
+                growth={
+                  props.previous
+                    ? usageGrowth(value(provider), value(before.get(provider.provider) ?? nothing))
+                    : undefined
+                }
               />
             ))}
           </ul>
@@ -116,11 +142,14 @@ export function SpendView(props: {
   );
 }
 
+const nothing = { tokens: 0, usd: 0 };
+
 function ProviderLine(props: {
   provider: ProviderUsage;
   name: string;
   report: UsageReport;
   money: boolean;
+  growth: UsageGrowth | undefined;
 }) {
   const { provider, report, money } = props;
   const kind = ProviderKind.safeParse(provider.provider);
@@ -146,7 +175,14 @@ function ProviderLine(props: {
         </span>
         <span className="ml-auto pl-3 font-medium tabular-nums">{figure}</span>
       </span>
-      <span className="pl-4 text-xs text-subtle-foreground">{detail}</span>
+      <span className="flex pl-4 text-xs text-subtle-foreground">
+        <span className="min-w-0 truncate">{detail}</span>
+        {props.growth && props.growth.direction !== "none" && (
+          <span className="ml-auto pl-3 tabular-nums" aria-label={`${props.growth.label} growth`}>
+            {props.growth.label}
+          </span>
+        )}
+      </span>
     </li>
   );
 }

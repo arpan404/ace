@@ -1,3 +1,4 @@
+import { dirtyMoveQuestion } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -43,19 +44,15 @@ export function useCheckoutMove(thread: ThreadRef): {
         return setDirty(next);
       toast.error({ title: "Couldn't move the checkout", description: failure(error) });
     });
-  const carriesTo = dirty?.carriesTo;
+  const question = dirtyMoveQuestion(dirty?.carriesTo);
   return {
     move,
     dialog: dirty && (
       <Dialog open onOpenChange={(open) => !open && setDirty(undefined)}>
         <DialogContent size="sm">
           <DialogHeader>
-            <DialogTitle>The checkout has uncommitted changes</DialogTitle>
-            <DialogDescription>
-              {carriesTo
-                ? `Git carries them to ${carriesTo} unless they clash with it.`
-                : "They stay where they are, on the current branch, for you to commit later."}
-            </DialogDescription>
+            <DialogTitle>{question.title}</DialogTitle>
+            <DialogDescription>{question.detail}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDirty(undefined)}>
@@ -69,7 +66,7 @@ export function useCheckoutMove(thread: ThreadRef): {
                 move({ ...dirty, change: { ...dirty.change, allowUncommitted: true } });
               }}
             >
-              {carriesTo ? "Switch anyway, bringing changes along" : "Move anyway"}
+              {question.confirm}
             </Button>
           </DialogFooter>
         </DialogContent>

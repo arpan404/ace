@@ -15,6 +15,8 @@ private struct TranscriptReadingReply: Decodable {
 struct ThreadFocus: Equatable {
     let thread: String
     let item: String
+    /// A turn from the turn list instead of an item: its ask comes into view.
+    var turn: Int? = nil
 }
 
 /// The phone's side of the shared history window (`bridge/native-transcript.ts`). The bridge
@@ -40,15 +42,17 @@ struct ThreadFocus: Equatable {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var retryOperation = "older"
     @ObservationIgnored private var retryItem: String?
+    @ObservationIgnored private var retryTurn: Int?
     /// Each reading view's epoch, below every navigation epoch; never reused in a run.
     @ObservationIgnored private static var epochs = 0
 
-    func read(_ operation: String, model: ClientModel, live: ThreadModel, item: String? = nil) {
+    func read(_ operation: String, model: ClientModel, live: ThreadModel, item: String? = nil, turn: Int? = nil) {
         guard !loading else { return }
         loading = true
         problem = nil
         retryOperation = operation
         retryItem = item
+        retryTurn = turn
         self.operation = operation
         let version = generation
         let asked = CACurrentMediaTime()
@@ -56,6 +60,7 @@ struct ThreadFocus: Equatable {
         let epoch = operation == "live" ? (thread?.epoch ?? -1) : (thread ?? open(model: model, live: live)).epoch
         var payload: [String: Any] = ["type": "native.transcript", "threadId": live.id, "epoch": epoch, "operation": operation]
         if let item { payload["itemId"] = item }
+        if let turn { payload["ordinal"] = turn }
         // A page's rows land together once the bridge says the read settled.
         if operation != "live" { model.holdReading() }
         request = Task {
@@ -77,7 +82,7 @@ struct ThreadFocus: Equatable {
             }
         }
     }
-    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live, item: retryItem) }
+    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live, item: retryItem, turn: retryTurn) }
     func live(model: ClientModel, thread: ThreadModel) {
         cancel(model: model)
         read("live", model: model, live: thread)
@@ -86,6 +91,11 @@ struct ThreadFocus: Equatable {
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
         read("item", model: model, live: live, item: item)
+    }
+    /// Open a window at turn `ordinal` (the turn list) and bring its ask into view.
+    func jump(toTurn ordinal: Int, model: ClientModel, live: ThreadModel) {
+        cancel(model: model)
+        read("turn", model: model, live: live, turn: ordinal)
     }
     func cancel(model: ClientModel) {
         generation += 1

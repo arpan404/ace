@@ -305,3 +305,14 @@ one case: a thread whose provider work was live when ace stopped continues by it
 restart continuation, ahead of its queued messages. Turns waiting on the person, stopped or held
 threads, uncertain input, providers that can't resume and turns interrupted three restarts in a
 row still wait for the person. A provider that dies while ace keeps running still holds.
+
+## Amendment 2026-10-27: removing or editing a not-sent message releases its hold
+
+A send or session start that fails keeps its message at the head of the queue, held as not sent
+(`not_sent` or `model_unavailable`). When the person removes that message, or the daemon accepts
+an edit of it, the failure it was held for is gone, so the same transaction releases the hold: the
+edited message, or the one behind a removed message, is tried next, in order. Removing or editing
+any other message, or an edit the daemon refuses, leaves the hold as it was. The queue revision
+fences concurrent devices, so only one of them releases it. Clients read the hold from the
+daemon's queue state; the message behind a released hold shows as queued or sending, never
+"Not sent".

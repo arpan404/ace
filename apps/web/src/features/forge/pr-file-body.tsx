@@ -3,7 +3,7 @@ import type { ForgeFile } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { formatBytes } from "@/components/format-bytes.ts";
-import type { HostedFileShow } from "./pr-file-kind.ts";
+import type { HostedFileShow } from "@ace/ui-core";
 import type { FileSides, HostedSide } from "./pr-file-sides.ts";
 import { PrImageDiff } from "./pr-image-diff.tsx";
 import { PrRenderedDiff } from "./pr-rendered-diff.tsx";

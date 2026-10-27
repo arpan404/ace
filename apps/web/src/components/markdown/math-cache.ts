@@ -1,5 +1,5 @@
 import { LruCache } from "@ace/ui-core";
-import { renderTex, type TexRenderer } from "./math-render.ts";
+import { renderTex, type TexRenderer } from "@ace/ui-core/math-render";
 
 /*
  * Rendered math, remembered. KaTeX output for a (display flag, TeX source) pair

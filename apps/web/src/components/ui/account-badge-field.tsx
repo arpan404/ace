@@ -1,8 +1,5 @@
-import {
-  AccountBadgeInput,
-  AccountBadgeColor,
-  type AccountBadgeIcon,
-} from "@ace/protocol/accounts";
+import { accountBadgeProblem } from "@ace/ui-core";
+import { AccountBadgeColor, type AccountBadgeIcon } from "@ace/protocol/accounts";
 import type { ProviderKind } from "@ace/protocol";
 import { TextAaIcon } from "@phosphor-icons/react";
 import { useId, type ReactNode } from "react";
@@ -13,11 +10,7 @@ import { Disclosure } from "./disclosure.tsx";
 import { AccountBadge, accountColors } from "./provider-account-icon.tsx";
 import { accountBadgeIcons } from "./account-badge-icons.ts";
 
-export function accountBadgeProblem(value: string): string | undefined {
-  return !value.trim() || AccountBadgeInput.safeParse(value.trim()).success
-    ? undefined
-    : "Use up to two letters, or pick an icon.";
-}
+export { accountBadgeProblem };
 
 type BadgeProps = {
   provider: ProviderKind;

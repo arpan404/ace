@@ -208,3 +208,70 @@ test("a script update whose installer download returns 404 says so and keeps the
     await f.close();
   }
 });
+
+test("a device that lost its session finds its running install, and nothing once it ends", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await writeFile(join(f.home, "mode"), "hang");
+    const active = (device?: string) =>
+      f.request({ type: "provider.install.active", requestId: "find", provider: "codex" }, device);
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+    const started = await f.request({
+      type: "provider.install.run",
+      requestId: "run",
+      provider: "codex",
+      action: "install",
+      method: "npm",
+    });
+    if (!started.result.ok || !("progress" in started.result)) throw new Error("Expected session");
+    const session = started.result.progress.session;
+    await f.wait((event) => event.lines.some((line) => line.startsWith("child=")));
+    expect(await active()).toMatchObject({ result: { ok: true, progress: { session } } });
+    expect(await active("other-device")).toMatchObject({
+      result: { ok: false, error: "not_found" },
+    });
+    await f.request({ type: "provider.install.cancel", requestId: "cancel", session });
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an install that ended while its device was away reports its result once, and not after the window", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    const active = () =>
+      f.request({ type: "provider.install.active", requestId: "find", provider: "codex" });
+    const run = async (requestId: string) => {
+      const started = await f.request({
+        type: "provider.install.run",
+        requestId,
+        provider: "codex",
+        action: "install",
+        method: "npm",
+      });
+      if (!started.result.ok || !("progress" in started.result))
+        throw new Error("Expected session");
+      const session = started.result.progress.session;
+      await f.wait((event) => event.session === session && event.state === "succeeded");
+      return session;
+    };
+    const first = await run("first");
+    expect(await active()).toMatchObject({
+      result: { ok: true, progress: { session: first, state: "succeeded" } },
+    });
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+
+    const second = await run("second");
+    f.tick(10 * 60_000 + 1);
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+
+    // A result the device already read by polling is not shown again.
+    const third = await run("third");
+    await f.request({ type: "provider.install.poll", requestId: "poll", session: third });
+    expect(await active()).toMatchObject({ result: { ok: false, error: "not_found" } });
+    expect(second).not.toBe(third);
+  } finally {
+    await f.close();
+  }
+});

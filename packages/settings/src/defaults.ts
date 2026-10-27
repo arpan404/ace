@@ -70,6 +70,8 @@ export const defaults: SettingsValues = {
   "remote.transferIgnoredFiles": true,
   "remote.hostedPairingLink": false,
   "remote.relayUrl": "",
+  "notifications.remotePush": true,
+  "notifications.pushGatewayUrl": "https://push.acehq.dev",
   "automations.enabled": false,
   "agents.maxRunningChildren": null,
   "generation.model": null,

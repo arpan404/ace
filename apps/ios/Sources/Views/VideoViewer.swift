@@ -41,6 +41,7 @@ struct VideoViewer: View {
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             HStack {
+                MediaShareButton(item: url, title: title)
                 Spacer()
                 MediaDoneButton { dismiss() }
             }
@@ -67,6 +68,8 @@ private struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.videoGravity = .resizeAspect
+        // No audio background mode, so no Picture in Picture: don't offer a button that can't work.
+        controller.allowsPictureInPicturePlayback = false
         controller.view.backgroundColor = .black
         controller.view.accessibilityIdentifier = "media.video"
         controller.view.accessibilityLabel = label

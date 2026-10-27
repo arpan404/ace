@@ -82,8 +82,9 @@ struct GlassChoice: View {
 /// shows on a plain sheet and the lifted thumb reads on it; iOS 18 gets the regular material.
 private struct GlassTrack: ViewModifier {
     let interactive: Bool
+    @Environment(\.aceSolidSurfaces) private var solid
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
+        if #available(iOS 26, *), !solid {
             content.background(AceTheme.Colours.fill, in: AceShape.capsule)
                 .glassEffect(.regular.interactive(interactive), in: AceShape.capsule)
         } else {

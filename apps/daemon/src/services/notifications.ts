@@ -10,7 +10,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
 
   const configured = options.notificationChannels
     ? { channels: options.notificationChannels, close: () => {} }
-    : await loadNotificationChannels();
+    : await loadNotificationChannels({ dataDir: config.dataDir, settings: services.settings });
   resources.own(configured.close);
   // Nothing saved needs delivery while no client is connected: the worker starts when one does.
   const retained = notificationsRetained(join(config.dataDir, "notifications.sqlite"));
@@ -96,6 +96,17 @@ export function createNotificationsSession({
         } catch {
           fail("notification_rejected", "Could not read missed notifications", false, correlation);
         }
+        return true;
+      }
+      if (message.type === "notification.ack") {
+        // A phone took the live alert frame: the router may skip its push. The ack names the
+        // alert only; the device comes from this authenticated socket, so one phone's ack
+        // never stands in for another's.
+        if (!authorize("read")) {
+          fail("forbidden", "Read scope required", false, {});
+          return true;
+        }
+        options.notifications?.acknowledge?.(device, message.id);
         return true;
       }
       if (message.type === "notification.unregister") {

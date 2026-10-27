@@ -57,6 +57,7 @@ export function startAgentControl(context: ServiceContext): void {
   resources.onShutdown(() => delegations.close());
   const owners = createAgentOwners(context, delegations);
   services.threadAutomations = owners.threadAutomations;
+  services.offshifts = owners.offshifts;
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
     delegateWorkspace: createWorkspaceDelegations(context, delegations),

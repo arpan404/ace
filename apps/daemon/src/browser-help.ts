@@ -151,6 +151,7 @@ export class BrowserHelp {
     const key = `ace-browser-help:${this.deps.id()}`;
     const request: InteractionRequest = {
       kind: "browser_help",
+      target: { tool: "browser_request_help", access: "execute" },
       tabId: input.tabId,
       reason: input.reason,
       message: input.message,

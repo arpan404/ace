@@ -6,7 +6,9 @@ export {
   view,
   independentOf,
   OffshiftError,
+  OffshiftConflict,
   type Context,
   type Observation,
 } from "./workflow.ts";
 export { playbook, playbookCatalogue } from "./playbooks.ts";
+export { personTransition, type PersonContext } from "./person.ts";

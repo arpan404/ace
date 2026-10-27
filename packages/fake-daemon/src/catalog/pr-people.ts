@@ -38,6 +38,18 @@ export const reviewSeeds: Record<
       { id: 9313, login: "dana", state: "COMMENTED", submittedAt: "2026-10-20T11:00:00.000Z" },
     ],
   },
+  // The person reviewed the rich PR at its second commit; two have been pushed since.
+  245: {
+    reviews: [
+      {
+        id: 9245,
+        login: "you",
+        state: "COMMENTED",
+        submittedAt: "2026-10-21T08:00:00.000Z",
+        commitSha: "c2".padEnd(40, "2"),
+      },
+    ],
+  },
   229: {
     reviews: [
       { id: 9229, login: "mira", state: "APPROVED", submittedAt: "2026-10-21T09:00:00.000Z" },

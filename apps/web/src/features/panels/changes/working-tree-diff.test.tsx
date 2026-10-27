@@ -78,11 +78,12 @@ test("uncommitted files list in the files tree and jump to their diff", async ()
   expect(within(diff).getByRole("region", { name: "docs/notes.md" })).toBeTruthy();
 });
 
-test("uncommitted files carry no review controls", async () => {
+test("uncommitted lines take review comments and files can be marked viewed", async () => {
   const diff = await openUncommitted();
   const retry = within(diff).getByRole("region", { name: "src/retry.ts" });
   await waitFor(() => expect(within(retry).getByText(codeText(/return 3;/))).toBeTruthy());
-  expect(within(retry).queryByRole("button", { name: "Viewed" })).toBeNull();
-  expect(within(retry).queryByRole("button", { name: /^Comment on/ })).toBeNull();
+  expect(within(retry).getByRole("button", { name: "Comment on line 2" })).toBeTruthy();
+  expect(within(retry).getByRole("button", { name: "Comment on old line 2" })).toBeTruthy();
+  expect(within(retry).getByRole("button", { name: "Viewed" })).toBeTruthy();
   expect(within(retry).getByRole("button", { name: "Actions for src/retry.ts" })).toBeTruthy();
 });

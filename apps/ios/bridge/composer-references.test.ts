@@ -54,3 +54,21 @@ test("a malformed reference is dropped and picks past the limit are left out, ne
   expect(parsed).toHaveLength(64);
   expect(parsed[0]?.file?.path).toBe("f0.ts");
 });
+
+test("lines picked in the file viewer go as a mention of just those lines", () => {
+  const label = "@src/relay/outbox.ts:12-20";
+  const text = `Why does ${label} retry twice?`;
+  // As Swift sends it: the line numbers arrive as JSON numbers.
+  const [reference] = References.parse([
+    {
+      label,
+      start: 9,
+      end: 9 + label.length,
+      file: { path: "src/relay/outbox.ts", lines: { start: 12, end: 20 } },
+    },
+  ]);
+  const content = messageContent(text, reference ? [reference] : [], undefined);
+  expect(content.references?.mentions).toEqual([
+    { path: "src/relay/outbox.ts", lines: { start: 12, end: 20 } },
+  ]);
+});

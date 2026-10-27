@@ -96,7 +96,8 @@ function updatePorts(): UpdatePorts {
   return {
     now: Date.now,
     wait: sleep,
-    maintenance: (method) => request(method, "/v1/maintenance"),
+    // The update's own hold, so it never opens or closes the person's pause.
+    maintenance: (method) => request(method, "/v1/maintenance/update"),
     stop: async () => {
       await manager.perform("stop");
     },

@@ -11,7 +11,7 @@ struct AlertContent: Equatable, Sendable {
     let body: String
     let threadIdentifier: String
     let category: String
-    let level: Level
+    private(set) var level: Level
     let threadId: String
     let interactionId: String?
     /// Option ids for the approve/deny buttons, exactly as the daemon offered them.
@@ -19,6 +19,8 @@ struct AlertContent: Equatable, Sendable {
     let denyOption: String?
     /// The paired machine that raised it; nil only for the debug fixture or tests.
     var hostId: String? = nil
+    /// Shown over the open app; false files it in the list only (Settings › Notifications).
+    var banner = true
 
     /// The system request identifier for a daemon alert. Alert ids are unique only within their
     /// daemon, so the machine is part of it: the same id from two machines is two notifications.
@@ -67,5 +69,8 @@ struct AlertContent: Equatable, Sendable {
         }
         let detail = alert.status == "agent_says" ? alert.message : alert.preview
         body = detail.map { "\(phrase): \($0)" } ?? phrase
+        // Quiet hours, or a category whose banner is off: straight to the list, no sound.
+        if alert.delivery?.interrupt == false { level = .passive }
+        banner = alert.delivery?.banner ?? true
     }
 }

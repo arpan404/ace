@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ThreadDetails } from "@ace/protocol";
+import { checkoutProblem, type CheckoutProblem as Problem } from "@ace/ui-core";
 
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -14,53 +14,50 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-import { workspaceErrorText } from "../sources/workspace-source.ts";
 import type { Move } from "./checkout-move.tsx";
 import { failure } from "./use-git-flow.tsx";
 import { RowAction, RowLabel, RowStatic } from "./work-card-parts.tsx";
 
-type Change = NonNullable<ThreadDetails["workspaceChange"]>;
-
 /**
- * What stops the thread's checkout, in the Work card's Workspace: a move that failed (or
- * whose outcome ace couldn't confirm) with Retry, which asks for the same move again, and
- * Clear, which releases what the move held once the person confirms; or a worktree folder that
- * is gone, with Move to local and Recreate worktree.
+ * What stops the thread's checkout, in the Work card's Workspace (`checkoutProblem`, shared with
+ * the phones): a move that failed (or whose outcome ace couldn't confirm) with Retry, which asks
+ * for the same move again, and Clear, which releases what the move held once the person confirms;
+ * or a worktree folder that is gone, with Move to local and Recreate worktree. A setup script's
+ * failure has its own row (`WorktreeSetupRow`).
  */
 export function CheckoutProblem(props: { thread: ThreadRef; move(move: Move): void }) {
-  const details = useThreadMeta(props.thread.id)?.details;
-  const change = details?.workspaceChange;
-  if (change && (change.state === "failed" || change.uncertain))
-    return <FailedMove thread={props.thread} change={change} details={details} move={props.move} />;
-  if (details?.worktreeMissing)
+  const problem = checkoutProblem(useThreadMeta(props.thread.id)?.details);
+  if (problem?.kind === "move-failed" || problem?.kind === "move-unconfirmed")
+    return <FailedMove thread={props.thread} problem={problem} move={props.move} />;
+  if (problem?.kind === "worktree-missing")
     return (
-      <RowStatic label="Worktree missing" className="flex-wrap">
+      <RowStatic label={problem.label} className="flex-wrap">
         <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <RowLabel>Worktree missing</RowLabel>
-        <RowAction className="ml-0" onClick={() => props.move({ change: { mode: "local" } })}>
-          Move to local
-        </RowAction>
-        <RowAction className="ml-0" onClick={() => props.move({ change: { mode: "worktree" } })}>
-          Recreate worktree
-        </RowAction>
+        <RowLabel>{problem.label}</RowLabel>
+        {problem.actions.map(
+          (action) =>
+            action.kind === "move" && (
+              <RowAction
+                key={action.label}
+                className="ml-0"
+                onClick={() => props.move({ change: action.move })}
+              >
+                {action.label}
+              </RowAction>
+            ),
+        )}
       </RowStatic>
     );
   return null;
 }
 
-function FailedMove(props: {
-  thread: ThreadRef;
-  change: Change;
-  details: ThreadDetails | undefined;
-  move(move: Move): void;
-}) {
-  const { change, details } = props;
+function FailedMove(props: { thread: ThreadRef; problem: Problem; move(move: Move): void }) {
+  const { problem } = props;
   const sources = useThreadSources();
   const toast = useToast();
   const [asking, setAsking] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const mode = change.mode ?? details?.mode ?? "local";
-  const label = change.uncertain ? "Checkout move unconfirmed" : "Checkout move failed";
+  const retry = problem.actions.find((action) => action.kind === "retry-move");
   const clear = () => {
     setAsking(false);
     setClearing(true);
@@ -73,19 +70,10 @@ function FailedMove(props: {
   };
   return (
     <>
-      <RowStatic label={change.error ? `${label}. ${workspaceErrorText(change.error)}` : label}>
+      <RowStatic label={problem.detail ? `${problem.label}. ${problem.detail}` : problem.label}>
         <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <RowLabel title={change.error ? workspaceErrorText(change.error) : undefined}>
-          {label}
-        </RowLabel>
-        <RowAction
-          className="ml-0"
-          onClick={() =>
-            props.move({
-              change: { mode, ...(change.branch ? { branch: change.branch } : {}) },
-            })
-          }
-        >
+        <RowLabel title={problem.detail}>{problem.label}</RowLabel>
+        <RowAction className="ml-0" onClick={() => retry && props.move({ change: retry.move })}>
           Retry
         </RowAction>
         <RowAction className="ml-0" disabled={clearing} onClick={() => setAsking(true)}>

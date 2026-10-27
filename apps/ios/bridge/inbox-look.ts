@@ -35,5 +35,7 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     since: level === "active" ? (card.status.since ?? null) : null,
     settled,
     subagents: card.subagents,
+    /** A finished result not yet opened, or marked unread by hand. */
+    unread: card.flags.unread,
   };
 }

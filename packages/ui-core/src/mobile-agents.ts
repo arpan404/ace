@@ -7,9 +7,10 @@ import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status
 /*
  * The native apps' Agents sheet (issue #560, item 5): the whole agent tree in depth-first order
  * with each agent's tree-aware status, its usage, and the thread's background work. Pure: it
- * reads one thread through the SDK's reader. Large trees are capped, never silently: an agent
- * that is still working or waiting on the person, or one of its ancestors, is kept over a
- * finished one, and every hidden agent or task is counted.
+ * reads one thread through the SDK's reader. Large trees are read a page at a time, never
+ * silently cut: an agent that is still working or waiting on the person, or one of its
+ * ancestors, is kept over a finished one, and every agent or task not yet shown is counted so
+ * the sheet can offer the next page.
  */
 
 export interface AgentSheetLimits {
@@ -17,6 +18,20 @@ export interface AgentSheetLimits {
   tasks: number;
 }
 export const agentSheetLimits: AgentSheetLimits = { agents: 100, tasks: 30 };
+
+/**
+ * The limits after the person asked for `pages` more of each list: every page adds one first
+ * page's worth, so a large tree is read a page at a time and never all at once.
+ */
+export function agentSheetPages(
+  pages: { agents: number; tasks: number },
+  first: AgentSheetLimits = agentSheetLimits,
+): AgentSheetLimits {
+  return {
+    agents: first.agents * (1 + Math.max(0, pages.agents)),
+    tasks: first.tasks * (1 + Math.max(0, pages.tasks)),
+  };
+}
 
 export interface AgentSheetRow {
   id: string;
@@ -122,16 +137,25 @@ function treeOrder(agents: readonly Agent[]) {
   return order;
 }
 
-/** Agents under each one at any depth: in depth-first order they follow it until depth returns. */
-function descendantCounts(order: readonly { agent: Agent; depth: number }[]): Map<string, number> {
-  const counts = new Map<string, number>();
+/**
+ * Agents under each one at any depth that `counts` (still unsettled, for Stop): in depth-first
+ * order they follow it until depth returns.
+ */
+function descendantCounts(
+  order: readonly { agent: Agent; depth: number }[],
+  counts: (id: string) => boolean,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  // Prefix sums of counted agents, so each subtree's count is one subtraction.
+  const before: number[] = [0];
+  for (const { agent } of order) before.push((before.at(-1) ?? 0) + (counts(agent.id) ? 1 : 0));
   const open: number[] = [];
   const close = (depth: number, at: number) => {
     for (let top = open.at(-1); top !== undefined; top = open.at(-1)) {
       const entry = order[top];
       if (!entry || entry.depth < depth) return;
       open.pop();
-      counts.set(entry.agent.id, at - top - 1);
+      result.set(entry.agent.id, (before[at] ?? 0) - (before[top + 1] ?? 0));
     }
   };
   order.forEach((entry, index) => {
@@ -139,8 +163,15 @@ function descendantCounts(order: readonly { agent: Agent; depth: number }[]): Ma
     open.push(index);
   });
   close(0, order.length);
-  return counts;
+  return result;
 }
+
+/** Tasks' order: running and lost-track work, then failures, then the rest. */
+const taskRank = (task: BackgroundTask) =>
+  task.status === "running" || task.status === "unknown" ? 2 : task.status === "failed" ? 1 : 0;
+
+const troubled = (agent: Agent) =>
+  agent.status.state === "failed" || agent.status.state === "unresponsive";
 
 /** The sheet for one thread, read fresh: cost is proportional to the tree, never to history. */
 export function agentSheet(
@@ -157,6 +188,7 @@ export function agentSheet(
     | "interactionIds"
     | "interaction"
     | "usage"
+    | "item"
   >,
   limits: AgentSheetLimits = agentSheetLimits,
 ): AgentSheet {
@@ -168,13 +200,32 @@ export function agentSheet(
   const work = agentTreeWork(agents, tasks, interactions, reader.thread?.status);
   const fresh = reader.unconfirmed !== true && reader.syncing !== true;
   const order = treeOrder(agents);
-  const descendants = descendantCounts(order);
-  // Unsettled agents (and so their ancestors, which `work` already includes) win the cap.
+  // Stop names only the subagents it would stop: those still unsettled.
+  const descendants = descendantCounts(order, (id) => work.running.has(id));
+  // The first page holds what the person must see first, each with the ancestors that place
+  // it in the tree: what waits on them, then what failed or went silent, then what still runs,
+  // then the rest. A failure is never pushed behind Show more by agents still at work.
+  const byId = new Map(order.map(({ agent }) => [agent.id, agent]));
   const keep = new Set<string>();
-  for (const { agent } of order)
-    if (keep.size < limits.agents && (work.running.has(agent.id) || work.needsYou.has(agent.id)))
-      keep.add(agent.id);
-  for (const { agent } of order) if (keep.size < limits.agents) keep.add(agent.id);
+  const admit = (agent: Agent) => {
+    const chain: string[] = [];
+    for (
+      let at: Agent | undefined = agent;
+      at && !keep.has(at.id);
+      at = at.parentId ? byId.get(at.parentId) : undefined
+    )
+      chain.push(at.id);
+    if (keep.size + chain.length > limits.agents) return;
+    for (const id of chain) keep.add(id);
+  };
+  const tiers: ((agent: Agent) => boolean)[] = [
+    (agent) => work.needsYou.has(agent.id),
+    troubled,
+    (agent) => work.running.has(agent.id),
+    () => true,
+  ];
+  for (const tier of tiers)
+    for (const { agent } of order) if (keep.size < limits.agents && tier(agent)) admit(agent);
 
   let tokens: number | null = null;
   let costUsd: number | null = null;
@@ -195,7 +246,8 @@ export function agentSheet(
       id: agent.id,
       parentId: agent.parentId,
       depth,
-      name: agentName(agent),
+      // An unnamed subagent goes by what the call that started it says it is for.
+      name: agentName(agent, agent.spawnedBy ? reader.item(agent.spawnedBy) : undefined),
       model: agent.model ?? usage?.model ?? "",
       status: { label: state.label, token: toneToken(state.tone) },
       activity: state.activity,
@@ -212,14 +264,11 @@ export function agentSheet(
     });
   }
 
-  // Running work first, then the newest that ended; ace's bookkeeping is never listed.
+  // Running work (and work ace lost track of) first, then failures, then the newest that
+  // ended; ace's bookkeeping is never listed.
   const listed = tasks.filter((task) => !isInternalTask(task));
   const shownTasks = listed
-    .toSorted(
-      (a, b) =>
-        Number(b.status === "running") - Number(a.status === "running") ||
-        b.startedAt - a.startedAt,
-    )
+    .toSorted((a, b) => taskRank(b) - taskRank(a) || b.startedAt - a.startedAt)
     .slice(0, limits.tasks);
   const meter = reader.context;
   return {

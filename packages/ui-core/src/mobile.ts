@@ -9,14 +9,21 @@ export * from "./mobile-inbox.ts";
 export * from "./mobile-transcript.ts";
 export { handoffMarker, type HandoffMarker, type HandoffEnd } from "./handoff-marker.ts";
 export * from "./mobile-agents.ts";
+export * from "./mobile-subagent.ts";
+export * from "./mobile-offshift.ts";
+export * from "./offshift-controls.ts";
 export * from "./mobile-changes.ts";
+export * from "./mobile-diff-pages.ts";
+export * from "./diff-scope.ts";
 export { snoozePresets, type SnoozePreset } from "./snooze.ts";
 export * from "./mobile-machines.ts";
 export * from "./mobile-new-thread.ts";
 export * from "./mobile-new-thread-tabs.ts";
 /** Git and forge refusal codes in the same words the web shows. */
 export { actionErrorText } from "./action-errors.ts";
-export { checkoutOf } from "./checkout.ts";
+export { checkoutOf, checkoutNote } from "./checkout.ts";
+export * from "./work-checkout.ts";
+export { parsePrReference } from "./pull-request.ts";
 /** The archive browser: archived threads, most recently archived first (as the web lists them). */
 export { archivedOrder } from "./arrange.ts";
 export { mergeMethods, parseReviewers } from "./pull-request.ts";

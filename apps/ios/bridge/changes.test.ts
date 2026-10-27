@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { facts } from "@ace/fake-daemon";
-import type { ChangesStep, MobileFileDiff } from "@ace/ui-core/mobile";
-import { ChangesSession, type ChangesOwner } from "./changes.ts";
+import type { ChangesStep, MobileRow } from "@ace/ui-core/mobile";
+import { fileHeader, filePages, openChanges } from "./changes-fixture.ts";
 import { gitAction } from "./git-actions.ts";
-import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
+import { plainPreview, until, type RecordingSink } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -29,50 +28,44 @@ const patch = [
   big,
   "",
 ].join("\n");
+const status = [
+  { path: "src/small.ts", status: "modified" as const, additions: 1, deletions: 1, binary: false },
+  { path: "src/big.ts", status: "added" as const, additions: 3000, deletions: 0, binary: false },
+];
 
-async function opened(options: { cutPatch?: boolean } = {}) {
-  const { daemon, client } = sheetFixture();
-  closers.push(() => client.close());
-  daemon.createThread({
-    id: "changes",
-    workspaceId: "ace",
-    title: "Kill-all filters",
-    provider: "codex",
-    details: {
-      branch: "feat/kill-all",
-      worktree: "/fake/worktrees/changes",
-      head: "b".repeat(40),
-      ahead: 0,
-      diff: { files: 2, additions: 3001, deletions: 1 },
-      repository: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
-    },
+async function opened(options: { patch?: string; status?: typeof status } = {}) {
+  const sheet = await openChanges({
+    turns: false,
+    patch: options.patch ?? patch,
+    status: options.status ?? status,
   });
-  daemon.apply("changes", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
-  daemon.workspace.setGitStatus("changes", [
-    { path: "src/small.ts", status: "modified", additions: 1, deletions: 1, binary: false },
-    { path: "src/big.ts", status: "added", additions: 3000, deletions: 0, binary: false },
-  ]);
-  daemon.workspace.setGitDiff("changes", patch);
-  await client.start();
-  const lease = client.thread("changes");
-  await until(() => lease.store.thread !== undefined, "thread snapshot");
-  // The daemon caps `git.diff` at 256 KiB; a cut patch is simulated at the wire boundary.
-  const owner: ChangesOwner = {
-    command: (payload) => client.command(payload),
-    request: (async (input: Parameters<ChangesOwner["request"]>[0]) => {
-      const reply = await client.request(input);
-      if (options.cutPatch && reply.type === "workspace.result" && reply.result.kind === "gitDiff")
-        return { ...reply, result: { ...reply.result, truncated: true } };
-      return reply;
-    }) as ChangesOwner["request"],
-  };
-  const sink = new RecordingSink();
-  const session = new ChangesSession(owner, lease.store, "changes", 1, sink, plainPreview);
-  await until(() => sink.read("changes:summary")?.state === "ready", "first read");
-  return { daemon, owner, session, sink };
+  closers.push(sheet.close);
+  return sheet;
 }
-const fileDiff = (sink: RecordingSink) => sink.read("changes:file")?.diff as MobileFileDiff;
+/** A small file and a 20,000-line one the checkout's 256 KiB patch is cut inside. */
+const cutPatchOf = (label: string) =>
+  [
+    "diff --git a/src/small.ts b/src/small.ts",
+    "--- a/src/small.ts",
+    "+++ b/src/small.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "diff --git a/data/huge.ts b/data/huge.ts",
+    "new file mode 100644",
+    "--- /dev/null",
+    "+++ b/data/huge.ts",
+    "@@ -0,0 +1,20000 @@",
+    ...Array.from({ length: 20_000 }, (_, i) => `+${label} ${i + 1}`),
+    "",
+  ].join("\n");
+const cutStatus = [
+  status[0],
+  { path: "data/huge.ts", status: "added", additions: 20_000, deletions: 0, binary: false },
+] as typeof status;
 const step = (sink: RecordingSink) => sink.read("changes:summary")?.step as ChangesStep;
+const rows = (sink: RecordingSink, path: string) =>
+  filePages(sink, path).flatMap((page) => page.lines as MobileRow[]);
 
 describe("Changes sheet", () => {
   test("files carry their counts and the totals add up", async () => {
@@ -80,54 +73,185 @@ describe("Changes sheet", () => {
     const summary = sink.read("changes:summary");
     expect(summary?.files).toEqual([
       expect.objectContaining({ path: "src/big.ts", status: "added", additions: 3000 }),
-      expect.objectContaining({ path: "src/small.ts", additions: 1, deletions: 1 }),
+      expect.objectContaining({ path: "src/small.ts", additions: 1, deletions: 1, viewed: false }),
     ]);
     expect(summary?.totals).toEqual({ files: 2, additions: 3001, deletions: 1 });
+    expect(summary?.scope).toMatchObject({ id: "working-tree", label: "Uncommitted" });
     expect(step(sink)).toMatchObject({ kind: "commit", label: "Commit & push", blocked: null });
   });
 
-  test("a large file's diff ships within the budget and says the rest is on the computer", async () => {
+  test("a large file arrives a page at a time and every line is reachable", async () => {
     const { session, sink } = await opened();
     session.file("src/big.ts");
-    const diff = fileDiff(sink);
-    expect(diff.lines.length).toBeLessThanOrEqual(1500);
-    // 3,000 added lines and the hunk header; the patch's final newline is not a line.
-    expect(diff.hiddenLines).toBe(1501);
-    expect(diff.truncated).toBe(true);
-    expect(diff.lines[0]).toMatchObject({ kind: "hunk" });
-    expect(diff.lines[1]).toMatchObject({ kind: "add", new: 1, text: "line 1" });
+    expect(filePages(sink, "src/big.ts")).toHaveLength(1);
+    // 300 rows, and a run of changes the cut fell in finished within 200 more.
+    const first = rows(sink, "src/big.ts").length;
+    expect(first).toBeGreaterThanOrEqual(300);
+    expect(first).toBeLessThanOrEqual(500);
+    expect(fileHeader(sink, "src/big.ts")).toMatchObject({
+      complete: true,
+      remaining: 3000 - first,
+    });
+    while (Number(fileHeader(sink, "src/big.ts")?.remaining) > 0) session.more("src/big.ts");
+    const all = rows(sink, "src/big.ts");
+    expect(all).toHaveLength(3000);
+    expect(all[0]).toMatchObject({ kind: "add", new: 1, text: "line 1" });
+    expect(all.at(-1)).toMatchObject({ kind: "add", new: 3000, text: "line 3000" });
   });
 
-  test("a long line is clipped, numbered lines keep their sides, and a small file isn't cut", async () => {
+  test("a long line is clipped in its page and sent whole when asked for", async () => {
     const { session, sink } = await opened();
     session.file("src/small.ts");
-    const diff = fileDiff(sink);
-    expect(
-      diff.lines.map((line) => [line.kind, line.old, line.new, line.text.slice(0, 4)]),
-    ).toEqual([
-      ["hunk", null, null, "@@ -"],
-      ["context", 1, 1, "keep"],
-      ["del", 2, null, "old"],
-      ["add", null, 2, "new"],
-      ["context", 3, 3, "xxxx"],
+    const shown = rows(sink, "src/small.ts");
+    expect(shown.map((line) => [line.kind, line.old, line.new])).toEqual([
+      ["context", 1, 1],
+      ["del", 2, null],
+      ["add", null, 2],
+      ["context", 3, 3],
     ]);
-    expect(diff.lines.at(-1)?.text.length).toBe(1000);
-    expect(diff.lines.at(-1)?.clipped).toBe(true);
-    expect(diff.hiddenLines).toBe(0);
+    const long = shown.at(-1);
+    expect(long).toMatchObject({ clipped: true, length: 5000 });
+    expect(long?.text).toHaveLength(2000);
+    session.line("src/small.ts", long?.i ?? -1);
+    expect(sink.read("changes:line")?.row).toMatchObject({
+      clipped: false,
+      text: "x".repeat(5000),
+    });
   });
 
-  test("the file the daemon's cap fell in is marked incomplete", async () => {
-    const { session, sink } = await opened({ cutPatch: true });
+  test("split layout pairs a removed line with the line that replaced it", async () => {
+    const { session, sink } = await opened();
     session.file("src/small.ts");
-    expect(fileDiff(sink).hiddenLines).toBe(0);
-    session.file("src/big.ts");
-    expect(fileDiff(sink).truncated).toBe(true);
+    session.layout("split");
+    const [page] = filePages(sink, "src/small.ts");
+    expect(page?.layout).toBe("split");
+    const pairs = page?.pairs as { left: MobileRow | null; right: MobileRow | null }[];
+    expect(pairs.map((pair) => [pair.left?.text, pair.right?.text?.slice(0, 4)])).toEqual([
+      ["keep", "keep"],
+      ["old", "new"],
+      ["x".repeat(2000), "xxxx"],
+    ]);
+    expect(sink.read("changes:summary")?.layout).toBe("split");
+  });
+
+  test("a file cut from the checkout's patch is read alone, page by page, to its end", async () => {
+    const huge = Array.from({ length: 20_000 }, (_, i) => `+generated fixture row ${i + 1}`);
+    const cutPatch = [
+      "diff --git a/src/small.ts b/src/small.ts",
+      "--- a/src/small.ts",
+      "+++ b/src/small.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/data/huge.ts b/data/huge.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/data/huge.ts",
+      "@@ -0,0 +1,20000 @@",
+      ...huge,
+      "",
+    ].join("\n");
+    const { session, sink } = await opened({
+      patch: cutPatch,
+      status: [
+        status[0],
+        { path: "data/huge.ts", status: "added", additions: 20_000, deletions: 0, binary: false },
+      ] as typeof status,
+    });
     expect(sink.read("changes:summary")?.patchTruncated).toBe(true);
+    session.open("data/huge.ts", true);
+    await until(() => filePages(sink, "data/huge.ts").length === 1, "first page");
+    // The daemon's pages are read only as far as the pages asked for reach.
+    while (fileHeader(sink, "data/huge.ts")?.remaining !== 0) {
+      const pages = filePages(sink, "data/huge.ts").length;
+      session.more("data/huge.ts");
+      await until(() => filePages(sink, "data/huge.ts").length > pages, `page ${pages + 1}`);
+    }
+    expect(fileHeader(sink, "data/huge.ts")).toMatchObject({ complete: true, remaining: 0 });
+    const all = rows(sink, "data/huge.ts");
+    expect(all).toHaveLength(20_000);
+    expect(all.at(-1)).toMatchObject({ new: 20_000, text: "generated fixture row 20000" });
+  });
+
+  test("a cut file edited mid-read starts again at page one at its new version, never stitched from two diffs", async () => {
+    const { session, sink, daemon } = await opened({
+      patch: cutPatchOf("generated fixture row"),
+      status: cutStatus,
+    });
+    session.open("data/huge.ts", true);
+    await until(() => filePages(sink, "data/huge.ts").length === 1, "first page");
+    const first = fileHeader(sink, "data/huge.ts")?.version;
+    expect(first).toEqual(expect.any(String));
+    daemon.workspace.setGitDiff("changes", cutPatchOf("edited fixture row"));
+    // Pages run on until one is past the daemon's first page, which is of another version now.
+    const header = () => fileHeader(sink, "data/huge.ts");
+    while (header()?.version === first && header()?.complete !== true) {
+      const pages = filePages(sink, "data/huge.ts").length;
+      session.more("data/huge.ts");
+      await until(
+        () => header()?.version !== first || filePages(sink, "data/huge.ts").length > pages,
+        "next page or a new version",
+      );
+    }
+    await until(() => filePages(sink, "data/huge.ts").length === 1, "page one again");
+    expect(fileHeader(sink, "data/huge.ts")?.version).not.toBe(first);
+    expect(fileHeader(sink, "data/huge.ts")).toMatchObject({ pages: 1 });
+    const texts = rows(sink, "data/huge.ts").map((row) => row.text);
+    expect(texts[0]).toBe("edited fixture row 1");
+    expect(texts.every((text) => text.startsWith("edited "))).toBe(true);
+  });
+
+  test("a cut file's viewed mark holds across reads and clears when its content changes past the cut", async () => {
+    const { session, sink, daemon } = await opened({
+      patch: cutPatchOf("generated fixture row"),
+      status: cutStatus,
+    });
+    const viewed = () =>
+      ((sink.read("changes:summary")?.files ?? []) as { path: string; viewed: boolean }[]).find(
+        (file) => file.path === "data/huge.ts",
+      )?.viewed;
+    expect(session.viewed("data/huge.ts", true)).toBe(true);
+    await until(() => viewed() === true, "marked viewed");
+    await session.refresh();
+    await until(() => viewed() === true, "still viewed after a read of the same content");
+    // Same counts, and the part the checkout's patch holds is unchanged: only the cut part moved.
+    daemon.workspace.setGitDiff(
+      "changes",
+      cutPatchOf("generated fixture row").replace(
+        "+generated fixture row 19999\n",
+        "+generated fixture row 19999 edited\n",
+      ),
+    );
+    await session.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(viewed()).toBe(false);
+  });
+
+  test("several files stay open at once and expand-all opens every listed file", async () => {
+    const { session, sink } = await opened();
+    session.open("src/small.ts", true);
+    session.open("src/big.ts", true);
+    expect(sink.read("changes:summary")?.open).toEqual(["src/small.ts", "src/big.ts"]);
+    expect(fileHeader(sink, "src/small.ts")).toBeDefined();
+    session.expand(false);
+    expect(fileHeader(sink, "src/small.ts")).toBeUndefined();
+    expect(fileHeader(sink, "src/big.ts")).toBeUndefined();
+    session.expand(true);
+    expect(sink.read("changes:summary")?.open).toEqual(["src/big.ts", "src/small.ts"]);
+  });
+
+  test("the tree lists folders before files with their totals", async () => {
+    const { sink } = await opened();
+    expect(sink.read("changes:tree")?.rows).toEqual([
+      expect.objectContaining({ kind: "folder", key: "src", files: 2, additions: 3001 }),
+      expect.objectContaining({ kind: "file", key: "src/big.ts", depth: 1 }),
+      expect.objectContaining({ kind: "file", key: "src/small.ts", depth: 1 }),
+    ]);
   });
 
   test("commit and push goes through guarded git and the next step comes from the daemon", async () => {
     const { owner, session, sink } = await opened();
-    gitAction(
+    void gitAction(
       owner,
       session,
       { kind: "commit", message: "Kill-all filters", push: true },
@@ -161,7 +285,7 @@ describe("Changes sheet", () => {
     session.file("src/small.ts");
     session.close();
     expect(sink.read("changes:summary")).toBeUndefined();
-    expect(sink.read("changes:file")).toBeUndefined();
+    expect(fileHeader(sink, "src/small.ts")).toBeUndefined();
     expect(session.reads).toBeUndefined();
   });
 });

@@ -1,6 +1,8 @@
 import {
   ForgeActivity,
   ForgeFile,
+  type ForgeCommit,
+  type ForgeFileContent,
   ForgeLifecycleState,
   ForgeMergeState,
   ForgePrDetail,
@@ -31,6 +33,22 @@ export interface PullRequestFixture {
   review: ForgeReviewState;
   files: ForgeFile[];
   activity: ForgeActivity[];
+  /** Its commits, oldest first, each with the files it changed; none lists no commits. */
+  commits?: FixtureCommit[] | undefined;
+  /** Files read whole (`forge.file.content`) at the base and the commits that changed them. */
+  contents?: FixtureContent[] | undefined;
+}
+
+/** One commit of a PR and the files it changed. */
+export interface FixtureCommit {
+  commit: ForgeCommit;
+  files: ForgeFile[];
+}
+
+/** A file read whole at the base and at the commits that changed it, oldest first. */
+export interface FixtureContent {
+  path: string;
+  versions: { sha: string; content: ForgeFileContent }[];
 }
 
 const patch = (adds: number, dels: number) =>

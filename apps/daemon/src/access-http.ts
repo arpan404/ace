@@ -1,6 +1,6 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PairingRedemption, type Device } from "@ace/protocol";
+import { AppUpdateReport, PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
@@ -48,6 +48,10 @@ export interface AccessHttpOptions {
   pairingApp?: () => Promise<string | undefined>;
   sourceAddress?: (request: IncomingMessage) => string;
   maintenance?: MaintenanceGate;
+  /** Where the desktop app reports its update status (host token only). */
+  appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
+  /** The update's leased hold (`update-hold.ts`); without it the update route holds plainly. */
+  updateHold?: import("./update-hold.ts").UpdateHold;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Event-loop delay, so a watchdog can tell a busy daemon from a hung one. */
@@ -66,6 +70,8 @@ export function accessHttp({
   pairingApp,
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
+  appUpdate,
+  updateHold,
   version = "development",
   serviceStatus,
   eventLoop,
@@ -110,7 +116,7 @@ export function accessHttp({
         result = auth.ticket(device);
       } else {
         auth.requireAdmin(actor());
-        if (path === "/v1/status" && request.method === "GET")
+        if (path === "/v1/status" && request.method === "GET") {
           result = {
             running: true,
             ready: ready(),
@@ -121,16 +127,36 @@ export function accessHttp({
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
             ...(providerProcesses ? { providers: providerProcesses() } : {}),
           };
-        else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
+        } else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          maintenance?.enter();
+          maintenance?.enter("stop");
           result = shutdown.request();
           response.once("finish", () => shutdown.start());
-        } else if (path === "/v1/maintenance" && maintenance) {
+        } else if (
+          (path === "/v1/maintenance" || path === "/v1/maintenance/update") &&
+          maintenance
+        ) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          if (request.method === "POST") result = maintenance.enter();
-          else if (request.method === "DELETE") result = maintenance.leave();
+          // The tray's pause is the person's hold; an update's drain holds admission on its own.
+          // A drain renews its lease with each POST; one that stops renewing lets go on its own.
+          const update = path === "/v1/maintenance/update";
+          if (request.method === "POST")
+            result = update
+              ? (updateHold?.renew() ?? maintenance.enter("update"))
+              : maintenance.enter("user");
+          else if (request.method === "DELETE")
+            result = update
+              ? (updateHold?.release() ?? maintenance.leave("update"))
+              : maintenance.leave("user");
           else if (request.method === "GET") result = maintenance.status();
+          else throw new AccessError(405, "Unsupported method");
+        } else if (path === "/v1/app-update" && appUpdate) {
+          if (!auth.local(token)) throw new AccessError(403, "Host token required");
+          if (request.method === "PUT") {
+            const report = AppUpdateReport.safeParse(await body(request));
+            if (!report.success) throw new AccessError(400, "Invalid update report");
+            result = appUpdate.set(report.data);
+          } else if (request.method === "DELETE") result = appUpdate.clear();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {
           // Awaits come first: the address is read again right before the code is issued, since

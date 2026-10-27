@@ -1,4 +1,5 @@
 import * as offshift from "@ace/protocol/offshift";
+import * as offshiftPerson from "@ace/protocol/offshift-person";
 import * as forgeWorktree from "@ace/protocol/forge-worktree";
 import * as entities from "@ace/protocol/entities";
 import * as ids from "@ace/protocol/ids";
@@ -51,6 +52,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   [".", protocol],
   ["./ids", ids],
   ["./offshift", offshift],
+  ["./offshift-person", offshiftPerson],
   ["./entities", entities],
   ["./notifications", notifications],
   ["./thread-status", threadStatus],

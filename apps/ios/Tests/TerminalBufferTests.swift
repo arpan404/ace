@@ -2,116 +2,91 @@ import Testing
 import Foundation
 @testable import Ace
 
-@Suite struct TerminalBufferTests {
-    @Test func terminalControlsRenderLinesWithoutLeakingEscapeSequences() {
-        var terminal = TerminalBuffer()
-        terminal.feed("\u{1b}[32mready\u{1b}[0m\r\ncount: 1")
-        terminal.feed("\rcount: 2\u{1b}[K\r\n")
-        #expect(terminal.text == "ready\ncount: 2\n")
-        terminal.feed("secret\u{1b}]0;private title")
-        terminal.feed("\u{7}\rpublic\u{1b}[K")
-        #expect(terminal.text == "ready\ncount: 2\npublic")
+/// Feeds output to a fresh screen and answers it, as the parsing queue would.
+private func screen(_ output: String..., columns: Int = 20, rows: Int = 5, scrollback: Int = 100) -> TerminalScreen {
+    var parser = TerminalParser()
+    var screen = TerminalScreen(columns: columns, rows: rows, scrollback: scrollback)
+    for piece in output { parser.feed(piece, into: &screen) }
+    return screen
+}
+private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.text) }
+
+/// Emulator behaviour that isn't a grid after input: clearing (an app action) and Find. Grid
+/// behaviour is in the shared cases (`TerminalCaseTests`, `fixtures/terminal-emulator`).
+@Suite struct TerminalEmulatorTests {
+    @Test func clearingKeepsThePromptLineAndDropsHistory() {
+        var s = screen("1\r\n2\r\n3\r\n4\r\n$ ", rows: 3)
+        s.clearHistory()
+        #expect(s.historyCount == 0)
+        #expect(rows(s) == ["$", "", ""])
+        #expect(s.cursorRow == 0 && s.cursorColumn == 2)
     }
-    @Test func programsSwitchingCursorKeyModeAreFollowedAcrossFramesAndReset() {
-        var terminal = TerminalBuffer()
-        #expect(!terminal.applicationCursor)
-        terminal.feed("\u{1b}[?1049h\u{1b}[?")
-        terminal.feed("1h~")
-        #expect(terminal.applicationCursor)
-        #expect(terminal.text == "~")
-        terminal.feed("\u{1b}[?25;1l")
-        #expect(!terminal.applicationCursor)
-        terminal.feed("\u{1b}[?1h\u{1b}c")
-        #expect(!terminal.applicationCursor)
-    }
-    @Test func splitEscapeSequencesAndCursorMovementPreserveTheScreen() {
-        var terminal = TerminalBuffer()
-        terminal.feed("abc\r\ndef\u{1b}[")
-        terminal.feed("1A\rxy\u{1b}[K")
-        #expect(terminal.text == "xy\ndef")
-    }
-    @Test func scrollbackStaysBoundedAndCanBeCleared() {
-        var terminal = TerminalBuffer(columns: 80, rows: 2, limit: 3)
-        terminal.feed("1\r\n2\r\n3\r\n4")
-        #expect(terminal.text == "2\n3\n4")
-        terminal.feed("\u{1b}[2Jdone")
-        #expect(terminal.text == "done")
-    }
-    @Test func extremeCursorParametersAndCombiningSequencesStayBoundedAndDoNotStopLaterOutput() {
-        var terminal = TerminalBuffer()
-        terminal.feed("A\u{1b}[9223372036854775807CB\r\n")
-        terminal.feed("e" + String(repeating: "\u{301}", count: 1000) + "done")
-        #expect(terminal.text.hasSuffix("�done"))
-        #expect(terminal.text.utf16.count < 100)
+
+    @Test func findLocatesMatchesInHistoryAndScreenByColumn() {
+        let s = screen("error one\r\nok\r\nan ERROR 漢error\r\n", rows: 2)
+        let found = TerminalFind.matches(of: "error", in: s)
+        #expect(found.count == 3)
+        #expect(found.map(\.column) == [0, 3, 11])
+        #expect(found.allSatisfy { $0.length == 5 })
     }
 }
+
 @Suite @MainActor struct TerminalDeliveryTests {
+    private func frame(_ id: String, _ offset: Int, _ data: String, truncatedBefore: Bool = false) throws -> TerminalOutputPatch {
+        let raw: [String: Any] = ["id": id, "event": ["type": "data", "offset": offset, "endOffset": offset + data.utf8.count, "data": data, "truncatedBefore": truncatedBefore]]
+        return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
+    }
+    private func resync(_ id: String, _ oldest: Int) throws -> TerminalOutputPatch {
+        let raw: [String: Any] = ["id": id, "event": ["type": "resync", "oldestOffset": oldest, "nextOffset": oldest]]
+        return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
+    }
+
     @Test func reconnectReplayAppendsEachByteOnlyOnceAndOldStreamsCannotChangeTheSurface() throws {
         let model = TerminalScreenModel(); model.start("one")
-        func frame(_ id: String, _ offset: Int, _ end: Int, _ data: String) throws -> TerminalOutputPatch {
-            let raw: [String: Any] = ["id": id, "event": ["type": "data", "offset": offset, "endOffset": end, "data": data]]
-            return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
-        }
-        #expect(model.receive(try frame("one", 0, 3, "abc")) == 3)
-        #expect(model.receive(try frame("one", 0, 3, "abc")) == 3)
-        #expect(model.receive(try frame("one", 1, 5, "bcde")) == 5)
+        #expect(model.receive(try frame("one", 0, "abc")) == 3)
+        #expect(model.receive(try frame("one", 0, "abc")) == 3)
+        #expect(model.receive(try frame("one", 1, "bcde")) == 5)
+        model.settle()
         #expect(model.text == "abcde")
         model.start("two")
-        #expect(model.receive(try frame("one", 5, 8, "old")) == nil)
+        #expect(model.receive(try frame("one", 5, "old")) == nil)
+        model.settle()
         #expect(model.text.isEmpty)
     }
-    @Test func interruptedOscBeforeResyncStillShowsLaterReplayOnce() throws {
-        let model = TerminalScreenModel(); model.start("osc")
-        func dataFrame(_ offset: Int, _ data: String, truncatedBefore: Bool = false) throws -> TerminalOutputPatch {
-            let raw: [String: Any] = ["id": "osc", "event": ["type": "data", "offset": offset, "endOffset": offset + data.utf8.count, "data": data, "truncatedBefore": truncatedBefore]]
-            return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
-        }
-        func resyncFrame(_ oldest: Int, _ next: Int) throws -> TerminalOutputPatch {
-            let raw: [String: Any] = ["id": "osc", "event": ["type": "resync", "oldestOffset": oldest, "nextOffset": next]]
-            return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
-        }
-        let partial = "hi\u{1b}]0;partial"
-        #expect(model.receive(try dataFrame(0, partial)) == partial.utf8.count)
-        #expect(model.text == "hi")
-        let oldest = partial.utf8.count + 7
-        #expect(model.receive(try resyncFrame(oldest, oldest)) == oldest)
-        #expect(model.text.contains("[Earlier output unavailable]"))
-        #expect(model.receive(try dataFrame(oldest, "ok")) == oldest + 2)
-        #expect(model.text.contains("ok"))
-        #expect(model.text.contains("[Earlier output unavailable]"))
-        let gapsBefore = model.text.components(separatedBy: "[Earlier output unavailable]").count - 1
-        #expect(model.receive(try resyncFrame(oldest, oldest)) == oldest + 2)
-        #expect(model.text.components(separatedBy: "[Earlier output unavailable]").count - 1 == gapsBefore)
-    }
-    @Test func interruptedCsiBeforeTruncatedReplayStillShowsGapAndLaterOutput() throws {
-        let model = TerminalScreenModel(); model.start("csi")
-        func dataFrame(_ offset: Int, _ data: String, truncatedBefore: Bool = false) throws -> TerminalOutputPatch {
-            let raw: [String: Any] = ["id": "csi", "event": ["type": "data", "offset": offset, "endOffset": offset + data.utf8.count, "data": data, "truncatedBefore": truncatedBefore]]
-            return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
-        }
-        let partial = "a\u{1b}[1;"
-        #expect(model.receive(try dataFrame(0, partial)) == partial.utf8.count)
-        #expect(model.text == "a")
-        let replay = "recovered"
-        let start = partial.utf8.count + 3
-        #expect(model.receive(try dataFrame(start, replay, truncatedBefore: true)) == start + replay.utf8.count)
-        #expect(model.text.contains("[Earlier output unavailable]"))
-        #expect(model.text.contains(replay))
-    }
-    @Test func overflowGapKeepsMonotonicOffsetsAndDedupesOverlap() throws {
+
+    @Test func aGapIsMarkedOnceAndAnInterruptedSequenceCannotSwallowLaterOutput() throws {
         let model = TerminalScreenModel(); model.start("gap")
-        func dataFrame(_ offset: Int, _ data: String, truncatedBefore: Bool = false) throws -> TerminalOutputPatch {
-            let raw: [String: Any] = ["id": "gap", "event": ["type": "data", "offset": offset, "endOffset": offset + data.utf8.count, "data": data, "truncatedBefore": truncatedBefore]]
-            return try JSONDecoder().decode(TerminalOutputPatch.self, from: JSONSerialization.data(withJSONObject: raw))
+        let partial = "hi\u{1b}]0;partial"
+        #expect(model.receive(try frame("gap", 0, partial)) == partial.utf8.count)
+        let oldest = partial.utf8.count + 7
+        #expect(model.receive(try resync("gap", oldest)) == oldest)
+        #expect(model.receive(try frame("gap", oldest, "ok")) == oldest + 2)
+        #expect(model.receive(try resync("gap", oldest)) == oldest + 2)
+        let cut = "\u{1b}[1;"
+        #expect(model.receive(try frame("gap", oldest + 2, cut)) == oldest + 2 + cut.utf8.count)
+        #expect(model.receive(try frame("gap", oldest + 20, "recovered", truncatedBefore: true)) == oldest + 29)
+        model.settle()
+        let text = model.text
+        #expect(text.hasPrefix("hi"))
+        #expect(text.components(separatedBy: "[Earlier output unavailable]").count - 1 == 2)
+        #expect(text.contains("ok") && text.hasSuffix("recovered"))
+    }
+
+    @Test func creditFollowsParsingWithTheAcknowledgedOffset() async throws {
+        let model = TerminalScreenModel(); model.start("credit")
+        let credited: Int = await withCheckedContinuation { done in
+            model.receive(try! frame("credit", 0, "hello")) { offset in done.resume(returning: offset) }
         }
-        #expect(model.receive(try dataFrame(0, "abc")) == 3)
-        #expect(model.text == "abc")
-        #expect(model.receive(try dataFrame(10, "def")) == 13)
-        #expect(model.text.contains("[Earlier output unavailable]"))
-        #expect(model.text.contains("def"))
-        #expect(model.receive(try dataFrame(0, "abc")) == 13)
-        #expect(model.receive(try dataFrame(11, "efghi")) == 16)
-        #expect(model.text.contains("ghi"))
-        #expect(model.offset == 16)
+        #expect(credited == 5)
+        #expect(model.text == "hello")
+    }
+
+    @Test func programsAskingForTheCursorGetTheirReplySent() async throws {
+        let model = TerminalScreenModel(); model.start("reply")
+        let reply: String = await withCheckedContinuation { done in
+            model.onReply = { done.resume(returning: $0) }
+            model.receive(try! frame("reply", 0, "ab\u{1b}[6n"))
+        }
+        #expect(reply == "\u{1b}[1;3R")
     }
 }

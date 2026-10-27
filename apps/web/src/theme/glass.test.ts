@@ -1,11 +1,16 @@
 import { expect, test } from "vitest";
-import { contrastRatio, parseOpaqueColor, type Rgb } from "./colour.ts";
+import {
+  contrastRatio,
+  parseOpaqueColor,
+  type Rgb,
+  themeIds,
+  themes,
+  over,
+  backdropExtremes,
+  themeAccent,
+} from "@ace/themes";
 import { themeDeclarations } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry, mapSize } from "./glass.ts";
-import { themeIds, themes } from "./palettes.ts";
-import { over } from "./surfaces.ts";
-import { backdropExtremes } from "./backdrops.ts";
-import { themeAccent } from "./accent.ts";
 import {
   defaultTranslucency,
   extraClearTintFloor,

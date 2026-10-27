@@ -66,6 +66,7 @@ export async function startMcpServer(options: McpServerOptions) {
   options.registry.setAvailability((caller) => {
     const state = options.status?.(caller);
     return (name, capability) => {
+      if (state?.unavailableTools?.includes(bareToolName(name))) return false;
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (bareToolName(name) === "ask" && state?.askAvailable === false) return false;
       return true;

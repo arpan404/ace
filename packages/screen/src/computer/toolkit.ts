@@ -41,6 +41,8 @@ interface Result {
 export interface ComputerToolkitOptions {
   /** The platform the helper drives, for the tools' wording. Default macOS. */
   platform?: ComputerPlatform;
+  /** Whether local computer use is enabled; remote routing does not enable it. */
+  enabled?: () => boolean;
   /** The person's own list of apps agents can't use: app ids or names. */
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
@@ -50,7 +52,32 @@ export interface ComputerToolkitOptions {
    * locked Mac. Absent, every request goes to the helper as it is.
    */
   lockedUse?: LockedUseGate;
+  /** With a route, every tool also takes `machine` to use another paired machine's apps. */
+  route?: ComputerMachineRoute;
 }
+
+/**
+ * Sends a computer-use tool to another paired machine (ADR 0105). That machine runs it with its
+ * own computer-use switch and app rules; this side passes the tool and its arguments.
+ */
+export type ComputerMachineRoute = (
+  call: {
+    machine: string;
+    tool: ComputerToolName;
+    args: Record<string, unknown>;
+    timeoutMs: number;
+  },
+  context: ToolContext,
+) => Promise<unknown>;
+
+/** The optional `machine` argument every computer-use tool takes when routing is available. */
+const machineInput = {
+  machine: z
+    .string()
+    .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
+    .optional()
+    .describe("From machines; omit for this machine."),
+};
 
 const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });
 
@@ -65,9 +92,17 @@ const callerOf = (context: ToolContext) => `${context.caller.threadId}/${context
 const textOf = (content: Content) => (content[0]?.type === "text" ? content[0].text : "");
 
 export function computerToolkit(
-  client: ComputerClient,
+  client: ComputerClient | undefined,
   options: ComputerToolkitOptions = {},
 ): Toolkit {
+  const localClient = () => {
+    if (!client)
+      throw new ComputerError(
+        "unavailable",
+        "This machine has no computer use. Pass machine to use a linked machine's apps.",
+      );
+    return client;
+  };
   const memory = new ComputerMemory();
   const platform = options.platform ?? "macos";
   const computerSchemas = computerSchemasFor(platform);
@@ -113,7 +148,7 @@ export function computerToolkit(
     let found: (ResolvedApp & { running?: boolean }) | undefined = memory.app(key);
     if (!found) {
       const fresh = Resolved.parse(
-        await client.request("resolve", { app }, { signal: context.signal }),
+        await localClient().request("resolve", { app }, { signal: context.signal }),
       );
       found = fresh;
       memory.resolved(key, { bundleId: fresh.bundleId, name: fresh.name });
@@ -133,7 +168,7 @@ export function computerToolkit(
     const done = options.using?.(context.caller.threadId, app.name);
     try {
       const send = (signal: AbortSignal) =>
-        client.request(op, payload, { signal, app: app.bundleId });
+        localClient().request(op, payload, { signal, app: app.bundleId });
       if (!options.lockedUse) return await send(context.signal);
       const { threadId, agentId } = context.caller;
       return await options.lockedUse(
@@ -153,7 +188,7 @@ export function computerToolkit(
     async screen_apps(args, { signal }) {
       const { query } = computerSchemas.screen_apps.parse(args);
       const { apps } = ComputerApps.parse(
-        await client.request("apps", query ? { query } : {}, { signal }),
+        await localClient().request("apps", query ? { query } : {}, { signal }),
       );
       const person = await personBlocked();
       const usable = apps.filter((app) => !blockedReason(app, person, host));
@@ -256,6 +291,7 @@ export function computerToolkit(
     },
   };
 
+  const route = options.route;
   return {
     register(registry) {
       for (const name of Object.keys(computerSchemas) as ComputerToolName[]) {
@@ -267,11 +303,22 @@ export function computerToolkit(
           riskClass: metadata.riskClass,
           // These tools act on this computer's apps, never on outside systems.
           openWorld: false,
-          input: computerSchemas[name],
+          input: route ? computerSchemas[name].extend(machineInput) : computerSchemas[name],
           capability: "screen",
           timeoutMs: metadata.timeoutMs,
-          async run(args, context) {
+          async run(raw, context) {
+            const { machine, ...args } = z.record(z.string(), z.unknown()).parse(raw);
+            if (route && typeof machine === "string")
+              return route(
+                { machine, tool: name, args, timeoutMs: metadata.timeoutMs - 5_000 },
+                context,
+              );
             try {
+              if (options.enabled?.() === false)
+                throw new ComputerError(
+                  "unavailable",
+                  "Computer use is disabled on this machine. Pass machine to use a linked machine's apps.",
+                );
               return await run[name](args, context);
             } catch (error) {
               if (error instanceof ComputerError)

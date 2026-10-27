@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { ForgeFile } from "@ace/protocol";
+import { viewedMarks } from "@ace/ui-core";
 import type { PrDiffContext } from "./pr-extensions.ts";
 import { usePrReview } from "./pr-review-context.tsx";
 
@@ -12,32 +13,30 @@ export interface PrViewedMark {
 }
 
 /**
- * Viewed marks for the displayed range: GitHub's own, which exist only for All commits at the head the review state was read at. `availability`
- * says why no file has a mark; `count` is undefined when nothing is known.
+ * Viewed marks for the displayed range, by the shared rule (`viewedMarks`): GitHub's own, which
+ * exist only for All commits at the head the review state was read at. `availability` says why
+ * no file has a mark; `count` is undefined when nothing is known.
  */
 export function usePrViewedMarks(context: PrDiffContext | undefined) {
   const review = usePrReview();
   const range = context?.files;
-  const native =
-    range && !range.commit && review?.state?.headSha === range.headSha
-      ? (review.state.viewed ?? undefined)
-      : undefined;
-  const byPath = useMemo(
-    () => new Map(native?.map((viewed) => [viewed.path, viewed.state])),
-    [native],
+  const state = review?.state;
+  const marks = useMemo(
+    () =>
+      viewedMarks(
+        state,
+        range
+          ? { headSha: range.headSha, ...(range.commit ? { commit: range.commit } : {}) }
+          : undefined,
+      ),
+    [state, range],
   );
-  const availability: "available" | "unavailable" | "all-commits-only" = native
-    ? "available"
-    : range?.commit && review?.state?.viewed
-      ? "all-commits-only"
-      : "unavailable";
   const markOf = (file: ForgeFile): PrViewedMark | undefined => {
-    if (!context) return undefined;
-    const state = byPath.get(file.path);
-    if (state === undefined || !review) return undefined;
+    if (!context || !review) return undefined;
+    const mark = marks.of(file.path);
+    if (!mark) return undefined;
     return {
-      checked: state === "VIEWED",
-      changed: state === "DISMISSED",
+      ...mark,
       disabled: context.disabled || !review.ready || review.pending,
       change: (checked) =>
         review.run({
@@ -47,6 +46,5 @@ export function usePrViewedMarks(context: PrDiffContext | undefined) {
         }),
     };
   };
-  const count = native?.filter((viewed) => viewed.state === "VIEWED").length;
-  return { markOf, count, availability };
+  return { markOf, count: marks.count, availability: marks.availability };
 }

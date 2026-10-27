@@ -9,6 +9,7 @@ struct ForgeManage: Decodable, Sendable, Equatable {
     struct Conversation: Decodable, Sendable, Equatable { let locked: Bool; let reason: String?; let lock: Bool; let unlock: Bool }
     struct Unconfirmed: Decodable, Sendable, Equatable, Hashable { let id: String; let label: String }
     struct Reason: Decodable, Sendable, Equatable, Hashable { let value: String; let label: String }
+    struct Revert: Decodable, Sendable, Equatable { let title: String; let body: String }
     let version: String
     let milestone: Milestone?
     let milestones: [Milestone]?
@@ -18,6 +19,8 @@ struct ForgeManage: Decodable, Sendable, Equatable {
     let conversation: Conversation?
     let unconfirmed: [Unconfirmed]
     let reasons: [Reason]
+    /// The draft that reverts this merged pull request; nil where GitHub offers no revert.
+    let revert: Revert?
 }
 
 /// Where a new pull request can open (`forge.newpr.context`).

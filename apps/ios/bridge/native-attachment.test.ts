@@ -178,3 +178,22 @@ test("an inline image in the message shows from its own data; a linked one is ne
     read(owner, { threadId: "inline", itemId, ref: "part:2", variant: "original" }),
   ).rejects.toThrow("Attachment unavailable");
 });
+
+test("a file from the thread's Attachments list opens without naming a message; one it doesn't hold never does", async () => {
+  const { owner } = await personsRow(
+    sentFromWeb("listed", [{ type: "text", text: "Read this" }], [file]),
+    "listed",
+  );
+  const ask = (ref: string, threadId = "listed") =>
+    readNativeAttachment(
+      owner,
+      { type: "native.attachment", threadId: ThreadId.parse(threadId), ref, variant: "original" },
+      new AbortController().signal,
+    );
+  const opened = await ask(notesSha);
+  expect(opened).toMatchObject({ kind: "file", name: "routes.txt" });
+  expect(Buffer.from(opened.data, "base64").toString()).toBe(notes);
+  // Stored for another thread only.
+  await expect(ask(notesSha, "elsewhere")).rejects.toThrow("Attachment unavailable");
+  await expect(ask("0".repeat(64))).rejects.toThrow("Attachment unavailable");
+});

@@ -6,24 +6,11 @@ import {
   type GitConflicts,
   type GitConflictStep,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { conflictRefusalText as refusalText } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { failureCode } from "@/lib/forge-read.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-
-/** What a refusal means here, where the checkout is a pull request's own. */
-function refusalText(code: string | undefined, headBranch: string): string {
-  if (code === "git_push_rejected")
-    return `${headBranch} moved on GitHub since this checkout was made. Nothing was overwritten: bring its new commits into the checkout, then push again.`;
-  if (code === "git_dirty_worktree")
-    return "The checkout has uncommitted changes, or untracked files the merge would overwrite. Commit or move them first.";
-  if (code === "git_head_moved")
-    return "The checkout changed since it was read. Look again, then retry.";
-  if (code === "git_pr_head_unavailable")
-    return "This task's checkout doesn't hold this pull request. Check it out here first.";
-  return actionErrorText(code ?? "action_outcome_uncertain");
-}
 
 /**
  * The PR's merge conflicts, resolved in the linked task's checkout of it: merge the base in,

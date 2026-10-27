@@ -15,6 +15,10 @@ import Observation
 /// A native subagent's own blocks, grouped as the transcript is, for its lane sheet.
 @MainActor @Observable final class LaneModel {
     let agentId: String
+    /// What the subagent is (`subagentInspection`); nil until the bridge has read it.
+    var info: SubagentInfo?
+    /// The bridge said this agent isn't in the loaded thread.
+    var missing = false
     var blocks: [String: BlockModel] = [:]
     var order: [String] = []
     @ObservationIgnored private var positions: [String: Int] = [:]
@@ -55,16 +59,28 @@ extension ThreadScreenModel {
             steps[ordinal] = nil
         case .tune(let row): if tune != row { tune = row }
         case .access(let row): if access != row { access = row }
-        case .attachments(let files): if attachments != files { attachments = files }
+        case .attachments(let files, let locked):
+            if attachments != files { attachments = files }
+            if attachmentsLocked != locked { attachmentsLocked = locked }
+        case .annotations(let items): if annotations != items { annotations = items }
         case .pill(let row, let goal):
             if pill != row { pill = row }
             if self.goal != goal { self.goal = goal }
         case .continued(let id): continued = id
         case .switchAsk(let ask): switchAsk = ask
+        case .transitions(let row): if transitions != row { transitions = row }
+        case .fork(let draft): if fork != draft { fork = draft }
+        case .mergeDraft(let draft): mergeDraft = draft
+        case .work(let line): if work != line { work = line }
         case .laneBlock(let agentId, let id, let row):
             if lane?.agentId == agentId { lane?.apply(id, row: row) }
         case .laneBlockPosition(let agentId, let id, let index):
             if lane?.agentId == agentId { lane?.move(id, to: index) }
+        case .offshift(let run): if offshift != run { offshift = run }
+        case .laneInfo(let agentId, let info):
+            guard let lane, lane.agentId == agentId else { return }
+            if lane.info != info { lane.info = info }
+            if lane.missing != (info == nil) { lane.missing = info == nil }
         }
     }
     private func turnSteps(_ ordinal: Int) -> TurnStepsModel {

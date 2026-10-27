@@ -59,6 +59,8 @@ export interface ServerOptions {
   browsing?: import("./browsing.ts").BrowsingThreads;
   /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
   computerUsing?: import("./computer-using.ts").ComputerUsingThreads;
+  /** Offshift runs, for the person's own controls (`offshift.request`). */
+  offshifts?: Pick<import("./agent-control/offshift.ts").Offshifts, "person">;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   /** Local checks and verified batch merges of pull requests (`verify.request`). */
@@ -67,6 +69,8 @@ export interface ServerOptions {
   icons?: import("./icons/icon-service.ts").IconService;
   projects?: import("./projects.ts").Projects;
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
+  /** The utility model and thread titles (`thread.title.regenerate`). */
+  utility?: Pick<import("./services/utility.ts").UtilityService, "titles">;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
@@ -92,6 +96,8 @@ export interface ServerOptions {
   maintenance?: boolean;
   /** The daemon's shared admission gate; the server makes its own when none is given. */
   maintenanceGate?: MaintenanceGate;
+  /** The desktop app's update report; the server makes its own when omitted. */
+  appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Current and maximum event-loop delay for `/v1/status`. */
@@ -117,6 +123,8 @@ export interface ServerOptions {
   hostId: string;
   /** Injected hostname fallback for host.identity. */
   hostName?: string;
+  /** The OS host.identity reports; defaults to this process's (`process.platform`). */
+  platform?: string;
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
@@ -163,6 +171,9 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">> & {
+      /** A phone took a live `notification` frame; waiting deliveries may skip the push. */
+      acknowledge?(device: DeviceId, id: string): void;
+    };
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }

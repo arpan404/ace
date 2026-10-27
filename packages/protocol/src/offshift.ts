@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId, Timestamp } from "./ids.ts";
+import { DeviceId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider-data.ts";
 
 const key = z
@@ -14,11 +14,26 @@ export const OffshiftPhase = z.enum(["plan", "implement", "verify", "review", "d
 export type OffshiftPhase = z.infer<typeof OffshiftPhase>;
 /** The thread that recorded something, from its authenticated lease and thread record. */
 export const OffshiftAuthor = z.object({
+  /** Absent on records written before a person could change a run. */
+  kind: z.literal("agent").optional(),
   threadId: ThreadId,
   provider: ProviderKind,
   model: z.string().min(1).max(256).nullable(),
 });
 export type OffshiftAuthor = z.infer<typeof OffshiftAuthor>;
+/**
+ * The person, acting from a device: the paired device's id and name from its credential, never
+ * from input. Both are null on the host's own credential (the desktop app on this machine).
+ */
+export const OffshiftPerson = z.object({
+  kind: z.literal("person"),
+  deviceId: DeviceId.nullable(),
+  device: z.string().min(1).max(256).nullable(),
+});
+export type OffshiftPerson = z.infer<typeof OffshiftPerson>;
+/** Who made a change: an agent's thread, or the person. */
+export const OffshiftActor = z.union([OffshiftPerson, OffshiftAuthor]);
+export type OffshiftActor = z.infer<typeof OffshiftActor>;
 export const OffshiftCriterion = z.strictObject({
   /** A stable id (letters, digits, _ . -). */
   id: key,
@@ -111,7 +126,7 @@ export const OffshiftEvidence = z.strictObject({
   recordedAt: Timestamp,
   /** Set by the daemon from the authenticated caller, never from input; null for records
    * written before authorship was kept. */
-  by: OffshiftAuthor.nullable().default(null),
+  by: OffshiftActor.nullable().default(null),
 });
 export type OffshiftEvidence = z.infer<typeof OffshiftEvidence>;
 export const OffshiftEvidenceInput = OffshiftEvidence.omit({ recordedAt: true, by: true });
@@ -163,6 +178,22 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
   }),
 ]);
 export type OffshiftRequest = z.infer<typeof OffshiftRequest>;
+/**
+ * A change the person made, so the agent sees it in its run and is never surprised by it. The
+ * run keeps the latest 16.
+ */
+export const OffshiftPersonChange = z.object({
+  /** The run version this change produced. */
+  version: z.number().int().positive(),
+  at: Timestamp,
+  by: OffshiftPerson,
+  /** What changed, in a sentence: "Marked step repro not done". */
+  summary: z.string().min(1).max(512),
+});
+export type OffshiftPersonChange = z.infer<typeof OffshiftPersonChange>;
+/** The person ended the run: nothing more changes it; a new run starts fresh. */
+export const OffshiftEnded = z.object({ at: Timestamp, by: OffshiftPerson, note: text });
+export type OffshiftEnded = z.infer<typeof OffshiftEnded>;
 /** Not strict: a `roles` field written by earlier builds is dropped on read. */
 export const OffshiftRun = z.object({
   id: key,
@@ -181,6 +212,12 @@ export const OffshiftRun = z.object({
   blocker: text.nullable(),
   note: text,
   evidence: z.array(OffshiftEvidence).max(320),
+  /** The person's latest changes, oldest first. */
+  personChanges: z.array(OffshiftPersonChange).max(16).default([]),
+  /** Set when the person ended the run. */
+  ended: OffshiftEnded.nullable().default(null),
+  /** Absent: the agent started it. */
+  startedBy: OffshiftPerson.optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
@@ -198,7 +235,7 @@ export type OffshiftPending = z.infer<typeof OffshiftPending>;
 export const OffshiftView = z.object({
   run: OffshiftRun,
   revision: OffshiftRevision,
-  state: z.enum(["active", "blocked", "needs_evidence", "waiting_on_tree", "complete"]),
+  state: z.enum(["active", "blocked", "needs_evidence", "waiting_on_tree", "complete", "ended"]),
   pending: z.array(OffshiftPending).max(320),
   treeState: z.enum(["working", "waiting", "needs_you", "failed", "done", "unknown"]),
   /** The one call or step to take now, in a sentence. */
@@ -234,6 +271,12 @@ export const OffshiftEvidenceState = z.enum([
   "not_independent",
 ]);
 export type OffshiftEvidenceState = z.infer<typeof OffshiftEvidenceState>;
+/** Who recorded a check, on a card: the person (and their device's name) or an agent's model. */
+export const OffshiftCardAuthor = z.union([
+  z.object({ kind: z.literal("person"), device: z.string().max(64).nullable() }),
+  z.object({ provider: ProviderKind, model: z.string().max(64).nullable() }),
+]);
+export type OffshiftCardAuthor = z.infer<typeof OffshiftCardAuthor>;
 export const OffshiftCardCriterion = z.object({
   id: key,
   description: z.string().max(160),
@@ -246,10 +289,7 @@ export const OffshiftCardCriterion = z.object({
         state: OffshiftEvidenceState,
         recordedAt: Timestamp.nullable(),
         /** Who recorded it, without thread ids; the model is clipped to 64 characters. */
-        by: z
-          .object({ provider: ProviderKind, model: z.string().max(64).nullable() })
-          .nullable()
-          .default(null),
+        by: OffshiftCardAuthor.nullable().default(null),
       }),
     )
     .max(5),
@@ -292,6 +332,10 @@ export const OffshiftRunCard = z.object({
   playbook: OffshiftPlaybookId.optional(),
   /** The run's next step as worded at this write, clipped; absent on older cards. */
   next: z.string().max(512).optional(),
+  /** The person ended the run; absent on older cards and open runs. */
+  ended: z.boolean().optional(),
+  /** Whether the latest write was the person's. */
+  byPerson: z.boolean().optional(),
 });
 export type OffshiftRunCard = z.infer<typeof OffshiftRunCard>;
 /**
@@ -301,7 +345,8 @@ export type OffshiftRunCard = z.infer<typeof OffshiftRunCard>;
  */
 export const OffshiftRunMark = z.object({
   phase: OffshiftPhase,
-  state: z.enum(["open", "blocked", "delivered"]),
+  /** `ended`: the person ended it; like a delivered run, it adds nothing to the row. */
+  state: z.enum(["open", "blocked", "delivered", "ended"]),
   pendingCount: z.number().int().nonnegative().max(320),
   playbook: OffshiftPlaybookId.optional(),
 });

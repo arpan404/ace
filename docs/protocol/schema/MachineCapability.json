@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineCapability.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "agents",
+    "browser",
+    "devices",
+    "screen",
+    "commands"
+  ],
+  "type": "string"
+}

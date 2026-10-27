@@ -1,4 +1,4 @@
-import { FakeDaemon, facts, seedForgeBrowse } from "@ace/fake-daemon";
+import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
@@ -9,8 +9,11 @@ import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
+import { seedWork, WorkScenario } from "./work-scenario.ts";
+import { seedSubagents } from "./subagent-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -18,17 +21,22 @@ import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
+import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
 import { seedLongSteps } from "./long-steps-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
 import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
+import { seedQueues } from "./queue-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
+import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
+import { seedAppUpdate, seedStorage } from "./storage-scenario.ts";
+import { seedSkills } from "./skills-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -58,6 +66,8 @@ const daemon = new FakeDaemon({
   clock: Date.now,
   hostId,
   displayName: machineName,
+  // The fixture's machine is a Mac: computer use offers locked use.
+  platform: "darwin",
   token: "ios-spike-token",
   snapshotItems: 200,
   ...(peerPort ? { projectScheduler: paced } : {}),
@@ -67,12 +77,16 @@ const daemon = new FakeDaemon({
 daemon.services.settings.seed({
   "host.icon": { kind: separate ? (port % 2 === 0 ? "server" : "desktop") : "laptop" },
 });
+seedStorage(daemon, Date.now());
+seedAppUpdate(daemon);
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Seeded first, so they are the list's oldest finished threads and never push the others down.
+seedTransitions(daemon, details);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-stream",
@@ -154,6 +168,23 @@ daemon.createThread({
 seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
+  id: "ios-subagents",
+  workspaceId: "ace",
+  title: "Harden process cleanup",
+  provider: "claude",
+  details: details("fix/process-cleanup"),
+});
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-big-tree",
+  workspaceId: "ace",
+  title: "Shard the test suite",
+  provider: "codex",
+  details: details("perf/shards"),
+});
+seedSubagents(daemon);
+daemon.createThread({
+  hasSentMessage: true,
   id: "ios-snoozed",
   workspaceId: "ace",
   title: "Release notes for 0.9",
@@ -181,6 +212,7 @@ threadScenarios(daemon, details);
 seedForks(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
+seedQueues(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 const busy = Number(process.env.ACE_IOS_SPIKE_INBOX ?? 0);
 const busyTimer =
@@ -189,13 +221,17 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
+// PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
+seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
+seedChanges(daemon, details);
 seedWorkLogs(daemon);
 seedLongSteps(daemon);
 seedMessages(daemon, details);
@@ -218,8 +254,10 @@ const richTimer =
     ? setInterval(() => richRound(daemon, ++rounds, burstPace), richEvery)
     : undefined;
 requestScenarios(daemon, details);
+seedAutomations(daemon, details, Date.now());
 spikeDevices(daemon, details);
 let fresh = 0;
+let works = 0;
 let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -308,6 +346,24 @@ const server = Bun.serve<undefined>({
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
     }
+    // A new thread for one Work test: its checkout moves, links and recoveries stay its own.
+    if (path === "/review/work" && request.method === "POST") {
+      const scenario = WorkScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-work-${scenario}-${++works}`;
+      seedWork(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
+    }
+    // GitHub's branch moves on (`remoteHead`), so a plain push from the thread's checkout is
+    // rejected; an empty one lets pushes through again. Drives a merge whose push failed.
+    if (path === "/review/push-rejects" && request.method === "POST") {
+      const { threadId, remoteHead } = z
+        .object({ threadId: z.string().min(1), remoteHead: z.string() })
+        .parse(await request.json());
+      daemon.workspace.git.setRemoteDiverged(threadId, remoteHead);
+      return Response.json({ ok: true });
+    }
     // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
     // the fixture has been running.
     if (path === "/review/nap" && request.method === "POST") {
@@ -354,6 +410,8 @@ const server = Bun.serve<undefined>({
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    // What Open on computer (`host.open`) opened on this fake machine, in order.
+    if (path === "/host-opened") return Response.json({ opened: daemon.workspace.opened });
     if (path === "/queue")
       return Response.json({
         texts: await queuedTexts(

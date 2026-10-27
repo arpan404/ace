@@ -1,9 +1,15 @@
-import { contrastRatio, parseOpaqueColor, worstContrast } from "./colour.ts";
-import type { Palette, PaletteColour, Scheme } from "./palettes.ts";
-import { paletteSurfaces } from "./surfaces.ts";
+import {
+  contrastRatio,
+  parseOpaqueColor,
+  worstContrast,
+  type Palette,
+  type PaletteColour,
+  type Scheme,
+  paletteSurfaces,
+} from "@ace/themes";
 import { projectTintCount, themeTokens } from "./tokens.ts";
 
-export { contrastRatio, parseOpaqueColor, type Rgb } from "./colour.ts";
+export { contrastRatio, parseOpaqueColor, type Rgb } from "@ace/themes";
 
 export interface ContrastWarning {
   label: string;

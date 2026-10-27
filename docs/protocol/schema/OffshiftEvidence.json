@@ -16,7 +16,7 @@
     "by": {
       "anyOf": [
         {
-          "$ref": "https://ace.local/protocol/v1/OffshiftAuthor.json"
+          "$ref": "https://ace.local/protocol/v1/OffshiftActor.json"
         },
         {
           "type": "null"

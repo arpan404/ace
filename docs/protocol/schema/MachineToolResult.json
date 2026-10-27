@@ -49,6 +49,23 @@
     },
     "isError": {
       "type": "boolean"
+    },
+    "job": {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/CommandJobId.json"
+        },
+        "timeoutSeconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 86400,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "timeoutSeconds"
+      ],
+      "type": "object"
     }
   },
   "required": [

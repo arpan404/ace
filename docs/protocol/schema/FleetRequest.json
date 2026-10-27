@@ -208,6 +208,49 @@
             "op"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "deviceIds": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            "op": {
+              "const": "grants",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capability": {
+              "$ref": "https://ace.local/protocol/v1/MachineCapability.json"
+            },
+            "deviceId": {
+              "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+            },
+            "level": {
+              "$ref": "https://ace.local/protocol/v1/MachineGrantLevel.json"
+            },
+            "op": {
+              "const": "grant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "deviceId",
+            "capability",
+            "level"
+          ],
+          "type": "object"
         }
       ]
     },

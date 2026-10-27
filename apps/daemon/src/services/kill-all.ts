@@ -1,16 +1,49 @@
 import { createHash } from "node:crypto";
 import { stopOwnedGroups } from "@ace/provider-kit/process";
 import { CommandId, DeviceId, type CliOperation, type AgentControlResult } from "@ace/protocol";
-import type { SocketContext } from "./socket.ts";
+import type { MaintenanceGate } from "@ace/service";
+import type { Engine } from "../engine/index.ts";
+import type { Store } from "../store.ts";
+import type { Services } from "./types.ts";
+
+/** What kill-all needs of the daemon: its gate, the device asking, the store and the engine. */
+export interface KillAllContext {
+  maintenance: MaintenanceGate;
+  device(): string | undefined;
+  options: {
+    store: Pick<Store, "recordCommand" | "listThreads" | "completeAsyncCommand">;
+    engine?:
+      | Pick<
+          Engine,
+          | "cleanupThreads"
+          | "hasUnfinishedWork"
+          | "cleanupSession"
+          | "stopForCancellation"
+          | "flush"
+        >
+      | undefined;
+    agentControl?:
+      | {
+          delegations: Pick<
+            NonNullable<Services["agentControl"]>["delegations"],
+            "cancelMember" | "command"
+          >;
+        }
+      | undefined;
+  };
+}
+
 export async function killAll(
-  context: SocketContext,
+  context: KillAllContext,
   operation: Extract<CliOperation, { op: "process.kill_all" }>,
 ): Promise<AgentControlResult> {
   const engine = context.options.engine;
   const owner = context.options.agentControl;
   if (!engine || !owner) return { ok: false, code: "unsupported" };
-  const before = context.maintenance.status();
-  if (before.draining) return { ok: false, code: "not_ready" };
+  // One kill-all at a time, and none while an update or stop holds admission. The person's
+  // pause may stay: kill-all adds and removes only its own hold.
+  if ((["kill", "update", "stop"] as const).some((hold) => context.maintenance.held(hold)))
+    return { ok: false, code: "not_ready" };
   const receiptId = CommandId.parse(
     `cli-kill:${createHash("sha256").update(operation.key).digest("hex")}`,
   );
@@ -21,7 +54,7 @@ export async function killAll(
     return { commandId: receiptId, ok: false, error: "client_action_pending" };
   });
   if (!fresh) return { ok: prior.ok, code: prior.ok ? undefined : "unavailable", data: prior };
-  context.maintenance.enter();
+  context.maintenance.enter("kill");
   try {
     const subtree = operation.threadId
       ? new Set(engine.cleanupThreads(operation.threadId))
@@ -75,6 +108,6 @@ export async function killAll(
       },
     };
   } finally {
-    if (!before.draining) context.maintenance.leave();
+    context.maintenance.leave("kill");
   }
 }

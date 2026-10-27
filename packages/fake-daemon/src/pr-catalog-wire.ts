@@ -1,7 +1,9 @@
+import { commitsRead, contentRead, filesRead } from "./pr-code-reads.ts";
 import type {
   CommandPayload,
   CommandResult,
   ForgeBrowserResult,
+  ForgeCheck,
   WorkspaceActionRequest,
 } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
@@ -191,6 +193,36 @@ export class FakePrCatalog {
   private replace(fixture: PullRequestFixture, next: PullRequestFixture): void {
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? next : entry));
   }
+  /** Change catalog PR `number` as GitHub would have, for later reads. */
+  patch(number: number, change: (fixture: PullRequestFixture) => PullRequestFixture): void {
+    this.fixtures = this.fixtures.map((entry) =>
+      entry.detail.status.ref.number === number ? change(entry) : entry,
+    );
+  }
+  detailOf(number: number): PullRequestFixture["detail"] | undefined {
+    return this.fixtures.find((entry) => entry.detail.status.ref.number === number)?.detail;
+  }
+  /** Checks of PR `number` that a re-run or cancel moved, by check id, and the PR's rollup. */
+  restateChecks(number: number, moved: ReadonlyMap<string, ForgeCheck["status"]>): void {
+    if (!moved.size) return;
+    this.patch(number, (fixture) => {
+      const checks = fixture.detail.status.checks.map((check) => {
+        const status = moved.get(check.id);
+        return status
+          ? { ...check, status, conclusion: status === "pending" ? null : status }
+          : check;
+      });
+      const ci = checks.some((check) => check.status === "failure")
+        ? "failure"
+        : checks.some((check) => check.status === "pending")
+          ? "pending"
+          : "success";
+      return {
+        ...fixture,
+        detail: { ...fixture.detail, status: { ...fixture.detail.status, checks, ci } },
+      };
+    });
+  }
   /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
   mergeNumber(number: number): void {
     const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
@@ -247,6 +279,7 @@ export class FakePrCatalog {
     if (operation.expectedVersion !== snapshot.version)
       return { ok: false, error: "forge_conflict" };
     const action = operation.action;
+    if (action.kind === "revert") return this.revert(fixture, action, now);
     const handled =
       action.kind === "edit" ||
       ["lock", "unlock", "branch.delete", "branch.restore", "issue.link", "issue.unlink"].includes(
@@ -307,6 +340,41 @@ export class FakePrCatalog {
     return {
       ok: true,
       forgeLifecycle: { outcome: "accepted", headSha: fixture.detail.status.headSha },
+    };
+  }
+  /** A merged PR's revert: a new draft PR undoing it, named in the receipt. */
+  private revert(
+    fixture: PullRequestFixture,
+    action: { title: string; body: string },
+    now: number,
+  ): Omit<CommandResult, "commandId"> {
+    const { status } = fixture.detail;
+    if (!fixture.lifecycle.snapshot.actions.includes("revert"))
+      return { ok: false, error: "forge_write_refused" };
+    const number = Math.max(...this.fixtures.map((entry) => entry.detail.status.ref.number)) + 1;
+    const [draft] = sketchPullRequests(now, [
+      {
+        number,
+        title: action.title,
+        state: "draft",
+        author: "you",
+        reviewers: [],
+        ci: "pending",
+        updated: 0,
+        body: action.body,
+        branch: `revert-${status.ref.number}-${fixture.detail.headBranch}`,
+        files: fixture.files.map((file) => [file.path, file.deletions, file.additions]),
+      },
+    ]);
+    if (draft) this.fixtures = [draft, ...this.fixtures];
+    this.revision += 1;
+    return {
+      ok: true,
+      forgeLifecycle: {
+        outcome: "accepted",
+        headSha: status.headSha,
+        revertPr: { repository: status.ref.repository, number },
+      },
     };
   }
   /**
@@ -537,6 +605,7 @@ export class FakePrCatalog {
           }
         : undefined;
     }
+    if (op.op === "forge.file.content") return contentRead(this.fixtures, op);
     if (!("number" in op)) return undefined;
     const fixture = this.find(op);
     if (!fixture) return undefined;
@@ -558,20 +627,11 @@ export class FakePrCatalog {
       case "forge.pr.review-state":
         return { resource: "prReviewState", value: fixture.review };
       case "forge.pr.files":
-        return {
-          resource: "prFiles",
-          value: {
-            ref: fixture.detail.status.ref,
-            baseSha: fixture.detail.baseSha,
-            headSha: fixture.detail.status.headSha,
-            files: fixture.files,
-            truncated: false,
-          },
-        };
+        return filesRead(fixture, op);
       case "forge.pr.activity":
         return { resource: "prActivity", events: fixture.activity, truncated: false };
       case "forge.pr.commits":
-        return { resource: "prCommits", commits: [], truncated: false };
+        return commitsRead(fixture);
       default:
         return undefined;
     }

@@ -59,6 +59,7 @@ export function computerSchemasFor(platform: ComputerPlatform) {
 
 /** The macOS schemas; the action shapes are the same on every platform. */
 export const computerSchemas = computerSchemasFor("macos");
+export const computerToolNames = Object.keys(computerSchemas);
 
 const looks =
   "Ids are stable, so later looks return only changes. For websites use browser_open. Guide: ace-computer-use.";
