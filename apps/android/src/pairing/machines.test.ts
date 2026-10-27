@@ -138,3 +138,75 @@ it("renames a machine locally without touching its credential", async () => {
     failure: "invalid-name",
   });
 });
+
+it("an abort racing the directory write surfaces consumed, never silent success", async () => {
+  const { machines } = setup();
+  const confirmed = preparePairing(LINK);
+  const ctrl = new AbortController();
+  // Redeem succeeds (the code is burned), then the caller aborts before the
+  // directory add: the pair must fail consumed so the person checks the
+  // computer's devices instead of retrying a dead link.
+  const blocking = {
+    redeem: async () => credential(),
+    readIdentity: async () => identity(),
+  };
+  const pending = machines.pair(confirmed, "My phone", blocking, ctrl.signal);
+  ctrl.abort();
+  await expect(pending).rejects.toMatchObject({ failure: "consumed" });
+  expect(await machines.load()).toHaveLength(0);
+});
+
+it("a pre-redeem abort stays offline, never consumed", async () => {
+  // The code was never sent (the transport aborted before redeem resolved),
+  // so the link is still valid: report retryable offline, not consumed.
+  const { machines } = setup();
+  const confirmed = preparePairing(LINK);
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const aborted = {
+    redeem: async (_input: unknown) => {
+      const error = new Error("aborted") as Error & { code: string };
+      error.code = "aborted";
+      void _input;
+      throw error;
+    },
+    readIdentity: async () => identity(),
+  };
+  await expect(machines.pair(confirmed, "My phone", aborted, ctrl.signal)).rejects.toMatchObject({
+    failure: "offline",
+  });
+  expect(await machines.load()).toHaveLength(0);
+});
+
+it("an abort during the directory save cannot undo it: the entry still lands", async () => {
+  // `MachineDirectory.add` takes no signal, so an abort firing mid-save
+  // cannot cancel the serialized write. The save runs to completion and the
+  // entry is returned — success means saved, never a silent background add.
+  const storage = memoryStorage();
+  const credentials = createMemoryCredentialStore();
+  const machines = createPairingMachines({ storage, credentials });
+  const confirmed = preparePairing(LINK);
+  const ctrl = new AbortController();
+  let releaseSave!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const realSave = storage.save.bind(storage);
+  storage.save = async (value: string) => {
+    ctrl.abort();
+    await gate;
+    await realSave(value);
+  };
+  const pending = machines.pair(
+    confirmed,
+    "My phone",
+    { redeem: async () => credential(), readIdentity: async () => identity() },
+    ctrl.signal,
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+  releaseSave();
+  const entry = await pending;
+  expect(entry.hostId).toBe("host-1");
+  expect(await machines.load()).toHaveLength(1);
+});

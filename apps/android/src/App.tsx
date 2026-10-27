@@ -40,7 +40,10 @@ import {
   shouldStartRuntime,
   type AuthOutcome,
 } from "./settings/appLock.ts";
-import { resolveSecureScreenEnabled, setSecureScreenEnabled } from "./settings/secureScreen.ts";
+import {
+  resolveSecureScreenEnabled,
+  setSecureScreenEnabledAsync,
+} from "./settings/secureScreen.ts";
 import { openDatabaseAsync } from "expo-sqlite";
 import Inter from "../assets/fonts/Inter.ttf";
 import Mono from "../assets/fonts/JetBrainsMono.ttf";
@@ -444,8 +447,10 @@ export function App() {
     settingsLoaded: phoneSettings !== null,
     storageFailed: settingsFailed,
   });
+  // Honest async toggle: a promise-like native result settles later, so the
+  // sync call must never claim success for it. Fail-closed default stays.
   useEffect(() => {
-    setSecureScreenEnabled(secureScreenEnabled);
+    void setSecureScreenEnabledAsync(secureScreenEnabled);
   }, [secureScreenEnabled]);
   const [connectArmed, setConnectArmed] = useState(false);
   // Latch during render (guarded, so it fires once): once the lock releases,

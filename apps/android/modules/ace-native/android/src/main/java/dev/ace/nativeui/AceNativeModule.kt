@@ -8,6 +8,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Looper
 import android.util.Base64
+import android.view.WindowManager
 import dev.ace.nativeui.transport.PinnedHttpClient
 import dev.ace.nativeui.transport.PinnedHttpFailure
 import dev.ace.nativeui.transport.PinnedSocket
@@ -123,6 +124,19 @@ class AceNativeModule : Module() {
     }
 
     Events("onPinnedSocketEvent")
+
+    /**
+     * Secure-window verification for the production entry. The single
+     * `with-ace-secure-screen` config plugin sets FLAG_SECURE on the Activity
+     * window before the first frame; `SecureScreenGuard` re-applies it across
+     * recreation. This check only verifies the native flag: false (or a
+     * missing Activity) fails the production root closed before any
+     * directory read or socket connect.
+     */
+    Function("secureWindowApplied") {
+      val flags = appContext.currentActivity?.window?.attributes?.flags ?: return@Function false
+      (flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
+    }
 
     /**
      * One pinned HTTPS request. Resolves `{status, body}`; rejects with an

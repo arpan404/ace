@@ -1,31 +1,65 @@
+import { useCallback, useRef } from "react";
+import { useColorScheme, View } from "react-native";
 import { registerRootComponent } from "expo";
-import { useColorScheme } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { KeyboardProvider } from "react-native-keyboard-controller";
-import { PairingScreen } from "./src/Pairing.tsx";
-import { ThemeContext } from "./src/theme.tsx";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SnackbarHost, Snackbar, type SnackbarHostRef } from "@expo/ui/jetpack-compose";
+import { AceHost, ThemeContext, tokens, useTheme } from "./src/theme.tsx";
+import { ProductionRoot } from "./src/production/ProductionRoot.tsx";
 
 /**
- * Fail-closed production entry. Release builds show the pairing flow but
- * have no pairing wiring yet (parity task A02.08 production startup with the
- * ticket-authenticated identity read), so the screen runs its entry,
- * confirmation and built-in camera capture but pairing stays disabled with
- * guidance: the code can be checked against the computer's screen, and
- * nothing here imports the fixture runtime, the replay probe, or input
- * metrics, and the React Native default fetch or WebSocket never carries
- * pairing material.
+ * Production entry: secure startup over the pinned native bridge, the
+ * Keystore credential store and per-machine SQLite namespaces. Nothing here
+ * imports the fixture runtime, the replay probe or input metrics, and the
+ * React Native default fetch/WebSocket never carries pairing material: when
+ * the pinned bridge is missing the root fails closed to an unpaired message.
+ *
+ * Failure feedback is the same Snackbar plumbing the fixture `Ready` shell
+ * uses: `ProductionRoot` requires `notify`, so the entry owns a host and
+ * passes a real callback. Durable lock-save and secure-screen failures also
+ * render inline captions inside the root, so a missed toast never hides them.
  */
-function ProductionPairing() {
+function ProductionApp() {
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
   return (
     <ThemeContext.Provider value={scheme}>
       <SafeAreaProvider>
-        <KeyboardProvider>
-          <PairingScreen onPaired={() => {}} />
-        </KeyboardProvider>
+        <ProductionShell />
       </SafeAreaProvider>
     </ThemeContext.Provider>
   );
 }
 
-registerRootComponent(ProductionPairing);
+function ProductionShell() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const snackbar = useRef<SnackbarHostRef>(null);
+  const notify = useCallback((message: string) => {
+    void snackbar.current?.showSnackbar({ message, duration: "short" });
+  }, []);
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colours.background }}>
+      <ProductionRoot notify={notify} />
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          bottom: insets.bottom + tokens.spacing.md,
+          left: tokens.spacing.md,
+          right: tokens.spacing.md,
+        }}
+      >
+        <AceHost>
+          <SnackbarHost ref={snackbar}>
+            <Snackbar
+              containerColor={theme.colours.foreground}
+              contentColor={theme.colours.background}
+              actionContentColor={theme.colours.background}
+            />
+          </SnackbarHost>
+        </AceHost>
+      </View>
+    </View>
+  );
+}
+
+registerRootComponent(ProductionApp);

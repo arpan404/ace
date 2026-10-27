@@ -24,14 +24,13 @@ export interface SecureNative {
 }
 
 /**
- * Best-effort toggle. Returns true when the native call was applied or
- * dispatched; false when there was no activity to apply to, or the bridge or
- * function is unavailable (tests, Expo Go, old build). Never throws: a
- * missing guard must not break the lock itself.
+ * Best-effort toggle. Returns true only when the native call applied
+ * synchronously. A promise-like native result is NOT claimed as success: the
+ * outcome is not yet known, and an async rejection must never report success
+ * (fail-closed). Callers that need the async outcome must await
+ * `setSecureScreenEnabledAsync`. Never throws.
  *
- * A native `false` (null activity) is propagated, never swallowed: callers
- * must not believe the window is guarded when nothing was applied. The
- * native fail-closed default still covers not-yet-created activities.
+ * A native `false` (null activity) is propagated, never swallowed.
  *
  * The loader is injectable so tests can prove both paths without the bridge.
  */
@@ -41,7 +40,40 @@ export function setSecureScreenEnabled(enabled: boolean, loader?: () => SecureNa
     const result = native.setSecureScreen(enabled);
     if (result === false) return false;
     if (isPromiseLike(result)) {
+      // Async outcome unknown synchronously: report not-yet-applied so the
+      // caller keeps the guarded banner until the async helper settles.
+      // Swallow here to avoid an unhandled rejection; the async helper is
+      // the honest path.
       result.catch(() => undefined);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Honest async toggle: awaits promise-like native results and reports the
+ * settled outcome. Resolves false when there was no activity, the bridge is
+ * missing, or the async application rejects; true only when applied.
+ */
+export async function setSecureScreenEnabledAsync(
+  enabled: boolean,
+  loader?: () => SecureNative,
+): Promise<boolean> {
+  try {
+    const native = loader !== undefined ? loader() : loadAceNative();
+    const result = native.setSecureScreen(enabled);
+    if (result === false) return false;
+    if (isPromiseLike(result)) {
+      const settled = await result.then(
+        (value) => ({ ok: true as const, value }),
+        () => ({ ok: false as const }),
+      );
+      if (!settled.ok) return false;
+      if (settled.value === false) return false;
+      return true;
     }
     return true;
   } catch {

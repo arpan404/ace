@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveSecureScreenEnabled, setSecureScreenEnabled } from "./secureScreen.ts";
+import {
+  resolveSecureScreenEnabled,
+  setSecureScreenEnabled,
+  setSecureScreenEnabledAsync,
+} from "./secureScreen.ts";
 describe("secure screen guard", () => {
   it("stays secure until the durable lock choice is known", () => {
     expect(
@@ -55,9 +59,30 @@ describe("secure screen bridge", () => {
     expect(setSecureScreen).toHaveBeenCalledWith(true);
   });
 
-  it("swallows async native rejections", () => {
+  it("never claims success for an async native result synchronously", () => {
+    // The outcome is not yet known: fail-closed keeps the guarded banner
+    // until the async helper settles, instead of reporting success that a
+    // later rejection would contradict.
     const setSecureScreen = vi.fn().mockRejectedValue(new Error("gone"));
-    expect(setSecureScreenEnabled(true, () => ({ setSecureScreen }))).toBe(true);
+    expect(setSecureScreenEnabled(true, () => ({ setSecureScreen }))).toBe(false);
+  });
+
+  it("async helper reports rejection as failure, never success", async () => {
+    const setSecureScreen = vi.fn().mockRejectedValue(new Error("gone"));
+    await expect(setSecureScreenEnabledAsync(true, () => ({ setSecureScreen }))).resolves.toBe(
+      false,
+    );
+  });
+
+  it("async helper reports async success only when it settles applied", async () => {
+    const ok = vi.fn().mockResolvedValue(undefined);
+    await expect(setSecureScreenEnabledAsync(true, () => ({ setSecureScreen: ok }))).resolves.toBe(
+      true,
+    );
+    const denied = vi.fn().mockResolvedValue(false);
+    await expect(
+      setSecureScreenEnabledAsync(true, () => ({ setSecureScreen: denied })),
+    ).resolves.toBe(false);
   });
 
   it("reports failure when native has no activity to apply to", () => {

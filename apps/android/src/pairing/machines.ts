@@ -62,6 +62,22 @@ export function createPairingMachines(input: {
     load: () => directory.load(),
     async pair(confirmed, deviceName, transport, signal) {
       const paired = await redeemConfirmedPairing(confirmed, deviceName, transport, signal);
+      // The code is already burned once redeem resolves: an abort racing the
+      // directory write must surface `consumed` guidance (check the
+      // computer's devices, mint a fresh link) instead of a retryable error
+      // that implies the link is still valid or a silent background add the
+      // UI never shows. This covers aborts that fired *before* the save
+      // starts. An abort firing *during* `directory.add` cannot cancel it:
+      // `MachineDirectory.add` takes no signal and the save is serialized,
+      // so the entry still lands and is returned as success. Callers must
+      // not treat that late abort as an undo — success means saved.
+      if (signal?.aborted) {
+        throw new PairingFlowError(
+          "consumed",
+          "Pairing used this link but was cancelled before saving. " +
+            "Check the computer's devices for an unused entry and remove it, then create a new link.",
+        );
+      }
       try {
         return await directory.add(paired satisfies PairedMachine);
       } catch (error) {
