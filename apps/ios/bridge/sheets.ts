@@ -79,6 +79,7 @@ export class Sheets {
         if (!action.open) {
           this.#logs?.stop();
           this.#logs = undefined;
+          this.#sink.clear("logs.copy:");
         } else if (this.#logs) this.#logs.query(query);
         else
           this.#logs = followLogs(
@@ -99,6 +100,9 @@ export class Sheets {
         const logs = this.#logs;
         if (!logs) return false;
         const id = action.requestId;
+        // At most one Copy answer is kept: an earlier one is dropped, and closing Logs drops it.
+        // It stays readable until then, so a redelivered frame still carries the text.
+        this.#sink.clear("logs.copy:");
         this.#sink.put(`logs.copy:${id}`, () => ({ type: "logs.copy", id, text: logs.copy() }));
         return true;
       }

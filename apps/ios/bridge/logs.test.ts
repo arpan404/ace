@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import { followLogs, logPage, LogsQuery } from "./logs.ts";
+import { Sheets } from "./sheets.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
@@ -156,5 +157,26 @@ describe("Logs on the phone", () => {
     await until(() => !!shown(sink)?.lines.some((line) => line.text === "$ late two"), "new lines");
     expect(shown(sink)?.lines[0]?.key).toBe(first);
     expect(shown(sink)?.lines.length).toBe(count + 4);
+  });
+});
+
+describe("Copy from the phone's Logs", () => {
+  test("only the latest Copy's text is kept, and closing Logs leaves none", async () => {
+    const { store } = await opened("copy", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      ...shell("root", "lint", "bun run lint", 0),
+    ]);
+    const sink = new RecordingSink();
+    const sheets = new Sheets(sink, plainPreview);
+    const thread = { owner: {} as never, store, threadId: "copy", epoch: 1 };
+    expect(sheets.action(thread, { kind: "logs", open: true })).toBe(true);
+    expect(sheets.action(thread, { kind: "logs.copy", requestId: "first" })).toBe(true);
+    expect(sheets.action(thread, { kind: "logs.copy", requestId: "second" })).toBe(true);
+    const copies = () => [...sink.readers.keys()].filter((key) => key.startsWith("logs.copy:"));
+    expect(copies()).toEqual(["logs.copy:second"]);
+    expect(String(sink.read("logs.copy:second")?.text)).toContain("$ bun run lint");
+    sheets.action(thread, { kind: "logs", open: false });
+    expect(copies()).toEqual([]);
   });
 });
