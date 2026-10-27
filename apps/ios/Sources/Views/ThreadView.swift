@@ -28,6 +28,10 @@ struct ThreadView: View {
     @State private var activityProblem: String?
     @State private var showAgents = false
     @State private var showChanges = false
+    @State private var showWork = false
+    /// The problem line's and Not sent's ways out: one at a time, with their questions.
+    @State private var workRunner = WorkRunner()
+    @State private var confirmingLock = false
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
@@ -91,7 +95,8 @@ struct ThreadView: View {
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave))
+                                               open: open, problem: { activityProblem = $0 }, leave: leave),
+                              openWork: { showWork = true })
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -103,7 +108,9 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork)
+            .workQuestions(runner: workRunner, model: model, confirmingLock: $confirmingLock)
+            .environment(\.clearStaleLock, model.canOperate ? { confirmingLock = true } : nil)
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
@@ -204,6 +211,10 @@ struct ThreadView: View {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+                    // What stops the checkout waits under a request and a transfer.
+                    else if let line = screen.work {
+                        WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
+                    }
                 }
                 .transition(.opacity)
                 if archived {
@@ -252,6 +263,7 @@ struct ThreadView: View {
             .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
@@ -300,6 +312,7 @@ struct ThreadView: View {
     private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
         switch destination {
+        case .work: showWork = true
         case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true

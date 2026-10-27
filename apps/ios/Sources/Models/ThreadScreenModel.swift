@@ -56,6 +56,8 @@ import Observation
     var attachments: [AttachmentFile] = []
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
+    /// What stops the checkout, shown above the composer.
+    var work: WorkLine?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -71,6 +73,7 @@ import Observation
         tune = nil
         access = nil
         attachments = []
+        work = nil
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its

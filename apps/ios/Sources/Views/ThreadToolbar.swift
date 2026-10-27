@@ -1,17 +1,19 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
+enum ThreadDestination { case work, changes, search, files, terminal, browser, devices, computer, tools, agents }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
-/// with a small "project · branch" line under it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// with a small "project · branch" line under it (a button that opens Work), then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String
     /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
     let status: StatusDisplay?
     let menu: ThreadMenu
+    /// Opens the thread's Work sheet from the "project · branch" line.
+    let openWork: () -> Void
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
@@ -27,16 +29,24 @@ struct ThreadToolbar: ToolbarContent {
         VStack(spacing: AceTheme.Spacing.none) {
             Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityValue(status?.label ?? "")
+                .accessibilityIdentifier("thread.title")
             if !subtitle.isEmpty {
-                Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                // The checkout's line opens Work: where the thread runs and what can move it.
+                Button(action: openWork) {
+                    Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                        .frame(minHeight: AceTheme.Spacing.lg).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(subtitle)
+                .accessibilityHint("Opens Work")
+                .accessibilityIdentifier("thread.subtitle")
             }
         }
         .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(status?.label ?? "")
-        .accessibilityIdentifier("thread.title")
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -57,6 +67,7 @@ struct ThreadMenu: View {
     var body: some View {
         Menu {
             Section {
+                Button("Work", ace: .gitBranch) { open(.work) }.accessibilityIdentifier("thread.work")
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
                 Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
                 Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")

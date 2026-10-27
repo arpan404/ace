@@ -31,6 +31,7 @@ struct PendingSendRow: View {
                         .disabled(retrying)
                         .accessibilityIdentifier("pending.retry")
                     }
+                    if row.fenced == true { ClearStaleLockWord() }
                 } else {
                     AceIcon(.clock, size: 12, relativeTo: .caption)
                     Text(row.label ?? "Sending…")

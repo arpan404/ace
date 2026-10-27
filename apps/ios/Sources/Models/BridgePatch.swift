@@ -165,6 +165,8 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
     /// The shared unsent wording ("Sends on reconnect", "Not sent") and its colour token.
     let label: String?; let token: String?
+    /// A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered.
+    var fenced: Bool? = nil
 }
 /// A status the bridge has already worded; Swift only maps `token` to a theme colour.
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
@@ -236,6 +238,9 @@ enum BridgePatch: Decodable, Sendable {
     case changesFile(String, Int, String, FileDiff)
     case gitResult(String, Bool, String)
     case gitDraft(GitDraft)
+    case workSummary(String, Int, WorkSummary)
+    case workBranches(String, Int, WorkBranches)
+    case workResult(WorkResult)
     case archiveList(ArchiveList)
     /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
     case compose(ComposePatch)
@@ -333,6 +338,9 @@ enum BridgePatch: Decodable, Sendable {
             self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
+        case "work.summary": let (id, epoch) = try scope(); self = .workSummary(id, epoch, try WorkSummary(from: decoder))
+        case "work.branches": let (id, epoch) = try scope(); self = .workBranches(id, epoch, try WorkBranches(from: decoder))
+        case "work.result": self = .workResult(try WorkResult(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))

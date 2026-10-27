@@ -436,6 +436,11 @@ import QuartzCore
                 if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             case .gitDraft(let draft): sheets.draft = draft
+            case .workSummary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch { sheets.work = summary; ThreadOpenTrace.shared.sheetFilled("work") }
+            case .workBranches(let id, let epoch, let branches):
+                if thread?.id == id, thread?.epoch == epoch { sheets.branches = branches }
+            case .workResult(let result): sheets.workResults[result.id] = result
             case .archiveList(let list): archive.apply(list)
             case .compose(let patch): compose.apply(patch)
             case .composer(let patch): suggestions.apply(patch)
