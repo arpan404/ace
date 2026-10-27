@@ -108,6 +108,7 @@ struct ForgeWorkSection: View {
         .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 52)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.work.thread.\(thread.id)")
     }
 
