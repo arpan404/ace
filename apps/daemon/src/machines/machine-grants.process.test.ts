@@ -66,11 +66,18 @@ it("each linked machine gets its own capabilities, and a change applies to its n
   });
   expect(await callAs(laptop, { op: "browser.session" })).toMatchObject({ ok: true });
 
-  // Commands, once on for the laptop, pass the grant; this build doesn't run them yet.
-  const command = { op: "commands", tool: "command_run", args: { command: "ls" } } as const;
+  // Commands, once on for the laptop, run for it and still not for the build server.
+  const command = {
+    op: "commands",
+    tool: "command_run",
+    args: { project: "project", command: "echo ran" },
+  } as const;
   expect(await callAs(laptop, command)).toMatchObject({ ok: false, code: "machine_forbidden" });
   await window.set(laptop.deviceId, "commands", "operate");
-  expect(await callAs(laptop, command)).toMatchObject({ ok: false, code: "not_supported" });
+  expect(await callAs(laptop, command)).toMatchObject({
+    ok: true,
+    body: { content: expect.arrayContaining([{ type: "text", text: "stdout:\nran\n" }]) },
+  });
   expect(await callAs(build, command)).toMatchObject({ ok: false, code: "machine_forbidden" });
   expect((await listed())[0]?.tools).toContain("commands");
 

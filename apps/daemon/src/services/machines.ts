@@ -15,6 +15,7 @@ import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
 import { switchRevocation } from "../machines/grant-rules.ts";
 import { unservedHost } from "../machines/capability-hosts.ts";
+import { commandHost } from "../machines/command-host-shell.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
@@ -123,7 +124,7 @@ export function startMachines(context: ServiceContext): void {
     hosts: {
       devices,
       screen: unservedHost(() => services.screen !== undefined),
-      commands: unservedHost(() => true),
+      commands: commandHost({ store, engine, guests, threads, dataDir: config.dataDir, now, log }),
     },
     log: record("info"),
   });

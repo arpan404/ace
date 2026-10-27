@@ -92,6 +92,53 @@ export class GuestThreads {
     );
     if (!("title" in hold)) this.wake(threadId);
   }
+  /**
+   * A command an agent on another machine ran here, as a shell call in the thread's transcript:
+   * its command line and working directory when it starts, its exit code when it ends.
+   */
+  command(
+    threadId: ThreadId,
+    key: string,
+    entry: {
+      command: string;
+      cwd: string;
+      status: "running" | "succeeded" | "failed" | "cancelled";
+      exitCode?: number | null;
+      startedAt: number;
+      endedAt?: number;
+    },
+  ): void {
+    const agent = this.repo.requireState(threadId).rootKey;
+    if (agent === undefined) throw new Error("Guest thread has no root agent yet");
+    this.repo.apply(
+      threadId,
+      [
+        {
+          type: "item.upsert",
+          agent,
+          item: key,
+          draft: {
+            type: "tool_call",
+            call: {
+              kind: "shell",
+              title: entry.command.slice(0, 200),
+              status: entry.status,
+              detail: {
+                kind: "shell",
+                command: entry.command,
+                cwd: entry.cwd,
+                ...(entry.exitCode === undefined ? {} : { exitCode: entry.exitCode }),
+              },
+              startedAt: entry.startedAt,
+              ...(entry.endedAt === undefined ? {} : { endedAt: entry.endedAt }),
+              raw: [],
+            },
+          },
+        },
+      ],
+      this.now(),
+    );
+  }
   /** Background rows still running whose key starts with `prefix`. */
   running(threadId: ThreadId, prefix: string): string[] {
     const tasks = this.repo.state(threadId)?.tasks ?? {};
