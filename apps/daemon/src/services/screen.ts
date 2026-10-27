@@ -56,6 +56,11 @@ export async function startScreen({ config, options, resources, services, store 
   });
   resources.own(() => manager.close());
   services.screen = manager;
+  if (options.computer) {
+    services.computer = options.computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+    return;
+  }
   if (!helper || options.screen) return;
   // Opt-in per-action timings, written to stderr as JSON lines.
   const timings = config.computerUseTimings

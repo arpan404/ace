@@ -7,6 +7,7 @@ import {
   type AgentControlResult,
   type DelegationRequest,
   type InteractionResolution,
+  type MachineCall,
   type MachineCallOrigin,
   type MachineMessage,
   type MachinePendingRequest,
@@ -279,11 +280,38 @@ export class MachineCaller {
    * A browser tool on another machine. While it runs, that machine's requests for this call
    * (a private takeover there) show here too, so the person can answer from either one.
    */
-  async browser(
+  browser(
     caller: McpAttribution,
     machine: string,
     tool: string,
     args: Record<string, unknown>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    return this.inSession(caller, machine, { op: "browser", tool, args }, options);
+  }
+  /**
+   * A computer-use tool on another machine (ADR 0105). That machine's computer-use switch and app
+   * rules decide; anything there that waits for the person shows here too while it runs.
+   */
+  screen(
+    caller: McpAttribution,
+    machine: string,
+    tool: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    return this.inSession(
+      caller,
+      machine,
+      { op: "screen", tool, args },
+      { ...options, timeoutMs: Math.min(options.timeoutMs, 120_000) },
+    );
+  }
+  /** One tool call in the calling thread's guest session there, mirroring its requests. */
+  private async inSession(
+    caller: McpAttribution,
+    machine: string,
+    call: Extract<MachineCall, { op: "browser" | "screen" }>,
     options: { timeoutMs: number; signal: AbortSignal },
   ) {
     const { directory } = this.deps;
@@ -292,12 +320,17 @@ export class MachineCaller {
     let session: ThreadId;
     try {
       session = MachineSessionResult.parse(
-        await directory.call(machine, origin, { op: "browser.session" }, { timeoutMs: 15_000 }),
+        await directory.call(
+          machine,
+          origin,
+          { op: "browser.session", ...(call.op === "browser" ? {} : { capability: call.op }) },
+          { timeoutMs: 15_000 },
+        ),
       ).threadId;
     } catch (error) {
       throw directory.toolError(machine, error);
     }
-    const source = `browser:${caller.threadId}:${session}`;
+    const source = `${call.op}:${caller.threadId}:${session}`;
     const name = directory.label(machine);
     let stop: (() => void) | undefined;
     let done = false;
@@ -317,12 +350,11 @@ export class MachineCaller {
     watch();
     try {
       return MachineToolResult.parse(
-        await directory.call(
-          machine,
-          origin,
-          { op: "browser", tool, args },
-          { timeoutMs: options.timeoutMs, signal: options.signal, maxBytes: 8 * 1024 * 1024 },
-        ),
+        await directory.call(machine, origin, call, {
+          timeoutMs: options.timeoutMs,
+          signal: options.signal,
+          maxBytes: 8 * 1024 * 1024,
+        }),
       );
     } catch (error) {
       options.signal.throwIfAborted();

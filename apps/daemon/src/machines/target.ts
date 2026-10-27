@@ -128,10 +128,15 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     signal: AbortSignal,
   ) {
     const host = deps.hosts[call.op];
-    if (!host?.available() || !host.call)
+    if (!host?.call)
       throw new TargetRefusal(
         "not_supported",
         "This machine allows it, but doesn't serve it to other machines yet.",
+      );
+    if (!host.available())
+      throw new TargetRefusal(
+        "unavailable",
+        host.unavailable?.() ?? "This machine can't do that now.",
       );
     const session = await deps.guests.open(device, origin);
     const serve = host.call.bind(host);

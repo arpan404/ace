@@ -140,6 +140,7 @@ export function capabilityOf(
     case "respond":
       return guest(call.threadId) ? guestCapabilities : "agents";
     case "browser.session":
+      return call.capability ?? "browser";
     case "browser":
       return "browser";
     case "devices":

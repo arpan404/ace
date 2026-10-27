@@ -15,8 +15,10 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { computerToolkit, screenToolkit, type ComputerPlatform } from "@ace/screen";
-import { cancelLockedUseWhenTurnedOff, computerLockedUseGate } from "../computer-locked-use.ts";
+import { screenToolkit } from "@ace/screen";
+import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
+export { computerPlatform } from "../computer-tools.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { toolFailureReporter } from "../tool-failure-log.ts";
@@ -31,7 +33,6 @@ import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
   const devices = services.devices;
-  const lockedUse = computerLockedUseGate(services);
   const stopLockedUseWatch = await cancelLockedUseWhenTurnedOff(services);
   if (stopLockedUseWatch) resources.own(stopLockedUseWatch);
 
@@ -165,17 +166,17 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(help ? [browserHelpToolkit(help)] : []),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices ? [devicesToolkit(() => devices.load())] : []),
-      // Agents use the background engine on macOS, Linux and Windows.
+      // Agents use the background engine on macOS, Linux and Windows; with `machine`, another
+      // paired machine's apps (ADR 0105).
       ...(services.computer
         ? [
-            computerToolkit(services.computer, {
-              platform: computerPlatform(process.platform),
-              // Read on every call, so a change in Settings applies to the next one.
-              blockedApps: async () =>
-                (await services.settings?.get("computer.blockedApps"))?.value ?? [],
-              using: (threadId, app) =>
-                services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
-              ...(lockedUse ? { lockedUse } : {}),
+            daemonComputerToolkit(services, services.computer, async (call, { caller, signal }) => {
+              const machines = services.machines;
+              if (!machines) throw new PublicToolError("machine_unavailable");
+              return machines.caller.screen(caller, call.machine, call.tool, call.args, {
+                timeoutMs: call.timeoutMs,
+                signal,
+              });
             }),
           ]
         : services.screen
@@ -391,10 +392,4 @@ function userBrowserTools(
   const sessions = services.userBrowserSessions;
   if (!user || !sessions) return undefined;
   return { sessions, available: () => user.backend.available() };
-}
-
-/** The computer-use tools' wording for the daemon's platform. */
-export function computerPlatform(platform: NodeJS.Platform): ComputerPlatform {
-  if (platform === "win32") return "windows";
-  return platform === "linux" ? "linux" : "macos";
 }

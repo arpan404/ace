@@ -8,7 +8,15 @@ export async function daemonFixture(
   agentControl?: import("../services/options.ts").DaemonOptions["agentControl"],
   options: Pick<
     import("../services/options.ts").DaemonOptions,
-    "accounts" | "workspaceActions" | "browser" | "machines" | "devices" | "projects" | "transfers"
+    | "accounts"
+    | "workspaceActions"
+    | "browser"
+    | "machines"
+    | "devices"
+    | "projects"
+    | "transfers"
+    | "screen"
+    | "computer"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -47,6 +55,8 @@ export async function daemonFixture(
       ...(options.browser ? { browser: options.browser } : {}),
       ...(options.machines ? { machines: options.machines } : {}),
       ...(options.devices ? { devices: options.devices } : {}),
+      ...(options.screen ? { screen: options.screen } : {}),
+      ...(options.computer ? { computer: options.computer } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.transfers ? { transfers: options.transfers } : {}),
       workspaceActions: {

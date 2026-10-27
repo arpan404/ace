@@ -10,6 +10,8 @@ import { createMachineTarget } from "../machines/target.ts";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
+import { TargetScreen } from "../machines/target-screen.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
 import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
 import { unservedHost } from "../machines/capability-hosts.ts";
@@ -90,6 +92,17 @@ export function startMachines(context: ServiceContext): void {
     .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
   services.engine?.bindExternalTaskStop("ace-guest:", (id) => guests.stop(id));
   const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
+  const screen = new TargetScreen({
+    computer: () => services.computer,
+    enabled: () => services.screen?.isEnabled() ?? false,
+    toolkit: (computer) => daemonComputerToolkit(services, computer),
+  });
+  // Work stopped or revoked lets go of what its agents held here (ADR 0105).
+  resources.own(
+    guests.onEnd(({ session, capability }) => {
+      if (capability === "screen") screen.release(session.threadId);
+    }),
+  );
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -101,7 +114,7 @@ export function startMachines(context: ServiceContext): void {
     grants,
     hosts: {
       devices: unservedHost(() => services.devices !== undefined),
-      screen: unservedHost(() => services.screen !== undefined),
+      screen,
       commands: unservedHost(() => true),
     },
     log: record("info"),

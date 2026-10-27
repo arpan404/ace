@@ -74,6 +74,8 @@ export type DaemonOptions = {
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
+  /** The computer-use engine to use with `screen` instead of the bundled helper's (tests). */
+  computer?: import("@ace/screen").ComputerClient;
   devices?: DevicesService;
   commands?: DaemonCommandIntegration;
   config?: Config;
