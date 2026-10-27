@@ -74,6 +74,8 @@ const details = (branch: string) => ({
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Seeded first, so they are the list's oldest finished threads and never push the others down.
+seedTransitions(daemon, details);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-stream",
@@ -180,7 +182,6 @@ daemon.command({
 
 threadScenarios(daemon, details);
 seedForks(daemon, details);
-seedTransitions(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
