@@ -167,12 +167,17 @@ export async function record(
     if (!comment) throw new Error("The daemon didn't record the comment: try again.");
     const commentId = comment.id;
     commentIds.push(commentId);
-    patch(store, new Set([draft.key]), (d) => ({
-      ...d,
-      commentId,
-      sessionId,
-      source: opened.session?.source,
-    }));
+    // A refresh that ran while this comment was being recorded may already have added the
+    // daemon's copy of it as a comment from elsewhere: this draft is that comment, so the copy goes.
+    store.set((drafts) =>
+      drafts.flatMap((d) =>
+        d.key === draft.key
+          ? [{ ...d, commentId, sessionId, source: opened.session?.source }]
+          : d.commentId === commentId
+            ? []
+            : [d],
+      ),
+    );
   }
   return { sessionId, commentIds };
 }
