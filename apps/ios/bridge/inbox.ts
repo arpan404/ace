@@ -18,6 +18,7 @@ import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+import { ManageAction, runManage } from "./inbox-manage.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
@@ -333,6 +334,11 @@ export function inboxAction(
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
     void runPlace(inbox, place.data, requestId, pump);
+    return;
+  }
+  const manage = ManageAction.safeParse(raw);
+  if (manage.success && inbox) {
+    void runManage(inbox.organizer, manage.data, requestId, pump);
     return;
   }
   const parsed = InboxAction.safeParse(raw);

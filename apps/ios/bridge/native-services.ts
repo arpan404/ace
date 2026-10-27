@@ -37,6 +37,7 @@ import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
+import type { InboxRequests } from "./inbox-manage.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -98,6 +99,7 @@ export class NativeServices {
   readonly files: CheckoutFiles | undefined;
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
+  readonly inbox: InboxRequests | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -106,6 +108,7 @@ export class NativeServices {
     files?: CheckoutFiles,
     forge?: ForgeService,
     reads?: NativeReads,
+    inbox?: InboxRequests,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -115,6 +118,7 @@ export class NativeServices {
     this.files = files;
     this.forge = forge;
     this.reads = reads;
+    this.inbox = inbox;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -180,6 +184,11 @@ export class NativeServices {
         } catch (error) {
           this.#reply(id, false, null, error instanceof Error ? error.message : "");
         }
+        return;
+      }
+      const organizing = this.inbox?.(raw, id);
+      if (organizing) {
+        this.#reply(id, true, await organizing, "");
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

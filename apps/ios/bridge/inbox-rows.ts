@@ -1,4 +1,10 @@
-import { listOrderOf, type AccountView, type HomeSort } from "@ace/ui-core";
+import {
+  listOrderOf,
+  threadMenu,
+  threadMenuLabels,
+  type AccountView,
+  type HomeSort,
+} from "@ace/ui-core";
 import {
   inboxGroup,
   inboxGroupRank,
@@ -37,11 +43,12 @@ export interface RowContext {
  */
 export function inboxRow(thread: InboxThread, context: RowContext) {
   const { entry } = thread;
+  const look = inboxLook(thread, context.baseline, context.now);
   return {
     ...threadRow(entry),
     machineId: context.machineId,
     status: inboxStatus(thread, context.now),
-    look: inboxLook(thread, context.baseline, context.now),
+    look,
     account: rowAccount(context.accounts, entry),
     activityAt: entry.activityAt ?? entry.updatedAt,
     archivedAt: entry.archivedAt ?? null,
@@ -54,6 +61,17 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     /** Places a move is worked out from (`inbox-place.ts`): among pinned, and sorted by hand. */
     pinOrder: entry.pinned === true ? (entry.pinOrder ?? null) : null,
     listOrder: listOrderOf(entry),
+    /** False when the thread never settles by itself. */
+    autoSettle: entry.autoSettle !== false,
+    /**
+     * What its menus offer, in order, by the web's rules (`threadMenu`); the words are the
+     * layout's `menuLabels`.
+     */
+    menu: threadMenu(entry, {
+      settled: look.settled,
+      unread: look.unread,
+      pinned: entry.pinned === true,
+    }),
   };
 }
 
@@ -82,5 +100,7 @@ export function inboxLayout(
     // The machine's sort, so the menu checks the choice in force.
     sortBy: options.sortBy ?? "activity",
     sorts: inboxSortChoices,
+    /** The words for each row's `menu` ids. */
+    menuLabels: threadMenuLabels,
   };
 }

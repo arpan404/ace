@@ -2,7 +2,7 @@ import type { ClientCore } from "@ace/client";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
 import { PendingActions, runOrganize, type OrganizePatch } from "@ace/ui-core";
 import type { PatchSink } from "./agents.ts";
-import { dispatchCommand } from "./commands.ts";
+import { dispatchCommand, type Receipt } from "./commands.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 
 /*
@@ -21,7 +21,8 @@ export interface InboxOrganizer {
   observe(listener: (threadId: string) => void): () => void;
   /**
    * Show `patch` on the thread now and send `payload`. Resolves with whether it was saved on
-   * this device (the admission); the receipt arrives on the pump under `requestId`.
+   * this device (the admission); the receipt arrives on the pump under `requestId`, and to
+   * `heard` when given.
    */
   run(
     threadId: string,
@@ -29,6 +30,7 @@ export interface InboxOrganizer {
     payload: CommandPayload,
     requestId: string,
     pump: PatchSink,
+    heard?: (result: Receipt) => void,
   ): Promise<boolean>;
 }
 
@@ -48,7 +50,7 @@ export function inboxOrganizer(
       return entry && pending.apply(entry);
     },
     observe: pending.subscribe,
-    run(threadId, patch, payload, requestId, pump) {
+    run(threadId, patch, payload, requestId, pump, heard) {
       return new Promise<boolean>((admitted) => {
         const send = () =>
           new Promise<void>((accepted, refused) => {
@@ -58,7 +60,11 @@ export function inboxOrganizer(
                 saved = true;
                 admitted(true);
               },
-              receipt: ({ ok }) => (ok ? accepted() : refused(new Refused(requestId))),
+              receipt: (result) => {
+                heard?.(result);
+                if (result.ok) accepted();
+                else refused(new Refused(requestId));
+              },
             }).then(() => {
               if (saved) return;
               admitted(false);

@@ -7,6 +7,7 @@ import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { LedgerShelf } from "./native-ledger.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
@@ -262,6 +263,7 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);

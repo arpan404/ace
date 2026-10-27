@@ -1,11 +1,13 @@
 import { preview } from "./presentation.ts";
-import { CommandPayload } from "@ace/protocol";
+import { CommandPayload, type CommandResult } from "@ace/protocol";
 import type { ClientCore } from "@ace/client";
 import type { PatchSink } from "./agents.ts";
 
-type Receipt = {
+export type Receipt = {
   ok: boolean;
   error?: string | undefined;
+  /** What still runs when a delete was refused for it (`CommandResult.alive`). */
+  alive?: CommandResult["alive"];
   /** What a `thread.create` or `workspace.add` made. */
   threadId?: string | undefined;
   /** The thread a `thread.fork` opened. */
