@@ -33,6 +33,7 @@ import {
   timesText,
 } from "@ace/ui-core";
 import { z } from "zod";
+import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { hostOpenTarget } from "./skill-host-open.ts";
 
 /*
@@ -106,6 +107,14 @@ export const NativeSkillsRequest = z.discriminatedUnion("op", [
     ...scope,
     expectedHash: SkillHash,
     retry: z.boolean().default(false),
+  }),
+  z.object({ type: z.literal("skills.native"), op: z.literal("openers"), id: SkillId, ...scope }),
+  z.object({
+    type: z.literal("skills.native"),
+    op: z.literal("open"),
+    id: SkillId,
+    ...scope,
+    app: HostOpenRequest.options[1].shape.app,
   }),
 ]);
 export type NativeSkillsRequest = z.infer<typeof NativeSkillsRequest>;
@@ -220,7 +229,11 @@ export class NativeSkillLibrary {
       }
       case "check": {
         const name = request.name.trim();
-        const entries = this.#listed.get(request.workspaceId ?? "");
+        // The screen may have drawn the list from the phone's kept copy without this bridge
+        // listing it (a relaunch): read it once here rather than pass every name.
+        const entries =
+          this.#listed.get(request.workspaceId ?? "") ??
+          (name ? (await this.#list(request.workspaceId, signal)).entries : undefined);
         const problem = skillNameProblem(name, (value) => nameTaken(entries, value, request.scope));
         return { problem: problem ?? null, path: newSkillPath(request.scope, name || "name") };
       }
@@ -243,6 +256,9 @@ export class NativeSkillLibrary {
           note: note ? `${note}. It reads the folder the skill is saved in.` : null,
         };
       }
+      case "openers":
+      case "open":
+        return this.#host(request, signal);
       case "delete": {
         const result = await skills(
           this.#owner,
@@ -255,6 +271,29 @@ export class NativeSkillLibrary {
         return { deleted: expect(result, "deleted").id };
       }
     }
+  }
+
+  /**
+   * Open on computer: the machine's editors and file manager, or opening the skill's SKILL.md
+   * with one. The skill is found by id on the machine, never by a path the phone sends.
+   */
+  async #host(
+    request: Extract<NativeSkillsRequest, { op: "openers" | "open" }>,
+    signal: AbortSignal,
+  ): Promise<object> {
+    const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
+    const { entry } = expect(
+      await skills(this.#owner, { op: "read", id: request.id, ...at }, signal),
+      "skill",
+    );
+    const target = hostOpenTarget(entry, request.workspaceId);
+    if (!target) throw new Refused("unavailable", "This skill can't be opened on the computer.");
+    const outcome = await answerHostOpen(
+      this.#owner,
+      request.op === "openers" ? { op: "openers" } : { op: "open", app: request.app, ...target },
+    );
+    // `host-open.ts` answers with its own `ok`, which wins over the wrapper's.
+    return z.record(z.string(), z.unknown()).parse(outcome);
   }
 
   async #create(request: Extract<NativeSkillsRequest, { op: "create" }>, signal: AbortSignal) {
@@ -315,7 +354,7 @@ export class NativeSkillLibrary {
     used:
       | { count: number; last?: { threadId: string; title: string; at: number } | undefined }
       | undefined,
-    workspaceId: string | undefined,
+    workspaceId: WorkspaceId | undefined,
   ) {
     const locked = lockedAgents(entry);
     const providers = entry.agents.map((agent) => agent.provider);

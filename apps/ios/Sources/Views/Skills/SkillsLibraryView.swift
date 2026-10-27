@@ -50,14 +50,13 @@ struct SkillsLibraryView: View {
     var body: some View {
         List {
             Section {
-                if !projects.isEmpty {
-                    InsetRow(systemImage: "folder", title: "Project") {
-                        Picker("Project", selection: $projectId) {
-                            Text("None").tag("")
-                            ForEach(projects) { Text($0.name).tag($0.id) }
-                        }
-                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
+                // Always in place, so the rows below never move when the projects arrive.
+                InsetRow(systemImage: "folder", title: "Project") {
+                    Picker("Project", selection: $projectId) {
+                        Text("None").tag("")
+                        ForEach(projects) { Text($0.name).tag($0.id) }
                     }
+                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
                     .accessibilityIdentifier("skills.project")
                 }
                 if model.canOperate {
@@ -72,7 +71,11 @@ struct SkillsLibraryView: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.rows) { row in
-                        NavigationLink(value: SkillRoute(id: row.id, title: row.title)) { SkillRowLabel(row: row) }
+                        // A direct link: Settings' stack is driven by its own typed routes, so a
+                        // value link of another type would never push.
+                        NavigationLink {
+                            SkillPageView(model: model, route: SkillRoute(id: row.id, title: row.title), workspaceId: project?.id, project: project?.name)
+                        } label: { SkillRowLabel(row: row) }
                             .accessibilityIdentifier("skills.row.\(row.name)")
                     }
                 } header: { InsetHeader(group.title) }
@@ -102,13 +105,12 @@ struct SkillsLibraryView: View {
         .sensoryFeedback(.success, trigger: made)
         .searchable(text: $query, prompt: "Search skills and plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: SkillRoute.self) { route in
-            SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
-        }
         .navigationDestination(item: $opened) { route in
             SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
         }
-        .readWhenConnected(model, id: projectId) {
+        // Keyed on the project as resolved: a remembered project only resolves once the projects
+        // arrive, and the library must be read again for it then.
+        .readWhenConnected(model, id: project?.id ?? "") {
             library = model.keptSkillLibrary(libraryRead) ?? library
             await read()
         }

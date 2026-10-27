@@ -38,6 +38,7 @@ export type FakeWorkspaceControls = Pick<
   | "setGitStatus"
   | "setGitDiff"
   | "setEditors"
+  | "opened"
   | "setForgeRead"
   | "holdForgeRead"
   | "failForgeRead"
@@ -207,6 +208,8 @@ export class FakeWorkspaceWire {
   setEditors(editors: readonly InstalledEditor[]): void {
     this.editors = InstalledEditor.array().max(32).parse(editors);
   }
+  /** What `host.open` opened on this fake machine, in order: no process starts. */
+  readonly opened: { app: string; folder: string; path?: string; line?: number }[] = [];
   /** The project's scripts as the daemon lists them from package.json, by workspace. */
   private scriptOverrides = new Map<string, readonly string[]>();
   setScripts(workspaceId: string, names: readonly string[]): void {
@@ -299,6 +302,23 @@ export class FakeWorkspaceWire {
           },
         });
       }
+    }
+    if (op.op === "host.open") {
+      const editor = op.app.kind === "editor" ? op.app.editorId : undefined;
+      const folder = op.threadId ?? op.workspaceId;
+      const known = editor === undefined || this.editors.some((entry) => entry.id === editor);
+      if (known && folder)
+        this.opened.push({
+          app: editor ?? "files",
+          folder,
+          ...(op.path ? { path: op.path } : {}),
+          ...(op.line ? { line: op.line } : {}),
+        });
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: known && folder ? { kind: "opened" } : { kind: "error", code: "editor_not_found" },
+      });
     }
     if (op.op === "workspaces.list")
       return ServerMessage.parse({
@@ -422,7 +442,7 @@ export class FakeWorkspaceWire {
       });
     const result =
       op.op === "editors.list"
-        ? { kind: "editors", editors: this.editors }
+        ? { kind: "editors", editors: this.editors, fileManager: "Finder" }
         : op.op === "scripts.list"
           ? {
               kind: "scripts",

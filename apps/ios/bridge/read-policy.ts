@@ -43,7 +43,10 @@ const pluginLookups = new Set([
   "plugins.cancel",
 ]);
 /** The phone's skill-library requests that only read (`skill-library.ts`). */
-const skillLookups = new Set(["library", "skill", "draft", "check"]);
+/** The phone's plugin requests that change a plugin (`skill-plugins.ts`); the rest only read. */
+const pluginChanges = new Set(["switch", "agent"]);
+/** Open on computer (`openers`, `open`) changes nothing the phone keeps. */
+const skillLookups = new Set(["library", "skill", "draft", "check", "openers", "open"]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -126,7 +129,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "skills.native":
       return skillLookups.has(String(value.op)) ? [] : ["skills", "catalog"];
     case "plugins.native":
-      return ["plugins", "catalog", "skills"];
+      return pluginChanges.has(String(value.op)) ? ["plugins", "catalog", "skills"] : [];
     case "prompts.request":
       return ["prompts"];
     case "forge.merge":

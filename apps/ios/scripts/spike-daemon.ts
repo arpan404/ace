@@ -376,6 +376,8 @@ const server = Bun.serve<undefined>({
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    // What Open on computer (`host.open`) opened on this fake machine, in order.
+    if (path === "/host-opened") return Response.json({ opened: daemon.workspace.opened });
     if (path === "/queue")
       return Response.json({
         texts: await queuedTexts(
