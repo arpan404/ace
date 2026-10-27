@@ -1,7 +1,7 @@
 import { Command, ThreadId, ThreadListEntry, type ThreadStatus } from "@ace/protocol";
 import { ClientError } from "@ace/client";
 import type { Intent } from "@ace/client";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import {
   ArchivePaging,
   archiveFooterKind,
@@ -11,11 +11,15 @@ import {
   canComposeLive,
   canPageArchive,
   closedArchiveList,
+  isArchiveWindowWanted,
   orderedArchiveIds,
   readArchiveList,
+  requestHomeWindow,
+  resetArchiveWindowCoordinationForTests,
   type ArchiveWindowPort,
 } from "./archive.ts";
 import {
+  availableInboxActions,
   canActInbox,
   inboxActionPayload,
   runInboxAction,
@@ -23,6 +27,12 @@ import {
 } from "./inbox-actions.ts";
 
 const now = 1_700_000_000_000;
+
+// Window coordination is module-shared (one SDK sidebar per phone), so each test
+// starts from no owner; otherwise one test's open/close would gate another's.
+beforeEach(() => {
+  resetArchiveWindowCoordinationForTests();
+});
 
 function entry(
   id: string,
@@ -537,4 +547,126 @@ test("an acknowledged unarchive settles its receipt instead of leaking it", asyn
   expect(refused).toEqual([]);
   expect(live.size).toBe(0);
   for (const stop of live.values()) stop();
+});
+
+test("a reopen owns the window when the old home restore lands late", async () => {
+  // The reported cross-mount race: the old screen's cleanup repoints home while
+  // its call is still in flight, and a reopen claims the archive window before
+  // that home call lands. The latest route's intent must stay the last window
+  // call issued, and the late home settlement must change nothing.
+  const calls: string[] = [];
+  let releaseHome!: () => void;
+  const homeGate = new Promise<void>((resolve) => {
+    releaseHome = resolve;
+  });
+  const port: ArchiveWindowPort = {
+    async threadsWindow(input: { archived?: boolean }) {
+      calls.push(input.archived ? "archive" : "home");
+      if (!input.archived) await homeGate;
+    },
+    async threadsMore() {
+      calls.push("more");
+    },
+  };
+  const first = new ArchivePaging();
+  await first.openArchive(port);
+  expect(isArchiveWindowWanted()).toBe(true);
+  const closing = first.closeArchive(port);
+  const second = new ArchivePaging();
+  const opening = second.openArchive(port);
+  expect(await opening).toBe(true);
+  // The delayed home restore lands after the reopen: superseded, not failed.
+  releaseHome();
+  expect(await closing).toBe(false);
+  expect(first.superseded).toBe(true);
+  expect(first.restoreFailed).toBe(false);
+  expect(second.open).toBe(true);
+  expect(second.failed).toBe(false);
+  expect(second.superseded).toBe(false);
+  expect(isArchiveWindowWanted()).toBe(true);
+  expect(calls).toEqual(["archive", "home", "archive"]);
+  // A superseded session owns nothing further: closing it again issues no call.
+  expect(await first.closeArchive(port)).toBe(true);
+  expect(calls).toEqual(["archive", "home", "archive"]);
+});
+
+test("a home-restore retry stops once a reopen owns the window", async () => {
+  // The retry loop must not issue a home call past a reopen's archive window:
+  // the attempt in flight settles stale and no further attempt starts.
+  const calls: string[] = [];
+  let homeAttempts = 0;
+  let releaseSecond!: () => void;
+  const secondGate = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
+  });
+  const port: ArchiveWindowPort = {
+    async threadsWindow(input: { archived?: boolean }) {
+      calls.push(input.archived ? "archive" : "home");
+      if (!input.archived) {
+        homeAttempts += 1;
+        if (homeAttempts === 1) throw new Error("offline");
+        if (homeAttempts === 2) await secondGate;
+      }
+    },
+    async threadsMore() {},
+  };
+  const first = new ArchivePaging();
+  await first.openArchive(port);
+  const closing = first.closeArchiveWithRetry(port, 3);
+  // Let the first attempt fail and the second park before the reopen claims it.
+  for (let spin = 0; spin < 100; spin++) {
+    if (homeAttempts >= 2) break;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  expect(homeAttempts).toBe(2);
+  const second = new ArchivePaging();
+  expect(await second.openArchive(port)).toBe(true);
+  releaseSecond();
+  expect(await closing).toBe(false);
+  expect(first.superseded).toBe(true);
+  expect(first.restoreFailed).toBe(false);
+  expect(second.open).toBe(true);
+  // Two home attempts only: the retry never fired a third past the reopen.
+  expect(homeAttempts).toBe(2);
+  expect(calls).toEqual(["archive", "home", "home", "archive"]);
+});
+
+test("a mount heal never repoints home while the archive owns the window", async () => {
+  const port = stubPort();
+  const first = new ArchivePaging();
+  await first.openArchive(port);
+  expect(isArchiveWindowWanted()).toBe(true);
+  requestHomeWindow(port);
+  expect(port.calls).toEqual(["window"]);
+  await first.closeArchive(port);
+  expect(isArchiveWindowWanted()).toBe(false);
+  // The archive is gone: the heal repoints home, idempotent with the close.
+  requestHomeWindow(port);
+  expect(port.calls).toEqual(["window", "window", "window"]);
+});
+
+test("a view-only phone offers no archive actions and admits no unarchive", async () => {
+  const row = entry("a", { state: "done" }, { archivedAt: now });
+  const none = { settle: false, unsettle: false, snooze: false, wake: false, archive: false };
+  expect(availableInboxActions(row, now, undefined)).toEqual(none);
+  expect(availableInboxActions(row, now, false)).toEqual(none);
+  // Archived threads never compose, even with a genuine grant.
+  expect(canComposeLive(true, true)).toBe(false);
+  expect(canComposeLive(undefined, true)).toBe(false);
+  const enqueued: unknown[] = [];
+  const port = {
+    async enqueue(payload: unknown) {
+      enqueued.push(payload);
+      return "cmd-view-only";
+    },
+    intent() {
+      return { getSnapshot: () => undefined, subscribe: () => () => {} };
+    },
+  };
+  const refused = await runInboxAction(port, "unarchive", "thread-a", now, undefined, undefined);
+  expect(refused).toEqual({
+    admitted: false,
+    error: "This phone can only view this machine.",
+  });
+  expect(enqueued).toEqual([]);
 });

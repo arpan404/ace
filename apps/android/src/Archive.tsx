@@ -194,11 +194,14 @@ export function ArchiveScreen({
       active = false;
       // Repoint the shared store home before dropping this lease; the retry keeps
       // a single offline blip from stranding the inbox on the archive window, and
-      // a failed restore is surfaced instead of leaving it there silently.
+      // a failed restore is surfaced instead of leaving it there silently. A
+      // restore superseded by a reopen owns nothing: the new route repointed
+      // the store after this screen left, so there is no strand to report.
       void paging
         .closeArchiveWithRetry(client, 3)
         .then((restored) => {
-          if (!restored) notify?.("Could not return home. Reopen the archive to retry.");
+          if (!restored && !paging.superseded)
+            notify?.("Could not return home. Reopen the archive to retry.");
         })
         .finally(() => {
           for (const stop of pending.values()) stop();

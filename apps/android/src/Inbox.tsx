@@ -28,6 +28,7 @@ import {
   type SnoozePresetId,
 } from "./inbox-actions.ts";
 import { displayAppearance } from "./status.ts";
+import { requestHomeWindow } from "./archive.ts";
 
 type InboxEntry = { kind: "heading"; id: string; title: string } | { kind: "thread"; id: string };
 /** One daemon for now; rows keep a machine so a merged inbox can tell them apart later. */
@@ -360,8 +361,9 @@ export function Inbox({
   useEffect(() => {
     // Self-heal a stranded archive window (e.g. a failed archive restore left the
     // shared store on the archive filter): repointing home is a no-op when already
-    // home (`Sidebar.configure` early-returns on the same filter).
-    void client.threadsWindow({}).catch(() => {});
+    // home (`Sidebar.configure` early-returns on the same filter). The heal yields
+    // while an archive route owns the window, so a remount never clobbers it.
+    requestHomeWindow(client);
   }, [client]);
   // A snooze ends on this phone's clock even while its machine is offline: regroup then.
   const [tick, setTick] = useState(0);
