@@ -55,6 +55,18 @@ export function markdownPieces(paragraph: string, size = 2_000): string[] {
 }
 
 export function markdownBlocks(text: string): MarkdownBlock[] {
+  return scanMarkdown(text).blocks;
+}
+
+/**
+ * One scan shared by `markdownBlocks` and `isInOpenFence` so fence
+ * open/close decisions always agree with the block parser. In particular a
+ * table row that starts with backticks (e.g. a closed span like
+ * "```x``` | v |") is a row when the table is open, never a fence marker;
+ * a standalone fence scan without table state misreads it as a fence open,
+ * flips the open/close parity, and can accept a split inside a real fence.
+ */
+function scanMarkdown(text: string): { blocks: MarkdownBlock[]; openFence: string | null } {
   const blocks: MarkdownBlock[] = [];
   let paragraph: string[] = [];
   let quote: string[] = [];
@@ -174,7 +186,7 @@ export function markdownBlocks(text: string): MarkdownBlock[] {
   if (fence !== null)
     blocks.push({ kind: "code", language: fence.language, text: fence.lines.join("\n") });
   flush();
-  return blocks;
+  return { blocks, openFence: fence?.marker ?? null };
 }
 
 /** iOS parity: a code block longer than this shows its first lines with Show all. */
@@ -240,8 +252,14 @@ function lineCount(text: string): number {
  * Streaming deltas re-render on every chunk. Past `STREAMING_FULL_PARSE_CHARS`
  * a full `markdownBlocks` parse per delta is O(n) each and O(n²) over the
  * stream, so the settled head is parsed once and only the tail re-parses.
- * The full text stays rendered: head blocks plus tail blocks concatenate to
- * exactly the full parse. Pure.
+ * The full text stays rendered: when a split is accepted, head blocks plus
+ * tail blocks concatenate to exactly the full parse. Pure.
+ *
+ * Two inputs defeat the split and fall back to a full parse per delta, which
+ * stays O(n) per delta: an unclosed fence in the head (the cut would sit
+ * inside code), and blank lines so sparse the tail would exceed
+ * `STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS`. Both fallbacks keep
+ * blocks exact; only the per-delta cost is unbounded, never the output.
  */
 export const STREAMING_FULL_PARSE_CHARS = 16_000;
 /** Fresh tail re-parsed per delta while streaming a large message. */
@@ -252,35 +270,29 @@ export const STREAMING_HEAD_GROWTH_CHARS = 4_000;
 /**
  * Split streaming text into a settled head and a fresh tail at a blank-line
  * boundary, where every parser state (paragraph, quote, list, table) is
- * already flushed. Returns null when a full parse is cheaper or safer: short
- * text, no blank-line boundary in range, or an unclosed fence in the head
- * (a fence spanning the cut would parse differently split than whole).
+ * already flushed. Returns null when a full parse is cheaper or safer:
+ * short text, no blank-line boundary in range, a tail that would stay
+ * unbounded because blank lines are sparse, or an unclosed fence in the
+ * head (a fence spanning the cut would parse differently split than whole).
  */
 export function streamingSplit(text: string): { head: string; tail: string } | null {
   if (text.length <= STREAMING_FULL_PARSE_CHARS) return null;
   const cut = text.lastIndexOf("\n\n", text.length - STREAMING_TAIL_CHARS);
   if (cut < 0) return null;
+  if (text.length - (cut + 2) > STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS) return null;
   const head = text.slice(0, cut + 2);
   if (isInOpenFence(head)) return null;
   return { head, tail: text.slice(cut + 2) };
 }
 
-/** True while `text` opens a fence it never closes (streaming code). */
+/**
+ * True while `text` opens a fence it never closes (streaming code). Runs the
+ * block parser's own scan, so a ```-looking table row is never mistaken for
+ * a fence marker. O(head) per call; streaming text stays under
+ * `INLINE_MESSAGE_LIMIT` and the caller skips this path once that trips.
+ */
 export function isInOpenFence(text: string): boolean {
-  let open: string | null = null;
-  for (const raw of text.split("\n")) {
-    const trimmed = raw.trim();
-    if (open !== null) {
-      const mark = open[0]!;
-      let run = 0;
-      while (trimmed[run] === mark) run += 1;
-      if (run >= open.length && trimmed.slice(run).trim() === "") open = null;
-    } else {
-      const marker = fenceMarker(trimmed);
-      if (marker !== null) open = marker;
-    }
-  }
-  return open !== null;
+  return scanMarkdown(text).openFence !== null;
 }
 
 /** The settled head cache: parsed once, reused across deltas. */
@@ -291,11 +303,12 @@ export interface StreamingAccumulator {
 
 /**
  * One incremental step for a streaming message. Head blocks are referentially
- * stable while the head is unchanged, so settled rows keep their state; the
- * tail re-parses each call but stays bounded by `STREAMING_TAIL_CHARS` plus
- * one growth chunk. Non-append edits reset the head. `blocks` always equals
- * `markdownBlocks(text)` for text the split accepts, and falls back to the
- * full parse otherwise.
+ * stable while the head is unchanged, so settled rows keep their state; an
+ * accepted split keeps the tail bounded by
+ * `STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS`, and sparse text or
+ * an open fence falls back to the full parse. Non-append edits reset the
+ * head. `blocks` always equals `markdownBlocks(text)`: accepted splits join
+ * head and tail parses exactly, and every other path parses whole. Pure.
  */
 export function accumulateStreamingBlocks(
   prev: StreamingAccumulator,

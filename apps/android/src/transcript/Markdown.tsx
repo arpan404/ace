@@ -30,7 +30,8 @@ import { copyCodeText } from "./clipboard.ts";
  * remains the only file route. Messages past `INLINE_MESSAGE_LIMIT` render a
  * bounded plain preview plus a Copy-full-answer action instead of parsing
  * unbounded text per delta. Large streaming messages parse the settled head
- * once and re-parse only a bounded tail per delta. Blocks are keyed by
+ * once and re-parse only a bounded tail per delta, falling back to a full
+ * parse for sparse text or an open fence. Blocks are keyed by
  * full-content fingerprint with occurrence counting: append-only deltas keep
  * settled blocks, while a mid-stream structural change (fence closes,
  * `---` becomes a rule) remounts only what changed.

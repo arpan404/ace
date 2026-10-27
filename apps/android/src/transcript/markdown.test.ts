@@ -323,6 +323,95 @@ it("falls back to a full parse when a split would be unsafe", () => {
   expect(isInOpenFence("```sh\necho hi\n```\n\nAfter")).toBe(false);
 });
 
+it("never mistakes a table row starting with a code span for a fence", () => {
+  expect(isInOpenFence("| H1 | H2 |\n| --- | --- |\n```x``` | v |\n")).toBe(false);
+  expect(isInOpenFence("| H1 | H2 |\n| --- | --- |\n```x``` | v |\n~~~\ncode\n")).toBe(true);
+  expect(markdownBlocks("| H1 | H2 |\n| --- | --- |\n```x``` | v |\n")).toEqual([
+    { kind: "table", headers: ["H1", "H2"], rows: [["```x```", "v"]] },
+  ]);
+});
+
+function paddedDoc(middle: string, tail: string): string {
+  const filler = "Padding filler sentence to grow the document past the split threshold. ";
+  let pad = "";
+  while (pad.length <= STREAMING_FULL_PARSE_CHARS) pad += `${filler.repeat(30)}\n\n`;
+  return `${pad}${middle}\n\n${tail}`;
+}
+
+it("falls back to the full parse when a table row hides an open fence", () => {
+  const middle = [
+    "| H1 | H2 |",
+    "| --- | --- |",
+    "```x``` | v |",
+    "~~~",
+    "streaming code",
+    "```",
+  ].join("\n");
+  const full = paddedDoc(middle, "end ".repeat(2500));
+  expect(full.length).toBeGreaterThan(STREAMING_FULL_PARSE_CHARS);
+  // The ``` line is a table row, so the ~~~ fence is really still open and
+  // the blank-line cut would sit inside code: no safe split exists.
+  expect(streamingSplit(full)).toBeNull();
+  const first = accumulateStreamingBlocks({ head: "", blocks: [] }, full);
+  expect(first.blocks).toEqual(markdownBlocks(full));
+  const second = accumulateStreamingBlocks(first.state, `${full}more.\n`);
+  expect(second.blocks).toEqual(markdownBlocks(`${full}more.\n`));
+});
+
+it("falls back to the full parse when blank lines are too sparse to bound the tail", () => {
+  const sparse = `${"A".repeat(STREAMING_FULL_PARSE_CHARS + 1000)}\n\n${"b ".repeat(20000)}`;
+  expect(sparse.length).toBeGreaterThan(STREAMING_FULL_PARSE_CHARS);
+  // The only blank-line boundary leaves a ~40k tail: unbounded, so no split.
+  expect(streamingSplit(sparse)).toBeNull();
+  expect(accumulateStreamingBlocks({ head: "", blocks: [] }, sparse).blocks).toEqual(
+    markdownBlocks(sparse),
+  );
+});
+
+it("keeps accepted split tails bounded", () => {
+  const doc = largeDoc(60);
+  const split = streamingSplit(doc);
+  expect(split).not.toBeNull();
+  expect(split!.tail.length).toBeLessThanOrEqual(
+    STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS,
+  );
+});
+
+it("keeps incremental blocks exact across streaming deltas", () => {
+  const section = [
+    "| H1 | H2 |",
+    "| --- | --- |",
+    "| a | b |",
+    "",
+    "```ts",
+    "const streaming = true;",
+    "```",
+    "",
+    "> Quoted context stays readable.",
+    "",
+    "- item one",
+    "- item two",
+    "",
+  ].join("\n");
+  let text = "";
+  let state: StreamingAccumulator = { head: "", blocks: [] };
+  let accepted = 0;
+  for (let i = 1; i <= 120; i++) {
+    text += `Paragraph ${i} streams in.\n\n${section}\n`;
+    const result = accumulateStreamingBlocks(state, text);
+    expect(result.blocks).toEqual(markdownBlocks(text));
+    if (result.state.head !== "") accepted += 1;
+    state = result.state;
+  }
+  expect(text.length).toBeGreaterThan(STREAMING_FULL_PARSE_CHARS);
+  expect(accepted).toBeGreaterThan(0);
+  // A delta that opens a fence mid-stream stays exact, then closing it does too.
+  const open = `${text}\n\`\`\`sh\nstill open\n`;
+  expect(accumulateStreamingBlocks(state, open).blocks).toEqual(markdownBlocks(open));
+  const closed = `${open}\`\`\`\n\ndone\n`;
+  expect(accumulateStreamingBlocks(state, closed).blocks).toEqual(markdownBlocks(closed));
+});
+
 it("accumulates streaming deltas with a stable head and exact blocks", () => {
   const first = largeDoc(60);
   const second = `${first}Tail sentence one more.\n\nTail sentence two more.\n`;
