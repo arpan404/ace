@@ -38,11 +38,13 @@ test("a configured model found on a later page of Codex's catalog keeps every ac
   expect(headers["X-Ace-Tools"]).toBeUndefined();
 });
 
-test("a Codex thread on a model outside its catalog gets the fixed list, and tools_call keeps Codex's prompt", async () => {
+test("a Codex thread on a model outside its catalog gets the fixed list, and only the destructive tool keeps Codex's prompt", async () => {
   const { headers, prompted, instructions } = await startedWith("oss-model");
   // Codex would load every listed tool upfront for this model and never reload.
   expect(headers["X-Ace-Tools"]).toBe("static");
-  // tools_call reaches automation_remove here, so Codex asks before it.
-  expect(prompted).toEqual(expect.arrayContaining(["automation_remove", "tools_call"]));
+  // automation_remove is listed by name there and tools_call refuses it, so tools_call runs
+  // without an ask even where Codex never asks (read-only access).
+  expect(prompted).toContain("automation_remove");
+  expect(prompted).not.toContain("tools_call");
   expect(instructions).toContain("tools_call {name, arguments}");
 });

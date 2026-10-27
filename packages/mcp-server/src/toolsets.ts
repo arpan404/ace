@@ -189,6 +189,17 @@ export class OpenToolsets {
 }
 
 /**
+ * Whether a session lists its destructive tools by name and `tools_call` refuses them. Codex on
+ * the fixed list approves `tools_call`, so a read-only target still runs where Codex never asks
+ * (read-only access); a destructive target there would skip Codex's ask, so it is listed with
+ * the prompt of its own (`codexInjection`). Only `automation_remove` is destructive today, about
+ * 80 tokens per request where a second, prompted dispatcher would cost more.
+ */
+export function namesDestructiveTools(listing: ToolListing, client: AceClient | undefined): boolean {
+  return client === "codex" && listing === "static";
+}
+
+/**
  * Whether a session is offered `tools_call`: wherever its list lacks tools. A core client's list
  * grows, but a found tool may be listed a model step late; a client listing every tool calls
  * each one directly.

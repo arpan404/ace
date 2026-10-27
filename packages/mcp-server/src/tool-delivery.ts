@@ -19,9 +19,12 @@ export interface ToolDelivery {
 export const codexCallForm =
   "Inside exec, call these as await tools.mcp__ace__<name>(args); without exec, load them with your tool_search, then call mcp__ace__<name>.";
 const viaToolsCall = "Call these with tools_call {name, arguments}.";
-/** A Codex session on the fixed list: `tools_call`, which code mode calls from `exec`. */
+/**
+ * A Codex session on the fixed list: `tools_call`, which code mode calls from `exec`. Its
+ * destructive tools are listed by name, so Codex asks before them (`namesDestructiveTools`).
+ */
 const codexViaToolsCall =
-  "Call these with tools_call {name, arguments}; inside exec, await tools.mcp__ace__tools_call({name, arguments}).";
+  "Call these with tools_call {name, arguments}; inside exec, await tools.mcp__ace__tools_call({name, arguments}). A destructive one is in your list: call it by name.";
 /**
  * A core client reloads its list on `tools/list_changed` and gets every schema from it, so a
  * schema returned here too would be paid twice. The reload can land a model step late (OpenCode
