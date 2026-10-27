@@ -149,7 +149,8 @@ struct NewThreadComposer: View {
                    more: suggester.adding, pickMore: pick, ask: $askAttach) {
                     Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.foreground)
                 }
-                .disabled(draft.projectId == nil || client?.canOperate != true)
+                // The new thread takes only the files it was sent with: none joins while it starts.
+                .disabled(draft.projectId == nil || client?.canOperate != true || sending)
                 accessChip
                 Spacer(minLength: AceTheme.Spacing.sm)
                 ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,

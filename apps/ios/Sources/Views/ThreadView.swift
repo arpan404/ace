@@ -226,6 +226,7 @@ struct ThreadView: View {
                     } leading: { pick in
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
+                            .disabled(screen.attachmentsLocked != nil)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
                     } model: {

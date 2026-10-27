@@ -109,8 +109,12 @@ export class ThreadSession {
       this.#dispatch(payload, id),
     );
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
-    const trayRows = (files: TrayRow[]) =>
-      put("attachments", () => ({ type: "thread.attachments", files }));
+    const trayRows = (files: TrayRow[], locked: string | undefined) =>
+      put("attachments", () => ({
+        type: "thread.attachments",
+        files,
+        ...(locked ? { locked } : {}),
+      }));
     if (kept) kept.adopt(signal, trayRows);
     this.#tray =
       kept ?? new AttachmentTray(client, { threadId: this.#threadId }, signal, trayRows, chunks);
@@ -437,15 +441,22 @@ export class ThreadSession {
       this.#admission(id, false, built.refused);
       return;
     }
-    // Swift keeps the words and files until the daemon answers; only a started thread takes them.
+    // Swift keeps the words and files until the daemon answers; only a started thread takes them,
+    // so no file joins meanwhile.
     this.#sheet.continuationSending();
+    const tray = this.#tray;
+    tray.lock("Wait for the new thread to start, then add files.");
     void dispatchCommand(this.#client, built.payload, id, this.#pump, {
-      unsaved: () => this.#sheet.continuationSettled(false),
+      unsaved: () => {
+        this.#sheet.continuationSettled(false);
+        tray.unlock();
+      },
       refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
       receipt: (result) => {
         this.#sheet.continuationSettled(result.ok);
+        if (!("refused" in files) && result.ok) tray.sent(files.ids);
+        tray.unlock();
         if (!result.ok) return;
-        if (!("refused" in files)) this.#tray.sent(files.ids);
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));

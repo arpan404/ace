@@ -349,6 +349,8 @@ export class NewThread {
       ...(action.issue ? { issue: action.issue } : {}),
     });
     const draftId = files.context?.draftId;
+    // The new thread takes only these files: none joins until it is saved or refused.
+    tray?.lock("Wait for the thread to start, then add files.");
     try {
       await submitCommand(
         this.#owner,
@@ -373,6 +375,7 @@ export class NewThread {
       );
       return true;
     } catch {
+      tray?.unlock();
       admission(false, "Couldn't save the new thread on this phone. Your draft is still here.");
       return false;
     }

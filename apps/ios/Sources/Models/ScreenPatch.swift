@@ -150,7 +150,8 @@ enum ScreenPatch: Sendable {
     case stepsReleased(ordinal: Int)
     case tune(TuneRow)
     case access(ThreadAccessRow)
-    case attachments([AttachmentFile])
+    /// `locked`: why no file can be added now (a new thread is starting from this message).
+    case attachments([AttachmentFile], locked: String?)
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
     case pill(PillRow?, GoalRow?)
@@ -160,7 +161,7 @@ enum ScreenPatch: Sendable {
     case switchAsk(SwitchAsk)
 
     static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened }
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -173,7 +174,8 @@ enum ScreenPatch: Sendable {
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
-        case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
+        case "thread.attachments":
+            self = .attachments(try box.decode([AttachmentFile].self, forKey: .files), locked: try box.decodeIfPresent(String.self, forKey: .locked))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

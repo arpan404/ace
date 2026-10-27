@@ -12,10 +12,14 @@ struct ComposerAccessories: View {
     /// "Continues in a new thread with your next message": Send does something else now, so it's said.
     private var continues: String? { screen.controls?.continues == true ? screen.controls?.note : nil }
     var body: some View {
-        if !screen.attachments.isEmpty || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if let locked = screen.attachmentsLocked {
+                    Text(locked).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(2).accessibilityIdentifier("composer.attachLocked")
                 }
                 if let continues {
                     Text(continues).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
