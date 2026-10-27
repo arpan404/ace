@@ -4,6 +4,7 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
+import type { SubagentRetries } from "./subagent-retries.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -161,10 +162,15 @@ export function connect(
   return client;
 }
 
-export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
+export function open(
+  owner: ClientCore,
+  threadId: string,
+  chunks?: ChunkReader,
+  retries?: SubagentRetries,
+): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
+  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks, undefined, retries);
   return session;
 }
 

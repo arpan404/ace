@@ -4,17 +4,17 @@ import SwiftUI
 /// its provider and model, how its whole branch stands (ticking while it runs), and its one action.
 /// Stop while it runs (asking first when subagents stop with it); once it failed or was stopped,
 /// Ask parent to retry, which only ever sends on the press and then says where the message went.
+/// The bridge remembers the ask for that ending, so reopening the page never offers it twice.
 /// A view-only phone sees the state and no controls.
 struct SubagentStatusBar: View {
     let info: SubagentInfo
     let model: ClientModel
     @State private var stop = StopConfirmation()
-    @State private var retry = RetryState.idle
+    /// A press on its way to the bridge; afterwards the bridge's `asked` speaks.
+    @State private var sending = false
     @State private var problem: String?
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    enum RetryState: Equatable { case idle, sending, queued, sent }
 
     var body: some View {
         let stacked = typeSize.isAccessibilitySize
@@ -41,12 +41,10 @@ struct SubagentStatusBar: View {
         .padding(.vertical, AceTheme.Spacing.xs)
         .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
         .modifier(ComposerFrame())
-        .animation(reduceMotion ? nil : .smooth, value: retry)
+        .animation(reduceMotion ? nil : .smooth, value: info.retry)
         .animation(reduceMotion ? nil : .smooth, value: info.phase)
         .animation(reduceMotion ? nil : .smooth, value: problem)
-        .sensoryFeedback(.success, trigger: retry == .queued || retry == .sent)
-        // A later ending (it was retried and ended again) can be asked about again.
-        .onChange(of: info.endedAt) { _, _ in retry = .idle }
+        .sensoryFeedback(.success, trigger: asked == "queued" || asked == "sent")
         .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {
             Button("Stop", role: .destructive) {
                 Task {
@@ -95,36 +93,32 @@ struct SubagentStatusBar: View {
             .disabled(stop.saving)
             .accessibilityIdentifier("subagent.stop")
         } else if let label = info.retry?.label {
-            switch retry {
-            case .queued, .sent:
-                Text(retry == .queued ? "Queued for parent" : "Sent to parent")
+            switch asked {
+            case "queued", "sent":
+                Text(asked == "queued" ? "Queued for parent" : "Sent to parent")
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .accessibilityAddTraits(.updatesFrequently)
                     .accessibilityIdentifier("subagent.retried")
                     .transition(.opacity)
-            case .idle, .sending:
-                Button(retry == .sending ? "Asking…" : label) { Task { await askParent() } }
+            default:
+                let waiting = sending || asked == "pending"
+                Button(waiting ? "Asking…" : label) { Task { await askParent() } }
                     .buttonStyle(BarWordStyle(tint: AceTheme.Colours.foreground))
-                    .disabled(retry == .sending)
+                    .disabled(waiting)
                     .accessibilityIdentifier("subagent.retry")
                     .transition(.opacity)
             }
         }
     }
+    private var asked: String? { info.retry?.asked }
 
     private func send(_ target: StopConfirmation.Target) async -> Bool { await model.interrupt(agentId: target.agentId) }
     private func askParent() async {
         problem = nil
-        retry = .sending
-        let busy = info.parentBusy
-        if await model.retrySubagent(info.agentId) {
-            retry = busy ? .queued : .sent
-        } else {
-            retry = .idle
-            problem = "Couldn't reach the parent. Try again."
-        }
+        sending = true
+        if !(await model.retrySubagent(info.agentId)) { problem = "Couldn't reach the parent. Try again." }
+        sending = false
     }
 }
 

@@ -3,6 +3,7 @@ import { subagentInspection } from "@ace/ui-core/mobile";
 import { touchesTree } from "./agents.ts";
 import { preview } from "./presentation.ts";
 import { textBubble } from "./thread-messages.ts";
+import type { RetryAsk } from "./subagent-retries.ts";
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
 
@@ -16,12 +17,15 @@ export function followLaneInfo(
   agentId: string,
   put: Put,
   now: () => number,
+  asked: () => RetryAsk | "pending" | undefined = () => undefined,
 ): ChangeTap {
   const send = () =>
     put("laneInfo", () => {
       const info = subagentInspection(store, agentId, now());
       if (!info) return { type: "thread.laneInfo", lane: agentId, info: null };
       const prompt = info.prompt && { at: info.prompt.at, bubble: textBubble(info.prompt.text) };
+      // Already asked about this ending: "Asked", never the button again.
+      const ask = info.retry ? (asked() ?? null) : null;
       return {
         type: "thread.laneInfo",
         lane: agentId,
@@ -31,11 +35,14 @@ export function followLaneInfo(
           name: preview(info.name, 256),
           parent: { ...info.parent, name: preview(info.parent.name, 256) },
           prompt,
+          retry: info.retry && { label: info.retry.label, asked: ask },
         },
       };
     });
   send();
   return (keys) => {
-    if (keys === "all" || touchesTree(keys)) send();
+    // A run starting or ending is a new ending for a retry ask.
+    if (keys === "all" || touchesTree(keys) || [...keys].some((key) => key.startsWith("run:")))
+      send();
   };
 }

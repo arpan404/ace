@@ -10,6 +10,7 @@ import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } fr
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
+import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
@@ -110,6 +111,8 @@ const pump = new PatchPump();
 const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
+/** Subagent retries asked from this phone, kept across visits to their threads. */
+const retries = new SubagentRetries();
 let openThreadId: string | undefined;
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
@@ -360,6 +363,7 @@ function action(json: string): void {
           pump,
           nativeChunks,
           (threadId) => suggest?.entries(threadId),
+          retries,
         );
         browser?.close();
         browser?.probe(value.threadId, epoch);

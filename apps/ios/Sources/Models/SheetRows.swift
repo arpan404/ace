@@ -7,7 +7,8 @@ struct SubagentInfo: Codable, Sendable, Equatable {
     struct Parent: Codable, Sendable, Equatable { let agentId: String?; let name: String }
     /// What the parent asked, drawn as the person's bubble.
     struct Prompt: Codable, Sendable, Equatable { let bubble: BubbleLine; let at: Double }
-    struct Retry: Codable, Sendable, Equatable { let label: String }
+    /// Ask parent to retry; `asked` is "pending", "queued" or "sent" once asked about this ending.
+    struct Retry: Codable, Sendable, Equatable { let label: String; let asked: String? }
     let agentId: String
     let name: String
     let provider: String

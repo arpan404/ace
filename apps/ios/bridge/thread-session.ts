@@ -19,6 +19,7 @@ import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachm
 import { followBlocks } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { followOffshift } from "./offshift.ts";
+import { endingOf, SubagentRetries } from "./subagent-retries.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
@@ -53,6 +54,7 @@ export class ThreadSession {
   readonly #blocks: ReturnType<typeof followBlocks>;
   readonly #pill: PillFollower;
   readonly #offshift: ChangeTap;
+  readonly #retries: SubagentRetries;
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
@@ -80,7 +82,10 @@ export class ThreadSession {
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
+    /** Asks to retry a subagent, kept by the bridge across visits to the thread. */
+    retries: SubagentRetries = new SubagentRetries(),
   ) {
+    this.#retries = retries;
     this.#catalog = catalog;
     this.#client = client;
     this.#store = store;
@@ -460,7 +465,16 @@ export class ThreadSession {
     this.#closeLane();
     const put: Put = (key, read) => this.#put(key, read);
     const lane = followBlocks(this.#store, put, { agentId });
-    const info = followLaneInfo(this.#store, agentId, put, () => host.now());
+    const info = followLaneInfo(
+      this.#store,
+      agentId,
+      put,
+      () => host.now(),
+      () => {
+        const ending = endingOf(this.#store, agentId);
+        return ending && this.#retries.asked(this.#threadId, ending);
+      },
+    );
     this.#lane = { agentId, tap: lane.tap, info };
     lane.tap("all");
   }
@@ -474,21 +488,44 @@ export class ThreadSession {
    * when the subagent can't be retried now (still going, ended well, or a read-only thread).
    */
   #retryLane(agentId: string, id: string): void {
+    const ending = endingOf(this.#store, agentId);
+    // Asked already about this ending: nothing more is sent, and the press is answered.
+    if (ending && this.#retries.asked(this.#threadId, ending)) {
+      this.#admission(id, true, "");
+      return;
+    }
     const text = subagentRetryMessage(this.#store, agentId, host.now());
-    this.#dispatch(
-      text === undefined
-        ? undefined
-        : {
-            type: "thread.send",
-            threadId: this.#threadId,
-            input: [{ type: "text", text }],
-            trigger: "user",
-            delivery: "queue",
-          },
+    if (text === undefined || !ending) {
+      this.#admission(id, false, "That subagent can't be retried now. Check its state.");
+      return;
+    }
+    const queued = isBusy(this.#store.thread?.status);
+    this.#retries.begin(this.#threadId, ending);
+    this.#lane?.info("all");
+    void dispatchCommand(
+      this.#client,
+      {
+        type: "thread.send",
+        threadId: this.#threadId,
+        input: [{ type: "text", text }],
+        trigger: "user",
+        delivery: "queue",
+      },
       id,
-      "That subagent can't be retried now. Check its state.",
+      this.#pump,
+      {
+        saved: () => {
+          this.#retries.settle(this.#threadId, agentId, queued ? "queued" : "sent");
+          this.#lane?.info("all");
+        },
+        unsaved: () => {
+          this.#retries.forget(this.#threadId, agentId);
+          this.#lane?.info("all");
+        },
+      },
     );
   }
+
   #controls(): void {
     this.#put("controls", () =>
       this.#settingKnown
