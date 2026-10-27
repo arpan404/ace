@@ -45,13 +45,7 @@ import {
 } from "@ace/protocol";
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
 import { editorLocations, installedEditors } from "./installed-editors.ts";
-import {
-  fileManagerName,
-  hostLaunch,
-  hostTarget,
-  spawnDetached,
-  type HostSpawner,
-} from "./host-open.ts";
+import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
 import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
@@ -460,6 +454,11 @@ export class WorkspaceRuntime {
   async read(
     request: WorkspaceActionRequest,
     signal: AbortSignal = new AbortController().signal,
+    /**
+     * Whether the caller may still act, asked again right before an effect on this machine
+     * (`host.open`): its device can be revoked while the read waits on I/O.
+     */
+    still?: () => boolean,
   ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
@@ -582,22 +581,23 @@ export class WorkspaceRuntime {
         ? this.root(op.threadId)
         : op.workspaceId && this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
-      const found = await hostTarget(root, op.path);
-      if (!found) throw new Error("path_not_found");
       const platform = this.options.platform ?? process.platform;
-      const editor =
-        op.app.kind === "editor"
-          ? (
-              await installedEditors(
-                this.options.editorPath ?? process.env.PATH,
-                platform,
-                this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
-              )
-            ).find((entry) => op.app.kind === "editor" && entry.id === op.app.editorId)
-          : undefined;
-      const launch = hostLaunch({ platform, app: op.app, ...found, line: op.line, editor });
-      if (!launch) throw new Error("editor_not_found");
-      await (this.options.hostSpawn ?? spawnDetached)(launch);
+      await openOnHost({
+        root,
+        path: op.path,
+        line: op.line,
+        app: op.app,
+        platform,
+        editors: () =>
+          installedEditors(
+            this.options.editorPath ?? process.env.PATH,
+            platform,
+            this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+          ),
+        spawn: this.options.hostSpawn ?? spawnDetached,
+        allowed: still ?? (() => true),
+        signal,
+      });
       return wrap({ kind: "opened" });
     }
     if (op.op === "workspaces.list")

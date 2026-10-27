@@ -97,3 +97,36 @@ export const spawnDetached: HostSpawner = (launch) =>
       done();
     });
   });
+
+/**
+ * Open `path` inside `root` with `app`: resolve the target, find the editor, then start it only
+ * if the caller may still act. Resolution and discovery wait on the filesystem, so a device can
+ * be revoked, lose `operate` or the thread, or go away meanwhile; `allowed` and `signal` are
+ * checked again immediately before anything starts.
+ */
+export async function openOnHost(input: {
+  root: string;
+  path?: string | undefined;
+  line?: number | undefined;
+  app: HostApp;
+  platform: NodeJS.Platform;
+  /** This machine's editors, found on demand. */
+  editors: () => Promise<readonly InstalledEditor[]>;
+  spawn: HostSpawner;
+  /** Whether the caller may still act: connected, `operate`, and access to the thread. */
+  allowed: () => boolean;
+  signal: AbortSignal;
+}): Promise<void> {
+  const found = await hostTarget(input.root, input.path);
+  if (!found) throw new Error("path_not_found");
+  const app = input.app;
+  const editor =
+    app.kind === "editor"
+      ? (await input.editors()).find((entry) => entry.id === app.editorId)
+      : undefined;
+  const launch = hostLaunch({ platform: input.platform, app, ...found, line: input.line, editor });
+  if (!launch) throw new Error("editor_not_found");
+  input.signal.throwIfAborted();
+  if (!input.allowed()) throw new Error("forbidden");
+  await input.spawn(launch);
+}

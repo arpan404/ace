@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { hostLaunch, hostTarget } from "./host-open.ts";
+import { hostLaunch, hostTarget, openOnHost, type HostLaunch } from "./host-open.ts";
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -89,5 +89,75 @@ describe("opening a project on the machine running ace", () => {
         editor: undefined,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("an open that waits on the machine", () => {
+  /** Discovery that finishes only when the test says so, and a spawner that records starts. */
+  function held() {
+    const discovery = Promise.withResolvers<(typeof code)[]>();
+    const started: HostLaunch[] = [];
+    return {
+      finish: () => discovery.resolve([code]),
+      editors: () => discovery.promise,
+      spawn: async (launch: HostLaunch) => {
+        started.push(launch);
+      },
+      started,
+    };
+  }
+
+  test("a device revoked while editors are found never starts the editor", async () => {
+    const root = await project();
+    const machine = held();
+    let allowed = true;
+    const opening = openOnHost({
+      root,
+      app: { kind: "editor", editorId: "code" },
+      platform: "darwin",
+      editors: machine.editors,
+      spawn: machine.spawn,
+      allowed: () => allowed,
+      signal: new AbortController().signal,
+    });
+    allowed = false;
+    machine.finish();
+    await expect(opening).rejects.toThrow("forbidden");
+    expect(machine.started).toEqual([]);
+  });
+
+  test("a request cancelled while editors are found never starts the editor", async () => {
+    const root = await project();
+    const machine = held();
+    const controller = new AbortController();
+    const opening = openOnHost({
+      root,
+      app: { kind: "editor", editorId: "code" },
+      platform: "darwin",
+      editors: machine.editors,
+      spawn: machine.spawn,
+      allowed: () => true,
+      signal: controller.signal,
+    });
+    controller.abort();
+    machine.finish();
+    await expect(opening).rejects.toThrow();
+    expect(machine.started).toEqual([]);
+  });
+
+  test("a caller still allowed starts the editor once", async () => {
+    const root = await project();
+    const machine = held();
+    machine.finish();
+    await openOnHost({
+      root,
+      app: { kind: "editor", editorId: "code" },
+      platform: "darwin",
+      editors: machine.editors,
+      spawn: machine.spawn,
+      allowed: () => true,
+      signal: new AbortController().signal,
+    });
+    expect(machine.started).toEqual([{ command: "/usr/local/bin/code", args: [root] }]);
   });
 });
