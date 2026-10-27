@@ -190,6 +190,17 @@ test("kill-all ending leaves the phone's pause in place", async () => {
   expect(await tryCreate()).toBe("refused");
 });
 
+test("kill-all started while the person had already paused leaves the pause in place", async () => {
+  const f = await setup();
+  const { tryCreate, ask } = await watcher(f);
+  expect(await ask("pause")).toMatchObject({ holds: ["user"] });
+  const kill = killing(f);
+  kill.finish();
+  expect(await kill.run).toMatchObject({ ok: true });
+  expect(f.server.maintenance.status().holds).toEqual(["user"]);
+  expect(await tryCreate()).toBe("refused");
+});
+
 test("while paused, a watching phone hears what is still finishing and what waits on a person", async () => {
   const f = await setup();
   const { phone, ask } = await watcher(f);
