@@ -16,6 +16,7 @@ import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
 import { draftKey } from "./thread-drafts.ts";
 import type { ThreadDraftStore } from "./thread-drafts.ts";
+import { Markdown } from "./transcript/Markdown.tsx";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
 import { startedThreadOf } from "@ace/ui-core";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
@@ -150,10 +151,7 @@ const TranscriptBlockRow = memo(function TranscriptBlockRow({
     if (!text && !detail) return null;
     return (
       <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
-        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
-          {text}
-          {streaming ? " ▍" : ""}
-        </Text>
+        {text ? <Markdown text={text} streaming={streaming} /> : null}
         {detail ? (
           <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
             {detail}

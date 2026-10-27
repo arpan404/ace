@@ -2,6 +2,9 @@ package dev.ace.nativeui
 
 import android.app.Activity
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.os.Looper
 import android.util.Base64
@@ -23,6 +26,20 @@ class AceNativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("AceNative")
     Function("getExecutionMode") { BuildConfig.ACE_EXECUTION_MODE }
+    // Clipboard write for transcript code blocks (A05.02): copies plain text
+    // via the system ClipboardManager. Returns true when the text was placed;
+    // false when there is no context to copy with. Never throws to JS.
+    Function("copyText") { text: String ->
+      try {
+        val context = appContext.reactContext ?: appContext.currentActivity
+        val manager = context?.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (manager == null) return@Function false
+        manager.setPrimaryClip(ClipData.newPlainText("ace-code", text))
+        true
+      } catch (_: Exception) {
+        false
+      }
+    }
     // Recents guard, runtime layer. The first-frame guarantee lives in
     // MainActivity.onCreate (see plugins/with-ace-secure-screen.ts), which runs
     // at actual Activity creation before the Expo module exists. These
