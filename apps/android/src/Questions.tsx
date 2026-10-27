@@ -49,7 +49,7 @@ export function Questions({
   client: ClientApi;
   notify(text: string): void;
   /** This device may answer. Absent fails closed to view-only; never default true. */
-  canAct?: boolean;
+  canAct?: boolean | undefined;
 }) {
   const theme = useTheme();
   const selection = useMemo(

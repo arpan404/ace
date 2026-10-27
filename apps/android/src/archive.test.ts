@@ -1,11 +1,14 @@
 import { Command, ThreadId, ThreadListEntry, type ThreadStatus } from "@ace/protocol";
+import { ClientError } from "@ace/client";
 import type { Intent } from "@ace/client";
 import { expect, test } from "vitest";
 import {
   ArchivePaging,
+  archiveFooterKind,
   archiveHasMore,
   archiveIds,
   archiveListLimit,
+  canComposeLive,
   canPageArchive,
   closedArchiveList,
   orderedArchiveIds,
@@ -130,6 +133,8 @@ test("a closed list carries no rows and a read list carries the window state", (
     loaded: false,
     loading: false,
     failed: false,
+    syncing: false,
+    errorCode: undefined,
   });
   const rows = [entry("a", { state: "done" }, { archivedAt: now })];
   expect(readArchiveList(stubStore(rows, false), true, false)).toMatchObject({
@@ -140,6 +145,75 @@ test("a closed list carries no rows and a read list carries the window state", (
     loading: true,
     failed: false,
   });
+});
+
+test("a read list carries the store sync and error so selections wake on them", () => {
+  const rows = [entry("a", { state: "done" }, { archivedAt: now })];
+  const store = {
+    ...stubStore(rows, true),
+    syncing: true,
+    error: new ClientError("offline"),
+  };
+  expect(readArchiveList(store, false, false)).toMatchObject({
+    syncing: true,
+    errorCode: "offline",
+  });
+  expect(readArchiveList(stubStore(rows, true), false, false)).toMatchObject({
+    syncing: false,
+    errorCode: undefined,
+  });
+});
+
+test("a live thread composes only with an explicit grant; archived never does", () => {
+  expect(canComposeLive(true, false)).toBe(true);
+  expect(canComposeLive(undefined, false)).toBe(false);
+  expect(canComposeLive(false, false)).toBe(false);
+  expect(canComposeLive(true, true)).toBe(false);
+  expect(canComposeLive(undefined, true)).toBe(false);
+});
+
+test("a failed window offers retry instead of masquerading as loading", () => {
+  // Rejected archive window: unloaded on a ready connection, but failed.
+  expect(
+    archiveFooterKind(
+      { loading: false, failed: true, loaded: false, ids: [], more: false },
+      "ready",
+    ),
+  ).toBe("failed");
+  // A load actually in flight still reads as loading, even when failed is set.
+  expect(
+    archiveFooterKind(
+      { loading: true, failed: false, loaded: false, ids: [], more: false },
+      "ready",
+    ),
+  ).toBe("loading");
+  // Initial window still on its way, nothing failed yet.
+  expect(
+    archiveFooterKind(
+      { loading: false, failed: false, loaded: false, ids: [], more: false },
+      "ready",
+    ),
+  ).toBe("loading");
+  // Offline with no snapshot: the offline note, not the spinner.
+  expect(
+    archiveFooterKind(
+      { loading: false, failed: false, loaded: false, ids: [], more: false },
+      "connecting",
+    ),
+  ).toBe("offline");
+  // Loaded states flow through.
+  expect(
+    archiveFooterKind(
+      { loading: false, failed: false, loaded: true, ids: [], more: false },
+      "ready",
+    ),
+  ).toBe("empty");
+  expect(
+    archiveFooterKind(
+      { loading: false, failed: false, loaded: true, ids: ["a"], more: true },
+      "ready",
+    ),
+  ).toBe("more");
 });
 
 test("paging starts one page at a time and only while an older page remains", () => {
@@ -284,6 +358,49 @@ test("a failed home-window restore reports instead of silently stranding the inb
   expect(restorePaging.restoreFailed).toBe(false);
 });
 
+test("a stale close after reopen never clears the new session", async () => {
+  let releaseHome: (() => void) | undefined;
+  const calls: string[] = [];
+  const port: ArchiveWindowPort = {
+    async threadsWindow(input: { archived?: boolean }) {
+      calls.push(input.archived ? "archive" : "home");
+      if (!input.archived && releaseHome === undefined) {
+        await new Promise<void>((resolve) => {
+          releaseHome = resolve;
+        });
+      }
+    },
+    async threadsMore() {},
+  };
+  const paging = new ArchivePaging();
+  await paging.openArchive(port);
+  const closing = paging.closeArchive(port);
+  // Reopen while the home restore is still in flight: the new visit wins.
+  expect(await paging.openArchive(port)).toBe(true);
+  releaseHome?.();
+  expect(await closing).toBe(false);
+  expect(paging.open).toBe(true);
+  expect(paging.restoreFailed).toBe(false);
+});
+
+test("a flaky home restore retries instead of stranding the inbox", async () => {
+  const opened = stubPort();
+  const paging = new ArchivePaging();
+  await paging.openArchive(opened);
+  const flaky = stubPort({ window: 2 });
+  // Two offline blips, then the home window lands: no strand, no flag.
+  expect(await paging.closeArchiveWithRetry(flaky, 3)).toBe(true);
+  expect(paging.restoreFailed).toBe(false);
+  expect(paging.open).toBe(false);
+  expect(flaky.calls).toEqual(["window", "window", "window"]);
+
+  const down = stubPort({ window: 5 });
+  const stranded = new ArchivePaging();
+  await stranded.openArchive(opened);
+  expect(await stranded.closeArchiveWithRetry(down, 2)).toBe(false);
+  expect(stranded.restoreFailed).toBe(true);
+});
+
 test("unarchive names the archived thread; a view-only phone admits nothing", async () => {
   expect(canActInbox(undefined)).toBe(false);
   expect(inboxActionPayload("unarchive", "thread-a", now)).toEqual({
@@ -360,4 +477,64 @@ test("an admitted unarchive surfaces a later daemon refusal through its receipt"
   for (const listener of listeners.get("cmd-unarchive-0") ?? []) listener();
   expect(problems).toEqual(["Your machine refused it (forbidden)."]);
   stop();
+});
+
+test("an acknowledged unarchive settles its receipt instead of leaking it", async () => {
+  const snapshots = new Map<string, Intent | undefined>();
+  const listeners = new Map<string, Set<() => void>>();
+  const port = {
+    async enqueue() {
+      return "cmd-unarchive-1";
+    },
+    intent(id: string) {
+      return {
+        getSnapshot: () => snapshots.get(id),
+        subscribe: (listener: () => void) => {
+          let group = listeners.get(id);
+          if (!group) {
+            group = new Set();
+            listeners.set(id, group);
+          }
+          group.add(listener);
+          return () => {
+            group?.delete(listener);
+          };
+        },
+      };
+    },
+  };
+  const admitted = await runInboxAction(port, "unarchive", "thread-a", now, undefined, true);
+  expect(admitted.commandId).toBe("cmd-unarchive-1");
+  const live = new Map<string, () => void>();
+  const refused: string[] = [];
+  live.set(
+    admitted.commandId ?? "",
+    watchInboxReceipt(
+      port,
+      admitted.commandId ?? "",
+      (error) => {
+        refused.push(error ?? "");
+      },
+      () => {
+        live.delete(admitted.commandId ?? "");
+      },
+    ),
+  );
+  expect(live.size).toBe(1);
+  // The daemon confirms: the entry drops itself, nothing refused, and a second
+  // notification cannot report twice.
+  const payload = inboxActionPayload("unarchive", "thread-a", now);
+  if (!payload) throw new Error("expected a payload");
+  snapshots.set("cmd-unarchive-1", {
+    command: Command.parse({
+      id: "cmd-unarchive-1",
+      deviceId: "android-spike-device",
+      payload,
+    }),
+    state: "acked",
+  });
+  for (const listener of listeners.get("cmd-unarchive-1") ?? []) listener();
+  expect(refused).toEqual([]);
+  expect(live.size).toBe(0);
+  for (const stop of live.values()) stop();
 });

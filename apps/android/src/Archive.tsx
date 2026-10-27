@@ -16,7 +16,12 @@ import {
   background,
 } from "./components.tsx";
 import { clickable } from "@expo/ui/jetpack-compose/modifiers";
-import { ArchivePaging, readArchiveList, type ArchiveListState } from "./archive.ts";
+import {
+  ArchivePaging,
+  readArchiveList,
+  archiveFooterKind,
+  type ArchiveListState,
+} from "./archive.ts";
 import { canActInbox, runInboxAction, watchInboxReceipt } from "./inbox-actions.ts";
 import { displayAppearance } from "./status.ts";
 
@@ -36,6 +41,17 @@ function archiveThread(store: SidebarSource, id: string): InboxThread | undefine
   return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed };
 }
 
+function archiveRowState(
+  store: SidebarSource,
+  id: string,
+): { row: InboxThread | undefined; syncing: boolean; errorCode: string | undefined } {
+  return {
+    row: archiveThread(store, id),
+    syncing: store.syncing ?? false,
+    errorCode: store.error?.code,
+  };
+}
+
 function archiveEqual(a: ArchiveListState, b: ArchiveListState): boolean {
   return (
     a.open === b.open &&
@@ -43,6 +59,8 @@ function archiveEqual(a: ArchiveListState, b: ArchiveListState): boolean {
     a.loaded === b.loaded &&
     a.loading === b.loading &&
     a.failed === b.failed &&
+    a.syncing === b.syncing &&
+    a.errorCode === b.errorCode &&
     a.ids.length === b.ids.length &&
     a.ids.every((id, index) => id === b.ids[index])
   );
@@ -69,13 +87,18 @@ const ArchiveRow = memo(function ArchiveRow({
   const selection = useMemo(
     () =>
       store.select(
-        [`thread:${id}`, "unconfirmed", "sync"],
-        () => archiveThread(store, id),
-        (a, b) => a?.entry === b?.entry && a?.unconfirmed === b?.unconfirmed,
+        [`thread:${id}`, "unconfirmed", "sync", "error"],
+        () => archiveRowState(store, id),
+        (a, b) =>
+          a.row?.entry === b.row?.entry &&
+          a.row?.unconfirmed === b.row?.unconfirmed &&
+          a.syncing === b.syncing &&
+          a.errorCode === b.errorCode,
       ),
     [store, id],
   );
-  const row = useSelection(selection);
+  const state = useSelection(selection);
+  const row = state.row;
   if (!row) return null;
   const thread = row.entry;
   const status = displayAppearance(inboxStatus(row, now()), theme);
@@ -169,10 +192,11 @@ export function ArchiveScreen({
     });
     return () => {
       active = false;
-      // Repoint the shared store home before dropping this lease; a failed
-      // restore is surfaced instead of leaving the inbox on the archive window.
+      // Repoint the shared store home before dropping this lease; the retry keeps
+      // a single offline blip from stranding the inbox on the archive window, and
+      // a failed restore is surfaced instead of leaving it there silently.
       void paging
-        .closeArchive(client)
+        .closeArchiveWithRetry(client, 3)
         .then((restored) => {
           if (!restored) notify?.("Could not return home. Reopen the archive to retry.");
         })
@@ -186,7 +210,7 @@ export function ArchiveScreen({
   const selection = useMemo(
     () =>
       lease.store.select(
-        ["threads", "ids", "window", "homeWindow"],
+        ["threads", "ids", "window", "homeWindow", "error", "sync", "unconfirmed"],
         () => readArchiveList(lease.store, paging.loading, paging.failed),
         archiveEqual,
       ),
@@ -228,16 +252,31 @@ export function ArchiveScreen({
           const commandId = outcome.commandId;
           receipts.current.get(commandId)?.();
           receipts.current.delete(commandId);
+          // Bound commands the machine never answers; terminal states (refused or
+          // acked) drop themselves so a confirmed unarchive holds no listener.
+          while (receipts.current.size >= 20) {
+            const oldest = receipts.current.keys().next();
+            if (oldest.done) break;
+            receipts.current.get(oldest.value)?.();
+            receipts.current.delete(oldest.value);
+          }
           receipts.current.set(
             commandId,
-            watchInboxReceipt(client, commandId, (error) => {
-              receipts.current.delete(commandId);
-              setProblem(
-                error !== undefined && error !== ""
-                  ? `Your machine refused it (${error}).`
-                  : "Your machine refused it.",
-              );
-            }),
+            watchInboxReceipt(
+              client,
+              commandId,
+              (error) => {
+                receipts.current.delete(commandId);
+                setProblem(
+                  error !== undefined && error !== ""
+                    ? `Your machine refused it (${error}).`
+                    : "Your machine refused it.",
+                );
+              },
+              () => {
+                receipts.current.delete(commandId);
+              },
+            ),
           );
         }
         notify?.("Unarchived. The row returns once your machine confirms it.");
@@ -248,6 +287,7 @@ export function ArchiveScreen({
     [busyId, client, now, operate, notify],
   );
 
+  const footerKind = archiveFooterKind(list, connection ?? "");
   return (
     <View style={{ flex: 1 }}>
       <FlashList
@@ -272,14 +312,14 @@ export function ArchiveScreen({
         )}
         ListFooterComponent={
           <View style={{ padding: tokens.spacing.xl, gap: tokens.spacing.sm }}>
-            {list.loading || (!list.loaded && connection === "ready") ? (
+            {footerKind === "loading" ? (
               <Text
                 style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}
                 accessibilityLabel="Loading archived threads"
               >
                 Loading archived threads…
               </Text>
-            ) : list.failed ? (
+            ) : footerKind === "failed" ? (
               <Pressable
                 testID="archive.retry"
                 accessibilityRole="button"
@@ -291,15 +331,15 @@ export function ArchiveScreen({
                   Retry loading older threads
                 </Text>
               </Pressable>
-            ) : !list.loaded ? (
+            ) : footerKind === "offline" ? (
               <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}>
                 Can&apos;t reach this machine. Archived threads load once it&apos;s connected.
               </Text>
-            ) : list.ids.length === 0 ? (
+            ) : footerKind === "empty" ? (
               <Text style={{ ...textStyle("body"), color: theme.colours.mutedForeground }}>
                 Nothing archived. Threads you archive on this machine wait here.
               </Text>
-            ) : list.more ? (
+            ) : footerKind === "more" ? (
               <Pressable
                 testID="archive.more"
                 accessibilityRole="button"

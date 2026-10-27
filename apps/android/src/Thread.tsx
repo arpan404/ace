@@ -13,6 +13,7 @@ import { Approval } from "./Approval.tsx";
 import { Questions } from "./Questions.tsx";
 import { Composer } from "./Composer.tsx";
 import { canActInbox, runInboxAction, watchInboxReceipt } from "./inbox-actions.ts";
+import { canComposeLive } from "./archive.ts";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
 import { draftKey } from "./thread-drafts.ts";
@@ -347,13 +348,20 @@ function ArchivedNote({
       }
       if (outcome.commandId) {
         receipt.current?.();
-        receipt.current = watchInboxReceipt(client, outcome.commandId, (error) => {
-          setProblem(
-            error !== undefined && error !== ""
-              ? `Your machine refused it (${error}).`
-              : "Your machine refused it.",
-          );
-        });
+        receipt.current = watchInboxReceipt(
+          client,
+          outcome.commandId,
+          (error) => {
+            setProblem(
+              error !== undefined && error !== ""
+                ? `Your machine refused it (${error}).`
+                : "Your machine refused it.",
+            );
+          },
+          () => {
+            receipt.current = null;
+          },
+        );
       }
       notify("Unarchived. The row returns once your machine confirms it.");
     } finally {
@@ -448,6 +456,9 @@ export function ThreadScreen({
   // An archived thread opens read-only: the composer gives way to the
   // ArchivedNote until the thread is unarchived, mirroring iOS.
   const archived = thread?.archivedAt !== undefined;
+  // A view-only phone never gets a live composer: like iOS (`canOperate ?
+  // ComposerView : ViewOnlyNote.thread`) it reads instead of steering.
+  const composable = canComposeLive(canAct, archived);
   const interactions = useSelection(interactionsSelection);
   const pending = useSelection(pendingSelection);
   const status = thread ? statusAppearance(thread.status, theme) : undefined;
@@ -661,13 +672,25 @@ export function ThreadScreen({
       />
       {interactions.map((interaction) => (
         <View key={interaction} style={{ marginHorizontal: tokens.dimensions.composerInset }}>
-          <Approval id={interaction} store={lease.store} client={client} notify={notify} />
-          <Questions id={interaction} store={lease.store} client={client} notify={notify} />
+          <Approval
+            id={interaction}
+            store={lease.store}
+            client={client}
+            notify={notify}
+            canAct={canAct}
+          />
+          <Questions
+            id={interaction}
+            store={lease.store}
+            client={client}
+            notify={notify}
+            canAct={canAct}
+          />
         </View>
       ))}
       {archived ? (
         <ArchivedNote client={client} id={id} now={now} canAct={canAct} notify={notify} />
-      ) : (
+      ) : composable ? (
         <Composer
           threadId={id}
           draftKey={hostId === null ? null : draftKey(hostId, id)}
@@ -676,6 +699,19 @@ export function ThreadScreen({
           notify={notify}
           returnSends={returnSends}
         />
+      ) : (
+        <View
+          testID="thread.readOnly"
+          style={{
+            marginHorizontal: tokens.dimensions.composerInset,
+            marginVertical: tokens.spacing.sm,
+            padding: tokens.spacing.md,
+          }}
+        >
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            View only. Reply on your computer.
+          </AceText>
+        </View>
       )}
       {agents ? (
         <AgentsSheet

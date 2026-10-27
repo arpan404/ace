@@ -26,13 +26,27 @@ export interface ArchiveListState {
   loaded: boolean;
   loading: boolean;
   failed: boolean;
+  /** The store is still catching up to the daemon; rows may be a disk copy. */
+  syncing: boolean;
+  /** The store's own failure code, when the window itself is rejected. */
+  errorCode?: string | undefined;
 }
 
 export function closedArchiveList(): ArchiveListState {
-  return { open: false, ids: [], more: false, loaded: false, loading: false, failed: false };
+  return {
+    open: false,
+    ids: [],
+    more: false,
+    loaded: false,
+    loading: false,
+    failed: false,
+    syncing: false,
+    errorCode: undefined,
+  };
 }
 
-type ArchiveStore = Pick<SidebarSource, "ids" | "thread" | "window" | "loaded">;
+type ArchiveStore = Pick<SidebarSource, "ids" | "thread" | "window" | "loaded"> &
+  Partial<Pick<SidebarSource, "syncing" | "unconfirmed" | "error">>;
 
 /**
  * The archived rows the store holds, most recently archived first. Reads at delivery:
@@ -72,7 +86,39 @@ export function readArchiveList(
     loaded: store.loaded,
     loading,
     failed,
+    syncing: store.syncing ?? false,
+    errorCode: store.error?.code,
   };
+}
+
+/**
+ * Whether the footer may claim to be loading. A failed window must never read as
+ * loading: after a rejection `loading` is false but the store is still unloaded on a
+ * ready connection, which the old `loading || (!loaded && ready)` spinner masked as
+ * "Loading…" instead of offering the retry. Failed wins; the spinner covers only a
+ * load actually in flight or an initial window still on its way.
+ */
+export function archiveFooterKind(
+  list: Pick<ArchiveListState, "loading" | "failed" | "loaded" | "ids" | "more">,
+  connection: string,
+): "loading" | "failed" | "offline" | "empty" | "more" | "none" {
+  if (list.loading) return "loading";
+  if (list.failed) return "failed";
+  if (!list.loaded) return connection === "ready" ? "loading" : "offline";
+  if (list.ids.length === 0) return "empty";
+  if (list.more) return "more";
+  return "none";
+}
+
+/**
+ * Whether a live (non-archived) thread may show its composer. Archived threads always
+ * show the ArchivedNote; a view-only phone (`canAct` anything but explicit `true`)
+ * shows the read-only note instead of an unguarded composer, mirroring iOS
+ * `ThreadView` (`canOperate ? ComposerView : ViewOnlyNote.thread`).
+ */
+export function canComposeLive(canAct: boolean | undefined, archived: boolean): boolean {
+  if (archived) return false;
+  return canAct === true;
 }
 
 /** Whether an older-page request may start: one page at a time, only while one exists. */
@@ -148,22 +194,59 @@ export class ArchivePaging {
   /** Back to the home window; the archived rows leave this phone's store.
    * Returns true when the shared store is repointed home. A failed restore
    * returns false and is logged, so the inbox underneath does not silently
-   * stay on the archive window until the next window call.
+   * stay on the archive window until the next window call. A close that loses
+   * to a newer open or close leaves the new session's flags alone and reports
+   * false, so its late settlement never clears the new session or repoints a
+   * store the new session just moved to the archive window.
    */
   async closeArchive(port: ArchiveWindowPort): Promise<boolean> {
     if (!this.opened) return true;
-    this.visit++;
+    const visit = ++this.visit;
     this.opened = false;
     this.loading = false;
     this.failed = false;
     try {
       await port.threadsWindow({});
+      if (visit !== this.visit) return false;
       this.restoreFailed = false;
       return true;
     } catch (error) {
+      if (visit !== this.visit) return false;
       this.restoreFailed = true;
       console.warn("AceArchiveRestore", error instanceof Error ? error.message : String(error));
       return false;
     }
+  }
+
+  /**
+   * Best-effort home restore that does not strand the inbox on the archive window:
+   * up to `attempts` home-window calls before reporting failure. The shared sidebar
+   * is single-instance, so every attempt repoints the same store the inbox reads.
+   * A newer open or close invalidates the retry: it returns false without touching
+   * the new session's flags.
+   */
+  async closeArchiveWithRetry(port: ArchiveWindowPort, attempts = 3): Promise<boolean> {
+    if (!this.opened && !this.restoreFailed) return true;
+    const visit = ++this.visit;
+    this.opened = false;
+    this.loading = false;
+    this.failed = false;
+    const tries = Math.max(1, Math.floor(attempts));
+    for (let attempt = 0; attempt < tries; attempt++) {
+      try {
+        await port.threadsWindow({});
+        if (visit !== this.visit) return false;
+        this.restoreFailed = false;
+        return true;
+      } catch (error) {
+        if (visit !== this.visit) return false;
+        if (attempt + 1 >= tries) {
+          this.restoreFailed = true;
+          console.warn("AceArchiveRestore", error instanceof Error ? error.message : String(error));
+          return false;
+        }
+      }
+    }
+    return false;
   }
 }

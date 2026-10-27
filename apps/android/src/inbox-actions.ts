@@ -149,17 +149,26 @@ export async function runInboxAction(
  * Follow one admitted command's durable receipt. A refused command reports its error so the
  * caller keeps it retryable; an acknowledged one stays silent. The subscription ends at the
  * first terminal state (refused or acknowledged), so a settled command holds no listener.
+ * `onAcked` (optional) lets callers drop their own bookkeeping for the acked command too,
+ * so a map keyed by command id never leaks entries the daemon already confirmed.
  * Returns the unsubscribe.
  */
 export function watchInboxReceipt(
   port: InboxActionPort,
   commandId: string,
   onRefused: (error: string | undefined) => void,
+  onAcked?: () => void,
 ): () => void {
   const selection: Selection<Intent | undefined> = port.intent(commandId);
   let reported = false;
   let lastError: string | undefined;
   let stop: (() => void) | undefined;
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    stop?.();
+  };
   const check = () => {
     const snapshot = selection.getSnapshot();
     if (!snapshot) return;
@@ -168,12 +177,15 @@ export function watchInboxReceipt(
       reported = true;
       lastError = snapshot.error;
       onRefused(snapshot.error);
-      stop?.();
+      finish();
       return;
     }
-    if (snapshot.state === "acked") stop?.();
+    if (snapshot.state === "acked") {
+      onAcked?.();
+      finish();
+    }
   };
   stop = selection.subscribe(check);
   check();
-  return () => stop?.();
+  return () => finish();
 }

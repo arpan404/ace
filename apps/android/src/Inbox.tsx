@@ -357,6 +357,12 @@ export function Inbox({
   const operate = canActInbox(canAct);
   const lease = useMemo(() => client.threads(), [client]);
   useEffect(() => () => lease.release(), [lease]);
+  useEffect(() => {
+    // Self-heal a stranded archive window (e.g. a failed archive restore left the
+    // shared store on the archive filter): repointing home is a no-op when already
+    // home (`Sidebar.configure` early-returns on the same filter).
+    void client.threadsWindow({}).catch(() => {});
+  }, [client]);
   // A snooze ends on this phone's clock even while its machine is offline: regroup then.
   const [tick, setTick] = useState(0);
   const selection = useMemo(
@@ -446,21 +452,28 @@ export function Inbox({
         }
         receipts.current.set(
           commandId,
-          watchInboxReceipt(client, commandId, (error) => {
-            receipts.current.delete(commandId);
-            // A refusal replaces the toast: the Undo offer is void once the
-            // machine refuses the command it would take back.
-            setUndo((current) => (current?.threadId === threadId ? null : current));
-            setFailed({
-              kind,
-              threadId,
-              preset,
-              message:
-                error !== undefined && error !== ""
-                  ? `Your machine refused it (${error}).`
-                  : "Your machine refused it.",
-            });
-          }),
+          watchInboxReceipt(
+            client,
+            commandId,
+            (error) => {
+              receipts.current.delete(commandId);
+              // A refusal replaces the toast: the Undo offer is void once the
+              // machine refuses the command it would take back.
+              setUndo((current) => (current?.threadId === threadId ? null : current));
+              setFailed({
+                kind,
+                threadId,
+                preset,
+                message:
+                  error !== undefined && error !== ""
+                    ? `Your machine refused it (${error}).`
+                    : "Your machine refused it.",
+              });
+            },
+            () => {
+              receipts.current.delete(commandId);
+            },
+          ),
         );
       }
       const undoKind = undoActionFor(kind);
