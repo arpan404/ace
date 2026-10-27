@@ -238,6 +238,21 @@ export const SettingsSet = z.object({
   value: JsonValue,
   layer: SettingsLayer,
 });
+/**
+ * Several settings on one layer, all or none: every entry is validated before any is written,
+ * then they are written in one commit, so subscribers see them change together. Settings with
+ * their own handling (project folders, the downloads folder, host and remote) are set one at a
+ * time with `settings.set`.
+ */
+export const SettingsSetMany = z.object({
+  type: z.literal("settings.setMany"),
+  requestId,
+  entries: z
+    .array(z.object({ key: z.string().min(1).max(256), value: JsonValue }))
+    .min(1)
+    .max(32),
+  layer: SettingsLayer,
+});
 /** Reset global preferences atomically; host/remote preferences are local-only. */
 export const SettingsReset = z.object({ type: z.literal("settings.reset"), requestId });
 export const SettingsSubscribe = z.object({
@@ -255,6 +270,7 @@ export const SettingsUnsubscribe = z.object({
 export const SettingsRequest = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,

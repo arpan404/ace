@@ -112,6 +112,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "projects.request":
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
+    case "settings.setMany":
     case "settings.reset":
       return ["settings", "settings-page", "source-control", "host", "providers"];
     case "host.storage.apply":

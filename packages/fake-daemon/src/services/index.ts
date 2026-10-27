@@ -710,6 +710,7 @@ export class FakeServices {
       case "settings.get":
       case "settings.reset":
       case "settings.set":
+      case "settings.setMany":
       case "settings.subscribe":
       case "settings.unsubscribe":
         return this.settings.handle(message, push);

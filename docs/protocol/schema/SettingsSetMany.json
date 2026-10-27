@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsSetMany.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "properties": {
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "value": {
+            "$ref": "https://ace.local/protocol/v1/JsonValue.json"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "layer": {
+      "$ref": "https://ace.local/protocol/v1/SettingsLayer.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.setMany",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "entries",
+    "layer"
+  ],
+  "type": "object"
+}
