@@ -30,6 +30,9 @@ struct InboxStack<Destination: View>: View {
     let forge: ForgeInboxHooks
     @Binding var machine: String
     @Binding var project: String
+    /// Pull requests, Issues or Notifications on the Pulls tab; the inbox's, so a command can
+    /// open Issues from the Threads tab.
+    @Binding var forgeKind: ForgeKind
     @Binding var shelves: InboxShelves
     /// A row to scroll to once it is in the list (`InboxList.reveal`).
     @Binding var reveal: InboxKey?
@@ -43,7 +46,6 @@ struct InboxStack<Destination: View>: View {
     @State private var selecting = false
     @State private var query = ""
     @State private var searching = false
-    @State private var forgeKind = ForgeKind.pulls
     /// The open thread's own commands, left by its page (`ThreadKeysBox`).
     @Environment(\.threadKeysBox) private var threadKeysBox
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -179,7 +181,10 @@ struct InboxStack<Destination: View>: View {
         switch id {
         case "new-thread": searching = false; forge.startThread()
         case "select": startSelecting()
-        case "pulls", "issues": searching = false; tab = .pulls
+        case "pulls", "issues":
+            searching = false
+            forgeKind = id == "issues" ? .issues : .pulls
+            tab = .pulls
         case "settings": searching = false; header.settings()
         default:
             if id.hasPrefix("settings:") { searching = false; header.page(SettingsRoute.linked(String(id.dropFirst(9)))) }

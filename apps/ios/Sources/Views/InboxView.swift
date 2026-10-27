@@ -37,6 +37,8 @@ struct InboxView: View {
     @State private var organize = InboxOrganize()
     /// The project New thread from default branch starts in, over the list's own filter.
     @State private var composeProject: String?
+    /// The Pulls tab's list: Pull requests, Issues or Notifications.
+    @State private var forgeKind = ForgeKind.pulls
     /// The open thread's commands, for search everything (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
@@ -194,7 +196,7 @@ struct InboxView: View {
         InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab, drawer: tab == .pulls ? $pullsDrawer : $threadsDrawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { startThread() }),
-                   machine: $machineFilter, project: $projectFilter,
+                   machine: $machineFilter, project: $projectFilter, forgeKind: $forgeKind,
                    shelves: $shelves, reveal: $reveal, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
                                               machines: { settingsStart = [.machines]; showingSettings = true },
