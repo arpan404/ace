@@ -29,6 +29,7 @@ import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
+import { seedSkills } from "./skills-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -189,6 +190,7 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());

@@ -48,10 +48,10 @@ const draft = {
 
 test("skills are grouped by where they live, the project's first and ace's own last", async () => {
   const { groups } = await library();
+  // Plugin skills are on their plugin's page, not in the library list.
   expect((await groups("project")).map((group) => group.title)).toEqual([
     "ace project",
     "Personal",
-    "Plugins",
     "Built into ace",
   ]);
   expect((await groups()).map((group) => group.title)).not.toContain("ace project");
@@ -104,14 +104,14 @@ test("an edit sent again after it applied is saved once; someone else's change i
   };
   const saved = await ask(edit);
   expect(saved).toMatchObject({ ok: true });
-  expect(await ask({ ...edit, retry: true })).toEqual({ ok: true, hash: saved.hash });
+  expect(await ask(edit)).toEqual({ ok: true, hash: saved.hash });
   const after = await ask({ op: "skill", id });
   expect(after).toMatchObject({
     description: "Write the release notes for a tag",
     manual: true,
     instructions: "List what changed, newest first.\n",
   });
-  expect(await ask({ ...edit, body: "Something else", retry: true })).toMatchObject({
+  expect(await ask({ ...edit, body: "Something else" })).toMatchObject({
     ok: false,
     code: "conflict",
   });

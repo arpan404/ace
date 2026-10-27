@@ -91,7 +91,6 @@ export const NativeSkillsRequest = z.discriminatedUnion("op", [
     description: z.string().min(1).max(1024),
     body: z.string().max(262144),
     manual: z.boolean(),
-    retry: z.boolean().default(false),
   }),
   z.object({
     type: z.literal("skills.native"),
@@ -177,7 +176,10 @@ export class NativeSkillLibrary {
     switch (request.op) {
       case "library": {
         const listed = await this.#list(request.workspaceId, signal);
-        const entries = listed.entries.toSorted((a, b) => a.name.localeCompare(b.name));
+        // Plugin skills are listed on their plugin's page, which owns their files (ADR 0103).
+        const entries = listed.entries
+          .filter((entry) => entry.scope !== "plugin")
+          .toSorted((a, b) => a.name.localeCompare(b.name));
         return {
           stale: listed.stale,
           groups: groupByHome(entries.map((entry) => ({ home: entry.scope, entry }))).map(
