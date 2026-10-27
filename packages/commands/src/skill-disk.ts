@@ -17,6 +17,7 @@ import {
   renameCommandEntryAs,
   type OpenCommandChild,
 } from "./posix.ts";
+import { commandEntryIsLink } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
 import { commandEntryExists } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
@@ -230,6 +231,10 @@ export class SkillDisk {
   /** A child link's stored text; `undefined` when `name` is missing or isn't a link. */
   async readLink(parent: number, name: string): Promise<string | undefined> {
     return readCommandLink(parent, name).catch(() => undefined);
+  }
+  /** Windows: whether `name` is a link, through the pinned handle even after the folder moved. */
+  async windowsLink(parent: number, name: string): Promise<boolean> {
+    return commandEntryIsLink(parent, name);
   }
   /** Whether anything at all, link or not, is called `name` in the pinned directory. */
   async exists(parent: number, name: string): Promise<boolean> {
