@@ -1,5 +1,6 @@
 import { requireNativeModule } from "expo";
 import { z } from "zod";
+import { readExecutionMode } from "./native-mode.ts";
 const native = requireNativeModule<{
   watchInput(tag: number): Promise<void>;
   stopInputMetrics(): Promise<void>;
@@ -8,6 +9,22 @@ const native = requireNativeModule<{
   inputMetrics(): Promise<unknown>;
   probeInput(count: number): Promise<unknown>;
 }>("AceNative");
+
+/** Input hooks exist only in fixture builds; production has no such native methods. */
+function instrumented() {
+  const mode = readExecutionMode();
+  if (mode === "production") throw new Error("Input measurement is unavailable in this build.");
+  return native;
+}
+export function watchInput(tag: number): Promise<void> {
+  return instrumented().watchInput(tag);
+}
+export function commitInput(length: number): Promise<void> {
+  return instrumented().commitInput(length);
+}
+export function stopInputMetrics(): Promise<void> {
+  return instrumented().stopInputMetrics();
+}
 const Metrics = z.object({
   droppedMetricReports: z.number().int().nonnegative(),
   missingMutations: z.number().int().nonnegative(),
@@ -28,14 +45,11 @@ const Metrics = z.object({
   commits: z.number().int().nonnegative(),
   draws: z.number().int().nonnegative(),
 });
-export const commitInput = native.commitInput;
-export const watchInput = native.watchInput;
-export const stopInputMetrics = native.stopInputMetrics;
 export async function inputMetrics() {
-  return Metrics.parse(await native.inputMetrics());
+  return Metrics.parse(await instrumented().inputMetrics());
 }
 export async function probeInput() {
-  return Metrics.parse(await native.probeInput(120));
+  return Metrics.parse(await instrumented().probeInput(120));
 }
 
 const FontEvidence = z.object({
@@ -46,5 +60,5 @@ const FontEvidence = z.object({
   textSizePx: z.number(),
 });
 export async function fontEvidence() {
-  return FontEvidence.parse(await native.fontEvidence());
+  return FontEvidence.parse(await instrumented().fontEvidence());
 }

@@ -11,6 +11,7 @@ import {
   inputMetrics,
   probeInput,
 } from "./input-metrics.ts";
+import { readExecutionMode } from "./native-mode.ts";
 import { ComposerDraft } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
@@ -24,11 +25,19 @@ export function Composer({
   notify(text: string): void;
 }) {
   const input = useRef<TextInput>(null);
+  // Probe and metrics exist only in fixture builds; production fails closed to plain composing.
+  const instrumented = useMemo(() => {
+    try {
+      return readExecutionMode() !== "production";
+    } catch {
+      return false;
+    }
+  }, []);
   useEffect(
     () => () => {
-      void stopInputMetrics();
+      if (instrumented) void stopInputMetrics().catch(() => undefined);
     },
-    [],
+    [instrumented],
   );
   const theme = useTheme();
   const [inputHeight, setInputHeight] = useState<number>(tokens.dimensions.touchTarget);
@@ -48,16 +57,16 @@ export function Composer({
   );
   const { text: draft, saving } = useSelection(model.selection);
   useLayoutEffect(() => {
-    if (!__DEV__) return;
+    if (!instrumented) return;
     void commitInput(draft.length);
-    if (__DEV__ && draft.length > 0 && draft.length % 20 === 0) {
+    if (draft.length > 0 && draft.length % 20 === 0) {
       void Promise.all([inputMetrics(), fontEvidence()])
         .then(([m, font]) => {
           console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
         })
         .catch(() => console.info("AceSpikeMetrics unavailable"));
     }
-  }, [draft]);
+  }, [draft, instrumented]);
   async function send() {
     try {
       if ((await model.send()) === "saved")
@@ -67,7 +76,7 @@ export function Composer({
     }
   }
   async function measure() {
-    if (!__DEV__ || probeActive.current) return;
+    if (!instrumented || probeActive.current) return;
     probeActive.current = true;
     console.info("AceSpikeProbe started");
     setProbing(true);
@@ -102,7 +111,7 @@ export function Composer({
       <TextInput
         ref={input}
         onFocus={() => {
-          if (!__DEV__) return;
+          if (!instrumented) return;
           const tag = findNodeHandle(input.current);
           if (tag !== null)
             void watchInput(tag).catch(() => notify("Input measurement is unavailable"));
@@ -125,8 +134,8 @@ export function Composer({
         underlineColorAndroid="transparent"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
-        submitBehavior={__DEV__ ? "submit" : "newline"}
-        onSubmitEditing={__DEV__ ? () => void measure() : undefined}
+        submitBehavior={instrumented ? "submit" : "newline"}
+        onSubmitEditing={instrumented ? () => void measure() : undefined}
         value={draft}
         onChangeText={(text) => model.edit(text)}
         style={{
@@ -151,7 +160,7 @@ export function Composer({
         </Text>
         <AceHost>
           <Row>
-            {__DEV__ ? (
+            {instrumented ? (
               <AceButton
                 label="Probe"
                 kind="secondary"

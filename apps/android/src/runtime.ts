@@ -3,6 +3,7 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { openDatabaseAsync } from "expo-sqlite";
 import { randomUUID, getRandomBytes } from "expo-crypto";
 import { Linking } from "react-native";
+import { assertBundleMatchesMode, type FixtureMode } from "./execution-mode.ts";
 import { replayProbe } from "./replay-probe.ts";
 import { sqliteOutbox } from "./storage.ts";
 
@@ -10,9 +11,9 @@ export interface Runtime {
   client: ClientApi;
   close(): Promise<void>;
 }
-/** Explicitly debug-only loopback fixture. Production pairing uses pinned native TLS. */
-export async function fixtureRuntime(): Promise<Runtime> {
-  if (!__DEV__) throw new Error("The fixture connection is unavailable in a release build.");
+/** Explicitly fixture-only loopback runtime. Production pairing uses pinned native TLS. */
+export async function fixtureRuntime(mode: FixtureMode): Promise<Runtime> {
+  assertBundleMatchesMode(mode, __DEV__);
   const db = await openDatabaseAsync("ace-outbox.db");
   let client: ClientApi | undefined;
   try {

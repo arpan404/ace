@@ -8,6 +8,8 @@ import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SnackbarHost, Snackbar, type SnackbarHostRef } from "@expo/ui/jetpack-compose";
 import { fixtureRuntime, type Runtime } from "./runtime.ts";
+import { isFixtureMode } from "./execution-mode.ts";
+import { readExecutionMode } from "./native-mode.ts";
 import { ThemeContext, tokens, useTheme, textStyle, AceHost } from "./theme.tsx";
 import { Inbox } from "./Inbox.tsx";
 import { ThreadScreen } from "./Thread.tsx";
@@ -116,8 +118,18 @@ export function App() {
   useEffect(() => {
     let active = true;
     let owner: Runtime | undefined;
-    void fixtureRuntime()
+    void Promise.resolve()
+      .then(() => readExecutionMode())
+      .then((mode) => {
+        if (!active) return undefined;
+        if (!isFixtureMode(mode)) {
+          setFailure("This build is not paired with a daemon yet.");
+          return undefined;
+        }
+        return fixtureRuntime(mode);
+      })
       .then((value) => {
+        if (value === undefined) return;
         owner = value;
         if (active) setRuntime(value);
         else void value.close();
