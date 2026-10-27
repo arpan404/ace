@@ -668,6 +668,7 @@ Example:
     "blocker": "example",
     "criteria": [],
     "criteriaCount": 7,
+    "ended": false,
     "endpoint": "example",
     "id": "J8v1IdQoWB",
     "outcome": "example",

@@ -10,7 +10,8 @@
         "not_found",
         "invalid",
         "unavailable",
-        "too_late"
+        "too_late",
+        "not_supported"
       ],
       "type": "string"
     },

@@ -12,27 +12,7 @@
           "by": {
             "anyOf": [
               {
-                "properties": {
-                  "model": {
-                    "anyOf": [
-                      {
-                        "maxLength": 64,
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider": {
-                    "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-                  }
-                },
-                "required": [
-                  "provider",
-                  "model"
-                ],
-                "type": "object"
+                "$ref": "https://ace.local/protocol/v1/OffshiftCardAuthor.json"
               },
               {
                 "type": "null"

@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPerson.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "device": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deviceId": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "const": "person",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "deviceId",
+    "device"
+  ],
+  "type": "object"
+}

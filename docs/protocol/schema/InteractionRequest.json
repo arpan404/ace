@@ -68,6 +68,9 @@
             "$ref": "https://ace.local/protocol/v1/Question.json"
           },
           "type": "array"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ApprovalTarget.json"
         }
       },
       "required": [
@@ -164,6 +167,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ApprovalTarget.json"
         },
         "title": {
           "maxLength": 1024,

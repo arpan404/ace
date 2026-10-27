@@ -9,6 +9,9 @@
       ],
       "type": "string"
     },
+    "grants": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrants.json"
+    },
     "hostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },
@@ -33,10 +36,12 @@
     },
     "tools": {
       "items": {
-        "$ref": "https://ace.local/protocol/v1/MachineToolGroup.json"
+        "maxLength": 64,
+        "type": "string"
       },
-      "maxItems": 8,
-      "type": "array"
+      "maxItems": 16,
+      "type": "array",
+      "x-ace-constraint": "Unknown tool groups are accepted and omitted from the decoded list."
     },
     "transfers": {
       "type": "boolean"

@@ -123,6 +123,9 @@
       "$ref": "https://ace.local/protocol/v1/VerifyChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OffshiftClientResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/QueueResult.json"
     },
     {
