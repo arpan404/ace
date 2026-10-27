@@ -100,6 +100,7 @@ struct WorkProblemRows: View {
                 .padding(.horizontal, AceTheme.Spacing.sm)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("work.problem")
     }
 }

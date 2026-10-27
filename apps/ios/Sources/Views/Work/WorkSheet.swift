@@ -139,7 +139,6 @@ struct WorkSheet: View {
                         } label: { WorkPullLine(pr: pr) }
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens the pull request")
-                        .accessibilityIdentifier("work.pull.\(pr.number)")
                     } else if let url = URL(string: pr.url) {
                         Link(destination: url) { WorkPullLine(pr: pr) }.buttonStyle(.plain)
                             .accessibilityHint("Opens on GitHub")
