@@ -19,6 +19,8 @@ import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
+import { ChangesKept } from "./changes-kept.ts";
+import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
@@ -113,7 +115,10 @@ const pump = new PatchPump();
  */
 const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
-const sheets = new Sheets(pump, preview);
+const sheets = new Sheets(pump, preview, {
+  kept: new ChangesKept(keptValue("review")),
+  now: () => host.now(),
+});
 let openThreadId: string | undefined;
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {

@@ -3,7 +3,7 @@ import { Command, ThreadId, ThreadView, WorkspaceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
 import { LocalStore } from "../store.ts";
-import { refreshDrafts, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
+import { refreshDrafts, saveDraft, sendDrafts, type ReviewDraft } from "@ace/ui-core/review";
 import {
   daemonWorkspaceSource,
   WorkspaceError,

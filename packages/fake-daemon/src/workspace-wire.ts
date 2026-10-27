@@ -1,4 +1,5 @@
 import { fakeEmojiImages, resolveFakeMedia } from "./catalog/forge-media.ts";
+import { fakeGitDiff } from "./git-diff-wire.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
@@ -414,11 +415,7 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: {
-          kind: "gitDiff",
-          patch: this.gitPatches.get(op.threadId) ?? "",
-          truncated: false,
-        },
+        result: { kind: "gitDiff", ...fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op) },
       });
     const result =
       op.op === "editors.list"

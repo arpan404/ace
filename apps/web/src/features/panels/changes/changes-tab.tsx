@@ -14,10 +14,11 @@ import {
   refreshDrafts,
   resolveDraft,
   sendDrafts,
+  displayedSelection,
+  applySuggestion,
+  setReviewStatus,
   type ReviewDraft,
-} from "./drafts.ts";
-import { displayedSelection } from "./displayed-selection.ts";
-import { applySuggestion, setReviewStatus } from "./review-actions.ts";
+} from "@ace/ui-core/review";
 import { beginComposition, updateComposition, type ReviewComposition } from "./compositions.ts";
 import { CompositionEditor } from "./composition-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";

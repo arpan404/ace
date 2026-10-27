@@ -1,6 +1,8 @@
 import type { ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { followAgents, type PatchSink, type Preview } from "./agents.ts";
+import { ChangesAction, changesAction } from "./changes-actions.ts";
+import type { ChangesKept } from "./changes-kept.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
@@ -10,7 +12,7 @@ import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
  * shown, so a closed sheet costs nothing and navigation releases both.
  */
 
-const SheetAction = z.discriminatedUnion("kind", [
+const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
   z.object({ kind: z.literal("changes.refresh") }),
@@ -20,6 +22,14 @@ const SheetAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("git.draft"), for: DraftFor, requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("git.draft.cancel"), requestId: z.string().min(1).max(64) }),
 ]);
+const SheetAction = z.union([OpenAction, ChangesAction]);
+type SheetAction = z.infer<typeof SheetAction>;
+
+/** What every Changes session shares: the phone's kept review state and a clock. */
+export interface SheetDeps {
+  kept?: ChangesKept;
+  now?: () => number;
+}
 
 export interface OpenThread {
   owner: ChangesOwner;
@@ -33,9 +43,11 @@ export class Sheets {
   #preview: Preview;
   #agents: (() => void) | undefined;
   #changes: ChangesSession | undefined;
-  constructor(sink: PatchSink, preview: Preview) {
+  #deps: SheetDeps;
+  constructor(sink: PatchSink, preview: Preview, deps: SheetDeps = {}) {
     this.#sink = sink;
     this.#preview = preview;
+    this.#deps = deps;
   }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
@@ -70,6 +82,7 @@ export class Sheets {
               thread.epoch,
               this.#sink,
               this.#preview,
+              this.#deps,
             )
           : undefined;
         return true;
@@ -108,11 +121,16 @@ export class Sheets {
       case "git.draft.cancel":
         if (this.#changes) cancelDraft(this.#changes, action.requestId);
         return this.#changes !== undefined;
+      default:
+        return this.#changes
+          ? changesAction(this.#changes, action, this.#sink, this.#preview)
+          : false;
     }
   }
 }
 
-function releases(action: z.infer<typeof SheetAction>): boolean {
+function releases(action: SheetAction): boolean {
   if (action.kind === "agents" || action.kind === "changes") return !action.open;
+  if (action.kind === "changes.open" || action.kind === "changes.expand") return !action.open;
   return action.kind === "changes.file" && action.path === null;
 }

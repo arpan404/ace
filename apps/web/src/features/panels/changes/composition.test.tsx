@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { panelServices } from "../services.ts";
-import { discardDraft, saveDraft } from "./drafts.ts";
+import { discardDraft, saveDraft } from "@ace/ui-core/review";
 import { persistReview } from "./review-store.ts";
 
 configure({ asyncUtilTimeout: 10000 });

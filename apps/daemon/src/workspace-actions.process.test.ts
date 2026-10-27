@@ -284,3 +284,84 @@ test("working-tree diff includes shell edits and untracked files without changin
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("one file's diff past the whole-checkout cap reads alone, page by page, to its last line", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const git = promisify(execFile);
+  const root = await mkdtemp(join(tmpdir(), "ace-diff-pages-"));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  await git("git", ["init", "-q", repo]);
+  await writeFile(join(repo, "small.txt"), "one\n");
+  await git("git", ["-C", repo, "add", "small.txt"]);
+  await git("git", [
+    "-C",
+    repo,
+    "-c",
+    "user.name=QA",
+    "-c",
+    "user.email=qa@example.test",
+    "commit",
+    "-qm",
+    "initial",
+  ]);
+  const store = new Store(join(root, "events.sqlite"));
+  const workspaceId = store.createWorkspace(repo, "QA");
+  const thread = Thread.parse({
+    id: "pages",
+    workspaceId,
+    provider: "codex",
+    title: "Big file",
+    status: { state: "done" },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  const runtime = new WorkspaceRuntime(store, root, () => 1000);
+  const read = async (operation: Record<string, unknown>) =>
+    (
+      await runtime.read({
+        type: "workspace.request",
+        requestId: "diff",
+        operation: { op: "git.diff", threadId: thread.id, ...operation },
+      } as Parameters<WorkspaceRuntime["read"]>[0])
+    ).result;
+  try {
+    const lines = Array.from({ length: 20_000 }, (_, i) => `generated line ${i + 1} ✓`);
+    await writeFile(join(repo, "big.txt"), `${lines.join("\n")}\n`);
+    await writeFile(join(repo, "small.txt"), "one\ntwo\n");
+    // The whole checkout no longer fits one reply.
+    expect(await read({})).toMatchObject({ kind: "gitDiff", truncated: true });
+
+    let patch = "";
+    let offset: number | undefined = 0;
+    let pages = 0;
+    while (offset !== undefined) {
+      const page = await read({ path: "big.txt", offset });
+      if (page.kind !== "gitDiff") throw new Error(`unexpected ${page.kind}`);
+      // Every page but the last ends on a whole line.
+      if (page.nextOffset !== undefined) expect(page.patch.endsWith("\n")).toBe(true);
+      expect(page.truncated).toBe(page.nextOffset !== undefined);
+      patch += page.patch;
+      offset = page.nextOffset;
+      pages++;
+    }
+    expect(pages).toBeGreaterThan(1);
+    expect(patch).not.toContain("small.txt");
+    const added = patch
+      .split("\n")
+      .filter((line) => line.startsWith("+") && !line.startsWith("+++"));
+    expect(added.map((line) => line.slice(1))).toEqual(lines);
+    // A small file read alone fits one page.
+    expect(await read({ path: "small.txt" })).toMatchObject({
+      kind: "gitDiff",
+      truncated: false,
+      patch: expect.stringContaining("+two"),
+    });
+  } finally {
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

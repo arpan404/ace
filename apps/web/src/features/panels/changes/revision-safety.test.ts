@@ -8,8 +8,7 @@ import { Command, ThreadId, WorkspaceId } from "@ace/protocol";
 import { ReviewService } from "@ace/review";
 import { expect, test } from "vitest";
 import { LocalStore } from "../store.ts";
-import { record, saveDraft, type ReviewDraft } from "./drafts.ts";
-import { applySuggestion } from "./review-actions.ts";
+import { applySuggestion, record, saveDraft, type ReviewDraft } from "@ace/ui-core/review";
 
 const exec = promisify(execFile);
 async function repository() {

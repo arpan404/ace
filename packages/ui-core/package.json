@@ -30,7 +30,8 @@
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
-    "./forge-rich": "./src/forge-rich/index.ts"
+    "./forge-rich": "./src/forge-rich/index.ts",
+    "./review": "./src/review.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

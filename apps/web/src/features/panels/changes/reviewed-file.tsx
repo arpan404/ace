@@ -2,7 +2,7 @@ import type { FileDiff } from "@ace/ui-core";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import type { ReviewComposition } from "./compositions.ts";
 import { CompositionEditor } from "./composition-editor.tsx";
-import type { ReviewDraft } from "./drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
 import { FileActions } from "./file-actions.tsx";
 import { FileDiffBlock, inRange, type LineRange, type LineTarget } from "./file-diff.tsx";
 import type { FileView } from "./file-view.ts";

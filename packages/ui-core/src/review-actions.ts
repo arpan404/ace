@@ -1,8 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { ReviewReply, ReviewSession, ThreadId, WorkspaceId } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
-import type { LocalStore } from "../store.ts";
-import { patch, record, review, type ReviewDraft } from "./drafts.ts";
+import { actionErrorText } from "./action-errors.ts";
+import { patch, record, review, type DraftStore, type ReviewDraft } from "./review-drafts.ts";
 
 /*
  * What a reviewer does beyond sending comments (ADR 0038): apply a suggested change to the
@@ -11,7 +10,7 @@ import { patch, record, review, type ReviewDraft } from "./drafts.ts";
  */
 
 type Thread = { id: ThreadId; workspaceId: WorkspaceId };
-type Drafts = LocalStore<readonly ReviewDraft[]>;
+type Drafts = DraftStore;
 
 const message = (error: unknown) =>
   error instanceof Error ? error.message : actionErrorText(undefined);

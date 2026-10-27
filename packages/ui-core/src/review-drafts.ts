@@ -1,6 +1,6 @@
 import { ThreadId as ThreadIdSchema } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText } from "./action-errors.ts";
 import type {
   CommandPayload,
   ReviewComment,
@@ -11,7 +11,6 @@ import type {
   ThreadId,
   WorkspaceId,
 } from "@ace/protocol";
-import type { LocalStore } from "../store.ts";
 
 /*
  * Line comments in the Changes tab and their way to the agent (ADR 0038 review mode):
@@ -25,7 +24,16 @@ import type { LocalStore } from "../store.ts";
  * deliver them to the thread's agent. Resolving is a person's call (the daemon never resolves on
  * its own); the daemon also reports when a later edit moved past a comment (outdated) or
  * touched its lines (addressed, waiting for your review).
+ *
+ * Shared by the web's Changes tab and the native apps' Changes sheet: each keeps the drafts in
+ * its own `DraftStore` (a page's local store, a phone's kept value).
  */
+
+/** Where drafts are held: read them all, or replace them from the previous list. */
+export interface DraftStore {
+  get(): readonly ReviewDraft[];
+  set(next: (previous: readonly ReviewDraft[]) => readonly ReviewDraft[]): void;
+}
 
 export type DraftState = "draft" | "sending" | "sent" | "failed" | "resolving" | "resolved";
 
@@ -69,7 +77,7 @@ export const isPending = (draft: ReviewDraft) =>
 export const isOpen = (draft: ReviewDraft) => draft.state === "sent" || draft.state === "resolving";
 
 export function saveDraft(
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   draft: Omit<ReviewDraft, "key" | "state"> & { key?: string },
 ): void {
   const key =
@@ -80,7 +88,7 @@ export function saveDraft(
     { ...draft, key, state: "draft" },
   ]);
 }
-export function discardDraft(store: LocalStore<readonly ReviewDraft[]>, key: string): void {
+export function discardDraft(store: DraftStore, key: string): void {
   store.set((drafts) => drafts.filter((draft) => draft.key !== key));
 }
 
@@ -103,7 +111,7 @@ export const positionOf = (draft: ReviewDraft) => ({
 });
 
 export function patch(
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   keys: ReadonlySet<string>,
   change: (draft: ReviewDraft) => ReviewDraft,
 ) {
@@ -117,7 +125,7 @@ export function patch(
  */
 export async function record(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   drafts: readonly ReviewDraft[],
 ): Promise<{ sessionId: string; commentIds: string[] }> {
@@ -175,7 +183,7 @@ export async function record(
  */
 export async function sendDrafts(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   keys: readonly string[],
 ): Promise<void> {
@@ -217,7 +225,7 @@ export async function sendDrafts(
 /** Mark a sent comment resolved (or open again); the daemon keeps the flag with the comment. */
 export async function resolveDraft(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   key: string,
   resolved: boolean,
 ): Promise<void> {
@@ -247,7 +255,7 @@ export async function resolveDraft(
  */
 export async function refreshDrafts(
   client: Pick<ClientApi, "command">,
-  store: LocalStore<readonly ReviewDraft[]>,
+  store: DraftStore,
   threadId: string,
 ): Promise<ReviewSession | null> {
   const sessions = new Map<string, ReviewSession>();
