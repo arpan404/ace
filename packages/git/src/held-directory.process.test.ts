@@ -1,5 +1,6 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { closeSync, openSync, renameSync } from "node:fs";
+import { once } from "node:events";
 import { access, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
@@ -297,6 +298,7 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
     const origin = await silentOrigin();
     const target = join(base, "project");
     await mkdir(target);
+    const hidden: { child: ReturnType<typeof spawnGitProcess>; pid: number }[] = [];
     const service = new GitService({
       transportProtocols: ["http"],
       leaseWaitMs: 0,
@@ -304,7 +306,10 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
         spawn: (command, args, options) => {
           const child = spawnGitProcess(command, args, options);
           // A fetch ace can't name a process for never joins a job: nothing proves it ended.
-          if (args.includes("fetch")) Object.defineProperty(child, "pid", { value: undefined });
+          if (args.includes("fetch")) {
+            if (child.pid) hidden.push({ child, pid: child.pid });
+            Object.defineProperty(child, "pid", { value: undefined });
+          }
           return child;
         },
       },
@@ -333,6 +338,15 @@ describe.runIf(process.platform === "win32")("Windows Git in a held folder", () 
         code: "git_quarantined",
       });
     } finally {
+      // The uncontained fetch is still running in the folder: end it before the folder goes.
+      await Promise.all(
+        hidden.map(({ child, pid }) => {
+          if (child.exitCode !== null || child.signalCode !== null) return undefined;
+          const exited = once(child, "exit");
+          spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+          return exited;
+        }),
+      );
       await origin.close();
       await service.close();
     }
