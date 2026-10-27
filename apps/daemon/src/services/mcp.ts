@@ -15,8 +15,8 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { commandToolkit } from "../machines/command-tools.ts";
-import { screenToolkit } from "@ace/screen";
+import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
+import { screenToolkit, computerToolNames } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
 export { computerPlatform } from "../computer-tools.ts";
@@ -228,6 +228,12 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         askAvailable:
           thread?.provider === "cursor" ||
           !!services.agentControl?.delegations.journal.get(caller.threadId),
+        unavailableTools: [
+          ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
+          ...(services.computer || services.machines?.caller.serves("screen")
+            ? []
+            : computerToolNames),
+        ],
         disabled: {
           ...(!services.browser
             ? { browser: "ace's built-in browser failed to start in this daemon." }

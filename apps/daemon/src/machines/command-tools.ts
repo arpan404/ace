@@ -53,6 +53,8 @@ const tools = [
   },
 ] as const;
 
+export const commandToolNames = tools.map((tool) => tool.name);
+
 /** How long the call to the machine may take: a foreground run's own timeout, plus slack. */
 function callTimeoutMs(tool: string, args: Record<string, unknown>): number {
   if (tool !== "command_run" || args["background"] === true) return 25_000;

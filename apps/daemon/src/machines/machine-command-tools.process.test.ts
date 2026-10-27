@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MachineSummary, type ThreadId } from "@ace/protocol";
+import { EvalAgent } from "../evals/agent.ts";
 import { invoke } from "../browser-mcp-test-support.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 import { fleetWindow, sourceProfile } from "./grants-test-support.ts";
@@ -32,10 +33,31 @@ it("an agent runs a command on a machine that allows it, and machines says which
   const listed = async () =>
     Machines.parse((await pair.source.call({ op: "machines" })).data).machines[0]?.tools;
   expect(await listed()).not.toContain("commands");
+  const { threadId, agentId } = pair.source.caller;
+  const lease = pair.source.daemon.mcp.openSession(
+    { sessionId: "command-discovery", threadId, agentId, capabilities: ["agents"] },
+    new AbortController().signal,
+  );
+  const agent = await EvalAgent.connect({
+    url: pair.source.daemon.mcp.url,
+    bearer: lease.bearer,
+    nativeInstructions: "",
+    serverInstructions: true,
+  });
+  const names = ["command_run", "command_status", "command_output", "command_stop"];
+  for (const name of names) expect(agent.has(name)).toBe(false);
+  const hidden = await agent.call("command_run", {
+    machine: "studio",
+    project: "project",
+    command: "echo hidden",
+  });
+  expect(hidden.failed).toBe(true);
+  expect(hidden.text).toContain("tool_unavailable");
   await window.set(sourceProfile(pair).deviceId, "commands", "operate");
   expect(await listed()).toContain("commands");
 
-  const { threadId } = pair.source.caller;
+  await agent.refreshTools();
+  for (const name of names) expect(agent.has(name)).toBe(true);
   const ran = await agentCalls(pair, threadId, "command_run", {
     machine: "studio",
     project: "project",
@@ -47,6 +69,11 @@ it("an agent runs a command on a machine that allows it, and machines says which
   // Command tools only exist for other machines.
   const local = await agentCalls(pair, threadId, "command_run", { command: "echo here" });
   expect(local.isError).toBe(true);
+  await window.set(sourceProfile(pair).deviceId, "commands", "off");
+  expect(await listed()).not.toContain("commands");
+  await agent.refreshTools();
+  for (const name of names) expect(agent.has(name)).toBe(false);
+  await agent.close();
   await window.close();
 });
 
@@ -54,6 +81,7 @@ it("a read-only thread can't run commands on another machine; nothing reaches it
   const pair = await pairedMachines({ access: "operate" });
   const window = await fleetWindow(pair.target);
   await window.set(sourceProfile(pair).deviceId, "commands", "operate");
+  await pair.source.call({ op: "machines" });
   const engine = pair.source.daemon.engine;
   const created = pair.source.controls.delegations.command("read-only-reviewer", {
     type: "thread.create",

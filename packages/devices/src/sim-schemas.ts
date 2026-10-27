@@ -121,9 +121,7 @@ export const simSchemas = {
 export type SimToolName = keyof typeof simSchemas;
 
 const machine = {
-  machine: MachineName.optional().describe(
-    "Another linked machine's simulators and emulators (machines); omit for this machine.",
-  ),
+  machine: MachineName.optional().describe("From machines; omit for this machine."),
 };
 /** The sim_* inputs when a host can send them to another linked machine (ADR 0105). */
 export const routedSimSchemas = {
