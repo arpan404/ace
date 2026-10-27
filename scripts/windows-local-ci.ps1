@@ -109,6 +109,26 @@ function Invoke-Step([string] $name, [scriptblock] $block) {
   if ($code -ne 0) { throw "$name failed (exit $code)" }
 }
 
+# Release builds insist on the Node the release ships (tools/release/src/node-runtime.ts), as
+# the workflows pin it. Use a checksum-verified copy of it in the work folder, never the system's.
+function Use-ReleaseNode {
+  $version = (Select-String -Path tools/release/src/node-runtime.ts -Pattern 'export const nodeVersion = "([^"]+)"').Matches[0].Groups[1].Value
+  if ((node -p "process.versions.node").Trim() -eq $version) { return }
+  $name = "node-v$version-win-$arch"
+  $dir = Join-Path $Work $name
+  if (!(Test-Path (Join-Path $dir "node.exe"))) {
+    $zip = Join-Path $Work "$name.zip"; $sums = Join-Path $Work "SHASUMS256-$version.txt"
+    Invoke-WebRequest -Uri "https://nodejs.org/dist/v$version/SHASUMS256.txt" -OutFile $sums
+    Invoke-WebRequest -Uri "https://nodejs.org/dist/v$version/$name.zip" -OutFile $zip
+    $want = ((Select-String -Path $sums -Pattern " $name.zip$").Line -split '\s+')[0]
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $want) { Remove-Item $zip; throw "$name.zip SHA256 mismatch" }
+    Expand-Archive -Path $zip -DestinationPath $Work -Force
+    Remove-Item $zip
+  }
+  $env:Path = "$dir;$env:Path"
+  Write-Host "--- release builds use Node $version from $dir"
+}
+
 function Invoke-Vitest([string[]] $arguments) {
   Invoke-Step "vitest $($arguments -join ' ')" { node $vitest run @arguments }
 }
@@ -181,14 +201,18 @@ $stages = [ordered]@{
     Invoke-Step "throwaway release key" {
       node -e "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519');f.writeFileSync(process.argv[1],k.privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync(process.argv[2],k.publicKey.export({type:'spki',format:'pem'}))" $key $public
     }
-    Invoke-Step "build win32-$arch daemon archive" { node tools/release/src/build.ts 0.0.0-ci "win32-$arch" $public }
-    Invoke-Step "smoke the archive" { node tools/release/src/smoke.ts "tools/release/dist/win32-$arch" }
-    if ($MachineChanges) {
-      $check = Join-Path $Work "install-check"
-      Invoke-Step "install.ps1 end to end" {
-        & ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target "win32-$arch" -PrivateKey $key -PublicKey $public -Work $check
-      }
-    } else { Write-Host "--- install.ps1 end to end skipped (needs -MachineChanges)" }
+    $systemPath = $env:Path
+    Use-ReleaseNode
+    try {
+      Invoke-Step "build win32-$arch daemon archive" { node tools/release/src/build.ts 0.0.0-ci "win32-$arch" $public }
+      Invoke-Step "smoke the archive" { node tools/release/src/smoke.ts "tools/release/dist/win32-$arch" }
+      if ($MachineChanges) {
+        $check = Join-Path $Work "install-check"
+        Invoke-Step "install.ps1 end to end" {
+          & ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target "win32-$arch" -PrivateKey $key -PublicKey $public -Work $check
+        }
+      } else { Write-Host "--- install.ps1 end to end skipped (needs -MachineChanges)" }
+    } finally { $env:Path = $systemPath }
   }
   desktop = {
     Require-Desktop
