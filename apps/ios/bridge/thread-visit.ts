@@ -1,3 +1,4 @@
+import { SubagentRetries } from "./subagent-retries.ts";
 import type { CatalogEntry } from "@ace/protocol";
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
 import type { ChatCacheHost } from "./chat-cache.ts";
@@ -28,6 +29,8 @@ export class ThreadVisit {
   readonly #hooks: VisitHooks;
   readonly #chunks: ChunkReader;
   readonly #catalog: (threadId: string) => readonly CatalogEntry[] | undefined;
+  /** Subagent retries asked from this phone, kept across visits (`SubagentRetries`). */
+  readonly #retries: SubagentRetries;
   /**
    * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
    * 4 Mi UTF-16 units go too, the oldest first.
@@ -44,7 +47,9 @@ export class ThreadVisit {
     hooks: VisitHooks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
     chunks: ChunkReader = nativeChunks,
+    retries: SubagentRetries = new SubagentRetries(),
   ) {
+    this.#retries = retries;
     this.#pump = pump;
     this.#hooks = hooks;
     this.#catalog = catalog;
@@ -86,6 +91,7 @@ export class ThreadVisit {
       this.#catalog,
       () => this.#hooks.reading?.(threadId),
       kept,
+      this.#retries,
     );
     this.#hooks.opened(threadId, this.#epoch, lease.store);
   }

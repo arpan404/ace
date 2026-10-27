@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, rename, forkLast, merge, turns, attachments }
+enum ThreadDestination { case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, logs, offshift, rename, forkLast, merge, turns, attachments }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
@@ -110,6 +110,13 @@ struct ThreadMenu: View {
             Section {
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
                 Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
+                Button("Logs", ace: .scroll) { open(.logs) }.accessibilityIdentifier("thread.logs")
+                if let run = thread.screen.offshift {
+                    Button { open(.offshift) } label: {
+                        Label { Text("Offshift run"); Text("\(run.word) · \(run.phase)") } icon: { Image(ace: .listChecks) }
+                    }
+                    .accessibilityIdentifier("thread.offshift")
+                }
                 Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Turns", ace: .listBullets) { open(.turns) }.accessibilityIdentifier("thread.turns")
             }

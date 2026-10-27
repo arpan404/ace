@@ -30,10 +30,14 @@
     "./thread-execution": "./src/thread-execution.ts",
     "./mobile": "./src/mobile.ts",
     "./host-care": "./src/host-care.ts",
+    "./thread-log": "./src/thread-log.ts",
+    "./log-filter": "./src/log-filter.ts",
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
+    "./skill-library": "./src/skill-library.ts",
     "./forge-rich": "./src/forge-rich/index.ts",
+    "./automations": "./src/automations/index.ts",
     "./math-render": "./src/math-render.ts",
     "./review": "./src/review.ts"
   },
@@ -42,6 +46,7 @@
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",

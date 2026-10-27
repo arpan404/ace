@@ -21,4 +21,4 @@ export {
   timeZones,
   type Weekday,
   type SchedulePreset,
-} from "./schedule.ts";
+} from "@ace/ui-core/automations";

@@ -261,6 +261,9 @@ enum BridgePatch: Decodable, Sendable {
     case machineIdentity(String)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
+    /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
+    case logs(String, Int, LogsSheet)
+    case logsCopy(String, String)
     case changesSummary(String, Int, ChangesSummary)
     case changes(String, Int, ChangesPatch)
     case gitResult(String, Bool, String)
@@ -368,6 +371,8 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "logs.sheet": let (id, epoch) = try scope(); self = .logs(id, epoch, try LogsSheet(from: decoder))
+        case "logs.copy": self = .logsCopy(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .text))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
         case let kind where ChangesPatch.types.contains(kind):
             let (id, epoch) = try scope()

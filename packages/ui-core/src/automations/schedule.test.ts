@@ -8,14 +8,14 @@ import {
   presetToSchedule,
   scheduleToPreset,
   upcomingRuns,
-} from "@/features/automation-schedule/index.ts";
+} from "./schedule.ts";
 import {
   AutomationForm,
   automationFromForm,
   blankForm,
   formFromAutomation,
   scheduleFromForm,
-} from "./automation-values.ts";
+} from "./form.ts";
 
 // 2026-10-02T14:45:00Z: a start instant whose wall clock differs by zone.
 const startAt = Date.UTC(2026, 9, 2, 14, 45);
@@ -252,4 +252,14 @@ test("a start that has already passed means now, so nothing reads as missed", ()
   const form = { ...blankForm("ws", "America/New_York"), cadence: "daily" as const };
   expect(scheduleFromForm({ ...form, startsAt: "2026-10-21T09:00" }, now).startAt).toBe(now);
   expect(scheduleFromForm({ ...form, startsAt: "" }, now).startAt).toBe(now);
+});
+
+test("upcoming starts read from a clock that reports a fraction of a millisecond", () => {
+  const daily = rrule("FREQ=DAILY;BYHOUR=9;BYMINUTE=0");
+  const now = Date.UTC(2026, 9, 27, 7, 38) + 0.25;
+  expect(upcomingRuns(daily, now)).toEqual([
+    Date.UTC(2026, 9, 27, 9, 0),
+    Date.UTC(2026, 9, 28, 9, 0),
+    Date.UTC(2026, 9, 29, 9, 0),
+  ]);
 });

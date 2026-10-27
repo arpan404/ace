@@ -11,6 +11,7 @@ import { inboxRequests } from "./inbox-manage.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadVisit } from "./thread-visit.ts";
+import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
@@ -49,6 +50,8 @@ import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
+import { NativeAutomations } from "./automations.ts";
+import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -122,6 +125,8 @@ const sheets = new Sheets(pump, preview, {
   now: () => host.now(),
   id: () => host.uuid(),
 });
+/** Subagent retries asked from this phone, kept across visits to their threads. */
+const retries = new SubagentRetries();
 /** The thread open on the phone, and what else follows it. */
 const visit = new ThreadVisit(
   pump,
@@ -139,6 +144,8 @@ const visit = new ThreadVisit(
     reading: (threadId) => services?.transcript.source(threadId),
   },
   (id) => suggest?.entries(id),
+  undefined,
+  retries,
 );
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
@@ -306,6 +313,25 @@ async function start(json: string): Promise<void> {
   followFileChanges(client, pump);
   const forgeClient = client;
   services?.dispose();
+  const newThread = compose.newThread;
+  const automations = new NativeAutomations({
+    owner: client,
+    // Whole milliseconds, as the daemon's clock reads them.
+    now: () => Math.floor(host.now()),
+    zone: localTimeZone,
+    agents: async () => {
+      if (!newThread.loadedAgents) await newThread.agents();
+      return newThread.loadedAgents;
+    },
+    threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
+    repository: async (workspace) => {
+      const reply = await owner.request(
+        { type: "projects.request", operation: { op: "workspace.inspect", path: workspace } },
+        { timeoutMs: 10_000 },
+      );
+      return reply.result.kind === "inspection" ? projectRepository(reply.result) : undefined;
+    },
+  });
   services = new NativeServices(
     client,
     pump,
@@ -324,6 +350,8 @@ async function start(json: string): Promise<void> {
     new ProjectManage(client, scheduler.set),
     inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
     new HostCare(client, admission),
+    () => host.now(),
+    automations,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   services.carried = (threadId) =>

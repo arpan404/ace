@@ -20,7 +20,8 @@ export type ReadFamily =
   | "catalog"
   | "forge"
   | "host"
-  | "providers";
+  | "providers"
+  | "skills";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -44,6 +45,11 @@ const pluginLookups = new Set([
   "plugins.prepare",
   "plugins.cancel",
 ]);
+/** The phone's skill-library requests that only read (`skill-library.ts`). */
+/** The phone's plugin requests that change a plugin (`skill-plugins.ts`); the rest only read. */
+const pluginChanges = new Set(["switch", "agent"]);
+/** Open on computer (`openers`, `open`) changes nothing the phone keeps. */
+const skillLookups = new Set(["library", "skill", "draft", "check", "openers", "open"]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -69,6 +75,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "readiness" ? "source-control" : undefined;
     case "automation.list":
     case "automation.inbox":
+    case "automations.page":
+    case "automations.history":
       return "automations";
     case "usage.accounts":
     case "usage.part":
@@ -87,6 +95,10 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "provider.page":
     case "providers.others":
       return "providers";
+    case "skills.native":
+      return value.op === "library" ? "skills" : undefined;
+    case "plugins.native":
+      return value.op === "plugins" ? "plugins" : undefined;
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -135,10 +147,20 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "automation.put":
     case "automation.remove":
     case "automation.run":
+    case "automation.setEnabled":
+    case "automation.retry":
     case "automation.manage":
+    case "automations.save":
+    case "automations.duplicate":
+    case "automations.write":
+    case "automations.restore":
       return ["automations"];
     case "pluginRequest":
-      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
+      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog", "skills"];
+    case "skills.native":
+      return skillLookups.has(String(value.op)) ? [] : ["skills", "catalog"];
+    case "plugins.native":
+      return pluginChanges.has(String(value.op)) ? ["plugins", "catalog", "skills"] : [];
     case "prompts.request":
       return ["prompts"];
     case "provider.edit":
@@ -177,9 +199,10 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "accounts.changed":
       return ["usage", "settings-page", "providers"];
     case "plugins.removed":
-      return ["plugins", "catalog"];
+      return ["plugins", "catalog", "skills"];
     case "catalog.changed":
-      return ["catalog"];
+      // Skill folders changing on the machine reach the catalog's watcher too (ADR 0103).
+      return ["catalog", "skills"];
     case "models.changed":
     case "providers.changed":
       return ["catalog", "settings-page", "providers"];

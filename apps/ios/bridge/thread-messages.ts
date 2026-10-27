@@ -30,6 +30,37 @@ const bubbleChars = 16_384;
 /** How a message reached the agent, when that isn't simply typed and sent. */
 const origins = new Set(["steer", "queue"]);
 
+/** Runs of words and code within the bubble's bound. */
+function bounded<T extends { text: string }>(runs: readonly T[]): T[] {
+  let room = bubbleChars;
+  return runs.flatMap((segment) => {
+    if (room <= 0) return [];
+    // Native repair: a cut never leaves half a pair, and ill-formed text never reaches JSON.
+    const text = preview(segment.text, room);
+    room -= text.length;
+    return [{ ...segment, text }];
+  });
+}
+
+/**
+ * Plain words drawn as the person's bubble (a subagent's prompt from its parent): the same runs
+ * of words and code, bound and fold as a message the person wrote.
+ */
+export function textBubble(text: string) {
+  return {
+    segments: bounded(
+      bubbleSegments(text).map((segment) => ({
+        kind: segment.kind,
+        text: segment.text,
+        mention: "",
+      })),
+    ),
+    readable: text.trim().length > 0,
+    long: isLongMessage(text),
+    origin: "",
+  };
+}
+
 /** The person's bubble: its runs of words, code and mentions, bounded, and whether it folds. */
 export function bubbleOf(item: Item) {
   if (item.type !== "message" || item.role !== "user") return null;
@@ -46,14 +77,7 @@ export function bubbleOf(item: Item) {
         text: segment.text,
         mention: "",
       }));
-  let room = bubbleChars;
-  const segments = runs.flatMap((segment) => {
-    if (room <= 0) return [];
-    // Native repair: a cut never leaves half a pair, and ill-formed text never reaches JSON.
-    const text = preview(segment.text, room);
-    room -= text.length;
-    return [{ ...segment, text }];
-  });
+  const segments = bounded(runs);
   const origin = messageOrigin(item)?.kind ?? "";
   return {
     segments,

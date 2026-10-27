@@ -5,6 +5,9 @@ import Observation
 /// rows arrive shaped, and git outcomes are correlated by request id.
 @MainActor @Observable final class ThreadSheetsModel {
     var agents: AgentSheet?
+    var logs: LogsSheet?
+    /// Logs Copy answers, by request.
+    var copies: [String: String] = [:]
     var changes: ChangesSummary?
     /// The listed files as folders and files (`changes:tree`).
     var tree: [ChangesTreeRow] = []
@@ -28,6 +31,7 @@ import Observation
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
         review = nil; replies = nil; notices = [:]; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
+        logs = nil; copies = [:]
     }
 
     func apply(_ summary: ChangesSummary) {

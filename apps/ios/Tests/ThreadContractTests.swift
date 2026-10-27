@@ -158,7 +158,7 @@ import Testing
         _ = try await until("the steps") { model.thread?.screen.steps[ordinal]?.header?.state == "ready" ? true : nil }
         model.back()
         model.closeSteps(ordinal: ordinal, epoch: epoch)
-        model.closeLane(epoch: epoch)
+        model.closeLane("explorer", epoch: epoch)
         // A later thread's first blocks arrive after anything the releases could have raised.
         model.open("ios-agents-review")
         _ = try await until("the next thread") { model.thread?.screen.blockOrder.isEmpty == false ? true : nil }

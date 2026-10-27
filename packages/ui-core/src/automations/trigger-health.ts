@@ -69,7 +69,7 @@ export function scheduleState(
   if (nextRunAt !== undefined) return "next";
   let exhausted = false;
   try {
-    exhausted = compileSchedule(schedule).next(after) === undefined;
+    exhausted = compileSchedule(schedule).next(Math.floor(after)) === undefined;
   } catch {
     return "not-placed";
   }

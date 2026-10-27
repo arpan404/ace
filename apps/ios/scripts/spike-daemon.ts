@@ -9,9 +9,11 @@ import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
+import { seedSubagents } from "./subagent-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -34,6 +36,7 @@ import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 import { seedAppUpdate, seedStorage } from "./storage-scenario.ts";
+import { seedSkills } from "./skills-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -165,6 +168,23 @@ daemon.createThread({
 seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
+  id: "ios-subagents",
+  workspaceId: "ace",
+  title: "Harden process cleanup",
+  provider: "claude",
+  details: details("fix/process-cleanup"),
+});
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-big-tree",
+  workspaceId: "ace",
+  title: "Shard the test suite",
+  provider: "codex",
+  details: details("perf/shards"),
+});
+seedSubagents(daemon);
+daemon.createThread({
+  hasSentMessage: true,
   id: "ios-snoozed",
   workspaceId: "ace",
   title: "Release notes for 0.9",
@@ -201,6 +221,7 @@ const busyTimer =
     : undefined;
 seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
+seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
@@ -233,6 +254,7 @@ const richTimer =
     ? setInterval(() => richRound(daemon, ++rounds, burstPace), richEvery)
     : undefined;
 requestScenarios(daemon, details);
+seedAutomations(daemon, details, Date.now());
 spikeDevices(daemon, details);
 let fresh = 0;
 let works = 0;
@@ -388,6 +410,8 @@ const server = Bun.serve<undefined>({
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    // What Open on computer (`host.open`) opened on this fake machine, in order.
+    if (path === "/host-opened") return Response.json({ opened: daemon.workspace.opened });
     if (path === "/queue")
       return Response.json({
         texts: await queuedTexts(

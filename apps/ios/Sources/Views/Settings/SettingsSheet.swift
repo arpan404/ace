@@ -6,6 +6,7 @@ enum SettingsRoute: Hashable {
     case notifications, lock, appearance, keyboard
     case archive, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
+    case automation(machine: String, id: String)
     case licences
 }
 
@@ -21,6 +22,7 @@ struct SettingsSheet: View {
     @AppStorage("ace.appearance") private var appearance = "system"
     @State private var path: [SettingsRoute]
     @State private var toolsMachine = ""
+    @State private var automationUndo = AutomationUndo()
     /// The machine whose archive window is open while the archive or one of its threads shows.
     @State private var following: String?
     /// Where machine settings changes go while Settings is open (`SettingsScope`).
@@ -120,7 +122,9 @@ struct SettingsSheet: View {
                 }
             }
         case .tool(let tool, let machine):
-            if let client = inbox.client(machine) { tool.destination(client, inbox: inbox, machine: machine) }
+            if let client = inbox.client(machine) { tool.destination(client, inbox: inbox, machine: machine).modifier(automationLinks(client, machine)) }
+        case .automation(let machine, let id):
+            if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).id(id).modifier(automationLinks(client, machine)) }
         case .licences: LicencesView()
         }
     }
@@ -137,6 +141,20 @@ struct SettingsSheet: View {
             inbox.client(following)?.closeArchive()
             self.following = nil
         }
+    }
+    /// An automation opens on Settings' own stack, and a run's thread opens on top of it.
+    private func automationLinks(_ client: ClientModel, _ machine: String) -> AutomationLinks {
+        AutomationLinks(
+            open: { id in path.append(.automation(machine: machine, id: id)) },
+            replace: { id in
+                if case .automation = path.last { path.removeLast() }
+                path.append(.automation(machine: machine, id: id))
+            },
+            thread: { id in
+                client.open(id)
+                path.append(.thread(machine: machine, id: id))
+            },
+            undo: automationUndo)
     }
     private func closeMachineViews() {
         if let following { inbox.client(following)?.closeArchive(); self.following = nil }

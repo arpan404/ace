@@ -171,6 +171,10 @@ enum ScreenPatch: Sendable {
     case annotations([AnnotationChip])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
+    /// What the open lane's subagent is: its prompt, branch state, requests and controls.
+    case laneInfo(lane: String, info: SubagentInfo?)
+    /// The thread's Offshift run (`bridge/offshift.ts`).
+    case offshift(OffshiftRun?)
     case pill(PillRow?, GoalRow?)
     /// The next message started a new thread carrying this one's context: open it.
     case continued(String)
@@ -185,8 +189,8 @@ enum ScreenPatch: Sendable {
     /// What bringing this fork back to its parent starts with.
     case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items }
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.offshift", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items, info, run }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -206,6 +210,9 @@ enum ScreenPatch: Sendable {
         case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
         case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
         case "thread.annotations": self = .annotations(try box.decode([AnnotationChip].self, forKey: .items))
+        case "thread.offshift": self = .offshift(try box.decodeIfPresent(OffshiftRun.self, forKey: .run))
+        case "thread.laneInfo":
+            self = .laneInfo(lane: try box.decode(String.self, forKey: .lane), info: try box.decodeIfPresent(SubagentInfo.self, forKey: .info))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

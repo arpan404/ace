@@ -68,6 +68,8 @@ import Observation
     var mergeDraft: MergeDraftRow?
     /// What stops the checkout, shown above the composer.
     var work: WorkLine?
+    /// The thread's latest Offshift run, worded against the whole tree; nil while it has none.
+    var offshift: OffshiftRun?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -79,6 +81,7 @@ import Observation
         queue = nil
         pill = nil
         goal = nil
+        offshift = nil
         steps = [:]
         tune = nil
         access = nil

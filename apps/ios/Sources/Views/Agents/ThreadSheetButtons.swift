@@ -12,6 +12,7 @@ struct ThreadSheetButtons: ViewModifier {
     @Binding var showingTerminal: Bool
     @Binding var showingWork: Bool
     @Environment(\.openPullRequest) private var openPull
+    @Binding var showingLogs: Bool
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
 
     func body(content: Content) -> some View {
@@ -25,6 +26,13 @@ struct ThreadSheetButtons: ViewModifier {
             .sheet(isPresented: $showingWork) {
                 WorkSheet(model: model).environment(\.openPullRequest, openPull).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showingLogs) {
+                NavigationStack {
+                    LogsView(model: model)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showingLogs = false } } }
+                }
+                .presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showingTerminal) {
                 NavigationStack { TerminalView(model: model, threadId: thread.id) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -32,8 +40,8 @@ struct ThreadSheetButtons: ViewModifier {
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, agents: Binding<Bool>, changes: Binding<Bool>, terminal: Binding<Bool>, work: Binding<Bool>) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingAgents: agents, showingChanges: changes, showingTerminal: terminal, showingWork: work))
+    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, agents: Binding<Bool>, changes: Binding<Bool>, terminal: Binding<Bool>, work: Binding<Bool>, logs: Binding<Bool>) -> some View {
+        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingAgents: agents, showingChanges: changes, showingTerminal: terminal, showingWork: work, showingLogs: logs))
     }
 }
 

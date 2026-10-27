@@ -37,6 +37,8 @@ struct ThreadView: View {
     @State private var confirmingLock = false
     @State private var showTerminal = false
     @State private var showBrowser = false
+    @State private var showLogs = false
+    @State private var showOffshift = false
     @State private var showSearch = false
     @State private var showQueue = false
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
@@ -126,7 +128,7 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork)
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork, logs: $showLogs)
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
             .environment(\.markdownRich, rich)
@@ -190,6 +192,13 @@ struct ThreadView: View {
             }
             .sheet(isPresented: $showTune) {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
+            }
+            .sheet(isPresented: $showOffshift) {
+                NavigationStack {
+                    OffshiftRunView(screen: thread.screen)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showOffshift = false } } }
+                }
+                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
@@ -360,23 +369,8 @@ struct ThreadView: View {
         default: break
         }
     }
-    @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
-        let submission = model.approvalSubmissions[request.id]
-        switch request.kind {
-        case "question":
-            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
-                model.answer(request, answers: $0, dismissed: $1)
-            }.id(request.id)
-        case "plan_review":
-            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "elicitation":
-            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "browser_help":
-            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
-        default:
-            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
-        }
+    private func requestCard(_ request: ApprovalRow) -> some View {
+        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { showBrowser = true })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {
@@ -409,6 +403,8 @@ struct ThreadView: View {
         case .computer: showComputer = true
         case .tools: showTools = true
         case .agents: showAgents = true
+        case .logs: showLogs = true
+        case .offshift: showOffshift = true
         }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.

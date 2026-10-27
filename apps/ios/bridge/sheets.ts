@@ -1,10 +1,11 @@
 import type { ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { followAgents, type PatchSink, type Preview } from "./agents.ts";
+import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesAction, changesAction } from "./changes-actions.ts";
 import type { ChangesKept } from "./changes-kept.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
+import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
@@ -17,7 +18,14 @@ import { clearStaleLock, workAction } from "./work-actions.ts";
 
 const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
+  /** The next page of the open Agents sheet's agents or background tasks. */
+  z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
+  /** The thread's Logs: opened or closed, or its scope and filter changed while open. */
+  z.object({ kind: z.literal("logs"), open: z.boolean(), query: LogsQuery.optional() }),
+  z.object({ kind: z.literal("logs.earlier") }),
+  /** The shown lines as text for Copy, answered under `logs.copy`. */
+  z.object({ kind: z.literal("logs.copy"), requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("changes.refresh") }),
   z.object({ kind: z.literal("changes.file"), path: z.string().min(1).max(4096).nullable() }),
   z.object({ kind: z.literal("git"), action: z.unknown(), requestId: z.string().min(1).max(64) }),
@@ -54,7 +62,8 @@ export interface OpenThread {
 export class Sheets {
   #sink: PatchSink;
   #preview: Preview;
-  #agents: (() => void) | undefined;
+  #agents: AgentsFollow | undefined;
+  #logs: LogsFollow | undefined;
   #changes: ChangesSession | undefined;
   #work: WorkSession | undefined;
   /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
@@ -67,8 +76,10 @@ export class Sheets {
   }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
-    this.#agents?.();
+    this.#agents?.stop();
     this.#agents = undefined;
+    this.#logs?.stop();
+    this.#logs = undefined;
     this.#changes?.close();
     this.#changes = undefined;
     this.#work?.close();
@@ -86,11 +97,46 @@ export class Sheets {
     if (!thread) return releases(action);
     switch (action.kind) {
       case "agents":
-        this.#agents?.();
+        this.#agents?.stop();
         this.#agents = action.open
           ? followAgents(thread.store, thread.threadId, thread.epoch, this.#sink, this.#preview)
           : undefined;
         return true;
+      case "agents.more":
+        this.#agents?.more(action.list);
+        return this.#agents !== undefined;
+      case "logs": {
+        const query = action.query ?? LogsQuery.parse({});
+        if (!action.open) {
+          this.#logs?.stop();
+          this.#logs = undefined;
+          this.#sink.clear("logs.copy:");
+        } else if (this.#logs) this.#logs.query(query);
+        else
+          this.#logs = followLogs(
+            thread.store,
+            thread.threadId,
+            thread.epoch,
+            this.#sink,
+            this.#preview,
+            logTime,
+            query,
+          );
+        return true;
+      }
+      case "logs.earlier":
+        this.#logs?.earlier();
+        return this.#logs !== undefined;
+      case "logs.copy": {
+        const logs = this.#logs;
+        if (!logs) return false;
+        const id = action.requestId;
+        // At most one Copy answer is kept: an earlier one is dropped, and closing Logs drops it.
+        // It stays readable until then, so a redelivered frame still carries the text.
+        this.#sink.clear("logs.copy:");
+        this.#sink.put(`logs.copy:${id}`, () => ({ type: "logs.copy", id, text: logs.copy() }));
+        return true;
+      }
       case "changes":
         this.#changes?.close();
         this.#changes = action.open
@@ -187,8 +233,20 @@ export class Sheets {
   }
 }
 
+const clock = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+const logTime = (at: number) => clock.format(at);
+
 function releases(action: SheetAction): boolean {
-  if (action.kind === "agents" || action.kind === "changes" || action.kind === "work")
+  if (
+    action.kind === "agents" ||
+    action.kind === "changes" ||
+    action.kind === "work" ||
+    action.kind === "logs"
+  )
     return !action.open;
   if (action.kind === "changes.open" || action.kind === "changes.expand") return !action.open;
   return action.kind === "changes.file" && action.path === null;

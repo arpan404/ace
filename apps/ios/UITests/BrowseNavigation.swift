@@ -25,8 +25,11 @@ extension XCUIApplication {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
-                      "thread.reload": "Reload from machine"]
-        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
+                      "thread.reload": "Reload from machine",
+                      "thread.logs": "Logs", "thread.offshift": "Offshift run"]
+        // A menu item with a second line reads both in its label: match its first words.
+        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
+                                            labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
     }
     /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window
     /// (iPad, an opened foldable), whichever the layout shows.

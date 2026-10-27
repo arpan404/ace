@@ -917,6 +917,7 @@
       "name": "@ace/ui-core",
       "dependencies": {
         "@ace/accounts": "workspace:*",
+        "@ace/automations": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",

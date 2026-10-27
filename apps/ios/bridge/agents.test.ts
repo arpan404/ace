@@ -81,7 +81,7 @@ describe("Agents sheet", () => {
     expect(sheet(sink).treeRunning).toBe(false);
   });
 
-  test("a large tree is capped with counts and keeps the working agent over finished ones", async () => {
+  test("a large tree shows a page at a time, keeps the working agent first and pages the rest in", async () => {
     const seed: Fact[] = [facts.rootAgent("codex"), facts.turn("root")];
     for (let index = 0; index < 150; index++)
       seed.push(
@@ -96,15 +96,59 @@ describe("Agents sheet", () => {
     );
     const { store } = await opened("big", seed);
     const sink = new RecordingSink();
-    followAgents(store, "big", 1, sink, plainPreview, { agents: 20, tasks: 5 });
+    const follow = followAgents(store, "big", 1, sink, plainPreview, { agents: 20, tasks: 5 });
     await until(() => sheet(sink).totals.agents === 152, "whole tree");
     const shaped = sheet(sink);
     expect(shaped.rows).toHaveLength(20);
     expect(shaped.hidden).toEqual({ agents: 132, running: 0 });
     expect(shaped.rows.map((row) => row.name)).toContain("Still going");
     expect(shaped.rows[0]?.depth).toBe(0);
-    expect(shaped.rows[0]?.descendants).toBe(151);
+    // Stop names only what it would stop: the one subagent still at work, not the 150 that ended.
+    expect(shaped.rows[0]?.descendants).toBe(1);
     expect(shaped.totals.running).toBe(2);
+    // Show more reads the next page; every agent is reachable on the phone, none left behind.
+    follow.more("agents");
+    await until(() => sheet(sink).rows.length === 40, "second page");
+    expect(sheet(sink).hidden.agents).toBe(112);
+    for (let page = 0; page < 6; page++) follow.more("agents");
+    await until(() => sheet(sink).hidden.agents === 0, "every page");
+    expect(sheet(sink).rows).toHaveLength(152);
+    expect(new Set(sheet(sink).rows.map((row) => row.id)).size).toBe(152);
+  });
+
+  test("background tasks page in on request, running ones first", async () => {
+    const seed: Fact[] = [facts.rootAgent("codex"), facts.turn("root")];
+    for (let index = 0; index < 12; index++)
+      seed.push(
+        {
+          type: "background.started",
+          agent: "root",
+          task: `task-${index}`,
+          kind: "shell",
+          title: `job ${index}`,
+          stoppable: true,
+        },
+        ...(index === 3
+          ? []
+          : [
+              {
+                type: "background.ended" as const,
+                task: `task-${index}`,
+                status: "completed" as const,
+              },
+            ]),
+      );
+    const { store } = await opened("jobs", seed);
+    const sink = new RecordingSink();
+    const follow = followAgents(store, "jobs", 1, sink, plainPreview, { agents: 20, tasks: 5 });
+    await until(() => sheet(sink).tasks.length === 5, "first page of tasks");
+    expect(sheet(sink).hiddenTasks).toBe(7);
+    expect(sheet(sink).tasks[0]?.title).toBe("job 3");
+    follow.more("tasks");
+    await until(() => sheet(sink).tasks.length === 10, "second page of tasks");
+    follow.more("tasks");
+    await until(() => sheet(sink).hiddenTasks === 0, "all tasks");
+    expect(sheet(sink).tasks).toHaveLength(12);
   });
 
   test("streaming transcript text doesn't reshape the tree, and closing stops following", async () => {
@@ -114,7 +158,7 @@ describe("Agents sheet", () => {
       facts.message("root", "answer", "assistant", "Working on it", false),
     ]);
     const sink = new RecordingSink();
-    const stop = followAgents(store, "quiet", 1, sink, plainPreview);
+    const follow = followAgents(store, "quiet", 1, sink, plainPreview);
     const before = sink.puts;
     for (let index = 0; index < 20; index++)
       daemon.apply("quiet", [facts.stream("root", "answer", ` more ${index}`)]);
@@ -125,7 +169,94 @@ describe("Agents sheet", () => {
     expect(sink.puts).toBe(before);
     daemon.apply("quiet", [facts.subagent("codex", "helper", "Helper", "spawn")]);
     await until(() => sink.puts > before, "a new agent reshapes");
-    stop();
+    follow.stop();
     expect(sink.read("thread:agents")).toBeUndefined();
+  });
+
+  test("a failed subagent and a failed task are on the first page, however many others there are", async () => {
+    // Created first, so the newest-first tree would put them last.
+    const seed: Fact[] = [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "broken", "Broken", "spawn-broken"),
+      facts.turn("broken", "spawn"),
+      facts.endTurn("broken", "failed", { kind: "provider", message: "stream closed" }),
+      {
+        type: "background.started",
+        agent: "root",
+        task: "lint",
+        kind: "shell",
+        title: "bun run lint",
+        stoppable: true,
+      },
+      { type: "background.ended", task: "lint", status: "failed" },
+    ];
+    for (let index = 0; index < 40; index++)
+      seed.push(
+        facts.subagent("codex", `busy-${index}`, `Busy ${index}`, `spawn-${index}`),
+        facts.turn(`busy-${index}`, "spawn"),
+        {
+          type: "background.started",
+          agent: "root",
+          task: `done-${index}`,
+          kind: "shell",
+          title: `step ${index}`,
+          stoppable: true,
+        },
+        { type: "background.ended", task: `done-${index}`, status: "completed" },
+      );
+    const { store } = await opened("failures", seed);
+    const sink = new RecordingSink();
+    followAgents(store, "failures", 1, sink, plainPreview, { agents: 10, tasks: 5 });
+    await until(() => sheet(sink).totals.agents === 42, "whole tree");
+    const shaped = sheet(sink);
+    expect(shaped.rows.map((row) => row.name)).toContain("Broken");
+    expect(shaped.rows.find((row) => row.name === "Broken")?.status.token).toBe("failed");
+    expect(shaped.rows).toHaveLength(10);
+    expect(shaped.tasks[0]?.title).toBe("bun run lint");
+    expect(shaped.tasks[0]?.status.token).toBe("failed");
+  });
+
+  test("an agent waiting on the person is never pushed off the first page by working ones", async () => {
+    const seed: Fact[] = [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "asker", "Asker", "spawn-asker"),
+      facts.turn("asker", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: "ask",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "go",
+              text: "Go on?",
+              multiSelect: false,
+              allowOther: false,
+              secret: false,
+              options: [
+                { id: "yes", label: "Yes" },
+                { id: "no", label: "No" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    for (let index = 0; index < 40; index++)
+      seed.push(
+        facts.subagent("codex", `busy-${index}`, `Busy ${index}`, `spawn-${index}`),
+        facts.turn(`busy-${index}`, "spawn"),
+      );
+    const { store } = await opened("asking", seed);
+    const sink = new RecordingSink();
+    followAgents(store, "asking", 1, sink, plainPreview, { agents: 10, tasks: 5 });
+    await until(() => sheet(sink).totals.agents === 42, "whole tree");
+    const asker = sheet(sink).rows.find((row) => row.name === "Asker");
+    expect(asker?.needsYou).toBe(true);
+    expect(sheet(sink).rows).toHaveLength(10);
   });
 });
