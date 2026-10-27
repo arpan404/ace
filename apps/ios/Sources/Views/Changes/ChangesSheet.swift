@@ -39,9 +39,8 @@ struct ChangesSheet: View {
                             .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
                     }
                 }
-                ToolbarItem(placement: .principal) { header }
             }
-            .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
+            .changesActions(model: model, summary: summary, title: title, wrap: $wrap) { header }
         }
         .tint(AceTheme.Colours.foreground)
         .onAppear {

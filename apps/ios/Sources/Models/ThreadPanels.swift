@@ -49,23 +49,18 @@ struct PanelView: Decodable, Equatable, Sendable {
 
 /// Where the panel goes in the window, from the limits the shared rules send.
 enum PanelPlace: Equatable {
-    /// Beside the thread.
+    /// Beside the thread: the window's trailing column.
     case beside
-    /// Beside the thread once the thread list steps aside.
-    case yield
     /// Too narrow, or compact: the tools open over the thread, as on a phone.
     case none
 
-    /// `width` is the thread's column as it would be with the list showing; `list` the list's
-    /// width (0 when the person hid it).
-    static func of(regular: Bool, width: CGFloat, list: CGFloat, limits: PanelView.Limits) -> PanelPlace {
-        guard regular else { return .none }
-        let needed = CGFloat(limits.min + limits.keep)
-        if width >= needed { return .beside }
-        return width + list >= needed ? .yield : .none
+    /// `window` is the whole window's width: the panel at its narrowest leaves the thread at
+    /// least its share (the split view puts its list away when the list doesn't fit too).
+    static func of(regular: Bool, width window: CGFloat, limits: PanelView.Limits) -> PanelPlace {
+        regular && window >= CGFloat(limits.min + limits.keep) ? .beside : .none
     }
 
-    /// The panel's width in a column `width` wide: its size, between the minimum and what
+    /// The panel's width in a window `column` wide: its size, between the minimum and what
     /// leaves the thread its share.
     static func width(size: Double, column: CGFloat, limits: PanelView.Limits) -> CGFloat {
         let low = CGFloat(limits.min)

@@ -410,8 +410,24 @@ launches (its tabs, the tab showing, whether the panel shows, its width). Each m
 keeps its threads' panels (`bridge/workspace.ts`) in its own database. Where the panel goes is
 the window's: beside the thread when the thread keeps 440 points next to a panel of at least
 320; in portrait the thread list steps aside while the panel shows; narrower, and in every
-compact window, the tools open over the thread as on a phone. Run and preview joins the panel
-once its screen is on main (`PanelTool` in `Sources/Models/ThreadPanels.swift`).
+compact window, the tools open over the thread as on a phone.
+
+The inspector sits on the split view itself, not inside the thread's stack, so each panel
+screen has its own bar and stack: its actions (Changes' git menu and step, Agents' Stop all,
+Files' search and manage menu, the browser's Keyboard; `screenBar`) and anything it opens (a
+file, an agent's transcript) stay in the panel, and the thread's bar keeps only its ⋯ and the
+panel button. The tab strip's own menu is a caret, so no two ⋯ sit together. As sheets on
+iPhone the screens are unchanged.
+
+Run and preview joins the panel when `ProjectScriptsView` (the projects branch) and this panel
+are on one branch. The shared rules already offer it as "Run and preview" (kind `preview`). Add:
+
+1. `case preview` to `PanelTool` (`Sources/Models/ThreadPanels.swift`).
+2. In `ThreadDestination.panelTool` (`Sources/Views/ThreadToolbar.swift`): `case .scripts: .preview`.
+3. In `PanelContent` (`Sources/Views/Workspace/PanelContent.swift`):
+   `case .preview: NavigationStack { ProjectScriptsView(model: model, threadId: thread.id) { url in
+   model.browserNewTab(url); model.panel(thread.id, ["op": "open", "kind": "browser"]) } }`, so a
+   dev server opens in the panel's Browser tab rather than over the thread.
 
 ## Agents and Changes sheets
 

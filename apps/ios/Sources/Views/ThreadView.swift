@@ -92,8 +92,8 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave),
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
+                                               open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
             }
             .navigationTitle(metadata?.title ?? "Thread")

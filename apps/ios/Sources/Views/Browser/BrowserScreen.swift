@@ -57,12 +57,10 @@ struct BrowserScreen: View {
         .background(AceTheme.Colours.background)
         .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        .screenBar {
             if model.canOperate, browser.page?.focus != nil, !editingAddress {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
-                        .accessibilityIdentifier("browser.keyboard")
-                }
+                Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
+                    .accessibilityIdentifier("browser.keyboard")
             }
         }
         .browserPrompts(model: model)
@@ -207,14 +205,3 @@ private struct AgentCursor: View {
 
 extension BrowserPageInfo.Picker: Identifiable { var id: String { pickerId } }
 extension BrowserShot: Identifiable { var id: Double { at } }
-
-/// The page's title and host in the bar, as a pushed page. In the iPad side panel the window's
-/// bar belongs to the thread, and the tab strip names the browser.
-private struct PageTitle: ViewModifier {
-    let title: String
-    let subtitle: String
-    @Environment(\.panelHost) private var panelHost
-    func body(content: Content) -> some View {
-        if panelHost == nil { content.threadTitle(title, subtitle: subtitle) } else { content }
-    }
-}

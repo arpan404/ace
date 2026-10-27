@@ -85,7 +85,8 @@ struct PanelTabStrip: View {
                     .accessibilityIdentifier("panel.hide")
             }
         } label: {
-            AceIcon(.dotsThree, size: 20).foregroundStyle(AceTheme.Colours.foreground)
+            // A caret, not ⋯: the screen below has its own ⋯ in its bar.
+            AceIcon(.caretDown, size: 14).foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
         }

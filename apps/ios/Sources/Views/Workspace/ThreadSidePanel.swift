@@ -1,31 +1,12 @@
 import SwiftUI
 
-/// What the split view lends the open thread's side panel (`InboxSplit`): its widths, a way to
-/// have the list step aside while the panel needs the room, and the inspector column it shows in.
+/// What the split view lends the open thread's side panel (`InboxSplit`): the window's width and
+/// where it reads the panel's place.
 struct PanelRoom {
-    /// The split view's whole width, list and thread: steady while the list slides.
+    /// The window's width: the split view and the panel together.
     let window: CGFloat
-    /// The list beside the thread, or the list stepped aside for the panel; 0 when the person
-    /// hid it, or there is none.
-    let list: CGFloat
-    /// Each time the person brought the list back over a panel that needed its room.
-    let reclaimed: Int
-    /// Each time the system closed the inspector column itself.
-    let dismissed: Int
-    let yield: (Bool) -> Void
     /// Where the panel goes, for the thread's ⋯ menu, panel button and keys.
     let place: Binding<PanelPlace>
-    /// The inspector column's widths wherever the panel has room, shown or not.
-    let column: Binding<PanelColumnWidth?>
-    /// The panel shows its column.
-    let shown: Binding<Bool>
-}
-
-/// The inspector column's widths: the person's own, inside what leaves the thread its share.
-struct PanelColumnWidth: Equatable {
-    let min: CGFloat
-    let ideal: CGFloat
-    let max: CGFloat
 }
 
 extension EnvironmentValues {
@@ -34,14 +15,17 @@ extension EnvironmentValues {
     @Entry var panelPlace = PanelPlace.none
 }
 
-/// Which part of the panel a view is: the decisions, beside the thread's stack and always there,
-/// or the column the inspector shows.
+/// Which part of the panel a view is: the decisions, always there behind the split view, or
+/// the column itself.
 enum PanelPart { case state, column }
 
-/// The open thread's side panel (iPad, a wide window), in the split view's inspector: a trailing
-/// column with its own bar, beside the thread, that the person resizes by its edge. Its tabs and
-/// width are the thread's (`ThreadPanels`); where it goes is the window's (`PanelPlace`). With no
-/// room it doesn't show and the thread's tools open over it as on a phone.
+/// The open thread's side panel (iPad, a wide window): a trailing column of the window beside
+/// the split view, with its own bar and stack, so what a tab's screen shows and pushes stays in
+/// it. Its tabs and width are the thread's (`ThreadPanels`); where it goes is the window's
+/// (`PanelPlace`). With no room it doesn't show and the thread's tools open over it as on a
+/// phone. The split view takes the rest, and puts its list away when the two don't fit beside
+/// the thread. The panel arrives and leaves with the system spring (a fade under Reduce Motion);
+/// its edge drags to resize, the panel overhanging the thread until let go.
 struct ThreadSidePanel: View {
     @Bindable var model: ClientModel
     let threadId: String
@@ -51,82 +35,70 @@ struct ThreadSidePanel: View {
     var body: some View {
         switch part {
         case .state: PanelState(model: model, threadId: threadId)
-        case .column: PanelColumn(model: model, threadId: threadId, openThread: openThread)
+        case .column: PanelSide(model: model, threadId: threadId, openThread: openThread)
         }
     }
 }
 
-/// Decides where the panel goes and whether the column shows, without drawing anything.
+/// Decides where the panel goes, without drawing anything.
 private struct PanelState: View {
     @Bindable var model: ClientModel
     let threadId: String
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.panelRoom) private var room
 
-    private var view: PanelView? { model.panels.views[threadId] }
     private var place: PanelPlace {
-        guard let view, let room, room.window > 0 else { return .none }
-        // The thread's column as it would be with the list showing, from widths that hold still
-        // while the list slides in or out.
-        return PanelPlace.of(regular: sizeClass == .regular, width: room.window - room.list, list: room.list, limits: view.limits)
-    }
-    private var column: PanelColumnWidth? {
-        guard let view, place != .none, let room else { return nil }
-        // Its column once shown: the whole window when the list steps aside for it.
-        let detail = place == .yield ? room.window : room.window - room.list
-        let low = CGFloat(view.limits.min)
-        return PanelColumnWidth(min: low, ideal: PanelPlace.width(size: view.size, column: detail, limits: view.limits),
-                                max: max(low, detail - CGFloat(view.limits.keep)))
+        guard let view = model.panels.views[threadId], let room, room.window > 0 else { return .none }
+        return PanelPlace.of(regular: sizeClass == .regular, width: room.window, limits: view.limits)
     }
 
     var body: some View {
         Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             .onChange(of: place, initial: true) { _, now in room?.place.wrappedValue = now }
-            .onChange(of: column, initial: true) { _, now in room?.column.wrappedValue = now }
-            .onChange(of: view?.open == true && view?.shown != nil && place != .none, initial: true) { _, now in
-                room?.shown.wrappedValue = now
-            }
-            // The list steps aside while a panel that needs its room shows, and comes back after.
-            .onChange(of: place == .yield && view?.open == true, initial: true) { _, wants in room?.yield(wants) }
-            // The person brought the list back over it, or the system closed the column: the
-            // panel gives way.
-            .onChange(of: room?.reclaimed ?? 0) { _, _ in
-                if place == .yield, view?.open == true { model.panel(threadId, ["op": "panel", "open": false]) }
-            }
-            .onChange(of: room?.dismissed ?? 0) { _, _ in
-                if view?.open == true { model.panel(threadId, ["op": "panel", "open": false]) }
-            }
             .task(id: threadId) { if sizeClass == .regular { model.panel(threadId) } }
             .onChange(of: sizeClass) { _, now in if now == .regular { model.panel(threadId) } }
     }
 }
 
-/// The column: the tab strip, then the tab's screen with its own bar and stack. The width the
-/// person drags the column to is kept for this thread once the drag settles.
-private struct PanelColumn: View {
+/// The column, when the thread's panel is open and has room.
+private struct PanelSide: View {
     @Bindable var model: ClientModel
     let threadId: String
     let openThread: (String) -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var width: CGFloat = 0
+    @Environment(\.panelRoom) private var room
+    /// The width let go at, shown until the bridge sends it back, so the edge never snaps back.
+    @State private var pending: Double?
 
     private var view: PanelView? { model.panels.views[threadId] }
     /// The thread the panel's screens read: the one the client shows, once it is this one.
     private var thread: ThreadModel? { model.thread.flatMap { $0.id == threadId ? $0 : nil } }
     private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var showing: PanelView? {
+        guard let view, view.open, view.shown != nil, let room, thread != nil,
+              PanelPlace.of(regular: sizeClass == .regular, width: room.window, limits: view.limits) == .beside else { return nil }
+        return view
+    }
+    private func width(_ view: PanelView, size: Double) -> CGFloat {
+        PanelPlace.width(size: size, column: room?.window ?? 0, limits: view.limits)
+    }
 
     var body: some View {
         Group {
-            if let view, let thread { panel(view, thread: thread) }
-            else { AceTheme.Colours.background }
+            if let shown = showing, let thread {
+                let settled = width(shown, size: pending ?? shown.size)
+                PanelColumn(settled: settled, clamp: { width(shown, size: Double($0)) }, resize: { next in
+                    withAnimation(motion) {
+                        pending = Double(next)
+                        model.panel(threadId, ["op": "size", "size": Double(next)])
+                    }
+                }) { panel(shown, thread: thread) }
+                .transition(reduceMotion ? .opacity : .move(edge: .trailing))
+            }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width.rounded() } action: { width = $0 }
-        // Saved once the edge stops moving, not on every frame of the drag.
-        .task(id: width) {
-            guard width > 0, let view, abs(Double(width) - view.size) >= 1 else { return }
-            try? await Task.sleep(for: .milliseconds(400))
-            if !Task.isCancelled { model.panel(threadId, ["op": "size", "size": Double(width)]) }
-        }
+        .animation(motion, value: showing != nil)
+        .onChange(of: view?.size) { _, now in if now == pending { pending = nil } }
     }
 
     private func panel(_ view: PanelView, thread: ThreadModel) -> some View {
@@ -151,5 +123,63 @@ private struct PanelColumn: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Thread panel")
         .accessibilityIdentifier("panel")
+    }
+}
+
+/// The panel with its leading edge: a hairline with a grabber, a 24-point target to drag. While
+/// the edge is held only this column redraws: its frame keeps the settled width, so the thread
+/// beside it is not laid out again each frame, and the panel overhangs the thread or narrows
+/// away from it. The thread takes the new width once let go. VoiceOver and Full Keyboard Access
+/// adjust it in steps.
+private struct PanelColumn<Panel: View>: View {
+    let settled: CGFloat
+    /// The width a size would be, kept inside the panel's bounds.
+    let clamp: (CGFloat) -> CGFloat
+    let resize: (CGFloat) -> Void
+    @ViewBuilder let panel: () -> Panel
+    /// How far the edge has moved while held; the panel grows as it moves left.
+    @GestureState private var pull: CGFloat = 0
+    @GestureState private var held = false
+
+    var body: some View {
+        let live = clamp(settled + pull)
+        HStack(spacing: AceTheme.Spacing.none) {
+            edge(live)
+            panel().frame(width: live)
+        }
+        .background(AceTheme.Colours.background)
+        .frame(width: settled + AceTheme.Dimensions.border, alignment: .trailing)
+        .zIndex(1)
+    }
+
+    private func edge(_ live: CGFloat) -> some View {
+        Rectangle().fill(AceTheme.Colours.separator)
+            .frame(width: AceTheme.Dimensions.border)
+            .overlay {
+                Capsule().fill(held ? AceTheme.Colours.mutedForeground : AceTheme.Colours.decoration)
+                    .frame(width: 4, height: 36)
+            }
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear.frame(width: 24).contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                            .updating($pull) { value, pull, _ in pull = -value.translation.width }
+                            .updating($held) { _, held, _ in held = true }
+                            .onEnded { value in resize(clamp(settled - value.translation.width)) }
+                    )
+                    .hoverEffect(.highlight)
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Panel width")
+            .accessibilityValue("\(Int(live)) points")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: resize(clamp(settled + 40))
+                case .decrement: resize(clamp(settled - 40))
+                @unknown default: break
+                }
+            }
+            .accessibilityIdentifier("panel.edge")
     }
 }

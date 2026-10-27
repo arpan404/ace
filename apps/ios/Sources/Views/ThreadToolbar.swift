@@ -38,10 +38,10 @@ struct ThreadToolbar: ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
             // ⋯ sits in the same glass circle as the system's back button across from it.
-            ToolbarItem(placement: .topBarTrailing) { menu }
+            ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
         } else {
             ToolbarItem(placement: .principal) { heading }
-            ToolbarItem(placement: .topBarTrailing) { menu }
+            ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
         }
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
@@ -68,16 +68,23 @@ struct ThreadToolbar: ToolbarContent {
     }
 }
 
-/// The ⋯ menu: the thread's other places and what can be done to it.
-struct ThreadMenu: View {
+/// The ⋯ menu: the thread's other places and what can be done to it. It redraws only when what
+/// it shows changes (`==`): a menu rebuilt while open drops the item under the finger, and the
+/// thread's row changes many times a second while it works.
+struct ThreadMenu: View, Equatable {
     let model: ClientModel
     let thread: ThreadModel
     /// The thread's title, as Continue on… names it.
     var title = ""
     let archived: Bool
-    /// The row a Lock Screen activity starts from; nil when there is none yet.
-    let activityRow: ThreadRow?
+    /// Whether the thread has a row to start a Lock Screen activity from.
+    let hasActivity: Bool
+    /// That row, read when the item is picked.
+    let activityRow: () -> ThreadRow?
     let open: (ThreadDestination) -> Void
+    /// Where `open` sends a tool now (the iPad side panel, or over the thread): it is part of
+    /// what the menu is, so a change rebuilds the menu with a fresh `open`.
+    var opensInPanel = false
     let problem: (String) -> Void
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
@@ -108,8 +115,9 @@ struct ThreadMenu: View {
                     .disabled(!ready)
                     .accessibilityIdentifier("thread.continueOn")
                 }
-                if let activityRow, let hostId = model.hostId {
+                if hasActivity, let hostId = model.hostId {
                     Button("Show on Lock Screen", ace: .squaresFour) {
+                        guard let activityRow = activityRow() else { return }
                         do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
                         catch { problem(error.localizedDescription) }
                     }
@@ -141,6 +149,12 @@ struct ThreadMenu: View {
         // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
         .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
+    }
+
+    /// What the menu shows from its inputs; the model's own state it reads redraws it as it changes.
+    nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
+        lhs.model === rhs.model && lhs.thread === rhs.thread && lhs.title == rhs.title
+            && lhs.archived == rhs.archived && lhs.hasActivity == rhs.hasActivity && lhs.opensInPanel == rhs.opensInPanel
     }
 }
 

@@ -27,6 +27,16 @@ import XCTest
         XCTAssertTrue(changes.isSelected)
         XCTAssertTrue(app.buttons["sidebar.threads"].reachable, "landscape has room for the list, the thread and the panel")
         XCTAssertFalse(app.buttons["changes.close"].exists, "the tab strip closes it, not a sheet's own button")
+        // The screen's own actions sit in the panel's own bar; the thread's bar keeps only the
+        // thread's ⋯ and the panel button.
+        let threadBar = app.buttons["thread.menu"].firstMatch
+        let changesMenu = app.buttons["changes.menu"]
+        XCTAssertTrue(changesMenu.waitForExistence(timeout: 10))
+        XCTAssertTrue(threadBar.exists)
+        // The screen's ⋯ sits over the panel, apart from the thread's ⋯ over the thread.
+        let panelEdge = changes.frame.minX
+        XCTAssertGreaterThanOrEqual(changesMenu.frame.minX, panelEdge - 8)
+        XCTAssertLessThan(threadBar.frame.maxX, panelEdge, "the thread's ⋯ stays over the thread")
         screenshot("ipad-panel-changes")
 
         // The thread's ⋯ menu opens a tool as a tab, not a sheet over the thread.
@@ -42,6 +52,9 @@ import XCTest
         menuItem("Agents", in: app).tap()
         let agents = app.buttons["panel.tab.agents"]
         XCTAssertTrue(agents.waitForHittable(timeout: 10))
+        let stopAll = app.buttons["agents.stopAll"]
+        XCTAssertTrue(stopAll.waitForExistence(timeout: 10))
+        XCTAssertGreaterThanOrEqual(stopAll.frame.minX, panelEdge - 8, "Stop all sits over the panel")
         screenshot("ipad-panel-agents")
         app.buttons["panel.tab.terminal.close"].tap()
         XCTAssertTrue(terminal.waitForNonExistence(timeout: 10))
@@ -63,6 +76,17 @@ import XCTest
         XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable, "opening and closing the panel keeps the tab bar hidden")
         screenshot("ipad-panel-pinned")
 
+        // A file opened from Files stays in the panel, beside the thread.
+        files.tap()
+        let readme = app.buttons["file.README.md"]
+        for _ in 0..<8 where !readme.waitForHittable(timeout: 2) { app.otherElements["panel"].swipeUp() }
+        XCTAssertTrue(readme.reachable)
+        screenshot("ipad-panel-files")
+        readme.tap()
+        XCTAssertTrue(app.buttons["file.menu"].waitForExistence(timeout: 15))
+        XCTAssertGreaterThanOrEqual(app.buttons["file.menu"].frame.minX, panelEdge - 8, "the file opens in the panel")
+        XCTAssertTrue(title("Plan the kill-all filters", in: app).exists, "the thread stays beside the file")
+        screenshot("ipad-panel-file")
         // Each thread keeps its own panel: another thread starts with none showing.
         open("thread.ios-question", in: app)
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
@@ -122,27 +146,31 @@ import XCTest
         let app = launch()
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        app.buttons["thread.panel"].tap()
-        let panel = app.otherElements["panel"]
-        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        // Opening a tool shows the panel whatever this thread's panel was left as.
+        app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.changes").tap()
+        let edge = app.descendants(matching: .any)["panel.edge"]
+        XCTAssertTrue(edge.waitForExistence(timeout: 10))
         sleep(1)
-        let before = panel.frame
+        let window = app.windows.firstMatch.frame
+        let before = window.maxX - edge.frame.midX
         let screen = app.coordinate(withNormalizedOffset: .zero)
-        let edge = screen.withOffset(CGVector(dx: before.minX - 2, dy: before.midY))
-        edge.press(forDuration: 0.3, thenDragTo: screen.withOffset(CGVector(dx: before.minX - 120, dy: before.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        let grip = screen.withOffset(CGVector(dx: edge.frame.midX, dy: edge.frame.midY))
+        grip.press(forDuration: 0.3, thenDragTo: screen.withOffset(CGVector(dx: edge.frame.midX - 120, dy: edge.frame.midY)),
+                   withVelocity: .slow, thenHoldForDuration: 0.3)
         sleep(1)
-        let wider = panel.frame.width
-        XCTAssertGreaterThan(wider, before.width + 60, "the edge drags the panel wider")
+        let wider = window.maxX - edge.frame.midX
+        XCTAssertGreaterThan(wider, before + 60, "the edge drags the panel wider")
         screenshot("ipad-panel-resized")
         // The width is the thread's: it comes back after a relaunch.
         sleep(1)
         app.terminate()
         let again = launch()
         open("thread.ios-form", in: again)
-        let kept = again.otherElements["panel"]
+        let kept = again.descendants(matching: .any)["panel.edge"]
         XCTAssertTrue(kept.waitForExistence(timeout: 20))
         sleep(1)
-        XCTAssertEqual(kept.frame.width, wider, accuracy: 4)
+        XCTAssertEqual(again.windows.firstMatch.frame.maxX - kept.frame.midX, wider, accuracy: 4)
     }
 
     func testTheKeyboardOpensClosesAndReopensPanelTabs() throws {

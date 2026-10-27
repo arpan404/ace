@@ -68,15 +68,15 @@ struct AgentsSheet: View {
                             .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
                     }
                 }
+            }
+            .screenBar {
                 if model.canOperate {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(role: .destructive) { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
-                            Text(stop.saving ? "Stopping…" : "Stop all")
-                        }
-                        .tint(AceTheme.StatusText.failed)
-                        .disabled(!(sheet?.treeRunning ?? false) || stop.saving)
-                        .accessibilityIdentifier("agents.stopAll")
+                    Button(role: .destructive) { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
+                        Text(stop.saving ? "Stopping…" : "Stop all")
                     }
+                    .tint(AceTheme.StatusText.failed)
+                    .disabled(!(sheet?.treeRunning ?? false) || stop.saving)
+                    .accessibilityIdentifier("agents.stopAll")
                 }
             }
             .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {

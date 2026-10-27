@@ -47,13 +47,12 @@ export type TabletTool = (typeof tabletTools)[number]["kind"];
 const initial = ["changes", "files"] as const;
 
 /**
- * Sizes in points. The thread keeps `keep` beside a panel at least `min` wide. The app measures
- * its window, so it applies them (each view carries them):
- * - a regular window whose thread column is at least `min + keep` wide holds the panel beside;
- * - one that would be, were the thread list hidden, hides the list while the panel shows;
- * - anything narrower, and every compact window, opens the tools over the thread as a phone
- *   does.
- * The panel's width is its `size`, kept between `min` and the column less `keep`.
+ * Sizes in points. The panel is at least `min` wide and leaves the thread at least `keep`. The
+ * app measures its window, so it applies them (each view carries them): a regular window at
+ * least `min + keep` wide holds the panel as a column beside the thread (the thread list steps
+ * aside when it doesn't fit too); anything narrower, and every compact window, opens the tools
+ * over the thread as a phone does. The panel's width is its `size`, kept between `min` and the
+ * window less `keep`.
  */
 export const tabletPanelLimits: PanelLimits = { min: 320, keep: 440, overlayStrip: 0 };
 /** The panel's width until the person drags its edge. */

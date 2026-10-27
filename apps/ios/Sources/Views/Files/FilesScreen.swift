@@ -49,11 +49,9 @@ struct FilesScreen: View {
         .searchable(text: $query, prompt: "Search files")
         .autocorrectionDisabled().textInputAutocapitalization(.never)
         .refreshable { await load() }
-        .threadTitle("Files", subtitle: subtitle)
+        .modifier(PageTitle(title: "Files", subtitle: subtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if actions.canChange { ToolbarItem(placement: .topBarTrailing) { manageMenu } }
-        }
+        .screenBar { if actions.canChange { manageMenu } }
         .readWhenConnected(model, id: model.files.revision) { await load() }
         .task(id: query) { await search() }
         .navigationDestination(item: $opened) { target in
