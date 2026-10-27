@@ -16,7 +16,7 @@ import {
   type AccountBadgePreview,
 } from "@ace/ui-core";
 import { z } from "zod";
-import { preview } from "./presentation.ts";
+import { preview as shorten } from "./presentation.ts";
 
 /*
  * A provider's accounts on the phone, as the web's Settings manages them: each account's badge,
@@ -273,7 +273,7 @@ export async function answerAccountsScreen(
       accounts: reply.result.accounts.map((entry) => accountRow(entry, request.provider, now)),
       ways: accountWays(request.provider),
       reauth: reauthWays(request.provider),
-      apiKey: apiKeyLine(reply.result.apiKey.supported, preview(machine, 64)),
+      apiKey: apiKeyLine(reply.result.apiKey.supported, shorten(machine, 64)),
     };
     return { ok: true, screen };
   }
