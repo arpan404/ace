@@ -45,8 +45,9 @@ import {
  *
  * Limits: retracted ids stay in the shown set until the 512-id bound evicts
  * them, so a re-pushed id after a retract stays suppressed (same as iOS);
- * concurrent taps on one interaction take the first tap's option and replay
- * its outcome; without `hostId` there is no ledger (legacy single-machine
+ * concurrent taps on one interaction with the same option share one answer,
+ * while a different option waits for the in-flight answer then revalidates
+ * (the loser sees `stale`, matching iOS); without `hostId` there is no ledger (legacy single-machine
  * callers) and nothing dedupes or persists.
  */
 
@@ -158,8 +159,11 @@ export function createNotificationSync(
   let daemon: "registered" | "unregistered" | undefined;
   let connection = 0;
   let queue: Promise<void> = Promise.resolve();
-  /** One in-flight answer per interaction: concurrent taps share it, never double-enqueue. */
-  const resolving = new Map<string, Promise<NotificationActionOutcome>>();
+  /** One in-flight answer per interaction: same-option taps share it, never double-enqueue. */
+  const resolving = new Map<
+    string,
+    { optionId: string; task: Promise<NotificationActionOutcome> }
+  >();
   const stops: (() => void)[] = [];
   let closed = false;
 
@@ -326,21 +330,41 @@ export function createNotificationSync(
     const parsedThread = ThreadId.safeParse(input.threadId);
     const parsedInteraction = InteractionId.safeParse(input.interactionId);
     if (!parsedThread.success || !parsedInteraction.success) return outcome("stale");
-    // Concurrent taps on one interaction share a single answer: the first
-    // tap's exact live option wins, every tap reports under its own UI
-    // request id, and the outbox sees exactly one command.
-    const shared = resolving.get(parsedInteraction.data);
-    if (shared !== undefined) return outcome(await shared);
+    // Concurrent taps on one interaction share a single answer when they name
+    // the same live option: every tap reports under its own UI request id,
+    // and the outbox sees exactly one command. A tap naming a different
+    // option waits for the in-flight answer, then revalidates from confirmed
+    // thread state (the loser sees `stale`, matching iOS which never
+    // coalesces across options). Every waiter patches its own request id,
+    // even when the shared task rejects.
+    for (;;) {
+      const shared = resolving.get(parsedInteraction.data);
+      if (shared === undefined) break;
+      if (shared.optionId === input.optionId) {
+        try {
+          return outcome(await shared.task);
+        } catch {
+          return outcome("unsaved");
+        }
+      }
+      try {
+        await shared.task;
+      } catch {
+        // Fall through and revalidate: a rejected first tap must not leave
+        // this tapper without its own outcome patch.
+      }
+    }
     const task = settleAction(parsedThread.data, parsedInteraction.data, input.optionId, () =>
       outcome("saved"),
     );
-    resolving.set(parsedInteraction.data, task);
+    resolving.set(parsedInteraction.data, { optionId: input.optionId, task });
     try {
       return outcome(await task);
     } catch {
       return outcome("unsaved");
     } finally {
-      if (resolving.get(parsedInteraction.data) === task) resolving.delete(parsedInteraction.data);
+      if (resolving.get(parsedInteraction.data)?.task === task)
+        resolving.delete(parsedInteraction.data);
     }
   }
 
