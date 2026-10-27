@@ -233,7 +233,47 @@ function spark(panel: HTMLElement, d: string): void {
   panel.append(dot);
 }
 
-const stories: Record<string, Story> = { status, browser, computer, devices, fleet };
+/* One account hits its limit; the thread moves to another account and keeps working. */
+const accounts: Story = {
+  play(panel) {
+    const thread = row(panel, "thread");
+    const move = panel.querySelector<HTMLElement>("[data-move]");
+    timeline([
+      [1400, () => move && replay(move, "pressed")],
+      [
+        1700,
+        () => {
+          if (!thread) return;
+          setStatus(thread, "working", "Moved to Claude · Work, working");
+          move?.remove();
+        },
+      ],
+    ]);
+  },
+};
+
+/* An approval reaches the phone; it's answered there, and the thread goes back to work. */
+const phone: Story = {
+  play(panel) {
+    const sheet = row(panel, "sheet");
+    const approve = panel.querySelector<HTMLElement>("[data-approve]");
+    timeline([
+      [1600, () => approve && replay(approve, "pressed")],
+      [1900, () => sheet?.classList.add("away")],
+      [2300, () => setStatus(row(panel, "migrate"), "working", "Working")],
+    ]);
+  },
+};
+
+const stories: Record<string, Story> = {
+  status,
+  browser,
+  computer,
+  devices,
+  fleet,
+  accounts,
+  phone,
+};
 
 /** Puts every panel on the page into its opening state. */
 export function prepareStories(root: ParentNode): void {

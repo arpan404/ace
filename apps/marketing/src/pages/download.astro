@@ -36,7 +36,7 @@ const mobile: { name: string; mark: IconName; body: string }[] = [
   {
     name: "Android",
     mark: "android-logo",
-    body: "The same fleet and the same approvals on your Android phone.",
+    body: "Coming soon. Until then, any browser can pair with your machines through the web app.",
   },
 ];
 
@@ -49,8 +49,8 @@ const questions = faq.filter((entry) =>
 
 <Page
   path={path}
-  title="Download ace for Mac, Windows, Linux, iPhone, iPad and Android"
-  description="Download ace, the free open-source app for Claude Code, Codex and Cursor, on Mac, Windows and Linux, with apps for iPhone, iPad and Android."
+  title="Download ace for Mac, Windows, Linux, iPhone and iPad"
+  description="Download ace, the free open-source app for Claude Code, Codex and Cursor, on Mac, Windows and Linux, with apps for iPhone and iPad, and Android coming soon."
   schema={[softwareApplication(schema), sourceCode(schema), faqPage(schema, path, questions)]}
 >
   <header class="page intro">

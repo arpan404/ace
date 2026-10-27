@@ -39,12 +39,12 @@ html.motion .reveal.is-in {
  * Product visuals unmask from the top down, as if a screen were switching on. The mask goes on
  * the visual inside, not the observed element, so the observer still sees it come into view.
  */
-html.motion :is(.reveal:is(.visual, .frame, .board-reveal) > *, .reveal.cell > .stage) {
+html.motion .reveal:is(.visual, .frame, .board-reveal) > * {
   clip-path: inset(0 0 100% 0 round var(--clip-r, 16px));
   transition: clip-path 1300ms var(--ease-out-expo);
 }
 
-html.motion :is(.reveal.is-in:is(.visual, .frame, .board-reveal) > *, .reveal.is-in.cell > .stage) {
+html.motion .reveal.is-in:is(.visual, .frame, .board-reveal) > * {
   clip-path: inset(0 0 0 0 round var(--clip-r, 16px));
 }
 
@@ -415,11 +415,6 @@ html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .cell:hover .stage :is(.panel, .board) {
-    transform: translate3d(0, -4px, 0);
-    box-shadow: 0 40px 90px -30px var(--shadow-deep);
-  }
-
   .button {
     transition:
       background-color var(--motion-fast) var(--ease-out),

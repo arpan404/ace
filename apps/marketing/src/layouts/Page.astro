@@ -43,7 +43,9 @@ const data = graph([
   /* Reveals, and download links that follow the newest release and the visitor's chip. */
   import { keepDownloadsCurrent } from "../scripts/latest-release.ts";
   import { startMotion } from "../scripts/motion.ts";
+  import { startTour } from "../scripts/tour.ts";
 
   startMotion();
+  startTour();
   void keepDownloadsCurrent();
 </script>

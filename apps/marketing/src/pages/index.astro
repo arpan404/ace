@@ -1,12 +1,10 @@
 ---
-import Agents from "../components/Agents.astro";
 import Closing from "../components/Closing.astro";
-import Fleet from "../components/Fleet.astro";
+import AgentStrip from "../components/AgentStrip.astro";
 import Hero from "../components/Hero.astro";
 import Review from "../components/Review.astro";
 import LinkCards from "../components/site/LinkCards.astro";
-import Status from "../components/Status.astro";
-import Work from "../components/Work.astro";
+import Tour from "../components/Tour.astro";
 import { product } from "../content/product.ts";
 import { route } from "../content/routes.ts";
 import Page from "../layouts/Page.astro";
@@ -31,10 +29,8 @@ const onward = ["/features/", "/mcp/", "/security/", "/faq/"].map((path) => {
   schema={[softwareApplication(schema), sourceCode(schema)]}
 >
   <Hero />
-  <Agents />
-  <Status />
-  <Work />
-  <Fleet />
+  <AgentStrip />
+  <Tour />
   <Review />
   <LinkCards heading="There's more to ace" cards={onward} />
   <Closing />

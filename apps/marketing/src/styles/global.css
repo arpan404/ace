@@ -41,10 +41,9 @@
   --button-glow: rgb(255 240 220 / 0.1);
   /* The ASCII art's ink, as an RGB triplet the canvas reads. */
   --ascii-ink: 236 232 224;
-  /* Stages behind product visuals: a soft vertical fill and how strong their top glow is. */
-  --stage-top: #191715;
-  --stage-bottom: #121110;
-  --stage-glow: 0.14;
+  /* The surface behind product visuals, and the dots of its grid. */
+  --stage-bg: #141312;
+  --stage-dot: rgb(255 255 255 / 0.075);
 
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
@@ -89,9 +88,8 @@ html[data-theme="light"] {
   --shadow-deep: rgb(70 50 30 / 0.16);
   --button-glow: rgb(0 0 0 / 0.08);
   --ascii-ink: 60 50 40;
-  --stage-top: #fdfbf8;
-  --stage-bottom: #f4f0eb;
-  --stage-glow: 0.16;
+  --stage-bg: #f6f3ef;
+  --stage-dot: rgb(40 30 20 / 0.12);
 }
 
 @media (min-width: 768px) {

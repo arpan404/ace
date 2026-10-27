@@ -14,9 +14,9 @@ export const product = {
     "ace is a free, open-source app for Mac, Windows and Linux that runs Claude Code, Codex and Cursor side by side, with computer use and phone apps.",
   /** The fuller paragraph for structured data and llms.txt. */
   about:
-    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone, iPad and Android to follow and steer them. It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another, and pairs your phones and tablets. Each thread can work in its own git worktree with a built-in diff review.",
+    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Sign in to several accounts per provider and pick one per thread. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another, and pairs your phones and tablets. Each thread can work in its own git worktree with a built-in diff review.",
   category: "DeveloperApplication",
-  operatingSystem: "macOS, Windows, Linux, iOS, iPadOS, Android",
+  operatingSystem: "macOS, Windows, Linux, iOS, iPadOS",
   license: "Apache-2.0",
 } as const;
 
@@ -86,12 +86,17 @@ export const faq: { question: string; answer: string }[] = [
   {
     question: "What is ace?",
     answer:
-      "ace is an app for running coding agents on Mac, Windows and Linux, with companion apps for iPhone, iPad and Android. It starts the agent CLIs you already have installed, such as Claude Code, Codex and Cursor, gives each task its own thread, optionally in its own git worktree, and shows which threads are working, waiting or need you.",
+      "ace is an app for running coding agents on Mac, Windows and Linux, with companion apps for iPhone and iPad, and Android coming soon. It starts the agent CLIs you already have installed, such as Claude Code, Codex and Cursor, gives each task its own thread, optionally in its own git worktree, and shows which threads are working, waiting or need you.",
   },
   {
     question: "Does ace need my API keys or a new subscription?",
     answer:
       "No. ace runs each agent through its own logged-in CLI, so your existing subscriptions and logins keep working. ace never asks for, stores or proxies provider credentials.",
+  },
+  {
+    question: "Can I use more than one account per provider?",
+    answer:
+      "Yes. Add several Claude, Codex, Cursor, OpenCode, Antigravity or Pi accounts, each signed in through the CLI's own login, and pick one per thread. When one hits its limit, move the thread to another.",
   },
   {
     question: "Which coding agents does ace support?",
@@ -111,12 +116,12 @@ export const faq: { question: string; answer: string }[] = [
   {
     question: "What is Fleet?",
     answer:
-      "Fleet links your machines and devices. Linked machines let agents start threads and use each other's browsers, simulators and emulators, and paired devices (ace for iPhone, iPad and Android, or a browser) can follow and steer agents. Machines connect over your local network, Tailscale, or an end-to-end encrypted relay.",
+      "Fleet links your machines and devices. Linked machines let agents start threads and use each other's browsers, simulators and emulators, and you can continue a thread on another machine, uncommitted changes included. Paired devices (ace for iPhone and iPad, or a browser) follow and steer agents. Everything connects directly over your local network or Tailscale.",
   },
   {
     question: "Where does my code go?",
     answer:
-      "ace runs on your own machine and is never hosted. Your code goes only where your agent CLI already sends it. When you pair another device, it connects through an end-to-end encrypted relay that you can host yourself.",
+      "ace runs on your own machine and is never hosted. Your code goes only where your agent CLI already sends it. Paired machines and devices connect directly over your local network or Tailscale; an optional end-to-end encrypted relay you can host yourself carries only extras such as previews and files.",
   },
   {
     question: "Can I run several agents on the same repository?",
@@ -126,7 +131,7 @@ export const faq: { question: string; answer: string }[] = [
   {
     question: "Which platforms does ace run on?",
     answer:
-      "The desktop app runs on macOS, Windows and Linux and updates itself. ace for iPhone, iPad and Android pairs with your machines so you can follow, approve and steer agents from anywhere; the agents themselves run on your computers.",
+      "The desktop app runs on macOS, Windows and Linux and updates itself. ace for iPhone and iPad pairs with your machines so you can follow, approve and steer agents from anywhere; the agents themselves run on your computers. Android is coming soon.",
   },
   {
     question: "Is ace free?",
@@ -152,7 +157,7 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
   {
     icon: "users-three",
     title: "Remote access is yours to grant",
-    body: "Machines and phones join only when you pair them, over your network, Tailscale or an end-to-end encrypted relay you can host.",
+    body: "Machines and phones join only when you pair them, for the access and time you choose, and connect directly over your network or Tailscale.",
   },
   {
     icon: "code",

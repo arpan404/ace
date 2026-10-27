@@ -3,7 +3,15 @@
  * tools and questions live here, so the page, its structured data and llms.txt agree.
  */
 
-export type FeatureSlug = "computer-use" | "fleet" | "browser" | "devices" | "review" | "status";
+export type FeatureSlug =
+  | "computer-use"
+  | "fleet"
+  | "mobile"
+  | "accounts"
+  | "browser"
+  | "devices"
+  | "review"
+  | "status";
 
 export interface Feature {
   slug: FeatureSlug;
@@ -95,15 +103,15 @@ export const features: Feature[] = [
     name: "Fleet",
     title: "Run coding agents across all your machines: ace Fleet",
     description:
-      "Link your machines so agents share each other's threads, browsers, simulators and emulators, then follow and approve every thread from iPhone, iPad or Android.",
+      "Link your machines so agents share each other's threads, browsers, simulators and emulators, move work between them, and follow every thread from iPhone or iPad.",
     headline: "Orchestrate agents across every machine you own",
     intro:
       "Link your laptop, a Linux build server and a Windows workstation. Agents on one start threads, open browsers and use simulators on another, and you approve it all from your phone.",
     points: [
       "Agents start threads and open browsers on linked machines",
       "Simulators and emulators on one machine, used from any other",
-      "Every thread from every machine in one list",
-      "Pair iPhone, iPad, Android or a browser with a link or QR code",
+      "Continue a thread on another machine, uncommitted changes and all",
+      "Every machine's threads in one window, and in the phone app",
     ],
     sections: [
       {
@@ -111,20 +119,26 @@ export const features: Feature[] = [
         body: [
           "Run ace on your laptop, a Linux build server and a Windows workstation, then link them. Linked machines can use each other: an agent on your laptop can delegate a long test run to the build server, or open a browser on the workstation to check a page there.",
           "Devices travel across the fleet too. An agent on the Linux build server can test your app on the iOS Simulator running on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
-          "Each machine sets how much other machines may do on it: nothing, read, or read and act. Every thread, wherever it runs, shows in the same list with its live status.",
+          "Each machine sets how much other machines may do on it: nothing, read, or read and act. Every thread, wherever it runs, shows in the same window with its live status, you can start a new one on any machine from there, and an approval can be answered on whichever machine you're at. When a machine's run slots are full, delegated work waits in its queue instead of failing.",
+        ],
+      },
+      {
+        heading: "Move work to the machine that should do it",
+        body: [
+          "Continue on another machine takes a thread's project and branch, uncommitted changes included, to another of your machines and starts a thread there from this one's history. The data goes straight from machine to machine, so you can kick it off from your phone on cellular.",
         ],
       },
       {
         heading: "Your phone and tablet, paired",
         body: [
-          "ace for iPhone, iPad and Android pairs with your machines through a link or a QR code. Choose view only or view and act, and how long access lasts. When a thread needs an approval or an answer, you give it from wherever you are.",
+          "ace for iPhone and iPad pairs with your machines through a link or a QR code, for view only or view and act, and for as long as you choose. From it you follow every machine's threads, answer approvals, watch the browser and drive your desktops' simulators. Android is coming soon.",
           "Paired devices follow and steer agents; they don't run them. Your code and your agents stay on your computers.",
         ],
       },
       {
         heading: "Connect the way you already do",
         body: [
-          "Machines and devices reach each other over your local network, over Tailscale, or through an end-to-end encrypted relay you can host yourself. Nothing joins your fleet unless you pair it.",
+          "Machines and devices connect directly, over your local network or over Tailscale, where ace uses the machine's tailnet name with a valid HTTPS certificate. An optional end-to-end encrypted relay, which you can host yourself, carries only extras such as previews and files. Nothing joins your fleet unless you pair it.",
         ],
       },
     ],
@@ -149,14 +163,14 @@ export const features: Feature[] = [
           "Yes. Linked machines let agents start threads, delegate to other agents and open browsers on each other, as far as each machine's access setting allows.",
       },
       {
-        question: "Do the phone apps run agents?",
+        question: "Can I move a thread to another machine?",
         answer:
-          "No. ace for iPhone, iPad and Android follow and steer agents running on your computers: read threads, approve, answer and send follow-ups.",
+          "Yes. Continue on another machine takes the project and branch, uncommitted changes included, and starts a thread there from this one's history.",
       },
       {
         question: "How do my devices connect?",
         answer:
-          "Over your local network, Tailscale, or an end-to-end encrypted relay that you can host yourself. Devices join only when you pair them.",
+          "Directly, over your local network or Tailscale. An optional end-to-end encrypted relay you can host yourself carries only extras such as previews and files. Devices join only when you pair them.",
       },
     ],
     keywords: [
@@ -169,6 +183,126 @@ export const features: Feature[] = [
     ],
   },
   {
+    slug: "mobile",
+    name: "iPhone and iPad",
+    title: "ace for iPhone and iPad: your coding agents in your pocket",
+    description:
+      "Follow and steer every agent from iPhone or iPad: approvals, diffs, terminals, the live browser, your desktop's simulators and Live Activities on the Lock Screen.",
+    headline: "Every agent, every machine, in your pocket",
+    intro:
+      "ace for iPhone and iPad connects to all your paired machines at once. It isn't a viewer: you approve, review, browse, drive simulators and watch the apps agents are using, from wherever you are.",
+    points: [
+      "Live Activities that end only when the whole agent tree is done",
+      "The live browser at 60 fps, which you can use",
+      "Your desktops' simulators and emulators, from the phone",
+      "Terminal, files, diffs, pull requests and the GitHub inbox",
+    ],
+    sections: [
+      {
+        heading: "More than approvals",
+        body: [
+          "The phone and tablet apps carry the whole workbench: every thread on every paired machine, approvals and questions, the terminal, files and the diff of each thread, pull requests, issues and your GitHub inbox, accounts and usage, automations, prompts and skills. Start a thread, fork one, or continue it on another machine.",
+        ],
+      },
+      {
+        heading: "See what agents see",
+        body: [
+          "Open the browser an agent is using and you get it live at 60 frames a second, and you can click and type in it. Open a tab on the phone and it switches to a phone-sized layout, and the agent is told it is working at that size.",
+          "The simulators and emulators on your desktops are there too: watch them, tap through them, install or open apps, open links, and set location and language. And for computer use, see the apps agents are driving on each machine, live.",
+        ],
+      },
+      {
+        heading: "Done means done, on the Lock Screen too",
+        body: [
+          "A thread you follow shows as a Live Activity on the Lock Screen and in the Dynamic Island, and it only ends when every agent and command in the thread has finished. Notifications arrive while the app is connected, with snooze and quiet hours, and the app can lock itself when you leave it.",
+        ],
+      },
+    ],
+    tools: [],
+    questions: [
+      {
+        question: "Do agents run on the phone?",
+        answer:
+          "No. Agents run on your computers. The iPhone and iPad apps follow and steer them: approve, answer, review, browse and drive devices, across every paired machine at once.",
+      },
+      {
+        question: "Is there an Android app?",
+        answer:
+          "Android is coming soon. Until then, any browser can pair with your machines through the web app.",
+      },
+      {
+        question: "How does the phone reach my computers?",
+        answer:
+          "Directly, over your local network or Tailscale, once you pair it with a link or QR code. You choose view only or view and act, and how long access lasts.",
+      },
+    ],
+    keywords: [
+      "Claude Code iPhone app",
+      "Codex mobile app",
+      "approve coding agent from phone",
+      "coding agent Live Activity",
+      "AI coding agent iPad",
+    ],
+  },
+  {
+    slug: "accounts",
+    name: "Accounts and limits",
+    title: "Several Claude, Codex and Cursor accounts in one app: ace",
+    description:
+      "Sign in to several accounts per provider, pick one per thread, see usage and limits, and move a thread to another account when one runs out.",
+    headline: "Several accounts per provider, one per thread",
+    intro:
+      "Work and personal plans, a team seat, a spare: add as many accounts as each provider allows, choose which one a thread runs on, and let ace keep work moving when one hits its limit.",
+    points: [
+      "Each account signs in through the CLI's own login, kept apart",
+      "Pick the account per thread, or set a default per provider",
+      "Fresh usage and limits for Claude and Codex accounts",
+      "When a limit hits, resume at reset or move to another account",
+    ],
+    sections: [
+      {
+        heading: "Accounts kept apart",
+        body: [
+          "Each extra account lives in its own private folder, and you sign in to it with the provider CLI's own login, in a terminal inside ace. Your usual home directory stays as it is, so git, gh and ssh keep working. ace never reads or stores the credentials.",
+          "Name accounts, give them a colour, set the default for each provider, and choose the account per thread in the model picker. Claude, Codex, Cursor, OpenCode, Antigravity and Pi all support several accounts.",
+        ],
+      },
+      {
+        heading: "Limits you can trust",
+        body: [
+          "For Claude and Codex, ace reads each account's usage every few minutes and during turns. An account only counts as out of quota on a fresh reading at 100%, or on the provider's own limit error, so you are never blocked by a guess.",
+          "When a limit is hit, what you send is held, not lost. Resume now, resume at the reset, snooze the thread until then, or move it to another account of the same provider. Moving between Claude accounts, or between Codex accounts, carries the whole native session over.",
+        ],
+      },
+      {
+        heading: "Delegation that spreads the load",
+        body: [
+          "When an agent hands work to other agents, ace picks their accounts for it: it skips accounts that are signed out, near their limit or exhausted, and prefers the one with the most headroom and the earliest reset.",
+        ],
+      },
+    ],
+    tools: [],
+    questions: [
+      {
+        question: "Can I use my work and personal Claude accounts side by side?",
+        answer:
+          "Yes. Add each account, sign in through Claude Code's own login, and pick the account per thread or set a default. The same works for Codex, Cursor, OpenCode, Antigravity and Pi.",
+      },
+      {
+        question: "What happens when an account hits its limit?",
+        answer:
+          "Your messages are held, not lost. Resume at the reset, snooze the thread until then, or move it to another account of the same provider.",
+      },
+    ],
+    keywords: [
+      "multiple Claude Code accounts",
+      "multiple Codex accounts",
+      "switch Claude account",
+      "Claude usage limits",
+      "Codex rate limit",
+    ],
+  },
+  {
     slug: "browser",
     name: "Browser use",
     title: "A real browser for Claude Code, Codex and Cursor: ace",
@@ -178,10 +312,11 @@ export const features: Feature[] = [
     intro:
       "Every agent in ace can open your dev server in a real browser, click through it and read the console and network log. You watch the same tab and can take over at any moment.",
     points: [
-      "Several tabs per agent, Chrome extensions included",
+      "One shared browser: the same tabs and logins for you and agents",
       "Console and network logs the agent can read",
       "Mark up a page and send the notes to the agent",
-      "Optionally let agents use your own Chrome and its logins",
+      "Use my Chrome: agents work in tabs you share from your own Chrome",
+      "The live browser on your phone, at 60 fps",
     ],
     sections: [
       {
@@ -189,6 +324,12 @@ export const features: Feature[] = [
         body: [
           "An agent that can't see the page it changed is guessing. In ace, agents open pages in a real Chromium browser, read the page as structured text, click, type and scroll, and check the console and network log for errors, then fix what they find.",
           "The tab is shared: you watch the agent work in it, and you can take over whenever you like. Screenshots at phone, tablet and desktop widths let an agent check a responsive layout in one step.",
+        ],
+      },
+      {
+        heading: "Watch it from anywhere",
+        body: [
+          "The browser agents use is one shared session, not a copy per viewer. Open it on your phone, in the web app or on another desktop and it streams live at 60 frames a second, and you can click and type in it. Open a tab on the phone and the page switches to a phone-sized layout, and the agent is told it is working at that size.",
         ],
       },
       {
@@ -200,7 +341,8 @@ export const features: Feature[] = [
       {
         heading: "Your own Chrome, when you need it",
         body: [
-          "Some work needs your real sessions. With Use my Chrome turned on, agents can work in your own Chrome and its logins, only for the tasks you allow.",
+          "Some work needs your real sessions. Use my Chrome lets agents work in your own Chrome profile through an extension, but only in tabs you share from it or tabs they open in a separate ace window. Chrome shows its debugging bar while they do, and Stop or Revoke ends it at once.",
+          "Settings pages, extension pages and the password manager are refused, cookie reads are blocked, and page storage reads are off unless you allow them. It works with Chrome, Chromium, Edge, Brave, Vivaldi and Arc.",
         ],
       },
     ],
@@ -215,7 +357,7 @@ export const features: Feature[] = [
       {
         question: "Which browser do agents use?",
         answer:
-          "ace's own browser, a real Chromium you can watch and take over. Optionally, agents can also use your own Chrome and its logins.",
+          "ace's own browser, a real Chromium you can watch and take over, from your desktop or your phone. With Use my Chrome, agents can also work in tabs you share from your own Chrome.",
       },
       {
         question: "Can agents read console errors and network requests?",

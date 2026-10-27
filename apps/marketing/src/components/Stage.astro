@@ -1,55 +1,38 @@
 ---
 /*
- * A framed backdrop for a product visual, which floats on it. `mood` picks the tint of its glow;
+ * The surface a product visual sits on: neutral, with a faint dot grid that fades toward the
+ * edges so the visual reads as the subject. No colour and no gradient wash, in either theme.
  * `bleed` lets a screenshot run off the bottom-right edge.
  */
 interface Props {
-  mood?: "ember" | "plum" | "amber" | "rose" | "sand";
   bleed?: boolean;
 }
 
-const { mood = "ember", bleed = false } = Astro.props;
+const { bleed = false } = Astro.props;
 ---
 
-<div class:list={["stage", `mood-${mood}`, { bleed }]}>
+<div class:list={["stage", { bleed }]}>
   <div class="stage-inner"><slot /></div>
 </div>
 
 <style>
-  /*
-   * A calm surface with one faint glow of the mood's tint from the top edge, the same in both
-   * themes (colours from the --stage-* tokens). No corner washes and no grain: they read as
-   * stains and noise behind crisp UI.
-   */
   .stage {
     position: relative;
     overflow: hidden;
-    border-radius: 16px;
-    border: 1px solid var(--edge);
-    background:
-      radial-gradient(90% 70% at 50% 0%, rgb(var(--tint) / var(--stage-glow)) 0%, transparent 70%),
-      linear-gradient(to bottom, var(--stage-top), var(--stage-bottom));
-    box-shadow: inset 0 1px 0 var(--sheen);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--stage-bg);
   }
 
-  .mood-ember {
-    --tint: 214 120 70;
-  }
-
-  .mood-plum {
-    --tint: 160 100 150;
-  }
-
-  .mood-amber {
-    --tint: 215 165 80;
-  }
-
-  .mood-rose {
-    --tint: 205 115 105;
-  }
-
-  .mood-sand {
-    --tint: 190 165 130;
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, var(--stage-dot) 1px, transparent 1.4px);
+    background-size: 22px 22px;
+    background-position: center;
+    mask-image: radial-gradient(ellipse 75% 65% at 50% 50%, #000 20%, transparent 80%);
   }
 
   .stage-inner {

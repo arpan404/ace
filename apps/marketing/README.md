@@ -78,6 +78,10 @@ before their parent turns Done, a browser log streams in, a pointer takes over a
 request is allowed, and lines draw between Fleet machines to the phone. Tiles marked `.spot` carry
 a light under the pointer, and pages cross-fade (`@view-transition`).
 
+The home page walks through the features in one tour (`src/components/Tour.astro`): steps on the
+left, one pinned stage on the right whose scene changes as each step reaches the middle of the
+screen (`src/scripts/tour.ts`); narrow screens show each step's scene inline instead.
+
 `src/scripts/motion.ts` drives it. Base.astro only turns motion on (`<html class="motion">`) when
 reduced motion is off, and drops it if the script hasn't started within three seconds; without it,
 every panel shows its resting state and nothing is hidden.
