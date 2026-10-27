@@ -298,6 +298,8 @@ struct AutomationRunView: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("automation.run.\(run.id)")
             if run.live {
                 (Text("Working for ") + Text(Date(timeIntervalSince1970: run.startedAt / 1000), style: .timer))
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -330,7 +332,6 @@ struct AutomationRunView: View {
             .frame(minHeight: 44)
         }
         .padding(.top, AceTheme.Spacing.xs)
-        .accessibilityIdentifier("automation.run.\(run.id)")
     }
 }
 

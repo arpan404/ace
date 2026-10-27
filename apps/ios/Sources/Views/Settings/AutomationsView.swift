@@ -105,8 +105,7 @@ struct AutomationsView: View {
     /// Runs and next starts move on their own: read again soon while one runs, else each minute.
     private func poll() async {
         while !Task.isCancelled {
-            let running = person.contains { $0.status?.word == "Running" }
-            try? await Task.sleep(for: .seconds(running ? 5 : 60))
+            try? await Task.sleep(for: .milliseconds(page?.pollMs ?? 60_000))
             if Task.isCancelled { return }
             await read(fresh: true)
         }

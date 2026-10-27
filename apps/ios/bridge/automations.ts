@@ -219,6 +219,11 @@ export class NativeAutomations {
       ok: true,
       person: lists.person.map((entry) => automationRow(entry, now, zone)),
       threads: lists.threads.map((entry) => automationRow(entry, now, zone)),
+      pollMs: historyPollMs(
+        [...lists.person, ...lists.threads].flatMap((entry) =>
+          entry.lastRun ? [entry.lastRun] : [],
+        ),
+      ),
     };
   }
 

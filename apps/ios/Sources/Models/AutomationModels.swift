@@ -51,6 +51,8 @@ struct AutomationPage: Decodable, Sendable {
     let unavailable: Bool?
     let person: [AutomationListRow]?
     let threads: [AutomationListRow]?
+    /// How soon to read again: sooner while a run goes.
+    let pollMs: Int?
 }
 
 struct AutomationRunRow: Decodable, Sendable, Identifiable, Equatable {
