@@ -81,6 +81,38 @@ async function windowsApplied(
       Math.abs(seen.width - size.width / factor) <= 1 &&
       Math.abs(seen.height - size.height / factor) <= 1
     )
+      return windowsDrawn(cdp, seen, deadline);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/**
+ * Windows: layout takes the new size before the compositor draws it, and until then an unseen
+ * tab's screenshots (what a recording of a background tab is made of) still show the old size.
+ * Waits, within the same bound, for a screenshot of the new size; its width may lack a classic
+ * scrollbar's.
+ */
+async function windowsDrawn(
+  cdp: BrowserCdp,
+  seen: { width: number; height: number; scale: number },
+  deadline: number,
+): Promise<void> {
+  const { imageSize } = await import("./image-size.ts");
+  const Shot = z.object({ data: z.string() });
+  const want = { width: seen.width * seen.scale, height: seen.height * seen.scale };
+  while (performance.now() < deadline) {
+    const shot = Shot.safeParse(
+      await cdp
+        .send("Page.captureScreenshot", { format: "jpeg", quality: 10 })
+        .catch(() => undefined),
+    );
+    if (!shot.success) return;
+    const drawn = imageSize(Buffer.from(shot.data.data, "base64"));
+    if (!drawn) return;
+    if (
+      Math.abs(drawn.width - want.width) <= 24 * seen.scale &&
+      Math.abs(drawn.height - want.height) <= 1
+    )
       return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
