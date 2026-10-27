@@ -156,7 +156,7 @@ it("standalone daemon archives of this version ride along with their signed mani
     "ace-1.2.0-darwin-arm64.tar.gz",
     "ace-1.1.0-darwin-x64.tar.gz",
     "darwin-arm64",
-    "node-v24.13.0-darwin-arm64.tar.gz",
+    "node-v26.12.1-darwin-arm64.tar.gz",
   ];
   expect(daemonAssets(output, "1.2.0", ["darwin-arm64"])).toEqual([
     "ace-1.2.0-darwin-arm64.tar.gz",

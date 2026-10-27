@@ -62,7 +62,7 @@ describe.skipIf(!enabled)("embedded view lifecycle", () => {
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "node24",
+      target: "node26",
       external: ["electron"],
       logLevel: "warning",
       banner: {

@@ -39,7 +39,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      NODE_VERSION: 24.13.0
+      NODE_VERSION: 26.12.1
       BUN_VERSION: 1.4.0
     steps:
       - name: Keep LF line endings on checkout

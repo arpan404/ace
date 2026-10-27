@@ -51,7 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Prepare the Debian 12 toolchain (Node 24.13.0, Bun, Rust, C/C++, git)
+      - name: Prepare the Debian 12 toolchain (Node 26.12.1, Bun, Rust, C/C++, git)
         run: sh tools/release/linux/setup-debian12.sh
 
       # The first checkout ran before the container had git, so it is a plain download.
@@ -141,7 +141,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24.13.0
+          node-version: 26.12.1
           package-manager-cache: false
 
       - name: Install Bun
@@ -212,7 +212,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24.13.0
+          node-version: 26.12.1
           package-manager-cache: false
 
       - name: Install Bun

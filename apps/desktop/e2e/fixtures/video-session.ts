@@ -43,7 +43,7 @@ export async function startVideoSession(
     outfile: join(out, "main.mjs"),
     format: "esm",
     platform: "node",
-    target: "node24",
+    target: "node26",
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },

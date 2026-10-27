@@ -128,9 +128,9 @@ export async function discoverSdk(
     if (
       node.length !== 3 ||
       node.some((part) => !Number.isSafeInteger(part) || part < 0) ||
-      (node[0] ?? 0) < 24
+      (node[0] ?? 0) < 26
     )
-      throw new Error("SDK host requires Node 24+");
+      throw new Error("SDK host requires Node 26+");
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
     if (platform === "win32")

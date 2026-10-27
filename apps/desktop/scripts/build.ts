@@ -114,7 +114,7 @@ if (process.platform === "win32") {
     bundle: true,
     minify: true,
     platform: "node",
-    target: "node24",
+    target: "node26",
     format: "esm",
     legalComments: "eof",
     logLevel: "warning",

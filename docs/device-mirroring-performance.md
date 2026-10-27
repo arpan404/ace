@@ -12,7 +12,7 @@ Simulator pointer down/up are sent immediately. Pointer moves retain one outstan
 
 The owner prohibits tests, probes and benchmarks during feature work. The commands below are instructions for the merge-time verifier; they were not run in this revision.
 
-Requirements: Xcode's Simulator SDK/runtime (iPhone 16 / iOS 18+), Bun, Node 24+, the repo's Playwright Chromium, and Screen Recording / Accessibility permission for the launching terminal. Run from any directory:
+Requirements: Xcode's Simulator SDK/runtime (iPhone 16 / iOS 18+), Bun, Node 26+, the repo's Playwright Chromium, and Screen Recording / Accessibility permission for the launching terminal. Run from any directory:
 
 ```sh
 /absolute/path/to/ace/tools/web-perf/device/run.sh > after.json

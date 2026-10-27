@@ -4,7 +4,7 @@ Remote access connects your own devices to your own machine. Provider logins sta
 
 ## Start and pair
 
-Node 24+ and OpenSSL are required for remote access. From the repo root:
+Node 26+ and OpenSSL are required for remote access. From the repo root:
 
 ```sh
 bun install

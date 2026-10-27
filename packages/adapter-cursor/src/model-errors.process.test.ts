@@ -42,7 +42,7 @@ test.each(["missing", "incomplete", "wrong-version"] as const)(
       discovery: {
         platform: "darwin",
         arch: "arm64",
-        nodeVersion: "24.0.0",
+        nodeVersion: "26.0.0",
         resolve: (id) => {
           if (setup === "missing")
             throw Object.assign(new Error("private module path"), { code: "MODULE_NOT_FOUND" });

@@ -17,7 +17,7 @@ short-lived workers. The translator is synchronous and has no I/O.
 Discovery resolves the adapter's installed SDK and its own optional helper
 package without importing the SDK into the daemon. Wrong versions, missing
 helpers, unsupported platforms and setup failures refuse admission. Only package
-absence permits ACP fallback. The host requires Node 24+, macOS/Linux arm64/x64;
+absence permits ACP fallback. The host requires Node 26+, macOS/Linux arm64/x64;
 Windows is explicitly unsupported pending verified home resolution and process
 ownership.
 

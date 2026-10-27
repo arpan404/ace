@@ -171,7 +171,7 @@ The service starts at login and restarts the daemon if it exits. \`ace service u
 
 ## Requirements
 
-- Node 24 or later
+- Node 26 or later
 - At least one coding agent CLI, installed and logged in (Claude Code, Codex, OpenCode or Cursor)
 `;
 

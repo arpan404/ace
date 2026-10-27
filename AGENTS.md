@@ -17,7 +17,7 @@ When these conflict, choose in that order.
 ## Decisions that are settled
 
 - Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002).
-- Daemon runtime is Node 24+. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
+- Daemon runtime is Node 26+. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
 - `packages/protocol` is schema-only: Zod schemas and inferred types, no runtime behaviour beyond parsing.
 
 ## Code conventions

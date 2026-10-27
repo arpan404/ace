@@ -40,7 +40,7 @@ it("stops an outstanding selected-instance login before deleting its SDK auth st
       discovery: {
         platform: "darwin",
         arch: "arm64",
-        nodeVersion: "24.0.0",
+        nodeVersion: "26.0.0",
         resolve: (id) => (id === "@cursor/sdk" ? "/sdk/dist/esm/index.js" : "/helper/package.json"),
         read: async (path) =>
           path === "/sdk/package.json"

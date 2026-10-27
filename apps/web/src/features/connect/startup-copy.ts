@@ -18,7 +18,7 @@ export function startupFailure(reason: string, cause?: DesktopDaemonStatus["caus
 }
 
 const checks: Record<string, { label: string; fix: string }> = {
-  node: { label: "Node runtime", fix: "Install Node 24 or newer, then restart ace." },
+  node: { label: "Node runtime", fix: "Install Node 26 or newer, then restart ace." },
   home: { label: "Data folder", fix: "Check that you can read and write the ace data folder." },
   disk: { label: "Storage", fix: "Check the ace data folder's permissions and free disk space." },
   sqlite: {

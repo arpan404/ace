@@ -118,7 +118,7 @@ async function withCursorDaemon(
           discovery: {
             platform: "linux",
             arch: "x64",
-            nodeVersion: "24.0.0",
+            nodeVersion: "26.0.0",
             resolve: (id) => (id === "@cursor/sdk" ? "/sdk/index.js" : "/helper/package.json"),
             read: async (path) =>
               path === "/sdk/package.json"

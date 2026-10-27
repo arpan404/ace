@@ -59,7 +59,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       // app.asar stages no native packages; the daemon owns them.
       plugins: [zodEnglishOnly, noNativeModules],
       platform: "node",
-      target: "node24",
+      target: "node26",
       // CommonJS dependencies bundled into ESM still call `require` for Node built-ins.
       banner: {
         js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',

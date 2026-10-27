@@ -24,7 +24,7 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 4. `security find-identity -v -p codesigning` lists `Developer ID Application: $CSC_NAME`.
 5. `xcrun notarytool history --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"` exits 0.
 6. `uname -m` is `arm64`. The build targets the host only, so this release is Apple silicon only.
-7. Node 24.13.0 for the build: download `node-v24.13.0-darwin-arm64.tar.gz` from nodejs.org into a new temp directory and check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`. The daemon archives refuse any other Node.
+7. Node 26.12.1 for the build: download `node-v26.12.1-darwin-arm64.tar.gz` from nodejs.org into a new temp directory and check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`. The daemon archives refuse any other Node.
 
 ## 2. Build
 
@@ -32,8 +32,8 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 bun install --frozen-lockfile --os=darwin --cpu='*'
 set -a; source ~/.ace-release/release.env; set +a
 export ACE_RELEASE_PRIVATE_KEY_FILE=~/.ace-release/ace-key.pem
-PATH=<node 24.13.0>/bin:$PATH bun run release:doctor
-PATH=<node 24.13.0>/bin:$PATH bun run release:build <version> --with-daemon
+PATH=<node 26.12.1>/bin:$PATH bun run release:doctor
+PATH=<node 26.12.1>/bin:$PATH bun run release:build <version> --with-daemon
 ```
 
 The `--os`/`--cpu` flags also install spare copies of optional native packages such as sharp; a plain install has only the host's. `release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), launches it with an empty data home and fails unless its daemon starts and the updater begins a check, builds and signs the Apple silicon daemon manifest, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.

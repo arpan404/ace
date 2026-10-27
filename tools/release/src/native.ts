@@ -16,7 +16,7 @@ await checked(runProcess, process.execPath, [
   resolve(import.meta.dirname, "../node_modules/node-gyp/bin/node-gyp.js"),
   "rebuild",
   `--directory=${packageRoot}`,
-  "--target=24.13.0",
+  "--target=26.12.1",
   `--arch=${process.arch}`,
 ]);
 const directory = join(output, target);
@@ -26,7 +26,7 @@ await cp(join(packageRoot, "build/Release/pty.node"), pty);
 await writeFile(
   join(directory, "provenance.json"),
   JSON.stringify({
-    node: "24.13.0",
+    node: "26.12.1",
     nodePty: "1.1.0",
     nodeGyp: "11.5.0",
     compiler: compiler.stdout,
