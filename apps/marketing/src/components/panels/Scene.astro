@@ -1,0 +1,32 @@
+---
+/* The product panel for each feature: one mapping, used by the home tour and feature pages. */
+import type { FeatureSlug } from "../../content/features.ts";
+import AccountsPanel from "./AccountsPanel.astro";
+import BrowserPanel from "./BrowserPanel.astro";
+import ComputerPanel from "./ComputerPanel.astro";
+import DevicesPanel from "./DevicesPanel.astro";
+import FleetPanel from "./FleetPanel.astro";
+import PhonePanel from "./PhonePanel.astro";
+import StatusBoard from "./StatusBoard.astro";
+
+interface Props {
+  slug: Exclude<FeatureSlug, "review">;
+}
+
+const { slug } = Astro.props;
+---
+
+{slug === "status" && <div class="board-wrap"><StatusBoard /></div>}
+{slug === "computer-use" && <ComputerPanel />}
+{slug === "browser" && <BrowserPanel />}
+{slug === "devices" && <DevicesPanel />}
+{slug === "fleet" && <FleetPanel />}
+{slug === "mobile" && <PhonePanel />}
+{slug === "accounts" && <AccountsPanel />}
+
+<style>
+  .board-wrap {
+    width: 100%;
+    max-width: 560px;
+  }
+</style>

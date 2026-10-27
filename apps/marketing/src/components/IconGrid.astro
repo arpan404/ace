@@ -1,0 +1,71 @@
+---
+/* Short points in open columns, each with an icon, a title and a sentence or two. */
+import Icon, { type IconName } from "./Icon.astro";
+
+interface Props {
+  items: { icon: IconName; title: string; body: string }[];
+  columns: 2 | 3;
+}
+
+const { items, columns } = Astro.props;
+---
+
+<ul class="icon-grid reveal" data-stagger style={`--columns: ${columns}`}>
+  {
+    items.map((item) => (
+      <li>
+        <h3>
+          <Icon name={item.icon} size={17} />
+          {item.title}
+        </h3>
+        <p>{item.body}</p>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  /* Open columns, no boxes: a top hairline per item, generous gaps between. */
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--columns), 1fr);
+    gap: 48px 40px;
+    margin-top: 56px;
+  }
+
+  li {
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h3 :global(svg) {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+
+  p {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  @media (max-width: 900px) {
+    .icon-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    .icon-grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

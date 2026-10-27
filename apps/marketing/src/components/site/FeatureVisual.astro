@@ -1,0 +1,67 @@
+---
+/* The picture for each feature page: the same panels and screenshots the home page uses. */
+import reviewDark from "../../assets/shots/review-dark.png";
+import reviewLight from "../../assets/shots/review-light.png";
+import type { FeatureSlug } from "../../content/features.ts";
+import Scene from "../panels/Scene.astro";
+import Shot from "../Shot.astro";
+import Stage from "../Stage.astro";
+
+interface Props {
+  slug: FeatureSlug;
+}
+
+const { slug } = Astro.props;
+---
+
+<div class="page visual reveal">
+  {
+    slug !== "review" && (
+      <Stage>
+        <Scene slug={slug} />
+      </Stage>
+    )
+  }
+  {
+    slug === "review" && (
+      <Stage bleed>
+        <div class="crop">
+          <Shot
+            dark={reviewDark}
+        light={reviewLight}
+            alt="A thread with its Changes panel open beside the conversation: a file tree with added and removed line counts, the diff of two files, and Commit & push."
+            sizes="(min-width: 1232px) 1430px, 125vw"
+            widths={[1440, 2880]}
+            eager
+          />
+        </div>
+      </Stage>
+    )
+  }
+</div>
+
+<style>
+  .visual {
+    margin-top: 64px;
+  }
+
+  .visual :global(.stage-inner) {
+    min-height: 440px;
+  }
+
+  .crop {
+    width: 100%;
+    max-height: 560px;
+    overflow: hidden;
+    border-top-left-radius: 10px;
+    border: 1px solid var(--edge);
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .crop :global(img) {
+    width: 124%;
+    max-width: none;
+    margin-left: -29%;
+  }
+</style>

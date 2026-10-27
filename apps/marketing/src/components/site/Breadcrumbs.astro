@@ -1,0 +1,59 @@
+---
+/* Home › Section › Page, from routes.ts; the last step is the current page and isn't a link. */
+import { trail } from "../../content/routes.ts";
+
+interface Props {
+  path: string;
+}
+
+const steps = trail(Astro.props.path);
+---
+
+<nav class="page crumbs" aria-label="Breadcrumb">
+  <ol>
+    {
+      steps.map((step, index) => (
+        <li>
+          {index < steps.length - 1 ? (
+            <a href={step.path}>{step.name}</a>
+          ) : (
+            <span aria-current="page">{step.name}</span>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</nav>
+
+<style>
+  .crumbs {
+    padding-top: 28px;
+  }
+
+  ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  li:not(:last-child)::after {
+    content: "/";
+    margin-left: 8px;
+    color: var(--faint);
+  }
+
+  a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--foreground);
+  }
+
+  [aria-current] {
+    color: var(--foreground);
+  }
+</style>

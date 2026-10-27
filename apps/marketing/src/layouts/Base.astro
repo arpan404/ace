@@ -10,9 +10,11 @@ interface Props {
   noindex?: boolean;
   /** schema.org data for this page, serialized into a JSON-LD script. */
   structuredData?: object;
+  /** Open Graph type: the home page is a website, every other page an article. */
+  ogType?: "website" | "article";
 }
 
-const { title, description, noindex = false, structuredData } = Astro.props;
+const { title, description, noindex = false, structuredData, ogType = "website" } = Astro.props;
 const site = Astro.site;
 const canonical = site ? new URL(Astro.url.pathname, site).href : undefined;
 const ogImage = site ? new URL("/og.png", site).href : "/og.png";
@@ -36,7 +38,7 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     />
     {canonical && <link rel="canonical" href={canonical} />}
 
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content={product.name} />
     <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={title} />
@@ -55,9 +57,9 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
 
     <meta name="application-name" content={product.name} />
     <meta name="apple-mobile-web-app-title" content={product.name} />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0c0c0c" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#11100f" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-64.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -65,6 +67,48 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <link rel="alternate" type="text/plain" title="ace for language models" href="/llms.txt" />
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
+    <!--
+      Before paint: the theme (the visitor's saved choice, else their system setting, followed
+      live until they choose), whether to animate, and their desktop OS so the matching download
+      button shows.
+    -->
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const key = "ace-theme";
+        const system = matchMedia("(prefers-color-scheme: light)");
+        const saved = () => {
+          try {
+            return localStorage.getItem(key);
+          } catch {
+            return null;
+          }
+        };
+        const apply = () => {
+          root.dataset.theme = saved() ?? (system.matches ? "light" : "dark");
+        };
+        apply();
+        system.addEventListener("change", () => {
+          if (!saved()) apply();
+        });
+      })();
+      (() => {
+        // Motion: on unless reduced motion is asked for. If the motion script hasn't started
+        // within three seconds (blocked, failed), drop it so no content stays hidden.
+        const root = document.documentElement;
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        root.classList.add("motion");
+        setTimeout(() => {
+          if (!("motionReady" in root.dataset)) root.classList.remove("motion");
+        }, 3000);
+      })();
+      (() => {
+        const ua = navigator.userAgent;
+        if (/Android|iPhone|iPad|iPod/.test(ua)) return;
+        if (/Windows/.test(ua)) document.documentElement.dataset.os = "windows";
+        else if (/Linux|X11|CrOS/.test(ua)) document.documentElement.dataset.os = "linux";
+      })();
+    </script>
     <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
     {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   </head>
