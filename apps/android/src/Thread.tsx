@@ -5,6 +5,7 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { FlashList } from "@shopify/flash-list";
 import type { ClientApi, ThreadSource } from "@ace/client";
 import { useSelection, sameIds } from "./selection.ts";
+import { isInstrumentedBuild } from "./native-mode.ts";
 import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
 import { Approval } from "./Approval.tsx";
 import { Composer } from "./Composer.tsx";
@@ -84,6 +85,9 @@ export function ThreadScreen({
   const interactions = useSelection(interactionsSelection);
   const pending = useSelection(pendingSelection);
   const status = thread ? statusAppearance(thread.status, theme) : undefined;
+  // Stress controls exist only in fixture builds; measurement also needs them
+  // even though __DEV__ is false there. Production fails closed to no controls.
+  const instrumented = useMemo(() => isInstrumentedBuild(), []);
   // Loaded admission rows replace local echoes under input:<commandId>; never show both.
   const unsent = pending.filter((p) => !ids.includes(p.itemId) && p.state !== "delivered");
   async function stressHistory() {
@@ -121,7 +125,7 @@ export function ThreadScreen({
                   : `Loading · ${connection}`}
               </AceText>
             )}
-            {__DEV__ ? (
+            {instrumented ? (
               <AceButton
                 label="Load 2,000"
                 enabled={!!thread}
@@ -147,7 +151,7 @@ export function ThreadScreen({
           <AceHost>
             <Row>
               <AceButton label="Earlier messages" onPress={() => void older()} kind="secondary" />
-              {__DEV__ ? (
+              {instrumented ? (
                 <AceButton
                   label="Load 2,000"
                   onPress={() => void stressHistory()}

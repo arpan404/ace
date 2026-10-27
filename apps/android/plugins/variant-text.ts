@@ -47,21 +47,27 @@ export function addMeasurementBuildType(appBuildGradle: string): string {
 }
 
 /**
- * Pin the production bundle entry and fail the build on unexpected bundle tasks.
+ * Pin the production bundle entry and guard unexpected bundle tasks.
  * Idempotent; appended once so plugin reruns never duplicate the guard.
+ *
+ * Only release and measurement produce a bundle today (debuggable variants
+ * skip bundling, so there is no debug bundle task); debug is allowlisted so a
+ * future debuggable bundle keeps the default entry instead of failing.
  */
 export function pinReleaseBundleEntry(appBuildGradle: string): string {
   if (appBuildGradle.includes(RELEASE_ENTRY_MARKER)) return appBuildGradle;
   const guard = `
 // ${RELEASE_ENTRY_MARKER}: release always bundles the fail-closed entry, so a
 // fixture or measurement ENTRY_FILE override can never leak into production.
-// Any unexpected bundle task fails the build instead of bundling a wrong entry.
+// Debug and measurement keep the default entry. Any other bundle task fails
+// the build instead of bundling a wrong entry.
 afterEvaluate {
     tasks.configureEach { task ->
         if (task.name.startsWith("createBundle") && task.name.endsWith("JsAndAssets")) {
             if (task.name == "createBundleReleaseJsAndAssets") {
-                task.entryFile.set(file("$projectDir/../index.production.tsx"))
-            } else if (task.name != "createBundleMeasurementJsAndAssets") {
+                task.entryFile.set(file("$rootDir/../index.production.tsx"))
+            } else if (task.name != "createBundleMeasurementJsAndAssets"
+                && task.name != "createBundleDebugJsAndAssets") {
                 throw new GradleException("Unexpected Ace bundle task: \${task.name}")
             }
         }

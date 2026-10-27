@@ -11,7 +11,7 @@ import {
   inputMetrics,
   probeInput,
 } from "./input-metrics.ts";
-import { readExecutionMode } from "./native-mode.ts";
+import { isInstrumentedBuild } from "./native-mode.ts";
 import { ComposerDraft } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
@@ -26,13 +26,7 @@ export function Composer({
 }) {
   const input = useRef<TextInput>(null);
   // Probe and metrics exist only in fixture builds; production fails closed to plain composing.
-  const instrumented = useMemo(() => {
-    try {
-      return readExecutionMode() !== "production";
-    } catch {
-      return false;
-    }
-  }, []);
+  const instrumented = useMemo(() => isInstrumentedBuild(), []);
   useEffect(
     () => () => {
       if (instrumented) void stopInputMetrics().catch(() => undefined);

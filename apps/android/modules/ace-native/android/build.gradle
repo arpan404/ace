@@ -23,7 +23,21 @@ android {
     }
     measurement {
       initWith release
+      // ace-native depends on Expo modules that have no measurement variant;
+      // fall back to their release variant (the app declares the same fallback).
+      matchingFallbacks = ["release"]
       buildConfigField "String", "ACE_EXECUTION_MODE", '"measurement-fixture"'
+    }
+  }
+  // The instrumented source set is not a build type, so AGP never compiles it
+  // unless it is wired in here. Debug and measurement get the input hooks;
+  // release keeps only src/release/java and never sees the probe or metrics.
+  sourceSets {
+    debug {
+      java.srcDirs += 'src/instrumented/java'
+    }
+    measurement {
+      java.srcDirs += 'src/instrumented/java'
     }
   }
 }

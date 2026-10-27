@@ -46,8 +46,10 @@ it("refuses a generated build file with an unexpected shape", () => {
 it("pins the production bundle entry and guards unexpected bundle tasks", () => {
   const edited = pinReleaseBundleEntry("android { }\n");
   expect(edited).toContain("createBundleReleaseJsAndAssets");
-  expect(edited).toContain("index.production.tsx");
+  // rootDir is android/, so ../ reaches the app root where the entry lives.
+  expect(edited).toContain("$rootDir/../index.production.tsx");
   expect(edited).toContain("createBundleMeasurementJsAndAssets");
+  expect(edited).toContain("createBundleDebugJsAndAssets");
   expect(edited).toContain("Unexpected Ace bundle task");
 });
 
