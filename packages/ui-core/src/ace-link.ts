@@ -16,17 +16,12 @@ export type AceLink =
 
 const scheme = "ace://";
 const longest = 4096;
-const idLimit = 256;
-
-/** An id: printable, no slashes or whitespace, at most 256 characters. */
+/**
+ * Protocol ids are opaque: any non-empty text, encoded slashes and spaces included, within the
+ * link's overall bound. Only an empty one is not an id.
+ */
 function id(value: string | undefined): string | undefined {
-  if (value === undefined || value.length === 0 || value.length > idLimit) return undefined;
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f || char === "/" || char === "\\" || /\s/u.test(char))
-      return undefined;
-  }
-  return value;
+  return value === undefined || value.length === 0 ? undefined : value;
 }
 
 function decode(part: string): string | undefined {
@@ -70,15 +65,14 @@ export function readAceLink(input: string): AceLink | undefined {
   const [kind, first, second, third] = segments;
   switch (kind?.toLowerCase()) {
     case "thread": {
+      // `thread/<id>` or `thread/<id>/item/<item>`; any other shape names nothing.
       const threadId = id(first);
       if (!threadId) return undefined;
-      const itemId = second === "item" ? id(third) : undefined;
-      return {
-        kind: "thread",
-        threadId,
-        ...(itemId ? { itemId } : {}),
-        ...(machine ? { machine } : {}),
-      };
+      if (second === undefined && segments.length === 2)
+        return { kind: "thread", threadId, ...(machine ? { machine } : {}) };
+      const itemId = second === "item" && segments.length === 4 ? id(third) : undefined;
+      if (!itemId) return undefined;
+      return { kind: "thread", threadId, itemId, ...(machine ? { machine } : {}) };
     }
     case "settings":
       if (first === undefined) return { kind: "settings" };

@@ -9,7 +9,17 @@ test("a thread link names its thread, the message to open at and the machine it 
     machine: "studio",
   });
   expect(readAceLink("ACE://thread/t%2D1")).toEqual({ kind: "thread", threadId: "t-1" });
-  expect(readAceLink("ace://thread/t%201")).toBeUndefined();
+});
+
+test("ids are opaque: encoded slashes, spaces and long ids reach the thread as written", () => {
+  expect(readAceLink("ace://thread/t/item/a%2Fb")).toEqual({
+    kind: "thread",
+    threadId: "t",
+    itemId: "a/b",
+  });
+  expect(readAceLink("ace://thread/t%201")).toEqual({ kind: "thread", threadId: "t 1" });
+  const long = "i".repeat(600);
+  expect(readAceLink(`ace://thread/t/item/${long}`)).toMatchObject({ itemId: long });
 });
 
 test("settings, new thread and folder links read their one argument", () => {
@@ -32,7 +42,9 @@ test("anything malformed or foreign is not a link", () => {
     "ace://thread",
     "ace://thread/%E0%A4%A",
     "ace://settings/../../etc",
-    "ace://thread/t-1?machine=a%2Fb",
+    "ace://thread/t/item",
+    "ace://thread/t/other/x",
+    "ace://thread/t/item/x/extra",
     "ace://open?folder=relative/path",
     "ace://unknown/x",
     `ace://thread/${"x".repeat(5000)}`,
