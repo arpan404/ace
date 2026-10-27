@@ -12,12 +12,10 @@ struct BrowserSheets: View {
         case .downloads: BrowserDownloadsSheet(model: model)
         case .settings:
             NavigationStack {
-                if let category = RemoteSettingsCategory.all.first(where: { $0.settings.contains { $0.key.hasPrefix("browser.") } }) {
-                    RemoteSettingsView(model: model, category: category)
-                        .navigationTitle("Browser settings")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { SheetClose() }
-                }
+                RemoteSettingsView(model: model, category: .browser)
+                    .navigationTitle("Browser settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { SheetClose() }
             }
             .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }

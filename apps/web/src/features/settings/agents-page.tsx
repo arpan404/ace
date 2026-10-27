@@ -1,6 +1,12 @@
 import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
-import { homeSortOptions, providerChoiceLabel, providerNames } from "@ace/ui-core";
+import {
+  autoSettleChoices,
+  homeSortOptions,
+  providerChoiceLabel,
+  providerNames,
+  sortByChoices,
+} from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
@@ -18,17 +24,8 @@ import { SettingSwitch } from "./setting-switch.tsx";
 import { settingRow } from "./settings-index.ts";
 import { GenerationSettings } from "./utility-model.tsx";
 
-const autoSettleOptions: { value: AutoSettle; label: string }[] = [
-  { value: "1d", label: "After a day" },
-  { value: "2d", label: "After 2 days" },
-  { value: "1w", label: "After a week" },
-  { value: "never", label: "Never" },
-];
-
-const sortByOptions: { value: SortBy; label: string }[] = homeSortOptions.map((option) => ({
-  value: option.id,
-  label: option.label,
-}));
+const autoSettleOptions: readonly { value: AutoSettle; label: string }[] = autoSettleChoices;
+const sortByOptions: readonly { value: SortBy; label: string }[] = sortByChoices;
 const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.id === sortBy)?.note;
 
 /**

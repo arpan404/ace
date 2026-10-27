@@ -35,6 +35,7 @@ import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
+import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -211,6 +212,11 @@ export class NativeServices {
           if (!(error instanceof HostProblem)) throw error;
           this.#reply(id, false, null, error.message);
         }
+        return;
+      }
+      const page = settingsPageRequest(raw);
+      if (page) {
+        this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);

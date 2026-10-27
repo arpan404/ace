@@ -24,12 +24,15 @@ struct SettingsSheet: View {
     @State private var toolsMachine = ""
     /// The machine whose archive window is open while the archive or one of its threads shows.
     @State private var following: String?
+    /// Where machine settings changes go while Settings is open (`SettingsScope`).
+    @State private var scope: SettingsScope
 
     init(inbox: MachineInbox, machines: MachinesModel? = nil, lock: AppLock? = nil, start: [SettingsRoute] = []) {
         self.inbox = inbox
         self.machines = machines
         self.lock = lock
         _path = State(initialValue: start)
+        _scope = State(initialValue: SettingsScope(inbox: inbox))
     }
 
     var body: some View {
@@ -81,6 +84,7 @@ struct SettingsSheet: View {
             }
             .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
         }
+        .environment(\.settingsScope, scope)
         .escapeCloses { dismiss() }
         .tint(AceTheme.Colours.foreground)
         .toggleStyle(.systemSwitch)

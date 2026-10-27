@@ -135,7 +135,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.10",
+      "version": "0.0.11",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -170,6 +170,7 @@
         "@ace/native-host": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/settings": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "gemoji": "^8.1.0",
         "marked": "^18.0.14",

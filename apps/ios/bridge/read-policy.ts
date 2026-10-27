@@ -11,6 +11,7 @@ import { z } from "zod";
 export type ReadFamily =
   | "projects"
   | "settings"
+  | "settings-page"
   | "source-control"
   | "automations"
   | "usage"
@@ -61,6 +62,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "projects";
     case "settings.get":
       return "settings";
+    case "settings.page":
+      return "settings-page";
     case "source-control.request":
       return operation(value) === "readiness" ? "source-control" : undefined;
     case "automation.list":
@@ -105,13 +108,17 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
     case "settings.reset":
-      return ["settings", "source-control", "host"];
+      return ["settings", "settings-page", "source-control", "host"];
     case "host.storage.apply":
     case "host.storage.compact":
     case "host.storage.set":
     case "host.worktreeTimeout":
     case "host.reset":
-      return ["host", "settings"];
+      return ["host", "settings", "settings-page"];
+    case "settings.page.set":
+      return ["settings", "settings-page", "source-control", "host"];
+    case "settings.models.star":
+      return ["settings", "settings-page"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
@@ -142,16 +149,17 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "source-control", "host"];
+      return ["settings", "settings-page", "source-control", "host"];
     case "usage.updated":
-    case "accounts.changed":
       return ["usage"];
+    case "accounts.changed":
+      return ["usage", "settings-page"];
     case "plugins.removed":
       return ["plugins", "catalog"];
     case "catalog.changed":
     case "models.changed":
     case "providers.changed":
-      return ["catalog"];
+      return ["catalog", "settings-page"];
     case "forge.pr.updated":
       return ["forge"];
     default:
