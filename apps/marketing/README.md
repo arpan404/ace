@@ -71,6 +71,8 @@ theme overrides them under `html[data-theme="light"]`.
 
 ## Screenshots
 
-`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon
-(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero) and `review`. Replace both modes
+`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon's
+small showcase world (`bun run web:dev:fake`, then `/t/thread-cold-start?fakeWorld=showcase`), at
+1440×900 and 2× scale: `home` (the hero) and `review` (the same thread with the right panel on
+Changes). Replace both modes
 together; `Shot.astro` shows the one matching the theme. `public/og.png` is the 1200×630 social card.

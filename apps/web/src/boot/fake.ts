@@ -6,6 +6,7 @@ import {
   crossDevice,
   delegatedQuestion,
   devWorld,
+  showcaseWorld,
   fakeTransport,
   hostFolders,
   refusedDelegation,
@@ -70,7 +71,8 @@ export function bootFake(): {
       new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
-  // threads and no projects: the first run. `?fakeWorld=thread-activity` adds threads caught
+  // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the
+  // marketing screenshots are taken in. `?fakeWorld=thread-activity` adds threads caught
   // mid-work (watching a command, waiting on subagents, running tests, asking) to the world.
   const world =
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
@@ -83,7 +85,9 @@ export function bootFake(): {
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
   for (const thread of empty || ["real-thread-state", "cold-start-state"].includes(world ?? "")
     ? []
-    : devWorld()) {
+    : world === "showcase"
+      ? showcaseWorld()
+      : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
     if (thread.through) player.runThrough(thread.through);
     else if (!thread.live) player.runUntilBlocked();
