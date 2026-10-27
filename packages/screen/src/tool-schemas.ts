@@ -10,6 +10,7 @@ import {
   ScreenUIRef,
   type ApprovalTarget,
 } from "@ace/protocol";
+import { keepPattern } from "@ace/mcp-server";
 import { z } from "zod";
 
 const sessionId = ScreenId.optional().describe("Omit with one app.");
@@ -18,11 +19,12 @@ const coordinate = z.number().finite().nonnegative();
 const delta = z.number().int().min(-1000).max(1000);
 /**
  * Exactly the names `ScreenKey` accepts, as one pattern: models read it instead of a 174-entry
- * enum, and decoding still checks the enum.
+ * enum, and decoding still checks the enum. It is the field's only list of names, so it is
+ * advertised even though other patterns are not.
  */
 export const screenKeyPattern =
   /^(?:[!-~]|[Ff](?:[1-9]|1\d|20)|[Ee](?:nter|sc(?:ape)?|nd)|[Rr](?:eturn|ight)|[Tt]ab|[Ss]pace|[Bb]ackspace|[Dd](?:elete|own)|[Hh]ome|[Ll]eft|[Uu]p|Page(?:Up|Down)|page(?:up|down)|Arrow(?:Left|Right|Up|Down)|arrow(?:left|right|up|down))$/;
-const toolKey = z.string().regex(screenKeyPattern).pipe(ScreenKey);
+const toolKey = z.string().regex(screenKeyPattern).meta(keepPattern).pipe(ScreenKey);
 const [click, drag, keyPress, typed, scrolled, pasted] = ScreenMeasurementAction.options;
 const MeasuredAction = z.discriminatedUnion("kind", [
   click,

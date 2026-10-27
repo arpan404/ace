@@ -1,3 +1,4 @@
+export { keepPattern } from "./advertised-schema.ts";
 export { aceToolAction } from "./actions.ts";
 export { aceWaitTargets } from "./waits.ts";
 export { maxToolTimeoutMs } from "./timeouts.ts";

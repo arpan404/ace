@@ -10,7 +10,8 @@ import { flatUnion } from "./schema-unions.ts";
  *
  * - the `$schema` dialect and ace's own `x-ace-constraint` notes;
  * - string lengths and `pattern`s (ids, names, refs): the server checks them, and the
- *   `invalid_arguments` issue names the length or the pattern a call broke;
+ *   `invalid_arguments` issue names the length or the pattern a call broke. A field whose pattern
+ *   is its vocabulary (key names) marks itself with `keepPattern` and keeps it;
  * - numeric bounds a model would not cross by accident: a `minimum` of 0 or 1, a `maximum` of
  *   1,000 or more, and the safe-integer range;
  * - array sizes that bound nothing a model sends: `minItems: 1`, and a `maxItems` of 32 or more
@@ -54,10 +55,14 @@ const isRecord = (value: unknown): value is Json =>
 const generousMaximum = 1_000;
 /** A `maxItems` at or past this bounds nothing a model would send in one call. */
 const generousMaxItems = 32;
-const droppedKeys = new Set(["$schema", "x-ace-constraint", "maxLength", "minLength", "pattern"]);
+const droppedKeys = new Set(["$schema", "x-ace-constraint", "maxLength", "minLength"]);
+const keepPatternKey = "x-ace-keep-pattern";
+/** Zod metadata for a string whose pattern is the only place its allowed values are spelled. */
+export const keepPattern = { [keepPatternKey]: true } as const;
 
 function dropped(key: string, value: unknown, node: Json): boolean {
-  if (droppedKeys.has(key)) return true;
+  if (droppedKeys.has(key) || key === keepPatternKey) return true;
+  if (key === "pattern") return node[keepPatternKey] !== true;
   if (key === "additionalProperties") return value === false;
   if (typeof value !== "number") return false;
   if (key === "minimum") return value === 0 || value === 1 || value === -safeLimit;
