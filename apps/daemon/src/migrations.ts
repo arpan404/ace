@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
@@ -154,7 +155,7 @@ const migrations = [
  */
 const UPGRADE_FLOOR = 14;
 export function migrate(db: DatabaseSync): void {
-  backupBeforeUpgrade(db);
+  removeUpgradeBackups(db);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(
@@ -209,36 +210,32 @@ export function migrate(db: DatabaseSync): void {
   }
 }
 
-/** Version recorded by an existing database, or 0 when it has none yet. */
-function storedVersion(db: DatabaseSync): number {
-  const table = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'")
-    .get();
-  if (!table) return 0;
-  const row = db.prepare("SELECT version FROM schema_version WHERE id = 1").get();
-  return z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .catch(0)
-    .parse(row?.version ?? 0);
-}
 /**
- * A consistent copy of the database as it was, kept beside it before any upgrade step runs.
- * The steps themselves are one transaction; the copy covers a step whose backfill is wrong.
+ * Deletes the full copies older builds wrote beside the database before each upgrade
+ * (`events.sqlite.schema-<n>.backup`, and `.partial` when cut short). Writing one blocked
+ * startup for as long as copying the whole database took, and nothing ever deleted or read
+ * them. The upgrade steps run in one transaction, so a failed step already rolls back.
  */
-function backupBeforeUpgrade(db: DatabaseSync): void {
-  const version = storedVersion(db);
+function removeUpgradeBackups(db: DatabaseSync): void {
   const path = db.location();
-  if (!path || version < UPGRADE_FLOOR || version >= migrations.length) return;
-  const target = `${path}.schema-${version}.backup`;
-  if (existsSync(target)) return;
-  // Written under a temporary name, so an interrupted copy is never mistaken for a backup.
-  const partial = `${target}.partial`;
-  rmSync(partial, { force: true });
-  db.prepare("VACUUM INTO ?").run(partial);
-  renameSync(partial, target);
+  if (!path) return;
+  const prefix = `${basename(path)}.schema-`;
+  let names: string[];
+  try {
+    names = readdirSync(dirname(path));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !UPGRADE_BACKUP.test(name.slice(prefix.length))) continue;
+    try {
+      rmSync(join(dirname(path), name), { force: true });
+    } catch {
+      // Removed again on the next start.
+    }
+  }
 }
+const UPGRADE_BACKUP = /^\d{1,6}\.backup(\.partial)?$/;
 
 const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
 function location(db: DatabaseSync): string {

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,55 +99,31 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     } finally {
       after.close();
     }
-    // The pre-upgrade copy is kept beside the database and opens at its old version.
-    const backup = new DatabaseSync(`${path}.schema-14.backup`, { readOnly: true });
-    try {
-      expect(backup.prepare("SELECT version FROM schema_version").get()?.version).toBe(14);
-      expect(backup.prepare("SELECT COUNT(*) AS n FROM items").get()?.n).toBe(302);
-    } finally {
-      backup.close();
-    }
+    // Upgrading never copies the whole database first: that copy blocked startup.
+    expect(readdirSync(home).filter((name) => name.includes(".backup"))).toEqual([]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-test("a current database opens without writing an upgrade backup", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-current-schema-"));
+test("copies older builds left beside the database are deleted when it opens", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-old-backups-"));
   const path = join(home, "events.sqlite");
   try {
     new Store(path).close();
+    await writeFile(`${path}.schema-14.backup`, "old copy");
+    await writeFile(`${path}.schema-20.backup`, "old copy");
+    // A copy cut short by a crash or a forced quit.
+    await writeFile(`${path}.schema-16.backup.partial`, "truncated");
+    // Files that only look similar are not ours to delete.
+    await writeFile(join(home, "usage.sqlite.schema-14.backup"), "keep");
+    await writeFile(join(home, "notes.backup"), "keep");
     new Store(path).close();
-    expect(existsSync(`${path}.schema-20.backup`)).toBe(false);
-    expect(existsSync(`${path}.schema-14.backup`)).toBe(false);
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
-test("an interrupted upgrade backup is redone instead of being kept as the backup", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-partial-"));
-  const path = join(home, "events.sqlite");
-  try {
-    const store = new Store(path);
-    store.createWorkspace(home, "Existing project");
-    store.close();
-    const db = new DatabaseSync(path);
-    db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
-    );
-    db.close();
-    // A copy cut short by a crash or a full disk.
-    await writeFile(`${path}.schema-14.backup.partial`, "truncated");
-    new Store(path).close();
-    expect(existsSync(`${path}.schema-14.backup.partial`)).toBe(false);
-    const backup = new DatabaseSync(`${path}.schema-14.backup`, { readOnly: true });
-    try {
-      expect(backup.prepare("SELECT version FROM schema_version").get()?.version).toBe(14);
-      expect(backup.prepare("SELECT COUNT(*) AS n FROM workspaces").get()?.n).toBe(1);
-    } finally {
-      backup.close();
-    }
+    expect(
+      readdirSync(home)
+        .filter((name) => name.includes("backup"))
+        .toSorted(),
+    ).toEqual(["notes.backup", "usage.sqlite.schema-14.backup"]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
