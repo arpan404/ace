@@ -1,7 +1,8 @@
 import type { DevicesService } from "@ace/devices";
 import { deviceControlDelivery } from "@ace/devices/tools";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { logFields } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
+import { installScreenHelper } from "@ace/screen";
 import { mayCompress } from "../compression-policy.ts";
 import { ThreadId, AgentId, ItemId } from "@ace/protocol";
 import { basename, join } from "node:path";
@@ -9,6 +10,7 @@ import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import type { ServiceContext } from "./types.ts";
 import { LazyDevices, lazyDevices } from "../lazy-devices.ts";
+import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -28,6 +30,7 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
   const root = await realpath(directory);
   const { DevicesService, DevicePlatform, renderDeviceVideo, consumeDeviceRecording } =
     await import("@ace/devices");
+  const frameEncoder = await deviceHelper(context);
   return new DevicesService({
     platform: new DevicePlatform({
       platform: process.platform,
@@ -36,10 +39,9 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
       env: process.env,
       toolsDirectory: join(config.dataDir, "tools"),
       node: process.execPath,
-      // The screen helper encodes Android emulators' pictures on the Mac (`--encode-frames`).
-      ...(process.platform === "darwin" && config.screenHelper
-        ? { frameEncoder: config.screenHelper }
-        : {}),
+      // The screen helper encodes Android emulators' pictures on the Mac (`--encode-frames`),
+      // and touches, folds and re-encodes Simulators.
+      ...(frameEncoder ? { frameEncoder } : {}),
       // Read at each boot, so a change in Settings applies to the next emulator ace starts.
       emulatorWindow: async () =>
         (await services.settings?.get("devices.emulatorWindow"))?.value === true,
@@ -101,6 +103,22 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
       });
     },
   });
+}
+/**
+ * The screen helper executable the device tools start, on a Mac. A helper that can't be
+ * installed leaves devices without it (serve-sim alone), never without devices.
+ */
+async function deviceHelper({ config, log }: ServiceContext): Promise<string | undefined> {
+  const configured = config.screenHelper;
+  if (process.platform !== "darwin" || !configured) return undefined;
+  try {
+    return await screenHelperExecutable(configured, (bundle) =>
+      installScreenHelper(bundle, config.dataDir, config.screenHelperManifest),
+    );
+  } catch (error) {
+    log.log("warn", "Screen helper unavailable for devices", logError(error));
+    return undefined;
+  }
 }
 export function createDevicesSession(context: SocketContext): SocketService {
   let channel: ReturnType<typeof import("@ace/devices").connectDevices> | undefined;
