@@ -254,3 +254,11 @@ test("a personal skill offers no Open on computer and opens nothing", async () =
   });
   expect(daemon.workspace.opened).toEqual([]);
 });
+
+test("a name check refuses a taken name even when the list was drawn from the phone's copy", async () => {
+  // A relaunched phone draws the library from its kept copy, so this bridge never listed it.
+  const { ask } = await library();
+  expect(await ask({ op: "check", name: "research", scope: "personal" })).toMatchObject({
+    problem: "You already have a skill called research.",
+  });
+});

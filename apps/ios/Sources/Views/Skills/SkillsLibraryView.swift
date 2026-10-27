@@ -108,7 +108,9 @@ struct SkillsLibraryView: View {
         .navigationDestination(item: $opened) { route in
             SkillPageView(model: model, route: route, workspaceId: project?.id, project: project?.name)
         }
-        .readWhenConnected(model, id: projectId) {
+        // Keyed on the project as resolved: a remembered project only resolves once the projects
+        // arrive, and the library must be read again for it then.
+        .readWhenConnected(model, id: project?.id ?? "") {
             library = model.keptSkillLibrary(libraryRead) ?? library
             await read()
         }

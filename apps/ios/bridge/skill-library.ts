@@ -229,7 +229,11 @@ export class NativeSkillLibrary {
       }
       case "check": {
         const name = request.name.trim();
-        const entries = this.#listed.get(request.workspaceId ?? "");
+        // The screen may have drawn the list from the phone's kept copy without this bridge
+        // listing it (a relaunch): read it once here rather than pass every name.
+        const entries =
+          this.#listed.get(request.workspaceId ?? "") ??
+          (name ? (await this.#list(request.workspaceId, signal)).entries : undefined);
         const problem = skillNameProblem(name, (value) => nameTaken(entries, value, request.scope));
         return { problem: problem ?? null, path: newSkillPath(request.scope, name || "name") };
       }
