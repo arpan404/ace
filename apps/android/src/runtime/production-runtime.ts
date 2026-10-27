@@ -17,6 +17,7 @@ import {
   type Transport,
 } from "@ace/client";
 import { DeviceId, HostId, type ServerMessage } from "@ace/protocol";
+import { FilesClientMessage, WorkspaceActionRequest } from "@ace/protocol";
 import {
   projectSidebarLease,
   projectThreadLease,
@@ -177,6 +178,26 @@ export interface ProductionMutations extends Pick<
  * `workspace.request` stays at `git.status`/`git.diff` (the change letters
  * and marks the viewer paints); drafts and every other workspace op are
  * refused. `files.pull` is the download channel's continuation read.
+ *
+ * Scope notes (accurate boundaries, not aspirations):
+ *
+ * - `files.pull` carries no thread field per protocol
+ *   (`{requestId, channel}` only), so neither this allowlist nor the adapter
+ *   pin can bind a pull to a thread. Confinement of a channel to its download
+ *   is entirely daemon-side; a hostile pull with a guessed channel is limited
+ *   to the same connection and fails closed at the daemon when the channel is
+ *   unknown. Shape-invalid pulls (missing/non-integer channel) throw here,
+ *   before the socket, via the protocol schema.
+ * - `link.download` forwards any `itemId`/`reference` for the pinned thread.
+ *   The client does not check that the item links the reference: the daemon
+ *   resolves `reference` only after finding that link in `itemId`
+ *   (`linkedKey(threadId, itemId, reference)` in the file wire), so a foreign
+ *   `itemId` fails to resolve daemon-side.
+ * - `observeFiles` below is host-wide, not thread-scoped: `files.changed`
+ *   carries no thread and event batches carrying `workspace.files_changed`
+ *   carry a `workspaceId` that is not filtered. The effect is refresh-only
+ *   (the viewer re-reads its own thread); no content leaks, but cross-thread
+ *   churn is expected.
  */
 export const PRODUCTION_FILES_REQUEST_OPS: ReadonlySet<string> = new Set([
   "list",
@@ -200,42 +221,60 @@ export type ProductionFilesCancel = Extract<OneWayMessage, { type: "files.cancel
 /**
  * Fail closed for anything outside the read-only file allowlist above.
  * Unknown shapes, uploads, writes and non-git workspace ops throw before any
- * network use; the daemon re-validates the scope.
+ * network use; the daemon re-validates the scope. `files.pull` and
+ * `files.cancel` are shape-checked with the protocol schemas (a dummy
+ * `requestId` fills the client-added field for request/pull validation, since
+ * `Client.request` stamps it after this boundary); a missing or out-of-range
+ * channel throws here. `files.pull`/`files.cancel` carry no thread field, so
+ * channel confinement stays daemon-side (see the allowlist note above).
  */
 export function assertProductionFilesRequest(
   input: unknown,
 ): asserts input is ProductionFilesRequest {
   if (typeof input !== "object" || input === null) throw new Error("Files are read-only here.");
-  const request = input as { type?: unknown; operation?: unknown };
-  if (request.type === "files.pull") return;
+  const request = input as { type?: unknown };
+  if (request.type === "files.pull") {
+    const parsed = FilesClientMessage.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success || parsed.data.type !== "files.pull")
+      throw new Error("Files are read-only here.");
+    return;
+  }
   if (request.type === "files.request") {
-    const op =
-      typeof request.operation === "object" && request.operation !== null
-        ? (request.operation as { op?: unknown }).op
-        : undefined;
-    if (typeof op === "string" && PRODUCTION_FILES_REQUEST_OPS.has(op)) return;
+    const parsed = FilesClientMessage.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success || parsed.data.type !== "files.request")
+      throw new Error("Files are read-only here.");
+    if (PRODUCTION_FILES_REQUEST_OPS.has(parsed.data.operation.op)) return;
   }
   if (request.type === "workspace.request") {
-    const op =
-      typeof request.operation === "object" && request.operation !== null
-        ? (request.operation as { op?: unknown }).op
-        : undefined;
-    if (typeof op === "string" && PRODUCTION_WORKSPACE_READ_OPS.has(op)) return;
+    const parsed = WorkspaceActionRequest.safeParse({
+      ...(input as Record<string, unknown>),
+      requestId: (input as { requestId?: unknown }).requestId ?? "production-pre-socket-check",
+    });
+    if (!parsed.success) throw new Error("Files are read-only here.");
+    if (PRODUCTION_WORKSPACE_READ_OPS.has(parsed.data.operation.op)) return;
   }
   throw new Error("Files are read-only here.");
 }
 
-/** Only a download-channel cleanup may send; everything else throws. */
+/**
+ * Only a download-channel cleanup may send; everything else throws. The
+ * message is parsed with the protocol schema, so a missing or out-of-range
+ * channel throws before the socket. The cancel carries no thread field: any
+ * well-formed channel on this connection may be cancelled (own-connection
+ * DoS at most); channel ownership stays daemon-side.
+ */
 export function assertProductionFilesSend(
   message: unknown,
 ): asserts message is ProductionFilesCancel {
-  if (
-    typeof message === "object" &&
-    message !== null &&
-    (message as { type?: unknown }).type === "files.cancel"
-  )
-    return;
-  throw new Error("Files are read-only here.");
+  const parsed = FilesClientMessage.safeParse(message);
+  if (!parsed.success || parsed.data.type !== "files.cancel")
+    throw new Error("Files are read-only here.");
 }
 
 /**

@@ -372,6 +372,100 @@ it("exposes no raw client: allowlisted request/send plus filtered taps only", as
   }
 });
 
+it("rejects shape-invalid pull and cancel before the socket", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const database = memoryDatabase();
+  const produced = createProductionStartup({
+    bridge: daemonBridge(),
+    credentials: createMemoryCredentialStore(),
+    directoryStorage: memoryStorage(),
+    database,
+    identityReader: async () => ({ hostId: "host-1", displayName: "Studio", version: "1.0" }),
+    transportFor: () => {
+      const inner = fakeTransport(daemon);
+      return {
+        open: (events) => inner.open(events),
+        send: (text) => {
+          sent.push(text);
+          inner.send(text);
+        },
+        close: () => inner.close(),
+      };
+    },
+  });
+  expect(await produced.load()).toEqual([]);
+  daemon.createThread({ id: THREAD, workspaceId: "ace", title: "T", provider: "codex" });
+  seedFiles(daemon);
+  await produced.pair(preparePairing(LINK), "My phone");
+  try {
+    await ready(produced);
+    const files = adapterOf(produced);
+    const options = { signal: new AbortController().signal };
+    const before = sent.length;
+    // Missing channel, zero/out-of-range/non-integer channels, and unknown
+    // one-way types must all throw before the socket.
+    for (const bad of [
+      { type: "files.pull", requestId: "r" },
+      { type: "files.pull", requestId: "r", channel: 0 },
+      { type: "files.pull", requestId: "r", channel: -1 },
+      { type: "files.pull", requestId: "r", channel: 1.5 },
+      { type: "files.pull", requestId: "r", channel: "1" },
+      { type: "files.pull", requestId: "r", channel: 0xffffffff + 1 },
+    ]) {
+      await expect(files.request(bad as never, options)).rejects.toThrow("read-only");
+    }
+    for (const bad of [
+      { type: "files.cancel" },
+      { type: "files.cancel", channel: 0 },
+      { type: "files.cancel", channel: "1" },
+      { type: "files.credit", channel: 1, credits: 1 },
+      { type: "files.abort", sourceRequestId: "r" },
+    ]) {
+      expect(() => files.send(bad as never)).toThrow("read-only");
+    }
+    // Malformed request shapes with an allowlisted op still throw here.
+    await expect(
+      files.request({ type: "files.request", threadId: ThreadId.parse(THREAD) } as never, options),
+    ).rejects.toThrow("read-only");
+    expect(sent.length).toBe(before);
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("pins cachedThread to the open thread", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    await ready(produced);
+    const files = adapterOf(produced);
+    // Warm the snapshot so the own-thread read has something to return.
+    await listTree(files, { threadId: THREAD }, new AbortController().signal);
+    expect(files.cachedThread?.(THREAD)?.thread?.id ?? THREAD).toBe(THREAD);
+    expect(() => files.cachedThread?.(OTHER)).toThrow("its own thread");
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("fails the file viewer closed after device removal", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    await ready(produced);
+    const files = adapterOf(produced);
+    const signal = new AbortController().signal;
+    await listTree(files, { threadId: THREAD }, signal);
+    await produced.remove("host-1");
+    await expect(listTree(files, { threadId: THREAD }, signal)).rejects.toThrow("not connected");
+    expect(() => files.send({ type: "files.cancel", channel: 1 })).toThrow("not connected");
+    expect(() => files.onMessage(() => {})).toThrow("not connected");
+    expect(() => files.cachedThread?.(THREAD)).toThrow("not connected");
+  } finally {
+    await produced.disconnectAll();
+  }
+});
 it("fails closed after disconnect and same-host replacement", async () => {
   const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
   const produced = await pairLive(daemon);
