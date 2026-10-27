@@ -43,7 +43,7 @@ struct DeviceScreen: View {
     var body: some View {
         stage
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
-            .background(AceTheme.Colours.background)
+            .background(AceTheme.Colours.background.ignoresSafeArea())
             .threadTitle(info?.name ?? name, subtitle: info?.subtitle ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }

@@ -21,7 +21,7 @@ struct DevicesScreen: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(AceTheme.Colours.background.ignoresSafeArea())
         .threadTitle("Devices", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

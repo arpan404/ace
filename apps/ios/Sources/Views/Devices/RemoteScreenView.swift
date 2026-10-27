@@ -20,7 +20,7 @@ struct RemoteScreenView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(AceTheme.Colours.background.ignoresSafeArea())
         .threadTitle("Computer use", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
