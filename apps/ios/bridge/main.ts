@@ -15,6 +15,8 @@ import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { MachineAdmission } from "./machine-admission.ts";
+import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
@@ -90,6 +92,7 @@ let stopThread: (() => void) | undefined;
 let session: ThreadSession | undefined;
 let epoch = 0;
 let machine: MachineProviders | undefined;
+let admission: MachineAdmission | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
@@ -185,6 +188,7 @@ async function start(json: string): Promise<void> {
   followMachine(client, pump, trust);
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
+  admission = new MachineAdmission(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {
     now: () => host.now(),
@@ -262,6 +266,7 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    new HostCare(client, admission),
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);

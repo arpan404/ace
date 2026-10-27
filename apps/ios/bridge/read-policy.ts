@@ -17,7 +17,8 @@ export type ReadFamily =
   | "plugins"
   | "prompts"
   | "catalog"
-  | "forge";
+  | "forge"
+  | "host";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -74,6 +75,9 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "list" ? "prompts" : undefined;
     case "catalog.list":
       return "catalog";
+    case "host.storage":
+    case "host.diagnostics":
+      return "host";
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -101,7 +105,13 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
     case "settings.reset":
-      return ["settings", "source-control"];
+      return ["settings", "source-control", "host"];
+    case "host.storage.apply":
+    case "host.storage.compact":
+    case "host.storage.set":
+    case "host.worktreeTimeout":
+    case "host.reset":
+      return ["host", "settings"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
@@ -132,7 +142,7 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "source-control"];
+      return ["settings", "source-control", "host"];
     case "usage.updated":
     case "accounts.changed":
       return ["usage"];

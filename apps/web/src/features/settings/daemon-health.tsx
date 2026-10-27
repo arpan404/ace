@@ -4,6 +4,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { healthRows, queueRows } from "@ace/ui-core/host-care";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -34,15 +35,6 @@ const columns: DataColumns<QueueRow> = [
   { accessorKey: "depth", header: "Waiting" },
 ];
 
-const queueLabels: Record<string, string> = {
-  intents: "Actions",
-  notifications: "Notifications",
-  "output.chunks": "Output updates",
-};
-
-const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-const ms = (value: number | null) => (value === null ? "–" : `${value.toFixed(1)} ms`);
-
 /**
  * The daemon's health: a key/value list, its queues, and Copy (the report as JSON, for a bug
  * report). Loads as a skeleton; a failed read says so with Try again.
@@ -59,14 +51,7 @@ export function DaemonHealth() {
     enabled: ready,
     refetchInterval: 15_000,
   });
-  const queues = useMemo(
-    () =>
-      Object.entries(health.data?.queues ?? {}).map(([name, depth]) => ({
-        name: queueLabels[name] ?? "Other work",
-        depth,
-      })),
-    [health.data],
-  );
+  const queues = useMemo(() => (health.data ? queueRows(health.data) : []), [health.data]);
   if (!ready) return <p className="text-sm text-muted-foreground">Waiting for ace…</p>;
   if (health.isPending) return <ListSkeleton label="ace health" shape="row" rows={3} />;
   if (health.isError)
@@ -82,14 +67,7 @@ export function DaemonHealth() {
   // The machine this page reads, not this window's own: Settings may be editing another.
   const copy = () =>
     report.copy(JSON.stringify({ machine: host, hostId: identity?.hostId, health: data }, null, 2));
-  const rows: [string, string][] = [
-    ["Machine", host],
-    ["Memory", mb(data.memory.rssBytes)],
-    ["Heap", `${mb(data.memory.heapUsedBytes)} of ${mb(data.memory.heapTotalBytes)}`],
-    ["Sessions", data.activeSessions === null ? "–" : String(data.activeSessions)],
-    ["Event loop", `p99 ${ms(data.eventLoop.p99Ms)} · max ${ms(data.eventLoop.maxMs)}`],
-    ["Open handles", String(data.openHandles)],
-  ];
+  const rows: [string, string][] = [["Machine", host], ...healthRows(data)];
   return (
     <div className="flex flex-col gap-3 text-sm">
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1">

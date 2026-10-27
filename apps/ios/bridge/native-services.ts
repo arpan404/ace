@@ -33,6 +33,8 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { HostCareRequest, type HostCare } from "./host-care.ts";
+import { HostProblem } from "./host-problem.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -98,6 +100,7 @@ export class NativeServices {
   readonly files: CheckoutFiles | undefined;
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
+  readonly care: HostCare | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -106,6 +109,7 @@ export class NativeServices {
     files?: CheckoutFiles,
     forge?: ForgeService,
     reads?: NativeReads,
+    care?: HostCare,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -115,6 +119,7 @@ export class NativeServices {
     this.files = files;
     this.forge = forge;
     this.reads = reads;
+    this.care = care;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -195,6 +200,17 @@ export class NativeServices {
       const limits = UsageLimitsRequest.safeParse(raw);
       if (limits.success) {
         this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
+        return;
+      }
+      const care = HostCareRequest.safeParse(raw);
+      if (care.success && this.care) {
+        try {
+          this.#answer(id, raw, await this.care.answer(care.data, controller.signal), read);
+        } catch (error) {
+          // Storage, diagnostics and pausing say what went wrong in the person's words.
+          if (!(error instanceof HostProblem)) throw error;
+          this.#reply(id, false, null, error.message);
+        }
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);
