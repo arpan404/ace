@@ -14,6 +14,8 @@ private struct TerminalReply: Decodable {
 struct TerminalView: View {
     let model: ClientModel
     let threadId: String
+    /// The terminal to show first, such as the one a script just started.
+    var initial: String? = nil
     @State private var terminals: [TerminalRow] = []
     @State private var selected: String?
     @State private var modifiers = TerminalModifiers()
@@ -84,7 +86,8 @@ struct TerminalView: View {
             let reply = try await model.service(["type": "terminal.request", "operation": ["op": "list", "threadId": threadId]], as: TerminalReply.self)
             guard reply.ok else { throw ServiceFailure(message: reply.error ?? "Terminal unavailable") }
             terminals = reply.terminals ?? []
-            if selected == nil, let first = terminals.first { select(first.id) }
+            if selected == nil, let initial, terminals.contains(where: { $0.id == initial }) { select(initial) }
+            else if selected == nil, let first = terminals.first { select(first.id) }
         } catch { problem = error.localizedDescription }
     }
     private func create() async {

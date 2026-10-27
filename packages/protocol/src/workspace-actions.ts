@@ -68,6 +68,23 @@ export const WorkspaceActionRequest = z.object({
     }),
     z.object({ op: z.literal("scripts.list"), threadId: ThreadId }),
     z.object({ op: z.literal("editors.list") }),
+    /**
+     * Open a project's or a thread's folder, or a file in it, on the machine running ace: in an
+     * editor `editors.list` found there, or the machine's file manager. For clients on another
+     * device (a phone); the desktop app opens editors on its own machine (ADR 0057). Exactly one
+     * of `workspaceId` and `threadId`; `path` is relative to that folder and never leaves it.
+     */
+    z.object({
+      op: z.literal("host.open"),
+      app: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("editor"), editorId: id }),
+        z.object({ kind: z.literal("files") }),
+      ]),
+      workspaceId: WorkspaceId.optional(),
+      threadId: ThreadId.optional(),
+      path: repoPath.optional(),
+      line: z.number().int().positive().max(10_000_000).optional(),
+    }),
     z.object({ op: z.literal("branches.list"), workspaceId: WorkspaceId }),
     /** The project's `origin` fetch URL, so another machine can find its own copy. */
     z.object({ op: z.literal("workspace.origin"), workspaceId: WorkspaceId }),
@@ -110,7 +127,14 @@ export const WorkspaceActionResult = z.object({
   result: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("forge"), data: ForgeBrowserResult }),
     z.object({ kind: z.literal("scripts"), scripts: z.array(WorkspaceScript).max(256) }),
-    z.object({ kind: z.literal("editors"), editors: z.array(InstalledEditor).max(32) }),
+    z.object({
+      kind: z.literal("editors"),
+      editors: z.array(InstalledEditor).max(32),
+      /** The host's file manager by name ("Finder"), for `host.open`'s files app. */
+      fileManager: z.string().min(1).max(64).optional(),
+    }),
+    /** `host.open` started the editor or file manager on the machine. */
+    z.object({ kind: z.literal("opened") }),
     z.object({
       kind: z.literal("branches"),
       branches: z.array(z.string().max(1024)).max(1000),

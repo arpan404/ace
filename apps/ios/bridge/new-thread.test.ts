@@ -219,6 +219,21 @@ test("an existing folder on the computer is found, added as a project and offere
   expect((projects.projects as { id: string }[]).map((row) => row.id)).toContain(added.projectId);
 });
 
+test("a folder outside the computer's project folders is refused in words, with Allow offered", async () => {
+  const daemon = fixture();
+  daemon.projects.seedFolders("/home/ada", [{ path: "/home/ada/code/notes" }], {
+    roots: ["/home/ada/code/other"],
+  });
+  const compose = await connect(daemon);
+  compose.compose({ kind: "addProject", path: "/home/ada/code/notes", requestId: "add-outside" });
+  const refused = await until(() => latest("compose.added", "add-outside"));
+  expect(refused).toMatchObject({
+    ok: false,
+    canAllow: true,
+    message: expect.stringContaining("Allow it here"),
+  });
+});
+
 const photo = Buffer.alloc(70 * 1024, 9);
 const photoSha = createHash("sha256").update(photo).digest("hex");
 const staged: ChunkReader = async (_localId, offset, limit) =>

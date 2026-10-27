@@ -87,7 +87,11 @@ struct ComposeFolder: Codable, Sendable, Identifiable, Equatable {
     let name: String; let path: String; let project: Bool; let git: Bool
     var id: String { path }
 }
-struct ComposeOutcome: Sendable, Equatable { let ok: Bool; let id: String?; let message: String }
+struct ComposeOutcome: Sendable, Equatable {
+    let ok: Bool; let id: String?; let message: String
+    /// Refused because the folder is outside the machine's project folders, which can allow it.
+    var canAllow = false
+}
 struct ComposeClone: Decodable, Sendable { let id: String; let label: String; let percent: Double? }
 
 /// `compose.*` patches from `bridge/new-thread.ts` and `bridge/compose-search.ts`.
@@ -104,7 +108,7 @@ enum ComposePatch: Decodable, Sendable {
     case attachments(workspaceId: String, [AttachmentFile], blocked: String?)
 
     private enum Keys: String, CodingKey {
-        case type, state, projects, providers, start, tabs, favorites, starProblem, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message
+        case type, state, projects, providers, start, tabs, favorites, starProblem, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message, canAllow
         case files, blocked
     }
     init(from decoder: any Decoder) throws {
@@ -137,7 +141,8 @@ enum ComposePatch: Decodable, Sendable {
         case "compose.added":
             self = .added(id: try box.decode(String.self, forKey: .id),
                           ComposeOutcome(ok: try box.decode(Bool.self, forKey: .ok), id: try box.decodeIfPresent(String.self, forKey: .projectId),
-                                         message: try box.decode(String.self, forKey: .message)))
+                                         message: try box.decode(String.self, forKey: .message),
+                                         canAllow: try box.decodeIfPresent(Bool.self, forKey: .canAllow) ?? false))
         case "compose.access": self = .access(try ComposeAccess(from: decoder))
         case "compose.attachments":
             self = .attachments(workspaceId: try box.decode(String.self, forKey: .workspaceId), try box.decode([AttachmentFile].self, forKey: .files),

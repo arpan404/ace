@@ -188,6 +188,13 @@ struct FileScreen: View {
         }
     }
 
+    /// This file on the computer, for Open in.
+    private var hostTarget: HostOpenTarget {
+        switch scope {
+        case .thread(let id): HostOpenTarget(threadId: id, path: path, line: target.line)
+        case .project(let id): HostOpenTarget(workspaceId: id, path: path, line: target.line)
+        }
+    }
     @ViewBuilder private var fileMenu: some View {
         if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") } }
         if content?.markdown == true {
@@ -196,6 +203,10 @@ struct FileScreen: View {
         if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
         if let mention { Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        if content?.kind != "missing" {
+            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", systemImage: "arrow.up.forward.app") }
+                .accessibilityIdentifier("file.openIn")
+        }
         if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
         if actions.canChange, content?.kind != "missing" {
             Divider()

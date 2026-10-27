@@ -23,6 +23,7 @@ struct ThreadView: View {
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
+    @State private var showScripts = false
     @State private var showComputer = false
     @State private var devicesRoute: DevicesRoute?
     @State private var activityProblem: String?
@@ -112,6 +113,15 @@ struct ThreadView: View {
             }
             .navigationDestination(item: $devicesRoute) { route in DevicesRouteView(model: model, threadId: thread.id, route: route) }
             .navigationDestination(isPresented: $showComputer) { RemoteScreenView(model: model, threadId: thread.id) }
+            .sheet(isPresented: $showScripts) {
+                NavigationStack {
+                    ProjectScriptsView(model: model, threadId: thread.id) { url in
+                        showScripts = false
+                        model.browserNewTab(url)
+                        showBrowser = true
+                    }
+                }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -324,6 +334,7 @@ struct ThreadView: View {
         case .search: showSearch = true
         case .files: showFiles = true
         case .terminal: showTerminal = true
+        case .scripts: showScripts = true
         case .browser: showBrowser = true
         case .devices: devicesRoute = .list
         case .computer: showComputer = true

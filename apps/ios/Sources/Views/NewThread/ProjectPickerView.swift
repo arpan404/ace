@@ -138,6 +138,8 @@ struct AddProjectView: View {
     @State private var query = ""
     @State private var adding: String?
     @State private var failure: String?
+    /// The folder refused for being outside the machine's project folders, to allow and add.
+    @State private var allowable: ComposeFolder?
     private var folders: (query: String, state: String, folders: [ComposeFolder])? { client.compose.folders }
     var body: some View {
         List {
@@ -149,8 +151,17 @@ struct AddProjectView: View {
                 .insetRowBackground()
             }
             if let failure {
-                Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .listRowBackground(Color.clear)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    if let allowable, client.canOperate {
+                        Button("Allow this folder") { Task { await allow(allowable) } }
+                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .disabled(adding != nil)
+                            .accessibilityIdentifier("folder.allow")
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .transition(.opacity)
             }
             switch folders?.state {
             case "ready":
@@ -188,6 +199,7 @@ struct AddProjectView: View {
         }
         .insetGroupedList()
         .searchBarEdge()
+        .smoothChange(failure)
         .searchable(text: $query, prompt: "Search folders on your computer")
         .navigationTitle("Add project").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {
@@ -196,9 +208,16 @@ struct AddProjectView: View {
             client.composeAction(["kind": "folders", "query": query])
         }
     }
+    /// Allow the folder on the machine, then add it, as the web's Allow this folder.
+    private func allow(_ folder: ComposeFolder) async {
+        adding = folder.path
+        let outcome = await client.projectWrite(["op": "allowFolder", "path": folder.path, "create": false])
+        adding = nil
+        if outcome.ok { add(folder) } else { failure = outcome.message ?? "Couldn't allow this folder. Check that it exists, then try again." }
+    }
     private func add(_ folder: ComposeFolder) {
         let requestId = "add-" + UUID().uuidString.lowercased().prefix(24)
-        adding = folder.path; failure = nil
+        adding = folder.path; failure = nil; allowable = nil
         Task {
             guard await client.addProject(path: folder.path, requestId: requestId) else {
                 adding = nil; failure = client.error ?? "Couldn't save the request on this phone."; client.error = nil
@@ -208,7 +227,7 @@ struct AddProjectView: View {
                 if let outcome = client.compose.added[requestId] {
                     adding = nil
                     if outcome.ok, let id = outcome.id { client.composeAction(["kind": "projects"]); added(id) }
-                    else { failure = outcome.message }
+                    else { failure = outcome.message; allowable = outcome.canAllow ? folder : nil }
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))

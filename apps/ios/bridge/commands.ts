@@ -11,6 +11,8 @@ type Receipt = {
   /** The thread a `thread.fork` opened. */
   forkThreadId?: string | undefined;
   workspace?: { id: string } | undefined;
+  /** The terminal a `workspace.script.run` started. */
+  terminalId?: string | undefined;
 };
 
 /**

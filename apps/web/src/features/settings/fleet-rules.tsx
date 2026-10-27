@@ -11,31 +11,14 @@ import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames } from "./data/list-names.ts";
+import {
+  agentAccessNotes,
+  agentAccessOptions,
+  transportNotes,
+  transportOptions,
+} from "@ace/ui-core";
 
-export const transportOptions = [
-  { value: "lan", label: "Local network" },
-  { value: "tailscale", label: "Tailscale" },
-  { value: "relay", label: "Relay" },
-] as const;
-
-export const transportNotes: Record<(typeof transportOptions)[number]["value"], string> = {
-  lan: "Same network only. Browsers must trust its HTTPS certificate.",
-  tailscale:
-    "Your private Tailscale network, from anywhere. For browsers, turn on HTTPS certificates in Tailscale.",
-  relay: "Through a relay you host. The local network stays on for pairing.",
-};
-
-export const agentAccessOptions = [
-  { value: "off", label: "Off" },
-  { value: "read", label: "Read" },
-  { value: "operate", label: "Read and act" },
-] as const;
-
-export const agentAccessNotes: Record<(typeof agentAccessOptions)[number]["value"], string> = {
-  off: "Agents on other machines can't use this one.",
-  read: "They can check status and read pages here, never start work.",
-  operate: "They can start threads here, answer and use its browser.",
-};
+export { agentAccessNotes, agentAccessOptions, transportNotes, transportOptions };
 
 /**
  * How the fleet's machines open up, set on every connected machine at once: remote access, the
