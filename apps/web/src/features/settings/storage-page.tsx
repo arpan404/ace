@@ -12,8 +12,8 @@ import {
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
-import { storageBytes, storageLabels } from "./storage-copy.ts";
-import { WorktreeStorageSettings } from "./worktree-storage.tsx";
+import { itemCount, storageBytes, storageLabels } from "./storage-copy.ts";
+import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
 import { StorageRetention } from "@ace/protocol";
 
 /**
@@ -120,7 +120,7 @@ export function StorageSettings() {
               <SettingRow
                 key={category.kind}
                 title={storageLabels[category.kind]}
-                description={`${category.items} items`}
+                description={itemCount(category.items)}
                 inline
               >
                 <span className="text-sm tabular-nums text-muted-foreground">
@@ -150,14 +150,7 @@ export function StorageSettings() {
             {!usage.data.complete && (
               <SettingNote>Measured in a bounded batch; refresh for more.</SettingNote>
             )}
-            {usage.data.backups
-              .filter((backup) => backup.state === "failed")
-              .map((backup) => (
-                <SettingNote key={backup.path} role="alert">
-                  Backup failed for <span className="break-all">{backup.path}</span>. The worktree
-                  was kept. Check origin access and refresh after the next backup.
-                </SettingNote>
-              ))}
+            <FailedBackups backups={usage.data.backups} />
           </>
         ) : (
           <SettingNote role={usage.isError ? "alert" : "status"}>

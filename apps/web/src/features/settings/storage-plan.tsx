@@ -16,7 +16,7 @@ import {
   SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
-import { storageBytes, storageReasons } from "./storage-copy.ts";
+import { itemCount, storageBytes, storageReasons } from "./storage-copy.ts";
 
 export function StoragePlanPreview(props: {
   plan: StoragePlan;
@@ -41,7 +41,7 @@ export function StoragePlanPreview(props: {
     >
       {props.plan.items.length > 0 ? (
         <SettingNote>
-          {remove.length} items to remove · {storageBytes(props.plan.bytes)} of data.{" "}
+          {itemCount(remove.length)} to remove · {storageBytes(props.plan.bytes)} of data.{" "}
           {protectedItems.length} protected.
           {!props.plan.complete &&
             " This is a bounded batch. Preview again after cleanup to find more data."}
@@ -134,14 +134,14 @@ export function StoragePlanPreview(props: {
               ? "Cleaning…"
               : props.result?.state === "pending"
                 ? "Resume cleanup"
-                : `Remove ${remove.length} items`}
+                : `Remove ${itemCount(remove.length)}`}
           </Button>
         </SettingFooter>
       )}
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove {remove.length} items?</DialogTitle>
+            <DialogTitle>Remove {itemCount(remove.length)}?</DialogTitle>
             <DialogDescription>
               The listed data will be permanently removed. ace checks the plan again and keeps
               anything that has changed or is protected.

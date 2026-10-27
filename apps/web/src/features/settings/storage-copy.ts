@@ -45,3 +45,5 @@ export function storageBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
+
+export const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;

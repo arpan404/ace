@@ -45,11 +45,11 @@ test("storage shows protected data and waits for confirmation before removing re
   await userEvent.click(await screen.findByRole("button", { name: "Preview cleanup" }));
   const list = await screen.findByRole("list", { name: "Cleanup items" });
   expect(within(list).getByText("Keep · Currently in use")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
+  await userEvent.click(screen.getByRole("button", { name: "Remove 1 item" }));
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(within(list).queryByText("Removed")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
+  await userEvent.click(screen.getByRole("button", { name: "Remove 1 item" }));
   await userEvent.click(
     within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove items" }),
   );
@@ -139,7 +139,7 @@ test("delete all settled worktrees previews recent checkouts without deleting ot
   expect(within(list).getByText("worktrees/recent")).toBeTruthy();
   expect(within(list).queryByText("logs/old")).toBeNull();
   expect(within(list).queryByText("Removed")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
+  await userEvent.click(screen.getByRole("button", { name: "Remove 1 item" }));
   await userEvent.click(
     within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove items" }),
   );
@@ -200,7 +200,7 @@ test("forcing one worktree keeps the delete-all preview scoped to worktrees and 
   expect(within(list).queryByText("logs/old")).toBeNull();
   expect(within(list).getByText("Keep · Pinned thread")).toBeTruthy();
   expect(within(list).queryByText("Removed")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
+  await userEvent.click(screen.getByRole("button", { name: "Remove 1 item" }));
   const dialog = await screen.findByRole("dialog");
   await waitFor(() =>
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBe(document.activeElement),

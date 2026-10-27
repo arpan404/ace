@@ -247,7 +247,10 @@ independent of daily cleanup for other storage:
 - `storage.backupWorktrees`: false by default. When enabled, settled topic branches
   outside `origin/main` are backed up to the repository's `origin` remote. This
   works with any supported Git host. Tracked and untracked changes are committed
-  using the user's Git identity; ignored files are excluded. Pushes never force,
+  using the user's Git identity; ignored files are excluded, so any secret not
+  covered by `.gitignore` (for example an untracked `.env`) is pushed. Branches
+  with no local changes and nothing unpushed are skipped without a network call.
+  Pushes never force,
   and use the user's existing Git credential helpers. Hooks and repository filters
   do not execute during this unattended operation.
 
@@ -255,7 +258,8 @@ Automatic removal requires every owner to be settled, no live work or pins, and
 a clean checkout. The branch must be contained in the locally recorded
 `origin/main`, or have the same tracked tree as that ref. A published topic branch
 with unmerged changes stays, even after a successful backup. Missing `origin/main`
-cannot prove eligibility. Cleanup does not fetch. Main checkouts, unmanaged
+cannot prove eligibility, so repositories whose default branch is `master`,
+`develop` or anything else are never removed automatically. Cleanup does not fetch. Main checkouts, unmanaged
 worktrees and unknown Git state remain protected. A failed backup is reported
 in usage and keeps the worktree; the local backup commit survives a failed push
 for a later retry.
@@ -273,10 +277,16 @@ Manual usage and cleanup previews keep their existing bounded prefix scans and
 do not advance either maintenance cursor. Cursors reset when the daemon restarts.
 
 "Delete all settled worktrees" creates a worktree-only preview that ignores age.
-It requires the existing explicit confirmation before applying. It preserves
+Unlike automatic removal it does not require `origin/main` to contain the branch:
+a clean branch whose commits are already pushed is removed, and its work stays on
+`origin`. It requires the existing explicit confirmation before applying. It preserves
 threads and other storage. Dirty or unpublished work still requires selecting
 the individual worktree's force option and reviewing a new preview. Active,
 pinned, locked and unmanaged worktrees cannot be forced.
+
+Settlement only frees a worktree in these settled modes. The regular cleanup
+preview and its `storage.retention.worktrees` window still treat a settled but
+unarchived thread as open and keep its worktree.
 
 Behavior tests are written for real temporary SQLite, files, Git repositories
 and a daemon process killed after its first deletion. Additional UI tests guard

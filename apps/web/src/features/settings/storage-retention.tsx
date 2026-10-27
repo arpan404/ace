@@ -80,7 +80,16 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
     >
       {values ? (
         StorageKind.options.map((kind) => (
-          <SettingRow key={kind} title={storageLabels[kind]} inline>
+          <SettingRow
+            key={kind}
+            title={storageLabels[kind]}
+            description={
+              kind === "worktrees"
+                ? "Archived threads only, used by Preview cleanup. Settled threads use the Worktrees section."
+                : undefined
+            }
+            inline
+          >
             <input
               aria-label={`${storageLabels[kind]} retention days`}
               type="number"
