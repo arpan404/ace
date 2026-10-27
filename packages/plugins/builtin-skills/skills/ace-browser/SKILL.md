@@ -18,9 +18,9 @@ Each thread has a real Chromium browser with tabs inside ace, shared by you and 
    - textbox "Email" [ref=e2-31]: ada@example.com
    - button "Continue" [disabled] [ref=e2-40]
    ```
-   At the default 80 lines it costs fewer tokens than a screenshot and, unlike one, gives exact text and refs. On a large page it stops at `maxNodes` and says so; a very large page lists only its landmarks and headings. To narrow it, pass `ref` (a container's ref, for just that part), `depth`, `interactiveOnly:true`, or use `browser_find {role, name}`.
-3. `browser_act {action, ref, ...}` performs `click` (a ref, or `x`, `y` for a point), `type` (replaces the field's text), `fill_form` (several `{ref, value}` fields at once), `press` (`Enter`, `Control+a`), `hover`, `select`, `check`, `uncheck`, `drag`, `focus`, `upload`, `scroll`, or `dialog` (answers a pending alert or prompt).
-4. After an action that navigates, call `browser_wait_for` with exactly one of `url` (exact, or a glob such as `http://localhost:3000/orders/*`), `text`, `ref` plus `state`, `networkIdle: true` (after a save or other requests) or `timeMs`. Then take a fresh snapshot.
+   At the default 80 lines it costs fewer tokens than a screenshot and, unlike one, gives exact text and refs. On a large page it stops at `maxNodes` and says so; a very large page lists only its landmarks and headings. To narrow it, pass `ref` (a container's ref, for just that part), `depth`, `interactiveOnly:true`, or use `browser_find {role, name}`: `name` (or `query`) matches a case-insensitive substring unless `exact`, in every frame; `browser_find {text}` only says whether that text is on the page.
+3. `browser_act {action, ref, ...}` performs `click` (a ref, or `x`, `y` in CSS pixels for a point), `type` (replaces the field's text), `fill_form` (several `{ref, value}` fields at once), `press` (`Enter`, `Control+a`), `hover`, `select` (option values of a native select), `check`, `uncheck`, `drag`, `focus`, `upload` (`files`: paths in the workspace or thread artifacts), `scroll` (`x`, `y` pixel deltas; positive `y` scrolls down), or `dialog` (answers a pending alert or prompt: `dialogId` from `pending_dialog`, `accept: false` dismisses).
+4. After an action that navigates, call `browser_wait_for` with exactly one of `url` (exact, or a glob such as `http://localhost:3000/orders/*`; it also waits for DOMContentLoaded, and works before or after the navigation commits), `text` (a visible substring), `ref` plus `state`, `networkIdle: true` (no request in flight for 500 ms, after a save; sockets, event streams and requests open over 5 s don't count) or `timeMs` (a fixed wait, for animations). Then take a fresh snapshot.
 
 A ref is clicked (or hovered, checked, dragged) once it holds still, only where it takes the click itself. `covered` means something sits on top (a banner, dialog or sticky header): dismiss it, snapshot again and retry. `not_hittable` means it is off screen or still moving: scroll it into view or wait, then retry. Nothing was clicked in either case.
 
@@ -44,12 +44,12 @@ A message can carry a browser tab block with a `tabId`, url and title: the perso
 
 ## Evidence
 
-- `browser_logs`: console and network entries, filtered by `kind`, `level`, `url` or `status`. Pass `requestId` to read one response body. `kind:"downloads"` lists what the tabs downloaded; `browser_wait_for {downloads:true}` waits for downloads to finish.
-- `browser_screenshot`: one tab as an image (`fullPage` for the whole page, `ref` for one element), without changing the tab the person sees. To click something you only see in the image, use the `scale` and `origin` beside it: click `x = origin.x + px * scale`, `y = origin.y + py * scale` for image pixel (px, py). `sizes` checks a responsive layout: one image each at phone, tablet and desktop widths. `format:"pdf"` prints the tab to a PDF file instead.
-- `browser_evaluate`: run JavaScript in the page. `mode:"read-only"` reads values and refuses side effects; the default may change the page.
+- `browser_logs`: console and network entries, filtered by `kind`, `level`, `url` (a substring) or `status`. Pass `requestId` to read one response body (bounded, secrets redacted). `kind:"downloads"` lists what the tabs downloaded; `browser_wait_for {downloads:true}` waits for downloads to finish.
+- `browser_screenshot`: one tab as an image (`fullPage` for the whole page, `ref` for one element), without changing the tab the person sees. To click something you only see in the image, use the `scale` and `origin` beside it: click `x = origin.x + px * scale`, `y = origin.y + py * scale` for image pixel (px, py). `sizes` checks a responsive layout: one image each at phone (390), tablet (768) and desktop (1440 CSS px) widths, then the tab's own size comes back; not with `ref`. `format:"pdf"` prints the tab to a PDF file instead (`landscape`, `printBackground`, default true) and returns its path.
+- `browser_evaluate`: run JavaScript in the page; promises are awaited. `mode:"read-only"` runs in an isolated world, reads values and refuses side effects; the default may change the page. To read content, prefer a snapshot or `browser_find`.
 - `browser_history`: lists recent entries; with `direction` it goes back, forward, reloads or stops.
-- `browser_measure`: input latency and frame hitches for one interaction.
-- `browser_settings`: `resize`, `emulate` (device, touch, colour scheme, user agent), `record_start`/`record_stop` (a recording of your tab, or `tabId`, attached to the thread even while the person views another tab; they see that you are recording and can stop it), `extensions` (the installed extensions, read-only) and `close` (the whole browser and every tab).
+- `browser_measure`: frame timing while observing, or input latency and hitches for one interaction. Latency runs from input to the next visual update; settle needs 250 ms of stillness. Hitch time per second: below 5 ms smooth, 5 to 10 minor, above 10 janky. Low confidence means few frames, host load or capture overhead: read `notes`. `repeat` returns median and worst metrics plus one filmstrip.
+- `browser_settings`: `resize` (`width`, `height` in CSS pixels), `emulate` (the same plus `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`, `userAgent`), `record_start`/`record_stop` (a recording of your tab, or `tabId`, attached to the thread even while the person views another tab; they see that you are recording and can stop it), `extensions` (the installed extensions, read-only) and `close` (the whole browser and every tab).
 
 ## Working beside the person
 
@@ -84,7 +84,7 @@ Ask once per blocker. Don't ask for anything you could do yourself.
 
 ## Another machine
 
-Every browser tool takes `machine` (a name from `machines`) to act in that machine's ace browser, for example to test a dev server running there.
+Every browser tool takes `machine` (a name from `machines`) to act in that machine's ace browser, for example to test a dev server running there. It does not combine with `browser: "user"`.
 
 ## The person's own Chrome
 
