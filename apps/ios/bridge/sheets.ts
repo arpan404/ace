@@ -1,6 +1,6 @@
 import type { ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { followAgents, type PatchSink, type Preview } from "./agents.ts";
+import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
@@ -12,6 +12,8 @@ import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 
 const SheetAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
+  /** The next page of the open Agents sheet's agents or background tasks. */
+  z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
   z.object({ kind: z.literal("changes.refresh") }),
   z.object({ kind: z.literal("changes.file"), path: z.string().min(1).max(4096).nullable() }),
@@ -31,7 +33,7 @@ export interface OpenThread {
 export class Sheets {
   #sink: PatchSink;
   #preview: Preview;
-  #agents: (() => void) | undefined;
+  #agents: AgentsFollow | undefined;
   #changes: ChangesSession | undefined;
   constructor(sink: PatchSink, preview: Preview) {
     this.#sink = sink;
@@ -39,7 +41,7 @@ export class Sheets {
   }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
-    this.#agents?.();
+    this.#agents?.stop();
     this.#agents = undefined;
     this.#changes?.close();
     this.#changes = undefined;
@@ -55,11 +57,14 @@ export class Sheets {
     if (!thread) return releases(action);
     switch (action.kind) {
       case "agents":
-        this.#agents?.();
+        this.#agents?.stop();
         this.#agents = action.open
           ? followAgents(thread.store, thread.threadId, thread.epoch, this.#sink, this.#preview)
           : undefined;
         return true;
+      case "agents.more":
+        this.#agents?.more(action.list);
+        return this.#agents !== undefined;
       case "changes":
         this.#changes?.close();
         this.#changes = action.open

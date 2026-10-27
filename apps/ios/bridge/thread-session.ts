@@ -7,6 +7,7 @@ import {
   type CommandPayload,
 } from "@ace/protocol";
 import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
+import { subagentRetryMessage } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -16,6 +17,7 @@ import { preview } from "./presentation.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
 import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 import { followBlocks } from "./thread-blocks.ts";
+import { followLaneInfo } from "./lane-info.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
@@ -52,7 +54,7 @@ export class ThreadSession {
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
-  #lane: { agentId: string; tap: ChangeTap } | undefined;
+  #lane: { agentId: string; tap: ChangeTap; info: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
    * Whether the thread's follow-up setting has been read (or given up on). Until then the composer
@@ -113,6 +115,7 @@ export class ThreadSession {
       this.#blocks.tap(keys);
       this.#pill.tap(keys);
       this.#lane?.tap(keys);
+      this.#lane?.info(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
       if (
@@ -282,7 +285,10 @@ export class ThreadSession {
         this.#openLane(action.agentId);
         break;
       case "lane.close":
-        this.#lane = undefined;
+        if (!action.agentId || this.#lane?.agentId === action.agentId) this.#closeLane();
+        break;
+      case "lane.retry":
+        this.#retryLane(action.agentId, action.requestId);
         break;
       case "attach":
         this.#tray.attach(action.file);
@@ -441,12 +447,43 @@ export class ThreadSession {
     const block = this.#blocks.block(key);
     return block?.kind === "work" ? (block.answerIds ?? []) : [];
   }
-  /** One native subagent's own blocks, grouped as the transcript is, for its lane sheet. */
+  /**
+   * One native subagent's own blocks, grouped as the transcript is, and what it is (its prompt,
+   * branch state, requests and controls), for its lane view.
+   */
   #openLane(agentId: string): void {
     if (this.#lane?.agentId === agentId) return;
-    const lane = followBlocks(this.#store, (key, read) => this.#put(key, read), { agentId });
-    this.#lane = { agentId, tap: lane.tap };
+    this.#closeLane();
+    const put: Put = (key, read) => this.#put(key, read);
+    const lane = followBlocks(this.#store, put, { agentId });
+    const info = followLaneInfo(this.#store, agentId, put, () => host.now());
+    this.#lane = { agentId, tap: lane.tap, info };
     lane.tap("all");
+  }
+  #closeLane(): void {
+    if (!this.#lane) return;
+    this.#lane = undefined;
+  }
+  /**
+   * The thread's main agent is sent a short message naming the subagent, its task and how it
+   * ended, so it can relaunch it: queued while it works, a new turn while it is idle. Refused
+   * when the subagent can't be retried now (still going, ended well, or a read-only thread).
+   */
+  #retryLane(agentId: string, id: string): void {
+    const text = subagentRetryMessage(this.#store, agentId, host.now());
+    this.#dispatch(
+      text === undefined
+        ? undefined
+        : {
+            type: "thread.send",
+            threadId: this.#threadId,
+            input: [{ type: "text", text }],
+            trigger: "user",
+            delivery: "queue",
+          },
+      id,
+      "That subagent can't be retried now. Check its state.",
+    );
   }
   #controls(): void {
     this.#put("controls", () =>

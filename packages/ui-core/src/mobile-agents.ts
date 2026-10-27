@@ -7,9 +7,10 @@ import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status
 /*
  * The native apps' Agents sheet (issue #560, item 5): the whole agent tree in depth-first order
  * with each agent's tree-aware status, its usage, and the thread's background work. Pure: it
- * reads one thread through the SDK's reader. Large trees are capped, never silently: an agent
- * that is still working or waiting on the person, or one of its ancestors, is kept over a
- * finished one, and every hidden agent or task is counted.
+ * reads one thread through the SDK's reader. Large trees are read a page at a time, never
+ * silently cut: an agent that is still working or waiting on the person, or one of its
+ * ancestors, is kept over a finished one, and every agent or task not yet shown is counted so
+ * the sheet can offer the next page.
  */
 
 export interface AgentSheetLimits {
@@ -17,6 +18,20 @@ export interface AgentSheetLimits {
   tasks: number;
 }
 export const agentSheetLimits: AgentSheetLimits = { agents: 100, tasks: 30 };
+
+/**
+ * The limits after the person asked for `pages` more of each list: every page adds one first
+ * page's worth, so a large tree is read a page at a time and never all at once.
+ */
+export function agentSheetPages(
+  pages: { agents: number; tasks: number },
+  first: AgentSheetLimits = agentSheetLimits,
+): AgentSheetLimits {
+  return {
+    agents: first.agents * (1 + Math.max(0, pages.agents)),
+    tasks: first.tasks * (1 + Math.max(0, pages.tasks)),
+  };
+}
 
 export interface AgentSheetRow {
   id: string;
@@ -157,6 +172,7 @@ export function agentSheet(
     | "interactionIds"
     | "interaction"
     | "usage"
+    | "item"
   >,
   limits: AgentSheetLimits = agentSheetLimits,
 ): AgentSheet {
@@ -195,7 +211,8 @@ export function agentSheet(
       id: agent.id,
       parentId: agent.parentId,
       depth,
-      name: agentName(agent),
+      // An unnamed subagent goes by what the call that started it says it is for.
+      name: agentName(agent, agent.spawnedBy ? reader.item(agent.spawnedBy) : undefined),
       model: agent.model ?? usage?.model ?? "",
       status: { label: state.label, token: toneToken(state.tone) },
       activity: state.activity,

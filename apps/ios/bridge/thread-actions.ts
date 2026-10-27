@@ -98,7 +98,14 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("steps.more"), ordinal }),
   /** A native subagent's lane opened in its sheet, or closed. */
   z.object({ type: z.literal("lane.open"), agentId: z.string().min(1).max(256) }),
-  z.object({ type: z.literal("lane.close") }),
+  /** Closes the open lane; with `agentId`, only when that agent's lane is the open one. */
+  z.object({ type: z.literal("lane.close"), agentId: z.string().min(1).max(256).optional() }),
+  /** Ask the parent of a failed or stopped native subagent to run it again (`subagentRetryMessage`). */
+  z.object({
+    type: z.literal("lane.retry"),
+    agentId: z.string().min(1).max(256),
+    requestId: z.string().min(1).max(64),
+  }),
   z.object({ type: z.literal("attach"), file: Picked }),
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
 ]);
