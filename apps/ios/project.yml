@@ -65,7 +65,8 @@ targets:
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
-        # audio: Picture in Picture of the live browser page keeps playing in the background.
+        # audio: Picture in Picture of the live browser page (owner decision pending). Removing
+        # it removes Picture in Picture too (`BrowserPictureInPicture.supported`).
         UIBackgroundModes: [fetch, audio]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:

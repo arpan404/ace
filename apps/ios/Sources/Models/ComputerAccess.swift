@@ -29,6 +29,8 @@ import Observation
         let locked: Locked?
         let lockedFailed: Bool
         let chrome: Chrome?
+        /// darwin, linux or win32, as the daemon says; nil from an older daemon.
+        var platform: String? = nil
         /// The change running now ("locked.install", "chrome.revoke"), if any.
         let busy: String?
         let error: String?

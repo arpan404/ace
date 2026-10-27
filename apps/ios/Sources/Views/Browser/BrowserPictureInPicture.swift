@@ -12,7 +12,13 @@ import UIKit
     private let draw: () -> Void
     /// It started (true) or ended (false).
     var changed: (Bool) -> Void = { _ in }
-    static var supported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
+    /// Offered only while the app declares the audio background mode (`project.yml`,
+    /// `UIBackgroundModes`), which the system needs for it: removing that one entry removes
+    /// Picture in Picture and its menu item.
+    static var supported: Bool {
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
+        return modes.contains("audio") && AVPictureInPictureController.isPictureInPictureSupported()
+    }
 
     init(layer: AVSampleBufferDisplayLayer, draw: @escaping () -> Void) {
         self.draw = draw

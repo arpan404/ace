@@ -1,6 +1,6 @@
 import { computerName } from "../computer-name.ts";
 import { hostname } from "node:os";
-import { HostIdentity } from "@ace/protocol";
+import { HostIdentity, HostPlatform } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** A bounded settings read. Provider discovery and other hosts are never consulted. */
@@ -13,6 +13,8 @@ export function createHostIdentitySession({
 }: SocketContext): SocketService {
   let pending = false;
   const defaultName = options.hostName ? Promise.resolve(options.hostName) : computerName();
+  // Only the three systems clients know; any other is left out, as an older daemon would.
+  const platform = HostPlatform.safeParse(options.platform ?? process.platform).data;
   return {
     handle(message) {
       if (message.type !== "host.identity") return false;
@@ -34,6 +36,7 @@ export function createHostIdentitySession({
             ...(icon && icon.provenance !== "defaults" ? { icon: icon.value } : {}),
             hostname: hostname(),
             version: options.version ?? "development",
+            ...(platform ? { platform } : {}),
           });
           if (connected() && authorize("read"))
             send({ type: "host.identity.result", requestId: message.requestId, identity });

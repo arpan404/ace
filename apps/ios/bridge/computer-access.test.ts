@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
+import type { HostPlatform } from "@ace/protocol";
 import { ComputerAccess } from "./computer-access.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -13,8 +14,9 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function opened(mac = true) {
+async function opened(mac = true, platform?: HostPlatform) {
   const { daemon, client } = sheetFixture();
+  daemon.platform = platform;
   await client.start();
   const sink = new RecordingSink();
   let ids = 0;
@@ -48,7 +50,8 @@ async function opened(mac = true) {
             extensionPath: string | null;
             connections: { title: string; summary: string }[];
           } | null;
-          busy: string | null;
+          platform: string | null;
+        busy: string | null;
           error: string | null;
         }
       | undefined;
@@ -90,10 +93,34 @@ describe("Computer use settings on the phone", () => {
     expect(read()?.locked?.label).toBe("Off");
   });
 
-  test("a machine that isn't a Mac never offers locked use while it's off", async () => {
+  test("an older daemon that doesn't say its platform falls back to how it shares windows", async () => {
     const { read } = await opened(false);
     await until(() => read()?.chrome != null, "read");
     expect(read()?.locked).toBeNull();
+  });
+
+  test("a Windows or Linux machine never offers locked use, whatever state it reports", async () => {
+    for (const platform of ["win32", "linux"] as const) {
+      // Shares windows the macOS way and reports a state other than off: still never offered.
+      const { daemon, access, read } = await opened(true, platform);
+      daemon.computerAccess.locked = { state: "needsApproval" };
+      access.handle({ type: "computer.access", action: { kind: "locked", op: "recheck" } });
+      // The machine said what it is, and the Mac's state has arrived.
+      await until(() => read()?.platform === platform, "platform");
+      await until(
+        () => daemon.computerAccess.locked.state === "needsApproval" && read() !== undefined,
+        "state",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(read()?.locked).toBeNull();
+      access.close();
+    }
+  });
+
+  test("a Mac offers locked use even when it shares windows through a dialog", async () => {
+    const { read } = await opened(false, "darwin");
+    await until(() => read()?.locked != null, "offered");
+    expect(read()?.locked).toMatchObject({ label: "Off", on: false });
   });
 
   test("Use my Chrome installs, shows where to load the extension, and revokes", async () => {

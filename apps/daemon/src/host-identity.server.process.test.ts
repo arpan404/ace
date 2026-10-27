@@ -111,3 +111,36 @@ test("identity requires read scope on an authenticated paired connection", async
     await f.close();
   }
 });
+
+test("identity says which operating system the daemon runs on, and leaves out one clients don't know", async () => {
+  for (const [platform, reported] of [
+    ["darwin", "darwin"],
+    ["linux", "linux"],
+    ["win32", "win32"],
+    ["aix", undefined],
+  ] as const) {
+    const f = await fixture({ hostName: "Machine", platform });
+    try {
+      const client = await f.connect();
+      await client.next();
+      client.send({ type: "host.identity", requestId: "identity" });
+      const reply = (await client.next()) as { type: string; identity: Record<string, unknown> };
+      expect(reply.type).toBe("host.identity.result");
+      expect(reply.identity["platform"]).toBe(reported);
+    } finally {
+      await f.close();
+    }
+  }
+});
+
+test("without an injected platform the daemon reports the one it runs on", async () => {
+  const f = await fixture({ hostName: "Machine" });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "host.identity", requestId: "identity" });
+    expect(await client.next()).toMatchObject({ identity: { platform: process.platform } });
+  } finally {
+    await f.close();
+  }
+});

@@ -2,7 +2,7 @@ import { FakeComputerAccess } from "./computer-access.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
-import { MachineIcon } from "@ace/protocol";
+import { MachineIcon, type HostPlatform } from "@ace/protocol";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
@@ -114,6 +114,8 @@ export class FakeDaemon implements Host {
     return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
+  /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
+  platform: HostPlatform | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
@@ -180,6 +182,7 @@ export class FakeDaemon implements Host {
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.version = options.version ?? "fake";
+    this.platform = options.platform;
     this.longThreads = new FakeLongThreadWire({
       head: () => this.seq,
       thread: (id) => this.threads.get(id),

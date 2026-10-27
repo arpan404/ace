@@ -13,6 +13,8 @@ export interface FakeDaemonOptions {
   hostId?: string;
   displayName?: string;
   version?: string;
+  /** The OS host.identity reports; absent, as an older daemon's. */
+  platform?: import("@ace/protocol").HostPlatform;
   catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
   deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
   /** Optional finite response for newly created demo threads; tests can step it directly. */

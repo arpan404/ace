@@ -58,6 +58,8 @@ const daemon = new FakeDaemon({
   clock: Date.now,
   hostId,
   displayName: machineName,
+  // The fixture's machine is a Mac: computer use offers locked use.
+  platform: "darwin",
   token: "ios-spike-token",
   snapshotItems: 200,
   ...(peerPort ? { projectScheduler: paced } : {}),

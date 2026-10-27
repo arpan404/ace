@@ -2,6 +2,7 @@ import { subscribeLockedUse, type ClientCore } from "@ace/client";
 import {
   LockedUseResult,
   UserBrowserSettingsResult,
+  type HostPlatform,
   type LockedUseStatus,
   type UserBrowserConnection,
   type UserBrowserStatus,
@@ -22,7 +23,10 @@ import type { Schedule } from "./browser-live.ts";
 export const ComputerAccessControl = z.object({
   type: z.literal("computer.access"),
   action: z.discriminatedUnion("kind", [
-    /** The screen opened; `mac`: the machine shares app windows the macOS way. */
+    /**
+     * The screen opened; `mac`: the machine shares app windows the macOS way, the guess used
+     * only for an older daemon that doesn't say its platform.
+     */
     z.object({ kind: z.literal("open"), mac: z.boolean().optional() }),
     z.object({ kind: z.literal("close") }),
     z.object({ kind: z.literal("locked"), op: z.enum(["install", "remove", "repair", "recheck"]) }),
@@ -60,9 +64,28 @@ export function connectionSummary(connection: UserBrowserConnection): string {
   return parts.join(" · ");
 }
 
-/** Locked use as the row draws it: the Mac's state in a word and tone, and what the person can do. */
-export function lockedUseRow(status: LockedUseStatus, mac: boolean) {
-  if (!lockedUseShown({ screenUnavailable: false, status, hostIsMac: mac })) return null;
+/**
+ * Whether the machine is a Mac, for locked use: what the daemon says it runs on, or for an older
+ * daemon that doesn't say, how it shares app windows.
+ */
+export function hostIsMac(host: {
+  platform: HostPlatform | undefined;
+  sharesLikeMac: boolean;
+}): boolean {
+  return host.platform ? host.platform === "darwin" : host.sharesLikeMac;
+}
+
+/**
+ * Locked use as the row draws it: the Mac's state in a word and tone, and what the person can do.
+ * A machine that says it isn't a Mac never offers it, whatever state it reports.
+ */
+export function lockedUseRow(
+  status: LockedUseStatus,
+  host: { platform: HostPlatform | undefined; sharesLikeMac: boolean },
+) {
+  if (host.platform && host.platform !== "darwin") return null;
+  if (!lockedUseShown({ screenUnavailable: false, status, hostIsMac: hostIsMac(host) }))
+    return null;
   const { label, tone } = lockedUseLabel(status);
   return {
     label,
@@ -114,6 +137,8 @@ export class ComputerAccess {
   #subscription: { retry(): void; stop(): void } | undefined;
   #poll: (() => void) | undefined;
   #watching: (() => void) | undefined;
+  /** What the daemon said it runs on; undefined until read, or from an older daemon. */
+  #platform: { value: HostPlatform | undefined } | undefined;
   constructor(
     owner: Pick<ClientCore, "request" | "state" | "connectionState" | "onMessage">,
     sink: PatchSink,
@@ -137,12 +162,18 @@ export class ComputerAccess {
           // A connection that comes back (or wasn't ready yet) reads Use my Chrome at once.
           const connection = this.#owner.connectionState();
           this.#watching = connection.subscribe(() => {
-            if (connection.getSnapshot() !== "ready") return;
+            // Another connection may be another daemon: its platform is read again.
+            if (connection.getSnapshot() !== "ready") {
+              this.#platform = undefined;
+              return;
+            }
             this.#poll?.();
             void this.#readChrome();
+            void this.#readPlatform();
           });
         }
         if (!this.#poll) void this.#readChrome();
+        if (!this.#platform) void this.#readPlatform();
         this.#put();
         return;
       case "close":
@@ -187,6 +218,17 @@ export class ComputerAccess {
       },
       { set: (delay, run) => this.#schedule(delay, run) },
     );
+  }
+  /** The daemon's own word for its platform; a failed read falls back to the window guess. */
+  async #readPlatform(): Promise<void> {
+    if (!this.#open || this.#owner.state !== "ready") return;
+    try {
+      const reply = await this.#owner.request({ type: "host.identity" });
+      this.#platform = { value: reply.identity.platform };
+    } catch {
+      this.#platform = { value: undefined };
+    }
+    this.#put();
   }
   async #lockedChange(op: "install" | "remove" | "repair"): Promise<void> {
     if (this.#busy) return;
@@ -271,9 +313,15 @@ export class ComputerAccess {
     const preview = this.#preview;
     this.#sink.put("computer:access", () => ({
       type: "computer.access",
-      locked: locked ? lockedUseRow(locked, open.mac) : null,
+      // Nothing until the daemon has said what it runs on, so a Windows machine never flashes it.
+      locked:
+        locked && this.#platform
+          ? lockedUseRow(locked, { platform: this.#platform.value, sharesLikeMac: open.mac })
+          : null,
       lockedFailed: this.#lockedFailed && !locked,
       chrome: chrome ? chromeSection(chrome, preview) : null,
+      /** What the daemon said it runs on; null until read, or from an older daemon. */
+      platform: this.#platform?.value ?? null,
       busy: this.#busy ?? null,
       error: this.#error ? preview(this.#error, 512) : null,
     }));

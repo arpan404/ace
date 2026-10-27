@@ -117,6 +117,8 @@ export interface ServerOptions {
   hostId: string;
   /** Injected hostname fallback for host.identity. */
   hostName?: string;
+  /** The OS host.identity reports; defaults to this process's (`process.platform`). */
+  platform?: string;
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
