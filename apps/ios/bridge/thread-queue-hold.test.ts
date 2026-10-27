@@ -94,10 +94,10 @@ test("a message that wasn't sent leaves the queue's list for the transcript, wit
 });
 
 test("a usage limit holds the turn with Switch, Resume at reset and Continue", async () => {
-  const reset = Date.now() + 3 * 60 * 60 * 1000;
+  const resetsAt = Date.now() + 3 * 60 * 60 * 1000;
   const fake = busyThread("limited");
   fake.apply("limited", [
-    { type: "retry", agent: "root", on: "rate_limit", until: reset, message: "Usage limit" },
+    { type: "retry", agent: "root", on: "rate_limit", until: resetsAt, message: "Usage limit" },
   ]);
   const thread = open(connect(fake), "limited");
   await until(() => queue()?.strip?.kind === "limit", "the limit strip");
