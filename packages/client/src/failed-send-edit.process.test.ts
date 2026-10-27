@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
@@ -132,8 +132,7 @@ test("an edited send that failed to save on this device survives a restart, and 
 
 test("Retry sends the words an edit saved while it was checking the queue", async () => {
   const { client, id } = await failedSend();
-  let release: () => void = () => {};
-  const checked = new Promise<void>((resolve) => (release = resolve));
+  const { promise: checked, resolve: release } = Promise.withResolvers<void>();
   // The queue check is held until the edit is saved.
   const retry = retrySend(retrying(client, checked), id, () => client.pendingSend(id)?.payload);
   await client.editFailedSend(id, send("Ship it today"));
