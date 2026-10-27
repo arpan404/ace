@@ -59,18 +59,21 @@ final class TerminalSession: @unchecked Sendable {
         os_signpost(.begin, log: Self.signposts, name: "terminal.parse", signpostID: id, "%d", text.utf8.count)
         defer { os_signpost(.end, log: Self.signposts, name: "terminal.parse", signpostID: id) }
         var replies = ""
-        var scalars = text.unicodeScalars[...]
-        while !scalars.isEmpty {
-            let end = scalars.index(scalars.startIndex, offsetBy: Self.slice, limitedBy: scalars.endIndex) ?? scalars.endIndex
-            let piece = String(scalars[..<end])
-            scalars = scalars[end...]
+        var rest = Substring(text).unicodeScalars
+        // Each hold of the lock parses at most a slice, and stops early once the screen has done
+        // a slice's worth of work, so hostile output (huge scrolls, screen fills) never keeps
+        // the renderer waiting.
+        while !rest.isEmpty {
+            let end = rest.index(rest.startIndex, offsetBy: Self.slice, limitedBy: rest.endIndex) ?? rest.endIndex
             lock.lock()
-            parser.feed(piece, into: &screen)
+            screen.work = 0
+            let stopped = parser.feed(rest[..<end], into: &screen)
             if !screen.replies.isEmpty {
                 replies += screen.replies
                 screen.replies = ""
             }
             lock.unlock()
+            rest = rest[stopped...]
         }
         return replies
     }

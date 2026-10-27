@@ -26,6 +26,9 @@ protocol TerminalHandler {
     mutating func csi(_ parameters: TerminalParameters, marker: UInt32, intermediates: [UInt32], final: UInt32)
     mutating func esc(intermediates: [UInt32], final: UInt32)
     mutating func osc(_ text: String)
+    /// The handler has done as much work as one hold of the screen lock should; the parser
+    /// stops after the current character so the lock can be let go.
+    var budgetSpent: Bool { get }
 }
 
 /// The state machine for ECMA-48 and the DEC/xterm extensions: ground, escape, control
@@ -40,9 +43,13 @@ struct TerminalParser: Sendable {
     private var marker: UInt32 = 0
     private var intermediates: [UInt32] = []
     private var oscText = String.UnicodeScalarView()
+    /// Scalars kept of the OSC string; counting the view each time would cost its length.
+    private var oscLength = 0
 
     private static let maxParameters = 32
     private static let maxOsc = 4096
+    /// Colon sub-parameters one parameter may carry (`38:2::r:g:b` needs six).
+    private static let maxSubParameters = 16
 
     /// Forget any partial sequence: output after a gap must not finish one from before it.
     mutating func reset() {
@@ -52,6 +59,19 @@ struct TerminalParser: Sendable {
 
     mutating func feed<Handler: TerminalHandler>(_ text: String, into handler: inout Handler) {
         for scalar in text.unicodeScalars { step(scalar, &handler) }
+    }
+
+    /// Feed until `handler` has spent its work budget or the text ends; answers where it stopped.
+    mutating func feed<Handler: TerminalHandler>(
+        _ scalars: Substring.UnicodeScalarView, into handler: inout Handler
+    ) -> Substring.UnicodeScalarView.Index {
+        var index = scalars.startIndex
+        while index < scalars.endIndex {
+            step(scalars[index], &handler)
+            index = scalars.index(after: index)
+            if handler.budgetSpent { break }
+        }
+        return index
     }
 
     @inline(__always)
@@ -77,6 +97,7 @@ struct TerminalParser: Sendable {
             } else if value == 0x5D && intermediates.isEmpty { // ]
                 state = .osc
                 oscText = String.UnicodeScalarView()
+                oscLength = 0
             } else if (value == 0x50 || value == 0x58 || value == 0x5E || value == 0x5F) && intermediates.isEmpty {
                 state = .string // DCS, SOS, PM, APC: read to the terminator and drop
             } else if value != 0x7F {
@@ -92,8 +113,12 @@ struct TerminalParser: Sendable {
             } else if value == 0x3B { // ;
                 endGroup()
             } else if value == 0x3A { // :
-                currentGroup.append(current)
-                current = -1
+                // Past the cap the sequence is malformed: drop it rather than grow without end.
+                if currentGroup.count >= Self.maxSubParameters { state = .csiIgnore }
+                else {
+                    currentGroup.append(current)
+                    current = -1
+                }
             } else if (0x3C...0x3F).contains(value) {
                 // A private marker only leads; anywhere else the sequence is malformed.
                 if parameters.groups.isEmpty && currentGroup.isEmpty && current < 0 && marker == 0 && intermediates.isEmpty { marker = value }
@@ -112,7 +137,10 @@ struct TerminalParser: Sendable {
         case .osc:
             if value == 0x07 { finishOsc(&handler) }
             else if value == 0x1B { state = .oscEscape }
-            else if value >= 0x20 && oscText.count < Self.maxOsc { oscText.append(scalar) }
+            else if value >= 0x20 && oscLength < Self.maxOsc {
+                oscText.append(scalar)
+                oscLength += 1
+            }
         case .oscEscape:
             // ESC \ ends it; any other ESC sequence ends it too and starts afresh.
             finishOsc(&handler)
@@ -150,5 +178,6 @@ struct TerminalParser: Sendable {
         state = .ground
         handler.osc(String(oscText))
         oscText = String.UnicodeScalarView()
+        oscLength = 0
     }
 }

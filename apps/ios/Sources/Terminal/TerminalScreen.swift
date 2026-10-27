@@ -64,6 +64,11 @@ struct TerminalScreen: Sendable {
     /// Bytes the program asked for (device reports); the session sends and clears them.
     var replies = ""
     private var nextId: UInt64 = 1
+    /// Cells and rows touched since the session last took the lock (`TerminalSession`).
+    var work = 0
+    /// How much work one hold of the lock may do before the parser stops and lets it go.
+    static let workBudget = 65_536
+    var budgetSpent: Bool { work >= Self.workBudget }
 
     init(columns: Int = 80, rows: Int = 24, scrollback: Int = 5_000) {
         self.columns = max(2, columns)
@@ -126,6 +131,7 @@ struct TerminalScreen: Sendable {
             write(trail, at: cursorColumn + 1)
         }
         lastPrinted = scalar
+        work += width
         let next = cursorColumn + width
         if next >= columns {
             cursorColumn = columns - 1
@@ -211,19 +217,18 @@ struct TerminalScreen: Sendable {
     mutating func scrollUp(_ count: Int) {
         let amount = min(count, bottom - top + 1)
         guard amount > 0 else { return }
-        for _ in 0..<amount {
-            let leaving = lines.remove(at: top)
-            if !usingAlternate && top == 0 { scrollback.append(leaving) }
-            lines.insert(blankLine(), at: bottom)
-        }
+        // One move of the region however large the count: never a row at a time.
+        if !usingAlternate && top == 0 { for row in 0..<amount { scrollback.append(lines[row]) } }
+        lines.removeSubrange(top..<(top + amount))
+        lines.insert(contentsOf: blankLines(amount), at: bottom - amount + 1)
+        work += bottom - top + 1 + amount * columns
     }
     mutating func scrollDown(_ count: Int) {
         let amount = min(count, bottom - top + 1)
         guard amount > 0 else { return }
-        for _ in 0..<amount {
-            lines.remove(at: bottom)
-            lines.insert(blankLine(), at: top)
-        }
+        lines.removeSubrange((bottom - amount + 1)...bottom)
+        lines.insert(contentsOf: blankLines(amount), at: top)
+        work += bottom - top + 1 + amount * columns
     }
 
     // MARK: Editing
@@ -255,25 +260,24 @@ struct TerminalScreen: Sendable {
     mutating func insertLines(_ count: Int) {
         guard cursorRow >= top && cursorRow <= bottom else { return }
         let amount = min(count, bottom - cursorRow + 1)
-        for _ in 0..<amount {
-            lines.remove(at: bottom)
-            lines.insert(blankLine(), at: cursorRow)
-        }
+        lines.removeSubrange((bottom - amount + 1)...bottom)
+        lines.insert(contentsOf: blankLines(amount), at: cursorRow)
+        work += bottom - cursorRow + 1 + amount * columns
         cursorColumn = 0
         pendingWrap = false
     }
     mutating func deleteLines(_ count: Int) {
         guard cursorRow >= top && cursorRow <= bottom else { return }
         let amount = min(count, bottom - cursorRow + 1)
-        for _ in 0..<amount {
-            lines.remove(at: cursorRow)
-            lines.insert(blankLine(), at: bottom)
-        }
+        lines.removeSubrange(cursorRow..<(cursorRow + amount))
+        lines.insert(contentsOf: blankLines(amount), at: bottom - amount + 1)
+        work += bottom - cursorRow + 1 + amount * columns
         cursorColumn = 0
         pendingWrap = false
     }
     /// ED: 0 below the cursor, 1 above it, 2 the whole screen, 3 the scrollback.
     mutating func eraseDisplay(_ mode: Int) {
+        work += rows * columns
         switch mode {
         case 0:
             eraseLine(0)
@@ -299,6 +303,7 @@ struct TerminalScreen: Sendable {
     }
     private mutating func erase(row: Int, from start: Int, to end: Int) {
         guard start < end else { return }
+        work += end - start
         let blank = TerminalCell.blank(style.background)
         for column in start..<end { lines[row].cells[column] = blank }
         if !lines[row].marks.isEmpty { lines[row].marks = lines[row].marks.filter { $0.key < start || $0.key >= end } }
@@ -457,6 +462,32 @@ struct TerminalScreen: Sendable {
     }
 
     // MARK: Helpers
+
+    private mutating func blankLines(_ count: Int) -> [TerminalLine] {
+        (0..<count).map { _ in blankLine() }
+    }
+    /// DECALN: every cell an E, margins reset, cursor home.
+    mutating func fillWithE() {
+        var line = TerminalLine(id: 0, columns: columns)
+        for column in 0..<columns { line.cells[column] = TerminalCell(scalar: 0x45, style: .plain) }
+        lines = (0..<rows).map { _ in
+            defer { nextId += 1 }
+            var row = line
+            row.id = nextId
+            return row
+        }
+        work += rows * columns
+        top = 0
+        bottom = rows - 1
+        moveTo(row: 0, column: 0)
+    }
+    /// Cells REP may still fill: to the end of the scroll region (or the row, outside it),
+    /// so a huge count never scrolls the screen.
+    var cellsLeftInRegion: Int {
+        let inside = cursorRow >= top && cursorRow <= bottom
+        let below = inside ? (bottom - cursorRow) * columns : 0
+        return max(0, below + columns - cursorColumn - (pendingWrap ? 1 : 0))
+    }
 
     mutating func blankLine() -> TerminalLine {
         defer { nextId += 1 }

@@ -188,20 +188,11 @@ extension TerminalScreen: TerminalHandler {
     }
     private mutating func repeatLast(_ count: Int) {
         guard let scalar = lastPrinted else { return }
-        for _ in 0..<min(count, columns * rows) { put(scalar) }
+        let width = TerminalWidth.of(scalar)
+        guard width > 0 else { return }
+        for _ in 0..<min(count, cellsLeftInRegion / width) { put(scalar) }
     }
-    private mutating func alignmentTest() {
-        let saved = style
-        style = .plain
-        for row in 0..<rows {
-            moveTo(row: row, column: 0)
-            for _ in 0..<columns { put("E") }
-        }
-        style = saved
-        top = 0
-        bottom = rows - 1
-        moveTo(row: 0, column: 0)
-    }
+    private mutating func alignmentTest() { fillWithE() }
 
     /// SGR: attributes, the 16 colours with their bright forms, 256 colours and 24-bit colour in
     /// both the `;` and the `:` forms.

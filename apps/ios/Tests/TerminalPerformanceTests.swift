@@ -43,6 +43,37 @@ final class TerminalPerformanceTests: XCTestCase {
         XCTAssertLessThan(perFrame, TerminalBudget.fullScreenFrameMilliseconds)
     }
 
+    /// A long OSC string costs its length once, not once per character kept.
+    func testALongOscStringParsesInLinearTime() {
+        let session = TerminalSession(columns: 80, rows: 24)
+        let start = DispatchTime.now().uptimeNanoseconds
+        session.feedNow("\u{1b}]0;" + String(repeating: "a", count: 200_000) + "\u{7}ok")
+        let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+        print("terminal 200k OSC: \(String(format: "%.1f", milliseconds)) ms")
+        XCTAssertTrue(session.read { $0.lines[0].text } == "ok")
+        XCTAssertLessThan(milliseconds, TerminalBudget.longOscMilliseconds)
+    }
+
+    /// Hostile output (screen fills and huge scroll and line counts) never holds the screen lock
+    /// long: the renderer reads within a frame while it is parsed.
+    func testHostileOutputLetsTheRendererReadWithinAFrame() {
+        let session = TerminalSession(columns: 200, rows: 100)
+        let hostile = String(repeating: "\u{1b}#8\u{1b}[65535S\u{1b}[65535L\u{1b}[65535M\u{1b}[65535T", count: 2_000)
+        let parsing = Thread { session.feedNow(hostile) }
+        parsing.start()
+        Thread.sleep(forTimeInterval: 0.02)
+        var longest = 0.0
+        for _ in 0..<20 {
+            let start = DispatchTime.now().uptimeNanoseconds
+            _ = session.read { $0.rows }
+            longest = max(longest, Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        session.settle()
+        print("terminal longest read wait under hostile output: \(String(format: "%.1f", longest)) ms")
+        XCTAssertLessThan(longest, TerminalBudget.lockWaitMilliseconds)
+    }
+
     @MainActor func testBuildingAScreenOfColouredRowsFitsInAFrame() {
         let session = TerminalSession(columns: 120, rows: 50)
         session.feedNow("\u{1b}[?1049h" + Self.frame)
@@ -67,4 +98,6 @@ enum TerminalBudget {
     static let logMegabytesPerSecond = 2.0
     static let fullScreenFrameMilliseconds = 8.0
     static let screenBuildMilliseconds = 16.0
+    static let longOscMilliseconds = 200.0
+    static let lockWaitMilliseconds = 16.0
 }
