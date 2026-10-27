@@ -92,6 +92,24 @@ export function linkDeviceIds(machines: readonly FleetMachineFacts[]): ReadonlyS
   return new Set(machines.flatMap((machine) => (machine.links ?? []).map((link) => link.deviceId)));
 }
 
+/** A machine whose agents reach `machine`, and the device it is paired there as. */
+export interface Linker {
+  id: string;
+  name: string;
+  deviceId: string;
+}
+
+/** The machines holding a link to `machine`, by name: the ones whose agents may come in. */
+export function linkersOf(machine: string, machines: readonly FleetMachineFacts[]): Linker[] {
+  return machines
+    .flatMap((other) => {
+      const link =
+        other.id === machine ? undefined : other.links?.find((entry) => entry.hostId === machine);
+      return link ? [{ id: other.id, name: other.name, deviceId: link.deviceId }] : [];
+    })
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+}
+
 /** One phone, tablet or browser across the fleet: the same device paired with several machines. */
 export interface FleetDevice {
   /** Stable for the row: its name, since each machine gives it a different id. */

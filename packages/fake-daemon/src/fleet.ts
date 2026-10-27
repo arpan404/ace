@@ -114,13 +114,16 @@ export class FakeFleet {
           ...this.chosen.get(operation.deviceId),
           [operation.capability]: operation.level,
         });
-        return this.grants();
+        return this.grants([operation.deviceId]);
       case "grants":
-        return this.grants();
+        return this.grants(operation.deviceIds);
     }
   }
-  /** Every paired device's levels, as a machine that lets agents in answers `grants`. */
-  private grants(): FleetOutcome {
+  /**
+   * Levels as a machine that lets agents in answers `grants`. Device ids it is asked about count
+   * as paired: this fake's links don't pair a device on the other fake machine.
+   */
+  private grants(asked?: readonly string[]): FleetOutcome {
     const start: MachineGrants = {
       agents: "operate",
       browser: "operate",
@@ -131,10 +134,10 @@ export class FakeFleet {
     return {
       kind: "grants",
       master: "operate",
-      devices: this.access.list().map((entry) => {
-        const own = this.chosen.get(entry.id) ?? {};
+      devices: (asked ?? this.access.list().map((entry) => entry.id)).map((id) => {
+        const own = this.chosen.get(id) ?? {};
         return {
-          deviceId: entry.id,
+          deviceId: DeviceId.parse(id),
           grants: { ...start, ...own },
           chosen: Object.keys(own).filter((key): key is MachineCapability => key in start),
         };

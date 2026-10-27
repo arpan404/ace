@@ -32,9 +32,10 @@ export const agentAccessOptions = [
 ] as const;
 
 export const agentAccessNotes: Record<(typeof agentAccessOptions)[number]["value"], string> = {
-  off: "Agents on other machines can't use this one.",
-  read: "They can check status and read pages here, never start work.",
-  operate: "They can start threads here, answer and use its browser.",
+  off: "Agents on other machines can't use this one, whatever each machine is allowed.",
+  read: "Linked machines start at Read only for agents and the browser. Set each apart on its machine's page.",
+  operate:
+    "Linked machines start at Read and act for agents and the browser. Set each apart on its machine's page.",
 };
 
 /**

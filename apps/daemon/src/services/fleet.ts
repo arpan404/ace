@@ -110,13 +110,15 @@ async function grants(
     throw new FleetError("refused", "Linked machines aren't ready on this machine yet.");
   const at = (context.options.now ?? Date.now)();
   // Local credentials (the desktop app, "Use my Chrome") never call as another machine.
+  const asked = operation.op === "grants" ? operation.deviceIds : undefined;
   const devices = auth
     .list()
     .filter(
       (device) =>
         activeDevice(device, at) &&
         !device.scopes.includes("desktop") &&
-        !device.scopes.includes("user-browser"),
+        !device.scopes.includes("user-browser") &&
+        (asked === undefined || asked.includes(device.id)),
     );
   if (operation.op === "grant") {
     if (!devices.some((device) => device.id === operation.deviceId))

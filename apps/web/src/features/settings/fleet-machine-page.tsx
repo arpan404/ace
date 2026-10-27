@@ -19,6 +19,7 @@ import { linkDeviceIds, reach, type Reach } from "./data/fleet-links.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import { AccessRows } from "./fleet-rules.tsx";
+import { LinkedMachineAccess } from "./fleet-capabilities.tsx";
 import { MachineEditor } from "./machine-editor.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { PairDevice } from "./pair-device.tsx";
@@ -88,6 +89,7 @@ export function FleetMachinePage(props: { id: string }) {
     >
       <Identity machine={machine} />
       <Links machine={machine} fleet={fleet} />
+      <LinkedMachineAccess machine={machine} fleet={fleet} />
       <MachineDevices machine={machine} fleet={fleet} />
       {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}
     </SettingsBody>

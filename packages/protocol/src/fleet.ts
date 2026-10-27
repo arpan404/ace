@@ -55,7 +55,11 @@ const FleetOperation = z.discriminatedUnion("op", [
   /** Revoke every paired device except the caller's own and local credentials. */
   z.object({ op: z.literal("revokeOthers") }),
   /** What each paired device's agents may do here, per capability (ADR 0105). */
-  z.object({ op: z.literal("grants") }),
+  z.object({
+    op: z.literal("grants"),
+    /** Only these devices; every paired device when absent. */
+    deviceIds: z.array(DeviceId).max(64).optional(),
+  }),
   /** Set one capability's level for one paired device; it applies to the next call. */
   z.object({
     op: z.literal("grant"),
