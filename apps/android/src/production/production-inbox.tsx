@@ -12,12 +12,14 @@ import type {
 import type { Item } from "@ace/protocol";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
 import { inboxStatus } from "@ace/ui-core/mobile";
+import { approvalCopy, approvalOutcome } from "@ace/ui-core";
 import { blocksEqual, type Block } from "@ace/ui-core/transcript-blocks";
 import { createBlockReader, type Watched } from "@ace/ui-core/transcript-block-reader";
-import { blockKey, endBlockText, forkedBlockText, startedBlockText } from "../transcript.ts";
+import { blockKey, blockTestId, endBlockText, forkedBlockText, startedBlockText } from "../transcript.ts";
 import { startedThreadOf } from "@ace/ui-core";
 import { Markdown } from "../transcript/Markdown.tsx";
-import { useSelection } from "../selection.ts";
+import { useSelection, sameIds } from "../selection.ts";
+import { shellCommandForApproval } from "../interactions.ts";
 import { AceText, AceButton } from "../components.tsx";
 import { tokens, useTheme, textStyle } from "../theme.tsx";
 import { displayAppearance } from "../status.ts";
@@ -28,6 +30,7 @@ import {
   THREAD_LIST_MAX_HEIGHT,
   THREAD_LIST_MIN_HEIGHT,
   inboxEntriesFor,
+  noUndefinedList,
   openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
@@ -342,11 +345,6 @@ function ProductionQuietLines({ ids, store }: { ids: readonly string[]; store: T
   );
 }
 
-const noUndefinedList: Selection<readonly (Item | undefined)[]> = {
-  getSnapshot: () => [],
-  subscribe: () => () => {},
-};
-
 function ProductionStartedRow({ itemId, store }: { itemId: string; store: ThreadSource }) {
   const theme = useTheme();
   const selection = useMemo(() => {
@@ -367,6 +365,223 @@ function ProductionStartedRow({ itemId, store }: { itemId: string; store: Thread
   );
 }
 
+function ProductionEndRow({
+  block,
+  store,
+}: {
+  block: Extract<Block, { kind: "end" }>;
+  store: ThreadSource;
+}) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select(block.errorId ? [`item:${block.errorId}` as const] : [], (r) =>
+        block.errorId ? r.item(block.errorId) : undefined,
+      );
+    } catch {
+      return null;
+    }
+  }, [store, block.errorId]);
+  const errorItem = useFailClosedSelection(selection ?? noUndefined, undefined);
+  const errorText = errorItem ? transcriptRowContent(errorItem).text : "";
+  const label = endBlockText(block);
+  return (
+    <View
+      style={{
+        marginHorizontal: tokens.spacing.lg,
+        marginVertical: tokens.spacing.sm,
+        alignItems: "center",
+      }}
+    >
+      <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        {errorText ? `${label} — ${errorText}` : label}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Read-only question/approval card for the production viewer. Subscribes to
+ * the interaction ledger so the person can read what is being asked, but
+ * offers no admit path: answering stays on the computer (a separate approval
+ * action owns admission). Fail-closed to the historic waiting copy.
+ */
+function ProductionQuestionRow({
+  interactionId,
+  store,
+}: {
+  interactionId: string;
+  store: ThreadSource;
+}) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select([`interaction:${interactionId}`], (r) => r.interaction(interactionId));
+    } catch {
+      return null;
+    }
+  }, [store, interactionId]);
+  const interaction = useFailClosedSelection(selection ?? noUndefined, undefined);
+  const toolCallId = interaction?.toolCallId ?? "";
+  const toolSelection = useMemo(() => {
+    if (!toolCallId) return null;
+    try {
+      return store.select([`item:${toolCallId}`], (r) => r.item(toolCallId));
+    } catch {
+      return null;
+    }
+  }, [store, toolCallId]);
+  const toolCall = useFailClosedSelection(toolSelection ?? noUndefined, undefined);
+  if (!interaction) {
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          Waiting on your answer
+        </Text>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          View only. Reply on your computer.
+        </Text>
+      </View>
+    );
+  }
+  const request = interaction.request;
+  if (request.kind === "approval") {
+    const command = shellCommandForApproval(toolCall);
+    const copy = approvalCopy(request, command !== undefined ? { command } : {});
+    const outcome = approvalOutcome(interaction);
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          gap: tokens.spacing.xs,
+        }}
+      >
+        <Text style={{ ...textStyle("label"), color: theme.colours.foreground }}>
+          Approval needed
+        </Text>
+        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>{copy.heading}</Text>
+        {copy.command ? (
+          <Text style={{ ...textStyle("caption"), color: theme.colours.foreground }}>
+            $ {copy.command}
+          </Text>
+        ) : null}
+        {copy.reason ? (
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            {copy.reason}
+          </Text>
+        ) : null}
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {outcome.text}
+        </Text>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          View only. Reply on your computer.
+        </Text>
+      </View>
+    );
+  }
+  if (request.kind === "question") {
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          gap: tokens.spacing.xs,
+        }}
+      >
+        <Text style={{ ...textStyle("label"), color: theme.colours.foreground }}>Question</Text>
+        {request.questions.map((question) => (
+          <View key={question.id} style={{ gap: tokens.spacing.xs }}>
+            <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+              {question.text}
+            </Text>
+            {question.options.map((option) => (
+              <Text
+                key={option.id}
+                style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}
+              >
+                · {option.label}
+              </Text>
+            ))}
+          </View>
+        ))}
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {interaction.state === "pending" ? "Waiting on your answer" : "Answered"}
+        </Text>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          View only. Reply on your computer.
+        </Text>
+      </View>
+    );
+  }
+  const title =
+    request.kind === "plan_review"
+      ? (request.title ?? "Plan review")
+      : request.kind === "elicitation"
+        ? (request.title ?? request.message)
+        : request.kind === "browser_help"
+          ? (request.title ?? request.message)
+          : "Request";
+  return (
+    <View
+      style={{
+        marginHorizontal: tokens.spacing.lg,
+        marginVertical: tokens.spacing.sm,
+        gap: tokens.spacing.xs,
+      }}
+    >
+      <Text style={{ ...textStyle("label"), color: theme.colours.foreground }}>{title}</Text>
+      <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        {interaction.state === "pending" ? "Waiting on your answer" : "Answered"}
+      </Text>
+      <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        View only. Reply on your computer.
+      </Text>
+    </View>
+  );
+}
+
+const EMPTY_INTERACTION_IDS: readonly string[] = Object.freeze([]);
+const noInteractionIds: Selection<readonly string[]> = emptySelection(EMPTY_INTERACTION_IDS);
+
+/**
+ * Ids of still-pending interactions, read-only. One membership selection
+ * plus one N-key read keeps a pending question on an evicted anchor in the
+ * window without subscribing per row. Fail-closed to empty (evicted-anchor
+ * questions drop, matching the old behavior, instead of crashing).
+ */
+function useOpenQuestionIds(store: ThreadSource): ReadonlySet<string> {
+  const idsSelection = useMemo(() => {
+    try {
+      return store.select(["interactions"], (r) => r.interactionIds(), sameIds);
+    } catch {
+      return null;
+    }
+  }, [store]);
+  const ids = useFailClosedSelection(idsSelection ?? noInteractionIds, EMPTY_INTERACTION_IDS);
+  const openSelection = useMemo(() => {
+    try {
+      return store.select(
+        ids.map((id) => `interaction:${id}` as const),
+        (r) =>
+          ids.filter((id) => {
+            try {
+              return r.interaction(id)?.state === "pending";
+            } catch {
+              return false;
+            }
+          }),
+        sameIds,
+      );
+    } catch {
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, ids.join("\0")]);
+  const open = useFailClosedSelection(openSelection ?? noInteractionIds, EMPTY_INTERACTION_IDS);
+  return useMemo(() => new Set(open), [open]);
+}
+
 function ProductionBlockRow({
   block,
   store,
@@ -378,20 +593,7 @@ function ProductionBlockRow({
 }) {
   const theme = useTheme();
   if (block.kind === "end") {
-    const label = endBlockText(block);
-    return (
-      <View
-        style={{
-          marginHorizontal: tokens.spacing.lg,
-          marginVertical: tokens.spacing.sm,
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
-          {label}
-        </Text>
-      </View>
-    );
+    return <ProductionEndRow block={block} store={store} />;
   }
   if (block.kind === "forked") {
     return (
@@ -415,13 +617,7 @@ function ProductionBlockRow({
     return null;
   }
   if (block.kind === "question") {
-    return (
-      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
-        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
-          Waiting on your answer
-        </Text>
-      </View>
-    );
+    return <ProductionQuestionRow interactionId={block.interactionId} store={store} />;
   }
   if (block.kind === "user") {
     if (!shown.has(block.itemId)) return null;
@@ -496,35 +692,6 @@ function ProductionMessageBubble({ id, store }: { id: string; store: ThreadSourc
   );
 }
 
-function productionBlockTestId(block: Block): string {
-  switch (block.kind) {
-    case "user":
-      return "transcript.user";
-    case "message":
-      return "transcript.answer";
-    case "event":
-      return "transcript.event";
-    case "item":
-      return "transcript.item";
-    case "end":
-      return `transcript.end.${block.ending}`;
-    case "forked":
-      return "transcript.forked";
-    case "started":
-      return "transcript.started";
-    case "live":
-      return "transcript.live";
-    case "work":
-      return "transcript.work";
-    case "subagents":
-      return "transcript.subagents";
-    case "files":
-      return "transcript.files";
-    case "question":
-      return "transcript.question";
-  }
-}
-
 function ThreadItems({ store }: { store: ThreadSource }) {
   const theme = useTheme();
   const orderSelection = useMemo(() => {
@@ -536,9 +703,13 @@ function ThreadItems({ store }: { store: ThreadSource }) {
   }, [store]);
   const order = useFailClosedSelection(orderSelection ?? noOrder, EMPTY_ORDER);
   const blocks = useProductionBlocks(store);
+  const openQuestions = useOpenQuestionIds(store);
   const window = useMemo(() => threadWindowFor(order, PRODUCTION_THREAD_WINDOW), [order]);
   const shown = useMemo(() => new Set(window.shown), [window]);
-  const visible = useMemo(() => windowBlocksFor(blocks, shown), [blocks, shown]);
+  const visible = useMemo(
+    () => windowBlocksFor(blocks, shown, openQuestions),
+    [blocks, shown, openQuestions],
+  );
   if (window.total === 0) {
     return (
       <Text
@@ -578,7 +749,7 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         renderItem={({ item }: { item: Block }) => (
           <ProductionBlockRow block={item} store={store} shown={shown} />
         )}
-        getItemType={(item: Block) => `${item.kind}:${productionBlockTestId(item)}`}
+        getItemType={(item: Block) => `${item.kind}:${blockTestId(item)}`}
         // Single scroll owner per region: the bounded window above owns this
         // region while the Machines screen owns page scroll. `flex:1` fills
         // the measured window (an unstyled list collapses); on Android the

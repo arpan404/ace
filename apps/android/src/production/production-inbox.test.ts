@@ -15,6 +15,7 @@ import {
   THREAD_LIST_MIN_HEIGHT,
   inboxEntriesFor,
   inboxThreadsFor,
+  noUndefinedList,
   openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
@@ -433,14 +434,65 @@ it("keeps only windowed blocks and renders only shown items inside a boundary bl
   expect(windowBlocksFor(blocks, new Set(shown)).map((block) => block.key)).toEqual(["w1", "e1"]);
 });
 
-it("keeps item-less dividers with the tail and drops fully evicted rows", () => {
+it("drops fully evicted dividers before the window and keeps tail dividers positionally", () => {
   const blocks: Block[] = [
     { kind: "end", key: "e0", ending: "failed", runId: undefined, askId: undefined },
     { kind: "user", key: "u1", itemId: "old" },
     { kind: "message", key: "m1", itemId: "new" },
   ];
-  expect(windowBlocksFor(blocks, ["new"]).map((block) => block.key)).toEqual(["e0", "m1"]);
+  // e0 closes a fully evicted turn before the first kept block: it drops.
+  expect(windowBlocksFor(blocks, ["new"]).map((block) => block.key)).toEqual(["m1"]);
   expect(windowBlocksFor([], ["new"])).toEqual([]);
+  // An item-less divider at/after the first kept block stays with the tail.
+  const tail: Block[] = [
+    { kind: "user", key: "u1", itemId: "new" },
+    { kind: "end", key: "e1", ending: "failed", runId: undefined, askId: undefined },
+  ];
+  expect(windowBlocksFor(tail, ["new"]).map((block) => block.key)).toEqual(["u1", "e1"]);
+  // With no kept content, only live survives.
+  const lonely: Block[] = [
+    { kind: "end", key: "e0", ending: "failed", runId: undefined, askId: undefined },
+    { kind: "live", key: "live:1", askId: undefined },
+  ];
+  expect(windowBlocksFor(lonely, ["new"]).map((block) => block.key)).toEqual(["live:1"]);
+});
+
+it("keeps an end divider through its turn work ids while the turn is in view", () => {
+  const blocks: Block[] = [
+    { kind: "user", key: "u1", itemId: "a" },
+    {
+      kind: "end",
+      key: "e1",
+      ending: "failed",
+      runId: "run-1",
+      askId: "a",
+      itemIds: ["a", "b"],
+    },
+    { kind: "message", key: "m1", itemId: "c" },
+  ];
+  expect(windowBlocksFor(blocks, ["b", "c"]).map((block) => block.key)).toEqual(["e1", "m1"]);
+  expect(windowBlocksFor(blocks, ["c"]).map((block) => block.key)).toEqual(["m1"]);
+});
+
+it("keeps a pending question on an evicted anchor and drops it once closed", () => {
+  const blocks: Block[] = [
+    {
+      kind: "question",
+      key: "question:q1",
+      interactionId: "q1",
+      anchorId: "old",
+    },
+    { kind: "message", key: "m1", itemId: "new" },
+  ];
+  expect(
+    windowBlocksFor(blocks, ["new"], new Set(["q1"])).map((block) => block.key),
+  ).toEqual(["question:q1", "m1"]);
+  expect(windowBlocksFor(blocks, ["new"]).map((block) => block.key)).toEqual(["m1"]);
+});
+
+it("returns a cached quiet-lines fallback so dead pins never churn useSyncExternalStore", () => {
+  expect(noUndefinedList.getSnapshot()).toBe(noUndefinedList.getSnapshot());
+  expect(Object.isFrozen(noUndefinedList.getSnapshot())).toBe(true);
 });
 
 it("never resolves or retains a lease for a revoked route, even on direct mount", () => {

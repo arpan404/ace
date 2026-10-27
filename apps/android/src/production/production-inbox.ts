@@ -1,4 +1,5 @@
-import type { SidebarReader, ThreadReader } from "@ace/client";
+import type { Selection, SidebarReader, ThreadReader } from "@ace/client";
+import type { Item } from "@ace/protocol";
 import { inboxSections, type InboxThread } from "@ace/ui-core/mobile";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import type { StartupRoute } from "../runtime/production-startup.ts";
@@ -66,6 +67,17 @@ export function threadHeadlineFor(store: ThreadReader): { title: string; count: 
 /** Latest-N thread window. The read handle offers no paging, so the cap is stated, never silent. */
 export const PRODUCTION_THREAD_WINDOW = 50;
 
+/**
+ * Fail-closed fallback for quiet-line item reads. `useSyncExternalStore`
+ * requires `getSnapshot` to return a cached identity: minting `[]` per call
+ * would give React a new snapshot every read and risk a render loop on
+ * exactly the dead-pin path. One frozen array, shared by every read.
+ */
+export const EMPTY_QUIET_ITEMS: readonly (Item | undefined)[] = Object.freeze([]);
+export const noUndefinedList: Selection<readonly (Item | undefined)[]> = {
+  getSnapshot: () => EMPTY_QUIET_ITEMS,
+  subscribe: () => () => {},
+};
 export const MAX_AUTO_RECOVER_ATTEMPTS = 5;
 
 /**
@@ -98,21 +110,44 @@ export function threadWindowFor(
  * Rich transcript windowing for the production read-only thread.
  *
  * Blocks are computed over the full order (grouping stays exact), then
- * filtered to the latest-N item window the read handle holds. A block is
- * kept when it names no items (end/forked/live dividers carry no item and
- * belong to the tail they close) or when any of its items sits in the shown
- * set. Rows render only the block's shown items, so a boundary work block
- * never pulls pre-window history back into view. Pure.
+ * filtered to the latest-N item window the read handle holds. A block with
+ * item ids is kept when any of its ids sits in the shown set; a still-open
+ * question is kept even when its anchor has trimmed out of the window, so a
+ * pending request never vanishes. Item-less dividers (`end` with no work
+ * ids, `forked`) carry no position of their own, so they are kept only at or
+ * after the first kept block — a fully evicted turn's divider drops instead
+ * of pinning to the tail forever. The single `live` line is always kept.
+ * Rows render only the block's shown items, so a boundary work block never
+ * pulls pre-window history back into view. Pure.
  */
 export function windowBlocksFor(
   blocks: readonly Block[],
   shown: readonly string[] | ReadonlySet<string>,
+  openQuestions?: ReadonlySet<string>,
 ): Block[] {
   const allowed = shown instanceof Set ? shown : new Set(shown);
-  return blocks.filter((block) => {
+  const keptByContent = (block: Block): boolean => {
+    if (block.kind === "question") {
+      if (openQuestions?.has(block.interactionId)) return true;
+    }
     const ids = blockItems(block);
-    if (ids.length === 0) return true;
+    if (ids.length === 0) return false;
     return ids.some((id) => allowed.has(id));
+  };
+  let first = -1;
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    if (block === undefined || block.kind === "live") continue;
+    if (keptByContent(block)) {
+      first = index;
+      break;
+    }
+  }
+  return blocks.filter((block, index) => {
+    if (block.kind === "live") return true;
+    if (keptByContent(block)) return true;
+    if (blockItems(block).length === 0) return first !== -1 && index >= first;
+    return false;
   });
 }
 
