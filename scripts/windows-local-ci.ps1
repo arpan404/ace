@@ -3,7 +3,8 @@
 #
 # Usage (from the repo root, after `bun install --frozen-lockfile`):
 #   ./scripts/windows-local-ci.ps1 [-Stage native|screen|browser|standalone|desktop|installer|git|all]
-#                                  [-Work C:\ace\ci] [-Install] [-Reports] [-MachineChanges]
+#                                  [-Files <test files>] [-Shard <i>/<n>] [-Work C:\ace\ci]
+#                                  [-Install] [-Reports] [-MachineChanges]
 #
 # Stages (`all` runs every stage but `git`, in this order):
 #   native      descriptor.node + screen helper build and cargo tests, then the bounded native suite
@@ -17,12 +18,18 @@
 #   installer   install unit tests, two NSIS packages, install/run/update/uninstall smoke
 #   git         the Git, forge and review suites (dispatch-only on GitHub; not part of `all`)
 #
+# -Files narrows the native, screen, browser or git suite to those test files (the native suite
+# alone takes about half an hour on the ARM64 VM, longer than one locked VM session should). It
+# needs exactly one of those stages: the files belong to one suite's config. -Shard i/n runs that
+# suite's i-th of n parts (Vitest --shard), e.g. the native suite as 1/2 and 2/2 in two sessions.
 # screen, browser, desktop and installer need the logged-in desktop (not an SSH session 0).
 # Each stage logs to <Work>\<stage>.log; <Work>\summary.txt and summary.json hold pass/fail per
 # stage. The exit code is non-zero when any stage failed.
 param(
   [ValidateSet("native", "screen", "browser", "standalone", "desktop", "installer", "git", "all")]
   [string[]] $Stage = @("all"),
+  [string[]] $Files = @(),
+  [ValidatePattern('^\d+/\d+$')] [string] $Shard = "",
   [string] $Work = "C:\ace\ci",
   [switch] $Install,
   [switch] $Reports,
@@ -38,6 +45,17 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 $env:TEMP = $tmp; $env:TMP = $tmp; $env:TMPDIR = $tmp
 # GitHub sets CI=true; several native tests run only under it.
 $env:CI = "true"
+# GitHub's images have OpenSSL on PATH (the Tailscale HTTPS tests make certificates with it).
+# Elsewhere use the one Git for Windows ships, appended so Windows' own tools still come first.
+if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
+  $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+  $candidates = @()
+  # git.exe sits in <Git>\cmd or <Git>\bin; OpenSSL ships in <Git>\usr\bin.
+  if ($gitExe) { $candidates += Join-Path (Split-Path (Split-Path $gitExe)) "usr\bin\openssl.exe" }
+  $candidates += Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
+  $gitOpenssl = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($gitOpenssl) { $env:Path = "$env:Path;$(Split-Path $gitOpenssl)" }
+}
 
 $arch = (node -p "process.arch").Trim()
 if ($arch -notin @("x64", "arm64")) { throw "Unsupported Node arch: $arch" }
@@ -91,6 +109,26 @@ function Invoke-Step([string] $name, [scriptblock] $block) {
   if ($code -ne 0) { throw "$name failed (exit $code)" }
 }
 
+# Release builds insist on the Node the release ships (tools/release/src/node-runtime.ts), as
+# the workflows pin it. Use a checksum-verified copy of it in the work folder, never the system's.
+function Use-ReleaseNode {
+  $version = (Select-String -Path tools/release/src/node-runtime.ts -Pattern 'export const nodeVersion = "([^"]+)"').Matches[0].Groups[1].Value
+  if ((node -p "process.versions.node").Trim() -eq $version) { return }
+  $name = "node-v$version-win-$arch"
+  $dir = Join-Path $Work $name
+  if (!(Test-Path (Join-Path $dir "node.exe"))) {
+    $zip = Join-Path $Work "$name.zip"; $sums = Join-Path $Work "SHASUMS256-$version.txt"
+    Invoke-WebRequest -Uri "https://nodejs.org/dist/v$version/SHASUMS256.txt" -OutFile $sums
+    Invoke-WebRequest -Uri "https://nodejs.org/dist/v$version/$name.zip" -OutFile $zip
+    $want = ((Select-String -Path $sums -Pattern " $name.zip$").Line -split '\s+')[0]
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $want) { Remove-Item $zip; throw "$name.zip SHA256 mismatch" }
+    Expand-Archive -Path $zip -DestinationPath $Work -Force
+    Remove-Item $zip
+  }
+  $env:Path = "$dir;$env:Path"
+  Write-Host "--- release builds use Node $version from $dir"
+}
+
 function Invoke-Vitest([string[]] $arguments) {
   Invoke-Step "vitest $($arguments -join ' ')" { node $vitest run @arguments }
 }
@@ -135,19 +173,19 @@ function Use-Chromium {
 $stages = [ordered]@{
   native = {
     Build-Native
-    Invoke-Vitest @("--config", "scripts/vitest-windows-native.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-native.config.ts") + $narrowed)
   }
   screen = {
     Require-Desktop
     Build-Native
     $env:ACE_WINDOWS_SCREEN_HELPER = $helper
-    try { Invoke-Vitest @("--config", "scripts/vitest-windows-screen.config.ts") }
+    try { Invoke-Vitest (@("--config", "scripts/vitest-windows-screen.config.ts") + $narrowed) }
     finally { Remove-Item Env:ACE_WINDOWS_SCREEN_HELPER -ErrorAction SilentlyContinue }
   }
   browser = {
     Require-Desktop
     Use-Chromium
-    Invoke-Vitest @("--config", "scripts/vitest-windows-browser.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-browser.config.ts") + $narrowed)
     if ($Reports) {
       Invoke-Step "browser video profile (report only)" { node packages/browser/bench/video-profile.ts }
       $env:ACE_VIDEO_LINK_REPORT_ONLY = "1"; $env:ACE_VIDEO_LINK_BASELINE_SECONDS = "10"
@@ -163,14 +201,18 @@ $stages = [ordered]@{
     Invoke-Step "throwaway release key" {
       node -e "const c=require('node:crypto'),f=require('node:fs');const k=c.generateKeyPairSync('ed25519');f.writeFileSync(process.argv[1],k.privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync(process.argv[2],k.publicKey.export({type:'spki',format:'pem'}))" $key $public
     }
-    Invoke-Step "build win32-$arch daemon archive" { node tools/release/src/build.ts 0.0.0-ci "win32-$arch" $public }
-    Invoke-Step "smoke the archive" { node tools/release/src/smoke.ts "tools/release/dist/win32-$arch" }
-    if ($MachineChanges) {
-      $check = Join-Path $Work "install-check"
-      Invoke-Step "install.ps1 end to end" {
-        & ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target "win32-$arch" -PrivateKey $key -PublicKey $public -Work $check
-      }
-    } else { Write-Host "--- install.ps1 end to end skipped (needs -MachineChanges)" }
+    $systemPath = $env:Path
+    Use-ReleaseNode
+    try {
+      Invoke-Step "build win32-$arch daemon archive" { node tools/release/src/build.ts 0.0.0-ci "win32-$arch" $public }
+      Invoke-Step "smoke the archive" { node tools/release/src/smoke.ts "tools/release/dist/win32-$arch" }
+      if ($MachineChanges) {
+        $check = Join-Path $Work "install-check"
+        Invoke-Step "install.ps1 end to end" {
+          & ./tools/release/verification/install-ps1-check.ps1 -Dist tools/release/dist -Target "win32-$arch" -PrivateKey $key -PublicKey $public -Work $check
+        }
+      } else { Write-Host "--- install.ps1 end to end skipped (needs -MachineChanges)" }
+    } finally { $env:Path = $systemPath }
   }
   desktop = {
     Require-Desktop
@@ -210,6 +252,8 @@ $stages = [ordered]@{
     Move-Item -Force "$release/ace-$second-$arch-setup.exe" $installers
     # A scratch data home so the smoke never touches the machine user's own ~/.ace.
     $env:ACE_HOME = Join-Path $Work "installer-home"
+    # The smoke needs a clean home and keeps it on uninstall, so clear the last run's.
+    if (Test-Path $env:ACE_HOME) { Remove-Item -Recurse -Force $env:ACE_HOME }
     try {
       Invoke-Step "install, run, update and uninstall" {
         & ./apps/desktop/scripts/installer-smoke.ps1 -First (Join-Path $installers "ace-$first-$arch-setup.exe") -Second (Join-Path $installers "ace-$second-$arch-setup.exe") -SecondVersion $second
@@ -217,8 +261,14 @@ $stages = [ordered]@{
     } finally { Remove-Item Env:ACE_HOME -ErrorAction SilentlyContinue }
   }
   git = {
-    Invoke-Vitest @("--config", "scripts/vitest-git-native.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-git-native.config.ts") + $narrowed)
   }
+}
+
+$selected = if ($Stage -contains "all") { @($stages.Keys | Where-Object { $_ -ne "git" }) } else { $Stage }
+$narrowed = @($Files) + @(if ($Shard) { "--shard=$Shard" })
+if (($Files.Count -or $Shard) -and (@($selected).Count -ne 1 -or @($selected)[0] -notin @("native", "screen", "browser", "git"))) {
+  throw "-Files and -Shard need exactly one of the native, screen, browser or git stages"
 }
 
 if ($Install) {
@@ -227,7 +277,6 @@ if ($Install) {
   Invoke-Step "bun install" { bun install --frozen-lockfile --os=win32 --cpu=$arch }
 }
 
-$selected = if ($Stage -contains "all") { @($stages.Keys | Where-Object { $_ -ne "git" }) } else { $Stage }
 $results = [ordered]@{}
 $summary = Join-Path $Work "summary.txt"
 $commit = (git rev-parse --short HEAD).Trim()
@@ -236,12 +285,15 @@ foreach ($name in $selected) {
   $started = Get-Date
   Write-Host "=== $name (log: $log)"
   $status = "pass"; $detail = ""
+  # UTF-8, not Windows PowerShell's UTF-16 default, so the logs read anywhere.
+  try { $writer = New-Object System.IO.StreamWriter($log, $false, (New-Object System.Text.UTF8Encoding $false)) }
+  catch { throw "Cannot write $log (is an earlier run still holding it?): $($_.Exception.Message)" }
   try {
-    & $stages[$name] *>&1 | Tee-Object -FilePath $log | Out-Host
+    & $stages[$name] *>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine($line); $writer.Flush(); $line } | Out-Host
   } catch {
     $status = "fail"; $detail = $_.Exception.Message
-    Add-Content -Path $log -Value "STAGE FAILED: $detail"
-  }
+    $writer.WriteLine("STAGE FAILED: $detail")
+  } finally { $writer.Dispose() }
   $seconds = [int]((Get-Date) - $started).TotalSeconds
   $results[$name] = [ordered]@{ status = $status; seconds = $seconds; detail = $detail; log = $log }
   Write-Host "=== $name $status in ${seconds}s $detail"
