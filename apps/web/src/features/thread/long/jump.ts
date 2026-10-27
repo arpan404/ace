@@ -99,11 +99,27 @@ export class Jump {
       if (revision === this.revision) controller.hold();
     });
   }
+  /**
+   * Hold the transcript's rows as a window, reading the newest of them from history when the
+   * tail holds none (busy siblings trimmed a subagent's lane out of it). Nothing while a
+   * window is open.
+   */
+  holdLane(): Promise<void> {
+    if (this.controller?.snapshot().window) return Promise.resolve();
+    return this.run(async (controller) => {
+      controller.hold();
+      if (!controller.snapshot().window) await controller.older();
+    });
+  }
   older(): Promise<void> {
     return this.run((controller) => controller.older());
   }
   newer(): Promise<void> {
     return this.controller?.newer() ?? Promise.resolve();
+  }
+  /** The reader follows the live end through a window that stays open (`JumpController.follow`). */
+  follow(): void {
+    this.controller?.follow();
   }
   live(): void {
     ++this.revision;
