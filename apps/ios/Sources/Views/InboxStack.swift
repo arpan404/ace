@@ -90,7 +90,14 @@ struct InboxStack<Destination: View>: View {
                 // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
                 .navigationTitle(pulls ? "Pull requests" : "Threads")
                 .navigationBarTitleDisplayMode(.inline)
+                // The leading heading draws the title; the bar's own centred one would take the
+                // middle and leave the heading and its buttons half the width each.
+                .toolbar(removing: .title)
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
+                // As a compact window's drawer the list is too narrow for the system's bar, which
+                // folds the title and its buttons into one ⋯: the list draws its own header, and
+                // the bar comes back only for search and Select, which live in it.
+                .modifier(DrawerHeaderPlace(own: inDrawer && !pulls && !searching && !selecting) { drawerHeader })
                 .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                     if selecting && !pulls {
                         InboxSelectionBar(inbox: inbox, selection: selection, organize: organize) { selecting = false; selection = [] }
@@ -272,7 +279,6 @@ struct InboxStack<Destination: View>: View {
         }
     }
     @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
-        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         // The title, its menu and the scope or connection problem under it, with no glass. The
         // Pulls tab's title is its list's own, which knows its projects.
         if !pulls {
@@ -281,25 +287,19 @@ struct InboxStack<Destination: View>: View {
             } else {
                 ToolbarItem(placement: .topBarLeading) { title }
             }
-            // Select mode, for actions on several threads at once.
-            if inbox.sessions.contains(where: { $0.client.canOperate }) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Select") { startSelecting() }.accessibilityIdentifier("inbox.select")
-                }
-                if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
-            }
         }
-        ToolbarItem(placement: .topBarTrailing) { settings }
-        // A phone gives each button its own glass; the sidebar groups its three into one, so a
-        // narrow column (a window beside its controls) still shows them all.
-        if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
-        ToolbarItem(placement: .topBarTrailing) {
+        // Select, Settings and Search share one glass capsule, so the bar never runs out of room
+        // and folds them, the title too, into an overflow ⋯ (a drawer, large text).
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if !pulls, inbox.sessions.contains(where: { $0.client.canOperate }) {
+                Button { startSelecting() } label: { Image(systemName: "checkmark.circle") }
+                    .accessibilityLabel("Select").accessibilityIdentifier("inbox.select")
+            }
+            settings
             Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
-        }
-        // The phone's floating New thread button, in the Threads sidebar's own bar.
-        if composeInBar, !pulls, inbox.canStartThreads {
-            ToolbarItem(placement: .topBarTrailing) {
+            // The phone's floating New thread button, in the Threads sidebar's own bar.
+            if composeInBar, !pulls, inbox.canStartThreads {
                 Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
             }
@@ -330,7 +330,42 @@ struct InboxStack<Destination: View>: View {
     private var title: some View {
         InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
                      openMachines: header.machines) { filters }
+            // The bar's title stops growing at the largest standard size, so it keeps its place
+            // beside the buttons; accessibility sizes read it from the title's own menu and VoiceOver.
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .modifier(HeaderLead())
+    }
+    /// The drawer's own header: the title and its menu, then Select, Settings and Search on one
+    /// glass capsule, each a full touch target.
+    private var drawerHeader: some View {
+        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+            title
+            Spacer(minLength: AceTheme.Spacing.sm)
+            HStack(spacing: AceTheme.Spacing.none) {
+                if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                    headerButton("checkmark.circle", label: "Select", identifier: "inbox.select") { startSelecting() }
+                }
+                headerButton("gearshape", label: "Settings", identifier: "inbox.settings", action: header.settings)
+                headerButton("magnifyingglass", label: "Search", identifier: "inbox.search") {
+                    withAnimation(listMotion) { searching = true }
+                }
+            }
+            .aceGlass(in: AceShape.capsule, interactive: true)
+        }
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.xs)
+    }
+    private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
     private var settings: some View {
         Button(action: header.settings) { Image(systemName: "gearshape") }
@@ -387,4 +422,15 @@ private struct HoldsTabs<Content: View>: View {
 struct HeaderLead: ViewModifier {
     @Environment(\.headerLead) private var lead
     func body(content: Content) -> some View { content.padding(.leading, lead) }
+}
+
+/// Hides the list's system bar and pins the drawer's own header in its place while `own` holds.
+private struct DrawerHeaderPlace<Header: View>: ViewModifier {
+    let own: Bool
+    @ViewBuilder let header: () -> Header
+    func body(content: Content) -> some View {
+        content
+            .toolbarVisibility(own ? .hidden : .automatic, for: .navigationBar)
+            .inboxTopBar { if own { header() } }
+    }
 }

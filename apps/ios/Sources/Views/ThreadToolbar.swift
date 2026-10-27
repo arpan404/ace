@@ -17,14 +17,18 @@ struct ThreadToolbar: ToolbarContent {
     let menu: ThreadMenu
     /// Opens the thread's Work sheet from the "project · branch" line.
     let openWork: () -> Void
+    /// Starts a new thread from the open one, beside ⋯; nil where no machine can start threads.
+    var newThread: (() -> Void)? = nil
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
-            // ⋯ sits in the same glass circle as the system's back button across from it.
+            // New thread and ⋯ share one glass capsule across from the system's back button.
+            if let newThread { ToolbarItem(placement: .topBarTrailing) { NewThreadButton(action: newThread) } }
             ToolbarItem(placement: .topBarTrailing) { menu }
         } else {
             ToolbarItem(placement: .principal) { heading }
+            if let newThread { ToolbarItem(placement: .topBarTrailing) { NewThreadButton(action: newThread) } }
             ToolbarItem(placement: .topBarTrailing) { menu }
         }
     }
@@ -205,4 +209,19 @@ extension View {
             navigationTitle(title)
         }
     }
+}
+
+/// Starts a new thread from the open one, in the thread's own bar beside ⋯.
+private struct NewThreadButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { Image(systemName: "square.and.pencil") }
+            .accessibilityLabel("New thread")
+            .accessibilityIdentifier("thread.newThread")
+    }
+}
+
+extension EnvironmentValues {
+    /// Starts a new thread from inside a thread; nil where no machine can start one.
+    @Entry var startNewThread: (() -> Void)? = nil
 }

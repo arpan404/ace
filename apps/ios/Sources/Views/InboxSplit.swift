@@ -156,12 +156,16 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     /// whether it carries the tabs.
     private func listed(onGlass: Bool) -> some View {
         list()
-            .environment(\.openThreadRow, ThreadColumns.selection(path))
-            .environment(\.openForgeRow, path.first?.forge)
+            .environment(\.openThreadRow, highlightsOpen ? ThreadColumns.selection(path) : nil)
+            .environment(\.openForgeRow, highlightsOpen ? path.first?.forge : nil)
             .environment(\.onSidebarGlass, onGlass)
             .environment(\.listHoldsTabs, ThreadDrawer.listHoldsTabs(layout))
             .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
     }
+
+    /// The open page's row reads as selected while the page is in sight beside the list; with the
+    /// list across the whole window the page is out of sight, so no row is singled out.
+    private var highlightsOpen: Bool { drawer.stop != .full }
 
     private func openDrawer() {
         dismissKeyboard()

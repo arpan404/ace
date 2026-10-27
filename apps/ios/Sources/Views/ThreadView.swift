@@ -8,6 +8,7 @@ struct ThreadView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
+    @Environment(\.startNewThread) private var startNewThread
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -110,7 +111,7 @@ struct ThreadView: View {
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: leave),
-                              openWork: { showWork = true })
+                              openWork: { showWork = true }, newThread: startNewThread)
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
