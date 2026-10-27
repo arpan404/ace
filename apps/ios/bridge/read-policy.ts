@@ -17,6 +17,7 @@ export type ReadFamily =
   | "plugins"
   | "prompts"
   | "catalog"
+  | "skills"
   | "forge";
 
 type Raw = Record<string, unknown>;
@@ -41,6 +42,8 @@ const pluginLookups = new Set([
   "plugins.prepare",
   "plugins.cancel",
 ]);
+/** The phone's skill-library requests that only read (`skill-library.ts`). */
+const skillLookups = new Set(["library", "skill", "draft", "check"]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -74,6 +77,10 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "list" ? "prompts" : undefined;
     case "catalog.list":
       return "catalog";
+    case "skills.native":
+      return value.op === "library" ? "skills" : undefined;
+    case "plugins.native":
+      return value.op === "plugins" ? "plugins" : undefined;
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -108,7 +115,11 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "automation.manage":
       return ["automations"];
     case "pluginRequest":
-      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
+      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog", "skills"];
+    case "skills.native":
+      return skillLookups.has(String(value.op)) ? [] : ["skills", "catalog"];
+    case "plugins.native":
+      return ["plugins", "catalog", "skills"];
     case "prompts.request":
       return ["prompts"];
     case "forge.merge":
@@ -137,8 +148,10 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "accounts.changed":
       return ["usage"];
     case "plugins.removed":
-      return ["plugins", "catalog"];
+      return ["plugins", "catalog", "skills"];
     case "catalog.changed":
+      // Skill folders changing on the machine reach the catalog's watcher too (ADR 0103).
+      return ["catalog", "skills"];
     case "models.changed":
     case "providers.changed":
       return ["catalog"];

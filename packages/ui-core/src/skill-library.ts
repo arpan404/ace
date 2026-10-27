@@ -86,7 +86,10 @@ export function manualText(agents: readonly Pick<SkillPresence, "provider" | "ho
 }
 
 /** The Runs line under a skill: when agents load it. */
-export function runsText(entry: Pick<SkillEntry, "manual" | "agents">): string {
+export function runsText(entry: {
+  manual: boolean;
+  agents: readonly Pick<SkillPresence, "provider" | "honoursManual">[];
+}): string {
   return entry.manual ? manualText(entry.agents) : "Agents load it by themselves when it fits";
 }
 

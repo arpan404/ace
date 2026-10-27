@@ -19,6 +19,7 @@ import {
   rowMarks,
   skillBody,
   skillNameProblem,
+  type PluginPolicy,
 } from "./skill-library.ts";
 
 test("agents read by name, and all of them as every agent", () => {
@@ -183,7 +184,7 @@ test("a plugin with no agents reads as off, and switching it on gives it every a
 });
 
 test("ticking agents for a whole plugin keeps app order and reads back as words", () => {
-  let policy = { enabled: true, providers: ["pi"] as readonly ("pi" | "claude" | "codex")[] };
+  let policy: PluginPolicy = { enabled: true, providers: ["pi"] };
   policy = pluginAgentSet(policy, "claude", true);
   expect(policy.providers).toEqual(["claude", "pi"]);
   expect(pluginAgentsText(policy)).toBe("On for Claude Code and Pi");
