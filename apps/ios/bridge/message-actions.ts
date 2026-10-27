@@ -30,12 +30,9 @@ export function messageActionsOf(store: ThreadSource, item: Item, at?: number) {
   if (item.type !== "message" || !root || item.synthetic) return undefined;
   const mine = item.agentId === root || item.agentId === undefined;
   if (item.role === "user") {
-    const index = at !== undefined && store.order[at] === item.id ? at : undefined;
-    return {
-      fork: false,
-      edit: editPointOf(store, item.id, root, index) !== undefined,
-      rewind: false,
-    };
+    // Only at its known place (the row follower's positions): nothing scans the order for it.
+    const edit = at !== undefined && editPointOf(store, item.id, root, at) !== undefined;
+    return { fork: false, edit, rewind: false };
   }
   if (item.role !== "assistant" || !mine) return undefined;
   const fork =
@@ -95,7 +92,7 @@ export function forkStart(
   const store = stores.find((candidate) => candidate.item(at.itemId) !== undefined);
   const item = store?.item(at.itemId);
   if (at.kind === "edit") {
-    const point = store && editPointOf(store, at.itemId, root);
+    const point = store && editPointOf(store, at.itemId, root, store.order.lastIndexOf(at.itemId));
     if (!point) return { refused: "There is no earlier answer to continue from." };
     const text = words(item);
     const files = item?.type === "message" ? (item.attachments ?? []) : [];

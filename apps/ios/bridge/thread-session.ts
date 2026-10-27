@@ -154,11 +154,13 @@ export class ThreadSession {
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
       if (keys === "all") this.#ready();
+      // Retry, the last turn and Bring back move with the thread's status, its order and its
+      // turns, never with a streamed delta: an item's own change costs them nothing.
       if (keys === "all") this.#transitions.resend();
       else if (
         keys.has("thread") ||
         keys.has("order") ||
-        [...keys].some((key) => key.startsWith("run:") || key.startsWith("item:"))
+        [...keys].some((key) => key.startsWith("run:"))
       )
         this.#transitions.update();
     });

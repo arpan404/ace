@@ -82,12 +82,12 @@ test("an answer still being written, or one the person already replied to, doesn
 });
 
 test("editing a later message forks from the answer before it; the opening message can't be edited", () => {
-  expect(editPointOf(thread, "ask-2", "root")).toEqual({
+  expect(editPointOf(thread, "ask-2", "root", 2)).toEqual({
     fork: { type: "turn", runId: "r1" },
     piEntry: "entry-1",
   });
-  expect(editPointOf(thread, "ask-1", "root")).toBeUndefined();
-  expect(editPointOf(thread, "answer-1", "root")).toBeUndefined();
+  expect(editPointOf(thread, "ask-1", "root", 0)).toBeUndefined();
+  expect(editPointOf(thread, "answer-1", "root", 1)).toBeUndefined();
 });
 
 test("a message steered into a running turn edits from the last finished turn before it", () => {
@@ -101,7 +101,7 @@ test("a message steered into a running turn edits from the last finished turn be
     ],
     [run("r1", "completed"), run("r2", "active")],
   );
-  expect(editPointOf(steered, "steer", "root")?.fork).toEqual({ type: "turn", runId: "r1" });
+  expect(editPointOf(steered, "steer", "root", 4)?.fork).toEqual({ type: "turn", runId: "r1" });
 });
 
 test("a fork brings back its own newest answer, never what it copied from its parent", () => {

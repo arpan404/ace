@@ -38,14 +38,19 @@ export function followThread(
   prefix: "thread:" | "reading:" = "thread:",
 ) {
   const positions = new Map<string, number>();
+  /** Where native's positions start in `store.order` (`anchoredOffset`), so a row knows its place. */
+  let offset = 0;
   const put = (key: string, read: () => Record<string, unknown> | undefined) => {
     pump.put(prefix + key, () => {
       const patch = read();
       return patch && { ...patch, threadId, epoch };
     });
   };
-  const row = (id: string, index?: number, at?: number) => {
+  const row = (id: string, index?: number) => {
     if (index !== undefined) positions.set(id, index);
+    const known = positions.get(id);
+    // Its place in the order, as the positions say, so its actions never scan the order for it.
+    const at = known === undefined ? undefined : known + offset;
     put(`item:${id}`, () => {
       const item = store.item(id);
       return {
@@ -72,12 +77,13 @@ export function followThread(
     if (keys === "all" && ledger?.held && !store.thread) return;
     if (keys === "all") {
       positions.clear();
+      offset = 0;
       if (!ledger?.begin()) {
         pump.clear(prefix);
         put("reset", () => ({ type: "thread.reset" }));
       }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
-      store.order.forEach((id, index) => row(id, index, index));
+      store.order.forEach((id, index) => row(id, index));
       for (const id of store.interactionIds()) interaction(id);
     } else {
       if (keys.has("order")) {
@@ -87,7 +93,7 @@ export function followThread(
           if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
         };
         const retained = new Set(store.order);
-        const offset = anchoredOffset(positions, store.order);
+        offset = anchoredOffset(positions, store.order);
         for (const id of positions.keys())
           if (!retained.has(id)) {
             positions.delete(id);

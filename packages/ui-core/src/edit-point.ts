@@ -97,8 +97,8 @@ export function editPointOf(
   reader: Reader,
   messageId: string,
   rootAgentId: string | undefined,
-  /** The message's place in `reader.order`, when the caller already knows it. */
-  at: number = reader.order.lastIndexOf(messageId),
+  /** The message's place in `reader.order`; the caller knows it, so nothing scans for it. */
+  at: number,
 ): EditPoint | undefined {
   if (!rootAgentId || at < 0 || reader.order[at] !== messageId) return undefined;
   const item = reader.item(messageId);
