@@ -199,3 +199,25 @@ test("after a relaunch with nothing running the page shows the provider, not a p
   expect(screen.idle).toBe(true);
   expect((await after.watch("codex", -1)).idle).toBe(true);
 });
+
+test("an install that finished while the phone was away shows its result once after a relaunch", async () => {
+  const daemon = fixture();
+  daemon.services.providerInstalls.autoComplete = false;
+  const before = await open(daemon);
+  await before.act("codex", { kind: "plan", action: "update" });
+  await before.act("codex", { kind: "run" });
+  const session = await before.running("codex");
+  if (!session) throw new Error("expected the running job");
+  await before.close();
+  // It ends with no phone connected to hear it.
+  daemon.services.providerInstalls.complete(session);
+
+  const after = await open(daemon);
+  const result = await after.settle("codex", (screen) => screen.finished);
+  expect(result).toMatchObject({ finished: true, status: { label: "Installed", token: "done" } });
+  await after.close();
+
+  const again = await open(daemon);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect((await again.watch("codex", -1)).idle).toBe(true);
+});

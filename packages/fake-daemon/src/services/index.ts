@@ -211,6 +211,7 @@ export class FakeServices {
         this.host.broadcast?.({ type: "models.changed", filter: { provider: progress.provider } });
       },
       (id) => this.registry.entries.find((entry) => entry.agent.acpAgentId === id)?.agent,
+      host.clock,
     );
     this.providerLogin = new FakeProviderLogin(
       host.clock,

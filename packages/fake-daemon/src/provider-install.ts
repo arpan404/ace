@@ -22,7 +22,12 @@ interface Job {
   requestId: string;
   owner: string;
   progress: ProviderInstallProgress;
+  finishedAt?: number;
+  /** Its owner has seen how it ended: live, by poll or cancel, or once through `active`. */
+  reported?: boolean;
 }
+/** How long a finished job's result waits for an owner that lost its session, as the daemon's. */
+const unseenResultMs = 10 * 60_000;
 const done = (state: string) => ["succeeded", "failed", "cancelled", "needs_admin"].includes(state);
 /** Explicit completion and progress injection let UI tests exercise every state without timers. */
 export class FakeProviderInstalls {
@@ -35,12 +40,15 @@ export class FakeProviderInstalls {
   private rows: () => ProviderStatus[];
   private changed: (progress: ProviderInstallProgress) => void;
   private catalog: (id: string) => RegistryAgent | undefined;
+  private now: () => number;
   constructor(
     rows: () => ProviderStatus[],
     changed: (progress: ProviderInstallProgress) => void,
     catalog: (id: string) => RegistryAgent | undefined = () => undefined,
+    now: () => number = () => 0,
   ) {
     this.catalog = catalog;
+    this.now = now;
     this.rows = rows;
     this.changed = changed;
   }
@@ -53,8 +61,13 @@ export class FakeProviderInstalls {
       ...update,
       sequence: job.progress.sequence + 1,
     });
+    const ended = done(job.progress.state);
+    if (ended) job.finishedAt ??= this.now();
     for (const [push, owner] of this.subscribers)
-      if (owner === job.owner) push({ type: "provider.install.progress", progress: job.progress });
+      if (owner === job.owner) {
+        push({ type: "provider.install.progress", progress: job.progress });
+        if (ended) job.reported = true;
+      }
   }
   advance(session: string, line = "Downloading official package…"): void {
     const job = this.jobs.get(session);
@@ -258,7 +271,31 @@ export class FakeProviderInstalls {
             entry.progress.agent === input.agent &&
             entry.progress.acpAgentId === input.acpAgentId,
         );
-      reply(running ? { ok: true, progress: running.progress } : { ok: false, error: "not_found" });
+      if (running) {
+        reply({ ok: true, progress: running.progress });
+        return true;
+      }
+      // Else how its latest job ended, once, if the owner never saw it and it ended recently.
+      const ended = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            entry.progress.provider === input.provider &&
+            entry.progress.agent === input.agent &&
+            entry.progress.acpAgentId === input.acpAgentId,
+        );
+      if (
+        !ended ||
+        ended.reported ||
+        ended.finishedAt === undefined ||
+        this.now() - ended.finishedAt > unseenResultMs
+      )
+        reply({ ok: false, error: "not_found" });
+      else {
+        ended.reported = true;
+        reply({ ok: true, progress: ended.progress });
+      }
       return true;
     }
     const job = this.jobs.get(input.session);
@@ -267,6 +304,7 @@ export class FakeProviderInstalls {
     else {
       if (input.type === "provider.install.cancel" && !done(job.progress.state))
         this.publish(job, { state: "cancelled" });
+      if (done(job.progress.state)) job.reported = true;
       reply({ ok: true, progress: job.progress });
     }
     return true;
