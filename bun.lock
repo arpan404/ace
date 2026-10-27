@@ -168,6 +168,7 @@
         "@ace/design-tokens": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/themes": "workspace:*",

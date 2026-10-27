@@ -29,7 +29,6 @@ const editableColours = [
   "accent",
   "onAccent",
 ] as const;
-type EditableColour = (typeof editableColours)[number];
 // Theme roles (`@ace/themes` phoneColourRoles) resolve live too, so a theme switch redraws them.
 const isDynamic = (key: string): boolean =>
   (editableColours as readonly string[]).includes(key) ||

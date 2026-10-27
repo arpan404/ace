@@ -34,7 +34,7 @@ describe("phone themes", () => {
 
   it("changes only the accent when another accent is laid over ace", () => {
     const overrides = phoneOverrides("ace", "teal", "dark");
-    expect(Object.keys(overrides).sort()).toEqual(["accent", "onAccent"]);
+    expect(Object.keys(overrides).toSorted()).toEqual(["accent", "onAccent"]);
     expect(overrides.accent).not.toBe(base.dark.accent);
   });
 
