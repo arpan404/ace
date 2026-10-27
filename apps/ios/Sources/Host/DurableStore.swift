@@ -58,6 +58,13 @@ final class DurableStore {
             guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('browserDevices',?)", [value]) }
             return ""
+        // Each thread's side panel on iPad (`bridge/workspace.ts`): a plain replace.
+        case "storage.workspace.load": return try query("SELECT value FROM metadata WHERE id='workspace'").first ?? ""
+        case "storage.workspace.save":
+            let value = try request.requireBody()
+            guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('workspace',?)", [value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }

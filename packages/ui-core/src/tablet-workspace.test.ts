@@ -1,11 +1,6 @@
 import { expect, test } from "vitest";
 import type { KeyValueStorage } from "./storage.ts";
-import {
-  TabletWorkspaces,
-  tabletPanelPlace,
-  tabletPanelWidth,
-  type TabletPanelView,
-} from "./tablet-workspace.ts";
+import { TabletWorkspaces, type TabletPanelView } from "./tablet-workspace.ts";
 
 const memory = (): KeyValueStorage => {
   const values = new Map<string, string>();
@@ -150,20 +145,4 @@ test("a tool the app can't draw is never offered, opened or brought back", () =>
   expect(panels.apply("t1", { op: "open", kind: "terminal" })).toBe(false);
   panels.setAvailable(["changes", "files", "preview"]);
   expect(panels.view("t1").tools.map((tool) => tool.label)).toContain("Run and preview");
-});
-
-test("the panel sits beside the thread when both fit, asks the list to step aside, or opens over", () => {
-  // iPad Pro 13 in landscape: 992pt beside the list.
-  expect(tabletPanelPlace({ regular: true, width: 992, sidebar: 384 })).toBe("beside");
-  // In portrait the list and the panel don't both fit: the list steps aside.
-  expect(tabletPanelPlace({ regular: true, width: 648, sidebar: 384 })).toBe("yield");
-  // A narrow window, or any compact one, keeps the phone's sheets.
-  expect(tabletPanelPlace({ regular: true, width: 694, sidebar: 0 })).toBe("none");
-  expect(tabletPanelPlace({ regular: false, width: 1200, sidebar: 0 })).toBe("none");
-});
-
-test("the panel's width stays between its minimum and what leaves the thread readable", () => {
-  expect(tabletPanelWidth(400, 992)).toBe(400);
-  expect(tabletPanelWidth(900, 992)).toBe(552);
-  expect(tabletPanelWidth(100, 992)).toBe(320);
 });

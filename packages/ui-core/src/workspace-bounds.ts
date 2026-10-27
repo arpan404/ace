@@ -26,12 +26,8 @@ export interface Bounds {
  * At least 360px, at most what leaves the main column 480px. Floating (narrow windows), it may
  * cover all but a 48px strip.
  */
-export function panelBounds(
-  rowWidth: number,
-  overlay: boolean,
-  limits: PanelLimits = panelLimits,
-): Bounds {
-  const { min, keep, overlayStrip } = limits;
+export function panelBounds(rowWidth: number, overlay: boolean): Bounds {
+  const { min, keep, overlayStrip } = panelLimits;
   if (overlay) {
     const room = Math.max(0, rowWidth - overlayStrip);
     return { min: Math.min(min, room), max: Math.max(Math.min(min, room), room) };

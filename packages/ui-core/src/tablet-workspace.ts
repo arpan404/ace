@@ -1,6 +1,6 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
-import { clampToBounds, panelBounds, type PanelLimits } from "./workspace-bounds.ts";
+import type { PanelLimits } from "./workspace-bounds.ts";
 import {
   activateTab,
   closeOtherTabs,
@@ -47,35 +47,17 @@ export type TabletTool = (typeof tabletTools)[number]["kind"];
 const initial = ["changes", "files"] as const;
 
 /**
- * Sizes in points. The thread keeps a readable column beside the panel; below `min + keep` the
- * panel does not fit and its tools open over the thread as they do on a phone.
+ * Sizes in points. The thread keeps `keep` beside a panel at least `min` wide. The app measures
+ * its window, so it applies them (each view carries them):
+ * - a regular window whose thread column is at least `min + keep` wide holds the panel beside;
+ * - one that would be, were the thread list hidden, hides the list while the panel shows;
+ * - anything narrower, and every compact window, opens the tools over the thread as a phone
+ *   does.
+ * The panel's width is its `size`, kept between `min` and the column less `keep`.
  */
 export const tabletPanelLimits: PanelLimits = { min: 320, keep: 440, overlayStrip: 0 };
 /** The panel's width until the person drags its edge. */
 export const tabletDefaultSize = 400;
-
-/**
- * Where the panel goes in a window: `beside` the thread; `yield` beside it once the thread list
- * steps aside (the list and the panel don't both fit); `none` when even the whole window is too
- * narrow, so tools open over the thread. `width` is the thread's column now, `sidebar` the list
- * beside it (0 when hidden).
- */
-export type TabletPanelPlace = "beside" | "yield" | "none";
-export function tabletPanelPlace(input: {
-  regular: boolean;
-  width: number;
-  sidebar: number;
-}): TabletPanelPlace {
-  if (!input.regular) return "none";
-  const needed = tabletPanelLimits.min + tabletPanelLimits.keep;
-  if (input.width >= needed) return "beside";
-  return input.width + input.sidebar >= needed ? "yield" : "none";
-}
-
-/** The panel's width in a thread column `width` wide: its size, kept inside the bounds. */
-export function tabletPanelWidth(size: number, width: number): number {
-  return clampToBounds(size, panelBounds(width, false, tabletPanelLimits));
-}
 
 export interface TabletPanelTab {
   key: string;
@@ -97,6 +79,8 @@ export interface TabletPanelView {
   canReopen: boolean;
   /** The + menu: every tool this app can show, and whether it is open already. */
   tools: { kind: string; label: string; open: boolean }[];
+  /** When the panel fits beside the thread (`tabletPanelLimits`). */
+  limits: { min: number; keep: number };
 }
 
 export const TabletPanelOp = z.discriminatedUnion("op", [
@@ -180,6 +164,7 @@ export class TabletWorkspaces {
       tools: tabletTools
         .filter((tool) => this.#available.has(tool.kind))
         .map((tool) => ({ kind: tool.kind, label: tool.label, open: open.has(tool.kind) })),
+      limits: { min: tabletPanelLimits.min, keep: tabletPanelLimits.keep },
     };
   }
 

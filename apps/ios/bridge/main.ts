@@ -36,6 +36,7 @@ import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
+import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -100,6 +101,7 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
+let workspace: NativeWorkspace | undefined;
 const pump = new PatchPump();
 /**
  * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
@@ -263,6 +265,12 @@ async function start(json: string): Promise<void> {
     ),
     reads,
   );
+  workspace = new NativeWorkspace(pump, {
+    load: () => call("storage.workspace.load"),
+    save: async (value) => {
+      await call("storage.workspace.save", null, value);
+    },
+  });
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
@@ -297,6 +305,12 @@ function action(json: string): void {
     const terminalAction = NativeTerminalAction.safeParse(raw);
     if (terminalAction.success) {
       terminal?.handle(terminalAction.data);
+      return;
+    }
+    const panel = WorkspaceAction.safeParse(raw);
+    if (panel.success) {
+      if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
       return;
     }
     const service = NativeServiceAction.safeParse(raw);
