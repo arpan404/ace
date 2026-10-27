@@ -24,48 +24,67 @@ struct ForgeRevertSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Text("Opens a draft pull request that reverts #\(number). Its diff, reviews and required checks can be looked over before it merges.")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                Section("Title") {
-                    TextField("Title", text: $title).accessibilityIdentifier("forge.revert.title")
-                }
-                Section("Description") {
-                    TextEditor(text: $body_).frame(minHeight: 140).accessibilityIdentifier("forge.revert.body")
-                }
-                if let outcome {
-                    Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                    Text("A draft pull request that undoes #\(number). Its diff and checks run before anything merges.").meta()
+                    TextField("Title", text: $title)
+                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                        .padding(AceTheme.Spacing.md)
+                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .accessibilityIdentifier("forge.revert.title")
+                    ForgeEditor(text: $body_, placeholder: "Description", minLines: 5)
+                        .accessibilityIdentifier("forge.revert.body")
+                    if let outcome {
                         Text(outcome.uncertain ? "\(outcome.message) Pull down on the page to read GitHub again before trying again." : outcome.message)
-                            .foregroundStyle(outcome.ok ? AceTheme.Colours.foreground : AceTone.failed.text)
+                            .meta(outcome.ok ? AceTheme.Colours.mutedForeground : AceTone.failed.text)
                             .accessibilityIdentifier("forge.revert.outcome")
-                        if let opened = outcome.opened {
-                            Button("Open #\(opened)") { dismiss(); openPull(opened) }.accessibilityIdentifier("forge.revert.open")
-                        }
+                            .transition(.opacity)
                     }
-                    .transition(.opacity)
                 }
+                .padding(AceTheme.Spacing.lg)
             }
+            .background(AceTheme.Colours.background)
             .animation(.smooth, value: outcome)
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { primary }
             .navigationTitle("Revert #\(number)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { dismiss() } }
-                if outcome?.ok != true {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Create", role: .destructive) { asking = true }
-                            .disabled(writing || title.trimmingCharacters(in: .whitespaces).isEmpty || title.count > 256 || body_.count > 60_000)
-                            .accessibilityIdentifier("forge.revert.create")
-                    }
-                }
             }
             .confirmationDialog("Open a draft that reverts #\(number)?", isPresented: $asking, titleVisibility: .visible) {
-                Button("Create revert pull request", role: .destructive) { send() }
+                Button("Open revert draft") { send() }
             }
             .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
             .interactiveDismissDisabled(writing)
         }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// The one control: open the draft, then open what GitHub made.
+    @ViewBuilder private var primary: some View {
+        Group {
+            if let opened = outcome?.opened {
+                capsule("Open #\(opened)", identifier: "forge.revert.open") { dismiss(); openPull(opened) }
+            } else {
+                capsule("Open revert draft", busy: writing, identifier: "forge.revert.create") { asking = true }
+                    .disabled(writing || title.trimmingCharacters(in: .whitespaces).isEmpty || title.count > 256 || body_.count > 60_000)
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+        .background(AceTheme.Colours.background)
+    }
+
+    private func capsule(_ label: String, busy: Bool = false, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                if busy { ProgressView().controlSize(.small) }
+                Text(label).fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+        .accessibilityIdentifier(identifier)
     }
 
     private func send() {

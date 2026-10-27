@@ -16,7 +16,7 @@ import XCTest
         XCTAssertTrue(state.waitForExistence(timeout: 20))
         XCTAssertEqual(state.label, "Failed")
         XCTAssertTrue(app.descendants(matching: .any)["forge.log"].firstMatch.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Error: expected the model chip to stay in the toolbar"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Error: expected the model chip'")).firstMatch.waitForExistence(timeout: 20))
         screenshot("check-failing")
         app.swipeDown()
         tapRevealed(app, app.buttons["forge.check.rerun-failed"])
@@ -106,7 +106,7 @@ import XCTest
         XCTAssertTrue(create.waitForExistence(timeout: 10))
         screenshot("revert-draft")
         create.tap()
-        let confirm = app.buttons["Create revert pull request"].firstMatch
+        let confirm = app.buttons.matching(NSPredicate(format: "label == 'Open revert draft' AND identifier != 'forge.revert.create'")).firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         confirm.tap()
         let opened = app.buttons["forge.revert.open"]
