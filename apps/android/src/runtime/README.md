@@ -107,7 +107,14 @@ Production wiring has landed; UI consumption is later work:
    stays lifecycle-only (no reads and no command admission), so mutations cannot bypass
    the grant through it; `intent` is the read-only receipt view and needs
    only liveness. Read-only receipts stay readable through the gate's
-   `intent` and `route`. No production UI is wired to mutations until gate
+   `intent` and `route`. Inbox and thread selections stay readable while
+   view-only through a separate short-lived handle,
+   `startup.runtimeForReading(hostId)`: fresh per call, never the shared
+   runtime, with the same epoch-plus-binding pin but no grant check, so a
+   cached handle fails after disconnect, removal or replacement yet reads
+   on after revocation. Only selection leases, the connection selection
+   and `intent` escape through it, never the raw SDK client nor a
+   mutating or network-fetching call. No production UI is wired to mutations until gate
    enforcement is demonstrable in tests, so `index.production.tsx` stays
    an unpaired shell and no view-only phone can reach a mutating path
    from this boundary alone.

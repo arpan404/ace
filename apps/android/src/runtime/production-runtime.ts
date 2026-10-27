@@ -3,9 +3,13 @@ import {
   type ClientApi,
   type ClientError,
   type ConnectionState,
+  type Intent,
+  type Lease,
   type Scheduler,
   type Selection,
+  type SidebarSource,
   type Storage,
+  type ThreadSource,
   type Transport,
 } from "@ace/client";
 import { DeviceId, HostId } from "@ace/protocol";
@@ -153,6 +157,26 @@ export interface ProductionMutations extends Pick<
   "enqueue" | "command" | "submitNew" | "intent"
 > {}
 
+/**
+ * Read-only inbox/thread view over one machine's live SDK `Client`. Mirrors
+ * the iOS `ClientModel` read path (inbox rows and the open thread stay
+ * readable while `canOperate` is false): no grant check runs here, only
+ * liveness plus the binding pin below. Only synchronous selection leases,
+ * the connection selection and the durable receipt view are exposed; every
+ * network-fetching read (`threadsWindow`, `loadOlder`, `itemsWindow`,
+ * `threadSearch`, `markThreadRead`, …) and every mutation stays unreachable
+ * so a view-only phone cannot reach a mutating path through this boundary.
+ */
+export interface ProductionReads {
+  connectionState(): Selection<ConnectionState>;
+  readonly error: ClientError | undefined;
+  threads(): Lease<SidebarSource>;
+  thread(id: string): Lease<ThreadSource>;
+  cachedThreads(): SidebarSource | undefined;
+  cachedThread(id: string): ThreadSource | undefined;
+  intent(id: string): Selection<Intent | undefined>;
+}
+
 export interface ProductionMachineRuntime extends MachineRuntime {
   /** Binds the manager epoch captured after this runtime attached. */
   bindEpoch(epoch: number): void;
@@ -173,6 +197,7 @@ export interface ProductionMachineRuntime extends MachineRuntime {
 export interface ProductionMakeRuntime {
   (entry: MachineEntry): ProductionMachineRuntime;
   admissionFor(hostId: string): ProductionMutations | undefined;
+  readsFor(hostId: string): ProductionReads | undefined;
 }
 
 function notConnected(): Error {
@@ -310,6 +335,38 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
         const current = checkBound();
         return current.client.intent(commandId);
       },
+    };
+  };
+  makeRuntime.readsFor = (hostId: string): ProductionReads | undefined => {
+    const bound = live.get(hostId);
+    if (bound === undefined || !bound.isCurrent()) {
+      if (bound !== undefined) live.delete(hostId);
+      return undefined;
+    }
+    const boundRecord = bound;
+    const boundClient = bound.client;
+    // Pinned to the exact runtime record observed here, like the guarded
+    // admission above, but with no grant check: inbox and thread rows stay
+    // readable while view-only. A same-host replacement or re-pair mints a
+    // new record, so a cached read handle fails instead of following the new
+    // owner; close and removal detach through the registry delete in `close`.
+    const checkBound = (): { client: Client; entry: MachineEntry } => {
+      const current = resolveCurrent(hostId);
+      if (current !== boundRecord || current.client !== boundClient) {
+        throw notConnected();
+      }
+      return current;
+    };
+    return {
+      connectionState: () => checkBound().client.connectionState(),
+      get error() {
+        return checkBound().client.error;
+      },
+      threads: () => checkBound().client.threads(),
+      thread: (threadId: string) => checkBound().client.thread(threadId),
+      cachedThreads: () => checkBound().client.cachedThreads?.(),
+      cachedThread: (threadId: string) => checkBound().client.cachedThread?.(threadId),
+      intent: (commandId) => checkBound().client.intent(commandId),
     };
   };
   return makeRuntime;
