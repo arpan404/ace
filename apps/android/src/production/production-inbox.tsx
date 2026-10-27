@@ -45,6 +45,7 @@ import {
   retryReading,
   routeKeyFor,
   shouldAutoRecoverReads,
+  shouldPollAutoRecover,
   shouldResolveLease,
   shouldShowInbox,
   threadHeadlineFor,
@@ -68,9 +69,11 @@ import {
   machineLabelFor,
   mergedEntriesFor,
   mergeInboxSections,
+  mergedThreadsByKey,
   openKeyForRoutes,
   openKeyString,
   pairedHostsFor,
+  pairedKeyFor,
   resolveOpenKeyForHosts,
   showsMachineNames,
   type ProductionMergedEntry,
@@ -956,12 +959,12 @@ export function ProductionThreadView({
     connection !== "ready";
   // Auto-recovery where safe: when this view is fail-closed but a fresh read
   // handle already reports `ready`, re-resolve the lease. Revoked routes
-  // never reach here (gated above); disconnect/removal still needs Retry.
+  // never reach here (gated above); a transient blip recovers without Retry.
   // Bounded: a persistently dead lease stops after the budget and waits for
   // manual Retry instead of churning leases every tick.
   useEffect(() => {
     if (!dead || routeBlocked) return;
-    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
+    if (!shouldPollAutoRecover(autoRecoveries)) return;
     let fresh: string | null = null;
     try {
       fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
@@ -1216,11 +1219,11 @@ export function ActiveMachineInbox({
   const leaseDead = lease === null || invalidated;
   // Auto-recovery where safe: when fail-closed but a fresh read handle
   // already reports `ready`, re-resolve. Revoked routes never reach here;
-  // disconnect/removal still needs Retry. Bounded: a persistently dead lease
-  // stops after the budget and waits for manual Retry.
+  // a transient blip recovers without Retry. Bounded: a persistently dead
+  // lease stops after the budget and waits for manual Retry.
   useEffect(() => {
     if (!leaseDead || !inboxVisible) return;
-    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
+    if (!shouldPollAutoRecover(autoRecoveries)) return;
     let fresh: string | null = null;
     try {
       fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
@@ -1424,11 +1427,11 @@ function MachineThreadsReader({
   const dead = lease === null || threadsSelection === null || isDeadSelection(threadsSelection);
   // Auto-recovery where safe: when this machine is fail-closed but a fresh
   // read handle already reports `ready`, re-resolve this machine's lease.
-  // Revoked routes never reach here (the reader unmounts); disconnect still
-  // needs Retry. Bounded like the single-machine inbox.
+  // Revoked routes never reach here (the reader unmounts); a transient blip
+  // recovers without Retry. Bounded like the single-machine inbox.
   useEffect(() => {
     if (!dead || !visible) return;
-    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
+    if (!shouldPollAutoRecover(autoRecoveries)) return;
     let fresh: string | null = null;
     try {
       fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
@@ -1531,7 +1534,7 @@ export function MergedMachineInbox({
     entries.map((entry) => entry.hostId),
     routeOf,
   );
-  const pairedKey = paired.join("");
+  const pairedKey = pairedKeyFor(paired);
   const names = useMemo(
     () => Object.fromEntries(entries.map((entry) => [entry.hostId, entry.displayName])),
     [entries],
@@ -1610,14 +1613,7 @@ export function MergedMachineInbox({
     );
   }
   const deadHosts = paired.filter((hostId) => reports[hostId]?.dead !== false);
-  const byKey = new Map<string, InboxThread>();
-  for (const section of merged)
-    for (const row of section.rows) {
-      const found = (reports[row.machineId]?.threads ?? []).find(
-        (thread) => thread.entry.id === row.id,
-      );
-      if (found !== undefined) byKey.set(row.key, found);
-    }
+  const byKey = mergedThreadsByKey(reports, merged);
   return (
     <View
       style={{

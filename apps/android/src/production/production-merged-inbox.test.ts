@@ -6,9 +6,11 @@ import {
   mergedEntriesFor,
   mergedKeyFor,
   mergeInboxSections,
+  mergedThreadsByKey,
   openKeyForRoutes,
   openKeyString,
   pairedHostsFor,
+  pairedKeyFor,
   parseOpenKey,
   resolveOpenKeyForHosts,
   shouldResolveLeaseFor,
@@ -184,4 +186,37 @@ it("shows machine names only to tell machines apart", () => {
   expect(showsMachineNames(2)).toBe(true);
   expect(machineLabelFor("mac", { mac: "Studio" })).toBe("Studio");
   expect(machineLabelFor("mac", {})).toBe("mac");
+});
+
+it("keys paired lists unambiguously so different host sets never share an effect key", () => {
+  // Regression: `paired.join("")` collides on `["ab","c"]` vs `["a","bc"]`,
+  // skipping the prune effect and leaving stale rows for a departed host.
+  expect(pairedKeyFor(["ab", "c"])).not.toBe(pairedKeyFor(["a", "bc"]));
+  expect(pairedKeyFor(["mac", "linux"])).toBe("mac\nlinux");
+  expect(pairedKeyFor([])).toBe("");
+  // Order matters: a host switch must re-key the effect.
+  expect(pairedKeyFor(["a", "b"])).not.toBe(pairedKeyFor(["b", "a"]));
+  // Single host and prefix hosts stay distinct.
+  expect(pairedKeyFor(["ab"])).not.toBe(pairedKeyFor(["a", "b"]));
+});
+
+it("indexes merged rows by key without cross-machine id collisions", () => {
+  const macThread = on("mac", "t1", { state: "done" });
+  const linuxThread = on("linux", "t1", { state: "done" });
+  const merged = mergeInboxSections([
+    { machineId: "mac", sections: inboxSections([macThread], [], NOW) },
+    { machineId: "linux", sections: inboxSections([linuxThread], [], NOW) },
+  ]);
+  const byKey = mergedThreadsByKey(
+    { mac: { threads: [macThread] }, linux: { threads: [linuxThread] } },
+    merged,
+  );
+  expect(byKey.get("mac:t1")).toBe(macThread);
+  expect(byKey.get("linux:t1")).toBe(linuxThread);
+  expect(byKey.size).toBe(2);
+  // A row whose report is missing (revoked between merge and render) is skipped.
+  const partial = mergedThreadsByKey({ mac: { threads: [macThread] } }, merged);
+  expect(partial.get("mac:t1")).toBe(macThread);
+  expect(partial.has("linux:t1")).toBe(false);
+  expect(mergedThreadsByKey({}, []).size).toBe(0);
 });

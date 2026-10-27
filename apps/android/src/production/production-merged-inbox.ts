@@ -1,6 +1,7 @@
 import { inboxGroupRank, type InboxGroupKey, type InboxSection } from "@ace/ui-core/mobile";
 import type { StartupRoute } from "../runtime/production-startup.ts";
 import { shouldShowInbox } from "./production-inbox.ts";
+import type { InboxThread } from "@ace/ui-core/mobile";
 
 /**
  * Multi-machine merged production inbox: pure merge and host-aware
@@ -149,6 +150,39 @@ export function pairedHostsFor(
   routeOf: (hostId: string) => StartupRoute,
 ): string[] {
   return hostIds.filter((hostId) => shouldShowInbox(routeOf(hostId)));
+}
+
+/**
+ * Stable key for a paired host list. Joined on newline (like
+ * `openKeyString`): `join("")` is ambiguously concatenable
+ * (`["ab","c"]` vs `["a","bc"]`), while newline never appears in a host id.
+ */
+export function pairedKeyFor(paired: readonly string[]): string {
+  return paired.join("\n");
+}
+
+/**
+ * Row lookup for the merged list: one index per machine, then O(1) per row.
+ * The previous per-row `.find` over that machine's threads is
+ * O(rows × threads); this is O(rows + threads).
+ */
+export function mergedThreadsByKey(
+  reports: Readonly<Record<string, { threads: readonly InboxThread[] }>>,
+  merged: readonly MergedInboxSection[],
+): Map<string, InboxThread> {
+  const byMachine = new Map<string, Map<string, InboxThread>>();
+  for (const [machineId, report] of Object.entries(reports)) {
+    const byId = new Map<string, InboxThread>();
+    for (const thread of report.threads) byId.set(thread.entry.id, thread);
+    byMachine.set(machineId, byId);
+  }
+  const byKey = new Map<string, InboxThread>();
+  for (const section of merged)
+    for (const row of section.rows) {
+      const found = byMachine.get(row.machineId)?.get(row.id);
+      if (found !== undefined) byKey.set(row.key, found);
+    }
+  return byKey;
 }
 
 /**
