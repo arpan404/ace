@@ -14,6 +14,7 @@ import { ProjectDirectory } from "./project-directory.ts";
 import {
   GitService,
   GitError,
+  gitAbove,
   validateCloneUrl,
   type GitOptions,
   type ProjectGitPolicy,
@@ -318,8 +319,9 @@ export class Projects {
   }
   /**
    * A canonical folder inside the allowed roots that a project may be made in (ADR 0101):
-   * `requested`, or else the folder of the newest project, or else home. It comes back open, so
-   * the transfer makes and fills its folder through that descriptor; the caller closes it.
+   * `requested`, or else the folder of the newest project when it isn't inside a Git work tree,
+   * or else home. It comes back open, so the transfer makes and fills its folder through that
+   * descriptor; the caller closes it.
    */
   async transferParent(requested: string | undefined): Promise<ProjectDirectory> {
     const allowed = async (path: string) => {
@@ -339,7 +341,8 @@ export class Projects {
       )
       .get();
     const newest = typeof latest?.["path"] === "string" ? latest["path"] : undefined;
-    if (newest) {
+    // A newest project inside a monorepo would put the copy inside that work tree: skip it.
+    if (newest && !(await gitAbove(dirname(newest)).catch(() => true))) {
       const parent = await allowed(dirname(newest)).catch(() => undefined);
       if (parent) return parent;
     }

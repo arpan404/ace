@@ -134,6 +134,19 @@ pub fn data_dir_arg(args: impl Iterator<Item = String>) -> Option<std::path::Pat
     found.map(std::path::PathBuf::from).filter(|path| path.is_absolute())
 }
 
+/// `--lease-seconds <n>`: how long the desktop is kept from suspending after a batch. Tests
+/// shorten it; the daemon never passes it.
+pub fn lease_arg(args: impl Iterator<Item = String>) -> Option<std::time::Duration> {
+    let mut args = args.peekable();
+    let mut found = None;
+    while let Some(arg) = args.next() {
+        if arg == "--lease-seconds" {
+            found = args.next().and_then(|value| value.parse::<u64>().ok());
+        }
+    }
+    found.map(std::time::Duration::from_secs)
+}
+
 pub fn ok_line(id: &str, result: Value) -> String {
     let mut line = json!({"id": id, "ok": true, "result": result}).to_string();
     line.push('\n');

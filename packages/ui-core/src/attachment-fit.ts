@@ -1,8 +1,9 @@
 /*
- * Whether the agent can read a file attached to the next message, decided before it is sent
- * (QA-07) from what the thread's provider and model say they take: the provider's `imageInput`
- * capability and the model's input modalities from the catalog. The daemon checks again when
- * it delivers the message; this only keeps the person from sending what it would drop.
+ * What the thread's provider and model read natively: the provider's `imageInput` capability and
+ * the model's input modalities from the catalog. No file is refused for its type: the daemon
+ * delivers every attachment natively, as inline text or as a readable file path (ADR 0034,
+ * "Every file type"), so only the shared size limits (`attachment-limits.ts`) refuse an upload.
+ * Images matter only where a thread moves to a model that can't see the ones it carries.
  */
 
 /** What the thread runs on reads, as far as ace knows it. */
@@ -24,21 +25,4 @@ export function imagesUnreadable(reader: AttachmentReader | undefined): string |
   if (reader.modalities?.length && !reader.modalities.includes("image"))
     return `${reader.model ?? "This model"} doesn't read images. Pick a model that does.`;
   return undefined;
-}
-
-/**
- * Why the agent can't read `file`, in words with the next step, or undefined when it can (or
- * ace can't tell yet: an unknown type, or capabilities not read). Images need the provider's
- * image input and, where the catalog lists modalities, the model's. No capability covers any
- * other upload, so a document or text file is refused with the way that works: an @ mention.
- */
-export function attachmentProblem(
-  file: { name: string; mimeType?: string | undefined },
-  reader: AttachmentReader | undefined,
-): string | undefined {
-  const type = file.mimeType?.toLowerCase();
-  if (!reader || !type || type === "application/octet-stream") return undefined;
-  if (type.startsWith("image/")) return imagesUnreadable(reader);
-  if (reader.imageInput === undefined) return undefined;
-  return `${reader.provider} can't read attached files like ${file.name}. Mention it with @ instead, or paste what matters.`;
 }

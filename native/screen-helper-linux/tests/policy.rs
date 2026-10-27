@@ -1,46 +1,28 @@
 use ace_screen_helper_linux::{
     policy::{
-        Backend, DamageGate, KDE_WATCH_ONLY, NO_REMOTE_DESKTOP, PortalOffer, PortalRoute,
-        RemoteDesktopOffer, backend, point, portal_policy, portal_route,
+        KDE_WATCH_ONLY, NO_REMOTE_DESKTOP, PortalOffer, PortalRoute, RemoteDesktopOffer, point,
+        portal_policy, portal_route, wayland_session,
     },
     portal::{read_token, save_token},
     protocol::{Request, packet},
 };
 use serde_json::json;
-use std::{os::unix::fs::PermissionsExt, time::Duration};
+use std::os::unix::fs::PermissionsExt;
 #[test]
-fn wayland_is_selected_even_when_xwayland_is_available() {
-    assert_eq!(
-        backend(None, Some("wayland-0"), Some(":1")).unwrap(),
-        Backend::Wayland
-    );
-    assert_eq!(
-        backend(Some("x11"), Some("wayland-0"), Some(":1")).unwrap(),
-        Backend::X11
+fn live_view_runs_in_a_wayland_session_and_names_an_x11_session_as_unsupported() {
+    assert!(wayland_session(Some("wayland-0"), Some(":1")).is_ok());
+    assert!(
+        wayland_session(None, Some(":1"))
+            .unwrap_err()
+            .message
+            .contains("X11 session")
     );
     assert!(
-        backend(None, Some(""), None)
+        wayland_session(Some(""), None)
             .unwrap_err()
             .message
             .contains("headless")
     );
-    assert!(backend(Some("wayland"), None, Some(":1")).is_err());
-}
-#[test]
-fn unchanged_targets_sleep_without_a_timer_and_damage_is_coalesced_at_the_fps_cap() {
-    let mut gate = DamageGate::new(10);
-    assert!(gate.take(Duration::ZERO));
-    assert_eq!(gate.wait(Duration::ZERO), None);
-    assert!(!gate.take(Duration::from_secs(60)));
-    gate.damage();
-    gate.damage();
-    assert!(!gate.take(Duration::from_millis(99)));
-    assert_eq!(
-        gate.wait(Duration::from_millis(99)),
-        Some(Duration::from_millis(1))
-    );
-    assert!(gate.take(Duration::from_millis(100)));
-    assert_eq!(gate.wait(Duration::from_millis(100)), None);
 }
 #[test]
 fn coordinates_reject_edges_nonfinite_values_and_negative_positions() {
@@ -175,15 +157,6 @@ fn tree_limits_prune_children_and_byte_heavy_nodes_instead_of_collecting_history
     assert!(Budget::new(1, 513).is_err());
 }
 
-#[test]
-fn semantic_fallback_uses_current_window_origin_and_refuses_an_outside_element() {
-    use ace_screen_helper_linux::{accessibility::Bounds, policy::element_center};
-    let window = Bounds { x: 200, y: 100, w: 400, h: 300 };
-    let element = Bounds { x: 240, y: 120, w: 80, h: 40 };
-    assert_eq!(element_center(&element, &window).unwrap(), (80., 40.));
-    let moved = Bounds { x: 300, y: 100, w: 400, h: 300 };
-    assert_eq!(element_center(&element, &moved).unwrap_err().code, "bounds");
-}
 #[test]
 fn accessibility_queries_cannot_silently_use_a_different_target() {
     use ace_screen_helper_linux::{protocol::Target, policy::scoped_target};

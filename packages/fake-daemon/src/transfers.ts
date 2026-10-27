@@ -35,7 +35,12 @@ export interface TransferPeer {
   /** Whether a project there already has this origin (then nothing is cloned). */
   hasOrigin(origin: string): boolean;
   /** Lands the project there and returns where; one with the same origin is reused. */
-  receiveProject(input: { name: string; parent?: string | undefined; origin?: string }): {
+  receiveProject(input: {
+    name: string;
+    parent?: string | undefined;
+    origin?: string;
+    git?: boolean;
+  }): {
     workspaceId: string;
     path: string;
     reused: boolean;
@@ -55,7 +60,7 @@ export interface PeerMachine {
   displayName: string;
   projects: {
     withOrigin(origin: string): unknown;
-    receive(input: { name: string; parent?: string | undefined; origin?: string }): {
+    receive(input: { name: string; parent?: string | undefined; origin?: string; git?: boolean }): {
       workspaceId: string;
       path: string;
       reused: boolean;
@@ -305,11 +310,13 @@ export class FakeTransfers {
       name: source?.name ?? "project",
       parent: payload.parent,
       ...(origin ? { origin } : {}),
+      // A plain folder lands as a folder, with no branch, as the real daemon's archive does.
+      git: method !== "archive",
     });
     const result = {
       workspaceId: landed.workspaceId,
       path: landed.path,
-      branch: "main",
+      ...(method === "archive" ? {} : { branch: "main" }),
       ...(ignored && landed.reused ? { ignoredSkipped: keptIgnored } : {}),
     };
     if (payload.type === "workspace.transfer") {

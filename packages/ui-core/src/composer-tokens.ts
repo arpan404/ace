@@ -4,6 +4,7 @@ import type {
   CatalogMention,
   ContentPart,
   Mention,
+  MessageContextItem,
   ThreadRefContextItem,
 } from "@ace/protocol";
 
@@ -57,6 +58,34 @@ export function composerInput(text: string, tokens: readonly ComposerToken[]): C
   }
   if (at < text.length) parts.push({ type: "text", text: text.slice(at) });
   return parts.length ? parts : [{ type: "text", text }];
+}
+
+/**
+ * What a message's references add to its context: the threads and browser tabs it points at,
+ * and its files (`also`, files written as `@path` without a reference, first), each file once.
+ */
+export function referenceContext(
+  tokens: readonly ComposerToken[],
+  also: readonly Mention[] = [],
+): { items: MessageContextItem[]; mentions: Mention[] } {
+  const files = tokens.flatMap((token) => (token.file ? [token.file] : []));
+  const mentions = [
+    ...also.filter((mention) => !files.some((file) => file.path === mention.path)),
+    ...files,
+  ].filter(
+    (mention, index, all) =>
+      all.findIndex(
+        (other) =>
+          other.path === mention.path &&
+          JSON.stringify(other.lines) === JSON.stringify(mention.lines),
+      ) === index,
+  );
+  return {
+    items: tokens.flatMap((token): MessageContextItem[] =>
+      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
+    ),
+    mentions,
+  };
 }
 
 /**

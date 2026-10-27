@@ -54,6 +54,15 @@
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/LockedUseStatusMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/LockedUseResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TransfersResult.json"
     },
     {

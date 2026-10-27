@@ -1,6 +1,7 @@
 // The native host stand-in loads before any bridge module reads it (the upload tray does).
 export { native as nativeHost } from "./test-host.ts";
 import { BrowserPageMessage, type ServerMessage } from "@ace/protocol";
+import type { KeyValueStorage } from "@ace/ui-core";
 import { BrowserLive, type BrowserOwner, type BrowserThreadContext } from "./browser-live.ts";
 import { plainPreview, RecordingSink, sheetFixture } from "./sheet-fixture.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
@@ -20,7 +21,12 @@ export const viewport = { width: 390, height: 700, devicePixelRatio: 3 };
 
 /** A real client on the fake daemon; `push` delivers a message the fixture doesn't produce. */
 export async function liveBrowser(
-  options: { browser?: boolean; read?: ChunkReader; names?: Record<string, string> } = {},
+  options: {
+    browser?: boolean;
+    read?: ChunkReader;
+    names?: Record<string, string>;
+    devices?: { storage: KeyValueStorage; ready: Promise<void> };
+  } = {},
 ) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
@@ -60,6 +66,7 @@ export async function liveBrowser(
     workspaceId: (threadId) => (threadId === "web" ? "ace" : undefined),
     now: () => ++now,
     read: options.read ?? (() => Promise.reject(new Error("no files in this test"))),
+    ...(options.devices ? { devices: options.devices } : {}),
   };
   const view = new BrowserLive(
     owner,

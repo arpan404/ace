@@ -1,10 +1,10 @@
-"""Live check of `--computer` against real GTK apps on X11.
+"""Live check of `--computer` against real GTK apps in a GNOME Wayland session.
 
-Run inside a desktop session (see run-live.sh): Xvfb, a window manager and the AT-SPI bus.
+Run inside wayland-session.sh (see run-live.sh): a headless GNOME Shell and the AT-SPI bus.
 Starts GNOME Text Editor (GTK4), GNOME Calculator (GTK4) and Mousepad (GTK3), then drives the
 helper over stdin like the daemon's ComputerClient and checks what the model would see.
+Screenshots and the screen-sharing dialog are wayland.py's.
 """
-import base64
 import json
 import os
 import subprocess
@@ -32,6 +32,11 @@ def start_apps():
     for command in (["gnome-text-editor", "--standalone"], ["gnome-calculator"], ["mousepad"]):
         subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(5)
+    # Headless GNOME Shell starts in the overview; the person closes it before using apps, which
+    # leaves Mousepad (opened last) in front and the others in the background.
+    seed = os.path.join(os.path.dirname(__file__), "seed_portal.py")
+    subprocess.run([sys.executable, seed, "press-escape", "org.xfce.mousepad.desktop", "Untitled 1 - Mousepad"], check=False, timeout=30)
+    time.sleep(1)
 
 
 def wire(helper):
@@ -65,12 +70,7 @@ def apps(helper):
 
 
 def editor(helper):
-    state = helper.result("state", app="org.gnome.TextEditor", screenshot=True)
-    shot = state.get("screenshot")
-    jpeg = base64.b64decode(shot["jpeg"]) if shot else b""
-    check("state returns a JPEG screenshot", jpeg[:2] == b"\xff\xd8" and shot["width"] > 100, state.get("screenshotError"))
-    if jpeg:
-        open("/tmp/ace-computer-editor.jpg", "wb").write(jpeg)
+    state = helper.result("state", app="org.gnome.TextEditor")
     check("state names the window", state.get("window", {}).get("title", "").endswith("Text Editor"), state.get("window"))
     area = find(state, role="text area")
     check("the editor's text area is in the outline", area is not None, outline(state))
@@ -95,18 +95,14 @@ def editor(helper):
     check("select_text and a background Backspace edit the text", "error" not in act, act)
     act = helper.result("act", app="org.gnome.TextEditor", actions=[{"type": "set_value", "id": area["id"], "value": "replaced"}])
     check("set_value replaces the text", "replaced" in text_of(act.get("state", {})), act)
-    # Another window in front, as when the person is working elsewhere.
-    subprocess.run(["xdotool", "search", "--onlyvisible", "--limit", "1", "--class", "mousepad", "windowactivate", "--sync"], check=False, timeout=10)
-    raw = helper.result("act", app="org.gnome.TextEditor", actions=[{"type": "click", "x": 50, "y": 50}])
-    background = raw.get("error", {})
-    check("a raw click in the background is refused with a way forward",
-          background.get("code") == "not_on_screen" and "activate" in background.get("message", ""), raw)
+    raw = helper.result("act", app="org.gnome.TextEditor", actions=[{"type": "key", "key": "ctrl+shift+k"}])
+    refused = raw.get("error", {})
+    check("a shortcut with no accessibility equivalent is refused with a way forward",
+          refused.get("code") == "not_supported" and "element ids" in refused.get("message", ""), raw)
 
 
 def calculator(helper):
-    state = helper.result("state", app="calculator", screenshot=True, marks=True)
-    if state.get("screenshot"):
-        open("/tmp/ace-computer-calculator.jpg", "wb").write(base64.b64decode(state["screenshot"]["jpeg"]))
+    state = helper.result("state", app="calculator")
     check("calculator buttons are not flagged disabled", not any("disabled" in n.get("flags", []) for n in state["nodes"] if n.get("name") == "7"), outline(state))
     buttons = {n.get("name"): n["id"] for n in state["nodes"] if n["role"] in ("button", "toggle button")}
     check("calculator buttons are in the outline", all(k in buttons for k in ("7", "8", "+", "=")), outline(state))
@@ -135,17 +131,20 @@ def mousepad(helper):
     check("mousepad's text view is in the outline", area is not None, outline(state))
     if not area:
         return
+    # Mousepad is in the background, as an agent usually finds an app: GTK 3 then turns off
+    # menu items that need keyboard focus (Select All), but the rest work.
     act = helper.result("act", app="mousepad", actions=[
-        {"type": "type", "text": "make me loud", "id": area["id"]},
-        {"type": "menu", "path": ["Edit", "Select All"]},
-        {"type": "menu", "path": ["Edit", "Convert", "To Uppercase"]},
+        {"type": "type", "text": "say it twice", "id": area["id"]},
+        {"type": "menu", "path": ["Edit", "Duplicate Line / Selection"]},
     ])
-    check("menu steps press items by path", "error" not in act and act["done"][1] == "chose Edit > Select All", act)
-    check("the menu command changed the text", "MAKE ME LOUD" in text_of(act.get("state", {})), outline(act.get("state", {})))
+    check("menu steps press items by path", "error" not in act and act["done"][1] == "chose Edit > Duplicate Line / Selection", act)
+    check("the menu command changed the text", "say it twice\\nsay it twice" in text_of(act.get("state", {})), outline(act.get("state", {})))
+    disabled = helper.result("act", app="mousepad", actions=[{"type": "menu", "path": ["Edit", "Select All"]}])
+    check("a menu item turned off in the background says so", disabled.get("error", {}).get("code") == "menu_disabled", disabled)
     missing = helper.result("act", app="mousepad", actions=[{"type": "menu", "path": ["Edit", "Frobnicate"]}])
     check("a missing menu item lists what is there", missing.get("error", {}).get("code") == "menu_not_found" and "Select All" in missing["error"]["message"], missing)
-    act = helper.result("act", app="mousepad", actions=[{"type": "activate"}, {"type": "key", "key": "ctrl+a"}, {"type": "key", "key": "Delete"}, {"type": "type", "text": "x"}])
-    check("after activate, real keys reach the window", "error" not in act and act["done"][0].startswith("brought"), act)
+    act = helper.result("act", app="mousepad", actions=[{"type": "key", "key": "ctrl+a", "id": area["id"]}])
+    check("ctrl+a selects the text through accessibility", "error" not in act and "through accessibility" in act["done"][0], act)
 
 
 def cancel(helper):

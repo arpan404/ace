@@ -55,7 +55,7 @@ import { useCreateThread } from "./use-create-thread.ts";
 import { noWorktreeReason, useDefaultWorkMode } from "./work-mode.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
-import { useScopedMachine } from "@/lib/machines.ts";
+import { primaryMachineId, useScopedMachine } from "@/lib/machines.ts";
 import { rememberMachine, rememberedProject } from "./machine-choice.ts";
 import { MachineLine } from "./machine-picker.tsx";
 import {
@@ -76,6 +76,15 @@ import { sendReadiness } from "./send-readiness.ts";
 import { ReturnedStartNotice } from "./returned-start-notice.tsx";
 import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
+import { takeCarriedDraft } from "./carried-draft.ts";
+import { copiedTo } from "./copied-projects.ts";
+import {
+  type Landed,
+  useProjectCopy,
+  useSourceProjectName,
+  useSourceRepository,
+} from "./use-project-copy.ts";
+import { TransferLine } from "@/features/transfers/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
@@ -133,6 +142,11 @@ export function NewThreadPage(props: {
   /** Whether a recovered start may open its thread: on boot only, never on a later visit. */
   recoverStart: boolean;
   project?: string | undefined;
+  /**
+   * The machine `project` is on when this one doesn't have it yet (`newThreadOn`): the page
+   * writes in it all the same, and sending copies it here first.
+   */
+  from?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -146,9 +160,19 @@ export function NewThreadPage(props: {
   // On another machine every link from here stays on it (ADR 0102).
   const machine = useMachineSearch();
   const scoped = useScopedMachine()?.id;
+  const requested = props.project;
+  // A project from another machine, to copy here on send; not one removed from this machine.
+  const copyFrom =
+    props.from &&
+    props.from !== (scoped ?? primaryMachineId) &&
+    props.from !== host &&
+    requested &&
+    requested !== chatChoice
+      ? props.from
+      : undefined;
   // "No project" is offered after every project, and is the choice when there are none.
   const choice =
-    props.project ??
+    requested ??
     pickProject(
       [...projects, chatChoice],
       undefined,
@@ -157,11 +181,12 @@ export function NewThreadPage(props: {
     );
   const chat = useChatProject(choice === chatChoice, storage);
   if (!loaded || !host) return <NewThreadSkeleton />;
-  if (props.project && props.project !== chatChoice && !projects.includes(props.project))
+  const copying = !!copyFrom && !!choice && !projects.includes(choice);
+  if (requested && requested !== chatChoice && !projects.includes(requested) && !copying)
     return (
       <UnavailablePreparation
         host={host}
-        project={props.project}
+        project={requested}
         skill={props.skill}
         pullRequest={props.pullRequest}
         issue={props.issue}
@@ -188,6 +213,7 @@ export function NewThreadPage(props: {
       {...props}
       host={host}
       project={project}
+      copyFrom={copying ? copyFrom : undefined}
       chat={choice === chatChoice}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
@@ -219,6 +245,8 @@ function PreparationPage(props: {
   project: string;
   /** `project` is the hidden project of a chat with no project (ADR 0099). */
   chat: boolean;
+  /** The machine `project` is on, when this one doesn't have it: sending copies it here. */
+  copyFrom?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -232,7 +260,13 @@ function PreparationPage(props: {
   const { storage } = useLayout();
   const scopedMachine = useScopedMachine()?.id;
   const readinessId = useId();
-  const { ids: projects, name, loaded } = useRegisteredProjects();
+  const { ids: projects, name: nameHere, loaded } = useRegisteredProjects();
+  // A project on its way from another machine goes by its name there.
+  const sourceName = useSourceProjectName(props.copyFrom, props.project);
+  const name = (id: string) => (id === props.project && sourceName) || nameHere(id);
+  const copy = useProjectCopy(props.copyFrom, props.project, props.host);
+  // Where the project landed when it was copied here, and which send key sent the message.
+  const [landed, setLanded] = useState<Landed & { opposite: boolean }>();
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
@@ -244,6 +278,8 @@ function PreparationPage(props: {
     props.skill,
     props.issue ?? props.pullRequest,
   );
+  // A message carried from another machine fills an empty draft before the editor reads it.
+  const [carried] = useState(() => takeCarriedDraft(storage, props.host, draftKey));
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -305,14 +341,19 @@ function PreparationPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const defaultMode = useDefaultWorkMode();
-  const branches = useBaseRefs(props.chat ? undefined : project);
+  // A project still to be copied here has no branches here to read: it starts from its default.
+  const branches = useBaseRefs(props.chat || props.copyFrom ? undefined : project);
+  // A project on its way here is the kind it is on the machine it comes from.
+  const sourceRepository = useSourceRepository(props.copyFrom, props.project);
   // A folder that isn't a Git repository, or one with no commit yet, can only run locally. A
   // chat's folder never is one.
   const noWorktree = props.pullRequest
     ? undefined
     : props.chat
       ? "not_a_repo"
-      : noWorktreeReason(branches);
+      : noWorktreeReason(
+          props.copyFrom ? { ...branches, noWorktree: sourceRepository.noWorktree } : branches,
+        );
   const selected = resolve(
     options,
     choices,
@@ -383,7 +424,8 @@ function PreparationPage(props: {
       previous?.settingsResolved ?? (!!previous?.provider && !!previous?.choices.model);
     const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
     const saved = savePreparation(storage, props.host, draftKey, {
-      project,
+      project: props.chat ? chatChoice : project,
+      from: props.copyFrom,
       owner: editorOwner,
       skill: props.skill,
       pullRequest: props.pullRequest,
@@ -445,7 +487,7 @@ function PreparationPage(props: {
   }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
-  const scope = useDraftScope(project, {
+  const scope = useDraftScope(props.copyFrom ? undefined : project, {
     epoch: preparation(storage, props.host, draftKey)?.scopeEpoch,
     read: () => {
       const id = preparation(storage, props.host, draftKey)?.draftId;
@@ -541,6 +583,17 @@ function PreparationPage(props: {
       savePreparation(storage, props.host, draftKey, { ...saved, base });
   });
   const settledBase = branches.state === "ready" ? JSON.stringify(base) : undefined;
+  // The carried message is this machine's draft now, listed with the others.
+  // The message goes as soon as its project is here, the way it was sent.
+  useEffect(() => {
+    if (landed) composer.current?.submit(landed.opposite);
+  }, [landed]);
+  const keepCarried = useEffectEvent(() =>
+    remember({ title: carried?.trim().split("\n")[0]?.slice(0, 100) || "New preparation" }),
+  );
+  useEffect(() => {
+    if (carried) keepCarried();
+  }, [carried]);
   useEffect(() => {
     if (settledSettings !== undefined) settlePreparation();
   }, [settledSettings]);
@@ -607,8 +660,9 @@ function PreparationPage(props: {
     noStricterAccess,
     hasFiles,
     scopeReady: scope.draftId !== undefined,
-    branchesPending:
-      !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading",
+    branchesPending: props.copyFrom
+      ? !sourceRepository.loaded
+      : !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading",
     sourceProblem: issueSource.problem || prSource.problem,
   });
   const sendProblem = readiness.problem;
@@ -616,15 +670,27 @@ function PreparationPage(props: {
     if (!project || !launchModel || !resolved.mode || readiness.problem || readiness.pending)
       return false;
     if (draft.attachments.length && !scope.draftId) return false;
+    // A project from another machine is copied here first. The message stays in the composer
+    // meanwhile, and goes once the copy has landed (`landed`).
+    // A copy made here before is used again rather than copied once more.
+    const copied = props.copyFrom && copiedTo(storage, props.copyFrom, project, props.host);
+    const reused = copied && projects.includes(copied) ? copied : undefined;
+    if (props.copyFrom && !landed && !reused) {
+      void copy.run().then((where) => {
+        if (where) setLanded({ ...where, opposite: draft.opposite });
+      });
+      return false;
+    }
+    const target = landed?.project ?? reused ?? project;
     submitting.current = true;
     recoveryMayLeave.current = true;
     forgetReturned();
     // ⌘N opens the project of the thread started last; the next one may start on this model
     // before the catalog loads.
-    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : project });
+    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : target });
     rememberMachine(storage, scopedMachine, {
       host: props.host,
-      id: props.chat ? chatChoice : project,
+      id: props.chat ? chatChoice : target,
     });
     if (resolved.model)
       saveLaunch(storage, {
@@ -646,14 +712,16 @@ function PreparationPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     const sent = await create(
       {
-        project,
+        project: target,
         draftKey,
         pullRequest: prSource.selection,
         issue: issueSource.ref,
         scope: launchModel.scope,
         model: launchModel.model,
-        mode: resolved.mode,
-        base,
+        // Work that landed only on a branch (the checkout there was busy) starts in a worktree
+        // from that branch: a local thread would run in that checkout, without the work.
+        mode: landed?.branch ? "worktree" : resolved.mode,
+        base: landed?.branch ? { ref: landed.branch } : props.copyFrom ? undefined : base,
         effort: launchModel.effort,
         serviceTier: launchModel.serviceTier,
         // Before the provider's modes are read, only a mode picked here is sent; otherwise the
@@ -743,6 +811,7 @@ function PreparationPage(props: {
       </Screen>
     );
   const notice =
+    copy.copy.state !== "idle" ||
     !!sendProblem ||
     saveFailed ||
     preparationSaveFailed(storage, draftKey) ||
@@ -782,7 +851,11 @@ function PreparationPage(props: {
               ?
             </h2>
           )}
-          <MachineLine returnFocus={messageField} />
+          <MachineLine
+            project={props.chat ? chatChoice : project}
+            draft={{ host: props.host, key: draftKey }}
+            returnFocus={messageField}
+          />
           <div className="shrink-0">
             <Composer
               ref={composer}
@@ -851,12 +924,24 @@ function PreparationPage(props: {
                   className={cn(
                     composerEnvironmentSurface,
                     "[&:has([data-notices]:not(:empty))_[data-environment]]:hidden",
+                    "[&:not(:has([data-environment])):has([data-notices]:empty)]:hidden",
                   )}
                 >
                   <div
                     data-notices=""
                     className="flex flex-col gap-2 px-3 pt-2.5 pb-1 empty:hidden"
                   >
+                    {copy.copy.state === "copying" && (
+                      <TransferLine
+                        words={copy.copy.words}
+                        actions={
+                          copy.copy.cancel ? [{ label: "Cancel", run: copy.copy.cancel }] : []
+                        }
+                      />
+                    )}
+                    {copy.copy.state === "failed" && (
+                      <TransferLine words={copy.copy.words} actions={[]} alert />
+                    )}
                     {sendProblem && (
                       <p id={readinessId} role="status" className="text-xs text-muted-foreground">
                         {sendProblem}
@@ -936,6 +1021,9 @@ function PreparationPage(props: {
                             mode={resolved.mode}
                             onMode={chooseMode}
                             noWorktree={noWorktree}
+                            copyFrom={
+                              props.copyFrom ? (copy.source ?? "another machine") : undefined
+                            }
                             branches={branches}
                             base={base}
                             onBase={(next) => {

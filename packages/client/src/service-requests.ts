@@ -30,7 +30,11 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
               ? Replies<"worktree.creation.result">
               : Q["type"] extends "verify.request"
                 ? Replies<"verify.result">
-                : LegacyServiceResponse<Q>;
+                : Q["type"] extends "lockedUse.subscribe"
+                  ? Replies<"lockedUse.status">
+                  : Q["type"] extends `lockedUse.${string}`
+                    ? Replies<"lockedUse.result">
+                    : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
@@ -173,6 +177,11 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "prompts.request": ["prompts.result"],
   "skills.request": ["skills.result"],
   "host.identity": ["host.identity.result"],
+  "lockedUse.subscribe": ["lockedUse.status"],
+  "lockedUse.unsubscribe": ["lockedUse.result"],
+  "lockedUse.install": ["lockedUse.result"],
+  "lockedUse.remove": ["lockedUse.result"],
+  "lockedUse.repair": ["lockedUse.result"],
   "activity.reads": ["activity.reads.result"],
   "activity.markRead": ["activity.reads.result"],
   "verify.request": ["verify.result"],

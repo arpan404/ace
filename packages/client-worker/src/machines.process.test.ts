@@ -292,6 +292,20 @@ test("worker exit reports offline, preserves facts and reconnects only the affec
   expect(f.pool.ids).toEqual(["crashed", "healthy"]);
 });
 
+test("a machine whose worker dies comes back online on its own, without reloading or reconnecting", async () => {
+  const f = poolWorld();
+  await f.pool.add(paired("dropped"));
+  await wait(f.pool.status("dropped"), (state) => state?.status === "online");
+  await f.workers.get("dropped")?.terminate();
+  await wait(f.pool.status("dropped"), (state) => state?.status === "offline");
+  await wait(f.pool.status("dropped"), (state) => state?.status === "online");
+  expect((await f.pool.create("dropped", create("after-recovery"))).ok).toBe(true);
+  // Recovering once doesn't use up the next recovery.
+  await f.workers.get("dropped")?.terminate();
+  await wait(f.pool.status("dropped"), (state) => state?.status === "offline");
+  await wait(f.pool.status("dropped"), (state) => state?.status === "online");
+});
+
 test("a pinned client rejects a different host before replaying persisted commands", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000, hostId: "unexpected" });
   const client = new Client({

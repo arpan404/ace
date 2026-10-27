@@ -35,7 +35,10 @@ export interface IncomingRecord {
   hasOrigin?: boolean | undefined;
   begin: TransferBegin;
   commit?: TransferCommit | undefined;
-  /** method remote: the project reused for its origin. */
+  /**
+   * A project here the transfer lands in instead of a new one: for method remote the one with
+   * the same origin, otherwise the copy an earlier transfer of the same source project made.
+   */
   workspaceId?: string | undefined;
   /** A project this transfer registered, unregistered again if the import fails. */
   registeredId?: string | undefined;
@@ -48,6 +51,13 @@ export interface IncomingRecord {
   result?: IncomingTransfer["result"];
   error?: IncomingTransfer["error"];
   updatedAt: number;
+}
+
+/** A project on a source machine, as the paired device that sends it names it. */
+export interface LandingSource {
+  hostId: string;
+  workspaceId: string;
+  deviceId: string;
 }
 
 const decode = (row: Row): IncomingRecord => ({
@@ -86,7 +96,43 @@ export class IncomingRows {
       // Folders a rollback couldn't prove were its own: left in place, recorded here.
       db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_left (
         path TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, at INTEGER NOT NULL)`);
+      // Which project a source machine's project landed in last, so sending it again reuses it.
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_landed (
+        host_id TEXT NOT NULL, source_workspace_id TEXT NOT NULL, device_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, git INTEGER NOT NULL, at INTEGER NOT NULL,
+        PRIMARY KEY (host_id, source_workspace_id))`);
     });
+  }
+  /**
+   * Remembers that the source machine's project landed in `workspaceId` here, sent by the paired
+   * `deviceId`; `git` says whether it landed as a repository, so a folder's copy is never reused
+   * for a repository or back.
+   */
+  landedIn(source: LandingSource, landed: { workspaceId: string; git: boolean }, at: number): void {
+    this.store
+      .statement(
+        "INSERT INTO transfer_incoming_landed (host_id,source_workspace_id,device_id,workspace_id,git,at) VALUES (?,?,?,?,?,?) ON CONFLICT(host_id,source_workspace_id) DO UPDATE SET device_id=excluded.device_id, workspace_id=excluded.workspace_id, git=excluded.git, at=excluded.at",
+      )
+      .run(
+        source.hostId,
+        source.workspaceId,
+        source.deviceId,
+        landed.workspaceId,
+        landed.git ? 1 : 0,
+        at,
+      );
+  }
+  /**
+   * The project the source machine's project landed in last, when the same paired device sent
+   * it and it landed as `git` says.
+   */
+  landedFor(source: LandingSource, git: boolean): string | undefined {
+    const row = this.store
+      .statement(
+        "SELECT workspace_id FROM transfer_incoming_landed WHERE host_id=? AND source_workspace_id=? AND device_id=? AND git=?",
+      )
+      .get(source.hostId, source.workspaceId, source.deviceId, git ? 1 : 0);
+    return row ? String(row["workspace_id"]) : undefined;
   }
   /** Records a folder a rollback left in place because it couldn't prove it made it. */
   leftInPlace(transferId: string, path: string, at: number): void {

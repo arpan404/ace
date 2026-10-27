@@ -102,6 +102,15 @@ export class ComputerClient {
     );
   }
 
+  /**
+   * The process id of the helper that runs `app`'s state and act requests, starting it if
+   * needed: locked use counts input that process posts as the agent's.
+   */
+  async helperProcessId(app: string): Promise<number | undefined> {
+    if (this.closed) return undefined;
+    return this.entry(app.toLowerCase()).connection.pid();
+  }
+
   close(): void {
     this.closed = true;
     for (const entry of this.entries.values()) {

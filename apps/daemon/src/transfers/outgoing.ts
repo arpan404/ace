@@ -382,7 +382,20 @@ export class OutgoingTransfers {
       ...(record.request.parent ? { parent: record.request.parent } : {}),
       ...(plan.remote ? { remote: plan.remote } : {}),
     };
-    let status = await this.reach(signal, () => client.call(begin, signal));
+    // The target lands a project sent again in the copy it made before, by the source's id. A
+    // target older than that field refuses it: it is asked again without, as it knows.
+    const named: TransferBegin = { ...begin, sourceWorkspaceId: record.transfer.workspaceId };
+    let status = await this.reach(signal, () => client.call(named, signal)).catch(
+      (error: unknown) => {
+        if (
+          error instanceof MachineFailure &&
+          error.kind === "refused" &&
+          error.refusal === "invalid"
+        )
+          return this.reach(signal, () => client.call(begin, signal));
+        throw error;
+      },
+    );
     for (;;) {
       signal.throwIfAborted();
       if (status.state === "completed" && status.result) {
@@ -424,6 +437,7 @@ export class OutgoingTransfers {
             `${transferId}.${method === "archive" ? "tar" : "bundle"}`,
           ),
           incremental,
+          includeIgnored: record.request.includeIgnored,
           signal,
         });
         plan = { ...plan, ...(file ? { file } : {}), incremental };

@@ -75,6 +75,8 @@ export interface Services {
   screen?: ScreenManager;
   /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
   computer?: ComputerClient;
+  /** The locked use service owner (macOS); its service starts only when a gated call needs it. */
+  lockedUseRuntime?: import("../locked-use-runtime.ts").LockedUseRuntime;
   /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
   /** Threads whose browser an agent works in now (the task list's indicator). */

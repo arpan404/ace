@@ -82,6 +82,7 @@ import QuartzCore
     let archive = ArchiveBrowserModel()
     /// New thread and Add project on this machine; the open thread's Files sheet.
     let compose = ComposeModel()
+    let suggestions = ComposerSuggestModel()
     let files = ThreadFilesModel()
     let terminal = TerminalScreenModel()
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
@@ -103,6 +104,11 @@ import QuartzCore
     @ObservationIgnored private var connectionEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
+    /// Frames held to apply together on the next flush.
+    @ObservationIgnored private let batch = FrameBatch()
+    @ObservationIgnored private var flushTask: Task<Void, Never>?
+    @ObservationIgnored private let frameTiming: FrameTiming
+    @ObservationIgnored private var sawFrame = false
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -114,9 +120,9 @@ import QuartzCore
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
 
-    init(now: @escaping () -> Double, makeRuntime: @escaping ClientSessionFactory = {
+    init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live, makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         connectionEpoch += 1
         let epoch = connectionEpoch
@@ -127,7 +133,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
-        frames = BridgeFrames(); generation = 0
+        frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
@@ -142,7 +148,7 @@ import QuartzCore
             decoder.decode(data) { patches in
                 Task { @MainActor in
                     guard let self, self.connectionEpoch == epoch else { return }
-                    let accepted = self.accept(patches, bytes: data.count)
+                    let accepted = self.hold(patches, bytes: data.count)
                     self.runtime?.acknowledge(accepted: accepted)
                 }
             }
@@ -159,23 +165,77 @@ import QuartzCore
         let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(scope + ".sqlite")
     }
-    /// Decodes and applies one frame on the main thread, as tests deliver them.
+    /// Decodes and applies one frame on the main thread at once, as tests deliver them.
     @discardableResult func receive(_ data: Data) -> Bool {
-        accept(try? frames.decode(data), bytes: data.count)
+        flushFrames()
+        defer { flushFrames() }
+        return accept(try? frames.decode(data), bytes: data.count)
     }
-    /// Applies one decoded frame; nil is a frame that could not be read.
-    func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+    /// Takes one decoded frame from the runtime: it applies with the frames around it on the
+    /// next flush (`FrameBatch`), so a burst split over frames lands as one change. A frame that
+    /// carries something the person waits on (a receipt, an approval, the connection) applies
+    /// at once, with everything held before it.
+    func hold(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+        let accepted = accept(patches, bytes: bytes)
+        if accepted, patches?.contains(where: Self.urgent) == true { flushFrames() } else { scheduleFlush() }
+        return accepted
+    }
+    /// Applies every held frame now. Anything that changes what a held frame means (opening or
+    /// leaving a thread, ending the runtime) flushes first, so a frame the bridge was told is
+    /// shown is never dropped.
+    func flushFrames() {
+        flushTask?.cancel(); flushTask = nil
+        let bytes = batch.bytes
+        let patches = batch.take(at: frameTiming.now())
+        guard !patches.isEmpty else { return }
         let began = CACurrentMediaTime()
         let patchesBefore = patchCount, updatesBefore = streamedUpdates
         let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
-        defer {
-            ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
-            ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
-                                         inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
-            DisclosureTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+        HostTrace.measure("main.apply") { apply(patches) }
+        ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
+        ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
+                                     inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
+        DisclosureTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+    }
+    private func scheduleFlush() {
+        guard flushTask == nil, let due = batch.due else { return }
+        let timing = frameTiming
+        flushTask = Task<Void, Never> { @MainActor [weak self] in
+            await timing.wait(max(0, due - timing.now()))
+            // Rows that arrived since may have moved the time on: wait once more, never past the pace.
+            if let next = self?.batch.due, next > timing.now() {
+                await timing.wait(min(FrameBatch.rowPace, next - timing.now()))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.flushTask = nil
+            self.flushFrames()
         }
+    }
+    /// Patches the person is waiting on, which never wait for the batch.
+    private static func urgent(_ patch: BridgePatch) -> Bool {
+        switch patch {
+        case .receipt, .admission, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
+        default: false
+        }
+    }
+    /// Whether `patches` add rows to the open thread after its first load: a new item or block.
+    private func addsRows(_ patches: [BridgePatch]) -> Bool {
+        guard let thread, thread.loaded else { return false }
+        return patches.contains { patch in
+            switch patch {
+            case .item(let id, let epoch, let itemId, let row):
+                return row != nil && id == thread.id && epoch == thread.epoch && thread.items[itemId] == nil
+            case .block(let id, let epoch, let blockId, let row):
+                return row != nil && id == thread.id && epoch == thread.epoch && thread.screen.blocks[blockId] == nil
+            default: return false
+            }
+        }
+    }
+    /// Resolves one decoded frame and holds it for the next flush; nil is a frame that could not
+    /// be read.
+    private func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
         largestFrame = max(largestFrame, bytes)
-        if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
+        if !sawFrame { sawFrame = true; LaunchTrace.mark("bridge.firstFrame") }
         guard let patches else {
             error = "Could not read a client update"
             return false
@@ -183,23 +243,32 @@ import QuartzCore
         // An edit made against text this model no longer shows turns the whole frame down, before
         // anything applies; the bridge then sends that row whole.
         guard let edited = HostTrace.measure("main.edits", { resolveTextEdits(patches) }) else { return false }
-        HostTrace.measure("main.apply") { apply(edited) }
+        batch.hold(edited, bytes: bytes, at: frameTiming.now(), addsRows: addsRows(edited))
         return true
     }
     /// `patches` with each streaming text edit for the open thread turned into its whole row, or
-    /// nil when one was made against text other than the row shown.
+    /// nil when one was made against text other than the row it will show, held frames included.
     private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
-        var texts: [String: String] = [:]
+        let mark = batch.mark()
         var resolved: [BridgePatch] = []
         resolved.reserveCapacity(patches.count)
         for patch in patches {
-            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else { resolved.append(patch); continue }
+            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else {
+                batch.note(patch)
+                resolved.append(patch)
+                continue
+            }
             // Another thread's or an older generation's edit is dropped like its whole row would be.
             guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-            guard let shown = texts[itemId] ?? thread.items[itemId]?.row.text, let text = edit.applied(to: shown) else { return nil }
-            texts[itemId] = text
+            guard let shown = batch.text(id, epoch, itemId, shown: { thread.items[itemId]?.row.text }),
+                  let text = edit.applied(to: shown) else {
+                batch.restore(mark)
+                return nil
+            }
             row.text = text
-            resolved.append(.item(id, epoch, itemId, row))
+            let whole = BridgePatch.item(id, epoch, itemId, row)
+            batch.note(whole)
+            resolved.append(whole)
         }
         return resolved
     }
@@ -304,7 +373,8 @@ import QuartzCore
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
-                if !ok { error = message }
+                // A refusal with no words (a move waiting on its question) says nothing here.
+                if !ok, !message.isEmpty { error = message }
             case .threadReset(let id, let epoch):
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
@@ -368,6 +438,7 @@ import QuartzCore
             case .gitDraft(let draft): sheets.draft = draft
             case .archiveList(let list): archive.apply(list)
             case .compose(let patch): compose.apply(patch)
+            case .composer(let patch): suggestions.apply(patch)
             case .files(let patch): files.apply(patch)
             case .transfers(let patch): transfers.apply(patch)
             case .screen(let id, let epoch, let screen):
@@ -402,6 +473,7 @@ import QuartzCore
         }
     }
     func open(_ id: String) {
+        flushFrames()
         generation += 1
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
@@ -418,6 +490,7 @@ import QuartzCore
         action(["type": "open", "threadId": id, "warm": kept != nil])
     }
     func back() {
+        flushFrames()
         generation += 1; action(["type": "back"])
         if let thread { shelf.keep(thread) }
         thread = nil; sheets.reset()
@@ -523,6 +596,9 @@ import QuartzCore
         }
     }
     private func retireRuntime() -> Task<Void, Never>? {
+        // What the old runtime was told is shown applies first; nothing of it applies after.
+        flushFrames()
+        batch.reset()
         invalidateConfirmations()
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.

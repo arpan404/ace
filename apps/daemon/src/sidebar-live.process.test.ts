@@ -321,3 +321,42 @@ function runSeed(seed: number) {
   expect(checks + failed).toBeGreaterThan(1000);
   expect(checks).toBeGreaterThan(failed);
 }
+
+test("a delete the removal log no longer holds still leaves the live window without that thread", () => {
+  const { db, store, workspaces } = open();
+  const workspaceId = workspaces[0];
+  if (!workspaceId) throw new Error("No workspace");
+  const ids = [0, 1, 2].map((index) => {
+    const id = ThreadId.parse(`gone-${index}`);
+    store.appendEvents(id, [
+      {
+        type: "thread.created",
+        thread: Thread.parse({
+          id,
+          workspaceId,
+          title: `Task ${index}`,
+          provider: "codex",
+          status: { state: "done" },
+          createdAt: 1,
+          updatedAt: 100 + index,
+          activityAt: 100 + index,
+          settledAt: 100 + index,
+          hasSentMessage: true,
+        }),
+      },
+    ]);
+    return id;
+  });
+  const live = (previous: { threads: ThreadListEntry[] }) =>
+    store.sidebarPage({ limit: 10 }, undefined, {
+      entries: new Map(previous.threads.map((thread) => [thread.id, thread])),
+      changed: new Set(ids),
+    });
+  const first = live(store.sidebarPage({ limit: 10 }));
+  expect(first.threads.map((thread) => thread.id).toSorted()).toEqual([...ids].toSorted());
+  store.deleteThread(ids[1] as ThreadId);
+  // As if more deletes than the log keeps had happened since the last read.
+  db.exec("DELETE FROM sidebar_thread_removals");
+  const second = live(first);
+  expect(second.threads.map((thread) => thread.id).toSorted()).toEqual([ids[0], ids[2]]);
+});

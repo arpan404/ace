@@ -11,8 +11,8 @@ import { z } from "zod";
  *
  * The SDK checks the helper once per process and, when it fails, reports only "sandboxing is
  * not supported in this environment", keeping the loader's words in its own log. The arm64
- * helper of @cursor/sdk 1.0.35 needs glibc 2.39 while ace runs on glibc 2.31 (ADR 0093), so
- * on Ubuntu 22.04 or Debian 12 Cursor's sandboxed mode cannot start. ace can't rebuild the
+ * helper of @cursor/sdk 1.0.35 needs glibc 2.39 while ace runs on glibc 2.36 (ADR 0093), so
+ * on Debian 12 Cursor's sandboxed mode cannot start. ace can't rebuild the
  * helper, and the SDK's only other path is no sandbox at all, which ace never picks for the
  * person: it says what is missing and which mode still works.
  *

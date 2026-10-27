@@ -8,6 +8,8 @@ type Receipt = {
   error?: string | undefined;
   /** What a `thread.create` or `workspace.add` made. */
   threadId?: string | undefined;
+  /** The thread a `thread.fork` opened. */
+  forkThreadId?: string | undefined;
   workspace?: { id: string } | undefined;
 };
 
@@ -51,7 +53,13 @@ export async function dispatchCommand(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  hooks: { saved?(): void; receipt?(ok: boolean): void } = {},
+  hooks: {
+    saved?(): void;
+    receipt?(result: Receipt): void;
+    unsaved?(): void;
+    /** Words for the daemon's refusal; its own error by default. */
+    refusal?(error: string | undefined): string;
+  } = {},
 ): Promise<void> {
   try {
     await submitCommand(
@@ -67,16 +75,19 @@ export async function dispatchCommand(
         }));
       },
       (result) => {
-        hooks.receipt?.(result.ok);
+        hooks.receipt?.(result);
         pump.put(`receipt:${requestId}`, () => ({
           type: "receipt",
           id: requestId,
           ok: result.ok,
-          message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
+          message: result.ok
+            ? ""
+            : preview(hooks.refusal?.(result.error) ?? result.error ?? "Request refused", 2048),
         }));
       },
     );
   } catch {
+    hooks.unsaved?.();
     pump.put(`admission:${requestId}`, () => ({
       type: "admission",
       id: requestId,

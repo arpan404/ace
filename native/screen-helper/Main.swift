@@ -1,12 +1,16 @@
 import Foundation
 import AppKit
 import Darwin
+#if canImport(LockedUseService)
+import LockedUseService
+#endif
 
 @main struct ScreenHelper {
     @MainActor static func main() async {
         // Before anything else: macOS must attribute permissions to this helper, not its launcher.
         Responsibility.disclaimIfNeeded()
         if CommandLine.arguments.contains("--computer") { ComputerService.run() }
+        if CommandLine.arguments.contains("--locked-use") { runLockedUse() }
         if CommandLine.arguments.contains("--transcode") { Transcoder.run() }
         if CommandLine.arguments.contains("--sim-posture") { SimPosture.run(arguments: CommandLine.arguments) }
         if CommandLine.arguments.contains("--sim-touch") { SimTouch.run(arguments: CommandLine.arguments) }
@@ -60,6 +64,17 @@ import Darwin
 
         } catch { FileHandle.standardError.write(Data("screen-helper: \(error)\n".utf8)); exit(1) }
     }
+}
+
+/// Hosts the locked-use coordinator for the daemon (`--locked-use --socket <path>`). It
+/// installs nothing; without a verified installation every attempt is refused.
+@MainActor func runLockedUse() -> Never {
+    #if canImport(LockedUseService)
+    LockedUseServiceHost.run(arguments: CommandLine.arguments)
+    #else
+    FileHandle.standardError.write(Data("screen-helper: locked use is not built into this helper\n".utf8))
+    exit(2)
+    #endif
 }
 
 @MainActor final class HelperService {

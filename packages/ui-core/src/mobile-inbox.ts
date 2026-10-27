@@ -1,7 +1,7 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
-import { homeListKey, isDraft, isRemoved, type HomeSort } from "./arrange.ts";
+import { homeListKey, isDraft, isRemoved, pinOrderOf, type HomeSort } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 import {
   mobileThreadStatus,
@@ -19,6 +19,7 @@ import { recoveryAttention } from "./recovery-attention.ts";
  */
 
 export type InboxGroupKey =
+  | "pinned"
   | "needs-you"
   | "working"
   | "syncing"
@@ -29,11 +30,12 @@ export type InboxGroupKey =
   | "settled";
 
 /**
- * Top to bottom. Snoozed and Settled sit last: out of the way until a snooze wakes or the
- * person unsettles a thread. Threads holds every live group when the list is sorted by
- * creation or by hand.
+ * Top to bottom. Pinned leads, as on Home: the person put those threads there. Snoozed and
+ * Settled sit last: out of the way until a snooze wakes or the person unsettles a thread.
+ * Threads holds every live group when the list is sorted by creation or by hand.
  */
 const groupOrder: readonly InboxGroupKey[] = [
+  "pinned",
   "needs-you",
   "working",
   "syncing",
@@ -45,6 +47,7 @@ const groupOrder: readonly InboxGroupKey[] = [
 ];
 
 export const inboxGroupLabels: Record<InboxGroupKey, string> = {
+  pinned: "Pinned",
   "needs-you": "Needs you",
   working: "Working",
   syncing: "Syncing",
@@ -243,14 +246,44 @@ export function inboxListRank(thread: InboxThread, sortBy: Exclude<HomeSort, "ac
   );
 }
 
+/**
+ * Where a row sorts among Pinned, compared as `inboxRank` is: the higher `pinOrder` leads (the
+ * daemon's clock on pin, so the newest pin on any machine leads), then the most recent activity,
+ * as Home orders them; ties break by machine, then key.
+ */
+export function inboxPinnedRank(thread: InboxThread): string {
+  return (
+    ordered(-pinOrderOf(thread.entry)) +
+    descending(activityOf(thread.entry)) +
+    `\u0000${thread.machineId}\u0000${thread.key}`
+  );
+}
+
 /** Unsent rows: each machine's outbox in its own order, machines apart. */
 export function unsentRank(machineId: string, position: number): string {
   return `\u0000${machineId}\u0000${ascending(position)}`;
 }
 
+/**
+ * Each group's rank, in `groupOrder`'s order. Fixed, never renumbered: a client merges layouts
+ * from runtimes of different versions, and a layout kept from an earlier launch, so a group
+ * added later takes a number of its own (Pinned leads at -1) instead of moving the others.
+ */
+const groupRanks: Record<InboxGroupKey, number> = {
+  pinned: -1,
+  "needs-you": 0,
+  working: 1,
+  syncing: 2,
+  unsent: 3,
+  threads: 4,
+  done: 5,
+  snoozed: 6,
+  settled: 7,
+};
+
 /** Section order, for clients that merge sections grouped on separate runtimes. */
 export function inboxGroupRank(key: InboxGroupKey): number {
-  return groupOrder.indexOf(key);
+  return groupRanks[key];
 }
 
 const byRank = (a: { rank: string }, b: { rank: string }) =>
@@ -273,7 +306,11 @@ export function inboxSections(
     let group = inboxGroup(thread, now);
     if (!group) continue;
     let rank: string;
-    if (sortBy !== "activity" && listedGroups.has(group)) {
+    // A pinned thread stays in Pinned whatever its state, as on Home; its row still says it.
+    if (thread.entry.pinned === true) {
+      group = "pinned";
+      rank = inboxPinnedRank(thread);
+    } else if (sortBy !== "activity" && listedGroups.has(group)) {
       group = "threads";
       rank = inboxListRank(thread, sortBy);
     } else rank = inboxRank(thread, group);

@@ -5,7 +5,6 @@ use std::{
     os::unix::net::UnixStream,
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 struct Queue {
     latest: Option<Vec<u8>>,
@@ -18,16 +17,24 @@ pub struct Publisher {
     sequence: Arc<std::sync::atomic::AtomicU64>,
 }
 impl Publisher {
-    pub fn frame(&self, jpeg: Vec<u8>, width: u32, height: u32, scale: f64) -> Result<()> {
+    /// Publishes a picture taken at `at` (Unix milliseconds, when its buffer arrived, not when
+    /// it was encoded), for capture `generation` when the daemon gave one.
+    pub fn frame(
+        &self,
+        jpeg: Vec<u8>,
+        width: u32,
+        height: u32,
+        scale: f64,
+        at: f64,
+        generation: Option<u64>,
+    ) -> Result<()> {
         let seq = self
             .sequence
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(internal)?
-            .as_secs_f64()
-            * 1000.;
-        let header = json!({"version":2,"sessionId":self.session,"sequence":seq,"seq":seq,"timestamp":ts,"ts":ts,"width":width,"height":height,"scale":scale,"codec":"jpeg","bytes":jpeg.len()});
+        let mut header = json!({"version":2,"sessionId":self.session,"sequence":seq,"seq":seq,"timestamp":at,"ts":at,"width":width,"height":height,"scale":scale,"codec":"jpeg","bytes":jpeg.len()});
+        if let Some(generation) = generation {
+            header["captureGeneration"] = json!(generation);
+        }
         let bytes = packet(&header, &jpeg)?;
         let (lock, ready) = &*self.queue;
         let mut q = lock.lock().map_err(internal)?;
@@ -46,10 +53,10 @@ pub struct Writer {
 }
 impl Writer {
     pub fn open(socket: UnixStream) -> Result<Self> {
+        // No write timeout: a daemon that is busy for a while must not end the session. Only
+        // the newest packet waits, so memory stays bounded, and closing shuts the socket,
+        // which ends a blocked write.
         let mut stream = socket.try_clone().map_err(internal)?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .map_err(internal)?;
         let queue = Arc::new((
             Mutex::new(Queue {
                 latest: None,

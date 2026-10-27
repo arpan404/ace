@@ -42,15 +42,16 @@ test("each helper start reads the session again, so a later login is picked up",
   let loggedIn = false;
   const session = graphicalSessionEnvironment({
     env: {},
-    run: async () => (loggedIn ? "DISPLAY=:1\n" : "XDG_RUNTIME_DIR=/run/user/1000\n"),
+    run: async () =>
+      loggedIn ? "WAYLAND_DISPLAY=wayland-1\n" : "XDG_RUNTIME_DIR=/run/user/1000\n",
   });
-  expect((await session())["DISPLAY"]).toBeUndefined();
+  expect((await session())["WAYLAND_DISPLAY"]).toBeUndefined();
   loggedIn = true;
-  expect((await session())["DISPLAY"]).toBe(":1");
+  expect((await session())["WAYLAND_DISPLAY"]).toBe("wayland-1");
 });
 
-test("a daemon that already has a display never asks the user manager", async () => {
-  const env = { DISPLAY: ":0", XAUTHORITY: "/home/ada/.Xauthority" };
+test("a daemon that already has a Wayland display never asks the user manager", async () => {
+  const env = { WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" };
   const session = graphicalSessionEnvironment({
     env,
     run: async () => {

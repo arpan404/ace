@@ -12,7 +12,8 @@ import {
 import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { SubagentLink } from "@/lib/subagent-link.tsx";
+import { useThreadHost } from "@/lib/machine-threads.ts";
+import { SubagentLink, type SubagentTarget } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
@@ -57,7 +58,8 @@ function useMeta(entry: SubagentEntry): string | undefined {
  * One subagent (or thread ace delegated) as a row: its provider's mark, its name and model, its
  * status word and how long it ran, and what it does now or found. The whole row opens it; one
  * that needs the person also offers Review, which opens it where its request waits, and a child
- * on another machine whose pairing is gone offers Stop tracking.
+ * on another machine whose pairing is gone offers Stop tracking. A child on another machine
+ * opens as this thread's subagent when this window is paired with that machine too.
  */
 export function SubagentRow(props: {
   threadId: string;
@@ -69,10 +71,11 @@ export function SubagentRow(props: {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
   const { detail, kind } = useDetail(props.threadId, entry, props.fresh);
+  const host = useThreadHost(entry.machine ? entry.childThreadId : undefined, entry.machineHost);
   const meta = useMeta(entry);
   const status = subagentLabels[entry.state];
   const label = entry.machine
-    ? `${entry.title} on ${entry.machine}, ${status}`
+    ? `${host ? "Open " : ""}${entry.title} on ${entry.machine}, ${status}`
     : entry.childThreadId
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
@@ -96,17 +99,26 @@ export function SubagentRow(props: {
     detailKind: kind,
   };
   const classes = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
-  const target =
-    !entry.machine && (entry.agentId || entry.childThreadId)
-      ? {
-          threadId: props.threadId,
-          agentId: entry.agentId ?? "",
-          childThreadId: entry.childThreadId,
-        }
-      : undefined;
+  const target: SubagentTarget | undefined =
+    entry.machine && entry.childThreadId
+      ? host
+        ? {
+            threadId: props.threadId,
+            agentId: entry.childThreadId,
+            childThreadId: entry.childThreadId,
+            childMachine: host,
+          }
+        : undefined
+      : entry.agentId || entry.childThreadId
+        ? {
+            threadId: props.threadId,
+            agentId: entry.agentId ?? "",
+            childThreadId: entry.childThreadId,
+          }
+        : undefined;
   return (
     <li data-subagent-state={entry.state} className="relative">
-      {/* A child on another machine has no thread here: it opens the Summary instead. */}
+      {/* A child on a machine this window can't reach has no thread here: it opens the Summary. */}
       {target ? (
         <SubagentLink subagent={target} aria-label={label} className={classes}>
           <AgentRowContents {...parts} />

@@ -4,7 +4,6 @@ use crate::computer::outline::{Rect, States};
 use atspi::{State, StateSet};
 use std::collections::HashMap;
 
-pub const COORD_SCREEN: u32 = 0;
 pub const COORD_WINDOW: u32 = 1;
 
 #[derive(Clone, Debug, Default)]
@@ -91,6 +90,14 @@ pub async fn read(bus: &Bus, obj: &Obj) -> BusResult<Element> {
             value: has("Value"),
         },
     })
+}
+
+/// Each action's name and key binding (GTK: "mnemonic;path;accelerator", Qt: "Ctrl+S").
+pub async fn action_bindings(bus: &Bus, obj: &Obj) -> BusResult<Vec<(String, String)>> {
+    let actions = bus
+        .atspi::<_, Vec<(String, String, String)>>(obj, "Action", "GetActions", &())
+        .await?;
+    Ok(actions.into_iter().map(|(name, _, binding)| (name, binding)).collect())
 }
 
 pub async fn action_names(bus: &Bus, obj: &Obj) -> BusResult<Vec<String>> {

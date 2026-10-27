@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import {
   bodyTurn,
   chromeLayout,
+  chromePicture,
   chromeTurn,
   deviceButtons,
   deviceKind,
@@ -49,6 +50,7 @@ function RunningTile(props: {
   const measured = useElementSize(preview);
   const visible = useOnScreen(preview);
   const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
+  const [framed, setFramed] = useState(false);
   const watching = visible && row.live && session !== undefined;
   useEffect(() => {
     if (!watching || !session) return;
@@ -64,7 +66,9 @@ function RunningTile(props: {
   // The real body, asked once per model for the whole list, once the tile is on screen.
   const chrome = useDeviceChrome(session, row, visible);
   const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
-  const layout = chrome && chromeLayout(chrome, bodyTurned, screen, room);
+  // Before the first picture, the chrome's own screen stands in for its shape.
+  const shown = framed || !chrome ? screen : chromePicture(chrome, bodyTurned);
+  const layout = chrome && chromeLayout(chrome, bodyTurned, shown, room);
   const picture =
     watching && session ? (
       <DeviceScreen
@@ -74,6 +78,7 @@ function RunningTile(props: {
         interactive={false}
         onInput={noInput}
         onFrame={(header) => {
+          setFramed(true);
           const next = framePoints(header);
           setScreen((before) =>
             Math.abs(before.width / before.height - next.width / next.height) < 0.001

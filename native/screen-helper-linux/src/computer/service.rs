@@ -1,46 +1,24 @@
 //! The ops: `hello`, `apps`, `resolve`, `state` and `act`, one at a time.
 use crate::computer::act::Actor;
+use crate::computer::act_front::Front;
 use crate::computer::apps::{self, RunningApp};
 use crate::computer::bus::Bus;
 use crate::computer::cancel::{Cancellations, Checkpoint};
 use crate::computer::catalog::{self, Candidate};
-use crate::computer::clipboard::Clipboard;
 use crate::computer::desktop::DesktopApp;
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::events::Activity;
 use crate::computer::observe::{self, Options};
+use crate::computer::person::{Outcome, Person};
 use crate::computer::screencast::ScreenCast;
 use crate::computer::session::AppSession;
-use crate::computer::xdisplay::XDisplay;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-const X11_CAPABILITIES: [&str; 20] = [
-    "click",
-    "move",
-    "type",
-    "paste",
-    "key",
-    "set_value",
-    "select_text",
-    "scroll",
-    "scroll_to",
-    "action",
-    "menu",
-    "focus",
-    "drag",
-    "window",
-    "wait",
-    "wait_for",
-    "activate",
-    "cancel",
-    "outline_off",
-    "when",
-];
-/// Without X11 there is no pointer, so hover and drag are left out.
-const WAYLAND_CAPABILITIES: [&str; 18] = [
+/// Wayland lets ace send no pointer input, so hover and drag are left out.
+const CAPABILITIES: [&str; 18] = [
     "click",
     "type",
     "paste",
@@ -66,15 +44,20 @@ pub struct Service {
     cancellations: Cancellations,
     bus: Option<Bus>,
     activity: Activity,
-    x: Option<XDisplay>,
-    x_tried: bool,
+    cast_tried: bool,
     sessions: HashMap<u32, AppSession>,
-    resolved: HashMap<String, u32>,
-    clipboard: Option<Clipboard>,
+    /// What each query named last, while its process lives.
+    resolved: HashMap<String, RunningApp>,
     /// Wayland screenshots, through the ScreenCast portal.
     cast: Option<ScreenCast>,
     /// Where restore tokens are kept (`--data-dir`); without it they last for this process.
     data_dir: Option<PathBuf>,
+    /// Keep-awake, the "ace is using" notice and the guard; connected on the first look.
+    person: Option<Person>,
+    /// `--lease-seconds`: the keep-awake lease, for tests.
+    lease: Option<Duration>,
+    /// Typing in front, for batches that activate their app.
+    front: Front,
 }
 
 fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -82,25 +65,27 @@ fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
 }
 
 impl Service {
-    pub fn new(cancellations: Cancellations, data_dir: Option<PathBuf>) -> Self {
+    pub fn new(cancellations: Cancellations, data_dir: Option<PathBuf>, lease: Option<Duration>) -> Self {
         Self {
             cancellations,
             bus: None,
             activity: Activity::default(),
-            x: None,
-            x_tried: false,
+            cast_tried: false,
             sessions: HashMap::new(),
             resolved: HashMap::new(),
-            clipboard: None,
             cast: None,
+            front: Front::new(data_dir.clone()),
             data_dir,
+            person: None,
+            lease,
         }
     }
 
-    pub fn shutdown(&mut self) {
-        if let Some(x) = &self.x {
-            x.restore_keymap();
+    async fn person(&mut self) -> &mut Person {
+        if self.person.is_none() {
+            self.person = Some(Person::connect(self.cancellations.stop.clone(), self.lease).await);
         }
+        self.person.as_mut().expect("connected above")
     }
 
     async fn bus(&mut self) -> CuResult<Bus> {
@@ -113,29 +98,22 @@ impl Service {
         Ok(bus)
     }
 
-    /// X11 when the session is X11; otherwise the ScreenCast portal for screenshots.
-    async fn connect_display(&mut self) {
-        if !self.x_tried {
-            self.x_tried = true;
-            self.x = XDisplay::connect();
-            if self.x.is_none() {
-                self.cast = ScreenCast::connect(self.data_dir.clone()).await;
-            }
+    /// The ScreenCast portal, for screenshots.
+    async fn connect_cast(&mut self) {
+        if !self.cast_tried {
+            self.cast_tried = true;
+            self.cast = ScreenCast::connect(self.data_dir.clone()).await;
         }
     }
 
     pub async fn handle(&mut self, body: &Map<String, Value>, check: &Checkpoint) -> CuResult<Value> {
-        self.connect_display().await;
+        self.connect_cast().await;
         match body.get("op").and_then(Value::as_str).unwrap_or_default() {
             "hello" => {
                 let accessibility = self.bus().await.is_ok();
-                let capabilities: &[&str] = if self.x.is_some() {
-                    &X11_CAPABILITIES
-                } else {
-                    &WAYLAND_CAPABILITIES
-                };
+                let person = self.person().await.facts().await;
                 Ok(
-                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.x.is_some() || self.cast.is_some(), "capabilities": capabilities}),
+                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.cast.is_some(), "capabilities": CAPABILITIES, "person": person}),
                 )
             }
             "apps" => self.apps(body.get("query").and_then(Value::as_str)).await,
@@ -148,15 +126,35 @@ impl Service {
                 )?;
                 Ok(json!({"bundleId": found.id, "name": found.name, "running": found.running}))
             }
-            "state" => self.state(body, check).await,
-            "act" => self.act(body, check).await,
+            op @ ("state" | "act") => {
+                self.person().await;
+                let result = if op == "act" {
+                    self.act(body, check).await
+                } else {
+                    self.state(body, check).await
+                };
+                let code = match &result {
+                    Err(error) => Some(error.code),
+                    Ok(value) => value.pointer("/error/code").and_then(Value::as_str).map(|code| {
+                        if code == "stopped_by_person" { "stopped_by_person" } else { "failed" }
+                    }),
+                };
+                let outcome = match code {
+                    Some("stopped_by_person") => Outcome::Stopped,
+                    Some(_) => Outcome::Ended,
+                    None if check.check().is_err() => Outcome::Ended,
+                    None => Outcome::Continues,
+                };
+                self.person().await.end(outcome).await;
+                result
+            }
             _ => Err(CuError::new("bad_request", "Unknown op.")),
         }
     }
 
     async fn catalog(&self, bus: &Bus) -> (Vec<DesktopApp>, Vec<RunningApp>) {
         let installed = apps::installed();
-        let running = apps::running(bus, self.x.as_ref(), &installed).await;
+        let running = apps::running(bus, &installed).await;
         (installed, running)
     }
 
@@ -193,9 +191,10 @@ impl Service {
     /// The session for the named app, launching it when allowed. True when it was launched.
     async fn session(&mut self, bus: &Bus, query: &str, launch: bool, check: &Checkpoint) -> CuResult<(u32, bool)> {
         let alive = |pid: u32| std::path::Path::new(&format!("/proc/{pid}")).exists();
-        if let Some(pid) = self.resolved.get(query).copied() {
-            if self.sessions.contains_key(&pid) && alive(pid) {
-                return Ok((pid, false));
+        if let Some(app) = self.resolved.get(query).cloned() {
+            if let Some(session) = self.sessions.get_mut(&app.pid).filter(|_| alive(app.pid)) {
+                follow_module(session, &app);
+                return Ok((app.pid, false));
             }
         }
         let (installed, running) = self.catalog(bus).await;
@@ -207,6 +206,20 @@ impl Service {
                 let entry = installed.iter().find(|a| a.id == found.id).ok_or_else(|| {
                     CuError::new("app_not_found", format!("{query} is not running and not installed."))
                 })?;
+                if let Some(pid) = apps::inaccessible_process(entry, &installed) {
+                    // Just started (by the person, or a moment ago): it joins the bus shortly.
+                    let starting = apps::process_age(std::path::Path::new("/proc"), pid)
+                        .is_some_and(|age| age < apps::STARTING);
+                    if !starting {
+                        return Err(apps::inaccessible_error(entry, pid));
+                    }
+                    let entry = entry.clone();
+                    let app = self
+                        .wait_for_launch(bus, &entry, &installed, check)
+                        .await
+                        .map_err(|error| if error.code == "launch_failed" { apps::inaccessible_error(&entry, pid) } else { error })?;
+                    return self.adopt(query, app);
+                }
                 if !launch {
                     return Err(CuError::new(
                         "app_not_running",
@@ -218,15 +231,23 @@ impl Service {
                 self.wait_for_launch(bus, entry, &installed, check).await?
             }
         };
+        Ok((self.adopt(query, app)?.0, launched))
+    }
+
+    /// Keeps the session for a found app, dropping ones gone or long unused.
+    fn adopt(&mut self, query: &str, app: RunningApp) -> CuResult<(u32, bool)> {
+        let alive = |pid: u32| std::path::Path::new(&format!("/proc/{pid}")).exists();
         self.sessions.retain(|pid, session| {
             alive(*pid) && (*pid == app.pid || session.last_used.elapsed() < Duration::from_secs(600))
         });
-        self.resolved.retain(|_, pid| alive(*pid));
-        self.resolved.insert(query.to_owned(), app.pid);
-        self.sessions
+        self.resolved.retain(|_, known| alive(known.pid));
+        self.resolved.insert(query.to_owned(), app.clone());
+        let session = self
+            .sessions
             .entry(app.pid)
             .or_insert_with(|| AppSession::new(app.pid, app.obj.clone(), app.id.clone(), app.name.clone()));
-        Ok((app.pid, launched))
+        follow_module(session, &app);
+        Ok((app.pid, false))
     }
 
     async fn wait_for_launch(
@@ -240,7 +261,7 @@ impl Service {
         while started.elapsed() < Duration::from_secs(15) {
             check.check()?;
             tokio::time::sleep(Duration::from_millis(250)).await;
-            let running = apps::running(bus, self.x.as_ref(), installed).await;
+            let running = apps::running(bus, installed).await;
             if let Some(app) = running.into_iter().find(|r| r.id == entry.id) {
                 return Ok(app);
             }
@@ -265,7 +286,13 @@ impl Service {
                 check,
             )
             .await?;
-        let x = self.x.as_ref();
+        let mut marks = vec![("session", started.elapsed())];
+        let name = self.sessions.get(&pid).map(|s| s.name.clone()).unwrap_or_default();
+        let person = self.person().await;
+        person.begin(&name, false).await;
+        marks.push(("awake", started.elapsed()));
+        let status = person.status().await;
+        marks.push(("status", started.elapsed()));
         let session = self
             .sessions
             .get_mut(&pid)
@@ -284,12 +311,33 @@ impl Service {
         }
         check.check()?;
         let windows = session.choose_window(&bus, body.get("window")).await?;
+        marks.push(("windows", started.elapsed()));
+        if launched && crate::computer::chromium::is_chromium_process(std::path::Path::new("/proc"), session.pid) {
+            // Chromium shows its window long before its pages and controls join the tree.
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(12) {
+                session.walk(&bus, None, Duration::from_secs(1)).await;
+                if session.nodes.len() > 8 {
+                    break;
+                }
+                check.check()?;
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
         let options = Options {
             screenshot: flag(body, "screenshot", false),
             outline: flag(body, "outline", true),
             marks: flag(body, "marks", true),
         };
-        let mut result = observe::observation(&bus, x, session, &windows, self.cast.as_mut(), &options).await;
+        let last_event = self.activity.last(session.bus_name());
+        let mut result = observe::observation(&bus, session, &windows, self.cast.as_mut(), &options.for_status(status), last_event).await;
+        marks.push(("observation", started.elapsed()));
+        observe::mark_status(&mut result, status, &options);
+        observe::mark_accessibility(&mut result, session.pid, &session.name);
+        marks.push(("notes", started.elapsed()));
+        if std::env::var_os("ACE_CU_TIMINGS").is_some() {
+            result["timings"] = json!(marks.iter().map(|(name, at)| (name.to_string(), json!(at.as_millis() as u64))).collect::<Map<String, Value>>());
+        }
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -309,15 +357,18 @@ impl Service {
                 check,
             )
             .await?;
+        let name = self.sessions.get(&pid).map(|s| s.name.clone()).unwrap_or_default();
+        self.person().await.begin(&name, true).await;
         let Self {
-            x,
             sessions,
             activity,
-            clipboard,
             cast,
+            person,
+            front,
             ..
         } = self;
-        let x = x.as_ref();
+        front.begin();
+        let person = person.as_mut().ok_or_else(|| CuError::new("internal", "No person watch."))?;
         let session = sessions
             .get_mut(&pid)
             .ok_or_else(|| CuError::new("app_not_found", "The app went away."))?;
@@ -326,11 +377,7 @@ impl Service {
             session.choose_window(&bus, body.get("window")).await?;
         }
         if session.nodes.is_empty() {
-            let frames = match x.and_then(|x| session.x_window(x).map(|xid| (x, xid))) {
-                Some((x, xid)) => session.frame_map(&bus, x, xid).await,
-                None => None,
-            };
-            session.walk(&bus, frames, Duration::from_secs(3)).await;
+            session.walk(&bus, None, Duration::from_secs(3)).await;
         }
         let before = session
             .windows(&bus)
@@ -348,15 +395,21 @@ impl Service {
         {
             let mut actor = Actor {
                 bus: &bus,
-                x,
                 session: &mut *session,
                 activity,
                 check,
-                clipboard,
+                front: &mut *front,
             };
             for (index, step) in steps.iter().enumerate() {
+                person.own_input(actor.front.last_key);
+                if actor.front.allowed && matches!(step.get("type").and_then(Value::as_str), Some("type" | "paste" | "key")) {
+                    actor.front.person_idle_ms = person.idle_ms().await;
+                }
                 let outcome = match check.check() {
-                    Ok(()) => actor.run(step).await,
+                    Ok(()) => match person.check_step(&bus, actor.session, step).await {
+                        Ok(()) => actor.run(step).await,
+                        Err(error) => Err(error),
+                    },
                     Err(error) => Err(error),
                 };
                 match outcome {
@@ -382,6 +435,7 @@ impl Service {
                 }
             }
         }
+        front.finish().await;
         let mut result = json!({"done": done});
         if let Some(failure) = failure {
             result["error"] = failure;
@@ -413,10 +467,25 @@ impl Service {
                 outline: flag(body, "outline", true),
                 marks: flag(body, "marks", true),
             };
-            result["state"] = observe::observation(&bus, x, session, &windows, cast.as_mut(), &options).await;
+            let status = person.status().await;
+            let last_event = activity.last(session.bus_name());
+            let mut state = observe::observation(&bus, session, &windows, cast.as_mut(), &options.for_status(status), last_event).await;
+            observe::mark_status(&mut state, status, &options);
+            observe::mark_accessibility(&mut state, session.pid, &session.name);
+            result["state"] = state;
         }
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)
+    }
+}
+
+/// A suite's modules share one process: the session follows the module asked for.
+fn follow_module(session: &mut AppSession, app: &RunningApp) {
+    if session.title_hint != app.title_hint {
+        session.title_hint = app.title_hint.clone();
+        session.id = app.id.clone();
+        session.name = app.name.clone();
+        session.window = None;
     }
 }
 

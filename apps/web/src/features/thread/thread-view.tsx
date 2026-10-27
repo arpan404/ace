@@ -1,6 +1,16 @@
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -90,7 +100,12 @@ export interface ThreadTarget {
  * terminals, Files and Browser. A long
  * thread adds its turns and search.
  */
-export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
+export function ThreadView(props: {
+  threadId: string;
+  target?: ThreadTarget | undefined;
+  /** Where the thread sits, in place of its own crumb: a delegated child's parent elsewhere. */
+  crumb?: ReactNode;
+}) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
   if (isPendingThread(props.threadId)) return <PendingThread threadId={props.threadId} />;
   return (
@@ -103,14 +118,18 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
         }
       >
         <ThreadForgeLinks threadId={props.threadId}>
-          <ThreadScreen threadId={props.threadId} target={props.target} />
+          <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
         </ThreadForgeLinks>
       </Suspense>
     </ThreadNavProvider>
   );
 }
 
-function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
+function ThreadScreen(props: {
+  threadId: string;
+  target: ThreadTarget | undefined;
+  crumb: ReactNode;
+}) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
   const requests = useInteractions(props.threadId);
@@ -174,7 +193,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
         <Screen
-          crumb={meta && <ThreadCrumb threadId={id} />}
+          crumb={meta && (props.crumb ?? <ThreadCrumb threadId={id} />)}
           title={
             renaming && thread ? (
               <Suspense fallback={null}>

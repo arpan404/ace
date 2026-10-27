@@ -1,9 +1,8 @@
 //! Runs model steps against one app. Each returns a one-line account of what it did, so the
 //! model knows which path was taken. Semantic steps go through AT-SPI and work on background
-//! windows; raw input (act_input.rs) needs the window in front.
+//! windows; raw input (act_input.rs) is refused, since Wayland lets no program send it.
 use crate::computer::bus::{Bus, BusError, Obj};
 use crate::computer::cancel::Checkpoint;
-use crate::computer::clipboard::Clipboard;
 use crate::computer::conditions::{self, Condition};
 use crate::computer::element::{self, Element};
 use crate::computer::error::{CuError, CuResult, clip};
@@ -11,7 +10,6 @@ use crate::computer::events::{Activity, pause};
 use crate::computer::outline::{self, Node};
 use crate::computer::session::AppSession;
 use crate::computer::text_match::{MenuChoice, choose_menu_item};
-use crate::computer::xdisplay::XDisplay;
 use serde_json::{Map, Value};
 use std::time::{Duration, Instant};
 
@@ -19,16 +17,20 @@ pub type Step = Map<String, Value>;
 
 pub struct Actor<'a> {
     pub bus: &'a Bus,
-    pub x: Option<&'a XDisplay>,
     pub session: &'a mut AppSession,
     pub activity: &'a Activity,
     pub check: &'a Checkpoint,
-    pub clipboard: &'a mut Option<Clipboard>,
+    /// Typing in front, for this batch (`act_front.rs`).
+    pub front: &'a mut crate::computer::act_front::Front,
 }
 
 pub fn int(step: &Step, key: &str) -> Option<i64> {
     step.get(key)
         .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+}
+
+pub fn point_of(step: &Step) -> Option<(f64, f64)> {
+    Some((step.get("x")?.as_f64()?, step.get("y")?.as_f64()?))
 }
 
 pub fn text<'s>(step: &'s Step, key: &str) -> Option<&'s str> {
@@ -48,8 +50,8 @@ impl Actor<'_> {
         }
         match kind.as_str() {
             "click" => self.click(step).await,
-            "move" => self.move_pointer(step).await,
-            "drag" => self.drag(step).await,
+            "move" => Err(self.raw_refused("move")),
+            "drag" => Err(self.raw_refused("drag")),
             "type" => self.type_text(step).await,
             "paste" => self.paste(step).await,
             "key" => self.key(step).await,
@@ -74,10 +76,12 @@ impl Actor<'_> {
 
     /// A fresh walk of the chosen window, for conditions and waits.
     pub async fn refresh(&mut self) -> Vec<Node> {
-        let frames = match self.x.and_then(|x| self.session.x_window(x).map(|xid| (x, xid))) {
-            Some((x, xid)) => self.session.frame_map(self.bus, x, xid).await,
-            None => None,
-        };
+        // Keep element frames while x,y steps can be placed on the last screenshot.
+        let frames = self.session.shot_offset.map(|_| crate::computer::walk::FrameMap {
+            coord: element::COORD_WINDOW,
+            dx: 0.0,
+            dy: 0.0,
+        });
         self.session.walk(self.bus, frames, Duration::from_secs(2)).await;
         self.session.nodes.clone()
     }
@@ -111,6 +115,36 @@ impl Actor<'_> {
         )
     }
 
+    /// The clickable element under screenshot pixel x,y, from the last screenshot's marks.
+    pub async fn element_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::hit).await
+    }
+
+    /// The innermost element of any kind under screenshot pixel x,y.
+    pub async fn node_at(&mut self, x: f64, y: f64, what: &str) -> CuResult<u64> {
+        self.find_at(x, y, what, outline::innermost).await
+    }
+
+    async fn find_at(&mut self, x: f64, y: f64, what: &str, find: fn(&[Node], f64, f64) -> Option<u64>) -> CuResult<u64> {
+        let Some((dx, dy)) = self.session.shot_offset else {
+            return Err(CuError::new(
+                "no_screenshot",
+                format!(
+                    "{what} at x,y needs a screenshot of {} first (screen_state with screenshot), whose pixels it is in. Or use an element id.",
+                    self.session.name
+                ),
+            ));
+        };
+        let scale = if self.session.scale > 0.0 { self.session.scale } else { 1.0 };
+        let nodes = self.refresh().await;
+        find(&nodes, x / scale + dx, y / scale + dy).ok_or_else(|| {
+            CuError::new(
+                "not_clickable",
+                format!("Nothing in {} to {what} is at ({x}, {y}). Look again with a screenshot, or use an element id.", self.session.name),
+            )
+        })
+    }
+
     /// Performs an action by index; a refusal or silence becomes a model-facing error.
     pub async fn perform(&self, element: &Element, index: usize, name: &str, label: &str) -> CuResult<()> {
         match element::do_action(self.bus, &element.obj, index).await {
@@ -132,7 +166,16 @@ impl Actor<'_> {
 
     async fn click(&mut self, step: &Step) -> CuResult<String> {
         if step.get("id").is_none() {
-            return self.raw_click(step).await;
+            let Some((x, y)) = point_of(step) else {
+                return Err(CuError::new("bad_action", "click needs an element id, or x and y from a screenshot."));
+            };
+            let id = self.element_at(x, y, "click").await?;
+            let mut by_id = step.clone();
+            by_id.remove("x");
+            by_id.remove("y");
+            by_id.insert("id".into(), Value::from(id));
+            let done = Box::pin(self.click(&by_id)).await?;
+            return Ok(format!("{done} (the element at the point)"));
         }
         let (id, element) = self.target(step).await?;
         let label = self.label(id);
@@ -177,28 +220,21 @@ impl Actor<'_> {
                 return Ok(format!("selected {label}"));
             }
         }
-        if let Some(center) = self
-            .session
-            .nodes
-            .iter()
-            .find(|n| n.id == id)
-            .and_then(|n| n.frame)
-            .map(|f| (f.x + f.w / 2.0, f.y + f.h / 2.0))
-        {
-            if self.foreground("click").is_ok() {
-                return self.click_window_point(step, center, Some(&label)).await;
-            }
-        }
         if element.states.focusable && plain && grab(self.bus, &element.obj).await {
             self.changed();
             return Ok(format!(
                 "focused {label}; it has no click action, so nothing else happened"
             ));
         }
-        self.foreground("click").map(|_| ())?;
+        if !plain || button != "left" || count > 2 {
+            return Err(CuError::new(
+                "not_supported",
+                format!("A click with modifiers, a hold, another button or more than two clicks needs real pointer input, which Wayland does not let ace send to {}. Use a plain click, an action listed on {label}, or a menu path.", self.session.name),
+            ));
+        }
         Err(CuError::new(
             "not_clickable",
-            format!("{label} has no position to click. Try an action listed on it, a menu path, or the keyboard."),
+            format!("{label} has no click action, and Wayland lets ace send no real clicks. Try an action listed on it, a menu path, or focus it."),
         ))
     }
 
@@ -524,7 +560,7 @@ impl Actor<'_> {
         Ok(format!("chose {}", trail.join(" > ")))
     }
 
-    async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
+    pub async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
         let Ok(children) = self.bus.children(container).await else {
             return Vec::new();
         };

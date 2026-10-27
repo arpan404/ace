@@ -85,6 +85,13 @@ export const SettingsValues = z.object({
    */
   "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
   /**
+   * Let agents work while this Mac is locked: the person's intent, not the Mac's state. When
+   * on and the signed authorization component is installed and verified, an approved turn may
+   * briefly operate apps behind opaque covers on a locked Mac. Off by default: locked input is
+   * refused. The live install state comes from `lockedUse.subscribe`. Global, admin only.
+   */
+  "computer.lockedUse": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person

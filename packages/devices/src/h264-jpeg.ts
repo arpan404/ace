@@ -20,7 +20,11 @@ export class H264Jpeg {
   private stopped = false;
   constructor(options: {
     ffmpeg: string;
-    fps: number;
+    /**
+     * The most pictures a second to make. Absent: one per access unit, for a source that already
+     * keeps to its rate (scrcpy's device encoder); the rate filter always holds the newest back.
+     */
+    fps?: number | undefined;
     /** Fit the images inside this box, never upscaling; native size when absent. */
     box?: { maxWidth: number; maxHeight: number };
     runtime: Pick<DeviceRuntime, "spawn">;
@@ -31,44 +35,9 @@ export class H264Jpeg {
     this.decoder = new JpegDecoder((payload, width, height) => {
       if (!this.stopped) options.image(payload, width, height);
     });
-    const box = options.box;
-    const filters = [
-      `fps=${Math.max(1, Math.floor(options.fps))}`,
-      ...(box
-        ? [
-            `scale='min(${box.maxWidth},iw)':'min(${box.maxHeight},ih)':force_original_aspect_ratio=decrease`,
-          ]
-        : []),
-      "mpdecimate=hi=0:lo=0:frac=0",
-    ];
     this.process = options.runtime.spawn({
       command: options.ffmpeg,
-      args: [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-probesize",
-        "32",
-        "-analyzeduration",
-        "0",
-        "-flags",
-        "low_delay",
-        "-f",
-        "h264",
-        "-i",
-        "pipe:0",
-        "-vf",
-        filters.join(","),
-        "-fps_mode",
-        "vfr",
-        "-c:v",
-        "mjpeg",
-        "-q:v",
-        "5",
-        "-f",
-        "image2pipe",
-        "pipe:1",
-      ],
+      args: h264JpegArgs({ ...(options.fps ? { fps: options.fps } : {}), box: options.box }),
       env: options.env,
       name: "device-jpeg",
     });
@@ -95,11 +64,75 @@ export class H264Jpeg {
     if (this.process.stdin.writableLength > backlogLimit) this.waitingForKeyframe = true;
     if (this.waitingForKeyframe && !unit.keyframe) return false;
     this.waitingForKeyframe = false;
-    this.process.stdin.write(unit.payload);
+    // The delimiter ends this unit for ffmpeg's parser, which otherwise holds it until the next
+    // one arrives: on a still screen that is never, and the newest picture never comes out.
+    this.process.stdin.write(Buffer.concat([withoutDelimiter(unit.payload), accessUnitDelimiter]));
     return true;
   }
   async stop(): Promise<void> {
     this.stopped = true;
     await this.process.stop({ graceMs: 0 });
   }
+}
+
+/** An H.264 access unit delimiter (NAL type 9, any slice type). */
+const accessUnitDelimiter = Buffer.from([0, 0, 0, 1, 9, 0xf0]);
+
+/** The unit without a delimiter of its own in front: one already went after the last unit. */
+function withoutDelimiter(payload: Buffer): Buffer {
+  const start = payload[2] === 1 ? 3 : payload[3] === 1 ? 4 : 0;
+  if (start && payload[0] === 0 && payload[1] === 0 && ((payload[start] ?? 0) & 0x1f) === 9)
+    return payload.subarray(start + 2);
+  return payload;
+}
+
+/**
+ * ffmpeg's arguments to turn Annex B H.264 on stdin into JPEG images on stdout as soon as each
+ * picture decodes: low-delay decoding and one encoder thread, so no picture waits inside it for
+ * later ones. `fps` caps the images a second; `box` fits them inside it, never upscaling. Shared
+ * with the screenrecord fallback, whose device side has no rate of its own.
+ */
+export function h264JpegArgs(options: {
+  fps?: number;
+  box?: { maxWidth: number; maxHeight: number } | undefined;
+}): string[] {
+  const { fps, box } = options;
+  const filters = [
+    ...(fps ? [`fps=${Math.max(1, Math.floor(fps))}`] : []),
+    ...(box
+      ? [
+          `scale='min(${box.maxWidth},iw)':'min(${box.maxHeight},ih)':force_original_aspect_ratio=decrease`,
+        ]
+      : []),
+    "mpdecimate=hi=0:lo=0:frac=0",
+  ];
+  return [
+    "-nostdin",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-probesize",
+    "32",
+    "-analyzeduration",
+    "0",
+    "-flags",
+    "low_delay",
+    "-f",
+    "h264",
+    "-i",
+    "pipe:0",
+    "-vf",
+    filters.join(","),
+    "-threads",
+    "1",
+    "-fps_mode",
+    "vfr",
+    "-c:v",
+    "mjpeg",
+    "-q:v",
+    "5",
+    "-f",
+    "image2pipe",
+    "pipe:1",
+  ];
 }

@@ -10,6 +10,7 @@
     "./zoom": "./src/zoom.ts",
     "./stream": "./src/stream.ts",
     "./video-fanout": "./src/video-fanout.ts",
+    "./video-gate": "./src/video-gate.ts",
     "./video-encoder": "./src/video-encoder.ts",
     "./picture-channel": "./src/picture-channel.ts",
     "./h264": "./src/h264.ts",

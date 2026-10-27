@@ -14,8 +14,8 @@ export const linuxScreenHelperPath = join("helpers", linuxScreenHelperName);
 const triples = { arm64: "aarch64-unknown-linux-gnu", x64: "x86_64-unknown-linux-gnu" } as const;
 
 /**
- * Builds `native/screen-helper-linux` for this host (release builds run in the Debian 11
- * container, so it needs glibc 2.31) and copies the executable to `destination`.
+ * Builds `native/screen-helper-linux` for this host (release builds run in the Debian 12
+ * container, so it needs glibc 2.36) and copies the executable to `destination`.
  */
 export async function stageLinuxScreenHelper(repo: string, destination: string): Promise<void> {
   if (process.platform !== "linux" || (process.arch !== "arm64" && process.arch !== "x64"))

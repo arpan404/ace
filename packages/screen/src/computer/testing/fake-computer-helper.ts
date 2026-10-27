@@ -4,12 +4,13 @@
  * every op it receives to FAKE_LOG.
  *   FAKE_CRASH_ONCE=<file>  exit on the first state request, then answer normally
  *   FAKE_HANG_ONCE=<file>   never answer the first act request (cancel is ignored)
- *   FAKE_LOG_SESSION=1      log the DISPLAY it was started with, before any op
+ *   FAKE_LOG_SESSION=1      log the WAYLAND_DISPLAY it was started with, before any op
  *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
+ *   FAKE_LOCKED=<file>      while the file reads "locked", state and act refuse as screen_locked
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const env = process.env;
@@ -131,9 +132,24 @@ async function act(request: Request, app: App): Promise<unknown> {
   };
 }
 
+const locked = () =>
+  !!env["FAKE_LOCKED"] &&
+  existsSync(env["FAKE_LOCKED"]) &&
+  readFileSync(env["FAKE_LOCKED"], "utf8").trim() === "locked";
+const lockedReply = (id: string) => ({
+  id,
+  ok: false,
+  error: {
+    code: "screen_locked",
+    message: "The Mac is locked and macOS is not exposing this app's window controls.",
+  },
+});
+
 /** Answers one request; undefined means it never replies. */
 async function answer(request: Request): Promise<unknown> {
   const app = find(request["app"]);
+  if ((request.op === "state" || request.op === "act") && app && locked())
+    return lockedReply(request.id);
   const missing = {
     id: request.id,
     ok: false,
@@ -174,7 +190,7 @@ async function answer(request: Request): Promise<unknown> {
 }
 
 if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);
-if (env["FAKE_LOG_SESSION"]) log(`session DISPLAY=${env["DISPLAY"] ?? ""}`);
+if (env["FAKE_LOG_SESSION"]) log(`session WAYLAND_DISPLAY=${env["WAYLAND_DISPLAY"] ?? ""}`);
 let queue = Promise.resolve();
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line) as Request;
