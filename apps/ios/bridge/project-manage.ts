@@ -30,6 +30,7 @@ import { submitCommand } from "./commands.ts";
 import { FolderRequest, ProjectFolders } from "./project-folders.ts";
 import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { Repositories, RepositoryRequest } from "./repositories.ts";
+import { ProjectScripts, ScriptRequest } from "./project-scripts.ts";
 
 /*
  * Managing a project from the phone, as the web's Edit project and Remove dialogs do: what a
@@ -80,13 +81,14 @@ export const NativeProjectRequest = z.object({
     ...FolderRequest.options,
     ...HostOpenRequest.options,
     ...RepositoryRequest.options,
+    ...ScriptRequest.options,
   ]),
 });
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
 
 /** How a write ended: taken (or saved here, `queued`), else the daemon's code and words. */
 export type WriteOutcome =
-  | { ok: true; queued: boolean }
+  | { ok: true; queued: boolean; terminalId?: string }
   | { ok: false; code: string; message: string };
 
 export type ProjectManageOwner = Pick<ClientCore, "request" | "enqueue" | "intent" | "commandId">;
@@ -96,11 +98,13 @@ export class ProjectManage {
   readonly #schedule: (delay: number, run: () => void) => () => void;
   readonly #folders: ProjectFolders;
   readonly #repositories: Repositories;
+  readonly #scripts: ProjectScripts;
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
     this.#owner = owner;
     this.#schedule = schedule;
     this.#folders = new ProjectFolders(owner, (raw) => this.write(raw));
     this.#repositories = new Repositories(owner, (raw) => this.write(raw));
+    this.#scripts = new ProjectScripts(owner, (raw) => this.write(raw));
   }
 
   async answer(request: NativeProjectRequest["request"]): Promise<unknown> {
@@ -136,6 +140,10 @@ export class ProjectManage {
       case "publish":
       case "publish.cancel":
         return this.#repositories.answer(request);
+      case "scripts":
+      case "runScript":
+      case "previews":
+        return this.#scripts.answer(request);
       case "openers":
       case "open":
         return answerHostOpen(this.#owner, request);
@@ -173,7 +181,12 @@ export class ProjectManage {
           stop = this.#schedule(receiptWait, () => finish({ ok: true, queued: true }));
         },
         (result) => {
-          if (result.ok) finish({ ok: true, queued: false });
+          if (result.ok)
+            finish({
+              ok: true,
+              queued: false,
+              ...(result.terminalId ? { terminalId: result.terminalId } : {}),
+            });
           else {
             const code = result.error ?? "project_failed";
             finish(refused(code, projectProblem(code).message));

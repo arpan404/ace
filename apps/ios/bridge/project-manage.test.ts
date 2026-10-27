@@ -1,7 +1,7 @@
 import "./test-host.ts";
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { WorkspaceId } from "@ace/protocol";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { ProjectManage } from "./project-manage.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -180,5 +180,62 @@ describe("opening a project on the machine running ace", () => {
       code: "editor_not_found",
       message: "That editor isn't installed on the machine any more.",
     });
+  });
+});
+
+describe("a thread's project scripts", () => {
+  const t1 = ThreadId.parse("t1");
+  test("scripts are listed with the file that configures them, and running one opens its terminal", async () => {
+    const { manage } = await machine();
+    const listed = (await manage.answer({ op: "scripts", threadId: t1 })) as {
+      scripts: { id: string; name: string; running: boolean }[];
+      files: string[];
+    };
+    expect(listed.files).toEqual(["package.json"]);
+    expect(listed.scripts.map((script) => script.name)).toEqual([
+      "dev",
+      "test",
+      "build",
+      "typecheck",
+    ]);
+    const ran = await manage.answer({
+      op: "runScript",
+      threadId: t1,
+      scriptId: "package.json:dev",
+    });
+    expect(ran).toMatchObject({ ok: true, reused: false, terminalId: expect.any(String) });
+    const again = (await manage.answer({ op: "scripts", threadId: t1 })) as typeof listed;
+    expect(again.scripts.find((script) => script.name === "dev")?.running).toBe(true);
+  });
+
+  test("running a script whose terminal still runs goes back to that terminal", async () => {
+    const { manage } = await machine();
+    const first = (await manage.answer({
+      op: "runScript",
+      threadId: t1,
+      scriptId: "package.json:dev",
+    })) as {
+      terminalId: string;
+    };
+    expect(
+      await manage.answer({ op: "runScript", threadId: t1, scriptId: "package.json:dev" }),
+    ).toEqual({
+      ok: true,
+      terminalId: first.terminalId,
+      reused: true,
+    });
+  });
+});
+
+describe("a thread's dev servers", () => {
+  test("detected dev servers are offered once each, to open in the thread's browser", async () => {
+    const { manage } = await machine();
+    const found = (await manage.answer({ op: "previews", threadId: ThreadId.parse("t1") })) as {
+      previews: { port: number; url: string; title: string }[];
+    };
+    expect(found.previews).toEqual([
+      { port: 5173, url: "http://localhost:5173/", title: "Vite + React + TS" },
+      { port: 3000, url: "http://localhost:3000/", title: "Next.js" },
+    ]);
   });
 });

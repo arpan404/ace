@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
+enum ThreadDestination { case changes, search, files, terminal, scripts, browser, devices, computer, tools, agents }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
@@ -64,6 +64,9 @@ struct ThreadMenu: View {
                 Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
                 Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
                 Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
+                Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
+                OpenOnHostMenu(model: model, target: HostOpenTarget(threadId: thread.id)) { Label("Open in…", ace: .arrowSquareOut) }
+                    .accessibilityIdentifier("thread.openIn")
                 Button("Computer use", ace: .appWindow) { open(.computer) }
                 Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
