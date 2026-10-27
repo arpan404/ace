@@ -1,6 +1,15 @@
 import { continueBlocked } from "@ace/client";
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
-import type { ThreadRowFlags } from "@ace/ui-core";
+import {
+  autoSettleChoice,
+  settleChoice,
+  threadMenu,
+  threadMenuDanger,
+  threadMenuLabels,
+  threadMenuSection,
+  type ThreadMenuId,
+  type ThreadRowFlags,
+} from "@ace/ui-core";
 import {
   ArchiveIcon,
   ArrowCounterClockwiseIcon,
@@ -77,143 +86,136 @@ export function threadActions(
   },
 ): ThreadAction[] {
   const { fork } = handlers;
-  const list: ThreadAction[] = [
-    {
-      id: "new-on-main",
-      label: "New thread from default branch",
-      icon: NotePencilIcon,
-      section: "start",
-      run: () => actions.newThreadOnMain(entry),
-    },
-    {
-      id: "rename",
-      label: "Rename",
-      icon: PencilSimpleIcon,
-      shortcut: "renameThread",
-      section: "start",
-      run: handlers.onRename,
-    },
-    {
-      id: "fork",
-      label: "Fork from the last turn…",
-      icon: GitForkIcon,
-      section: "start",
-      ...(fork.point ? {} : { disabled: "Available after the first turn finishes" }),
-      run: () => fork.point && fork.onFork(fork.point),
-    },
-    {
-      id: "copy-link",
-      label: "Copy link",
-      icon: LinkIcon,
-      section: "start",
-      run: () => actions.copyLink(entry),
-    },
-    {
-      id: "unread",
-      label: flags.unread ? "Mark read" : "Mark unread",
-      icon: flags.unread ? EnvelopeSimpleOpenIcon : EnvelopeSimpleIcon,
-      section: "read",
-      run: () => actions.setUnread(entry, !flags.unread),
-    },
-    {
-      id: "pin",
-      label: flags.pinned ? "Unpin" : "Pin",
-      icon: flags.pinned ? PushPinSlashIcon : PushPinIcon,
-      shortcut: "pinThread",
-      section: "read",
-      run: () => actions.setPinned(entry, !flags.pinned),
-    },
-    {
-      id: "move",
-      label: "Move to project…",
-      icon: FolderSimpleIcon,
-      section: "read",
-      run: handlers.onMove,
-    },
-  ];
-  if (handlers.onContinueOn)
-    list.push({
-      id: "continue-on",
-      label: "Continue on…",
-      icon: DesktopIcon,
-      section: "read",
-      ...(continueBlocked(entry.status.state)
-        ? { disabled: "Available once the thread stops working" }
-        : {}),
-      run: handlers.onContinueOn,
-    });
-  const settle = settleAction(entry, flags, actions);
-  if (settle) list.push(settle);
-  list.push(autoSettleAction(entry, actions));
-  list.push(
-    entry.archivedAt === undefined
-      ? {
-          id: "archive",
-          label: "Archive",
+  const item = (id: ThreadMenuId): ThreadAction => {
+    // Read and Unpin keep the ids of the toggles they are, as the compact menu lists them.
+    const key = id === "read" ? "unread" : id === "unpin" ? "pin" : id;
+    const base = { id: key, label: threadMenuLabels[id], section: threadMenuSection(id) };
+    switch (id) {
+      case "new-on-main":
+        return { ...base, icon: NotePencilIcon, run: () => actions.newThreadOnMain(entry) };
+      case "rename":
+        return {
+          ...base,
+          icon: PencilSimpleIcon,
+          shortcut: "renameThread",
+          run: handlers.onRename,
+        };
+      case "fork":
+        return {
+          ...base,
+          icon: GitForkIcon,
+          ...(fork.point ? {} : { disabled: "Available after the first turn finishes" }),
+          run: () => fork.point && fork.onFork(fork.point),
+        };
+      case "copy-link":
+        return { ...base, icon: LinkIcon, run: () => actions.copyLink(entry) };
+      case "unread":
+      case "read":
+        return {
+          ...base,
+          icon: id === "read" ? EnvelopeSimpleOpenIcon : EnvelopeSimpleIcon,
+          run: () => actions.setUnread(entry, id === "unread"),
+        };
+      case "pin":
+      case "unpin":
+        return {
+          ...base,
+          icon: id === "unpin" ? PushPinSlashIcon : PushPinIcon,
+          shortcut: "pinThread",
+          run: () => actions.setPinned(entry, id === "pin"),
+        };
+      case "move":
+        return { ...base, icon: FolderSimpleIcon, run: handlers.onMove };
+      case "settle":
+      case "unsettle":
+        return settleItem(entry, id, actions);
+      case "auto-settle-off":
+      case "auto-settle-on":
+        return autoSettleItem(entry, id, actions);
+      case "archive":
+        return {
+          ...base,
           icon: ArchiveIcon,
           shortcut: "archiveThread",
-          section: "leave",
           run: () => actions.archive(entry, handlers.onLeave),
-        }
-      : {
-          id: "restore",
-          label: "Restore from archive",
-          icon: TrayArrowUpIcon,
-          section: "leave",
-          run: () => actions.restore(entry),
-        },
-    {
-      id: "delete",
-      label: "Delete thread",
-      icon: TrashIcon,
-      danger: true,
-      section: "leave",
-      run: () => {
-        actions.remove(entry);
-      },
-    },
-  );
+        };
+      case "restore":
+        return { ...base, icon: TrayArrowUpIcon, run: () => actions.restore(entry) };
+      case "delete":
+        return {
+          ...base,
+          icon: TrashIcon,
+          danger: threadMenuDanger(id),
+          run: () => {
+            actions.remove(entry);
+          },
+        };
+    }
+  };
+  const list: ThreadAction[] = [];
+  for (const id of threadMenu(entry, flags)) {
+    list.push(item(id));
+    // Continue on follows Move, where machines link (ADR 0101).
+    if (id === "move" && handlers.onContinueOn)
+      list.push({
+        id: "continue-on",
+        label: "Continue on…",
+        icon: DesktopIcon,
+        section: "read",
+        ...(continueBlocked(entry.status.state)
+          ? { disabled: "Available once the thread stops working" }
+          : {}),
+        run: handlers.onContinueOn,
+      });
+  }
   return list;
+}
+
+function settleItem(
+  entry: ThreadListEntry,
+  id: "settle" | "unsettle",
+  actions: ThreadActions,
+): ThreadAction {
+  return {
+    id,
+    label: threadMenuLabels[id],
+    icon: id === "unsettle" ? ArrowCounterClockwiseIcon : CheckIcon,
+    section: "settle",
+    run: () => (id === "unsettle" ? actions.unsettle(entry) : actions.settle(entry)),
+  };
+}
+
+function autoSettleItem(
+  entry: ThreadListEntry,
+  id: "auto-settle-off" | "auto-settle-on",
+  actions: ThreadActions,
+): ThreadAction {
+  return {
+    id: "auto-settle",
+    label: threadMenuLabels[id],
+    icon: id === "auto-settle-off" ? TimerIcon : ClockCountdownIcon,
+    section: "settle",
+    run: () => actions.setAutoSettle(entry, id === "auto-settle-on"),
+  };
 }
 
 /**
  * Settle any thread that is not working, or Unsettle a settled one; nothing while work
  * continues, since the daemon settles only non-working threads. The menus and the Home row's
- * hover action share it.
+ * hover action share it (`settleChoice`).
  */
 export function settleAction(
   entry: ThreadListEntry,
   flags: ThreadRowFlags,
   actions: ThreadActions,
 ): ThreadAction | undefined {
-  if (flags.settled)
-    return {
-      id: "unsettle",
-      label: "Unsettle",
-      icon: ArrowCounterClockwiseIcon,
-      section: "settle",
-      run: () => actions.unsettle(entry),
-    };
-  if (entry.status.state === "working") return undefined;
-  return {
-    id: "settle",
-    label: "Settle",
-    icon: CheckIcon,
-    section: "settle",
-    run: () => actions.settle(entry),
-  };
+  const choice = settleChoice(entry, flags);
+  return choice && settleItem(entry, choice, actions);
 }
 
 /** Turn the thread's own auto-settle off (it stays until settled by hand) or back on. */
 export function autoSettleAction(entry: ThreadListEntry, actions: ThreadActions): ThreadAction {
-  const on = entry.autoSettle !== false;
-  return {
-    id: "auto-settle",
-    label: on ? "Turn off auto-settle" : "Turn on auto-settle",
-    icon: on ? TimerIcon : ClockCountdownIcon,
-    section: "settle",
-    run: () => actions.setAutoSettle(entry, !on),
-  };
+  return autoSettleItem(entry, autoSettleChoice(entry), actions);
 }
 
 /**
