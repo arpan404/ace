@@ -46,8 +46,12 @@ import {
  * Limits: retracted ids stay in the shown set until the 512-id bound evicts
  * them, so a re-pushed id after a retract stays suppressed (same as iOS);
  * concurrent taps on one interaction with the same option share one answer,
- * while a different option waits for the in-flight answer then revalidates
- * (the loser sees `stale`, matching iOS); without `hostId` there is no ledger (legacy single-machine
+ * while a different option chains behind the in-flight tail and revalidates
+ * serially (the loser sees `stale`). Outcome *values* match iOS sequential
+ * taps, but ordering deliberately diverges: iOS has no `resolving` map and
+ * mints a fresh command id per tap (`apps/ios/bridge/commands.ts`), so its
+ * concurrent same-option taps double-enqueue, while Android replays one
+ * stable `notificationCommandId`; without `hostId` there is no ledger (legacy single-machine
  * callers) and nothing dedupes or persists.
  */
 
@@ -333,10 +337,14 @@ export function createNotificationSync(
     // Concurrent taps on one interaction share a single answer when they name
     // the same live option: every tap reports under its own UI request id,
     // and the outbox sees exactly one command. A tap naming a different
-    // option waits for the in-flight answer, then revalidates from confirmed
-    // thread state (the loser sees `stale`, matching iOS which never
-    // coalesces across options). Every waiter patches its own request id,
-    // even when the shared task rejects.
+    // option chains behind the in-flight tail: it awaits the predecessor,
+    // then revalidates from confirmed thread state and settles serially, so
+    // woken waiters can never run `settleAction` concurrently even when the
+    // first outcome leaves the interaction pending (`unreachable`, `unsaved`,
+    // `saved` receipt-timeout). The loser sees `stale`; iOS has no such map
+    // and races concurrent taps instead, so enqueue counts deliberately
+    // diverge. Every waiter patches its own request id, even when the shared
+    // task rejects.
     for (;;) {
       const shared = resolving.get(parsedInteraction.data);
       if (shared === undefined) break;
@@ -347,11 +355,34 @@ export function createNotificationSync(
           return outcome("unsaved");
         }
       }
+      // Different option: append to the tail synchronously (no await between
+      // get and set), so concurrently woken waiters queue one behind another
+      // instead of racing to create. The chained task waits for the full
+      // predecessor (outcome or rejection) before its own `settleAction`,
+      // giving per-interaction mutual exclusion.
+      const predecessor = shared.task;
+      const chained: Promise<NotificationActionOutcome> = (async () => {
+        try {
+          await predecessor;
+        } catch {
+          // Fall through and revalidate: a rejected first tap must not leave
+          // this tapper without its own outcome patch.
+        }
+        return await settleAction(
+          parsedThread.data,
+          parsedInteraction.data,
+          input.optionId,
+          () => outcome("saved"),
+        );
+      })();
+      resolving.set(parsedInteraction.data, { optionId: input.optionId, task: chained });
       try {
-        await shared.task;
+        return outcome(await chained);
       } catch {
-        // Fall through and revalidate: a rejected first tap must not leave
-        // this tapper without its own outcome patch.
+        return outcome("unsaved");
+      } finally {
+        if (resolving.get(parsedInteraction.data)?.task === chained)
+          resolving.delete(parsedInteraction.data);
       }
     }
     const task = settleAction(parsedThread.data, parsedInteraction.data, input.optionId, () =>

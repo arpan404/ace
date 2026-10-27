@@ -336,6 +336,216 @@ it("concurrent duplicate taps enqueue once and keep the exact live option", asyn
   });
 });
 
+it("concurrent taps with different options serialize: winner confirms, loser goes stale", async () => {
+  const { client, sync, of, interactions, interactionId, approvalAlert } = await phone();
+  const enqueue = vi.spyOn(client, "enqueue");
+  const alert = approvalAlert("n:1", ["allow", "deny"]);
+  const [winner, loser] = await Promise.all([
+    sync.resolve({
+      requestId: "tap-allow",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-deny",
+      threadId,
+      interactionId,
+      optionId: "deny",
+      alert,
+      canOperate: true,
+    }),
+  ]);
+  // The first tap owns the tail; the different-option waiter chains behind it
+  // and revalidates after the interaction resolves.
+  expect(winner).toBe("confirmed");
+  expect(loser).toBe("stale");
+  expect(enqueue).toHaveBeenCalledTimes(1);
+  expect(interactions()[0]).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "allow" },
+  });
+  expect(of("notifications.action")).toContainEqual({
+    type: "notifications.action",
+    id: "tap-allow",
+    outcome: "confirmed",
+  });
+  expect(of("notifications.action")).toContainEqual({
+    type: "notifications.action",
+    id: "tap-deny",
+    outcome: "stale",
+  });
+});
+
+it("a rejected first tap still gives every waiter its own outcome", async () => {
+  const { client, sync, of, interactions, interactionId, approvalAlert } = await phone();
+  // The first `thread()` lease throws, so the owner's task rejects instead of
+  // resolving to an outcome. Same-option waiters must still patch `unsaved`
+  // (no unhandled rejection, no missing patch); the different-option waiter
+  // chains behind and retries from live state.
+  const thread = vi
+    .spyOn(client, "thread")
+    .mockImplementationOnce(() => {
+      throw new Error("lease boom");
+    });
+  const enqueue = vi.spyOn(client, "enqueue");
+  const alert = approvalAlert("n:1", ["allow", "deny"]);
+  const [owner, same, different] = await Promise.all([
+    sync.resolve({
+      requestId: "tap-owner",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-same",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-different",
+      threadId,
+      interactionId,
+      optionId: "deny",
+      alert,
+      canOperate: true,
+    }),
+  ]);
+  expect(owner).toBe("unsaved");
+  expect(same).toBe("unsaved");
+  expect(different).toBe("confirmed");
+  // Only the chained retry enqueues; the rejected owner never reached it.
+  expect(enqueue).toHaveBeenCalledTimes(1);
+  expect(interactions()[0]).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "deny" },
+  });
+  for (const [id, outcome] of [
+    ["tap-owner", "unsaved"],
+    ["tap-same", "unsaved"],
+    ["tap-different", "confirmed"],
+  ] as const) {
+    expect(of("notifications.action")).toContainEqual({
+      type: "notifications.action",
+      id,
+      outcome,
+    });
+  }
+  thread.mockRestore();
+});
+
+it("multiple different-option waiters waking after failures never enqueue concurrently", async () => {
+  const { daemon, client, sync, of, interactions, interactionId } =
+    await phone();
+  // A second pending approval offering three options, so three concurrent
+  // taps can each name a different option.
+  daemon.apply(threadId, [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "push-3",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: "Codex wants a third command",
+        options: [
+          { id: "ox", label: "X", kind: "allow_once" },
+          { id: "oy", label: "Y", kind: "allow_once" },
+          { id: "oz", label: "Z", kind: "allow_once" },
+        ],
+      },
+    },
+  ]);
+  await vi.waitFor(() => expect(interactions()).toHaveLength(2));
+  const target = interactions().find((entry) => entry.id !== interactionId)?.id ?? "";
+  expect(target).not.toBe("");
+  const alert = DaemonNotification.parse({
+    id: "n:3opt",
+    threadId,
+    title: "Codex wants a third command",
+    status: "needs_you",
+    interactionId: target,
+    backgroundCount: 0,
+    actions: [
+      { action: "approve", optionId: "ox" },
+      { action: "deny", optionId: "oy" },
+    ],
+  });
+  // Fail the first two outbox saves (`unsaved` leaves the interaction
+  // pending) while tracking overlap; the third succeeds. A serial chain
+  // gives exactly three saves, one at a time, and every request its patch.
+  const realEnqueue = client.enqueue.bind(client);
+  let calls = 0;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const enqueue = vi.spyOn(client, "enqueue").mockImplementation(async (payload, id) => {
+    calls += 1;
+    if (calls <= 2) throw new Error("outbox full");
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    try {
+      await new Promise((done) => setTimeout(done, 20));
+      return await realEnqueue(payload, id as string);
+    } finally {
+      inFlight -= 1;
+    }
+  });
+  const [first, second, third] = await Promise.all([
+    sync.resolve({
+      requestId: "tap-ox",
+      threadId,
+      interactionId: target,
+      optionId: "ox",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-oy",
+      threadId,
+      interactionId: target,
+      optionId: "oy",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-oz",
+      threadId,
+      interactionId: target,
+      optionId: "oz",
+      alert,
+      canOperate: true,
+    }),
+  ]);
+  expect(first).toBe("unsaved");
+  expect(second).toBe("unsaved");
+  expect(third).toBe("confirmed");
+  expect(calls).toBe(3);
+  expect(enqueue).toHaveBeenCalledTimes(3);
+  expect(maxInFlight).toBe(1);
+  expect(interactions().find((entry) => entry.id === target)).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "oz" },
+  });
+  for (const [id, outcome] of [
+    ["tap-ox", "unsaved"],
+    ["tap-oy", "unsaved"],
+    ["tap-oz", "confirmed"],
+  ] as const) {
+    expect(of("notifications.action")).toContainEqual({
+      type: "notifications.action",
+      id,
+      outcome,
+    });
+  }
+});
+
 it("an action for an option the approval does not offer sends nothing", async () => {
   const { sync, of, interactions, interactionId, approvalAlert } = await phone();
   const outcome = await sync.resolve({
