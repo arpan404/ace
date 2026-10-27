@@ -17,9 +17,18 @@ test("growth after an empty period is new, and two empty periods compare nothing
 });
 
 test("the previous period is the same number of days ending the day before", () => {
-  expect(previousSpan("2026-10-20", "2026-10-26")).toEqual({ from: "2026-10-13", to: "2026-10-19" });
-  expect(previousSpan("2026-10-26", "2026-10-26")).toEqual({ from: "2026-10-25", to: "2026-10-25" });
-  expect(previousSpan("2026-03-01", "2026-03-30")).toEqual({ from: "2026-01-30", to: "2026-02-28" });
+  expect(previousSpan("2026-10-20", "2026-10-26")).toEqual({
+    from: "2026-10-13",
+    to: "2026-10-19",
+  });
+  expect(previousSpan("2026-10-26", "2026-10-26")).toEqual({
+    from: "2026-10-25",
+    to: "2026-10-25",
+  });
+  expect(previousSpan("2026-03-01", "2026-03-30")).toEqual({
+    from: "2026-01-30",
+    to: "2026-02-28",
+  });
   expect(growthBasis(1)).toBe("vs yesterday");
   expect(growthBasis(30)).toBe("vs previous 30 days");
 });
@@ -28,7 +37,8 @@ test("token counts read in compact K, M and B and never round up into the wrong 
   expect(formatTokens(19_300_000_000)).toBe("19.3B");
   expect(formatTokens(412_000)).toBe("412K");
   expect(formatTokens(1_240_000)).toBe("1.2M");
-  expect(formatTokens(999_600)).toBe("1.0M");
-  expect(formatTokens(999_960_000)).toBe("1.0B");
+  expect(formatTokens(999_600)).toBe("1M");
+  expect(formatTokens(250_000_000)).toBe("250M");
+  expect(formatTokens(999_960_000)).toBe("1B");
   expect(formatTokens(842)).toBe("842");
 });

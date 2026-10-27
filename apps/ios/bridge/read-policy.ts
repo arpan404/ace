@@ -66,6 +66,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "automation.inbox":
       return "automations";
     case "usage.limits":
+    case "usage.report":
     case "usage.summary":
       return "usage";
     case "pluginRequest":

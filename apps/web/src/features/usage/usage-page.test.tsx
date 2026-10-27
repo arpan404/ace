@@ -271,11 +271,11 @@ test("the range and the provider filter change the totals", async () => {
   await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
 
   await userEvent.click(screen.getByRole("button", { name: "30 days" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("6.0M"));
+  await waitFor(() => expect(stat("Processed tokens")).toBe("6M"));
 
   await userEvent.click(screen.getByRole("button", { name: "Provider: All providers" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Codex" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("3.0M"));
+  await waitFor(() => expect(stat("Processed tokens")).toBe("3M"));
   expect(screen.queryByRole("listitem", { name: "Claude Code" })).toBeNull();
 });
 

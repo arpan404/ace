@@ -36,7 +36,8 @@ function changeLabel(current: number, previous: number): string {
 
 /** `current` against `previous`; a change under 0.05% reads as no change. */
 export function usageGrowth(current: number, previous: number): UsageGrowth {
-  if (previous <= 0) return current > 0 ? { direction: "new", label: "New" } : { direction: "none", label: "" };
+  if (previous <= 0)
+    return current > 0 ? { direction: "new", label: "New" } : { direction: "none", label: "" };
   const percent = ((current - previous) / previous) * 100;
   if (Math.abs(percent) < 0.05) return { direction: "flat", label: "No change" };
   return { direction: percent > 0 ? "up" : "down", label: changeLabel(current, previous) };
