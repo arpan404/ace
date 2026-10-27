@@ -113,15 +113,15 @@ test("a project with running threads is removed only by stopping and deleting th
     "A thread in docs is still running.",
   );
   expect(listed(made)).toContain("docs");
-  const thread = () => {
+  const docsThread = () => {
     const view = made.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-docs"] : undefined;
   };
-  expect(thread()).toBeDefined();
+  expect(docsThread()).toBeDefined();
   await userEvent.click(within(dialog).getByRole("button", { name: "Stop threads and remove" }));
   await waitFor(() => expect(listed(made)).not.toContain("docs"));
   // Deleted threads leave the thread list, so nothing keeps the project on screen.
-  expect(thread()).toBeUndefined();
+  expect(docsThread()).toBeUndefined();
 });
 
 test("cancelling a refused removal gives another project and a reopened project a fresh attempt", async () => {
