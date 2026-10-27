@@ -120,18 +120,27 @@ export function sidebarGroups(
   return groups.filter((group) => group.rows.length > 0);
 }
 
+/** What every surface says while the machine has automations turned off. */
+export const automationsOffText = "Automations are off on this machine.";
+/** Where they are turned back on. */
+export const automationsOffFix = "Turn on Run automations in Settings › Agents.";
+
 /**
  * When it runs next, in words: paused, the next start (with its zone when not local), or what
  * it waits for. A spent schedule says it is finished; one the daemon hasn't placed yet says
- * that, not a guess. Automations being off on the machine is the caller's to say.
+ * that, not a guess; with automations off on the machine it says so.
  */
 export function nextRunText(
   automation: Automation,
   nextRunAt: number | undefined,
   now: number,
   localZone: string,
+  /** Whether the machine runs automations (`automations.enabled`); undefined while unknown. */
+  running?: boolean,
 ): string {
   if (!automation.enabled) return "Paused. Resume to schedule the next run.";
+  // With automations off on its machine nothing runs, so no start is promised.
+  if (running === false) return automationsOffText;
   if (nextRunAt !== undefined) {
     const zone =
       automation.trigger.kind === "schedule" ? automation.trigger.schedule.timezone : undefined;

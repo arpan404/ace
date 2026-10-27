@@ -37,7 +37,7 @@ import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
-import { localTimeZone } from "@ace/ui-core/automations";
+import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -260,6 +260,13 @@ async function start(json: string): Promise<void> {
       return newThread.loadedAgents;
     },
     threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
+    repository: async (workspace) => {
+      const reply = await owner.request(
+        { type: "projects.request", operation: { op: "workspace.inspect", path: workspace } },
+        { timeoutMs: 10_000 },
+      );
+      return reply.result.kind === "inspection" ? projectRepository(reply.result) : undefined;
+    },
   });
   services = new NativeServices(
     client,

@@ -86,6 +86,7 @@ export const FormSave = z.object({
 
 interface FormDeps {
   now(): number;
+  repository(workspace: string): Promise<string | undefined>;
   zone(): string;
   agents(): Promise<NewThreadAgents | undefined>;
 }
@@ -136,9 +137,15 @@ export function describeForm(form: Form, now: number) {
 }
 
 /** The form after one native change. */
-export function changeForm(form: Form, change: z.infer<typeof Change>, now: number): Form {
+export function changeForm(
+  form: Form,
+  change: z.infer<typeof Change>,
+  now: number,
+  suggestedRepository?: string,
+): Form {
   let next: Form = { ...form };
-  if (change.trigger) next = { ...next, ...triggerPatch(next, change.trigger, undefined) };
+  if (change.trigger)
+    next = { ...next, ...triggerPatch(next, change.trigger, suggestedRepository) };
   if (change.cadence) next = { ...next, ...cadencePatch(next, change.cadence, now) };
   if (change.at !== undefined) next = { ...next, ...wallMoment(change.at, next.timezone) };
   if (change.time !== undefined)
@@ -197,9 +204,18 @@ export async function formOpen(request: z.infer<typeof FormOpen>, deps: FormDeps
   return { ok: true, pick, choices, ...describeForm(form, now) };
 }
 
-export function formPreview(request: z.infer<typeof FormPreview>, deps: FormDeps): Reply {
+export async function formPreview(
+  request: z.infer<typeof FormPreview>,
+  deps: FormDeps,
+): Promise<Reply> {
   const now = deps.now();
-  const form = request.change ? changeForm(request.form, request.change, now) : request.form;
+  const change = request.change;
+  // A GitHub trigger starts from the project's own repository; the field stays editable.
+  const suggested =
+    change?.trigger === "github" && !request.form.repository && request.form.workspace
+      ? await deps.repository(request.form.workspace).catch(() => undefined)
+      : undefined;
+  const form = change ? changeForm(request.form, change, now, suggested) : request.form;
   return { ok: true, ...describeForm(form, now) };
 }
 

@@ -88,6 +88,7 @@ export {
   automationLists,
   automationErrorMessage,
   entrySource,
+  savedBefore,
   type AutomationEntry,
   type AutomationLists,
 } from "./lists.ts";
@@ -95,6 +96,9 @@ export {
   sidebarRow,
   sidebarGroups,
   nextRunText,
+  automationsOffText,
+  automationsOffFix,
   type SidebarRow,
   type SidebarGroup,
 } from "./sidebar-rows.ts";
+export { projectRepository } from "./project-repository.ts";
