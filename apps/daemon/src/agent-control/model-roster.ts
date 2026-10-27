@@ -40,11 +40,19 @@ export const defaultModelsPerProvider = 8;
 /** A query returns at most this many models, nearest first. */
 export const queryMatches = 10;
 
+/** The efforts one group of serving accounts offers for a model. */
+interface Variant {
+  efforts: string[];
+  defaultEffort?: string | undefined;
+  accounts: string[];
+}
 interface Merged {
   id: string;
   provider: ProviderKind;
   first: CatalogModel;
   accounts: string[];
+  /** Accounts grouped by the efforts they offer, so each set names only what delegate accepts. */
+  variants: Variant[];
   defaultOn: string[];
   legacy: boolean;
   /** Some account calls it superseded, so a newer release of its line exists there. */
@@ -72,9 +80,22 @@ function callerModel(row: CatalogModel, caller: RosterInput["caller"]) {
   );
 }
 
+/** Adds an account to the variant whose efforts and default effort match its row. */
+function addVariant(variants: Variant[], model: CatalogModel, account: string) {
+  const efforts = effortsOf(model);
+  const same = variants.find(
+    (variant) =>
+      variant.defaultEffort === model.defaultEffort && variant.efforts.join() === efforts.join(),
+  );
+  if (same) {
+    if (!same.accounts.includes(account)) same.accounts.push(account);
+  } else variants.push({ efforts, defaultEffort: model.defaultEffort, accounts: [account] });
+}
+
 /**
  * One entry per model across every account that serves it. A model is legacy only when every
  * account that serves it calls it legacy: an account whose newest release it is still needs it.
+ * Accounts that offer different efforts for it stay apart in its variants.
  */
 function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merged[] {
   const byModel = new Map<string, Merged>();
@@ -86,6 +107,7 @@ function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merge
       provider: model.provider,
       first: model,
       accounts: [],
+      variants: [],
       defaultOn: [],
       legacy: isLegacy(model),
       supersededSomewhere: false,
@@ -93,6 +115,7 @@ function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merge
     };
     byModel.set(key, entry);
     if (!entry.accounts.includes(account)) entry.accounts.push(account);
+    addVariant(entry.variants, model, account);
     if (model.isDefault) entry.defaultOn.push(account);
     entry.legacy &&= isLegacy(model);
     entry.supersededSomewhere ||= isLegacy(model);
@@ -113,9 +136,9 @@ function newer(a: Merged, b: Merged): boolean {
 }
 
 /**
- * Current models in catalog order. A long list keeps every pinned and default model, then the
- * newest current release of each line across all accounts in catalog order, up to the cap. A
- * pinned or default model never takes its line's place: the line's newest release still shows.
+ * Current models in catalog order. A long list shows the newest current release of each line
+ * across all accounts, for the first lines in catalog order up to the cap, plus every pinned and
+ * default model. Pinned and default models never use up the cap or take a line's place.
  */
 function listed(models: readonly Merged[]): Merged[] {
   const keep = models.filter((model) => model.pinned || model.defaultOn.length || !model.legacy);
@@ -127,12 +150,11 @@ function listed(models: readonly Merged[]): Merged[] {
     const held = newest.get(family);
     if (!held || newer(model, held)) newest.set(family, model);
   }
-  const chosen = new Set(keep.filter((model) => model.pinned || model.defaultOn.length));
   const lines = new Set(newest.values());
-  for (const model of keep) {
-    if (chosen.size >= defaultModelsPerProvider) break;
-    if (lines.has(model)) chosen.add(model);
-  }
+  const chosen = new Set(
+    keep.filter((model) => lines.has(model)).slice(0, defaultModelsPerProvider),
+  );
+  for (const model of keep) if (model.pinned || model.defaultOn.length) chosen.add(model);
   return keep.filter((model) => chosen.has(model));
 }
 
@@ -196,24 +218,22 @@ function providerGroup(
   const agreed = new Set(ids.map((id) => defaults.get(id)));
   const shared = agreed.size === 1 ? [...agreed][0] : undefined;
   const sets = new Map<string, AgentModelsSet>();
-  for (const model of shown) {
-    const efforts = effortsOf(model.first);
-    const serving = ids.every((id) => model.accounts.includes(id))
-      ? undefined
-      : model.accounts.map(context.nameOf);
-    const key = JSON.stringify([efforts, model.first.defaultEffort, serving, model.legacy]);
-    const set: AgentModelsSet = sets.get(key) ?? {
-      ids: [],
-      efforts: efforts.join(),
-      ...(model.first.defaultEffort ? { defaultEffort: model.first.defaultEffort } : {}),
-      ...(serving ? { accounts: serving } : {}),
-      ...(model.legacy ? { legacy: true as const } : {}),
-    };
-    sets.set(key, set);
-    set.ids.push(model.id);
-    const name = nameOf(model.first);
-    if (name) set.names = { ...set.names, [model.id]: name };
-  }
+  for (const model of shown)
+    for (const { efforts, defaultEffort, accounts: on } of model.variants) {
+      const serving = ids.every((id) => on.includes(id)) ? undefined : on.map(context.nameOf);
+      const key = JSON.stringify([efforts, defaultEffort, serving, model.legacy]);
+      const set: AgentModelsSet = sets.get(key) ?? {
+        ids: [],
+        efforts: efforts.join(),
+        ...(defaultEffort ? { defaultEffort } : {}),
+        ...(serving ? { accounts: serving } : {}),
+        ...(model.legacy ? { legacy: true as const } : {}),
+      };
+      sets.set(key, set);
+      set.ids.push(model.id);
+      const name = nameOf(model.first);
+      if (name) set.names = { ...set.names, [model.id]: name };
+    }
   return {
     provider,
     accounts: accounts.map((account) =>

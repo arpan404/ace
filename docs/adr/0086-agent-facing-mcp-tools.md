@@ -271,11 +271,14 @@ retry fixes it.
 **`models` returns one compact roster.** The default call lists every provider's current models
 in one result (about 1,500 characters on a realistic install, down from 5,400 for the first of
 five pages): models sharing efforts and serving accounts are one set, each account is listed
-once with only its unusual fields, and superseded releases are counted in `omitted`. A model is
-superseded only when every account that serves it says so, so an account's newest release stays
-listed even when another account has a newer one. Large catalogues keep favourites, the default
-and the caller's model, then the newest current release of each line across all accounts, up to
-eight; a pinned older release never takes its line's place. A provider states one `default` only
+once with only its unusual fields, and superseded releases are counted in `omitted`. When the
+accounts serving one model offer different efforts or default efforts, each group of accounts
+gets its own set naming them, so every advertised effort is one `delegate` accepts on that
+account. A model is superseded only when every account that serves it says so, so an account's
+newest release stays listed even when another account has a newer one. Large catalogues show
+the newest current release of up to eight lines across all accounts, in catalogue order, plus
+every favourite, default and the caller's model on top of those eight; a pinned older release
+never takes its line's place or one of the eight. A provider states one `default` only
 when every account agrees, judged on the whole catalogue even for a query, else each account
 states its own. A set names a serving account by its label only when `delegate` would resolve
 that label to the same account, else by its id. `query` searches every account and every

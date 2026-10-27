@@ -98,6 +98,31 @@ describe("default roster", () => {
     expect(listed).not.toContain("sol-1");
   });
 
+  test("pinned legacy models never crowd current model lines out of a large catalogue", () => {
+    const lines = Array.from({ length: 10 }, (_, index) =>
+      row("codex", "codex-a", `line-${index}`, `Line ${index}`, {
+        family: `line-${index}`,
+        isDefault: index === 0,
+      }),
+    );
+    const favourites = Array.from({ length: 7 }, (_, index) =>
+      row("codex", "codex-a", `old-${index}`, `Old ${index}`, {
+        family: `old-${index}`,
+        tier: "legacy",
+        favourite: true,
+      }),
+    );
+    const result = modelRoster({
+      rows: [...favourites, ...lines],
+      accounts: [account("codex", "codex-a")],
+      caller,
+    });
+    const listed = ids(provider(result, "codex"));
+    for (const entry of [...favourites, ...lines.slice(0, 8)])
+      expect(listed).toContain(entry.model.id);
+    expect(listed).not.toContain("line-8");
+  });
+
   test("hidden models are neither listed nor counted", () => {
     const install = realisticInstall();
     for (const entry of install.rows)
@@ -124,6 +149,35 @@ describe("efforts", () => {
       efforts: "low,medium,high,xhigh,max,ultra",
       defaultEffort: "low",
     });
+  });
+
+  test("each account a shared model is listed on is offered only the efforts it accepts", () => {
+    const accounts = [account("codex", "codex-a"), account("codex", "codex-b")];
+    const result = modelRoster({
+      rows: [
+        row("codex", "codex-a", "gpt-6-luna", "GPT-6 Luna", { effortIds: ["high"] }),
+        // The same id added by hand on the second login, with no efforts.
+        row("codex", "codex-b", "gpt-6-luna", "GPT-6 Luna", { effortIds: [] }),
+        row("codex", "codex-a", "gpt-6-sol", "GPT-6 Sol"),
+        row("codex", "codex-b", "gpt-6-sol", "GPT-6 Sol"),
+      ],
+      accounts,
+      caller,
+    });
+    const codex = provider(result, "codex");
+    const offered = (id: string, accountId: string) =>
+      codex.sets
+        .filter(
+          (set) => set.ids.includes(id) && (!set.accounts || set.accounts.includes(accountId)),
+        )
+        .map((set) => ({
+          efforts: set.efforts ?? result.efforts,
+          defaultEffort: set.defaultEffort,
+        }));
+    expect(offered("gpt-6-luna", "codex-a")).toEqual([{ efforts: "high", defaultEffort: "high" }]);
+    expect(offered("gpt-6-luna", "codex-b")).toEqual([{ efforts: "", defaultEffort: undefined }]);
+    // Accounts that agree stay in one set naming no account.
+    expect(codex.sets.filter((set) => set.ids.includes("gpt-6-sol"))).toHaveLength(1);
   });
 
   test("a model that takes no effort says so", () => {
