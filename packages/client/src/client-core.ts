@@ -1,3 +1,4 @@
+import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
 import { AttachmentStreams } from "./attachment-channel.ts";
@@ -136,6 +137,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Read snapshots still being written by collections already closed. */
   #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps = new SendOps();
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();

@@ -1,7 +1,7 @@
 /*
  * One thing at a time per failed send: an edit being saved or a retry on its way. Each refuses
- * to start while the other runs, and the send's row says which runs, so the phone greys the other
- * control. Pure state; the inbox re-sends the row when it changes.
+ * to start while the other runs; observers learn which runs, so a client greys the other control.
+ * One per `ClientCore` (`client.sendOps`), shared by every screen on that client.
  */
 
 export type SendOp = "editing" | "retrying";
@@ -42,12 +42,5 @@ export class SendOps {
   }
 }
 
-/** Why the other control waits, in the phone's words. */
-export function sendBusy(running: SendOp): string {
-  return running === "retrying"
-    ? "It's being sent again. Edit it if that fails."
-    : "Its edit is being saved. Try again once it's saved.";
-}
-
-/** The send's newer attempt (Retry saves one), which the row now stands for. */
+/** The send's newer attempt (`retrySend` saves one), which then stands for it. */
 export const retryOf = (commandId: string) => `${commandId}:retry`;

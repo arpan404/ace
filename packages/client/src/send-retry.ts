@@ -1,3 +1,4 @@
+import { retryOf } from "./send-ops.ts";
 import { CommandId, type CommandPayload } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
 
@@ -43,6 +44,6 @@ export async function retrySend(
   }
   const current = read();
   if (!current) throw new Error("not_found");
-  await client.enqueue(current, `${commandId}:retry`);
+  await client.enqueue(current, retryOf(commandId));
   return "resent";
 }

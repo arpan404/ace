@@ -30,3 +30,10 @@ export function retainedInputNotice(
   }
   return undefined;
 }
+
+/** Why Edit or Retry of a failed send waits: the other one runs on it now. */
+export function sendBusyReason(running: "editing" | "retrying"): string {
+  return running === "retrying"
+    ? "It's being sent again. Edit it if that fails."
+    : "Its edit is being saved. Try again once it's saved.";
+}

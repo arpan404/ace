@@ -1,4 +1,10 @@
-import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
+import {
+  retryOf,
+  type ChangeTap,
+  type ClientCore,
+  type PendingSend,
+  type SidebarSource,
+} from "@ace/client";
 import { settledTotal, type HomeSort } from "@ace/ui-core";
 import {
   inboxNextChange,
@@ -20,14 +26,12 @@ import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
 import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
 import { settleSend } from "./send-recovery.ts";
-import { SendOps, retryOf } from "./send-ops.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
  * before the daemon confirms them, and the machine's sort.
  */
-export type InboxFollow = (() => void) &
-  PlaceContext & { dismissed?: DismissedSends; ops?: SendOps };
+export type InboxFollow = (() => void) & PlaceContext & { dismissed?: DismissedSends };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -97,8 +101,6 @@ export function followInbox(
   lastSort?: HomeSort,
   /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
   dismissed: DismissedSends = keepNone,
-  /** Edits and retries of failed sends, one at a time per send; the row says which runs. */
-  ops: SendOps = new SendOps(),
 ): InboxFollow {
   const store = owner.threads().store;
   const organizer = inboxOrganizer(owner, machineId, clock);
@@ -198,7 +200,10 @@ export function followInbox(
         type: "pending",
         id,
         row: send
-          ? { ...pendingRow(send, connection.getSnapshot()), busy: ops.current(id) ?? null }
+          ? {
+              ...pendingRow(send, connection.getSnapshot()),
+              busy: owner.sendOps.current(id) ?? null,
+            }
           : null,
       };
     });
@@ -260,7 +265,7 @@ export function followInbox(
       if (id.endsWith(":retry")) pending(id.slice(0, -":retry".length));
       sections();
     }),
-    ops.observe((id) => pending(id)),
+    owner.sendOps.observe((id) => pending(id)),
     dismissed.observe((id) => {
       if (id !== undefined) pending(id);
       else for (const send of sends.getSnapshot()) pending(send.commandId);
@@ -295,7 +300,7 @@ export function followInbox(
     checkpoint.stop();
     arm(undefined);
   };
-  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed, ops });
+  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -373,7 +378,7 @@ export function inboxAction(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  inbox?: PlaceContext & { dismissed?: DismissedSends; ops?: SendOps },
+  inbox?: PlaceContext & { dismissed?: DismissedSends },
 ): void {
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
@@ -397,7 +402,7 @@ export function inboxAction(
     action.kind === "sendWords" ||
     action.kind === "editSend"
   ) {
-    void settleSend(owner, action, requestId, pump, inbox?.dismissed, inbox?.ops ?? new SendOps());
+    void settleSend(owner, action, requestId, pump, inbox?.dismissed);
     return;
   }
   if (action.kind === "more") {

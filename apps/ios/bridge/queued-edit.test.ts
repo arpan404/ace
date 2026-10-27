@@ -18,7 +18,6 @@ import { tokensFromInput } from "@ace/ui-core";
 import type { ClientCore } from "@ace/client";
 import { followDismissed } from "./dismissed-sends.ts";
 import { followInbox, inboxAction } from "./inbox.ts";
-import { SendOps } from "./send-ops.ts";
 
 afterEach(reset);
 
@@ -236,7 +235,6 @@ async function failedSendThread(id: string) {
   fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
   fake.apply(id, [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
   const owner = connect(fake);
-  const ops = new SendOps();
   const inbox = followInbox(
     owner,
     "machine",
@@ -246,9 +244,8 @@ async function failedSendThread(id: string) {
     undefined,
     undefined,
     followDismissed({ load: async () => "", save: async () => {} }),
-    ops,
   );
-  const thread = open(owner, id, undefined, ops);
+  const thread = open(owner, id);
   await until(() => latest("thread.controls"), "composer controls");
   thread.handle({ type: "send", text: refuseOnce.text, opposite: false, requestId: "first" });
   const sendId = await until(
