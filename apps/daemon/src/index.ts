@@ -13,6 +13,7 @@ import { connectedDoctorReport, fixDoctorReport } from "./diagnostics-report.ts"
 import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
+export { DaemonLockHeldError } from "./local-files.ts";
 export type { StopReason } from "./stop-reason.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";

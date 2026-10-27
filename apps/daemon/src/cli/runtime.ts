@@ -25,7 +25,8 @@ export async function runtimeCommand(args: Args, config: Config) {
   }
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
-  const { startDaemon, runDaemonProcess, NewerDataError } = await import("../index.ts");
+  const { startDaemon, runDaemonProcess, NewerDataError, DaemonLockHeldError } =
+    await import("../index.ts");
   // Before startup, so a loaded machine schedules the startup work too.
   const priority = raiseDaemonPriority({
     platform: process.platform,
@@ -47,16 +48,18 @@ export async function runtimeCommand(args: Args, config: Config) {
     history: { instances: readHistoryInstances() },
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Daemon start failed";
-    // Their own exit codes, so whatever started the daemon can name the port conflict
-    // or tell the person a newer ace already uses this data.
+    // Their own exit codes, so whatever started the daemon can name the port conflict, wait
+    // for another daemon that holds the lock, or tell the person a newer ace uses this data.
     throw new CliFailure(
       error instanceof NewerDataError
         ? "newer-data"
         : incompatibleData(error)
           ? "incompatible-data"
-          : addressInUse(error)
-            ? "address-in-use"
-            : "failed",
+          : error instanceof DaemonLockHeldError
+            ? "lock-held"
+            : addressInUse(error)
+              ? "address-in-use"
+              : "failed",
       message,
     );
   });

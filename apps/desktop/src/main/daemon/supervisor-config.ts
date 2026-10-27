@@ -47,6 +47,13 @@ export interface SupervisorOptions {
   maxRestarts?: number;
   /** Running this long resets the crash count. */
   stableMs?: number;
+  /**
+   * How long to wait out another daemon holding this home's lock (one still starting on a
+   * large database, or still shutting down) before saying so as a failure.
+   */
+  lockWaitMs?: number;
+  /** While waiting on that lock: how long to look for the other daemon before spawning again. */
+  lockRetryMs?: number;
 }
 
 export function supervisorDefaults(options: SupervisorOptions): Required<SupervisorOptions> {
@@ -59,5 +66,7 @@ export function supervisorDefaults(options: SupervisorOptions): Required<Supervi
     stopGraceMs: options.stopGraceMs ?? 10_000,
     maxRestarts: options.maxRestarts ?? 5,
     stableMs: options.stableMs ?? 60_000,
+    lockWaitMs: options.lockWaitMs ?? 300_000,
+    lockRetryMs: options.lockRetryMs ?? 5_000,
   };
 }

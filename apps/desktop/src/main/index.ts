@@ -55,6 +55,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
+import { QuitGate } from "./os/quit-gate.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
@@ -227,14 +228,24 @@ function main(target: DaemonTarget, crashDumps: string): void {
       process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
 
-  let quitting = false;
   let systemShutdown = false;
-  /** The browser backend tells the daemon first, then the daemon this app started stops. */
-  const shutDown = async () => {
-    globalShortcut.unregisterAll();
-    await background.stop();
-    await runtime.stop();
-  };
+  /**
+   * Every quit waits here until the daemon this app started has exited: the browser backend
+   * tells the daemon first, then that daemon stops (SIGTERM, then SIGKILL after its grace).
+   */
+  const quitGate = new QuitGate({
+    shutDown: async () => {
+      globalShortcut.unregisterAll();
+      await background.stop();
+      await runtime.stop();
+    },
+    quit: () => {
+      if (relaunch) relaunchAfterExit(relaunch);
+      app.quit();
+    },
+    timers,
+    log: logger("quit"),
+  });
   const updates = appUpdates({
     version: info.version,
     packaged: app.isPackaged,
@@ -249,10 +260,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
     // Quit's own question is skipped: the person already confirmed Restart.
-    prepareQuit: async () => {
-      quitting = true;
-      await shutDown();
-    },
+    prepareQuit: () => quitGate.shutDown(),
     quit: () => app.quit(),
     log: logger("updates"),
   });
@@ -404,11 +412,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (isDirectory(path)) open({ kind: "open-folder", path });
   });
 
+  // Electron quits only once the gate has finished shutting down; every earlier request, a
+  // second Cmd+Q while the daemon stops included, is held back and waits for that shutdown.
   app.on("before-quit", (event) => {
-    if (quitting) return;
+    if (quitGate.finished) return;
     event.preventDefault();
     // One clear question, only while agents are mid-browse; an answer of Quit is final.
-    if (background.agentsBrowsing(Date.now(), systemShutdown)) {
+    if (!quitGate.started && background.agentsBrowsing(Date.now(), systemShutdown)) {
       const choice = dialog.showMessageBoxSync({
         type: "warning",
         buttons: ["Quit", "Cancel"],
@@ -422,13 +432,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
         return;
       }
     }
-    quitting = true;
-    void shutDown()
-      .catch((error: unknown) => log("error", String(error)))
-      .finally(() => {
-        if (relaunch) relaunchAfterExit(relaunch);
-        app.quit();
-      });
+    quitGate.request();
   });
   // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
   // works or a thread has a browser page. Listening here stops Electron quitting on its own.
