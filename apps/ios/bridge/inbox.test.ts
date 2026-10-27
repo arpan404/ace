@@ -769,7 +769,7 @@ describe("renaming from the list", () => {
     expect(title()).toBe("Ship the banner");
   });
 
-  test("asking for a new title names the thread from its opening request again", async () => {
+  test("asking for a new title names the thread from its first request with words again", async () => {
     const { client, sink } = await following((seed) => {
       seed.createThread({
         id: "asked",
@@ -781,6 +781,8 @@ describe("renaming from the list", () => {
       seed.apply("asked", [
         facts.rootAgent("codex"),
         facts.turn("root"),
+        // A request with nothing to name it by is passed over, as the daemon does.
+        facts.message("root", "blank", "user", "   "),
         facts.message("root", "ask", "user", "Make the banner wait two seconds"),
         facts.endTurn("root"),
       ]);

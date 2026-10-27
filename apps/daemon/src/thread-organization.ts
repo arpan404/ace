@@ -27,7 +27,7 @@ export function organizeThread(
   }
   if (p.type === "thread.title.regenerate") {
     // Named again from its opening request, as a new thread is: its first words now; the
-    // utility model's title follows (`ThreadTitles.rename`) and replaces them only.
+    // utility model's title follows (`ThreadTitles.regenerate`) and replaces them only.
     const opening = oldestTitleInput(store, thread.id);
     if (!opening) return { commandId: command.id, ok: false, error: "thread_title_unavailable" };
     store.appendEvents(
