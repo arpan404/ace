@@ -39,7 +39,10 @@
     "./forge-rich": "./src/forge-rich/index.ts",
     "./automations": "./src/automations/index.ts",
     "./math-render": "./src/math-render.ts",
-    "./review": "./src/review.ts"
+    "./review": "./src/review.ts",
+    "./workspace-tabs": "./src/workspace-tabs.ts",
+    "./workspace-bounds": "./src/workspace-bounds.ts",
+    "./tablet-workspace": "./src/tablet-workspace.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

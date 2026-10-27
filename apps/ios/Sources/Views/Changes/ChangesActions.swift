@@ -15,8 +15,10 @@ extension ClientModel {
 /// Create PR open their editor (with an AI draft on request); Merge uses the method last picked
 /// on this phone and asks to confirm; an open PR can ask for review. Progress and the outcome
 /// float above the bottom edge.
-private struct ChangesActions: ViewModifier {
+private struct ChangesActions<Header: View>: ViewModifier {
     @Bindable var model: ClientModel
+    /// The sheet's heading, beside the actions (`screenBar`).
+    let header: Header
     let summary: ChangesSummary?
     let title: String
     @Binding var wrap: Bool
@@ -37,12 +39,12 @@ private struct ChangesActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    menu
-                    // A step that can't run yet stays in the menu with its reason, never greyed here.
-                    if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
-                }
+            .screenBar {
+                header
+            } actions: {
+                menu
+                // A step that can't run yet stays in the menu with its reason, never greyed here.
+                if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
@@ -145,7 +147,8 @@ private struct ChangesActions: ViewModifier {
 }
 
 extension View {
-    func changesActions(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>) -> some View {
-        modifier(ChangesActions(model: model, summary: summary, title: title, wrap: wrap))
+    func changesActions<Header: View>(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>,
+                                      @ViewBuilder header: () -> Header) -> some View {
+        modifier(ChangesActions(model: model, header: header(), summary: summary, title: title, wrap: wrap))
     }
 }

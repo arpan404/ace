@@ -52,6 +52,7 @@ import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
+import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -117,6 +118,7 @@ let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
 let filesActions: FilesActions | undefined;
 let access: ComputerAccess | undefined;
+let workspace: NativeWorkspace | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -324,9 +326,9 @@ async function start(json: string): Promise<void> {
       return newThread.loadedAgents;
     },
     threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
-    repository: async (workspace) => {
+    repository: async (folder) => {
       const reply = await owner.request(
-        { type: "projects.request", operation: { op: "workspace.inspect", path: workspace } },
+        { type: "projects.request", operation: { op: "workspace.inspect", path: folder } },
         { timeoutMs: 10_000 },
       );
       return reply.result.kind === "inspection" ? projectRepository(reply.result) : undefined;
@@ -356,6 +358,12 @@ async function start(json: string): Promise<void> {
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
+  workspace = new NativeWorkspace(pump, {
+    load: () => call("storage.workspace.load"),
+    save: async (value) => {
+      await call("storage.workspace.save", null, value);
+    },
+  });
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
   access = new ComputerAccess(client, pump, preview, scheduler.set, () => host.uuid());
@@ -410,6 +418,12 @@ function action(json: string): void {
     const terminalAction = NativeTerminalAction.safeParse(raw);
     if (terminalAction.success) {
       terminal?.handle(terminalAction.data);
+      return;
+    }
+    const panel = WorkspaceAction.safeParse(raw);
+    if (panel.success) {
+      if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
       return;
     }
     const service = NativeServiceAction.safeParse(raw);

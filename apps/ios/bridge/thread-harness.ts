@@ -192,7 +192,7 @@ export function open(
 ): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks, undefined, retries);
+  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks, undefined, undefined, undefined, retries);
   return session;
 }
 

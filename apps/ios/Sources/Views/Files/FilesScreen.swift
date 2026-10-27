@@ -57,11 +57,11 @@ struct FilesScreen: View {
         .searchable(text: $query, prompt: "Search files")
         .autocorrectionDisabled().textInputAutocapitalization(.never)
         .refreshable { await load() }
-        .threadTitle("Files", subtitle: subtitle)
+        .modifier(PageTitle(title: "Files", subtitle: subtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { OpenFilesButton(model: model, scope: scope) { opened = FileTarget(path: $0) } }
-            if actions.canChange { ToolbarItem(placement: .topBarTrailing) { manageMenu } }
+        .screenBar {
+            OpenFilesButton(model: model, scope: scope) { opened = FileTarget(path: $0) }
+            if actions.canChange { manageMenu }
         }
         .onAppear { model.watchFileMemory(scope) }
         .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in

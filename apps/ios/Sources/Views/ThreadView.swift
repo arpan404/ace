@@ -41,6 +41,8 @@ struct ThreadView: View {
     @State private var showOffshift = false
     @State private var showSearch = false
     @State private var showQueue = false
+    /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
+    @Environment(\.panelPlace) private var panelPlace
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -96,8 +98,8 @@ struct ThreadView: View {
     var body: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
@@ -111,9 +113,10 @@ struct ThreadView: View {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave),
-                              openWork: { showWork = true }, newThread: startNewThread)
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
+                                               open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
+                              openWork: { showWork = true }, newThread: startNewThread,
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -244,7 +247,12 @@ struct ThreadView: View {
                     showBrowser = false
                 }) { answer in if let help { model.resolve(help, answer: answer) } }
             }
-            .environment(\.openBrowser, { showBrowser = true })
+            .environment(\.openBrowser, { open(.browser) })
+            .panelCommands(panelCommands)
+            // A file picked in the side panel's Files goes into this composer.
+            .onChange(of: model.panels.mentioned) { _, picked in
+                if let picked, picked.scope == thread.id { mention = picked.mention }
+            }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
@@ -363,14 +371,14 @@ struct ThreadView: View {
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
         switch opens {
-        case "agents": showAgents = true
+        case "agents": open(.agents)
         case "queue": showQueue = true
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
     }
     private func requestCard(_ request: ApprovalRow) -> some View {
-        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { showBrowser = true })
+        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { open(.browser) })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {
@@ -378,7 +386,7 @@ struct ThreadView: View {
         case "attach": askAttach = true
         case "plan": Task { _ = await model.setAccess("read-only") }
         case "model": showModels = true
-        case "review": showChanges = true
+        case "review": open(.changes)
         default: break
         }
     }
@@ -386,6 +394,11 @@ struct ThreadView: View {
     /// button's to say.
     private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
+        // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
+        if panelPlace != .none, let tool = destination.panelTool {
+            panel(["op": "open", "kind": tool.rawValue])
+            return
+        }
         switch destination {
         case .rename: renaming = true
         case .forkLast: Task { _ = await model.openFork(.latest) }
@@ -406,6 +419,17 @@ struct ThreadView: View {
         case .logs: showLogs = true
         case .offshift: showOffshift = true
         }
+    }
+    /// The panel's keys while it has room beside this thread.
+    private var panelCommands: PanelCommands? {
+        guard panelPlace != .none else { return nil }
+        let view = model.panels.views[thread.id]
+        let shown = view?.open == true ? view?.shown : nil
+        return PanelCommands(act: panel, hasTab: !(view?.tabs.isEmpty ?? true), canReopen: view?.canReopen == true,
+                             closable: shown.flatMap { $0.pinned ? nil : $0.key })
+    }
+    private func panel(_ op: [String: Any]) {
+        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {

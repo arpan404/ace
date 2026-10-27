@@ -70,6 +70,9 @@ export interface HostOperations {
   "storage.value.load": { input: { key: KeptValueKey }; body: never };
   /** A plain replace; native code bounds each value at 1 MiB. */
   "storage.value.save": { input: { key: KeptValueKey }; body: string };
+  /** Each thread's side panel on a tablet (`@ace/ui-core/tablet-workspace`). */
+  "storage.workspace.load": { input: null; body: never };
+  "storage.workspace.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */

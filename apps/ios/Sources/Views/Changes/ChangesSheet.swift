@@ -13,6 +13,9 @@ struct ChangesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.panelHost) private var panelHost
+    @State private var open: String?
+    @State private var reviewed: Set<String> = []
     @State private var wrap = true
     @State private var selection: LineSelection?
     /// One layer at a time over the sheet: a comment being written, replies, the review, the tree.
@@ -66,15 +69,16 @@ struct ChangesSheet: View {
                 model.sheet(["kind": "review.refresh"])
             }
             .navigationBarTitleDisplayMode(.inline)
-            .escapeCloses { dismiss() }
+            .sheetEscape { dismiss() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
+                if panelHost == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
+                    }
                 }
-                ToolbarItem(placement: .principal) { header }
             }
-            .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
+            .changesActions(model: model, summary: summary, title: title, wrap: $wrap) { header }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 // Pinned, so Collapse all and Files stay in reach deep inside a long diff.
                 if let summary, summary.state != "error" { toolbarRow(summary).background(AceTheme.Colours.background) }

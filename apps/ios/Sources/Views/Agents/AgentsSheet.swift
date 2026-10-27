@@ -15,6 +15,7 @@ struct AgentsSheet: View {
     @State private var paging: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.panelHost) private var panelHost
     private var sheet: AgentSheet? { model.sheets.agents }
     private var provider: String { thread.screen.controls?.provider ?? "" }
 
@@ -72,21 +73,23 @@ struct AgentsSheet: View {
             .animation(reduceMotion ? nil : .smooth, value: sheet?.tasks.count)
             .onChange(of: sheet?.rows.count) { _, _ in if paging == "agents" { paging = nil } }
             .onChange(of: sheet?.tasks.count) { _, _ in if paging == "tasks" { paging = nil } }
-            .escapeCloses { dismiss() }
+            .sheetEscape { dismiss() }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
-                }
-                if model.canOperate {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(role: .destructive) { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
-                            Text(stop.saving ? "Stopping…" : "Stop all")
-                        }
-                        .tint(AceTheme.StatusText.failed)
-                        .disabled(!(sheet?.treeRunning ?? false) || stop.saving)
-                        .accessibilityIdentifier("agents.stopAll")
+                if panelHost == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
                     }
+                }
+            }
+            .screenBar {
+                if model.canOperate {
+                    Button(role: .destructive) { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
+                        Text(stop.saving ? "Stopping…" : "Stop all")
+                    }
+                    .tint(AceTheme.StatusText.failed)
+                    .disabled(!(sheet?.treeRunning ?? false) || stop.saving)
+                    .accessibilityIdentifier("agents.stopAll")
                 }
             }
             .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {

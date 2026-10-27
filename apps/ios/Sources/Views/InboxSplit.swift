@@ -6,7 +6,7 @@ import SwiftUI
 /// the list a drawer over it, or the whole window while nothing is open. The split view stays the
 /// thread's home in both, so a resize or a fold keeps the thread, its scroll place, the draft and
 /// any open sheet. Pages pushed from the thread open on the detail column's own stack.
-struct InboxSplit<Sidebar: View, Page: View>: View {
+struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     @Binding var path: [InboxRoute]
     @Binding var drawer: ThreadDrawer
     /// What the detail column says while nothing is open.
@@ -17,6 +17,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     var selecting = false
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
+    /// The side panel of the thread showing, beside the detail's stack (`ThreadSidePanel`).
+    @ViewBuilder let side: (InboxKey, PanelPart) -> Side
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var visibility = NavigationSplitViewVisibility.all
@@ -28,6 +30,12 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     /// Where a finger holds the drawer. This view never reads it, so a drag never redraws the
     /// thread or the list, only the modifiers that place them (`DrawerPlace`).
     @State private var hold = DrawerHold()
+    /// The split view's own width: the window less the thread's side panel.
+    @State private var splitWidth: CGFloat = 0
+    /// Where the open thread's side panel goes (`ThreadSidePanel`).
+    @State private var panelPlace = PanelPlace.none
+    /// Set once the window first shows, for the tab bar's place (`TabBarPlace`).
+    @State private var appeared = false
 
     private var layout: ThreadDrawer.Layout { ThreadDrawer.layout(sizeClass, path: path) }
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
@@ -37,10 +45,21 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            split
-                .modifier(DrawerPlace(part: .page, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
-                // Behind the drawer the page is one element, the closer over it.
-                .accessibilityHidden(layout == .list || (layout == .page && drawer.isOpen))
+            // The open thread's side panel is a column of the window beside the whole split view,
+            // with its own bar and stack: nothing it shows or pushes joins the thread's. The
+            // split view takes what is left, and puts its list away below its side-by-side width.
+            HStack(spacing: AceTheme.Spacing.none) {
+                split
+                    .modifier(DrawerPlace(part: .page, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
+                    // Behind the drawer the page is one element, the closer over it.
+                    .accessibilityHidden(layout == .list || (layout == .page && drawer.isOpen))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { splitWidth = $0 }
+                if layout == .beside, let key = ThreadColumns.panelScope(path) {
+                    side(key, .column)
+                }
+            }
+            .background { if let key = ThreadColumns.panelScope(path) { side(key, .state) } }
+            .environment(\.panelRoom, PanelRoom(window: width, place: $panelPlace))
             if layout != .beside { drawerLayer }
         }
         // The list's own page colour behind the pushed page, so its rounded corners show.
@@ -53,8 +72,9 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         .toolbarVisibility(tabBar ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
-            if showing { TabBarPlace(hidden: !tabBar).frame(width: 0, height: 0) }
+            if showing { TabBarPlace(hidden: !tabBar, relayout: "\(panelPlace) \(path.count) \(sizeClass == .regular) \(appeared)").frame(width: 0, height: 0) }
         }
+        .task { try? await Task.sleep(for: .milliseconds(300)); appeared = true }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -83,6 +103,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         .onChange(of: visibility) { _, now in
             if settling > 0, now != columns { visibility = columns }
         }
+        // Nothing open, no panel.
+        .onChange(of: path.isEmpty) { _, empty in if empty { panelPlace = .none } }
         .task(id: settling) {
             guard settling > 0 else { return }
             try? await Task.sleep(for: .milliseconds(800))
@@ -132,6 +154,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
             }
+            // Only beside the list is there room for a panel; a compact window keeps the sheets.
+            .environment(\.panelPlace, layout == .beside ? panelPlace : .none)
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -207,7 +231,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         return ThreadColumns.sidebarHoldsTabs(sizeClass)
     }
     private var columns: NavigationSplitViewVisibility {
-        ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
+        ThreadColumns.visibility(sizeClass, width: splitWidth > 0 ? splitWidth : width, open: !path.isEmpty)
     }
     private var detail: Binding<[InboxRoute]> {
         Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })

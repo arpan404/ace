@@ -71,16 +71,14 @@ struct BrowserScreen: View {
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: splitTab)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: state?.recording)
         .background(AceTheme.Colours.background)
-        .threadTitle(title, subtitle: shownTab?.host ?? "")
+        .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        .screenBar {
             if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
-                        .accessibilityIdentifier("browser.keyboard")
-                }
+                Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
+                    .accessibilityIdentifier("browser.keyboard")
             }
-            ToolbarItemGroup(placement: .topBarTrailing) { pageActions }
+            pageActions
         }
         .confirmationDialog("Clear browsing data?", isPresented: $clearing, titleVisibility: .visible) {
             Button("Clear browsing data", role: .destructive) { model.browserClearData() }

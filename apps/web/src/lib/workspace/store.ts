@@ -5,11 +5,13 @@ import type { CloseWarning } from "./registry.ts";
 import type { PanelPlace } from "./places.ts";
 import {
   emptyWorkspace,
+  rememberClosed,
   seedWorkspace,
   sanitize,
   ScopeWorkspaceSchema,
+  takeClosed,
+  type ClosedTab,
   type ScopeWorkspace,
-  type WorkspaceTab,
 } from "./model.ts";
 
 /*
@@ -26,13 +28,7 @@ export const defaultSize = 520;
 /** The bottom panel's height until the person drags it. */
 export const defaultBottomSize = 300;
 
-/** A closed tab, kept so Reopen closed tab can put it back where it was. */
-export interface ClosedTab {
-  tab: WorkspaceTab;
-  index: number;
-}
-/** Closed tabs kept per scope. */
-const closedCapacity = 10;
+export type { ClosedTab };
 
 const storageKey = "ace.workspace";
 const Persisted = z.object({
@@ -222,16 +218,13 @@ export class WorkspaceStore {
   /** Keep a closed tab for Reopen closed tab (the last `closedCapacity` per scope). */
   rememberClosed(scope: string, closed: ClosedTab): void {
     const list = this.closed.get(scope) ?? [];
-    list.push(closed);
-    if (list.length > closedCapacity) list.shift();
+    rememberClosed(list, closed);
     this.closed.set(scope, list);
   }
 
   /** The most recently closed tab of a scope that `accept` lets come back, forgetting it. */
   takeClosed(scope: string, accept: (closed: ClosedTab) => boolean): ClosedTab | undefined {
-    const list = this.closed.get(scope) ?? [];
-    for (let closed = list.pop(); closed; closed = list.pop()) if (accept(closed)) return closed;
-    return undefined;
+    return takeClosed(this.closed.get(scope) ?? [], accept);
   }
 
   /** Whether the scope has a closed tab to reopen. */

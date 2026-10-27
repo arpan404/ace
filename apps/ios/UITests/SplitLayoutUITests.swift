@@ -167,13 +167,15 @@ import XCTest
         XCTAssertTrue(list.waitForHittable(timeout: 10))
     }
 
-    func testBackFromAPageOverTheThreadKeepsTheThreadOpen() {
+    func testBackFromAPageOverTheThreadKeepsTheThreadOpen() throws {
         let app = launch()
         open("thread.ios-browser", in: app)
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
+        // A window with room for the side panel opens the browser there instead (`WorkspacePanelUITests`).
+        if app.buttons["panel.tab.browser"].exists { throw XCTSkip("the browser opens in the side panel here") }
         // iOS 26 names the Back button; iOS 18 labels it with the thread's title.
         app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label BEGINSWITH 'Check the checkout flow'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForNonExistence(timeout: 10))

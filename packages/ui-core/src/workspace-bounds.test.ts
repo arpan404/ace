@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { bottomBounds, clampToBounds, panelBounds, panelFloats } from "./bounds.ts";
+import { bottomBounds, clampToBounds, panelBounds, panelFloats } from "./workspace-bounds.ts";
 
 test("beside the column the side panel keeps the column at least 480px wide", () => {
   expect(panelBounds(1076, false)).toEqual({ min: 360, max: 596 });
