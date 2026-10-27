@@ -33,6 +33,7 @@ import {
   timesText,
 } from "@ace/ui-core";
 import { z } from "zod";
+import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { hostOpenTarget } from "./skill-host-open.ts";
 
 /*
@@ -107,6 +108,14 @@ export const NativeSkillsRequest = z.discriminatedUnion("op", [
     expectedHash: SkillHash,
     retry: z.boolean().default(false),
   }),
+  z.object({ type: z.literal("skills.native"), op: z.literal("openers"), id: SkillId, ...scope }),
+  z.object({
+    type: z.literal("skills.native"),
+    op: z.literal("open"),
+    id: SkillId,
+    ...scope,
+    app: HostOpenRequest.options[1].shape.app,
+  }),
 ]);
 export type NativeSkillsRequest = z.infer<typeof NativeSkillsRequest>;
 
@@ -157,6 +166,8 @@ export class NativeSkillLibrary {
 
   async answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<unknown> {
     try {
+      if (request.op === "openers" || request.op === "open")
+        return await this.#host(request, signal);
       return { ok: true, ...(await this.#answer(request, signal)) };
     } catch (error) {
       if (error instanceof Refused) return { ok: false, code: error.code, message: error.message };
@@ -255,6 +266,25 @@ export class NativeSkillLibrary {
         return { deleted: expect(result, "deleted").id };
       }
     }
+  }
+
+  /**
+   * Open on computer: the machine's editors and file manager, or opening the skill's SKILL.md
+   * with one. The skill is found by id on the machine, never by a path the phone sends.
+   */
+  async #host(
+    request: Extract<NativeSkillsRequest, { op: "openers" | "open" }>,
+    signal: AbortSignal,
+  ) {
+    const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
+    const { entry } = expect(
+      await skills(this.#owner, { op: "read", id: request.id, ...at }, signal),
+      "skill",
+    );
+    const target = hostOpenTarget(entry, request.workspaceId);
+    if (!target) throw new Refused("unavailable", "This skill can't be opened on the computer.");
+    if (request.op === "openers") return answerHostOpen(this.#owner, { op: "openers" });
+    return answerHostOpen(this.#owner, { op: "open", app: request.app, ...target });
   }
 
   async #create(request: Extract<NativeSkillsRequest, { op: "create" }>, signal: AbortSignal) {

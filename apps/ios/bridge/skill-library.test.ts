@@ -147,7 +147,7 @@ test("a skill's page names who loads it, where it lives and when it runs", async
     runs: "Claude Code and Cursor never load it by themselves. Codex and OpenCode may still load it.",
     used: "6 times",
     argumentHint: "[version]",
-    open: null,
+    open: { workspaceId: "project", path: ".claude/skills/release-desktop/SKILL.md" },
   });
   const agents = page.agents as { id: string; on: boolean; locked: boolean }[];
   expect(agents.filter((agent) => agent.on).map((agent) => agent.id)).toEqual([
@@ -216,4 +216,41 @@ test("the phone's kept list is read again after it creates a skill, and then sho
   services.handle({ type: "service", id: "after", request: list, cache: "skills" });
   await until(() => sink.read("service:after") !== undefined, "listed again");
   expect(names("after")).toContain("release-notes");
+});
+
+test("a project skill opens its SKILL.md on the computer through host.open", async () => {
+  const { daemon, ask, named } = await library();
+  daemon.workspace.setEditors([{ id: "code", name: "VS Code", command: "/usr/local/bin/code" }]);
+  const [row] = await named("release-desktop", "project");
+  const page = await ask({ op: "skill", id: row?.id, workspaceId: "project" });
+  expect(page.open).toEqual({
+    workspaceId: "project",
+    path: ".claude/skills/release-desktop/SKILL.md",
+  });
+  expect(await ask({ op: "openers", id: row?.id, workspaceId: "project" })).toEqual({
+    ok: true,
+    editors: [{ id: "code", name: "VS Code" }],
+    fileManager: "Finder",
+  });
+  const opened = await ask({
+    op: "open",
+    id: row?.id,
+    workspaceId: "project",
+    app: { kind: "editor", editorId: "code" },
+  });
+  expect(opened).toEqual({ ok: true });
+  expect(daemon.workspace.opened).toEqual([
+    { app: "code", folder: "project", path: ".claude/skills/release-desktop/SKILL.md" },
+  ]);
+});
+
+test("a personal skill offers no Open on computer and opens nothing", async () => {
+  const { daemon, ask, named } = await library();
+  const [row] = await named("research");
+  expect((await ask({ op: "skill", id: row?.id })).open).toBeNull();
+  expect(await ask({ op: "open", id: row?.id, app: { kind: "files" } })).toMatchObject({
+    ok: false,
+    code: "unavailable",
+  });
+  expect(daemon.workspace.opened).toEqual([]);
 });

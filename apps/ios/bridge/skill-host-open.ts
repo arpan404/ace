@@ -1,24 +1,20 @@
 import type { SkillEntry } from "@ace/protocol";
 
 /*
- * Open on computer, for a skill: its SKILL.md in an editor (or its folder in the file manager)
- * on the machine running ace.
+ * Open on computer, for a skill: its SKILL.md in an editor, or its folder in the file manager,
+ * on the machine running ace (`workspace.request` `host.open`, see `host-open.ts`).
  *
- * TODO(host.open): `workspace.request` `host.open` lands on branch
- * `ace/ios-gaps-projects-machines-notes` (commits 630f77f18, a348c13a5, 134eb5dc8), not yet on
- * main. It opens a path inside a project's or thread's folder:
- * `{ op: "host.open", app: { kind: "editor", editorId } | { kind: "files" }, workspaceId, path }`,
- * and that branch's `bridge/host-open.ts` and Swift `OpenOnHostMenu` drive it. Once it is
- * merged, return `{ workspaceId, path: `${entry.path}/SKILL.md` }` below for a project skill,
- * and the skill page shows Open on computer through `OpenOnHostMenu`. Personal skills
- * (`~/.agents/skills`) sit outside any project, so they need `host.open` to accept the skill
- * roots before they can open.
+ * `host.open` opens paths inside a project's or thread's folder, so only project skills have a
+ * target: their display path is relative to the project. Personal skills (`~/.agents/skills`)
+ * sit outside every project; they wait on the owner deciding whether `host.open` may open the
+ * agents' skill folders, and until then show no Open on computer.
  */
 
-/** Where Open on computer would open this skill, or null while `host.open` isn't available. */
+/** Where Open on computer opens this skill, or null when it can't be opened there. */
 export function hostOpenTarget(
-  _entry: Pick<SkillEntry, "scope" | "path">,
-  _workspaceId: string | undefined,
+  entry: Pick<SkillEntry, "scope" | "path">,
+  workspaceId: string | undefined,
 ): { workspaceId: string; path: string } | null {
-  return null;
+  if (entry.scope !== "project" || !workspaceId) return null;
+  return { workspaceId, path: `${entry.path.replace(/\/+$/, "")}/SKILL.md` };
 }
