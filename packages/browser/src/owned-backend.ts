@@ -71,6 +71,7 @@ export function chromeDefaults(
  */
 function windowsJobs(report?: (error: Error) => void) {
   let jobs: ReturnType<typeof import("./chrome-job.ts").chromeJobs> | undefined;
+  let emulated: typeof import("./emulated-chrome.ts").emulatedChromeArgs | undefined;
   const ready = () => {
     if (!jobs) throw new Error("ace's Chrome containment is not loaded on Windows");
     return jobs;
@@ -82,10 +83,16 @@ function windowsJobs(report?: (error: Error) => void) {
           spawn: spawnProcess,
           ...(report && { report }),
         });
+        emulated ??= (await import("./emulated-chrome.ts")).emulatedChromeArgs;
         return jobs.guard(profile);
       },
+      // Each executable gets its own flags: an emulated x64 Chrome on ARM64 is not native.
       spawn: ((command, args, options) =>
-        ready().spawn(command, args, options)) satisfies ChromeLaunch["spawn"],
+        ready().spawn(
+          command,
+          emulated ? emulated(command, args, process.arch) : args,
+          options,
+        )) satisfies ChromeLaunch["spawn"],
     },
     kill: (pid: number) => ready().kill(pid),
   };
@@ -135,20 +142,16 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         )
           acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
             .catch(() =>
-              import("./chromium-manifest.ts").then(({ chromiumArtifact }) => {
-                // Emulated x64 renderers crash under Chrome's renderer code integrity guard
-                // (2 to 4 crashes in 12 page loads on the ARM64 VM, none without it): its
-                // check of loaded code conflicts with Windows' x64 emulation. Only this
-                // fallback, used when no native Chrome or Edge exists, turns it off.
-                launch.args = [...launch.args, "--disable-features=RendererCodeIntegrity"];
-                return acquireChromium({
+              // Run under emulation, with the flags `emulated-chrome.ts` gives it at launch.
+              import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
+                acquireChromium({
                   ...options.acquisition,
                   artifact: chromiumArtifact("win32", "x64"),
                   dataDir: options.dataDir,
                   signal,
                   progress,
-                });
-              }),
+                }),
+              ),
             )
             .catch((error: unknown) => {
               acquiring = undefined;
