@@ -20,6 +20,29 @@ contract and implies no security the native transport does not yet provide.
   injected transport. Binds the authenticated `host.identity` read on the
   pinned connection, never the link hostname. Returns a `PairedMachine`
   for `MachineDirectory.add`.
+- `pairing-transport.ts` — builds the flow's `PairingTransport` from
+  injected pieces: `httpFor` binds one origin plus its confirmed pin to a
+  `PinnedHttp` (production passes `createPinnedHttp` over the Kotlin
+  `pinnedFetch` bridge), and `readIdentity` reads the authenticated host
+  identity on the pinned connection. The pin is revalidated before the
+  bridge is touched and the code travels only in the POST body, so nothing
+  is sent without validated pinning. `unavailablePairingTransport` throws
+  before any network for builds without the wiring.
+- `pairing-view.ts` — pure entry/confirm view-model for the screen:
+  pasted or scanned text parses into the same confirmation (single
+  redemption path), with static actionable errors that never contain link
+  material, plus the Pair-action gate, the mapped failure copy (safe
+  `PairingFlowError` text verbatim, static fallback otherwise — raw
+  scanner or transport text is never shown) and fail-closed copy.
+- `../Pairing.tsx` — the entry/confirm screen mirroring iOS
+  `PairingView`/`ConfirmPairingView` (paste field, scan affordance,
+  address/grant/fingerprint confirmation, device name, Pair action).
+  `scan` and `pair` are injected; when absent the actions stay disabled
+  with guidance and the code can never leave the phone. The link field
+  opts out of autofill/autocorrect (the iOS `privacySensitive` equivalent),
+  and there is no cancel while pairing: Back stays disabled and unmounting
+  never claims to cancel the request, because the bridge cannot cancel an
+  in-flight redemption and the one-use code may already be burned.
 - `credentials.ts` — device-token store contract (Keystore-backed in
   production, memory in tests), the SDK-shared `[hostId, deviceId]` key,
   and authority-first removal ordering. Tokens never enter SQLite, logs,
@@ -46,23 +69,36 @@ contract and implies no security the native transport does not yet provide.
 
 ## What is deliberately missing
 
-No QR capture (A02.06), no app lock (A02.07) and no production startup or
-ticket wiring (A02.08). Until that wiring lands, nothing here may authorize
-a connection: the production entry point (`index.production.tsx`) stays
-unpaired, the fixture runtime stays debug-only, and the React Native
-default fetch or WebSocket must never carry pairing material.
+No QR capture (A02.06: the screen's scan affordance is injected and
+fail-closed until camera wiring lands), no app lock (A02.07) and no
+production startup or ticket-authenticated identity-socket wiring (A02.08:
+`readIdentity` has no production reader yet, so redeeming would burn the
+one-use code and the screen stays fail-closed). Until that wiring lands,
+nothing here may authorize a connection: the production entry point
+(`index.production.tsx`) renders the pairing screen without `scan`/`pair`,
+the fixture runtime stays debug-only, and the React Native default fetch or
+WebSocket must never carry pairing material. Native in-flight cancellation
+is also missing: the transport honors the flow's signal fail-closed (a
+pre-flight abort sends nothing; an abort racing the request stops waiting
+only and surfaces `consumed`, since the code may already be burned), so the
+screen offers no cancel while pairing and never claims an abort cancelled
+the network.
 
 ## Integration needs
 
 1. Pairing/startup wiring: build the `NativePinnedHttp` bridge from the Expo
    `pinnedFetch` function (`{origin, fingerprint, method, path, body, token}`
    in, `{status, body}` out, rejection message exactly the refusal) and pass
-   it to `createPinnedHttp`; `PairingTransport.redeem`/`readIdentity` already
-   carry the explicit `fingerprint` every request requires, validated with
-   `isPin` before any code leaves the phone. The WSS socket behind the
-   ticket exchange and the `host.identity` read uses
-   `pinnedSocketOpen/Send/Close` with `onPinnedSocketEvent` (`open`,
-   `message`, `binary` as base64, `trust`, `close` with the numeric code).
+   it to `createPinnedHttp`, then supply it as `httpFor` to
+   `createPairingTransport` (`pairing-transport.ts`); `redeem`/`readIdentity`
+   already carry the explicit `fingerprint` every request requires,
+   validated with `isPin` before any code leaves the phone. The production
+   `readIdentity` behind the ticket exchange and the `host.identity` read
+   still needs building over `pinnedSocketOpen/Send/Close` with
+   `onPinnedSocketEvent` (`open`, `message`, `binary` as base64, `trust`,
+   `close` with the numeric code). Until it exists the screen must keep
+   `pair` unset: redeeming without the identity read would burn the
+   one-use code.
 2. `expo-secure-store` wired through `createKeystoreCredentialStore`
    (`keystore.ts`, production entry `secure-store.ts`) with the isolated
    `app.ace.android.device-token` service, no authentication prompt,
@@ -74,9 +110,20 @@ default fetch or WebSocket must never carry pairing material.
 3. Production startup that routes empty, removed and revoked pairings to
    pairing again, requests a fresh ticket per connection, and keeps the
    fixture transport debug-only.
+4. Camera capture for the screen's scan affordance (A02.06): grant/denial,
+   cancel and malformed QR must all funnel into the screen's single
+   `acceptPairingText` path without a second redemption path and without
+   logging the code.
 
 ## Verification limits (no emulator)
 
+- The pairing screen (`../Pairing.tsx`) has no renderer test: the unit
+  project runs logic tests only, so coverage is the view-model
+  (`pairing-view.test.ts`), the transport adapter end to end against the
+  real redemption flow (`pairing-transport.test.ts`), `tsc`, and review
+  against the iOS `PairingView`/`ConfirmPairingView` behavior above.
+  Exercise entry, confirm, error and fail-closed states on a physical phone
+  before shipping.
 - `backup.test.ts` pins the checked-in `app.json` flag that generates the
   backup exclusion, not the generated manifest. After any Expo SDK bump or
   `app.json` edit, run `expo prebuild --platform android` and confirm the
