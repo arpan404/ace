@@ -176,13 +176,16 @@ struct ComposerPick: Codable, Equatable, Sendable {
 }
 
 extension ComposerPick {
-    /// A file mentioned from Files: `@path` as `Mention.insert` just ended `text` with it.
-    static func file(_ path: String, endingAt text: String) -> ComposerPick {
-        let label = "@\(path)"
+    /// A file mentioned from Files: `@path` (or `@path:12-20` for picked lines) as `Mention.insert`
+    /// just ended `text` with it.
+    static func file(_ path: String, lines: ClosedRange<Int>? = nil, endingAt text: String) -> ComposerPick {
+        let label = "@\(path)" + (lines.map { ":\($0.lowerBound)-\($0.upperBound)" } ?? "")
         let length = (label as NSString).length
         let end = (text as NSString).length - 1
+        var file: [String: BridgeJSON] = ["path": .string(path)]
+        if let lines { file["lines"] = .object(["start": .number(Double(lines.lowerBound)), "end": .number(Double(lines.upperBound))]) }
         return ComposerPick(start: end - length, end: end, label: label,
-                            reference: .object(["label": .string(label), "file": .object(["path": .string(path)])]))
+                            reference: .object(["label": .string(label), "file": .object(file)]))
     }
 }
 

@@ -126,7 +126,7 @@ struct ThreadView: View {
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
-                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
+                                       mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
                 ComposerSettingsSheet(screen: screen,
                                       openModel: { afterSettings = { showModels = true }; showSettings = false },
