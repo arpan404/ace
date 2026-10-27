@@ -31,6 +31,13 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["subagent.retried"].waitForExistence(timeout: 15))
         XCTAssertTrue(state.label.hasPrefix("Failed"), state.label)
         screenshot("subagent-retry-sent")
+        // Back and in again: the ask is remembered, so there is no button to press twice.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(auditor.waitForExistence(timeout: 15))
+        auditor.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["subagent.retried"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["subagent.retry"].exists)
+        screenshot("subagent-retry-remembered")
     }
 
     func testSubagentWaitingOnTheBranchShowsItsRequestAndStop() {
