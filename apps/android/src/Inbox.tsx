@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
-import { View, Text, Pressable } from "react-native";
+import { AppState, View, Text, Pressable } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ClientApi, SidebarSource } from "@ace/client";
 import { useSelection } from "./selection.ts";
@@ -28,7 +28,7 @@ import {
   type SnoozePresetId,
 } from "./inbox-actions.ts";
 import { displayAppearance } from "./status.ts";
-import { requestHomeWindow } from "./archive.ts";
+import { recoverStrandedHomeWindow, requestHomeWindow } from "./archive.ts";
 
 type InboxEntry = { kind: "heading"; id: string; title: string } | { kind: "thread"; id: string };
 /** One daemon for now; rows keep a machine so a merged inbox can tell them apart later. */
@@ -362,8 +362,24 @@ export function Inbox({
     // Self-heal a stranded archive window (e.g. a failed archive restore left the
     // shared store on the archive filter): repointing home is a no-op when already
     // home (`Sidebar.configure` early-returns on the same filter). The heal yields
-    // while an archive route owns the window, so a remount never clobbers it.
+    // while an archive route on this client owns the window, so a remount never
+    // clobbers it.
     requestHomeWindow(client);
+  }, [client]);
+  const connection = useSelection(useMemo(() => client.connectionState(), [client]));
+  useEffect(() => {
+    // A restore that failed while offline strands the inbox on the archive window
+    // after this screen is already mounted; heal once the socket is ready again.
+    // The heal still yields while an archive route owns the window.
+    recoverStrandedHomeWindow(client, connection);
+  }, [client, connection]);
+  useEffect(() => {
+    // Returning to the app with a stranded window (failed restore, then
+    // background) heals the same way a reconnect does.
+    const subscription = AppState.addEventListener("change", (status) => {
+      if (status === "active") requestHomeWindow(client);
+    });
+    return () => subscription.remove();
   }, [client]);
   // A snooze ends on this phone's clock even while its machine is offline: regroup then.
   const [tick, setTick] = useState(0);

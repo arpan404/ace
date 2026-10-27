@@ -1,7 +1,7 @@
-import { Command, ThreadId, ThreadListEntry, type ThreadStatus } from "@ace/protocol";
-import { ClientError } from "@ace/client";
+import { Command, DeviceId, ThreadId, ThreadListEntry, type ThreadStatus } from "@ace/protocol";
+import { ClientCore, ClientError } from "@ace/client";
 import type { Intent } from "@ace/client";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import {
   ArchivePaging,
   archiveFooterKind,
@@ -14,6 +14,7 @@ import {
   isArchiveWindowWanted,
   orderedArchiveIds,
   readArchiveList,
+  recoverStrandedHomeWindow,
   requestHomeWindow,
   resetArchiveWindowCoordinationForTests,
   type ArchiveWindowPort,
@@ -74,8 +75,15 @@ function stubPort(failures: { window?: number; more?: number } = {}) {
     calls: string[];
     setHolding(value: boolean): void;
     releaseHeldMore(): void;
+    failWindows(count: number): void;
   } = {
     calls,
+    // Fail the next `count` window calls, so one port can go offline after a
+    // successful open: open and close on the same client share one claim
+    // series, and a different port object would be a different machine.
+    failWindows(count: number) {
+      windowFailures += count;
+    },
     // Park the next threadsMore until released, to prove single-flight.
     setHolding(value: boolean) {
       holding = value;
@@ -347,20 +355,12 @@ test("closing returns the store to the home window exactly once per visit", asyn
 });
 
 test("a failed home-window restore reports instead of silently stranding the inbox", async () => {
-  const paging = new ArchivePaging();
-  const port = stubPort();
-  await paging.openArchive(port);
-  port.setHolding(false);
-  const down: ArchiveWindowPort = {
-    async threadsWindow() {
-      throw new Error("offline");
-    },
-    async threadsMore() {},
-  };
-  // Point the paging at the failing home restore via a fresh open, then close.
   const restorePaging = new ArchivePaging();
+  const port = stubPort();
   await restorePaging.openArchive(port);
-  expect(await restorePaging.closeArchive(down)).toBe(false);
+  // The same client drops offline for the home restore.
+  port.failWindows(1);
+  expect(await restorePaging.closeArchive(port)).toBe(false);
   expect(restorePaging.restoreFailed).toBe(true);
   expect(restorePaging.open).toBe(false);
   // The next open clears the restore flag for the new session.
@@ -388,26 +388,27 @@ test("a stale close after reopen never clears the new session", async () => {
   // Reopen while the home restore is still in flight: the new visit wins.
   expect(await paging.openArchive(port)).toBe(true);
   releaseHome?.();
-  expect(await closing).toBe(false);
+  // Superseded, not failed: the new session owns the archive window.
+  expect(await closing).toBe(true);
   expect(paging.open).toBe(true);
   expect(paging.restoreFailed).toBe(false);
 });
 
 test("a flaky home restore retries instead of stranding the inbox", async () => {
-  const opened = stubPort();
+  const port = stubPort();
   const paging = new ArchivePaging();
-  await paging.openArchive(opened);
-  const flaky = stubPort({ window: 2 });
+  await paging.openArchive(port);
   // Two offline blips, then the home window lands: no strand, no flag.
-  expect(await paging.closeArchiveWithRetry(flaky, 3)).toBe(true);
+  port.failWindows(2);
+  expect(await paging.closeArchiveWithRetry(port, 3)).toBe(true);
   expect(paging.restoreFailed).toBe(false);
   expect(paging.open).toBe(false);
-  expect(flaky.calls).toEqual(["window", "window", "window"]);
+  expect(port.calls).toEqual(["window", "window", "window", "window"]);
 
-  const down = stubPort({ window: 5 });
   const stranded = new ArchivePaging();
-  await stranded.openArchive(opened);
-  expect(await stranded.closeArchiveWithRetry(down, 2)).toBe(false);
+  await stranded.openArchive(port);
+  port.failWindows(5);
+  expect(await stranded.closeArchiveWithRetry(port, 2)).toBe(false);
   expect(stranded.restoreFailed).toBe(true);
 });
 
@@ -570,20 +571,21 @@ test("a reopen owns the window when the old home restore lands late", async () =
   };
   const first = new ArchivePaging();
   await first.openArchive(port);
-  expect(isArchiveWindowWanted()).toBe(true);
+  expect(isArchiveWindowWanted(port)).toBe(true);
   const closing = first.closeArchive(port);
   const second = new ArchivePaging();
   const opening = second.openArchive(port);
   expect(await opening).toBe(true);
-  // The delayed home restore lands after the reopen: superseded, not failed.
+  // The delayed home restore lands after the reopen: superseded, which reports
+  // success (the new route owns the window, so there is no strand to report).
   releaseHome();
-  expect(await closing).toBe(false);
+  expect(await closing).toBe(true);
   expect(first.superseded).toBe(true);
   expect(first.restoreFailed).toBe(false);
   expect(second.open).toBe(true);
   expect(second.failed).toBe(false);
   expect(second.superseded).toBe(false);
-  expect(isArchiveWindowWanted()).toBe(true);
+  expect(isArchiveWindowWanted(port)).toBe(true);
   expect(calls).toEqual(["archive", "home", "archive"]);
   // A superseded session owns nothing further: closing it again issues no call.
   expect(await first.closeArchive(port)).toBe(true);
@@ -622,7 +624,7 @@ test("a home-restore retry stops once a reopen owns the window", async () => {
   const second = new ArchivePaging();
   expect(await second.openArchive(port)).toBe(true);
   releaseSecond();
-  expect(await closing).toBe(false);
+  expect(await closing).toBe(true);
   expect(first.superseded).toBe(true);
   expect(first.restoreFailed).toBe(false);
   expect(second.open).toBe(true);
@@ -635,11 +637,11 @@ test("a mount heal never repoints home while the archive owns the window", async
   const port = stubPort();
   const first = new ArchivePaging();
   await first.openArchive(port);
-  expect(isArchiveWindowWanted()).toBe(true);
+  expect(isArchiveWindowWanted(port)).toBe(true);
   requestHomeWindow(port);
   expect(port.calls).toEqual(["window"]);
   await first.closeArchive(port);
-  expect(isArchiveWindowWanted()).toBe(false);
+  expect(isArchiveWindowWanted(port)).toBe(false);
   // The archive is gone: the heal repoints home, idempotent with the close.
   requestHomeWindow(port);
   expect(port.calls).toEqual(["window", "window", "window"]);
@@ -669,4 +671,179 @@ test("a view-only phone offers no archive actions and admits no unarchive", asyn
     error: "This phone can only view this machine.",
   });
   expect(enqueued).toEqual([]);
+});
+
+test("archive work on one client never supersedes another client's window", async () => {
+  const first = stubPort();
+  const second = stubPort();
+  const pagingA = new ArchivePaging();
+  await pagingA.openArchive(first);
+  expect(isArchiveWindowWanted(first)).toBe(true);
+  expect(isArchiveWindowWanted(second)).toBe(false);
+  // A full open/close cycle on another client leaves the first owner alone.
+  const pagingB = new ArchivePaging();
+  await pagingB.openArchive(second);
+  expect(isArchiveWindowWanted(second)).toBe(true);
+  expect(isArchiveWindowWanted(first)).toBe(true);
+  expect(pagingA.superseded).toBe(false);
+  expect(await pagingB.closeArchive(second)).toBe(true);
+  expect(isArchiveWindowWanted(second)).toBe(false);
+  expect(isArchiveWindowWanted(first)).toBe(true);
+  expect(pagingA.superseded).toBe(false);
+  expect(pagingA.open).toBe(true);
+  expect(first.calls).toEqual(["window"]);
+  expect(second.calls).toEqual(["window", "window"]);
+  // A heal for the idle client repoints home without touching the owner.
+  requestHomeWindow(second);
+  expect(second.calls).toEqual(["window", "window", "window"]);
+  expect(first.calls).toEqual(["window"]);
+  requestHomeWindow(first);
+  expect(first.calls).toEqual(["window"]);
+  await pagingA.closeArchive(first);
+  expect(isArchiveWindowWanted(first)).toBe(false);
+});
+
+test("a superseded close reports success so the old screen stays silent", async () => {
+  const port = stubPort();
+  const first = new ArchivePaging();
+  await first.openArchive(port);
+  const closing = first.closeArchive(port);
+  const second = new ArchivePaging();
+  await second.openArchive(port);
+  // Superseded is success: the new route owns the window, so there is no
+  // strand to report. Only a session's own failed restore returns false.
+  expect(await closing).toBe(true);
+  expect(first.superseded).toBe(true);
+  expect(first.restoreFailed).toBe(false);
+  await second.closeArchive(port);
+
+  const other = stubPort();
+  const failing = new ArchivePaging();
+  await failing.openArchive(other);
+  other.failWindows(1);
+  expect(await failing.closeArchive(other)).toBe(false);
+  expect(failing.superseded).toBe(false);
+  expect(failing.restoreFailed).toBe(true);
+});
+
+test("strand recovery heals only when ready and never clobbers an open archive", async () => {
+  const port = stubPort();
+  recoverStrandedHomeWindow(port, "connecting");
+  recoverStrandedHomeWindow(port, "offline");
+  recoverStrandedHomeWindow(port, "reconnecting");
+  recoverStrandedHomeWindow(port, "fatal");
+  expect(port.calls).toEqual([]);
+  recoverStrandedHomeWindow(port, "ready");
+  expect(port.calls).toEqual(["window"]);
+  const paging = new ArchivePaging();
+  await paging.openArchive(port);
+  const owned = port.calls.length;
+  // An open archive owns the window: the heal yields.
+  recoverStrandedHomeWindow(port, "ready");
+  requestHomeWindow(port);
+  expect(port.calls).toHaveLength(owned);
+  await paging.closeArchive(port);
+  // The archive is gone: the next ready heal repoints home.
+  recoverStrandedHomeWindow(port, "connecting");
+  expect(port.calls).toHaveLength(owned + 1);
+  recoverStrandedHomeWindow(port, "ready");
+  expect(port.calls).toHaveLength(owned + 2);
+});
+
+const sdkClients: ClientCore[] = [];
+
+afterEach(async () => {
+  for (const client of sdkClients.splice(0)) await client.close();
+});
+
+/** A real SDK client as the window port: `threadsWindow` runs the actual `Sidebar`. */
+function realClient(): ClientCore {
+  const client = new ClientCore({
+    deviceId: DeviceId.parse("android-archive-test"),
+    transport: () => ({
+      open: () => {},
+      send: () => {},
+      close: () => {},
+    }),
+    credential: async () => ({ token: "t" }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set: (delay: number, callback: () => void) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    id: () => crypto.randomUUID(),
+    random: () => 0.5,
+  });
+  sdkClients.push(client);
+  return client;
+}
+
+test("the real SDK scopes window ownership per client", async () => {
+  const first = realClient();
+  const second = realClient();
+  const leaseA = first.threads();
+  const leaseB = second.threads();
+  try {
+    const pagingA = new ArchivePaging();
+    expect(await pagingA.openArchive(first)).toBe(true);
+    expect(isArchiveWindowWanted(first)).toBe(true);
+    expect(isArchiveWindowWanted(second)).toBe(false);
+    const pagingB = new ArchivePaging();
+    expect(await pagingB.openArchive(second)).toBe(true);
+    // The second machine's open never supersedes the first.
+    expect(pagingA.superseded).toBe(false);
+    expect(isArchiveWindowWanted(first)).toBe(true);
+    expect(isArchiveWindowWanted(second)).toBe(true);
+    expect(await pagingB.closeArchive(second)).toBe(true);
+    expect(isArchiveWindowWanted(second)).toBe(false);
+    expect(isArchiveWindowWanted(first)).toBe(true);
+    expect(pagingA.open).toBe(true);
+    expect(await pagingA.closeArchive(first)).toBe(true);
+    expect(isArchiveWindowWanted(first)).toBe(false);
+  } finally {
+    leaseA.release();
+    leaseB.release();
+  }
+});
+
+test("a reopen owns the window on the real SDK when the old restore lands late", async () => {
+  const client = realClient();
+  const lease = client.threads();
+  try {
+    // Park the real home restore behind a gate while keeping one port identity:
+    // coordination keys on the port object, so open and close share it and the
+    // calls still land in the actual sidebar in issue order.
+    const calls: string[] = [];
+    let releaseHome!: () => void;
+    const homeGate = new Promise<void>((resolve) => {
+      releaseHome = resolve;
+    });
+    const gated: ArchiveWindowPort = {
+      async threadsWindow(input: { archived?: boolean }) {
+        calls.push(input.archived ? "archive" : "home");
+        if (!input.archived) await homeGate;
+        await client.threadsWindow(input);
+      },
+      async threadsMore() {},
+    };
+    const first = new ArchivePaging();
+    await first.openArchive(gated);
+    const closing = first.closeArchive(gated);
+    const second = new ArchivePaging();
+    expect(await second.openArchive(gated)).toBe(true);
+    releaseHome();
+    // Superseded, not failed: the new route owns the window.
+    expect(await closing).toBe(true);
+    expect(first.superseded).toBe(true);
+    expect(first.restoreFailed).toBe(false);
+    expect(second.open).toBe(true);
+    expect(isArchiveWindowWanted(gated)).toBe(true);
+    expect(calls).toEqual(["archive", "home", "archive"]);
+    expect(await second.closeArchive(gated)).toBe(true);
+    expect(isArchiveWindowWanted(gated)).toBe(false);
+  } finally {
+    lease.release();
+  }
 });
