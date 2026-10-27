@@ -748,3 +748,47 @@ describe("inbox confirmation", () => {
     expect(lastCachedRow()?.generation).toBe(advancedGeneration);
   });
 });
+
+describe("renaming from the list", () => {
+  test("a typed name renames the row, trimmed; an empty one is refused with words", async () => {
+    const { client, sink } = await following((seed) => {
+      finished(seed, "named", "Old name");
+    });
+    const title = () =>
+      (sink.read("inbox:named") as { row: { title: string } } | undefined)?.row.title;
+    await until(() => title() === "Old name", "listed");
+    inboxAction(
+      client,
+      { kind: "rename", threadId: "named", title: "  Ship the banner  " },
+      "r1",
+      sink,
+    );
+    await until(() => title() === "Ship the banner", "renamed");
+    inboxAction(client, { kind: "rename", threadId: "named", title: "   " }, "r2", sink);
+    expect(sink.read("admission:r2")).toMatchObject({ ok: false, message: /name/ });
+    expect(title()).toBe("Ship the banner");
+  });
+
+  test("asking for a new title names the thread from its opening request again", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "asked",
+        workspaceId: "ace",
+        title: "Mine",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("asked", [
+        facts.rootAgent("codex"),
+        facts.turn("root"),
+        facts.message("root", "ask", "user", "Make the banner wait two seconds"),
+        facts.endTurn("root"),
+      ]);
+    });
+    const title = () =>
+      (sink.read("inbox:asked") as { row: { title: string } } | undefined)?.row.title;
+    await until(() => title() === "Mine", "listed");
+    inboxAction(client, { kind: "retitle", threadId: "asked" }, "t1", sink);
+    await until(() => title() === "Make the banner wait two seconds", "named again");
+  });
+});

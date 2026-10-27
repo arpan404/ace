@@ -6,7 +6,8 @@ import {
   type CatalogEntry,
   type CommandPayload,
 } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
+import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
+import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -24,6 +25,7 @@ import { ThreadAccessFollower } from "./thread-access.ts";
 import { continuationPayload } from "./thread-continue.ts";
 import { ThreadModelSheet } from "./thread-model-sheet.ts";
 import { TuneFollower } from "./thread-tune.ts";
+import { ThreadTransitions } from "./thread-transitions.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
@@ -52,6 +54,7 @@ export class ThreadSession {
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
+  readonly #transitions: ThreadTransitions;
   #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
@@ -76,6 +79,8 @@ export class ThreadSession {
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
+    /** The history window the person reads, when one is open. */
+    reading: () => ThreadSource | undefined = () => undefined,
   ) {
     this.#catalog = catalog;
     this.#client = client;
@@ -91,12 +96,25 @@ export class ThreadSession {
       this.#pill.queued(count),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#transitions = new ThreadTransitions(client, store, this.#threadId, {
+      put,
+      reading,
+      changed: () => {
+        this.#controls();
+        this.#sheet.forkChanged();
+      },
+    });
     this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
       put,
       now: () => host.now(),
       preview,
       changed: () => this.#controls(),
       files: () => this.#tray.files(),
+      fork: {
+        open: () => this.#transitions.draft !== undefined,
+        picked: () => this.#transitions.draft?.choice,
+        choose: (choice) => this.#transitions.choose(choice),
+      },
     });
     this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
       this.#dispatch(payload, id),
@@ -134,6 +152,13 @@ export class ThreadSession {
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
       if (keys === "all") this.#ready();
+      if (
+        keys === "all" ||
+        keys.has("thread") ||
+        keys.has("order") ||
+        [...keys].some((key) => key.startsWith("run:") || key.startsWith("item:"))
+      )
+        this.#transitions.update();
     });
     this.#blocks.tap("all");
     this.#pill.tap("all");
@@ -142,6 +167,7 @@ export class ThreadSession {
     this.#queue.update();
     this.#tune.update();
     this.#access.update();
+    this.#transitions.update();
     this.#ready();
     void this.#readSetting();
     // Offline, the read waits for the connection; the composer must not wait with it.
@@ -177,12 +203,17 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        if ((action.continues ?? false) !== (this.#sheet.continued !== undefined))
+        if (
+          (action.continues ?? false) !==
+          (this.#sheet.continued !== undefined || this.#transitions.draft !== undefined)
+        )
           this.#admission(
             action.requestId,
             false,
             "Where this message goes just changed. Check the model and send again.",
           );
+        else if (this.#transitions.draft)
+          this.#fork(action.text, action.requestId, action.references ?? []);
         else if (this.#sheet.continued) this.#continue(action.text, action.requestId);
         // `/goal` goes first, as the web's composer checks it: a pending question never takes it.
         else if (this.#goal(action.text, action.references ?? [], action.requestId)) break;
@@ -289,6 +320,39 @@ export class ThreadSession {
         break;
       case "detach":
         this.#tray.detach(action.localId);
+        break;
+      case "fork.open":
+        this.#transitions.open(action.at, action.requestId, (id, ok, message) =>
+          this.#admission(id, ok, message),
+        );
+        break;
+      case "fork.cancel":
+        this.#transitions.cancel();
+        break;
+      case "retry":
+        void this.#transitions.retry(
+          action.answerId,
+          action.requestId,
+          (payload, id) => this.#dispatch(payload, id),
+          (id, ok, message) => this.#admission(id, ok, message),
+        );
+        break;
+      case "rewind":
+        void this.#transitions.rewind(action.itemId, action.requestId, (id, ok, message) =>
+          this.#admission(id, ok, message),
+        );
+        break;
+      case "merge.draft":
+        this.#transitions.mergeDraft();
+        break;
+      case "merge":
+        void this.#transitions.merge(
+          action.summary,
+          action.includeCode,
+          action.requestId,
+          (payload, id) => this.#dispatch(payload, id),
+          (id, ok, message) => this.#admission(id, ok, message),
+        );
         break;
     }
   }
@@ -436,6 +500,32 @@ export class ThreadSession {
       },
     });
   }
+  /**
+   * The message starts the fork written in the composer (`thread.fork`) with its files and
+   * references; the app opens it once the daemon names it (`thread.continued`).
+   */
+  #fork(text: string, id: string, references: readonly Reference[]): void {
+    const files = this.#tray.context();
+    if ("refused" in files) return this.#admission(id, false, files.refused);
+    const content = messageContent(text, references, this.#catalog(this.#threadId));
+    const choice = this.#transitions.draft?.choice;
+    this.#transitions.send(
+      {
+        input: text,
+        files: this.#tray.files(),
+        modalities: choice ? this.#sheet.modalities(choice) : undefined,
+        context: joinContext(files.context, content.references),
+      },
+      id,
+      (payload, requestId, hooks) =>
+        void dispatchCommand(this.#client, payload, requestId, this.#pump, {
+          ...hooks,
+          refusal: (error) => `The fork didn't start: ${error ?? "your computer refused it"}.`,
+        }),
+      (requestId, ok, message) => this.#admission(requestId, ok, message),
+      () => this.#tray.sent(),
+    );
+  }
   /** A settled head's answers, which its opened log leaves out. */
   #answersOf(key: string): readonly string[] {
     const block = this.#blocks.block(key);
@@ -453,10 +543,26 @@ export class ThreadSession {
       this.#settingKnown
         ? {
             type: "thread.controls",
-            row: controlsRow(this.#store, this.#setting, this.#sheet.next()),
+            row: controlsRow(this.#store, this.#setting, this.#next()),
           }
         : undefined,
     );
+  }
+  /** What the model control names: the fork's model while one is written, else the sheet's. */
+  #next() {
+    const draft = this.#transitions.draft;
+    if (!draft) return this.#sheet.next();
+    const selection = runsOn(this.#store.thread);
+    return {
+      provider:
+        draft.choice?.provider ?? selection?.provider ?? this.#store.thread?.provider ?? "codex",
+      model: preview(
+        draft.choice ? draft.choice.model : selection?.model ? modelLabel(selection.model) : "",
+        128,
+      ),
+      note: "",
+      continues: true,
+    };
   }
   #history(): void {
     this.#put("history", () => ({

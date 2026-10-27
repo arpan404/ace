@@ -344,6 +344,7 @@ function action(json: string): void {
           pump,
           nativeChunks,
           (threadId) => suggest?.entries(threadId),
+          () => services?.transcript.source(value.threadId),
         );
         browser?.close();
         browser?.probe(value.threadId, epoch);

@@ -7,6 +7,21 @@ import { thoughtOf } from "./thread-messages.ts";
 import type { PatchSink } from "./agents.ts";
 import type { NativeLedger } from "./native-ledger.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
+import { messageActionsOf } from "./message-actions.ts";
+
+/** How far back a turn's end looks for its messages: a turn's answers sit near the end. */
+const turnReach = 256;
+
+/** The messages of turn `runId` among the newest items, whose actions its end changes. */
+function turnMessages(store: ThreadSource, runId: string): string[] {
+  const ids: string[] = [];
+  for (let at = store.order.length - 1; at >= Math.max(0, store.order.length - turnReach); at--) {
+    const id = store.order[at] ?? "";
+    const item = store.item(id);
+    if (item?.type === "message" && item.runId === runId) ids.push(id);
+  }
+  return ids;
+}
 export { PatchPump } from "./patch-pump.ts";
 
 /**
@@ -29,7 +44,7 @@ export function followThread(
       return patch && { ...patch, threadId, epoch };
     });
   };
-  const row = (id: string, index?: number) => {
+  const row = (id: string, index?: number, at?: number) => {
     if (index !== undefined) positions.set(id, index);
     put(`item:${id}`, () => {
       const item = store.item(id);
@@ -41,6 +56,7 @@ export function followThread(
               ...itemRow(item, positions.get(id), store.truncated(id)),
               ...itemDetail(item, stepContext(store, item)),
               thought: thoughtOf(store, item),
+              actions: messageActionsOf(store, item, at) ?? null,
             }
           : null,
       };
@@ -61,7 +77,7 @@ export function followThread(
         put("reset", () => ({ type: "thread.reset" }));
       }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
-      store.order.forEach((id, index) => row(id, index));
+      store.order.forEach((id, index) => row(id, index, index));
       for (const id of store.interactionIds()) interaction(id);
     } else {
       if (keys.has("order")) {
@@ -98,6 +114,8 @@ export function followThread(
         if (key.startsWith("run:")) {
           const last = store.order.at(-1);
           if (last !== undefined && store.item(last)?.type === "reasoning") row(last);
+          // A finished turn can be forked from: its answers' actions change.
+          turnMessages(store, key.slice(4)).forEach((id) => row(id));
         }
         if (key.startsWith("interaction:")) {
           interaction(key.slice(12));

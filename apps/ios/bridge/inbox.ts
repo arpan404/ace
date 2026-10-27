@@ -293,6 +293,10 @@ const InboxAction = z.discriminatedUnion("kind", [
     preset: z.enum(["hour", "tomorrow", "monday"]),
   }),
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
+  /** A title the person typed; surrounding space goes, and an empty one is refused. */
+  z.object({ kind: z.literal("rename"), threadId: ThreadId, title: z.string().max(1024) }),
+  /** Named again from its opening request, as a new thread is. */
+  z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
 ]);
 
@@ -314,6 +318,14 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
     }
     case "wake":
       return { type: "thread.snooze", threadId: action.threadId, until: null };
+    case "rename": {
+      const title = action.title.trim();
+      return title && title.length <= 256
+        ? { type: "thread.rename", threadId: action.threadId, title }
+        : undefined;
+    }
+    case "retitle":
+      return { type: "thread.title.regenerate", threadId: action.threadId };
     default:
       return undefined;
   }
@@ -355,5 +367,15 @@ export function inboxAction(
     );
     return;
   }
-  void dispatchCommand(owner, payloadOf(action, host.now()), requestId, pump);
+  const payload = payloadOf(action, host.now());
+  if (!payload && action.kind === "rename") {
+    pump.put(`admission:${requestId}`, () => ({
+      type: "admission",
+      id: requestId,
+      ok: false,
+      message: "Give the thread a name of at most 256 characters.",
+    }));
+    return;
+  }
+  void dispatchCommand(owner, payload, requestId, pump);
 }

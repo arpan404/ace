@@ -79,6 +79,12 @@ export class NativeTranscript {
     this.#bounds = bounds;
   }
 
+  /** The history window the person reads in thread `threadId`, when one is open. */
+  source(threadId: string): ThreadSource | undefined {
+    const active = this.#active;
+    return active?.threadId === threadId ? active.shown?.reading.source : undefined;
+  }
+
   /** Back to the live tail: the window, its lease and its rows go. */
   close(): void {
     const active = this.#active;
