@@ -7,6 +7,7 @@ import UIKit
     static let transcriptKey = "ace.transcriptSize"
     static let reduceMotionKey = "ace.reduceMotion"
     static let solidKey = "ace.solidSurfaces"
+    static let densityKey = "ace.density"
     static func scale(_ id: String) -> CGFloat { AceTheme.transcriptSizes.first { $0.id == id }?.scale ?? 1 }
     static func transcriptName(_ id: String) -> String { AceTheme.transcriptSizes.first { $0.id == id }?.name ?? "Default" }
 }
@@ -16,6 +17,8 @@ extension EnvironmentValues {
     @Entry var aceReduceMotion = false
     /// Floating controls drawn on the solid card colour instead of system glass.
     @Entry var aceSolidSurfaces = false
+    /// Comfortable or Compact (`AceTheme.density`): Compact trims padding, never a tier or a target.
+    @Entry var aceDensityId = "comfortable"
 }
 
 /// Applies the look preferences at the root, so every screen and sheet reads them.
@@ -23,8 +26,10 @@ struct PhoneLookEnvironment: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @AppStorage(PhoneLook.reduceMotionKey) private var reduceMotion = false
     @AppStorage(PhoneLook.solidKey) private var solid = false
+    @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
     func body(content: Content) -> some View {
         content
+            .environment(\.aceDensityId, density)
             .environment(\.aceReduceMotion, systemReduceMotion || reduceMotion)
             .environment(\.aceSolidSurfaces, solid)
     }

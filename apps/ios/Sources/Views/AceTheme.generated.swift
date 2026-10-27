@@ -526,6 +526,13 @@ import UIKit
     static let accentChoices: [(id: String, name: String)] = [("theme", "Theme"), ("blue", "Blue"), ("teal", "Teal"), ("green", "Green"), ("orange", "Orange"), ("magenta", "Magenta"), ("ink", "Ink")]
     /// Transcript sizes as (id, name, scale): the scale multiplies the Dynamic Type size.
     static let transcriptSizes: [(id: String, name: String, scale: CGFloat)] = [("small", "Small", 0.9333), ("default", "Default", 1.0000), ("large", "Large", 1.1333)]
+    /// Density's measures (`@ace/themes` phoneDensities): Compact trims padding, never a tier.
+    struct DensityMetrics: Sendable { let settingsRowHeight: CGFloat; let inboxRowPadding: CGFloat; let inboxLineGap: CGFloat; let transcriptRoom: CGFloat }
+    static let densities: [(id: String, name: String, metrics: DensityMetrics)] = [
+        ("comfortable", "Comfortable", DensityMetrics(settingsRowHeight: 56, inboxRowPadding: 12, inboxLineGap: 2, transcriptRoom: 1)),
+        ("compact", "Compact", DensityMetrics(settingsRowHeight: 46, inboxRowPadding: 7, inboxLineGap: 1, transcriptRoom: 0.75)),
+    ]
+    static func density(_ id: String) -> DensityMetrics { (densities.first { $0.id == id } ?? densities[0]).metrics }
     /// A role's colour pair in any theme and accent, for previews of choices not on screen.
     static func pair(_ role: String, theme: String, accent: String) -> NativePalette.Pair? {
         themeOverrides[theme]?[accent]?[role] ?? tokenPairs[role]

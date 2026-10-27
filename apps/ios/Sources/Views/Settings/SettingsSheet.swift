@@ -98,7 +98,7 @@ struct SettingsSheet: View {
             if let notifications { NotificationSettingsView(notifications: notifications, inbox: inbox) }
         case .lock:
             if let lock { AppLockView(lock: lock) }
-        case .appearance: AppearanceView()
+        case .appearance: AppearanceView(inbox: inbox)
         case .keyboard: KeyboardSettingsView()
         case .archive:
             ArchiveView(inbox: inbox, following: $following) { machine, id in
