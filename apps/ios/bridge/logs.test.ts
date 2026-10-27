@@ -20,7 +20,7 @@ async function opened(threadId: string, seed: Fact[]) {
   return { daemon, store: lease.store };
 }
 interface Shown {
-  lines: { text: string; level: string; source: string }[];
+  lines: { key: string; text: string; level: string; source: string }[];
   earlier: number;
   total: number;
   all: number;
@@ -102,5 +102,59 @@ describe("Logs on the phone", () => {
     logs.earlier();
     await until(() => shown(sink)?.earlier === 0, "earlier lines");
     expect(shown(sink)?.lines).toHaveLength(first?.total ?? 0);
+  });
+
+  test("a command's streamed output never rebuilds the log; its start and its exit do", async () => {
+    const { daemon, store } = await opened("stream", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.tool("root", "build", {
+        kind: "shell",
+        title: "bun run build",
+        detail: { kind: "shell", command: "bun run build" },
+      }),
+    ]);
+    const sink = new RecordingSink();
+    followLogs(store, "stream", 1, sink, plainPreview, time, LogsQuery.parse({}));
+    await until(
+      () => !!shown(sink)?.lines.some((line) => line.text === "$ bun run build"),
+      "the start",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const before = sink.puts;
+    for (let index = 0; index < 40; index++)
+      daemon.apply("stream", [facts.output("root", "build", `line ${index}\n`)]);
+    await until(
+      () => JSON.stringify(store.item(store.order.at(-1) ?? "")).includes("line 39"),
+      "the output",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sink.puts).toBe(before);
+    daemon.apply("stream", [facts.toolDone("root", "build")]);
+    await until(
+      () => !!shown(sink)?.lines.some((line) => line.text.startsWith("bun run build ·")),
+      "the exit",
+    );
+  });
+
+  test("after Show earlier, the first line shown stays put while new lines arrive", async () => {
+    const seed: Fact[] = [facts.rootAgent("codex"), facts.turn("root")];
+    for (let index = 0; index < 60; index++)
+      seed.push(...shell("root", `run-${index}`, `step ${index}`, 0));
+    const { daemon, store } = await opened("anchor", seed);
+    const sink = new RecordingSink();
+    const logs = followLogs(store, "anchor", 1, sink, plainPreview, time, LogsQuery.parse({}), 20);
+    await until(() => (shown(sink)?.total ?? 0) > 60, "the whole log");
+    logs.earlier();
+    await until(() => (shown(sink)?.lines.length ?? 0) > 20, "an earlier page");
+    const first = shown(sink)?.lines[0]?.key;
+    const count = shown(sink)?.lines.length ?? 0;
+    daemon.apply("anchor", [
+      ...shell("root", "late-1", "late one", 0),
+      ...shell("root", "late-2", "late two", 0),
+    ]);
+    await until(() => !!shown(sink)?.lines.some((line) => line.text === "$ late two"), "new lines");
+    expect(shown(sink)?.lines[0]?.key).toBe(first);
+    expect(shown(sink)?.lines.length).toBe(count + 4);
   });
 });

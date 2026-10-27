@@ -10,6 +10,7 @@ import {
 } from "@ace/ui-core/log-filter";
 import { threadLog, type LogLine } from "@ace/ui-core/thread-log";
 import { z } from "zod";
+import type { Item } from "@ace/protocol";
 import type { PatchSink, Preview } from "./agents.ts";
 
 /*
@@ -36,7 +37,20 @@ export type LogsQuery = z.infer<typeof LogsQuery>;
 export const logPage = 200;
 
 const key = "thread:logs";
-const loggable = new Set(["tool_call", "notice", "compaction"]);
+/**
+ * What of an item a log line reads: a tool call's status, end and exit code (never its streamed
+ * output), or a notice's words. Undefined for items that log nothing.
+ */
+function logged(item: Item | undefined): string | undefined {
+  if (item?.type === "tool_call") {
+    const { call } = item;
+    const exit = call.detail.kind === "shell" ? call.detail.exitCode : undefined;
+    return `${call.status}|${call.endedAt ?? ""}|${exit ?? ""}|${call.backgroundTaskId ?? ""}`;
+  }
+  if (item?.type === "notice") return `${item.level}|${item.text}`;
+  if (item?.type === "compaction") return "compaction";
+  return undefined;
+}
 
 export interface LogsFollow {
   stop(): void;
@@ -54,15 +68,27 @@ export function followLogs(
   preview: Preview,
   time: (at: number) => string,
   initial: LogsQuery,
+  page = logPage,
 ): LogsFollow {
   let query = initial;
-  let pages = 1;
+  /**
+   * Once Show earlier was used, the first line shown, by key: new lines arriving at the end
+   * never push it off the top. Undefined shows the newest page.
+   */
+  let anchor: string | undefined;
   let lines: LogLine[] = [];
   let dirty = true;
+  /** What each loggable item last read as, so streamed output never rebuilds the log. */
+  const seen = new Map<string, string>();
   const filtered = () => {
     if (dirty) {
       lines = threadLog(store);
       dirty = false;
+      // What every item read as for these lines, so only a later change rebuilds them.
+      for (const id of store.order) {
+        const facts = logged(store.item(id));
+        if (facts !== undefined) seen.set(id, facts);
+      }
     }
     const filter: LogFilter = { ...defaultFilter, level: query.level, hidden: query.hidden };
     const agents = query.agentId ? agentSubtree(agentList(), query.agentId) : undefined;
@@ -76,7 +102,7 @@ export function followLogs(
   const put = () =>
     sink.put(key, () => {
       const shown = filtered();
-      const start = Math.max(0, shown.length - pages * logPage);
+      const start = firstShown(shown);
       const root = store.thread?.rootAgentId;
       const scope = query.agentId ? store.agent(query.agentId) : undefined;
       return {
@@ -110,6 +136,21 @@ export function followLogs(
         }),
       };
     });
+  /** Where the shown lines start: the anchor once set, else the newest page. */
+  const firstShown = (shown: readonly LogLine[]) => {
+    const at = anchor === undefined ? -1 : shown.findIndex((line) => line.key === anchor);
+    if (at >= 0) return at;
+    // Its line left the loaded history: keep the oldest still loaded rather than jump ahead.
+    return anchor === undefined ? Math.max(0, shown.length - page) : 0;
+  };
+  /** True when the item's logged facts changed (or it is new); remembers them. */
+  const moved = (id: string) => {
+    const now = logged(store.item(id));
+    if (now === undefined) return false;
+    if (seen.get(id) === now) return false;
+    seen.set(id, now);
+    return true;
+  };
   const change: ChangeTap = (keys) => {
     if (keys === "all") {
       dirty = true;
@@ -127,7 +168,7 @@ export function followLogs(
         changed.startsWith("task:") ||
         changed.startsWith("interaction:") ||
         changed.startsWith("run:") ||
-        (changed.startsWith("item:") && loggable.has(store.item(changed.slice(5))?.type ?? ""))
+        (changed.startsWith("item:") && moved(changed.slice(5)))
       ) {
         dirty = true;
         put();
@@ -143,16 +184,17 @@ export function followLogs(
     },
     query: (next) => {
       query = next;
-      pages = 1;
+      anchor = undefined;
       put();
     },
     earlier: () => {
-      pages++;
+      const shown = filtered();
+      anchor = shown[Math.max(0, firstShown(shown) - page)]?.key;
       put();
     },
     copy: () => {
       const shown = filtered();
-      return formatLog(shown.slice(Math.max(0, shown.length - pages * logPage)), time);
+      return formatLog(shown.slice(firstShown(shown)), time);
     },
   };
 }
