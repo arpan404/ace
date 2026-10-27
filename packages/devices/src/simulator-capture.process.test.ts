@@ -207,3 +207,89 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("cancelling a Simulator live view that serve-sim never answers stops it promptly", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-cancel-"));
+  // serve-sim announces itself, then never answers the stream request.
+  const asked = Promise.withResolvers<void>();
+  const server = createServer(() => asked.resolve());
+  const listening = Promise.withResolvers<number>();
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No address");
+    listening.resolve(address.port);
+  });
+  const port = await listening.promise;
+  const command = join(home, "serve-sim");
+  const pidFile = join(home, "pid");
+  await writeFile(
+    command,
+    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('0.1.49-beta.139.1');process.exit(0);}require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}/ws'}));process.stdin.resume();`,
+  );
+  await chmod(command, 0o700);
+  for (const name of ["xcode-select", "xcrun", "open"]) {
+    await writeFile(join(home, name), "#!/bin/sh\nexit 0\n");
+    await chmod(join(home, name), 0o700);
+  }
+  const platform = new DevicePlatform({
+    platform: "darwin",
+    home,
+    env: { PATH: home },
+    async probe(_command, args) {
+      return {
+        stdout:
+          args[0] === "-p"
+            ? "/Applications/Xcode.app/Contents/Developer"
+            : JSON.stringify({
+                devices: { iOS: [{ udid, name: "iPhone", state: "Booted", isAvailable: true }] },
+              }),
+        stderr: "",
+        code: 0,
+      };
+    },
+  });
+  const runtime: DeviceRuntime = {
+    now: () => 1000,
+    id: () => "cancel",
+    spawn: spawnRawSupervised,
+    after(ms, run) {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
+  };
+  const cancel = new AbortController();
+  const failures: unknown[] = [];
+  try {
+    const starting = startCapture({
+      device: { id: `ios:${udid}`, name: "iPhone", platform: "ios", state: "booted" },
+      streamId: "cancel",
+      fps: 30,
+      platform,
+      runtime,
+      env: { PATH: home },
+      signal: cancel.signal,
+      publish() {},
+      failure(error) {
+        failures.push(error);
+      },
+    });
+    const outcome = starting.then(
+      () => "started",
+      () => "cancelled",
+    );
+    await asked.promise;
+    const cancelledAt = performance.now();
+    cancel.abort();
+    await expect(outcome).resolves.toBe("cancelled");
+    // Well under serve-sim's own startup and connect timeouts.
+    expect(performance.now() - cancelledAt).toBeLessThan(2500);
+    const pid = Number(await readFile(pidFile, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(failures).toEqual([]);
+  } finally {
+    await platform.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(home, { recursive: true, force: true });
+  }
+});

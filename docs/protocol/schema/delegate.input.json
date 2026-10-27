@@ -4,13 +4,13 @@
   "additionalProperties": false,
   "properties": {
     "tasks": {
-      "description": "One entry per child. Roles must be unique among your live children.",
+      "description": "One per child.",
       "items": {
         "additionalProperties": false,
         "properties": {
           "access": {
             "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
-            "description": "The child's access mode. Default inherit (yours); never broader than yours."
+            "description": "Default inherit; never above yours."
           },
           "accountId": {
             "description": "Account id or label.",
@@ -19,54 +19,56 @@
             "type": "string"
           },
           "effort": {
-            "description": "Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.",
+            "description": "e.g. low, high, xhigh. Default: yours on the same model.",
             "maxLength": 64,
             "minLength": 1,
             "type": "string"
           },
           "machine": {
             "$ref": "https://ace.local/protocol/v1/MachineName.json",
-            "description": "Run on this paired machine (a name from `machines`). Requires project."
+            "description": "From machines; needs project."
           },
           "model": {
-            "description": "Model id or name (\"opus 5.5\").",
+            "description": "Id or name, e.g. \"opus 5.5\".",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
           },
           "project": {
-            "description": "The project on that machine, as `machines` lists it.",
+            "description": "Its project in machines.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
           },
           "provider": {
             "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
-            "description": "Provider that runs the child. Default: yours, or the one serving `model`."
+            "description": "Default: yours, or the one serving model."
           },
           "requestId": {
-            "description": "Any stable id; repeating a call with it runs once.",
+            "description": "Any stable id; a repeat with it runs once.",
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[a-zA-Z0-9_.-]+$",
             "type": "string"
           },
           "role": {
-            "$ref": "https://ace.local/protocol/v1/DelegationRole.json"
+            "description": "Unique name saying what and where: 'Fix-869-toast', never 'Implementer'.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
           },
           "runRole": {
             "$ref": "https://ace.local/protocol/v1/RunRole.json",
-            "description": "Run as a role from your Roles line."
+            "description": "A role from your Roles line."
           },
           "task": {
-            "description": "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
+            "description": "Goal, files, constraints, how to verify: the child sees none of your conversation.",
             "maxLength": 262144,
             "minLength": 1,
             "type": "string"
           },
           "workspace": {
-            "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json",
-            "description": "Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path."
+            "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
           }
         },
         "required": [
@@ -83,11 +85,11 @@
     "waitFor": {
       "$ref": "https://ace.local/protocol/v1/WaitMode.json",
       "default": "all",
-      "description": "With waitSeconds: return when all children settle (default) or when any does."
+      "description": "any returns on the first."
     },
     "waitSeconds": {
       "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
-      "description": "Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."
+      "description": "Wait for results, as wait does. Omit to return at once."
     }
   },
   "required": [

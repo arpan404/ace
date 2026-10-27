@@ -11,13 +11,13 @@ const notInitialized =
  * Synthetic host for a Pi extension, following Pi's documented lifecycle: the factory runs in a
  * loading phase where action methods throw and a factory failure is fatal; then the runtime
  * binds and `session_start` handlers run, where a failure is only reported as an extension
- * error. Registering a tool activates it, as Pi does for direct tools.
+ * error. Registering a `direct` or `model-only` tool activates it, as Pi 1.4.0 does.
  */
 export function createPiExtensionHost(
   options: {
     activeTools?: readonly string[];
     /**
-     * Pi's `--tools` allowlist (exact names or `*` patterns). As in Pi 1.3.0 it filters extension
+     * Pi's `--tools` allowlist (exact names or `*` patterns). As in Pi 1.4.0 it filters extension
      * tools too: a tool outside it is never registered, so the model can't see or call it.
      */
     allowedTools?: readonly string[];
@@ -79,7 +79,8 @@ export function createPiExtensionHost(
       registration();
       if (!allowed(tool.name)) return;
       tools.set(tool.name, tool);
-      if (!active.includes(tool.name)) active = [...active, tool.name];
+      const declared = (tool.exposure ?? "direct") === "direct" || tool.exposure === "model-only";
+      if (declared && !active.includes(tool.name)) active = [...active, tool.name];
     },
     appendEntry: (customType, data) => action(() => options.appendEntry?.(customType, data)),
     sendMessage: (message) => action(() => void sent.push(message)),
@@ -111,6 +112,22 @@ export function createPiExtensionHost(
     errors,
     notices,
     active: () => [...active],
+    /**
+     * The tools Pi's codemode scripts may call (`ctx.executeTool()`, Pi 1.4.0): active `direct`
+     * tools and every registered `codemode` or `deferred` tool. Pi appends a script-call note to
+     * each declared one while codemode is active, and hides them all with `codemode.mode: "only"`.
+     */
+    scriptCallable: () =>
+      [...tools.values()].flatMap((tool) => {
+        const exposure = tool.exposure ?? "direct";
+        const callable =
+          exposure === "codemode" ||
+          exposure === "deferred" ||
+          (exposure === "direct" && active.includes(tool.name));
+        return callable ? [tool.name] : [];
+      }),
+    /** What `pi.getAllTools()` reports to a permission extension: each tool's MCP hints. */
+    annotations: (name: string) => tools.get(name)?.annotations,
     /** The "Available tools" lines Pi writes into its system prompt: active tools with a snippet. */
     promptToolLines: () =>
       active.flatMap((name) => {

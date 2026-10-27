@@ -15,6 +15,7 @@ import { attributeDroppedLine, type LineAttribution } from "./dropped-line.ts";
 import { HostRouter, type Route } from "./host-routing.ts";
 import { obj, str } from "./native.ts";
 import { parentOf } from "./session-state.ts";
+import { CodexCatalogCache } from "./tool-facts.ts";
 
 /** A process exit, or `detached` when a shared process stopped serving one channel. */
 export type HostExit = Omit<ProcessExit, "reason"> & {
@@ -65,6 +66,8 @@ export interface CodexChannel {
   retire(): Promise<void>;
   /** The thread provably belongs to another channel on this process. */
   foreign(thread: string): boolean;
+  /** Model catalogs this process has served, shared by its channels (`tool-facts.ts`). */
+  readonly catalogs: CodexCatalogCache;
 }
 
 export type HostConfig = {
@@ -120,6 +123,9 @@ class Tenant implements CodexChannel {
   get alone(): boolean {
     return this.host.alone(this);
   }
+  get catalogs(): CodexCatalogCache {
+    return this.host.catalogs;
+  }
   request(
     method: string,
     params: unknown,
@@ -167,6 +173,7 @@ class Tenant implements CodexChannel {
  */
 export class CodexHost {
   readonly dedicated: boolean;
+  readonly catalogs = new CodexCatalogCache();
   readonly #config: HostConfig;
   readonly #router = new HostRouter<Tenant>();
   readonly #tenants = new Set<Tenant>();

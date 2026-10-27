@@ -13,20 +13,20 @@
       "type": "string"
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "text": {
-      "description": "The message, standing on its own.",
+      "description": "Standing on its own.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "threadId": {
-      "description": "A child's or owned thread's id; with full access, any of the person's threads.",
+      "description": "A child's or owned thread's id; with full access, any thread.",
       "minLength": 1,
       "type": "string"
     }

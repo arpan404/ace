@@ -62,7 +62,7 @@ export async function bindMcpSession(
         }
       : undefined);
   const acpProvider = acpProviders.find((provider) => provider === adapter.provider);
-  // Each provider lists what it supports: Antigravity defers like Claude, the others stay fixed.
+  // Each provider lists what it supports: Antigravity and Cursor defer, generic ACP stays fixed.
   const listing = acpProvider ? usualToolListing(acpProvider) : undefined;
   const nativeMcp =
     connection && acpProvider

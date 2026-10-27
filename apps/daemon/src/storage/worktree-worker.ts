@@ -12,6 +12,16 @@ const git = new GitService(
 );
 let tail = Promise.resolve();
 parentPort?.on("message", (input: unknown) => {
+  const close = WorktreeRequest.safeParse(input);
+  if (close.success && close.data.operation.op === "close") {
+    // Closing cancels the Git calls in flight now; queued behind them it would wait out a
+    // whole push or removal. The reply still follows the work it cut short.
+    const closing = git.close();
+    tail = tail
+      .then(() => closing)
+      .then(() => parentPort?.postMessage({ id: close.data.id, result: { kind: "done" } }));
+    return;
+  }
   tail = tail
     .then(async () => {
       const request = WorktreeRequest.parse(input);
@@ -39,7 +49,7 @@ parentPort?.on("message", (input: unknown) => {
             result = { kind: "done" };
             break;
           case "close":
-            await git.close();
+            // Handled as it arrives, above.
             result = { kind: "done" };
             break;
         }

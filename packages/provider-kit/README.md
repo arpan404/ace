@@ -1,6 +1,6 @@
 # @ace/provider-kit
 
-Shared provider I/O for Node 24+. Node built-ins own I/O; Zod validates RPC envelopes. Import modules through their subpaths; discovery never starts agent sessions or reads credential files.
+Shared provider I/O for Node 26+. Node built-ins own I/O; Zod validates RPC envelopes. Import modules through their subpaths; discovery never starts agent sessions or reads credential files.
 
 Process groups follow [Node's detached-process semantics](https://nodejs.org/api/child_process.html#optionsdetached); SSE parsing follows the [HTML event-stream rules](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream).
 

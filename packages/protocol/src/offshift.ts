@@ -20,17 +20,14 @@ export const OffshiftAuthor = z.object({
 });
 export type OffshiftAuthor = z.infer<typeof OffshiftAuthor>;
 export const OffshiftCriterion = z.strictObject({
-  id: key.describe("A stable id for the criterion (letters, digits, _ . -)."),
-  description: text.describe("The observable behaviour that must hold."),
-  requiredKinds: z
-    .array(OffshiftEvidenceKind)
-    .min(1)
-    .max(5)
-    .describe("Evidence kinds that must each have a current pass."),
-  independent: z
-    .boolean()
-    .optional()
-    .describe("Passes count only from another provider or model than the run owner's."),
+  /** A stable id (letters, digits, _ . -). */
+  id: key,
+  /** The observable behaviour that must hold. */
+  description: text,
+  /** Evidence kinds that must each have a current pass. */
+  requiredKinds: z.array(OffshiftEvidenceKind).min(1).max(5),
+  /** Passes count only from another provider or model than the run owner's. */
+  independent: z.boolean().optional(),
 });
 export type OffshiftCriterion = z.infer<typeof OffshiftCriterion>;
 /** A run holds at most 64 criteria, each id once. */
@@ -61,9 +58,11 @@ const stepTitle = z.string().min(1).max(160);
 const stepNote = z.string().min(1).max(1024);
 /** One step of a run's procedure, before it is tracked. */
 export const OffshiftStepInput = z.strictObject({
-  id: key.describe("A stable id for the step (letters, digits, _ . -)."),
-  title: stepTitle.describe("What to do, as a short imperative."),
-  phase: OffshiftPhase.describe("The phase the step belongs to."),
+  /** A stable id (letters, digits, _ . -). */
+  id: key,
+  /** What to do, as a short imperative. */
+  title: stepTitle,
+  phase: OffshiftPhase,
 });
 export type OffshiftStepInput = z.infer<typeof OffshiftStepInput>;
 /** A run holds at most 24 steps, each id once. */
@@ -97,13 +96,18 @@ export type OffshiftPlaybook = z.infer<typeof OffshiftPlaybook>;
 export const OffshiftPlaybooks = z.object({ playbooks: z.array(OffshiftPlaybook).max(16) });
 export type OffshiftPlaybooks = z.infer<typeof OffshiftPlaybooks>;
 export const OffshiftEvidence = z.strictObject({
-  criterionId: key.describe("The criterion this observation checks."),
-  kind: OffshiftEvidenceKind.describe("Which required kind this observation satisfies."),
-  result: z.enum(["pass", "fail"]).describe("What the check observed."),
-  revision: OffshiftRevision.describe("The revision from get, read before the check ran."),
-  action: text.describe("The command or interaction actually performed."),
-  artifact: text.describe("Where the full output is kept: a path, URL or report reference."),
-  note: text.describe("The observed result and environment, in a sentence or two."),
+  /** The criterion this observation checks. */
+  criterionId: key,
+  /** Which required kind this observation satisfies. */
+  kind: OffshiftEvidenceKind,
+  result: z.enum(["pass", "fail"]),
+  revision: OffshiftRevision.describe("From get, before the check ran."),
+  /** The command or interaction actually performed. */
+  action: text,
+  /** Where the full output is kept: a path, URL or report reference. */
+  artifact: text,
+  /** The observed result and environment, in a sentence or two. */
+  note: text,
   recordedAt: Timestamp,
   /** Set by the daemon from the authenticated caller, never from input; null for records
    * written before authorship was kept. */

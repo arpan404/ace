@@ -2315,7 +2315,7 @@ Example:
   "operation": {
     "op": "targets"
   },
-  "requestId": "4vaXMprffAWy-gx",
+  "requestId": "3u_WLoqeezVx-fw",
   "type": "screen.request"
 }
 ```
@@ -2336,8 +2336,8 @@ Example:
 {
   "keyframe": true,
   "sequence": 5,
-  "sessionId": "g2FUQvMXbEBdAjDxgm4cqEZqcUzFN",
-  "streamId": "KX26mhlnpLIInIFi2o-4XTCxW0XkYK_C3mhSI91gyj7_9_uxkuZDM",
+  "sessionId": "f1ETPuLWaDAcziCwfl3bpDYpbTyEM",
+  "streamId": "JW15lgkmoKHHmHEh1n-3WSBwVZWjXJ9B2lgRH80fxi6989twjtYCL",
   "type": "screen.ack"
 }
 ```
@@ -2355,10 +2355,10 @@ Example:
 ```json
 {
   "operation": {
-    "deviceId": "ios:21bc41d8-Bf6ffb4aFbbd0a8Db67a6E61c40",
+    "deviceId": "ios:ed12Ad3E-75C551A0b113c0E91CD0CaCd2Ac",
     "op": "screenshot"
   },
-  "requestId": "tx_RTC8D9HgT2lJyiwekdofGhTEgE5MIyiilRl68wW",
+  "requestId": "sw9QSB7C8GfS1kIxhvdjcneFgSDfD4LHxhhkQk57vV",
   "type": "devices.request"
 }
 ```
@@ -2377,9 +2377,9 @@ Example:
 
 ```json
 {
-  "deviceId": "android:5DOXJsj6MXysnPAkHqs2-xVnTJUx-Nt7xepkjMvk-msEjx6nKBMyM6N4uRIFPf7.LHg9TYFWfO9uZbktIl9S4q5hCy4KUJy1CbMs8aMSP",
+  "deviceId": "android:4CNWIri5LWxrmOzjGpr1-wUmSITw-Ms6wdojiLuj-lrDiw5mJALxL5M3tQHEOe6.KGf8SXEVeN8tYajsHk8R3p4gBx3JTIx0BaLr7_LRO",
   "sequence": 4,
-  "streamId": "u8HjeEL",
+  "streamId": "t7GidDK",
   "type": "devices.ack"
 }
 ```

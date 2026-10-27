@@ -163,6 +163,7 @@ export {
 export * from "./worktree-creation.ts";
 
 export * from "./agent-orchestration.ts";
+export * from "./agent-models.ts";
 
 export * from "./forge-browser.ts";
 export * from "./forge-file-content.ts";

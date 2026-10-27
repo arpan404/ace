@@ -1,5 +1,5 @@
 import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
-import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
+import { claudeInjection, claudeToolListing, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
@@ -27,6 +27,8 @@ import {
 import { ClaudeRateLimitObservation } from "./rate-limits.ts";
 import { nativeMcpServers, mcpControls, type ClaudeMcpServers } from "./mcp-controls.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
+import { AceListing } from "./ace-listing.ts";
+import { claudeToolSearchFacts } from "./tool-search-facts.ts";
 import { readClaudeUsage } from "./usage-read.ts";
 export interface ClaudeOptions {
   executable?: string;
@@ -119,7 +121,20 @@ export async function openSession(
     process_id: processId,
     cwd: ctx.cwd,
   });
-  const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
+  // What Claude Code will decide on tool search, from the env, settings and model it launches
+  // with: without it, ace lists its core tools instead of paying for every definition.
+  const toolSearchFacts = (model: string | undefined) =>
+    claudeToolSearchFacts({
+      env,
+      cwd: ctx.cwd,
+      sources: configuration.settingSources ?? [],
+      model,
+    });
+  const listing = ctx.aceMcp ? claudeToolListing(await toolSearchFacts(ctx.model)) : undefined;
+  const injection = ctx.aceMcp ? claudeInjection({ ...ctx.aceMcp, listing }) : undefined;
+  const servers = { ...options.mcpServers, ...injection?.mcpServers };
+  const aceListing =
+    ctx.aceMcp && listing ? new AceListing(ctx.aceMcp, listing, servers) : undefined;
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   ctx.signal.throwIfAborted();
   q = query({
@@ -163,7 +178,7 @@ export async function openSession(
             allowDangerouslySkipPermissions: ctx.permissionMode === "bypassPermissions",
           }
         : {}),
-      mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
+      mcpServers: nativeMcpServers(servers),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,
@@ -328,16 +343,19 @@ export async function openSession(
   const ensureOpen = () => {
     if (closed || exited) throw new Error("Claude session is closed");
   };
+  const baseControls = mcpControls(q, ensureOpen);
   return {
     nativeSessionId: sessionId,
     get sessionConfirmed() {
       return sessionConfirmed;
     },
-    mcp: mcpControls(q, ensureOpen),
+    mcp: aceListing ? aceListing.controls(baseControls) : baseControls,
     async configure(selection) {
       const executionOptions = ClaudeSelectionOptions.parse(selection.options);
       ensureOpen();
       await q.setModel(selection.model);
+      // Claude Code decides on tool search per request by its model: a switch can turn it off.
+      await aceListing?.update(await toolSearchFacts(selection.model), baseControls);
       if (ctx.permissionMode)
         await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
       await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
@@ -348,6 +366,9 @@ export async function openSession(
       let pushed = 0;
       try {
         ensureOpen();
+        // A narrowing whose reconnect failed is retried before the turn; a second failure
+        // leaves the turn on the old list and the next turn tries again.
+        if (aceListing?.unsettled) await aceListing.settle(baseControls).catch(() => {});
         // Validate every admission before the first one can reach the harness.
         const messages = admissions(parts).map((body) => {
           const message: SDKUserMessage & { uuid: string } = {

@@ -6,10 +6,10 @@
     "mode": {
       "$ref": "https://ace.local/protocol/v1/WaitMode.json",
       "default": "all",
-      "description": "all (default): every thread settles; any: the first."
+      "description": "any returns on the first."
     },
     "threadIds": {
-      "description": "Threads to watch: children from delegate, or any thread you can read.",
+      "description": "From delegate, or any thread you can read.",
       "items": {
         "$ref": "https://ace.local/protocol/v1/ThreadId.json"
       },
@@ -19,8 +19,7 @@
     },
     "timeoutSeconds": {
       "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
-      "default": 120,
-      "description": "Longest wait in seconds."
+      "default": 120
     }
   },
   "required": [

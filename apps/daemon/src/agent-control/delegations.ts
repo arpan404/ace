@@ -10,6 +10,7 @@ import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue, drainLaunches, startOrQueue } from "./launch-queue.ts";
 import { childStatus, queuedChildStatus, unlaunchedResult } from "./child-status.ts";
 import { accountProvider, type AccountRegistry } from "@ace/accounts";
+import { accountForName, registeredAccounts } from "./account-names.ts";
 import {
   CommandId,
   DeviceId,
@@ -38,7 +39,7 @@ import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
 import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { MessageSenders } from "./message-senders.ts";
-import { readAgentCatalog } from "./catalog.ts";
+import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
@@ -219,6 +220,10 @@ export class DelegationService {
     input: import("zod").z.infer<typeof import("@ace/protocol").AgentCatalogInput>,
   ) {
     return readAgentCatalog(this.deps, caller, input);
+  }
+  /** The compact roster the `models` tool shows: current models, every account once. */
+  models(caller: McpAttribution, input: import("@ace/protocol").AgentModelsInput) {
+    return readModelRoster(this.deps, caller, input);
   }
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);
@@ -512,25 +517,7 @@ export class DelegationService {
     provider: ProviderKind | undefined,
     name: string,
   ): { id: string; provider: ProviderKind } | undefined {
-    try {
-      const accounts = (this.deps.accounts?.list() ?? []).map((entry) => ({
-        id: entry.instance.id,
-        label: entry.instance.label.trim().toLowerCase(),
-        provider: accountProvider(entry.instance),
-      }));
-      const byId = accounts.find((entry) => entry.id === name);
-      if (byId) return { id: byId.id, provider: byId.provider };
-      const wanted = name.trim().toLowerCase();
-      const labelled = accounts.filter(
-        (entry) => entry.label === wanted && (!provider || entry.provider === provider),
-      );
-      return labelled.length === 1 && labelled[0]
-        ? { id: labelled[0].id, provider: labelled[0].provider }
-        : undefined;
-    } catch {
-      // Account homes are still being validated: the id is checked again at admission.
-      return undefined;
-    }
+    return accountForName(registeredAccounts(this.deps.accounts), provider, name);
   }
   /** The name the person gave an account ("Work"), for what an agent tells them. */
   accountLabel(id: string | undefined): string | undefined {

@@ -50,7 +50,7 @@ it. Release notes come from `--notes-file notes.md`, or are generated from merge
 
 To include standalone CLI archives (`ace update` on installs from `install.sh`), pass
 `--with-daemon` to `release:build`. Set `ACE_RELEASE_PUBLIC_KEY_FILE` and
-`ACE_RELEASE_PRIVATE_KEY_FILE` (kept outside the repository), and run it on Node 24.13.0. See
+`ACE_RELEASE_PRIVATE_KEY_FILE` (kept outside the repository), and run it on Node 26.12.1. See
 [tools/release](../tools/release/README.md). Always pass it: apps from before this updater
 (0.0.2 and earlier) check those signed manifests, and offer the download when they find one.
 

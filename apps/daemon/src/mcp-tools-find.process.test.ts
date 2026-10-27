@@ -172,11 +172,11 @@ it("tools_call is offered to every client whose list lacks tools, never to one l
   const early = await core.call("tools_call", { name: "automations_list", arguments: {} });
   expect(early.failed, early.text).toBe(false);
   expect(early.data).toEqual((await full.call("automations_list", {})).data);
-  // Claude Code defers ace's tools but keeps tools_find loaded; Antigravity reads its own key.
-  expect(full.tools.find((tool) => tool.name === "tools_find")?.["_meta"]).toMatchObject({
-    "anthropic/alwaysLoad": true,
-    "antigravity/alwaysLoad": true,
-  });
+  // Claude Code searches deferred tools itself, so tools_find stays deferred there; Antigravity,
+  // which has no search, loads it by its own key.
+  const meta = full.tools.find((tool) => tool.name === "tools_find")?.["_meta"];
+  expect(meta?.["anthropic/alwaysLoad"]).toBeUndefined();
+  expect(meta?.["antigravity/alwaysLoad"]).toBe(true);
   await core.close();
 });
 

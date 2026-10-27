@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "id": {
-      "description": "The automation's id, as you named it in automation_put.",
+      "description": "The id you gave it in automation_put.",
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
