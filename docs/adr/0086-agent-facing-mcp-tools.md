@@ -114,7 +114,7 @@ below). In core mode a search also opens the families it returned, the way readi
 
 **Listing per client.** `X-Ace-Tools` now takes three values:
 
-- no header (Claude Code, Codex, claude-agent-acp, Antigravity): every tool, with `tools_find`
+- no header (Claude Code, Codex on a model with tool search, claude-agent-acp, Antigravity): every tool, with `tools_find`
   beside their own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
 - `core` (OpenCode, Pi, Gemini CLI over ACP): the core tools plus `tools_find` and `tools_call`,
   growing on `guide`, entry points and searches. These clients reload, so a found tool becomes a
@@ -181,6 +181,43 @@ the daemon decides its listing with the same rules from its launch env, settings
 thread's model (`engine_sessions.model`, `acpClaudeToolListing`). ACP fixes a session's MCP
 servers when it opens, so a later model switch cannot narrow the list; a session with no model
 known at launch starts on core.
+
+**Codex defers only with tool search (2026-10-27).** Read from Codex 0.163.0's source (tag
+`rust-v0.163.0`: `core/src/tools/spec_plan.rs`, `core/src/mcp_tool_exposure.rs`,
+`models-manager/src/manager.rs`, `model-provider/src/amazon_bedrock/runtime_catalog.rs`,
+`rmcp-client/src/logging_client_handler.rs`, `tools/src/json_schema.rs`):
+
+- Codex defers MCP tools only when the turn's model metadata has `supports_search_tool`.
+  Otherwise it loads every listed tool in full on every request, as function tools or, on
+  code-mode-only models, as declarations in `exec`'s description. A person's `omit_tools_from` or
+  `code_mode.direct_only_tool_namespaces` can also force tools direct.
+- The metadata comes from Codex's catalog: the longest slug the model name starts with, retried
+  after one `provider/` segment (an exact match for a provider's `model_catalog_url`). Every
+  bundled model has search. A model outside the catalog (Ollama or LM Studio under `--oss`, a
+  custom provider's own names) gets fallback metadata without it, and `amazon-bedrock-runtime`
+  turns it off for every model. `features.code_mode_only_strict_3p_tools` keeps MCP tools deferred
+  on code-mode-only turns regardless. The auth mode only filters what `model/list` shows.
+- The tool mode is the model's own (the gpt-5.6 and gpt-6 families are code-mode-only), else
+  `features.code_mode_only` or `code_mode`, both off by default, so gpt-5.5 runs without `exec`
+  and reaches deferred tools through `tool_search`. Both facts are read per turn, so a model
+  switch can move a thread between modes. Codex fixes a server's tools when it connects, only
+  logs `tools/list_changed`, and `config/mcpServer/reload` re-reads only `config.toml`.
+- Server instructions become the tool namespace's description; ace sends Codex none
+  (`X-Ace-Instructions: native`). Skills are listed with name, description and path.
+- Function calls are never strict. Codex keeps `type`, `description`, `enum`, `items`,
+  `minItems`, `properties`, `required`, `additionalProperties`, `anyOf`/`oneOf`/`allOf` and
+  `$ref`/`$defs`, turns `const` into `enum`, drops every other keyword (`default`, `format`,
+  `pattern`, lengths, `minimum`/`maximum`, `maxItems`, `title`) and strips descriptions from a
+  schema over 5,000 bytes. ace's largest tool definition is under 2,600 characters.
+
+So the adapter reads `config/read` and `model/list` before the thread starts
+(`codexToolListing`). A session whose model would load every tool connects with the fixed list,
+`tools_call` keeping Codex's prompt because it reaches `automation_remove`, and pays about 3,080
+tokens per request instead of the catalogue (about 10,050 plus guidance). A fact it cannot read
+keeps every tool listed. Codex's prefix, `guide` and `tools_find` also name the way in without
+`exec` (its `tool_search`, then `mcp__ace__<name>`) and, on the fixed list, `tools_call`. A
+switch from a catalog model to one without search mid-thread still loads every tool until the
+session reopens, since Codex cannot replace a thread's MCP entry.
 
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every

@@ -122,7 +122,9 @@ it("a Codex session on the fixed list reaches the rest through tools_call, from 
 
 it("Codex's guidance names the way in for a model without exec: its tool_search, then the tool", async () => {
   const { codex, instructions } = await codexSession();
-  expect(instructions).toContain("Without exec, load one with your tool_search, then call mcp__ace__<name>");
+  expect(instructions).toContain(
+    "Without exec, load one with your tool_search, then call mcp__ace__<name>",
+  );
   const read = Guide.parse((await codex.call("guide", { topic: "ace-threads" })).data);
   expect(read.how).toContain("without exec, load them with your tool_search");
   await codex.close();
