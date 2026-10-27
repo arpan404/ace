@@ -100,9 +100,8 @@ it.runIf(process.platform === "win32" && process.arch === "arm64")(
     const home = await mkdtemp(join(tmpdir(), "ace-owned-arm-"));
     const hidden = await mkdtemp(join(tmpdir(), "ace-no-browsers-"));
     const saved = Object.fromEntries(
-      // Only where CI's Chrome is installed: Chrome inherits this environment, and the
-      // emulated x64 build needs its own PATH and LOCALAPPDATA.
-      ["PROGRAMFILES", "PROGRAMFILES(X86)"].map((key) => [key, process.env[key]]),
+      // Where a machine-wide or per-user Chrome or Edge is installed; PATH stays.
+      ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"].map((key) => [key, process.env[key]]),
     );
     for (const key of Object.keys(saved)) process.env[key] = hidden;
     // CI names its own Chrome; first use here must find none.

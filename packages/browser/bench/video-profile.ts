@@ -145,6 +145,7 @@ async function launch(args: readonly string[], scale: number) {
       "--headless=new",
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-background-timer-throttling",

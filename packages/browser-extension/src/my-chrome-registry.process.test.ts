@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { BrowserService, UserChromeBackend } from "@ace/browser";
@@ -20,23 +20,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
 }, 60_000);
 
-/**
- * This test drives the browser over its debugging pipe to load the extension the way a person
- * would. Edge installed as an app package (`AppxSignature.p7x` beside it) relaunches itself and
- * drops that pipe, so it can't stand in for the person here; Use my Chrome itself needs no pipe.
- */
-const installed = async (path: string) => {
-  const found = await access(path).then(
+const installed = async (path: string) =>
+  access(path).then(
     () => path,
     () => undefined,
   );
-  if (!found) return undefined;
-  const packaged = await access(join(dirname(found), "AppxSignature.p7x")).then(
-    () => true,
-    () => false,
-  );
-  return packaged ? undefined : found;
-};
 const programFiles = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter(
   (root): root is string => Boolean(root),
 );

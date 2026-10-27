@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { win32 } from "node:path";
-import koffi from "koffi";
+import type koffiModule from "koffi";
+import { createRequire } from "node:module";
 import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
@@ -169,6 +170,9 @@ let systemDirectory: string | undefined;
 /** A program in Windows' own System32, located by the kernel rather than the environment. */
 export function windowsSystemExecutable(name: string): string {
   if (systemDirectory === undefined) {
+    // Required lazily, like process-containment: bundles without native packages (the desktop
+    // main process) and macOS/Linux never load koffi.
+    const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
     const kernel = koffi.load("kernel32.dll");
     try {
       const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
