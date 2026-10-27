@@ -366,6 +366,12 @@ test("one file's diff past the whole-checkout cap reads alone, page by page, to 
   }
 });
 
+const addedLines = (patch: string) =>
+  patch
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .map((line) => line.slice(1));
+
 test("a file edited while its pages are read is refused at its old version, never stitched from two diffs", async () => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
@@ -410,11 +416,6 @@ test("a file edited while its pages are read is refused at its old version, neve
     if (reply.result.kind !== "gitDiff") throw new Error(`unexpected ${reply.result.kind}`);
     return reply.result;
   };
-  const added = (patch: string) =>
-    patch
-      .split("\n")
-      .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
-      .map((line) => line.slice(1));
   try {
     const before = Array.from({ length: 30_000 }, (_, i) => `before ${i + 1}`);
     await writeFile(join(repo, "big.txt"), `${before.join("\n")}\n`);
@@ -440,13 +441,13 @@ test("a file edited while its pages are read is refused at its old version, neve
     const fresh = await read({ offset: 0 });
     expect(fresh.validator).not.toBe(first.validator);
     let rest = fresh.patch;
-    for (let next = fresh.nextOffset; next !== undefined; ) {
+    for (let next = fresh.nextOffset; next !== undefined;) {
       const page = await read({ offset: next, expected: fresh.validator });
       rest += page.patch;
       next = page.nextOffset;
     }
-    expect(added(rest)).toEqual(after);
-    expect(added(patch).every((line) => line.startsWith("before "))).toBe(true);
+    expect(addedLines(rest)).toEqual(after);
+    expect(addedLines(patch).every((line) => line.startsWith("before "))).toBe(true);
   } finally {
     await runtime.close();
     await store.close();

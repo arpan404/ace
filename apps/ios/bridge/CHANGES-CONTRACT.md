@@ -92,21 +92,21 @@ Folders come before files at each level, and each group is sorted by name with n
 
 One header per open file. The key used to be the single `changes:file`. It is now `changes:file:<id>`, where `id` is the bridge's fixed-width file id (`f00001`, …), stable for a path while the sheet is open. Closing a file clears its header and its pages. The old `diff` field is gone: rows come in pages.
 
-| field       | type                              | meaning                                                                                                                                        |
-| ----------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `file`      | string                            | The id; pages use the same one.                                                                                                                |
-| `path`      | string                            |                                                                                                                                                |
-| `version`   | string                            | The diff version (see Viewed marks). A new version means the file starts again: its pages are cleared and page 0 comes again.                  |
-| `state`     | `"loading" \| "ready" \| "error"` | `loading` while a cut file's first daemon page is being read.                                                                                  |
-| `message`   | string                            | Error code (`not_in_scope`, a workspace refusal code, `unavailable`).                                                                          |
-| `binary`    | boolean                           | Git shows no text; there are no rows.                                                                                                          |
-| `pages`     | number                            | Pages sent so far: keys `changes:page:<id>:0 … pages-1`.                                                                                       |
-| `rows`      | number                            | Rows the bridge holds for the file so far.                                                                                                     |
-| `remaining` | number \| null                    | Rows not yet sent. Null while the file isn't fully read from the daemon (more may come).                                                       |
-| `complete`  | boolean                           | Every row of the file is known.                                                                                                                |
-| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 16 MiB held, or past the daemon's 32 Mi offset limit. The rest is only on the computer. |
-| `empty`     | boolean                           | Complete and no line rows: a mode change, an empty file.                                                                                       |
-| `viewed`    | boolean                           | As the summary row.                                                                                                                            |
+| field       | type                              | meaning                                                                                                                                                                                 |
+| ----------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file`      | string                            | The id; pages use the same one.                                                                                                                                                         |
+| `path`      | string                            |                                                                                                                                                                                         |
+| `version`   | string                            | The diff version (see Viewed marks). A new version means the file starts again: its pages are cleared and page 0 comes again. Empty while a cut file's first daemon page is being read. |
+| `state`     | `"loading" \| "ready" \| "error"` | `loading` while a cut file's first daemon page is being read.                                                                                                                           |
+| `message`   | string                            | Error code (`not_in_scope`, a workspace refusal code, `unavailable`).                                                                                                                   |
+| `binary`    | boolean                           | Git shows no text; there are no rows.                                                                                                                                                   |
+| `pages`     | number                            | Pages sent so far: keys `changes:page:<id>:0 … pages-1`.                                                                                                                                |
+| `rows`      | number                            | Rows the bridge holds for the file so far.                                                                                                                                              |
+| `remaining` | number \| null                    | Rows not yet sent. Null while the file isn't fully read from the daemon (more may come).                                                                                                |
+| `complete`  | boolean                           | Every row of the file is known.                                                                                                                                                         |
+| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 16 MiB held, or past the daemon's 32 Mi offset limit. The rest is only on the computer.                                          |
+| `empty`     | boolean                           | Complete and no line rows: a mode change, an empty file.                                                                                                                                |
+| `viewed`    | boolean                           | As the summary row.                                                                                                                                                                     |
 
 Show "Show more" while `remaining !== 0`, then send `changes.more`. When `remaining` is null and no page arrives yet, the next daemon page is being read.
 
@@ -185,7 +185,7 @@ The bridge keeps all three in the `review` kept value (`storage.value.*`, one JS
 
 - **Drafts:** at most 400, newest first. When the value would not fit, resolved drafts go first, then the oldest.
 - **Viewed:** per thread, a map from path to version, bounded to the 64 most recent threads and 500 files each, as on the web.
-  - In the working tree, the version is a hash of the file's whole patch section. For a file cut from the checkout's patch, it is built from the status counts plus a hash of the part read.
+  - In the working tree, the version is a hash of the file's whole patch section. For a file cut from the checkout's patch, it is the daemon's `validator` for that file (a hash of its whole patch), so any content change clears the mark, even past the cut with the same line counts. The bridge learns it from the file's first daemon page: when the file opens, and after each checkout read for cut files that carry a mark. Until then the file's summary row says `viewed: false`; marking a cut file not read yet asks the daemon first, so the row turns viewed a moment later.
   - In turn scopes, the version is the web's `fileDiffKey`, which changes when any of the file's changes does.
 - **Layout:** the diff layout, `"unified"` or `"split"`.
 
@@ -199,7 +199,11 @@ The value is read once when the bridge starts a Changes session. Drafts written 
 - `from` (a rename's old path);
 - `offset` (UTF-16 code units into that file's patch, ≤32 Mi).
 
-It answers that file's patch from `offset`, at most 262,144 code units, ending on a line break where possible. `truncated: true` with `nextOffset` means more follows. `truncated: true` without `nextOffset` means the rest is past the limit. The phone never calls this itself; the bridge does, for files the whole-checkout read cut.
+- `expected` (the `validator` an earlier page of the file answered).
+
+It answers that file's patch from `offset`, at most 262,144 code units, ending on a line break where possible. `truncated: true` with `nextOffset` means more follows. `truncated: true` without `nextOffset` means the rest is past the limit (git's output for one file is read up to 32 MiB). The phone never calls this itself; the bridge does, for files the whole-checkout read cut.
+
+Every one-file page carries `validator`, a hash of the file's whole patch: the same on every page of one version, new once the file changes. The daemon reads git once per version and holds that patch briefly (a few files, 60 s), so later pages slice it. A page sent with `expected` is served from that version or refused with the workspace error `diff_changed`. A page without `expected` always reads git again and names the current version. The bridge sends page 0 without `expected` and every later page with it; on `diff_changed` it starts the file again (new `version`, pages cleared, page 0 again), so a file edited mid-read is never stitched from two diffs. After a checkout read, an open cut file reads page 0 again and keeps its pages when the validator is unchanged.
 
 ## Fixture
 

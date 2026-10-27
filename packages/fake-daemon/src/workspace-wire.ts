@@ -415,7 +415,7 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: { kind: "gitDiff", ...fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op) },
+        result: fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op),
       });
     const result =
       op.op === "editors.list"

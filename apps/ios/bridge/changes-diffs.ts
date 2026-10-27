@@ -34,8 +34,11 @@ export type FileSource =
   | { kind: "turn"; file: FileChanges }
   /** The file's whole section of the checkout's patch. */
   | { kind: "section"; text: string }
-  /** Cut from the checkout's patch: read alone from the daemon, page by page. */
-  | { kind: "daemon"; path: string; from: string | null }
+  /**
+   * Cut from the checkout's patch: read alone from the daemon, page by page. `round` names the
+   * checkout read it was listed in; the file's version is the daemon's validator for it.
+   */
+  | { kind: "daemon"; path: string; from: string | null; round: number }
   /** Git shows no text for it. */
   | { kind: "binary" };
 
@@ -107,10 +110,9 @@ export function sectionDiff(text: string): FileDiff | undefined {
 }
 
 /**
- * The version of a working-tree file's diff: its whole section's hash, or for a file cut from
- * the checkout's patch, what is known of it (its counts and the part of its section read).
+ * The version of a working-tree file's diff whose whole section the checkout's patch holds: the
+ * section's hash. A file cut from that patch is versioned by the daemon's validator instead.
  */
-export function workingVersion(file: GitStatusFile, section: string | undefined, cut: boolean) {
-  if (section !== undefined && !cut) return contentHash(section);
-  return `cut:${file.status}:${file.additions}:${file.deletions}:${contentHash(section ?? "")}`;
+export function workingVersion(section: string): string {
+  return contentHash(section);
 }

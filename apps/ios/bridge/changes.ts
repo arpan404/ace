@@ -10,7 +10,13 @@ import type { DiffRows } from "@ace/ui-core/review";
 import { patchFiles } from "@ace/ui-core/mobile";
 import type { PatchSink, Preview } from "./agents.ts";
 import { sectionDiff, TurnDiffs } from "./changes-diffs.ts";
-import { OpenFiles, openFilesLimits, type OpenFilesLimits } from "./changes-files.ts";
+import { learnCutVersions } from "./changes-cut-versions.ts";
+import {
+  OpenFiles,
+  openFilesLimits,
+  type OpenFilesLimits,
+  type ReadPage,
+} from "./changes-files.ts";
 import { ChangesKept, type DiffLayout } from "./changes-kept.ts";
 import { SheetReview } from "./changes-review.ts";
 import { ChangesScope, type Reads } from "./changes-scope.ts";
@@ -92,6 +98,7 @@ export class ChangesSession {
   #files: OpenFiles;
   readonly review: SheetReview;
   #reads: Reads | undefined;
+  #rounds = 0;
   #state: "loading" | "ready" | "error" = "loading";
   #error = "";
   #reading: Promise<void> | undefined;
@@ -137,16 +144,11 @@ export class ChangesSession {
       limits: options.limits ?? openFilesLimits,
       layout: () => this.#kept.layout,
       viewed: (path, version) => this.#viewedAt(path) === version,
-      readPage: async (path, from, offset) => {
-        const result = await this.#workspace({
-          op: "git.diff",
-          threadId: ThreadId.parse(this.threadId),
-          path,
-          ...(from === null ? {} : { from }),
-          offset,
-        });
-        if (result.kind !== "gitDiff") throw new WorkspaceRefusal("unexpected");
-        return result;
+      readPage: this.#readPage,
+      learned: (path, round, version) => {
+        if (this.#reads?.round !== round) return;
+        this.#reads.validators.set(path, version);
+        this.summary();
       },
     });
     this.review = new SheetReview({
@@ -262,6 +264,15 @@ export class ChangesSession {
   /** Mark a file viewed at its current diff (it closes, as on the web), or clear the mark. */
   viewed(path: string, viewed: boolean): boolean {
     const version = this.#scope.versionOf(path, this.#reads);
+    const reads = this.#reads;
+    if (version === undefined && viewed && reads && this.#scope.workingTree) {
+      // A cut file not read yet: its version comes from the daemon first.
+      if (!reads.byPath.has(path)) return false;
+      void this.#learn(reads, [path]).then(() => {
+        if (this.#reads === reads && reads.validators.has(path)) this.viewed(path, true);
+      });
+      return true;
+    }
     if (version === undefined) return false;
     this.#kept.view(this.threadId, path, viewed ? version : undefined);
     if (viewed) this.#files.close(path);
@@ -371,9 +382,16 @@ export class ChangesSession {
         patchTruncated: diff.truncated,
         lastPath: [...sections.keys()].at(-1),
         pr: pr?.kind === "pr" ? pr.status : null,
+        round: ++this.#rounds,
+        validators: new Map(),
       };
       this.#state = "ready";
       this.#error = "";
+      const reads = this.#reads;
+      const marked = this.#kept.viewed.get(this.threadId);
+      const open = new Set(this.#files.paths);
+      const paths = [...(marked?.keys() ?? [])].filter((path) => !open.has(path));
+      if (paths.length) void this.#learn(reads, paths);
     } catch (error) {
       if (this.#closed) return;
       this.#state = "error";
@@ -384,6 +402,39 @@ export class ChangesSession {
     }
     this.#update();
   }
+
+  /** Versions of cut files from their first pages, then the list's marks again. */
+  #learn(reads: Reads, paths: readonly string[]): Promise<void> {
+    return learnCutVersions({
+      reads,
+      paths,
+      current: () => this.#reads === reads && !this.#closed,
+      readPage: this.#readPage,
+      learned: () => {
+        this.summary();
+        this.#files.headers();
+      },
+    });
+  }
+
+  /** One page of one file's patch; "changed" once the file moved past `expected`. */
+  #readPage: ReadPage = async (path, from, offset, expected) => {
+    try {
+      const result = await this.#workspace({
+        op: "git.diff",
+        threadId: ThreadId.parse(this.threadId),
+        path,
+        ...(from === null ? {} : { from }),
+        offset,
+        ...(expected === undefined ? {} : { expected }),
+      });
+      if (result.kind !== "gitDiff") throw new WorkspaceRefusal("unexpected");
+      return result;
+    } catch (error) {
+      if (error instanceof WorkspaceRefusal && error.code === "diff_changed") return "changed";
+      throw error;
+    }
+  };
 
   async #workspace(operation: WorkspaceActionRequest["operation"]) {
     const reply = await this.#owner.request({ type: "workspace.request", operation });
