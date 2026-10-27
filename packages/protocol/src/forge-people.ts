@@ -32,6 +32,12 @@ export const ForgeLatestReview = z.object({
   avatarUrl,
   state: z.enum(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"]),
   submittedAt: text.nullable(),
+  /** The head their latest review was made at, when GitHub still knows it. */
+  commitSha: z
+    .string()
+    .regex(/^[a-fA-F0-9]{40,64}$/)
+    .nullable()
+    .optional(),
 });
 export type ForgeLatestReview = z.infer<typeof ForgeLatestReview>;
 
@@ -54,6 +60,8 @@ export const ForgePrReviewers = z.object({
     .array(ForgePerson.extend({ isAuthor: z.boolean(), isCommenter: z.boolean() }))
     .max(100),
   author: login.nullable(),
+  /** The login `gh` is signed in as, when GitHub said: whose review is "yours". */
+  viewer: login.nullable().optional(),
   /** The viewer may ask for or withdraw review requests. */
   canRequest: z.boolean(),
   /** The viewer may dismiss approving and changes-requested reviews. */

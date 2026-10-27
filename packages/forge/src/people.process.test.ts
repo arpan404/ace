@@ -122,6 +122,43 @@ test("a comment after an approval leaves the approval standing, with its own id 
   }
 });
 
+const at = (sha: string) => ({ commit: { oid: sha } });
+
+test("each review names the head of the reviewer's latest review, and the read names who is signed in", async () => {
+  const body: Record<string, unknown> & { data: Record<string, unknown> } = reviewers("WRITE");
+  body.data.viewer = { login: "tg" };
+  const host: Record<string, unknown> = (
+    body.data.repository as { pullRequest: Record<string, unknown> }
+  ).pullRequest;
+  host.latestReviews = {
+    nodes: [
+      { ...review(41, "COMMENTED", "2026-10-21T10:00:00Z"), ...at("b".repeat(40)) },
+      { ...review(43, "COMMENTED", "2026-10-21T11:00:00Z", "dana"), commit: null },
+    ],
+  };
+  host.latestOpinionatedReviews = {
+    nodes: [{ ...review(40, "APPROVED", "2026-10-20T10:00:00Z"), ...at("a".repeat(40)) }],
+  };
+  const f = await fakeGh({ "graphql:query AcePrReviewers": [{ body }] });
+  try {
+    const value = await f.forge.prReviewers(7, signal());
+    expect(value.viewer).toBe("tg");
+    // The approval still stands, but "since your last review" starts after the later comment.
+    expect(value.reviews).toEqual([
+      {
+        id: 40,
+        login: "tg",
+        state: "APPROVED",
+        submittedAt: "2026-10-20T10:00:00Z",
+        commitSha: "b".repeat(40),
+      },
+      { id: 43, login: "dana", state: "COMMENTED", submittedAt: "2026-10-21T11:00:00Z" },
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("withdrawing review requests deletes them, people and teams, and is confirmed once gone", async () => {
   const fixtures = reviewFixtures();
   fixtures[requested] = [
