@@ -43,8 +43,10 @@ describe("Linux editor launchers", () => {
       "linux",
     );
     expect(launched).toBe(true);
-    await vi.waitFor(() =>
-      expect(editor.args()).toEqual(expected.map((arg) => arg.replace("FILE", file))),
+    // A detached launcher may start after the default one-second poll deadline on a busy host.
+    await vi.waitFor(
+      () => expect(editor.args()).toEqual(expected.map((arg) => arg.replace("FILE", file))),
+      { timeout: 3000 },
     );
   });
 
@@ -53,7 +55,7 @@ describe("Linux editor launchers", () => {
     expect(await launchEditorCommand({ path: folder, command: editor.command }, "linux")).toBe(
       true,
     );
-    await vi.waitFor(() => expect(editor.args()).toEqual([folder]));
+    await vi.waitFor(() => expect(editor.args()).toEqual([folder]), { timeout: 3000 });
   });
 
   it("refuses a program that isn't an editor launcher, leaving the URL scheme to open it", async () => {
