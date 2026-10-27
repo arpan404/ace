@@ -337,11 +337,26 @@ const WindowsListing = z
     "Every listed name carries its facts",
   );
 /**
+ * Win32: what a directory enumeration says about one entry. The enumeration doesn't read file
+ * ids, so `ino` is always 0: these facts carry no identity and must never be compared as one.
+ */
+export type WindowsListingFacts = {
+  dev: number;
+  /** Always 0: never an identity. */
+  ino: 0;
+  mode: number;
+  size: number;
+  mtime: number;
+};
+/**
  * Win32: a directory's entries with the type, size and write time its enumeration already
  * read, without opening each entry. NTFS may lag the size and time of a file another process
  * holds open for writing, so only callers that need just the type (search passes) use this.
  */
-export function windowsListing(fd: number, limit = DIRECTORY_CAP) {
+export function windowsListing(
+  fd: number,
+  limit = DIRECTORY_CAP,
+): { name: string; info: WindowsListingFacts }[] {
   const listing = WindowsListing.parse(windowsCall(() => windowsHot().namesWithFacts(fd, limit)));
   const { dev } = fstatSync(fd);
   return listing.names
@@ -350,7 +365,7 @@ export function windowsListing(fd: number, limit = DIRECTORY_CAP) {
       info: {
         dev,
         // A pass compares no identities; the per-entry file id is left unread.
-        ino: 0,
+        ino: 0 as const,
         mode: windowsMode(listing.attributes[index] ?? 0x400),
         size: listing.sizes[index] ?? 0,
         mtime: windowsTime(listing.writeTimes[index] ?? 0n),
