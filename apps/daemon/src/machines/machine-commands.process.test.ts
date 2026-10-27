@@ -215,3 +215,44 @@ it("turning Commands down ends that machine's running jobs and every process the
   });
   await window.close();
 });
+
+it("deleting a guest session ends its background jobs and every process they started", async () => {
+  const { pair, window, laptop, project } = await commandsAllowed("operate");
+  const answer = texts(
+    await callAs(
+      laptop,
+      run({ command: "sleep 60 & echo $! > deleted.pid; wait", background: true }),
+      from,
+    ),
+  );
+  expect(answer[0]).toContain("Started");
+  const server = await pidFrom(join(project, "deleted.pid"));
+  expect(alive(server)).toBe(true);
+  expect(await window.remove(guestThread(pair).id)).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(alive(server)).toBe(false), { timeout: 10_000 });
+  await window.close();
+});
+
+it("lowering this machine's switch to read ends running jobs, though Commands stays allowed", async () => {
+  const { pair, window, laptop, project } = await commandsAllowed("operate");
+  const answer = texts(
+    await callAs(
+      laptop,
+      run({ command: "sleep 60 & echo $! > switch.pid; wait", background: true }),
+      from,
+    ),
+  );
+  expect(answer[0]).toContain("Started");
+  const server = await pidFrom(join(project, "switch.pid"));
+  await pair.access("read");
+  await vi.waitFor(() => expect(alive(server)).toBe(false), { timeout: 10_000 });
+  await vi.waitFor(() => expect(guestThread(pair).status.state).not.toBe("waiting"), {
+    timeout: 10_000,
+  });
+  // Read means nothing from another machine acts here, so no new command starts either.
+  expect(await callAs(laptop, run({ command: "echo hi" }), from)).toMatchObject({
+    ok: false,
+    code: "machine_forbidden",
+  });
+  await window.close();
+});

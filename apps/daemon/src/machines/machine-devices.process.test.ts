@@ -216,3 +216,33 @@ it("a person taking a simulator on that machine stops the remote agent", async (
   expect(stateOf(fake, ios)?.controller).toBe("human");
   await window.close();
 });
+
+it("deleting the guest session holding a simulator frees it at once", async () => {
+  const { pair, fake, window } = await lending();
+  const laptop = sourceProfile(pair);
+  const from = { host: "linux-box", thread: "deleted-session" };
+  expect(await callAs(laptop, startOn(ios), from)).toMatchObject({ ok: true });
+  const holder = stateOf(fake, ios)?.holder?.threadId;
+  if (!holder) throw new Error("No holder on the Mac");
+  expect(await window.remove(holder)).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(stateOf(fake, ios)?.controller).toBe("none"));
+  await window.close();
+});
+
+it("lowering this machine's switch to read frees every simulator remote agents hold", async () => {
+  const { pair, fake, window } = await lending();
+  const laptop = sourceProfile(pair);
+  const build = await secondMachine(pair);
+  await Promise.all([
+    callAs(laptop, startOn(ios), { host: "linux-box", thread: "fix-login" }),
+    callAs(build, startOn(android), { host: "build-server", thread: "build-thread" }),
+  ]);
+  expect(stateOf(fake, ios)?.controller).toBe("agent");
+  expect(stateOf(fake, android)?.controller).toBe("agent");
+  await pair.access("read");
+  await vi.waitFor(() => {
+    expect(stateOf(fake, ios)?.controller).toBe("none");
+    expect(stateOf(fake, android)?.controller).toBe("none");
+  });
+  await window.close();
+});
