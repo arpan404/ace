@@ -843,6 +843,31 @@ it("retry and dismiss act on the visible failure only", () => {
   expect(pendingProductionInboxFailuresForTests()).toHaveLength(0);
 });
 
+it("a stale retry tap never consumes a different host's banner", () => {
+  const stale = {
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    message: "host-1 refused.",
+  } as const;
+  const live = {
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    message: "host-2 refused.",
+  } as const;
+  reportProductionInboxFailureForTests(stale);
+  reportProductionInboxFailureForTests(live);
+  // Host-1 departs: its visible banner is dropped and host-2 promotes.
+  pruneInboxActionUiToHosts(["host-2"]);
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-2");
+
+  // The stale host-1 tap is a no-op and leaves host-2's banner intact.
+  expect(takeInboxActionFailed(stale)).toBeNull();
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-2");
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(0);
+});
+
 it("clearing one host's Undo by command keeps the other host and ignores stale clears", () => {
   armProductionInboxUndoForTests({
     hostId: "host-1",

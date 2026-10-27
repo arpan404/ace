@@ -192,8 +192,9 @@ function sameFailed(a: ProductionInboxFailed, b: ProductionInboxFailed): boolean
 
 /**
  * Remove one exact failure (the banner's visible offer) from the visible slot
- * or the queue, so Retry acts on what the user saw. Falls back to the visible
- * failure when the target is already gone.
+ * or the queue, so Retry acts on what the user saw. A stale tap whose target
+ * is already gone is a no-op (null): it never consumes a different host's
+ * banner.
  */
 export function takeInboxActionFailed(target: ProductionInboxFailed): ProductionInboxFailed | null {
   if (uiFailed !== null && (uiFailed === target || sameFailed(uiFailed, target))) {
@@ -209,7 +210,7 @@ export function takeInboxActionFailed(target: ProductionInboxFailed): Production
     emitInboxActionUiForTests();
     return current ?? null;
   }
-  return consumeUiFailedForRetry();
+  return null;
 }
 
 /** Dismiss one exact failure without consuming it for retry. */
