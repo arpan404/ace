@@ -10,6 +10,7 @@ import {
   issueStateMark,
   lifecycleLabels,
   lockReasonLabels,
+  revertDraft,
   type ForgeMark,
 } from "@ace/ui-core";
 import { z } from "zod";
@@ -76,6 +77,8 @@ export interface ManageReply {
   /** Writes GitHub hasn't confirmed, by what they were, to reconcile before anything else. */
   unconfirmed: { id: string; label: string }[];
   reasons: { value: string; label: string }[];
+  /** The draft that reverts a merged pull request, as first offered; null where it can't. */
+  revert: { title: string; body: string } | null;
 }
 
 export interface ManageWriteReply {
@@ -83,6 +86,8 @@ export interface ManageWriteReply {
   ok: boolean;
   message: string;
   uncertain: boolean;
+  /** The pull request a revert opened. */
+  opened: number | null;
 }
 
 function branchNote(snapshot: ForgeLifecycleState["snapshot"]): string | null {
@@ -155,15 +160,18 @@ export async function readManage(
             : "Pull request change",
       })),
     reasons: Object.entries(lockReasonLabels).map(([value, label]) => ({ value, label })),
+    revert: snapshot.actions.includes("revert")
+      ? revertDraft({ number: snapshot.pr.number, title: snapshot.metadata.title })
+      : null,
   };
 }
 
-const write = (ok: boolean, message: string, uncertain = false): ManageWriteReply => ({
-  type: "forge.write",
-  ok,
-  message,
-  uncertain,
-});
+const write = (
+  ok: boolean,
+  message: string,
+  uncertain = false,
+  opened: number | null = null,
+): ManageWriteReply => ({ type: "forge.write", ok, message, uncertain, opened });
 
 /** What a lifecycle command's answer means for the person. */
 export function lifecycleOutcome(result: CommandResult | undefined): ManageWriteReply {
@@ -176,6 +184,8 @@ export function lifecycleOutcome(result: CommandResult | undefined): ManageWrite
   if (receipt.outcome === "pending") return write(false, "Waiting for GitHub to confirm it.", true);
   if (receipt.outcome === "head_changed")
     return write(false, "The branch head changed. Review its new commits before trying again.");
+  if (receipt.revertPr)
+    return write(true, `Opened draft #${receipt.revertPr.number}`, false, receipt.revertPr.number);
   return write(true, "");
 }
 

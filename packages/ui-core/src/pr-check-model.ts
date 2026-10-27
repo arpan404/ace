@@ -1,4 +1,4 @@
-import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
+import { verifySettled, type ForgeCheck, type ForgeCheckRun, type VerifyRun } from "@ace/protocol";
 
 /*
  * What the PR panel shows for one check, worked out without rendering: which run it reads,
@@ -128,4 +128,47 @@ export function checkLogNote(
   if (run.log || !run.workflow) return undefined;
   if (check.status === "pending") return "The log shows once this job finishes.";
   return run.logUnavailable ? "GitHub has no log for this job any more." : undefined;
+}
+
+/** A check's state in words and the status tone it takes. */
+export const checkLook: Record<ForgeCheck["status"], { word: string; tone: string }> = {
+  success: { word: "Passed", tone: "done" },
+  failure: { word: "Failed", tone: "failed" },
+  pending: { word: "Running", tone: "working" },
+  cancelled: { word: "Cancelled", tone: "idle" },
+  unknown: { word: "Unknown", tone: "idle" },
+};
+
+/** A local check run's state (ADR 0094) in words; a PR head with no run says "Not run". */
+export function localCheckLook(run: Pick<VerifyRun, "state"> | undefined): {
+  word: string;
+  tone: string;
+} {
+  switch (run?.state) {
+    case "queued":
+      return { word: "Queued", tone: "working" };
+    case "running":
+      return { word: "Running", tone: "working" };
+    case "passed":
+      return { word: "Passed", tone: "done" };
+    case "failed":
+      return { word: "Failed", tone: "failed" };
+    case "cancelled":
+      return { word: "Stopped", tone: "idle" };
+    case "interrupted":
+      return { word: "Interrupted", tone: "idle" };
+    default:
+      return { word: "Not run", tone: "idle" };
+  }
+}
+
+/** The one control a PR's local check offers now: start it, start it again, or stop it. */
+export function localCheckAction(run: Pick<VerifyRun, "state"> | undefined): {
+  kind: "start" | "cancel";
+  label: string;
+  disabled: boolean;
+} {
+  if (run && !verifySettled.includes(run.state))
+    return { kind: "cancel", label: "Stop", disabled: run.state === "merging" };
+  return { kind: "start", label: run ? "Run again" : "Run checks", disabled: false };
 }
