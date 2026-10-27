@@ -13,7 +13,7 @@ import {
   setTabPinned,
   shownTab,
   type ScopeWorkspace,
-} from "./model.ts";
+} from "./workspace-tabs.ts";
 
 const keys = (workspace: ScopeWorkspace) => workspace.tabs.map((tab) => tab.key);
 const shown = (workspace: ScopeWorkspace) => shownTab(workspace)?.key;

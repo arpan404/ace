@@ -4,6 +4,7 @@ import {
   cycleTab,
   moveTab,
   openTab,
+  restoreClosed,
   setExpanded,
   setPanelOpen,
   setPanelSize,
@@ -276,17 +277,7 @@ export function workspaceActions(
         return kind?.reopenable?.(scope, tab) ?? true;
       });
       if (!back) return false;
-      const { tab, index } = back;
-      change((workspace) => {
-        const opened = openTab(workspace, {
-          kind: tab.kind,
-          id: tab.id,
-          title: tab.title,
-          data: tab.data,
-          pinned: tab.pinned,
-        });
-        return moveTab(opened, tab.key, Math.min(index, opened.tabs.length - 1));
-      });
+      change((workspace) => restoreClosed(workspace, back));
       return true;
     },
     move: (key, toIndex) =>
