@@ -79,6 +79,7 @@ function MachineDrafts(props: {
               search={{
                 ...machine,
                 project: row.project,
+                ...(row.from ? { from: row.from } : {}),
                 skill: row.skill,
                 issue: row.issue,
                 pullRequest: row.pullRequest,

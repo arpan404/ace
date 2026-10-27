@@ -11,6 +11,7 @@ import {
   type TransferCommit,
 } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
+import { sameOriginProject } from "../project-origin.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import {
   appendAt,
@@ -63,7 +64,7 @@ const gitFailures: Partial<Record<string, { code: string; message: string }>> = 
   },
   head_moved: {
     code: "branch_diverged",
-    message: "The branch here has commits the transfer doesn't. Try again to land it beside them.",
+    message: "The branch here has commits the transfer doesn't, and it couldn't land beside them.",
   },
 };
 
@@ -188,7 +189,7 @@ export class IncomingTransfers {
     const reused =
       call.method === "remote" && call.remote
         ? await this.sameOrigin(call.remote.normalized)
-        : undefined;
+        : this.earlierCopy(device, call);
     const record: IncomingRecord = {
       transferId: call.transferId,
       deviceId: device.id,
@@ -209,13 +210,23 @@ export class IncomingTransfers {
     });
     return this.view(record);
   }
+  /**
+   * The project an earlier transfer of the same source project landed in, while it is still
+   * registered here: sending a folder or a repository without a remote again lands in it.
+   */
+  private earlierCopy(device: Device, call: TransferBegin): WorkspaceId | undefined {
+    if (!call.sourceWorkspaceId) return undefined;
+    const source = this.landingSource(device.id, call);
+    const id = source && this.rows.landedFor(source, call.method !== "archive");
+    return this.deps.projects.list().find((project) => project.workspaceId === id)?.workspaceId;
+  }
+  private landingSource(deviceId: string, begin: TransferBegin) {
+    if (!begin.sourceWorkspaceId) return undefined;
+    return { hostId: begin.origin.hostId, workspaceId: begin.sourceWorkspaceId, deviceId };
+  }
   /** A project here whose origin is the same repository. */
-  private async sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
-    for (const project of this.deps.projects.list().slice(0, 64)) {
-      const origin = await this.deps.git.transferOrigin(project.path).catch(() => undefined);
-      if (origin && origin.normalized === normalized) return project.workspaceId;
-    }
-    return undefined;
+  private sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
+    return sameOriginProject(this.deps.git, this.deps.projects.list(), normalized);
   }
   /** One piece of the upload at `offset`; out of order answers what is held, unchanged. */
   async chunk(
@@ -401,18 +412,28 @@ export class IncomingTransfers {
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
   private finish(record: IncomingRecord, result: NonNullable<IncomingRecord["result"]>): void {
+    const source = this.landingSource(record.deviceId, record.begin);
+    // The row and the record of where the project landed commit together.
     const complete = () =>
-      this.rows.update(
-        record.transferId,
-        {
-          state: "completed",
-          result,
-          createdPath: undefined,
-          createdId: undefined,
-          registeredId: undefined,
-        },
-        this.deps.now(),
-      );
+      this.deps.store.atomic(() => {
+        this.rows.update(
+          record.transferId,
+          {
+            state: "completed",
+            result,
+            createdPath: undefined,
+            createdId: undefined,
+            registeredId: undefined,
+          },
+          this.deps.now(),
+        );
+        if (source)
+          this.rows.landedIn(
+            source,
+            { workspaceId: result.workspaceId, git: record.method !== "archive" },
+            this.deps.now(),
+          );
+      });
     const thread = record.commit?.thread;
     if (thread && result.threadId)
       this.deps.threads.setUp(
