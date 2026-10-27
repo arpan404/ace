@@ -16,7 +16,6 @@ import { z } from "zod";
 import { PluginCommit } from "@ace/protocol/plugins";
 import { Marketplace, limits, normalizePath, parseJson } from "./manifest.ts";
 import { assertNoSymlinks } from "./files.ts";
-import { createKillOnCloseJob, type WindowsJob } from "@ace/provider-kit/process-containment";
 
 const treeEntry = z.object({
   mode: z.enum(["100644", "100755"]),
@@ -79,34 +78,10 @@ function spawnWindowsGit(options: ByteProcessOptions): ByteProcess {
     });
   }
   const hooks = `core.hooksPath=${windowsHooks}`;
-  // The taskkill tree stop cannot find helpers once Git's leader has exited, but they stay in
-  // the leader's kill-on-close Job. Ending the Job when the leader exits and on every stop closes
-  // pipes a helper still holds, standing in for the POSIX private-folder sweep.
-  let job: WindowsJob | undefined;
-  const createJob = options.windowsJobFactory ?? createKillOnCloseJob;
-  const schedule =
-    options.scheduleDrain ??
-    ((callback: () => void, milliseconds: number) => {
-      const timer = setTimeout(callback, milliseconds);
-      return () => clearTimeout(timer);
-    });
-  const child = spawnBytes({
+  return spawnBytes({
     ...options,
     args: options.args.map((arg) => (arg === "core.hooksPath=/dev/null" ? hooks : arg)),
-    windowsJobFactory: () => (job = createJob()),
-    scheduleDrain: (callback, milliseconds) =>
-      schedule(() => {
-        job?.terminate?.();
-        callback();
-      }, milliseconds),
   });
-  return {
-    ...child,
-    async stop() {
-      job?.terminate?.();
-      await child.stop();
-    },
-  };
 }
 async function runGit<T>(
   args: string[],
