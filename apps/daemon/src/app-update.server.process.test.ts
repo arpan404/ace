@@ -88,7 +88,7 @@ test("a desktop app that quits withdraws its report, and watchers read Unknown",
   });
 });
 
-test("a report expires once the app stops checking in, and health checks keep it alive", async () => {
+test("only the app sending its report again keeps it alive; other status calls don't", async () => {
   let time = 0;
   const timers: { at: number; run(): void; cancelled: boolean }[] = [];
   const board = new AppUpdateBoard(
@@ -116,13 +116,18 @@ test("a report expires once the app stops checking in, and health checks keep it
   await next(desk, "appUpdate.result");
   await accessRequest(f.server.httpUrl, "/v1/app-update", { method: "PUT", token, body: ready });
   expect(await next(desk, "appUpdate.changed")).toMatchObject({ update: { reportedAt: 0 } });
-  // The app's health checks keep the report current past the expiry.
+  // The app renews its unchanged report, which keeps it current past the expiry.
   advance(50_000);
-  await accessRequest(f.server.httpUrl, "/v1/status", { token });
+  await accessRequest(f.server.httpUrl, "/v1/app-update", { method: "PUT", token, body: ready });
   advance(50_000);
   desk.send({ type: "appUpdate.request", requestId: "still" });
   expect(await next(desk, "appUpdate.result")).toMatchObject({ update: { report: ready } });
-  // Silence for the whole expiry: the old needs-you state goes.
-  advance(60_000);
-  expect(await next(desk, "appUpdate.changed")).toMatchObject({ update: { report: null } });
+  // Another host-token caller asking for status, inside the expiry, doesn't keep it alive.
+  await accessRequest(f.server.httpUrl, "/v1/status", { token });
+  advance(20_000);
+  desk.send({ type: "appUpdate.request", requestId: "gone" });
+  expect(await next(desk, "appUpdate.result")).toMatchObject({ update: { report: null } });
+  // Once the app sends the same report again, watchers hear it back.
+  await accessRequest(f.server.httpUrl, "/v1/app-update", { method: "PUT", token, body: ready });
+  expect(await next(desk, "appUpdate.changed")).toMatchObject({ update: { report: ready } });
 });

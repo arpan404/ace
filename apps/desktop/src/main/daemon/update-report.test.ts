@@ -21,6 +21,7 @@ const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
 function daemon() {
   const told: (AppUpdateReport | "withdrawn")[] = [];
   let up = true;
+  const timers: { run(): void; cancelled: boolean }[] = [];
   const reporter = new UpdateReporter({
     send: async (report) => {
       if (!up) throw new Error("connect ECONNREFUSED");
@@ -31,8 +32,19 @@ function daemon() {
       told.push("withdrawn");
     },
     log: () => {},
+    timers: {
+      set: (_ms, run) => {
+        const timer = { run, cancelled: false };
+        timers.push(timer);
+        return () => (timer.cancelled = true);
+      },
+    },
   });
-  return { told, reporter, down: (on: boolean) => (up = !on) };
+  /** The renewal period passes once. */
+  const renew = () => {
+    for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run();
+  };
+  return { told, reporter, down: (on: boolean) => (up = !on), renew };
 }
 
 describe("app update reporting", () => {
@@ -126,5 +138,34 @@ describe("app update reporting", () => {
     reporter.connected(true);
     await reporter.withdraw();
     expect(told).toEqual([]);
+  });
+
+  it("sends the same report again each renewal, so a daemon that dropped it hears it back", async () => {
+    const { told, reporter, renew } = daemon();
+    reporter.connected(true);
+    reporter.status(status({ state: "downloaded", version: "1.4.2" }));
+    await reporter.settled();
+    renew();
+    await reporter.settled();
+    renew();
+    await reporter.settled();
+    expect(told).toHaveLength(3);
+    expect(told[2]).toEqual(told[0]);
+  });
+
+  it("stops renewing once the daemon goes or the app quits", async () => {
+    const { told, reporter, renew } = daemon();
+    reporter.connected(true);
+    reporter.status(status());
+    await reporter.settled();
+    reporter.connected(false);
+    renew();
+    await reporter.settled();
+    reporter.connected(true);
+    await reporter.settled();
+    await reporter.withdraw();
+    renew();
+    await reporter.settled();
+    expect(told).toEqual([told[0], told[0], "withdrawn"]);
   });
 });

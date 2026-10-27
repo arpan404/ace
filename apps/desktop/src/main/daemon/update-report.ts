@@ -30,7 +30,15 @@ export interface UpdateReportPorts {
   /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
   withdraw(): Promise<void>;
   log(message: string): void;
+  timers: { set(delayMs: number, callback: () => void): () => void };
 }
+
+/**
+ * How often the report is sent again unchanged. The daemon drops a report it hasn't heard for a
+ * minute (`app-update-board.ts`), so this keeps it alive while the app runs and brings it back
+ * after the daemon dropped it.
+ */
+export const updateRenewMs = 20_000;
 
 /**
  * Tells this app's daemon about its update status (ADR 0041's loopback host-token routes), so
@@ -44,6 +52,7 @@ export class UpdateReporter {
   #connected = false;
   #withdrawn = false;
   #sending: Promise<void> = Promise.resolve();
+  #stopRenewing: (() => void) | undefined;
   constructor(ports: UpdateReportPorts) {
     this.#ports = ports;
   }
@@ -57,6 +66,7 @@ export class UpdateReporter {
     this.#connected = on;
     this.#sent = undefined;
     this.#push();
+    this.#renew();
   }
   /**
    * The app is quitting or stopping its daemon: take the report back so no client keeps showing
@@ -64,6 +74,8 @@ export class UpdateReporter {
    */
   withdraw(): Promise<void> {
     this.#withdrawn = true;
+    this.#stopRenewing?.();
+    this.#stopRenewing = undefined;
     this.#sending = this.#sending.then(async () => {
       if (!this.#connected || this.#sent === undefined) return;
       try {
@@ -78,6 +90,17 @@ export class UpdateReporter {
   /** Settles once every report asked for so far has been sent or has failed. */
   settled(): Promise<void> {
     return this.#sending;
+  }
+  /** While connected, sends the report again every `updateRenewMs`, unchanged or not. */
+  #renew(): void {
+    this.#stopRenewing?.();
+    this.#stopRenewing = undefined;
+    if (!this.#connected || this.#withdrawn) return;
+    this.#stopRenewing = this.#ports.timers.set(updateRenewMs, () => {
+      this.#sent = undefined;
+      this.#push();
+      this.#renew();
+    });
   }
   #push(): void {
     this.#sending = this.#sending.then(async () => {

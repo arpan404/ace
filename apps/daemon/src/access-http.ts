@@ -117,8 +117,6 @@ export function accessHttp({
       } else {
         auth.requireAdmin(actor());
         if (path === "/v1/status" && request.method === "GET") {
-          // The desktop app's health check: its update report is still current.
-          if (auth.local(token)) appUpdate?.seen();
           result = {
             running: true,
             ready: ready(),

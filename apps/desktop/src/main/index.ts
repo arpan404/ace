@@ -236,6 +236,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const updateReport = new UpdateReporter({
     send: async (report) => reportAppUpdate(await runtime.local(), report),
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
+    timers,
     log: (message) => log("warn", message),
   });
   runtime.onStatus((status) => updateReport.connected(status.state === "running"));

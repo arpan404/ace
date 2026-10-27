@@ -1,8 +1,8 @@
 import type { AppUpdate, AppUpdateReport } from "@ace/protocol";
 
 /**
- * How long a report stays without a newer report or a health check from the app. The desktop
- * app checks its daemon every few seconds, so this is many missed checks: the app has gone.
+ * How long a report stays without the app sending it again. The desktop app renews it every 20
+ * seconds (`update-report.ts`), so this is several missed renewals: the app has gone.
  */
 export const appUpdateExpiryMs = 60_000;
 
@@ -14,8 +14,8 @@ export interface AppUpdateClock {
 
 /**
  * The desktop app's last update report, in memory only. It goes when the app withdraws it (on
- * quit), or when neither a report nor a health check has come from the app for
- * `appUpdateExpiryMs`, so clients never show an old "Restart to finish updating".
+ * quit), or when the app hasn't sent it again for `appUpdateExpiryMs`, so clients never show an
+ * old "Restart to finish updating". Only the app's own report keeps it alive.
  */
 export class AppUpdateBoard {
   #report: AppUpdateReport | null = null;
@@ -37,13 +37,11 @@ export class AppUpdateBoard {
     const changed = JSON.stringify(report) !== JSON.stringify(this.#report);
     this.#report = report;
     this.#reportedAt = this.#clock.now();
-    this.seen();
+    this.#arm();
     if (changed) this.#tell();
     return this.current();
   }
-  /** The app checked the daemon's health: its report is still current. */
-  seen(): void {
-    if (!this.#report) return;
+  #arm(): void {
     this.#seenAt = this.#clock.now();
     this.#cancel?.();
     this.#cancel = this.#clock.delay(() => this.#expire(), this.#expiryMs);
