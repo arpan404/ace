@@ -149,8 +149,8 @@ class Made {
   /** Past the cutoff: what was made is the result and stays. */
   kept = false;
   /**
-   * Windows: the landing is over (cancelled or failed), so its folder is removed even if that
-   * means waiting for a stopped Git to let go. A full-history retry lands beside it instead.
+   * Windows: the landing is over, so its folder is removed even if that means waiting for a
+   * stopped Git to let go. A full-history retry then lands at the same name.
    */
   settling = false;
   constructor(deps: LandingDeps) {
@@ -284,7 +284,7 @@ export async function landTransfer(
   try {
     return await land(deps, made, record, file, signal);
   } catch (error) {
-    if (process.platform === "win32") made.settling = !(error instanceof NeedsFullBundle);
+    if (process.platform === "win32") made.settling = true;
     await made.undo().catch(() => undefined);
     throw error;
   } finally {
