@@ -44,9 +44,16 @@ struct MachineDetailView: View {
                 }
             }
             .insetRowBackground()
+            if let client, client.admission?.known == true {
+                Section { MachineAdmissionRow(model: client) }.insetRowBackground()
+            }
             providers
             if let client {
                 Section {
+                    NavigationLink { StorageView(model: client) } label: { InsetRow("Storage", systemImage: "internaldrive") }
+                        .accessibilityIdentifier("machine.storage")
+                    NavigationLink { HostDiagnosticsView(model: client) } label: { InsetRow("Diagnostics", systemImage: "stethoscope") }
+                        .accessibilityIdentifier("machine.diagnostics")
                     ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
                             InsetRow(category.title, systemImage: category.symbol)

@@ -43,11 +43,6 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "remote.agentAccess", title: "Other machines' agents", control: .choices(["off", "read", "operate"])),
             .init(key: "remote.relayUrl", title: "Relay address", control: .text),
         ]),
-        .init(title: "Storage", symbol: "internaldrive", settings: [
-            .init(key: "storage.scheduledCleanup", title: "Scheduled cleanup", control: .toggle),
-            .init(key: "storage.retentionDays", title: "Keep inactive data (days)", control: .number),
-            .init(key: "logs.maxBytes", title: "Log limit (bytes)", control: .number),
-        ]),
         .init(title: "Browser and computer", symbol: "safari", settings: [
             .init(key: "browser.backend", title: "Browser", control: .choices(["auto", "embedded", "headless"])),
             .init(key: "browser.backendLoss", title: "When browser disconnects", control: .choices(["pause", "headless"])),

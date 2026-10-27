@@ -29,6 +29,7 @@ import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
+import { seedStorage } from "./storage-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -67,6 +68,7 @@ const daemon = new FakeDaemon({
 daemon.services.settings.seed({
   "host.icon": { kind: separate ? (port % 2 === 0 ? "server" : "desktop") : "laptop" },
 });
+seedStorage(daemon, Date.now());
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
