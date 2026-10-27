@@ -7,9 +7,9 @@ struct DrawerButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            AceIcon(.sidebarSimple, size: AceTheme.Spacing.lg)
+            AceIcon(.sidebarSimple, size: AceTheme.Spacing.xl)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Spacing.xxl, height: AceTheme.Spacing.xxl)
+                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Open sidebar")
