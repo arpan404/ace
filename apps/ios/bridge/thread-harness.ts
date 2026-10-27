@@ -21,6 +21,8 @@ export const sent: string[] = [];
 export const refuseOnce = { text: "Refuse this once" };
 /** How long the daemon takes to receive a `settings.get` (a slow link), in milliseconds. */
 export const slowSettings = { ms: 0 };
+/** While `gate` is set, the outbox's saves wait for it: a send stays unsaved until then. */
+export const slowSaves: { gate: Promise<void> | undefined } = { gate: undefined };
 /** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
 export const forks = { refuse: false, hold: false, release: () => {} };
 /** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
@@ -41,6 +43,7 @@ export async function reset(): Promise<void> {
   native.frames.length = 0;
   slowSettings.ms = 0;
   refuseOnce.text = "Refuse this once";
+  slowSaves.gate = undefined;
   Object.assign(forks, { refuse: false, hold: false, release: () => {} });
   Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
   Object.assign(queueRefusals, { remove: false, edit: false });
@@ -162,6 +165,7 @@ export function connect(
     storage: {
       load: async () => saved,
       save: async (value) => {
+        await slowSaves.gate;
         saved = value;
       },
     },

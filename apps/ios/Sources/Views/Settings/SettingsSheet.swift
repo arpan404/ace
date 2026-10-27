@@ -4,7 +4,7 @@ import SwiftUI
 enum SettingsRoute: Hashable {
     case machines, machine(String), pair
     case notifications, lock, appearance
-    case archive, profiles, thread(machine: String, id: String)
+    case archive, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case licences
 }
@@ -55,6 +55,7 @@ struct SettingsSheet: View {
                 Section {
                     link(.archive, "Archived", "archivebox", id: "settings.archive")
                     link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
+                    link(.cache, "Cached chats", "internaldrive", id: "settings.cache")
                 } header: { InsetHeader("Threads") }
                 .insetRowBackground()
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
@@ -111,6 +112,7 @@ struct SettingsSheet: View {
                 path.append(.thread(machine: machine, id: id))
             }
         case .profiles: TaskProfilesView(store: TaskProfileStore(defaults: .standard))
+        case .cache: CachedChatsView(inbox: inbox)
         case .thread(let machine, let id):
             if let client = inbox.client(machine), let thread = client.thread, thread.id == id {
                 ThreadView(model: client, thread: thread) { child in

@@ -529,6 +529,22 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (this.closed) throw new ClientError("offline");
     return this.#subscriptions.acquire(id);
   }
+  /**
+   * Forget what this client keeps of a thread (ADR 0105): its store, when no view holds it, and
+   * its read snapshot. The next open reads it from the daemon. Durable sends are untouched.
+   */
+  forgetThread(id: string): Promise<void> {
+    this.#subscriptions.discard(id);
+    return this.#snapshots?.delete(`thread:${id}`) ?? Promise.resolve();
+  }
+  /**
+   * Drop every read snapshot and every thread store no view holds. Threads still open stay live
+   * and are kept again as they change. Durable sends and drafts are untouched.
+   */
+  clearReadSnapshots(): Promise<void> {
+    this.#subscriptions.discardUnheld();
+    return this.#snapshots?.clearAll() ?? Promise.resolve();
+  }
   cachedThread(id: string): ThreadSource | undefined {
     return this.closed ? undefined : this.#subscriptions.cached(id);
   }

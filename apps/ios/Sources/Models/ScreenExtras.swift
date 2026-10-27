@@ -55,7 +55,9 @@ extension ThreadScreenModel {
             steps[ordinal] = nil
         case .tune(let row): if tune != row { tune = row }
         case .access(let row): if access != row { access = row }
-        case .attachments(let files): if attachments != files { attachments = files }
+        case .attachments(let files, let locked):
+            if attachments != files { attachments = files }
+            if attachmentsLocked != locked { attachmentsLocked = locked }
         case .pill(let row, let goal):
             if pill != row { pill = row }
             if self.goal != goal { self.goal = goal }

@@ -24,7 +24,8 @@ extension XCUIApplication {
     func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
-                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
+                      "thread.reload": "Reload from machine"]
         return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
     }
     /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window

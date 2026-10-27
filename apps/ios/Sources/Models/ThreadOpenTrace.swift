@@ -76,6 +76,7 @@ import Darwin
     func ready(_ id: String) {
         guard thread == id, ready == nil else { return }
         ready = CACurrentMediaTime()
+        if HostTrace.enabled { LaunchTrace.mark("thread.ready", id) }
         Self.signposter.emitEvent("thread.ready")
         if settledAt != nil { finish(reason: "settled") }
     }

@@ -287,7 +287,9 @@ struct ThreadView: View {
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                 intake: { providers in
+                                 // Paste, drop and folders join the attach menu's lock: no file joins while a
+                                 // new thread starts from this message (the bridge refuses one anyway).
+                                 intake: screen.attachmentsLocked != nil ? nil : { providers in
                                      Task {
                                          let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
                                          attachProblem = result.note
@@ -307,6 +309,7 @@ struct ThreadView: View {
                     } leading: { pick in
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
+                            .disabled(screen.attachmentsLocked != nil)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
                     } model: {

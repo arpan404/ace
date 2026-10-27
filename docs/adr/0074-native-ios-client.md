@@ -73,6 +73,8 @@ the same thread. Leaving a thread cancels its outstanding SDK history reads.
 The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
 Snapshots still contain at most 200 items. Older history is read through the shared
 history window (ADR 0062 "Phone client", 2026-10-23), not by growing the live store.
+On disk, a thread's read snapshot is one row per item, kept seven days after last use, with
+the twenty most recent settled threads and every unsettled one ([ADR 0105](0105-phone-chat-cache.md)).
 
 `@ace/design-tokens` supplies the palette, typography metrics, spacing, radii,
 dimensions, elevation, opacity and motion timing. The Swift generator validates the

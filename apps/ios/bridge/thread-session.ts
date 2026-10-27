@@ -28,7 +28,12 @@ import { goalCommand, joinContext, messageContent, type Reference } from "./comp
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
-import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
+import {
+  AttachmentTray,
+  nativeChunks,
+  type ChunkReader,
+  type TrayRow,
+} from "./thread-attachments.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
@@ -104,6 +109,8 @@ export class ThreadSession {
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
     /** The history window the person reads, when one is open. */
     reading: () => ThreadSource | undefined = () => undefined,
+    /** The files on the message, kept from the session this one replaces (`keepTray`). */
+    kept?: AttachmentTray,
   ) {
     this.#catalog = catalog;
     this.#client = client;
@@ -151,13 +158,15 @@ export class ThreadSession {
       this.#dispatch(payload, id),
     );
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
-    this.#tray = new AttachmentTray(
-      client,
-      { threadId: this.#threadId },
-      signal,
-      (files) => put("attachments", () => ({ type: "thread.attachments", files })),
-      chunks,
-    );
+    const trayRows = (files: TrayRow[], locked: string | undefined) =>
+      put("attachments", () => ({
+        type: "thread.attachments",
+        files,
+        ...(locked ? { locked } : {}),
+      }));
+    if (kept) kept.adopt(signal, trayRows);
+    this.#tray =
+      kept ?? new AttachmentTray(client, { threadId: this.#threadId }, signal, trayRows, chunks);
     const workLine = followWorkLine(store, put, preview);
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
@@ -235,11 +244,21 @@ export class ThreadSession {
     return this.#tray.carried();
   }
 
+  /**
+   * Hand the message's files to the session that replaces this one for the same thread, so
+   * reading the thread again from its machine never drops them. This one stops showing them.
+   */
+  keepTray(): AttachmentTray {
+    this.#trayKept = true;
+    return this.#tray;
+  }
+  #trayKept = false;
+
   dispose(): void {
     this.#abort.abort();
     this.#stop();
     this.#steps.dispose();
-    this.#tray.dispose();
+    if (!this.#trayKept) this.#tray.dispose();
   }
 
   handle(raw: unknown): void {
@@ -517,8 +536,9 @@ export class ThreadSession {
       ...(options ? { options } : {}),
       ...(context ? { context } : {}),
     };
+    const tray = this.#tray;
     void dispatchCommand(this.#client, message, id, this.#pump, {
-      saved: () => this.#tray.sent(),
+      saved: () => tray.sent(files.ids),
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
       },
@@ -552,15 +572,22 @@ export class ThreadSession {
       this.#admission(id, false, built.refused);
       return;
     }
-    // Swift keeps the words and files until the daemon answers; only a started thread takes them.
+    // Swift keeps the words and files until the daemon answers; only a started thread takes them,
+    // so no file joins meanwhile.
     this.#sheet.continuationSending();
+    const tray = this.#tray;
+    tray.lock("Wait for the new thread to start, then add files.");
     void dispatchCommand(this.#client, built.payload, id, this.#pump, {
-      unsaved: () => this.#sheet.continuationSettled(false),
+      unsaved: () => {
+        this.#sheet.continuationSettled(false);
+        tray.unlock();
+      },
       refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
       receipt: (result) => {
         this.#sheet.continuationSettled(result.ok);
+        if (!("refused" in files) && result.ok) tray.sent(files.ids);
+        tray.unlock();
         if (!result.ok) return;
-        this.#tray.sent();
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));
@@ -590,7 +617,8 @@ export class ThreadSession {
           refusal: (error) => `The fork didn't start: ${error ?? "your computer refused it"}.`,
         }),
       (requestId, ok, message) => this.#admission(requestId, ok, message),
-      () => this.#tray.sent(),
+      // Only the files this fork carried leave the tray; any added since stay for the next message.
+      () => this.#tray.sent(files.ids),
     );
   }
   /** A settled head's answers, which its opened log leaves out. */

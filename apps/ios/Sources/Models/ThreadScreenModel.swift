@@ -54,6 +54,8 @@ import Observation
     var access: ThreadAccessRow?
     /// Files on the next message and their uploads.
     var attachments: [AttachmentFile] = []
+    /// Why no file can be added now, while a message starting a new thread is on its way.
+    var attachmentsLocked: String?
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
     /// What the menu and messages offer (`thread.transitions`).
@@ -83,6 +85,7 @@ import Observation
         fork = nil
         mergeDraft = nil
         work = nil
+        attachmentsLocked = nil
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
@@ -91,6 +94,7 @@ import Observation
         steps = [:]
         lane = nil
         attachments = []
+        attachmentsLocked = nil
         modelList = ThreadModels()
         // The last visit's fork was its bridge session's; a new one starts on this thread.
         fork = nil

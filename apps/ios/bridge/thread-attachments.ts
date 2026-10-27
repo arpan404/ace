@@ -29,6 +29,11 @@ export type ChunkReader = (localId: string, offset: number, limit: number) => Pr
 export type UploadTarget = { threadId: ThreadId } | { draftId: () => Promise<string> };
 /** One file's row for the tray Swift draws. */
 export type TrayRow = Record<string, unknown>;
+/**
+ * Where a tray's rows go, with why no file can be added now (a message starting a thread is on
+ * its way), or undefined when files can be added.
+ */
+export type TrayEmit = (rows: TrayRow[], locked: string | undefined) => void;
 
 export const chunkBytes = 48 * 1024;
 
@@ -63,16 +68,17 @@ interface Staged extends Picked {
 export class AttachmentTray {
   readonly #client: Pick<ClientCore, "request">;
   readonly #target: UploadTarget;
-  readonly #signal: AbortSignal;
-  readonly #emit: (rows: TrayRow[]) => void;
+  #signal: AbortSignal;
+  #emit: TrayEmit;
   readonly #read: ChunkReader;
   readonly #files = new Map<string, Staged>();
+  #locked: string | undefined;
 
   constructor(
     client: Pick<ClientCore, "request">,
     target: UploadTarget,
     signal: AbortSignal,
-    emit: (rows: TrayRow[]) => void,
+    emit: TrayEmit,
     read: ChunkReader,
   ) {
     this.#client = client;
@@ -92,8 +98,10 @@ export class AttachmentTray {
   attach(picked: Picked): void {
     if (this.#files.has(picked.localId)) return;
     const held = [...this.#files.values()].filter((file) => file.state !== "failed");
-    const problem =
-      held.length >= attachmentLimits.perMessage
+    // Refused on its own row, never dropped unseen: the thread its message starts would leave it.
+    const problem = this.#locked
+      ? this.#locked
+      : held.length >= attachmentLimits.perMessage
         ? `A message carries up to ${attachmentLimits.perMessage} files`
         : attachmentSizeProblem(
             picked.bytes,
@@ -186,14 +194,17 @@ export class AttachmentTray {
     return [...this.#files.values()].map((file) => ({ name: file.name, mimeType: file.mimeType }));
   }
 
-  /** Why the message can't go yet, or the context carrying the held files. */
-  context(): { refused: string } | { context: MessageContext | undefined } {
+  /**
+   * Why the message can't go yet, or the context carrying the held files and their local ids,
+   * which `sent` takes once that message is saved.
+   */
+  context(): { refused: string } | { context: MessageContext | undefined; ids: readonly string[] } {
     const files = [...this.#files.values()];
     if (files.some((file) => file.state === "uploading"))
       return { refused: "Wait for your files to finish uploading." };
     if (files.some((file) => file.state === "failed"))
       return { refused: "Remove the files that didn't upload, then send." };
-    if (!files.length) return { context: undefined };
+    if (!files.length) return { context: undefined, ids: [] };
     const draftId = files.find((file) => file.draftId)?.draftId;
     return {
       context: {
@@ -201,13 +212,41 @@ export class AttachmentTray {
         mentions: [],
         attachments: [...new Set(files.map((file) => file.sha256))].map((sha256) => ({ sha256 })),
       },
+      ids: files.map((file) => file.localId),
     };
   }
 
-  /** The message carrying the files was saved: they go with it. */
-  sent(): void {
-    if (!this.#files.size) return;
-    this.#files.clear();
+  /**
+   * The message carrying the files `ids` was saved: they go with it. Files added since stay for
+   * the next message, even when the save lands late or from a screen the tray has moved on from.
+   */
+  sent(ids: readonly string[]): void {
+    let changed = false;
+    for (const id of ids) changed = this.#files.delete(id) || changed;
+    if (changed) this.#publish();
+  }
+
+  /**
+   * A message starting a new thread from these files is on its way: no file joins until it is
+   * refused (`unlock`), since a started thread takes only the files it was sent with.
+   */
+  lock(reason: string): void {
+    this.#locked = reason;
+    this.#publish();
+  }
+  unlock(): void {
+    if (this.#locked === undefined) return;
+    this.#locked = undefined;
+    this.#publish();
+  }
+
+  /**
+   * Move to a new screen for the same thread (its transcript was read again from the machine):
+   * the files and their uploads carry on, and the rows go to that screen.
+   */
+  adopt(signal: AbortSignal, emit: TrayEmit): void {
+    this.#signal = signal;
+    this.#emit = emit;
     this.#publish();
   }
 
@@ -307,6 +346,7 @@ export class AttachmentTray {
           ? { itemId: file.carried.itemId, ref: file.sha256, thumbnail: file.carried.thumbnail }
           : null,
       })),
+      this.#locked,
     );
   }
 }

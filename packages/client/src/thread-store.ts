@@ -1,5 +1,6 @@
 import { closedInteractions, endedRuns, endedTasks, endedAgents } from "./eviction.ts";
 import { clipItem } from "./item-window.ts";
+import { itemFinished } from "./item-finished.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
@@ -24,14 +25,8 @@ const emptyOrder: readonly string[] = [];
 const agentOf = (record: Record<string, Item>) => (id: string) =>
   Object.hasOwn(record, id) ? record[id]?.agentId : undefined;
 /** Finished: no longer streaming, and no tool call still waiting or running. */
-const complete = (record: Record<string, Item>) => (id: string) => {
-  const item = Object.hasOwn(record, id) ? record[id] : undefined;
-  if (!item?.complete) return false;
-  return (
-    item.type !== "tool_call" ||
-    !["pending", "awaiting_approval", "running"].includes(item.call.status)
-  );
-};
+const complete = (record: Record<string, Item>) => (id: string) =>
+  itemFinished(Object.hasOwn(record, id) ? record[id] : undefined);
 export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   #messageDeltas = new MessageDeltas();
   #journal: PageJournal;

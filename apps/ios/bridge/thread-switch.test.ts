@@ -318,3 +318,41 @@ test("a send that no longer matches what the composer showed is refused rather t
   expect(commands("thread.send")).toHaveLength(0);
   expect(commands("thread.fork")).toHaveLength(0);
 });
+
+const lockedTray = () =>
+  latest("thread.attachments") as
+    | { files: { id: string; state: string; error: string }[]; locked?: string }
+    | undefined;
+
+test("a file picked while the new thread is starting is refused on its row, never dropped", async () => {
+  const thread = await continuing();
+  forks.hold = true;
+  sendOn(thread, "first");
+  await until(() => commands("thread.fork").length === 1, "the fork on its way");
+  await until(() => lockedTray()?.locked, "adding files locked");
+  expect(lockedTray()?.locked).toMatch(/Wait for the new thread to start/);
+
+  const bytes = Buffer.alloc(1024, 5);
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "late-0001",
+      name: "late.png",
+      mimeType: "image/png",
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+  });
+  await until(() => lockedTray()?.files.length === 1, "the late file shown");
+  expect(lockedTray()?.files[0]).toMatchObject({
+    id: "late-0001",
+    state: "failed",
+    error: expect.stringMatching(/Wait for the new thread to start/),
+  });
+
+  forks.release();
+  await until(() => latest("thread.continued"), "the new thread");
+  // Files can be added again, and the refused one is still there to see and remove.
+  await until(() => lockedTray()?.locked === undefined, "unlocked");
+  expect(lockedTray()?.files.map((file) => file.id)).toEqual(["late-0001"]);
+});

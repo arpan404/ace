@@ -56,7 +56,9 @@ It holds:
 | Diagnostics (optional) | `tracing`, `trace(name, ms, bytes)`                                                    | totals with native spans (`HostTrace.swift`)                |
 
 Async operations: `storage.load/save`, `storage.host.load/save`, `storage.records`,
-`storage.write`, `storage.reads.load/save`, `inbox.checkpoint`, `snapshot.get/set/clear`,
+`storage.write`, `storage.reads.load/save`, `inbox.checkpoint`, `snapshot.get/set/clear`
+(and, since [ADR 0105](0105-phone-chat-cache.md), `snapshot.thread.get/put`, `snapshot.index`,
+`snapshot.drop`, `snapshot.size`),
 `secret.get/set/delete`, `directory.load/save`, `http`, `credential` (debug fixture only),
 `attachment.chunk`, `download.open/append/finish/discard` (files saved to the device a chunk
 at a time), `access.result`. Error codes: `unsupported`, `storage`, `identity`,

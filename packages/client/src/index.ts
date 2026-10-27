@@ -135,3 +135,18 @@ export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
 
 export { windowSource, type ThreadWindow } from "./window-source.ts";
 export { SendOps, retryOf, type SendOp } from "./send-ops.ts";
+
+export {
+  RowSnapshots,
+  type ItemRow,
+  type RowSnapshotOptions,
+  type SnapshotRows,
+  type ThreadWrite,
+} from "./row-snapshots.ts";
+export {
+  expiredSnapshots,
+  snapshotRetention,
+  type KeptSnapshot,
+  type RetentionPolicy,
+} from "./snapshot-retention.ts";
+export { itemFinished } from "./item-finished.ts";
