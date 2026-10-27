@@ -13,6 +13,7 @@ import { readExecutionMode } from "./native-mode.ts";
 import { ThemeContext, tokens, useTheme, textStyle, AceHost } from "./theme.tsx";
 import { Inbox } from "./Inbox.tsx";
 import { ThreadScreen } from "./Thread.tsx";
+import { FileScreen, FilesScreen } from "./Files.tsx";
 import { MachinesSheet } from "./sheets.tsx";
 import Inter from "../assets/fonts/Inter.ttf";
 import Mono from "../assets/fonts/JetBrainsMono.ttf";
@@ -20,6 +21,8 @@ import Mono from "../assets/fonts/JetBrainsMono.ttf";
 const Stack = createNativeStackNavigator<{
   Inbox: undefined;
   Thread: { id: string; title: string };
+  Files: { id: string; title: string };
+  File: { id: string; title: string; path: string; line?: number };
 }>();
 function Ready({ runtime }: { runtime: Runtime }) {
   const theme = useTheme();
@@ -83,12 +86,46 @@ function Ready({ runtime }: { runtime: Runtime }) {
             )}
           </Stack.Screen>
           <Stack.Screen name="Thread" options={({ route }) => ({ title: route.params.title })}>
-            {({ route }) => (
+            {({ route, navigation }) => (
               <ThreadScreen
                 client={runtime.client}
                 id={route.params.id}
                 hostId={runtime.hostId}
                 drafts={runtime.drafts}
+                notify={notify}
+                onOpenFiles={() =>
+                  navigation.push("Files", { id: route.params.id, title: route.params.title })
+                }
+              />
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="Files" options={{ title: "Files" }}>
+            {({ route, navigation }) => (
+              <FilesScreen
+                client={runtime.client}
+                scope={{ threadId: route.params.id }}
+                notify={notify}
+                onOpenFile={(path, line) =>
+                  navigation.push("File", {
+                    id: route.params.id,
+                    title: route.params.title,
+                    path,
+                    ...(line === undefined ? {} : { line }),
+                  })
+                }
+              />
+            )}
+          </Stack.Screen>
+          <Stack.Screen
+            name="File"
+            options={({ route }) => ({ title: route.params.path.split("/").pop() ?? "File" })}
+          >
+            {({ route }) => (
+              <FileScreen
+                client={runtime.client}
+                scope={{ threadId: route.params.id }}
+                path={route.params.path}
+                {...(route.params.line === undefined ? {} : { line: route.params.line })}
                 notify={notify}
               />
             )}

@@ -227,6 +227,7 @@ export function ThreadScreen({
   hostId,
   drafts,
   notify,
+  onOpenFiles,
 }: {
   client: ClientApi;
   id: string;
@@ -234,6 +235,7 @@ export function ThreadScreen({
   hostId: string | null;
   drafts: ThreadDraftStore | null;
   notify(text: string): void;
+  onOpenFiles?(): void;
 }) {
   const theme = useTheme();
   const headerHeight = useHeaderHeight();
@@ -306,6 +308,9 @@ export function ThreadScreen({
               />
             ) : null}
             <AceButton label="Agents" onPress={() => setAgents(true)} kind="secondary" />
+            {onOpenFiles ? (
+              <AceButton label="Files" onPress={onOpenFiles} kind="secondary" />
+            ) : null}
           </Row>
         </AceHost>
       </View>
