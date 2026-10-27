@@ -41,17 +41,21 @@ export async function readNativeAttachment(
   owner: ClientCore,
   request: NativeAttachmentRequest,
   signal: AbortSignal,
+  /** The Attachments list the person is looking at, so a listed file isn't listed again. */
+  listed?: { find(threadId: string, sha256: string): Attachment | undefined },
 ): Promise<NativeAttachment> {
   if (!request.itemId) {
     // Only a file the thread itself stores, as its Attachments list names it.
     if (request.ref.startsWith("part:")) throw new Error("Attachment unavailable");
-    const listed = await owner.request(
+    const known = listed?.find(request.threadId, request.ref);
+    if (known) return readStored(owner, request, known, signal);
+    const reply = await owner.request(
       { type: "context.request", operation: { op: "attachment.list", threadId: request.threadId } },
       { signal },
     );
     const stored =
-      listed.result.kind === "attachments"
-        ? listed.result.attachments.find((file) => file.sha256 === request.ref)
+      reply.result.kind === "attachments"
+        ? reply.result.attachments.find((file) => file.sha256 === request.ref)
         : undefined;
     if (!stored) throw new Error("Attachment unavailable");
     return readStored(owner, request, stored, signal);

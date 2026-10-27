@@ -191,6 +191,11 @@ export class ThreadSession {
     return this.#epoch;
   }
 
+  /** The stored files the fork being written carries, which the thread's list must not remove. */
+  carriedFiles(): ReadonlySet<string> {
+    return this.#tray.carried();
+  }
+
   dispose(): void {
     this.#abort.abort();
     this.#stop();

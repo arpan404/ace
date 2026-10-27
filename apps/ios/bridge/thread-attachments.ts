@@ -141,6 +141,13 @@ export class AttachmentTray {
     this.#publish();
   }
 
+  /** The stored files carried on the message, which the thread must keep while it is written. */
+  carried(): ReadonlySet<string> {
+    return new Set(
+      [...this.#files.values()].filter((file) => file.carried).map((file) => file.sha256),
+    );
+  }
+
   /** Take the carried files back off the message (the edit it came with was closed). */
   dropCarried(): void {
     let dropped = false;

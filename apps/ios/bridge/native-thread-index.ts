@@ -77,24 +77,55 @@ export function threadFileRow(file: Attachment) {
   };
 }
 
+/**
+ * The Attachments lists last read, per thread (a few threads at most), so opening one of the
+ * listed files reads it at once instead of listing the thread again first.
+ */
+export class ThreadFileIndex {
+  readonly #lists = new Map<string, readonly Attachment[]>();
+  static readonly kept = 8;
+  remember(threadId: string, files: readonly Attachment[]): void {
+    this.#lists.delete(threadId);
+    this.#lists.set(threadId, files);
+    for (const oldest of this.#lists.keys()) {
+      if (this.#lists.size <= ThreadFileIndex.kept) break;
+      this.#lists.delete(oldest);
+    }
+  }
+  /** The file, when the thread's last list held it; undefined when it must be listed again. */
+  find(threadId: string, sha256: string): Attachment | undefined {
+    return this.#lists.get(threadId)?.find((file) => file.sha256 === sha256);
+  }
+}
+
+/** Why a file can't be removed while the fork being written carries it. */
+export const carriedFileRefused =
+  "This file is on the fork you're writing. Take it off the fork's message first.";
+
 export async function readNativeThreadFiles(
   owner: ClientCore,
   request: z.infer<typeof NativeThreadFilesRequest>,
   signal: AbortSignal,
+  index: ThreadFileIndex = new ThreadFileIndex(),
+  /** The files the fork being written in this thread carries, which must stay. */
+  carried: ReadonlySet<string> = new Set(),
 ) {
   const ask = (operation: Parameters<ClientCore["request"]>[0] & { type: "context.request" }) =>
     owner.request(operation, { signal });
-  if (request.release) {
+  let refused: string | null = null;
+  if (request.release && carried.has(request.release)) refused = carriedFileRefused;
+  else if (request.release) {
     const released = await ask({
       type: "context.request",
       operation: { op: "attachment.release", threadId: request.threadId, sha256: request.release },
     });
-    if (released.result.kind !== "ok") throw new Error("Couldn't remove this file. Try again.");
+    if (released.result.kind !== "ok") refused = "Couldn't remove this file. Try again.";
   }
   const listed = await ask({
     type: "context.request",
     operation: { op: "attachment.list", threadId: request.threadId },
   });
   if (listed.result.kind !== "attachments") throw new Error("Couldn't load the files.");
-  return { files: listed.result.attachments.map(threadFileRow) };
+  index.remember(request.threadId, listed.result.attachments);
+  return { files: listed.result.attachments.map(threadFileRow), refused };
 }

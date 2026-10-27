@@ -263,6 +263,9 @@ async function start(json: string): Promise<void> {
     ),
     reads,
   );
+  // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  services.carried = (threadId) =>
+    threadId === openThreadId ? (session?.carriedFiles() ?? new Set()) : new Set();
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {

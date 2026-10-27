@@ -34,6 +34,7 @@ import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-t
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { NativeRichRequest, readNativeRich } from "./native-rich.ts";
 import {
+  ThreadFileIndex,
   NativeThreadFilesRequest,
   NativeTurnsRequest,
   readNativeThreadFiles,
@@ -98,6 +99,10 @@ export class NativeServices {
    */
   #keeping = new Set<string>();
   readonly transcript: NativeTranscript;
+  /** The Attachments lists last read, for opening a listed file without listing again. */
+  readonly threadFiles = new ThreadFileIndex();
+  /** The files the fork being written in a thread carries, which its list can't remove. */
+  carried: (threadId: string) => ReadonlySet<string> = () => new Set();
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -214,7 +219,13 @@ export class NativeServices {
         this.#reply(
           id,
           true,
-          await readNativeThreadFiles(this.owner, threadFiles.data, controller.signal),
+          await readNativeThreadFiles(
+            this.owner,
+            threadFiles.data,
+            controller.signal,
+            this.threadFiles,
+            this.carried(threadFiles.data.threadId),
+          ),
           "",
         );
         return;
@@ -244,7 +255,12 @@ export class NativeServices {
         this.#reply(
           id,
           true,
-          await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          await readNativeAttachment(
+            this.owner,
+            attachment.data,
+            controller.signal,
+            this.threadFiles,
+          ),
           "",
         );
         return;

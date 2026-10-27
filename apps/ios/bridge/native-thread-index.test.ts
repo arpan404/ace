@@ -1,8 +1,14 @@
-import { connect, fixture, reset, until } from "./thread-harness.ts";
+import { connect, fixture, reset, sent, until } from "./thread-harness.ts";
 import { facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
-import { readNativeThreadFiles, readNativeTurns } from "./native-thread-index.ts";
+import {
+  ThreadFileIndex,
+  carriedFileRefused,
+  readNativeThreadFiles,
+  readNativeTurns,
+} from "./native-thread-index.ts";
+import { readNativeAttachment } from "./native-attachment.ts";
 
 /*
  * The thread menu's Turns and Attachments lists over the real SDK and the fake daemon: turns
@@ -58,4 +64,42 @@ test("the thread's stored files list with their size, and a removed one leaves t
   expect(shown?.size).toMatch(/B$/);
   const left = await readNativeThreadFiles(owner, { ...request, release: shown?.ref }, signal());
   expect(left.files).toEqual([]);
+});
+
+test("a file the fork being written carries can't be removed, and stays in the list", async () => {
+  const owner = await connected();
+  const request = { type: "native.threadFiles" as const, threadId: id };
+  const [file] = (await readNativeThreadFiles(owner, request, signal())).files;
+  const kept = await readNativeThreadFiles(
+    owner,
+    { ...request, release: file?.ref },
+    signal(),
+    new ThreadFileIndex(),
+    new Set([file?.ref ?? ""]),
+  );
+  expect(kept.refused).toBe(carriedFileRefused);
+  expect(kept.files.map((listed) => listed.ref)).toEqual([file?.ref]);
+});
+
+test("a file the Attachments list shows opens without listing the thread again", async () => {
+  const owner = await connected();
+  const index = new ThreadFileIndex();
+  const [file] = (
+    await readNativeThreadFiles(
+      owner,
+      { type: "native.threadFiles", threadId: id },
+      signal(),
+      index,
+    )
+  ).files;
+  const lists = () => sent.filter((text) => text.includes('"attachment.list"')).length;
+  const before = lists();
+  const opened = await readNativeAttachment(
+    owner,
+    { type: "native.attachment", threadId: id, ref: file?.ref ?? "", variant: "original" },
+    signal(),
+    index,
+  );
+  expect(opened).toMatchObject({ name: "screen.png" });
+  expect(lists()).toBe(before);
 });
