@@ -273,20 +273,20 @@ export function runBulk(
       receipt: heard,
     }).then(() => saved);
   };
+  const withRetry = (result: BulkOutcome): BulkOutcome =>
+    result.running.length
+      ? {
+          ...result,
+          retry: stopAndDeleteQuestion(
+            result.running.map((id) => preview(titles.get(id) ?? "", 512)),
+          ),
+        }
+      : result;
   return new Promise((resolve) => {
     const answered = new Set<string>();
     let saving = steps.length;
     let finished = false;
     let cancel: (() => void) | undefined;
-    const withRetry = (result: BulkOutcome): BulkOutcome =>
-      result.running.length
-        ? {
-            ...result,
-            retry: stopAndDeleteQuestion(
-              result.running.map((id) => preview(titles.get(id) ?? "", 512)),
-            ),
-          }
-        : result;
     const finish = () => {
       if (finished) return;
       finished = true;
