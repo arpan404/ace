@@ -5,6 +5,7 @@ use crate::computer::act::{Actor, Step, grab, int, set_selection, text};
 use crate::computer::bus::{BusError, Obj};
 use crate::computer::element::{self, Element};
 use crate::computer::error::{CuError, CuResult, clip};
+use crate::computer::held::{self, Held};
 use crate::computer::keys::{self, Chord};
 
 enum Inserted {
@@ -12,7 +13,36 @@ enum Inserted {
     Unverified,
 }
 
+/// How a step's reply explains a selection or caret the app didn't take or keep.
+pub const HELD_NOTE: &str = "ace holds it for the next typing, delete, cut, copy or paste in this text, but the app doesn't show it (on GNOME, GTK 4 drops a background window's selection, and GTK 4 text views before 4.22 refuse caret moves)";
+
 impl Actor<'_> {
+    /// The held range for `obj`, used up by this step.
+    pub fn take_held(&mut self, obj: &Obj) -> Option<Held> {
+        match self.session.held.take() {
+            Some((held_obj, held)) if &held_obj == obj => Some(held),
+            _ => None,
+        }
+    }
+
+    pub fn hold(&mut self, obj: &Obj, start: i32, end: i32, count: i32) {
+        self.session.held = Some((obj.clone(), Held { start, end, count }));
+    }
+
+    /// After setting a selection (or caret, when `start == end`): whether the app still shows
+    /// it a moment later. GTK 4 drops a background window's selection asynchronously.
+    pub async fn kept(&self, obj: &Obj, start: i32, end: i32) -> CuResult<bool> {
+        crate::computer::events::pause(150, self.check).await?;
+        Ok(if start == end {
+            element::selection(self.bus, obj).await.is_none()
+                && element::caret(self.bus, obj)
+                    .await
+                    .is_ok_and(|c| c == start)
+        } else {
+            element::selection(self.bus, obj).await == Some((start, end))
+        })
+    }
+
     /// The element typing goes to: the step's id (focused first), else the focused text
     /// element, else the text element the agent last worked in.
     async fn text_target(&mut self, step: &Step) -> CuResult<Option<(Element, String)>> {
@@ -95,11 +125,19 @@ impl Actor<'_> {
         })
     }
 
-    async fn insert(&self, element: &Element, text: &str) -> CuResult<Inserted> {
+    async fn insert(
+        &mut self,
+        element: &Element,
+        text: &str,
+        held: Option<Held>,
+    ) -> CuResult<Inserted> {
         let bus = self.bus;
         let obj = &element.obj;
-        let mut caret = element::caret(bus, obj).await.unwrap_or(-1);
-        if let Some((start, end)) = element::selection(bus, obj).await {
+        let count = element::character_count(bus, obj).await.unwrap_or(-1);
+        let app_caret = element::caret(bus, obj).await.unwrap_or(-1);
+        let cursor = held::resolve(element::selection(bus, obj).await, app_caret, held, count);
+        let mut caret = cursor.caret;
+        if let Some((start, end)) = cursor.selection {
             let _ = bus
                 .atspi::<_, bool>(obj, "EditableText", "DeleteText", &(start, end))
                 .await;
@@ -129,6 +167,13 @@ impl Actor<'_> {
             .atspi::<_, bool>(obj, "Text", "SetCaretOffset", &(caret + length,))
             .await;
         let after = element::character_count(bus, obj).await.ok();
+        // GTK 4 text views keep their caret where it was: hold the end of the typing, so the
+        // next typing continues there.
+        if let Some(after) = after
+            && element::caret(bus, obj).await.ok() != Some(caret + length)
+        {
+            self.hold(obj, caret + length, caret + length, after);
+        }
         Ok(match (before, after) {
             (Some(before), Some(after)) if after != before => Inserted::Changed,
             (Some(_), Some(_)) => {
@@ -175,7 +220,8 @@ impl Actor<'_> {
                 return Err(refused);
             }
             if element.interfaces.editable {
-                return Ok(match self.insert(&element, &typed).await? {
+                let held = self.take_held(&element.obj);
+                return Ok(match self.insert(&element, &typed, held).await? {
                     Inserted::Changed => format!("typed \"{shown}\" into {label}"),
                     Inserted::Unverified => format!(
                         "typed \"{shown}\" into {label} (the app does not report its text, so this is unconfirmed)"
@@ -207,7 +253,8 @@ impl Actor<'_> {
                 return Err(refused);
             }
             if element.interfaces.editable {
-                return Ok(match self.insert(&element, &pasted).await? {
+                let held = self.take_held(&element.obj);
+                return Ok(match self.insert(&element, &pasted, held).await? {
                     Inserted::Changed => format!("pasted {count} characters into {label}{note}"),
                     Inserted::Unverified => format!(
                         "pasted {count} characters into {label}{note} (the app does not report its text, so this is unconfirmed)"
@@ -232,8 +279,13 @@ impl Actor<'_> {
         };
         if let Some((element, label)) = target.as_ref().filter(|(e, _)| e.interfaces.text) {
             if let Some(done) = self.emulate(element, &chord, repeat).await? {
+                let (done, note) = done
+                    .split_once("; ")
+                    .map_or((done.as_str(), String::new()), |(d, n)| {
+                        (d, format!("; {n}"))
+                    });
                 return Ok(format!(
-                    "pressed {} ({done} in {label} through accessibility)",
+                    "pressed {} ({done} in {label} through accessibility){note}",
                     chord.key
                 ));
             }
@@ -260,13 +312,24 @@ impl Actor<'_> {
     }
 
     /// The text-editing keys AT-SPI can do without the window in front.
-    async fn emulate(&self, element: &Element, chord: &Chord, repeat: usize) -> CuResult<Option<String>> {
+    async fn emulate(
+        &mut self,
+        element: &Element,
+        chord: &Chord,
+        repeat: usize,
+    ) -> CuResult<Option<String>> {
         let bus = self.bus;
         let obj = &element.obj;
         let editable = element.interfaces.editable && element.role != "password text";
         let count = element::character_count(bus, obj).await.unwrap_or(0);
-        let caret = element::caret(bus, obj).await.unwrap_or(count);
-        let selection = element::selection(bus, obj).await;
+        let held = self.take_held(obj);
+        let cursor = held::resolve(
+            element::selection(bus, obj).await,
+            element::caret(bus, obj).await.unwrap_or(count),
+            held,
+            count,
+        );
+        let (caret, selection) = (cursor.caret, cursor.selection);
         let delete = |start: i32, end: i32| async move {
             bus.atspi::<_, bool>(obj, "EditableText", "DeleteText", &(start, end))
                 .await
@@ -275,7 +338,7 @@ impl Actor<'_> {
         let done = match (chord.keysym, chord.plain(), chord.control()) {
             (0xff0d | 0xff8d, true, _) if editable && element.states.multi_line => {
                 let newlines = "\n".repeat(repeat);
-                self.insert(element, &newlines).await?;
+                self.insert(element, &newlines, held).await?;
                 "inserted a line break".to_owned()
             }
             (0xff0d | 0xff8d, true, _) => {
@@ -296,6 +359,11 @@ impl Actor<'_> {
                     return Ok(None);
                 }
                 self.changed();
+                if element::caret(bus, obj).await.ok() != Some(start)
+                    && let Ok(after) = element::character_count(bus, obj).await
+                {
+                    self.hold(obj, start, start, after);
+                }
                 format!("deleted {} characters", end - start)
             }
             (0x61 | 0x41, _, true) => {
@@ -303,33 +371,34 @@ impl Actor<'_> {
                     // GTK 4 text views (before 4.22) refuse to set a selection through Text,
                     // but offer their own select-all action.
                     let actions = element::action_names(bus, obj).await.unwrap_or_default();
-                    let Some(index) = crate::computer::text_match::select_all_action(&actions) else {
-                        return Err(CuError::new("action_failed", "The app would not select its text."));
-                    };
-                    self.perform(element, index, "select all", "the text").await?;
-                    let all = element::selection(bus, obj).await.is_some_and(|(start, end)| start == 0 && end >= count);
-                    if !all && count > 0 {
-                        return Err(CuError::new("action_failed", "The app would not select its text."));
+                    if let Some(index) = crate::computer::text_match::select_all_action(&actions) {
+                        self.perform(element, index, "select all", "the text")
+                            .await?;
                     }
                 }
                 self.changed();
-                "selected all text".to_owned()
+                // GTK 4 drops the selection again when the window is in the background (the
+                // desktop cancels its primary selection), sometimes after a moment.
+                self.hold(obj, 0, count, count);
+                if count == 0 || self.kept(obj, 0, count).await? {
+                    "selected all text".to_owned()
+                } else {
+                    format!("selected all {count} characters; {HELD_NOTE}")
+                }
             }
             (0xff51 | 0xff53 | 0xff50 | 0xff57, true, _) => {
-                let to = match chord.keysym {
-                    0xff51 => (caret - repeat as i32).max(0),
-                    0xff53 => (caret + repeat as i32).min(count),
-                    0xff50 => 0,
-                    _ => count,
-                };
-                set_selection(bus, obj, to, to)
-                    .await
-                    .map_err(|_| CuError::new("action_failed", "The app would not move its caret."))?;
+                let to = held::moved(chord.keysym, cursor, repeat as i32, count);
                 self.changed();
-                "moved the caret".to_owned()
+                let set = set_selection(bus, obj, to, to).await.is_ok();
+                self.hold(obj, to, to, count);
+                if set && self.kept(obj, to, to).await? {
+                    "moved the caret".to_owned()
+                } else {
+                    format!("moved the caret to {to} of {count}; {HELD_NOTE}")
+                }
             }
             (0xff09, true, _) if editable && element.states.multi_line => {
-                self.insert(element, &"\t".repeat(repeat)).await?;
+                self.insert(element, &"\t".repeat(repeat), held).await?;
                 "inserted a tab".to_owned()
             }
             // Copy, cut and paste through the text's own clipboard calls.
@@ -350,6 +419,9 @@ impl Actor<'_> {
                     .map_err(|_| CuError::new("action_failed", "The app would not use its clipboard."))?;
                 if cut {
                     self.changed();
+                } else if cursor.held {
+                    // Copying keeps the selection.
+                    self.hold(obj, start, end, count);
                 }
                 format!("{} {} characters", if cut { "cut" } else { "copied" }, end - start)
             }

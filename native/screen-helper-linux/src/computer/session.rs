@@ -31,6 +31,9 @@ pub struct AppSession {
     /// The text element the agent last typed, selected or focused in. GTK4 reports focus only
     /// while its window is active, so background key steps fall back to this.
     pub text_focus: Option<Obj>,
+    /// A selection or caret ace made that the app can't show (`act_text.rs`), for the next
+    /// key, type or paste step.
+    pub held: Option<(Obj, crate::computer::held::Held)>,
     pub not_responding: bool,
     /// For a suite module sharing its process: its name, which ends its windows' titles.
     pub title_hint: Option<String>,
@@ -60,6 +63,7 @@ impl AppSession {
             focused: None,
             menu_bar: None,
             text_focus: None,
+            held: None,
             not_responding: false,
             title_hint: None,
             shot_offset: None,

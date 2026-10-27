@@ -48,6 +48,10 @@ impl Actor<'_> {
                 return Ok(format!("skipped {kind}: condition not met"));
             }
         }
+        // A held selection (held.rs) lasts only through consecutive text steps.
+        if !matches!(kind.as_str(), "type" | "paste" | "key" | "wait") {
+            self.session.held = None;
+        }
         match kind.as_str() {
             "click" => self.click(step).await,
             "move" => Err(self.raw_refused("move")),
@@ -404,19 +408,26 @@ impl Actor<'_> {
         }
         grab(self.bus, &element.obj).await;
         self.session.text_focus = Some(element.obj.clone());
-        set_selection(self.bus, &element.obj, start as i32, end as i32)
+        let (start, end) = (start as i32, end as i32);
+        // GTK 4 text views before 4.22 refuse; GTK 4 drops it in a background window. Either
+        // way ace holds the range for the next edit (held.rs).
+        let set = set_selection(self.bus, &element.obj, start, end)
             .await
-            .map_err(|_| {
-                CuError::new(
-                    "action_failed",
-                    format!("{} would not change the selection in {label}.", self.session.name),
-                )
-            })?;
+            .is_ok();
+        let count = element::character_count(self.bus, &element.obj)
+            .await
+            .unwrap_or(0);
+        self.hold(&element.obj, start, end, count);
         self.changed();
-        Ok(if start == end {
-            format!("placed the cursor in {label}")
+        let note = if set && self.kept(&element.obj, start, end).await? {
+            String::new()
         } else {
-            format!("selected \"{shown}\" in {label}")
+            format!("; {}", crate::computer::act_text::HELD_NOTE)
+        };
+        Ok(if start == end {
+            format!("placed the cursor in {label}{note}")
+        } else {
+            format!("selected \"{shown}\" in {label}{note}")
         })
     }
 
