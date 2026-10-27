@@ -4,7 +4,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { NativeServices } from "./native-services.ts";
-import { readUsageLimits } from "./usage-limits.ts";
+import { readUsageLimits, useBankedReset } from "./usage-limits.ts";
 import { RecordingSink } from "./sheet-fixture.ts";
 
 /*
@@ -94,4 +94,33 @@ test("a machine that refuses its accounts fails the limits call like other servi
   });
   await until(() => sink.read("service:limits"));
   expect(sink.read("service:limits")).toMatchObject({ ok: false, value: null });
+});
+
+test("a banked Codex reset spends one credit, and the same attempt never spends a second", async () => {
+  const owner = await connect(fixture());
+  const signal = new AbortController().signal;
+  const before = await readUsageLimits(owner, signal);
+  const personal = before.providers
+    .find((group) => group.provider === "codex")
+    ?.accounts.find((account) => account.label === "Personal");
+  if (!personal) throw new Error("expected the Personal Codex account");
+  const attempt = {
+    type: "usage.useReset" as const,
+    instanceId: personal.instanceId,
+    idempotencyKey: crypto.randomUUID(),
+  };
+  expect(await useBankedReset(owner, attempt, signal)).toMatchObject({
+    outcome: "reset",
+    words: "Limits reset.",
+  });
+  expect(await useBankedReset(owner, attempt, signal)).toMatchObject({
+    outcome: "alreadyRedeemed",
+    words: "This reset was already applied.",
+  });
+  const after = await readUsageLimits(owner, signal);
+  const reset = after.providers
+    .find((group) => group.provider === "codex")
+    ?.accounts.find((account) => account.key === personal.key);
+  expect(reset?.bankedResets).toBe(2);
+  expect(reset?.windows.every((window) => window.leftPercent === 100)).toBe(true);
 });

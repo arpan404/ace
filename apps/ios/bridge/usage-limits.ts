@@ -1,5 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { accountView, resetCountdown, staleReadingMs, usageLimits } from "@ace/ui-core";
+import type { AccountResetOutcome } from "@ace/protocol/accounts";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
@@ -11,6 +12,38 @@ import { preview } from "./presentation.ts";
  */
 
 export const UsageLimitsRequest = z.object({ type: z.literal("usage.limits") });
+/** Spend one banked reset on a Codex account; the same key retries the same attempt. */
+export const UsageResetRequest = z.object({
+  type: z.literal("usage.useReset"),
+  instanceId: z.string().min(1).max(256),
+  idempotencyKey: z.uuid(),
+});
+export type UsageResetRequest = z.infer<typeof UsageResetRequest>;
+
+const resetWords: Record<AccountResetOutcome, string> = {
+  reset: "Limits reset.",
+  alreadyRedeemed: "This reset was already applied.",
+  noCredit: "No banked resets remain.",
+  nothingToReset: "There are no limits to reset yet.",
+};
+
+/** Redeems the reset and answers with what happened, in the web Usage page's words. */
+export async function useBankedReset(
+  owner: ClientCore,
+  request: UsageResetRequest,
+  signal: AbortSignal,
+): Promise<{ type: "usage.useReset"; outcome: AccountResetOutcome; words: string }> {
+  const reply = await owner.request(
+    {
+      type: "accounts.consumeReset",
+      requestId: host.uuid(),
+      instanceId: request.instanceId,
+      idempotencyKey: request.idempotencyKey,
+    },
+    { signal, timeoutMs: 30_000 },
+  );
+  return { type: "usage.useReset", outcome: reply.outcome, words: resetWords[reply.outcome] };
+}
 
 export interface UsageLimitPace {
   label: string;
@@ -37,6 +70,9 @@ export interface UsageLimitWindow {
 
 export interface UsageLimitAccount {
   key: string;
+  /** The account instance, for redeeming a banked reset. */
+  instanceId: string;
+  provider: string;
   label: string;
   /** The plan the provider reports ("Pro"); null when it doesn't say. */
   plan: string | null;
@@ -93,6 +129,8 @@ export async function readUsageLimits(
       providerLabel: preview(group.providerLabel, 64),
       accounts: group.accounts.map((entry) => ({
         key: entry.key,
+        instanceId: entry.account.id,
+        provider: entry.account.provider,
         label: preview(entry.account.label, 128),
         plan: entry.plan ?? null,
         signIn: entry.signIn ? preview(entry.signIn, 512) : null,
