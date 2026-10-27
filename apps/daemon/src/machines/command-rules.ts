@@ -96,9 +96,9 @@ export function daemonOwned(name: string): boolean {
 }
 
 /**
- * What a command sees: the environment a local agent's shell has (this daemon's, which providers
- * inherit) without ace's own `ACE_*` settings, plus the caller's additions. Removed keys are
- * set to undefined, which a spawn leaves out.
+ * What a command sees, as changes to `base`: the environment a local agent's shell has (this
+ * daemon's, which providers inherit) without ace's own `ACE_*` settings, plus the caller's
+ * additions. Removed keys are set to undefined, which a spawn leaves out.
  */
 export function commandEnv(
   base: NodeJS.ProcessEnv,

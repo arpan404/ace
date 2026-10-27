@@ -161,6 +161,29 @@ directory must resolve inside one), run with this machine's user, are logged as 
 stoppable from the guest session. Read only allows no commands; there is no read-only shell.
 Off is the default.
 
+Agents call `command_run`, `command_status`, `command_output` and `command_stop`. They always
+take `machine`: a local agent uses its provider's own shell. The calling machine refuses them
+from a read-only thread before sending.
+
+- **Where.** `project` names a project here (by id or name; default its only one). `cwd` is
+  relative to its root, or an absolute path inside it or one of the worktrees ace made for it.
+  `..` escapes and links resolving outside are refused.
+- **How.** The command line runs with the account's login shell as the terminal picks it
+  (`$SHELL -l -c`; PowerShell, else `cmd.exe`, on Windows), in its own process tree, with no
+  input. Its environment is the daemon's, which a local agent's shell also inherits, minus every
+  `ACE_*` variable, plus up to 32 `env` additions (never `ACE_*`).
+- **Bounds.** A foreground run waits `timeoutSeconds` (default 120, at most 600) and returns its
+  exit code with the last 64 KB of stdout and stderr, noting what was dropped. At the timeout
+  the whole tree is stopped. `background: true` returns a job id at once. A job keeps the last
+  1 MB of each stream for `command_output` pages and runs until it ends, its timeout (default and
+  at most 24 hours) or `command_stop`. A calling thread runs at most 8 jobs at once.
+- **Ownership.** A job belongs to the calling thread's guest session. It holds a background row
+  there, so the session never reads done while it runs. Stopping the row or the session,
+  turning Commands down, closing the machine or revoking the device ends its whole tree.
+- **Record.** Each command is a shell call in the session's transcript (command line, folder,
+  exit code) and a log line with the device, calling machine and thread, folder, command, exit
+  code and duration.
+
 ### Watching from a third machine
 
 The Windows laptop is paired with the Mac like any client. Its devices panel already reaches

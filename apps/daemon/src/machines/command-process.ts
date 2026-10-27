@@ -63,7 +63,9 @@ export function runCommand(
   proc.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
   let ending: "timedOut" | "stopped" | undefined;
   let stopping: Promise<unknown> | undefined;
+  let exited = false;
   const end = (why: "timedOut" | "stopped") => {
+    if (exited) return;
     ending ??= why;
     stopping ??= proc.stop({ graceMs }).catch(() => undefined);
   };
@@ -73,6 +75,7 @@ export function runCommand(
     try {
       exit = await proc.exited;
     } finally {
+      exited = true;
       cancelTimer();
     }
     await Promise.all([closed(proc.stdout), closed(proc.stderr), stopping]);
