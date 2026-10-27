@@ -1,3 +1,4 @@
+import { commitsRead, contentRead, filesRead } from "./pr-code-reads.ts";
 import type {
   CommandPayload,
   CommandResult,
@@ -537,6 +538,7 @@ export class FakePrCatalog {
           }
         : undefined;
     }
+    if (op.op === "forge.file.content") return contentRead(this.fixtures, op);
     if (!("number" in op)) return undefined;
     const fixture = this.find(op);
     if (!fixture) return undefined;
@@ -558,20 +560,11 @@ export class FakePrCatalog {
       case "forge.pr.review-state":
         return { resource: "prReviewState", value: fixture.review };
       case "forge.pr.files":
-        return {
-          resource: "prFiles",
-          value: {
-            ref: fixture.detail.status.ref,
-            baseSha: fixture.detail.baseSha,
-            headSha: fixture.detail.status.headSha,
-            files: fixture.files,
-            truncated: false,
-          },
-        };
+        return filesRead(fixture, op);
       case "forge.pr.activity":
         return { resource: "prActivity", events: fixture.activity, truncated: false };
       case "forge.pr.commits":
-        return { resource: "prCommits", commits: [], truncated: false };
+        return commitsRead(fixture);
       default:
         return undefined;
     }
