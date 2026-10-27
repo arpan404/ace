@@ -1,6 +1,6 @@
 ---
 name: ace-computer-use
-description: Operate a native macOS or Linux desktop app, iOS simulator or Android emulator through ace when the person names one or wants to watch it in ace. Use before screen_* or sim_* tools.
+description: Drive a native app, iOS simulator or Android emulator the person names. Use before screen_* or sim_* tools.
 ---
 
 # Native apps and simulators in ace

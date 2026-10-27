@@ -18,9 +18,7 @@ import {
 import { agentThreadPage } from "./thread-view.ts";
 
 const threads = { toolset: "ace-threads", timeoutMs: controlToolTimeoutMs } as const;
-const ownedThread = ThreadId.describe(
-  "A thread you own: this one or one you started. With full access, also any of the person's threads.",
-);
+const ownedThread = ThreadId.describe("This thread, one you started or, with full access, any.");
 
 const SearchPage = z.looseObject({
   hits: z.array(
@@ -40,25 +38,19 @@ const threadsFind = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Find threads in this project or, with full access, another one (project), or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.",
+    "Find threads in this project (or, with full access, another), or search inside one. Without threadId: threads matching query, or recent ones when it is empty. With threadId: matching items in its transcript. Page with cursor.",
   input: z
     .strictObject({
-      query: z
-        .string()
-        .max(256)
-        .default("")
-        .describe("Words to match; empty lists recent threads."),
-      threadId: ThreadId.optional().describe("Search inside this thread's transcript instead."),
+      query: z.string().max(256).default("").describe("Words to match."),
+      threadId: ThreadId.optional().describe("Search this thread's transcript."),
       project: z
         .string()
         .min(1)
         .max(4096)
         .optional()
-        .describe(
-          "Another project's name, folder path or id, from projects_find. Default: this one.",
-        ),
-      cursor: z.string().min(1).max(2048).optional().describe("From the previous page's cursor."),
-      limit: z.number().int().min(1).max(20).default(10).describe("Results per page, 1 to 20."),
+        .describe("Another project's name, path or id, from projects_find."),
+      cursor: z.string().min(1).max(2048).optional().describe("The previous page's cursor."),
+      limit: z.number().int().min(1).max(20).default(10).describe("Results per page."),
     })
     .refine((input) => !input.threadId || input.query.length > 0, {
       message: "Searching inside a thread needs a query.",
@@ -111,33 +103,31 @@ const threadRead = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues as plain text: pass streamId with offset 0, then each page's nextOffset unchanged, until eof.",
+    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (entryIds for queue_edit) and a page of its latest items, oldest first. Page back with before = itemsBefore until null; items too large are listed in omitted. A truncated part with source.streamId continues as text: pass streamId from offset 0, then each nextOffset, until eof.",
   input: z.strictObject({
     threadId: ThreadId.optional().describe("Default: this thread."),
     before: z.number().int().positive().optional().describe("The previous page's itemsBefore."),
-    limit: z.number().int().min(1).max(50).default(10).describe("Items per page, 1 to 50."),
+    limit: z.number().int().min(1).max(50).default(10).describe("Items per page."),
     streamId: z
       .string()
       .min(1)
       .max(256)
       .optional()
-      .describe("Read a truncated part's retained output instead of the transcript."),
+      .describe("Read a truncated part's output instead."),
     offset: z
       .number()
       .int()
       .nonnegative()
       .max(Number.MAX_SAFE_INTEGER)
       .default(0)
-      .describe("With streamId: 0 to start, then the previous page's nextOffset, unchanged."),
+      .describe("With streamId: 0, then each nextOffset unchanged."),
     maxBytes: z
       .number()
       .int()
       .min(1)
       .max(16_384)
       .default(8192)
-      .describe(
-        "With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.",
-      ),
+      .describe("With streamId: page size."),
   }),
   output: controlResult(ThreadPage),
   async run(input, control) {
@@ -204,21 +194,19 @@ const threadStart = controlTool({
   riskClass: "agent-execution",
   capability: "thread_control",
   description:
-    "Open a new top-level thread in the person's sidebar, in this project or another one on this machine (project); text is its first message and its agent answers at once. Use it when the person asks for a separate or dedicated thread. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.",
+    "Open a top-level thread in the person's sidebar, in this or another local project, when the person asks for a separate thread; text is its first message and its agent answers at once. For child work whose result you need, use delegate. The person sees a card: relay it in a sentence, without ids.",
   input: z.strictObject({
     requestId: fields.requestId,
-    title: z.string().min(1).max(256).describe("The sidebar title."),
-    text: MessageText.describe("The first message, standing on its own."),
+    title: z.string().min(1).max(256).describe("Sidebar title."),
+    text: MessageText.describe("First message, standing on its own."),
     project: z
       .string()
       .min(1)
       .max(4096)
       .optional()
-      .describe(
-        "Another project on this machine: its name, folder path or id from projects_find. Default: this project.",
-      ),
+      .describe("Another local project's name, path or id, from projects_find."),
     workspace: AgentWorkspace.default({ kind: "project" }).describe(
-      "Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base.",
+      "Default: the project's checkout.",
     ),
     provider: ProviderKind.optional().describe("Default: yours."),
     model: z
@@ -226,9 +214,9 @@ const threadStart = controlTool({
       .min(1)
       .max(256)
       .optional()
-      .describe('A model id from `models`, or its name as written ("opus 5.5").'),
-    effort: z.string().min(1).max(64).optional().describe("Reasoning effort, such as high."),
-    access: AccessRequest.optional().describe("Default inherit; never broader than yours."),
+      .describe('Id from models, or a name ("opus 5.5").'),
+    effort: z.string().min(1).max(64).optional().describe("e.g. high."),
+    access: AccessRequest.optional().describe("Default inherit; never above yours."),
   }),
   output: controlResult(z.unknown()),
   run: (input, control) =>
@@ -258,14 +246,10 @@ const projectsFind = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "List the projects open in ace on this machine, most recent first, or find one by words in its name or folder. current marks this thread's project. Pass a project's name or id to thread_start to open a thread there.",
+    "List this machine's ace projects, most recent first, or find one by name or folder; current marks this thread's. Pass its name or id to thread_start to open a thread there.",
   input: z.strictObject({
-    query: z
-      .string()
-      .max(256)
-      .default("")
-      .describe("Words to match in the name or folder; empty lists recent projects."),
-    limit: z.number().int().min(1).max(50).default(20).describe("Results, 1 to 50."),
+    query: z.string().max(256).default("").describe("Words in the name or folder."),
+    limit: z.number().int().min(1).max(50).default(20),
   }),
   output: controlResult(ProjectList),
   run: ({ query, limit }, control) => control.run({ op: "projects.list", query, limit }),
@@ -278,29 +262,20 @@ const threadFork = controlTool({
   riskClass: "agent-execution",
   capability: "thread_control",
   description:
-    "Fork a thread into a new one that keeps its conversation and takes it another way: text is the fork's first message (what to try instead), optionally on another model. It forks after the latest finished turn, so you can fork this thread mid-turn; runId picks an earlier turn. The fork shares the thread's checkout and is yours to message, settle and merge back with thread_merge. The person sees it as a card: relay it in a sentence, without ids.",
+    "Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message, settle and merge it back with thread_merge. The person sees a card: relay it in a sentence, without ids.",
   input: z.strictObject({
-    threadId: ownedThread.optional().describe("The thread to fork. Default: this thread."),
+    threadId: ownedThread.optional().describe("Default: this thread."),
     requestId: fields.requestId,
-    text: MessageText.describe(
-      "The fork's first message: the other approach, standing on its own.",
-    ),
-    title: z.string().min(1).max(256).optional().describe("Its sidebar title."),
-    runId: z
-      .string()
-      .min(1)
-      .max(128)
-      .optional()
-      .describe("Fork after this finished run. Default: the latest finished one."),
+    text: MessageText.describe("The other approach, standing on its own."),
+    title: z.string().min(1).max(256).optional().describe("Sidebar title."),
+    runId: z.string().min(1).max(128).optional().describe("Fork after this finished run instead."),
     model: z
       .string()
       .min(1)
       .max(256)
       .optional()
-      .describe(
-        'Another model of the same provider and account: an id from `models` or its name ("opus 5.5"). Default: the thread\'s.',
-      ),
-    effort: z.string().min(1).max(64).optional().describe("Reasoning effort, with model."),
+      .describe('Same provider and account: id from models, or a name ("opus 5.5").'),
+    effort: z.string().min(1).max(64).optional().describe("With model."),
   }),
   output: controlResult(z.unknown()),
   run: ({ threadId, ...input }, control) =>
@@ -318,21 +293,17 @@ const threadMerge = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Bring a finished fork's result back into the thread it was forked from: summary says what the fork found or did, and it cites the fork's latest answer (or itemIds you pass). That thread's agent sees it from its next turn. A fork shares its source's checkout, so its file changes are already there. Wait for the fork to finish first.",
+    "Bring a finished fork's result back to its source thread: summary says what it found or did, citing its latest answer or itemIds. The source's agent sees it next turn; file changes are already in the shared checkout. Wait for the fork to finish first.",
   input: z.strictObject({
-    threadId: ownedThread.describe("The fork, from thread_fork."),
+    threadId: ownedThread.describe("From thread_fork."),
     requestId: fields.requestId,
-    summary: MessageText.describe(
-      "What the fork found or did, standing on its own for the other thread's agent.",
-    ),
+    summary: MessageText.describe("What the fork found or did, standing on its own."),
     itemIds: z
       .array(z.string().min(1).max(256))
       .min(1)
       .max(100)
       .optional()
-      .describe(
-        "Fork transcript items the summary rests on, from thread_read. Default: its latest answer.",
-      ),
+      .describe("Fork items it rests on, from thread_read."),
   }),
   output: controlResult(z.unknown()),
   run: (input, control) => control.run({ op: "thread.merge", ...input }),
@@ -353,22 +324,22 @@ const queueEdit = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Change an owned thread's queued messages before they are delivered; thread_read lists them with their entryIds. edit replaces an entry's text (attachments stay), cancel removes it, steer delivers it now into the running turn, reorder puts the named entries first in that order.",
+    "Change an owned thread's queued messages before delivery (thread_read lists entryIds): edit its text (attachments stay), cancel it, steer it into the running turn now, or reorder named entries to the front.",
   input: z
     .strictObject({
       threadId: ownedThread,
       requestId: fields.requestId,
       action: z
         .enum(["edit", "cancel", "steer", "reorder"])
-        .describe("edit: entryId and text. cancel, steer: entryId. reorder: order."),
-      entryId: z.string().min(1).max(128).optional().describe("The queued entry."),
-      text: MessageText.optional().describe("edit: its new text."),
+        .describe("edit: entryId, text. cancel, steer: entryId. reorder: order."),
+      entryId: z.string().min(1).max(128).optional(),
+      text: MessageText.optional(),
       order: z
         .array(z.string().min(1).max(128))
         .min(1)
         .max(64)
         .optional()
-        .describe("reorder: entry ids in their new order."),
+        .describe("Entry ids, in their new order."),
     })
     .superRefine((input, context) => {
       for (const field of queueNeeds[input.action])
@@ -417,16 +388,16 @@ const questionAnswer = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Answer a question an owned thread's agent asked (wait and agents_status name it under needs_you). Permission approvals belong to the person and cannot be answered here.",
+    "Answer a question an owned thread's agent asked (shown under needs_you). Permission approvals are the person's, never answered here.",
   input: z.strictObject({
     threadId: ownedThread,
     requestId: fields.requestId,
-    interactionId: InteractionId.describe("The request's interactionId."),
+    interactionId: InteractionId,
     answers: z
       .record(z.string(), z.array(z.string()))
-      .describe("Question id to the chosen option ids, or to free text when other is allowed."),
-    dismissed: z.boolean().optional().describe("Decline to answer; the agent continues without."),
-    feedback: z.string().max(8192).optional().describe("Why, when declining."),
+      .describe("Question id to chosen option ids, or free text where other is allowed."),
+    dismissed: z.boolean().optional().describe("Decline; the agent continues without."),
+    feedback: z.string().max(8192).optional(),
   }),
   output: NoData,
   run: ({ threadId, requestId, interactionId, answers, dismissed, feedback }, control) =>
@@ -451,19 +422,19 @@ const threadLinkPr = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Link the pull request for this thread's work, by URL or number, so the person sees its state and CI on the thread. Call it right after you open or find the PR. unlink removes a link (all: true removes every link); the PR itself never changes.",
+    "Link this thread's pull request, by URL or number, so the person sees its state and CI here. Call it right after you open or find the PR. unlink removes a link (all: every link); the PR never changes.",
   input: z
     .strictObject({
-      url: z.url().max(2048).optional().describe("The pull request URL."),
+      url: z.url().max(2048).optional(),
       number: z.number().int().positive().optional().describe("Or its number."),
       repo: z
         .string()
         .min(1)
         .max(512)
         .optional()
-        .describe("owner/name or host/owner/name; default: this workspace's origin."),
-      unlink: z.boolean().default(false).describe("Remove the link instead."),
-      all: z.literal(true).optional().describe("With unlink: remove every link."),
+        .describe("owner/name or host/owner/name. Default: origin."),
+      unlink: z.boolean().default(false),
+      all: z.literal(true).optional(),
     })
     .refine(
       (input) =>

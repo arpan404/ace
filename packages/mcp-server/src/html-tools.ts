@@ -14,15 +14,13 @@ export interface HtmlPublicationPort {
 }
 const { title, html, height, mode } = HtmlRenderInput.shape;
 const RenderInput = HtmlRenderInput.extend({
-  title: title.describe("A short caption shown above the page."),
+  title: title.describe("Caption above the page."),
   html: html.describe(
-    "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
+    "A self-contained HTML document: inline CSS, JS, SVG and data: images; no network.",
   ),
-  height: height.describe(
-    "Height in CSS pixels to hold while the page loads; the frame then fits the whole page.",
-  ),
+  height: height.describe("CSS pixels held while loading; the frame then fits the page."),
   mode: mode.describe(
-    "interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred.",
+    "interactive runs scripts in a sandbox; static strips them. Default: inferred.",
   ),
 });
 export const htmlToolCatalog = [
@@ -30,7 +28,7 @@ export const htmlToolCatalog = [
     name: "html_render",
     title: "Show an HTML visual inline",
     description:
-      "Show a chart, diagram, mockup or interactive page inline in your reply. First read guide visualize and follow it: ace's style kit, responsive from 360 px, no decoration. invalid_html lists every problem and publishes nothing.",
+      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every problem; nothing is published.",
     input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,

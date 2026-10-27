@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or interactive page inline in your reply. First read guide visualize and follow it: ace's style kit, responsive from 360 px, no decoration. invalid_html lists every problem and publishes nothing.
+Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every problem; nothing is published.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -18,10 +18,10 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"A short caption shown above the page."} |
-| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
-| height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Height in CSS pixels to hold while the page loads; the frame then fits the whole page."} |
-| mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."} |
+| title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"Caption above the page."} |
+| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."} |
+| height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"CSS pixels held while loading; the frame then fits the page."} |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs scripts in a sandbox; static strips them. Default: inferred."} |
 
 Example:
 
@@ -60,11 +60,11 @@ Required capability: none beyond session authentication. Timeout: 120000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| path | no | string | {"description":"An image file on this machine, absolute or relative to your working directory.","minLength":1,"maxLength":4096} |
+| path | no | string | {"description":"An image file on this machine, absolute or relative to your cwd.","minLength":1,"maxLength":4096} |
 | data | no | string | {"description":"The image as base64 (no data: prefix), up to 16 MiB decoded.","minLength":1,"maxLength":22369624,"pattern":"^[A-Za-z0-9+/]*={0,2}$"} |
-| mimeType | no | [SharedImageType.json](schema/SharedImageType.json) | {"description":"The type of data. ace checks the bytes either way."} |
-| alt | yes | string | {"minLength":1,"maxLength":300,"pattern":"\\S","description":"What the image shows, for people who cannot see it."} |
-| caption | no | [SharedImageCaption.json](schema/SharedImageCaption.json) | {"description":"A short line shown under the image."} |
+| mimeType | no | [SharedImageType.json](schema/SharedImageType.json) | {"description":"The type of data; ace checks the bytes anyway."} |
+| alt | yes | string | {"minLength":1,"maxLength":300,"pattern":"\\S","description":"What it shows, for people who cannot see it."} |
+| caption | no | [SharedImageCaption.json](schema/SharedImageCaption.json) | {"description":"A line under the image."} |
 
 Example:
 
@@ -95,7 +95,7 @@ Example:
 
 ## notify
 
-Post a notice on this thread and send the person a notification, for something they should see while away (a long task finished, a decision is needed).
+Notify the person of something they should see while away, such as a long task finishing or a decision needed; it also posts on this thread.
 
 Required capability: notify. Timeout: 10000 ms.
 
@@ -105,7 +105,7 @@ Required capability: notify. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":4096,"description":"What happened, in one or two sentences."} |
+| text | yes | string | {"minLength":1,"maxLength":4096,"description":"What happened, in a sentence or two."} |
 | level | no | ["info","warning","error"] | {"default":"info","description":"info (default), warning or error."} |
 
 Example:
@@ -136,7 +136,7 @@ Example:
 
 ## delegate
 
-Start child agents as their own threads, on any installed provider or a paired machine, for independent or parallel work (prefer this to your provider's built-in subagent tool). One call takes 1 to 64 tasks and returns their threadIds at once. To use results this turn, set waitSeconds; otherwise end your turn and settled results arrive as a new turn. Never poll. Fields and examples: guide ace-agents.
+Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -146,9 +146,9 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one serving `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Model id or name (\"opus 5.5\").","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
-| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
-| waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"Goal, files, constraints, how to verify: the child sees none of your conversation."},"role":{"type":"string","minLength":1,"maxLength":1024,"description":"Unique name saying what and where: 'Fix-869-toast', never 'Implementer'."},"runRole":{"description":"A role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Default: yours, or the one serving model.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Id or name, e.g. \"opus 5.5\".","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"e.g. low, high, xhigh. Default: yours on the same model.","type":"string","minLength":1,"maxLength":64},"access":{"description":"Default inherit; never above yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"From machines; needs project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"Its project in machines.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One per child."} |
+| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait for results, as wait does. Omit to return at once."} |
+| waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"any returns on the first."} |
 
 Example:
 
@@ -197,7 +197,7 @@ Example:
 
 ## wait
 
-Wait for child agents or other threads to finish, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.
+Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. timeout or interrupted: they keep working; wait again, never poll.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -207,9 +207,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"description":"Threads to watch: children from delegate, or any thread you can read."} |
-| mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"all (default): every thread settles; any: the first."} |
-| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120,"description":"Longest wait in seconds."} |
+| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"description":"From delegate, or any thread you can read."} |
+| mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"any returns on the first."} |
+| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120} |
 
 Example:
 
@@ -244,7 +244,7 @@ Example:
 
 ## agents_status
 
-Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, queued messages, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
+Your delegated children, here or on other machines. Without threadId: a snapshot of every child and descendant (state, step, elapsed, what waits on the person, queue, last output). With threadId: that child, with its result once settled. To block until they settle, use wait.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -254,7 +254,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | no | string | {"description":"One child to read in full, with its result once settled.","minLength":1} |
+| threadId | no | string | {"description":"One child to read in full.","minLength":1} |
 
 Example:
 
@@ -284,7 +284,7 @@ Example:
 
 ## agent_message
 
-Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.
+Send follow-up work to a child (any machine), a thread you started or, with full access, any of the person's threads; it keeps its permissions. steer joins the running turn at the next tool boundary (Cursor restarts the turn), queue waits for it to end, restart interrupts its tree and replaces queued input. arrival says which applied.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -294,9 +294,9 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
+| threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any thread."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"Standing on its own."} |
 | delivery | no | ["queue","steer","restart"] | {"description":"Default: steer for your children, queue for other threads."} |
 
 Example:
@@ -331,7 +331,7 @@ Example:
 
 ## agent_cancel
 
-Stop a child and all its descendants, here or on another machine. Acceptance is not proof the tree stopped: confirm with agents_status or wait.
+Stop a child and its descendants, on any machine. Acceptance is not proof it stopped: confirm with agents_status or wait.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -341,8 +341,8 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
+| threadId | yes | string | {"minLength":1,"description":"From delegate or agents_status."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
 
 Example:
 
@@ -374,7 +374,7 @@ Example:
 
 ## machines
 
-Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.
+The person's other paired machines: name (pass as machine), online, access, projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; children there join wait and agents_status.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -412,7 +412,7 @@ Example:
 
 ## transfer
 
-Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread's project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.
+Carry a project (default: this thread's) or this thread to another paired machine, same branch and uncommitted changes included. Returns transferId at once; the result arrives as a new turn, so end yours. Never poll.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -422,11 +422,11 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| machine | yes | string | {"pattern":"^[a-zA-Z0-9_.-]{1,64}$","description":"A machine from `machines` whose transfers is true."} |
-| project | no | string | {"description":"A project on this machine, by id or name. Default: this thread's.","minLength":1,"maxLength":256} |
-| thread | no | `"self"` | {"description":"Continue this thread there; the person sends its next message there."} |
+| machine | yes | string | {"pattern":"^[a-zA-Z0-9_.-]{1,64}$","description":"From machines, with transfers true."} |
+| project | no | string | {"description":"A project here, by id or name.","minLength":1,"maxLength":256} |
+| thread | no | `"self"` | {"description":"Continue this thread there as a new thread with its history."} |
 | includeChanges | no | boolean | {"description":"Send uncommitted changes. Default true."} |
-| includeIgnored | no | boolean | {"description":"Send ignored files like .env. Default: setting."} |
+| includeIgnored | no | boolean | {"description":"Send ignored files like .env. Default: the setting."} |
 
 Example:
 
@@ -503,7 +503,7 @@ Example:
 
 ## threads_find
 
-Find threads in this project or, with full access, another one (project), or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
+Find threads in this project (or, with full access, another), or search inside one. Without threadId: threads matching query, or recent ones when it is empty. With threadId: matching items in its transcript. Page with cursor.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -515,11 +515,11 @@ Semantic rule: With threadId, query must not be empty.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| query | no | string | {"default":"","description":"Words to match; empty lists recent threads.","maxLength":256} |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Search inside this thread's transcript instead."} |
-| project | no | string | {"description":"Another project's name, folder path or id, from projects_find. Default: this one.","minLength":1,"maxLength":4096} |
-| cursor | no | string | {"description":"From the previous page's cursor.","minLength":1,"maxLength":2048} |
-| limit | no | integer | {"default":10,"description":"Results per page, 1 to 20.","minimum":1,"maximum":20} |
+| query | no | string | {"default":"","description":"Words to match.","maxLength":256} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Search this thread's transcript."} |
+| project | no | string | {"description":"Another project's name, path or id, from projects_find.","minLength":1,"maxLength":4096} |
+| cursor | no | string | {"description":"The previous page's cursor.","minLength":1,"maxLength":2048} |
+| limit | no | integer | {"default":10,"description":"Results per page.","minimum":1,"maximum":20} |
 
 Example:
 
@@ -555,7 +555,7 @@ Example:
 
 ## projects_find
 
-List the projects open in ace on this machine, most recent first, or find one by words in its name or folder. current marks this thread's project. Pass a project's name or id to thread_start to open a thread there.
+List this machine's ace projects, most recent first, or find one by name or folder; current marks this thread's. Pass its name or id to thread_start to open a thread there.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -565,8 +565,8 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| query | no | string | {"default":"","description":"Words to match in the name or folder; empty lists recent projects.","maxLength":256} |
-| limit | no | integer | {"default":20,"description":"Results, 1 to 50.","minimum":1,"maximum":50} |
+| query | no | string | {"default":"","description":"Words in the name or folder.","maxLength":256} |
+| limit | no | integer | {"default":20,"minimum":1,"maximum":50} |
 
 Example:
 
@@ -596,7 +596,7 @@ Example:
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues as plain text: pass streamId with offset 0, then each page's nextOffset unchanged, until eof.
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (entryIds for queue_edit) and a page of its latest items, oldest first. Page back with before = itemsBefore until null; items too large are listed in omitted. A truncated part with source.streamId continues as text: pass streamId from offset 0, then each nextOffset, until eof.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -608,10 +608,10 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | --- | --- | --- | --- |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Default: this thread."} |
 | before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":10,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
-| streamId | no | string | {"description":"Read a truncated part's retained output instead of the transcript.","minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"description":"With streamId: 0 to start, then the previous page's nextOffset, unchanged.","minimum":0,"maximum":9007199254740991} |
-| maxBytes | no | integer | {"default":8192,"description":"With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.","minimum":1,"maximum":16384} |
+| limit | no | integer | {"default":10,"description":"Items per page.","minimum":1,"maximum":50} |
+| streamId | no | string | {"description":"Read a truncated part's output instead.","minLength":1,"maxLength":256} |
+| offset | no | integer | {"default":0,"description":"With streamId: 0, then each nextOffset unchanged.","minimum":0,"maximum":9007199254740991} |
+| maxBytes | no | integer | {"default":8192,"description":"With streamId: page size.","minimum":1,"maximum":16384} |
 
 Example:
 
@@ -644,7 +644,7 @@ Example:
 
 ## thread_start
 
-Open a new top-level thread in the person's sidebar, in this project or another one on this machine (project); text is its first message and its agent answers at once. Use it when the person asks for a separate or dedicated thread. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
+Open a top-level thread in the person's sidebar, in this or another local project, when the person asks for a separate thread; text is its first message and its agent answers at once. For child work whose result you need, use delegate. The person sees a card: relay it in a sentence, without ids.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -654,15 +654,15 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| title | yes | string | {"minLength":1,"maxLength":256,"description":"The sidebar title."} |
-| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The first message, standing on its own."} |
-| project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
-| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| title | yes | string | {"minLength":1,"maxLength":256,"description":"Sidebar title."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"First message, standing on its own."} |
+| project | no | string | {"description":"Another local project's name, path or id, from projects_find.","minLength":1,"maxLength":4096} |
+| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Default: the project's checkout."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
-| model | no | string | {"description":"A model id from `models`, or its name as written (\"opus 5.5\").","minLength":1,"maxLength":256} |
-| effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
-| access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never broader than yours."} |
+| model | no | string | {"description":"Id from models, or a name (\"opus 5.5\").","minLength":1,"maxLength":256} |
+| effort | no | string | {"description":"e.g. high.","minLength":1,"maxLength":64} |
+| access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never above yours."} |
 
 Example:
 
@@ -701,7 +701,7 @@ Example:
 
 ## thread_fork
 
-Fork a thread into a new one that keeps its conversation and takes it another way: text is the fork's first message (what to try instead), optionally on another model. It forks after the latest finished turn, so you can fork this thread mid-turn; runId picks an earlier turn. The fork shares the thread's checkout and is yours to message, settle and merge back with thread_merge. The person sees it as a card: relay it in a sentence, without ids.
+Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message, settle and merge it back with thread_merge. The person sees a card: relay it in a sentence, without ids.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -711,13 +711,13 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | no | string | {"description":"The thread to fork. Default: this thread.","minLength":1} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
-| title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
-| runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
-| model | no | string | {"description":"Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.","minLength":1,"maxLength":256} |
-| effort | no | string | {"description":"Reasoning effort, with model.","minLength":1,"maxLength":64} |
+| threadId | no | string | {"description":"Default: this thread.","minLength":1} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The other approach, standing on its own."} |
+| title | no | string | {"description":"Sidebar title.","minLength":1,"maxLength":256} |
+| runId | no | string | {"description":"Fork after this finished run instead.","minLength":1,"maxLength":128} |
+| model | no | string | {"description":"Same provider and account: id from models, or a name (\"opus 5.5\").","minLength":1,"maxLength":256} |
+| effort | no | string | {"description":"With model.","minLength":1,"maxLength":64} |
 
 Example:
 
@@ -753,7 +753,7 @@ Example:
 
 ## thread_merge
 
-Bring a finished fork's result back into the thread it was forked from: summary says what the fork found or did, and it cites the fork's latest answer (or itemIds you pass). That thread's agent sees it from its next turn. A fork shares its source's checkout, so its file changes are already there. Wait for the fork to finish first.
+Bring a finished fork's result back to its source thread: summary says what it found or did, citing its latest answer or itemIds. The source's agent sees it next turn; file changes are already in the shared checkout. Wait for the fork to finish first.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -763,10 +763,10 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"The fork, from thread_fork."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| summary | yes | string | {"minLength":1,"maxLength":262144,"description":"What the fork found or did, standing on its own for the other thread's agent."} |
-| itemIds | no | array | {"description":"Fork transcript items the summary rests on, from thread_read. Default: its latest answer.","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
+| threadId | yes | string | {"minLength":1,"description":"From thread_fork."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| summary | yes | string | {"minLength":1,"maxLength":262144,"description":"What the fork found or did, standing on its own."} |
+| itemIds | no | array | {"description":"Fork items it rests on, from thread_read.","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
 Example:
 
@@ -803,7 +803,7 @@ Example:
 
 ## queue_edit
 
-Change an owned thread's queued messages before they are delivered; thread_read lists them with their entryIds. edit replaces an entry's text (attachments stay), cancel removes it, steer delivers it now into the running turn, reorder puts the named entries first in that order.
+Change an owned thread's queued messages before delivery (thread_read lists entryIds): edit its text (attachments stay), cancel it, steer it into the running turn now, or reorder named entries to the front.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -815,12 +815,12 @@ Semantic rule: edit needs entryId and text; cancel and steer need entryId; reord
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| action | yes | ["edit","cancel","steer","reorder"] | {"description":"edit: entryId and text. cancel, steer: entryId. reorder: order."} |
-| entryId | no | string | {"description":"The queued entry.","minLength":1,"maxLength":128} |
-| text | no | [MessageText.json](schema/MessageText.json) | {"description":"edit: its new text."} |
-| order | no | array | {"description":"reorder: entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
+| threadId | yes | string | {"minLength":1,"description":"This thread, one you started or, with full access, any."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| action | yes | ["edit","cancel","steer","reorder"] | {"description":"edit: entryId, text. cancel, steer: entryId. reorder: order."} |
+| entryId | no | string | {"minLength":1,"maxLength":128} |
+| text | no | [MessageText.json](schema/MessageText.json) |  |
+| order | no | array | {"description":"Entry ids, in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
 
 Example:
 
@@ -854,7 +854,7 @@ Example:
 
 ## question_answer
 
-Answer a question an owned thread's agent asked (wait and agents_status name it under needs_you). Permission approvals belong to the person and cannot be answered here.
+Answer a question an owned thread's agent asked (shown under needs_you). Permission approvals are the person's, never answered here.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -864,12 +864,12 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| interactionId | yes | string | {"minLength":1,"description":"The request's interactionId."} |
-| answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to the chosen option ids, or to free text when other is allowed."} |
-| dismissed | no | boolean | {"description":"Decline to answer; the agent continues without."} |
-| feedback | no | string | {"description":"Why, when declining.","maxLength":8192} |
+| threadId | yes | string | {"minLength":1,"description":"This thread, one you started or, with full access, any."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to chosen option ids, or free text where other is allowed."} |
+| dismissed | no | boolean | {"description":"Decline; the agent continues without."} |
+| feedback | no | string | {"maxLength":8192} |
 
 Example:
 
@@ -903,7 +903,7 @@ Example:
 
 ## thread_link_pr
 
-Link the pull request for this thread's work, by URL or number, so the person sees its state and CI on the thread. Call it right after you open or find the PR. unlink removes a link (all: true removes every link); the PR itself never changes.
+Link this thread's pull request, by URL or number, so the person sees its state and CI here. Call it right after you open or find the PR. unlink removes a link (all: every link); the PR never changes.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -915,11 +915,11 @@ Semantic rule: Exactly one of url, number, or all: true; all only with unlink.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| url | no | string | {"description":"The pull request URL.","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
 | number | no | integer | {"description":"Or its number.","exclusiveMinimum":0,"maximum":9007199254740991} |
-| repo | no | string | {"description":"owner/name or host/owner/name; default: this workspace's origin.","minLength":1,"maxLength":512} |
-| unlink | no | boolean | {"default":false,"description":"Remove the link instead."} |
-| all | no | `true` | {"description":"With unlink: remove every link."} |
+| repo | no | string | {"description":"owner/name or host/owner/name. Default: origin.","minLength":1,"maxLength":512} |
+| unlink | no | boolean | {"default":false} |
+| all | no | `true` |  |
 
 Example:
 
@@ -952,7 +952,7 @@ Example:
 
 ## thread_control
 
-Rename, configure, hand off, interrupt, settle, unsettle or snooze a thread you own, close its preview server, or rename this project. You own this thread and those you started; with full access, any of the person's threads. configure changes its model; handoff moves it to a new worktree; settle this thread too when its work is finished. Each action's fields are named in action's description.
+Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle this thread too when its work is done.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -964,18 +964,18 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own, or with full access any of the person's. Default: this thread."} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
-| onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
-| model | no | string | {"description":"configure: a model id from `models`, or its name (\"opus 5.5\") on the thread's account.","minLength":1,"maxLength":256} |
-| effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
-| serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
-| branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |
-| until | no | union | {"description":"snooze: epoch milliseconds, or null to unmute.","anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
-| previewId | no | string | {"description":"close_preview: from thread_read.","minLength":1,"maxLength":128} |
-| name | no | string | {"description":"rename_project: the new name.","minLength":1,"maxLength":256} |
+| action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name."} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Default: this thread."} |
+| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
+| title | no | string | {"minLength":1,"maxLength":256} |
+| onlyIfProvisional | no | boolean | {"description":"Only replace a title ace generated, never the person's."} |
+| model | no | string | {"description":"Id from models, or a name (\"opus 5.5\") on its account.","minLength":1,"maxLength":256} |
+| effort | no | string | {"minLength":1,"maxLength":64} |
+| serviceTier | no | ["default","priority","flex"] |  |
+| branch | no | string | {"minLength":1,"maxLength":256} |
+| until | no | union | {"description":"Epoch ms, or null to unmute.","anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
+| previewId | no | string | {"description":"From thread_read.","minLength":1,"maxLength":128} |
+| name | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
@@ -1010,7 +1010,7 @@ Example:
 
 ## offshift
 
-Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Every result's next says what to do now and, for a change, which version to send. Each action's fields are named in action's description.
+This thread's durable record of a coding outcome: criteria, steps, phase, blocker, evidence. It records work, never runs it. Do what each result's next says. How: guide offshift.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -1022,22 +1022,22 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record the result of one check or several. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
-| runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"description":"Optional on changes; omitted, an identical retry still applies once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | no | integer | {"description":"Every change after start: run.version from the last result, which next repeats when the next change is yours. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
-| outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
-| endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
-| criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) | {"description":"start: what must hold for the outcome, up to 64."} |
-| criterion | no | [OffshiftCriterion.json](schema/OffshiftCriterion.json) | {"description":"revise: the new criterion, or the replacement for the one with its id."} |
-| phase | no | [OffshiftPhase.json](schema/OffshiftPhase.json) | {"description":"advance: plan, implement, verify, review, then delivery."} |
-| note | no | string | {"description":"advance, block, resume, revise and step: why, in a sentence. Required to skip.","minLength":1,"maxLength":4096} |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) | {"description":"start: a built-in playbook's steps."} |
-| steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) | {"description":"start: your own steps ({id, title, phase}), after the playbook's; up to 24 in all."} |
-| stepId | no | string | {"description":"step: the step to mark.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| state | no | ["done","skipped"] | {"description":"step: done or skipped."} |
-| evidence | no | union | {"description":"evidence: the checks you ran, one or a list of up to 32, each at the revision get returned before it ran. A list is one write: all are recorded or none.","anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceInput.json"},{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"}]} |
-| runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"get and evidence only: the ancestor thread whose run you check, as its brief named it."} |
+| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: outcome, endpoint, criteria. Later changes: runId, version. advance: phase. revise: criterion. step: stepId, state. Note why on each."} |
+| runId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| version | no | integer | {"description":"run.version, as next names it.","minimum":0,"maximum":9007199254740991} |
+| outcome | no | string | {"minLength":1,"maxLength":4096} |
+| endpoint | no | string | {"minLength":1,"maxLength":4096} |
+| criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) |  |
+| criterion | no | [OffshiftCriterion.json](schema/OffshiftCriterion.json) |  |
+| phase | no | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
+| note | no | string | {"minLength":1,"maxLength":4096} |
+| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
+| steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) |  |
+| stepId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| state | no | ["done","skipped"] |  |
+| evidence | no | union | {"description":"A list is recorded whole or not at all.","anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceInput.json"},{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"}]} |
+| runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"The ancestor whose run you check."} |
 
 Example:
 
@@ -1081,7 +1081,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the criterion (letters, digits, _ . -)."},"description":{"type":"string","minLength":1,"maxLength":4096,"description":"The observable behaviour that must hold."},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]},"description":"Evidence kinds that must each have a current pass."},"independent":{"description":"Passes count only from another provider or model than the run owner's.","type":"boolean"}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"owner":{"default":null,"anyOf":[{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},{"type":"null"}]},"playbook":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"steps":{"default":[],"maxItems":24,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the step (letters, digits, _ . -)."},"title":{"type":"string","minLength":1,"maxLength":160,"description":"What to do, as a short imperative."},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"],"description":"The phase the step belongs to."},"state":{"type":"string","enum":["todo","done","skipped"]},"note":{"type":"string","minLength":1,"maxLength":1024}},"required":["id","title","phase","state"],"additionalProperties":false}},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."},"kind":{"type":"string","enum":["automated","source","ui","human","manual"],"description":"Which required kind this observation satisfies."},"result":{"type":"string","enum":["pass","fail"],"description":"What the check observed."},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."},"artifact":{"type":"string","minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."},"note":{"type":"string","minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"default":null,"anyOf":[{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},{"type":"null"}]}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt","by"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","owner","steps","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"needs":{"type":"string","const":"independent"}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]},"next":{"type":"string","minLength":1,"maxLength":1024}},"required":["run","revision","state","pending","treeState","next"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}},{"type":"object","properties":{"playbooks":{"maxItems":16,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"purpose":{"type":"string","minLength":1,"maxLength":160},"steps":{"minItems":1,"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the step (letters, digits, _ . -)."},"title":{"type":"string","minLength":1,"maxLength":160,"description":"What to do, as a short imperative."},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"],"description":"The phase the step belongs to."},"kinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}}},"required":["id","title","phase"],"additionalProperties":false}}},"required":["id","purpose","steps"],"additionalProperties":false}}},"required":["playbooks"],"additionalProperties":false}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"description":{"type":"string","minLength":1,"maxLength":4096},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}},"independent":{"type":"boolean"}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"owner":{"default":null,"anyOf":[{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},{"type":"null"}]},"playbook":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"steps":{"default":[],"maxItems":24,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"title":{"type":"string","minLength":1,"maxLength":160},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"state":{"type":"string","enum":["todo","done","skipped"]},"note":{"type":"string","minLength":1,"maxLength":1024}},"required":["id","title","phase","state"],"additionalProperties":false}},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"result":{"type":"string","enum":["pass","fail"]},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"From get, before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096},"artifact":{"type":"string","minLength":1,"maxLength":4096},"note":{"type":"string","minLength":1,"maxLength":4096},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"default":null,"anyOf":[{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},{"type":"null"}]}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt","by"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","owner","steps","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"needs":{"type":"string","const":"independent"}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]},"next":{"type":"string","minLength":1,"maxLength":1024}},"required":["run","revision","state","pending","treeState","next"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}},{"type":"object","properties":{"playbooks":{"maxItems":16,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"purpose":{"type":"string","minLength":1,"maxLength":160},"steps":{"minItems":1,"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"title":{"type":"string","minLength":1,"maxLength":160},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"kinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}}},"required":["id","title","phase"],"additionalProperties":false}}},"required":["id","purpose","steps"],"additionalProperties":false}}},"required":["playbooks"],"additionalProperties":false}]} |
 
 Example:
 
@@ -1094,7 +1094,7 @@ Example:
 
 ## automations_list
 
-Automations you or the threads you own created in this project, with each schedule's next run. runs: true reads recent runs instead, newest first, paged with before.
+Automations you or your threads created in this project, with each next run. runs: true reads recent runs instead, newest first, paged with before.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -1104,10 +1104,10 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| runs | no | boolean | {"default":false,"description":"Read recent runs instead of definitions."} |
-| automationId | no | string | {"description":"runs: only this automation's runs.","minLength":1,"maxLength":256} |
+| runs | no | boolean | {"default":false} |
+| automationId | no | string | {"description":"runs: only this one's.","minLength":1,"maxLength":256} |
 | before | no | integer | {"description":"runs: the previous page's before.","exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":20,"description":"runs: runs per page.","minimum":1,"maximum":100} |
+| limit | no | integer | {"default":20,"minimum":1,"maximum":100} |
 
 Example:
 
@@ -1138,7 +1138,7 @@ Example:
 
 ## automation_put
 
-Create or replace an automation: a message ace sends into this thread when run with automation_run, or on a schedule (RRULE or cron). You answer it here, with this thread's model and access, queued behind any turn already going. Saving the same id again replaces it.
+Create or replace (same id) an automation: a message ace sends into this thread on a schedule or with automation_run. You answer it here with this thread's model and access, queued behind any running turn.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1148,12 +1148,12 @@ Required capability: automations. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| title | yes | string | {"minLength":1,"maxLength":256,"description":"What it does, for the person's list."} |
-| prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The message you receive each run: the whole task, readable without this conversation's context."} |
-| schedule | no | [AgentAutomationSchedule.json](schema/AgentAutomationSchedule.json) | {"description":"Run on this schedule: kind rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5). timezone defaults to this machine's, startAt (epoch ms, a whole minute) to now. Omit for runs by hand only."} |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The id you gave it in automation_put."} |
+| title | yes | string | {"minLength":1,"maxLength":256,"description":"What it does, for the person."} |
+| prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The message each run sends: the whole task, readable without this conversation."} |
+| schedule | no | [AgentAutomationSchedule.json](schema/AgentAutomationSchedule.json) | {"description":"rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only."} |
 | enabled | no | boolean | {"default":true,"description":"false saves it paused."} |
-| missedRun | no | ["skip","run_once"] | {"default":"skip","description":"A schedule missed while ace was off: skip (default) or run once."} |
+| missedRun | no | ["skip","run_once"] | {"default":"skip","description":"A run missed while ace was off: skip it, or run once."} |
 
 Example:
 
@@ -1191,7 +1191,7 @@ Example:
 
 ## automation_run
 
-Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.
+Run a saved automation now (action run): its message arrives here after any running turn, and the run shows in automations_list {runs: true}. pause skips a waiting run and stops a running one; resume restarts its schedule from now.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1203,10 +1203,10 @@ Semantic rule: run needs requestId.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The id you gave it in automation_put."} |
 | action | no | ["run","pause","resume"] | {"default":"run"} |
-| requestId | no | string | {"description":"run: any stable id; repeats run once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"run: values for {{name}} placeholders in its prompt."} |
+| requestId | no | string | {"description":"run: any stable id; a repeat runs once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"run: values for {{name}} in its prompt."} |
 
 Example:
 
@@ -1239,7 +1239,7 @@ Example:
 
 ## automation_remove
 
-Delete a saved automation and its schedule. Past runs stay in the run list.
+Delete a saved automation and its schedule; past runs stay listed.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1249,7 +1249,7 @@ Required capability: automations. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The id you gave it in automation_put."} |
 
 Example:
 
@@ -1281,7 +1281,7 @@ Example:
 
 ## handoff_read
 
-Read the history a handoff from another provider cites. Items come newest first (before = itemsBefore for earlier ones); with streamId, a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.
+Read the history a handoff from another provider cites, newest first; page back with before = itemsBefore. With streamId: a cited text or shell stream as base64, continued at nextOffset until eof.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
@@ -1291,11 +1291,11 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| sourceThreadId | yes | string | {"minLength":1,"description":"The sourceThreadId from the handoff manifest."} |
-| before | no | integer | {"description":"The previous page's itemsBefore, for earlier items.","exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":50,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
-| streamId | no | string | {"description":"Read a cited text or shell-output stream instead of items.","minLength":1,"maxLength":1024} |
-| offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
+| sourceThreadId | yes | string | {"minLength":1,"description":"From the handoff manifest."} |
+| before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":50,"description":"Items per page.","minimum":1,"maximum":50} |
+| streamId | no | string | {"description":"Read a cited stream instead of items.","minLength":1,"maxLength":1024} |
+| offset | no | integer | {"default":0,"description":"With streamId: from nextOffset.","minimum":0,"maximum":9007199254740991} |
 | maxBytes | no | integer | {"default":32768,"description":"With streamId: bytes to read.","minimum":1,"maximum":32768} |
 
 Example:
@@ -1336,7 +1336,7 @@ Example:
 
 ## context
 
-Recent threads, uncommitted changes, PRs, notes and session status in one read; call it first in an existing project. status: this thread, project, access mode and ace tool groups that are off. recent: the 5 latest threads with outcomes. changes: branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.
+Project and session context; call it first in an existing project. status: thread, access, ace groups off. recent: latest threads, outcomes. changes: branch, uncommitted paths. prs: linked PRs, CI. notes: project notes. diagnostics: your failed ace calls, what keeps this thread unsettled.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -1346,7 +1346,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| topics | no | array | {"default":["status","recent","changes","prs","notes"],"description":"Only the topics you need.","minItems":1,"maxItems":6,"items":{"type":"string","enum":["status","recent","changes","prs","notes","diagnostics"]}} |
+| topics | no | array | {"default":["status","recent","changes","prs","notes"],"minItems":1,"maxItems":6,"items":{"type":"string","enum":["status","recent","changes","prs","notes","diagnostics"]}} |
 
 Example:
 
@@ -1382,7 +1382,7 @@ Example:
 
 ## note_add
 
-Remember one short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance. The person sees and edits notes.
+Save one short fact about this project for every future thread, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance; the person sees and edits notes.
 
 Required capability: projects. Timeout: 10000 ms.
 
@@ -1392,7 +1392,7 @@ Required capability: projects. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":4096,"description":"One fact, at most 4096 characters."} |
+| text | yes | string | {"minLength":1,"maxLength":4096,"description":"One fact."} |
 
 Example:
 
@@ -1432,7 +1432,7 @@ Required capability: projects. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| noteId | yes | string | {"minLength":1,"maxLength":64,"description":"The note's id from context topic notes."} |
+| noteId | yes | string | {"minLength":1,"maxLength":64,"description":"From context topic notes."} |
 
 Example:
 
@@ -1505,7 +1505,7 @@ Example:
 
 ## tools_find
 
-Find the ace tools for what you want to do, among the ones this session can call. Returns each match's name, purpose, effect and input schema.
+Find the ace tools this session can call for what you want to do: each match's name, purpose, effect and input schema.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
@@ -1515,9 +1515,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| query | yes | string | {"minLength":1,"maxLength":500,"description":"What you want to do, in plain words, e.g. \"click a button in Safari\"."} |
-| limit | no | integer | {"default":5,"description":"At most this many.","minimum":1,"maximum":10} |
-| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","offshift"] | {"description":"Only this family's tools."} |
+| query | yes | string | {"minLength":1,"maxLength":500,"description":"In plain words, e.g. \"click a button in Safari\"."} |
+| limit | no | integer | {"default":5,"minimum":1,"maximum":10} |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","offshift"] |  |
 
 Example:
 

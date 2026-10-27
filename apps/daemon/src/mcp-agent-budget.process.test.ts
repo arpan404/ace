@@ -155,8 +155,10 @@ it("each provider's per-request ace context stays within its budget", async () =
 it("only the entry points and tools_find load upfront, whatever the client", async () => {
   const agents = await session();
   const { full, core, fixed } = agents;
-  // browser_open and html_render are deferred for Claude; it loads them by exact name.
-  expect(bareNames(upfront("claude", agents))).toEqual(
+  // Claude searches deferred tools itself and reads the guides as skills: only context and
+  // delegate load upfront. Antigravity has neither, so it keeps wait, guide and tools_find too.
+  expect(bareNames(upfront("claude", agents))).toEqual(["context", "delegate"]);
+  expect(bareNames(upfront("antigravity", agents))).toEqual(
     ["context", "delegate", "guide", "tools_find", "wait"].toSorted(),
   );
   // Clients that load their list upfront keep them: they have no tool search to load them by.
@@ -228,7 +230,8 @@ it("every shipped guide is reachable from the always-on guidance and serves thro
   const guide = full.tools.find((tool) => tool.name === "guide");
   if (!guide) throw new Error("guide is not offered");
   for (const topic of guideTopics) expect(aceInstructions).toContain(topic);
-  const pointers = `${aceInstructions}\n${guide.description ?? ""}`;
+  // The guide tool's topic enum names every guide once; the shared text names the families.
+  const pointers = `${aceInstructions}\n${JSON.stringify(guide.inputSchema)}`;
   for (const { name, body } of await builtinGuides()) {
     expect(pointers, name).toContain(name);
     const served = await full.call("guide", { topic: name });
@@ -279,3 +282,17 @@ it.runIf(process.platform === "win32")(
     }
   },
 );
+
+it("Claude's per-request ace context stays under 1,600 tokens", async () => {
+  const agents = await session();
+  const text = guidance("claude", agents.facts);
+  // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.
+  const always = [
+    text,
+    ...upfront("claude", agents).map(descriptor),
+    agents.full.tools.map((tool) => tool.name).join(" "),
+    await skillListing(),
+  ].join("\n");
+  expect(text).toContain("installed as skills");
+  expect(tokens(always)).toBeLessThanOrEqual(1_600);
+});

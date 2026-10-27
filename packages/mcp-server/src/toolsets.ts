@@ -4,7 +4,8 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
  * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
- *   or Antigravity's definition files), so every tool is listed and `tools_find` loads upfront.
+ *   or Antigravity's definition files), so every tool is listed and only a few load upfront
+ *   (`registry.ts`).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
  *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search

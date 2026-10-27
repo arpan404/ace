@@ -47,10 +47,9 @@ export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
         name: "guide",
         title: "Read an ace guide",
         riskClass: "read-only",
-        description: `Read ace's how-to for a task and get the names of that task's other ace tools (also added to your tool list). Topics: ${[first, ...rest].join(", ")}.`,
-        input: z.strictObject({
-          topic: z.enum([first, ...rest]).describe("The guide to read, by its topic name."),
-        }),
+        description:
+          "Read ace's how-to for a topic and get the names of its family's other ace tools, which join your tool list.",
+        input: z.strictObject({ topic: z.enum([first, ...rest]) }),
         output: GuideResult,
         capability: null,
         timeoutMs: 10_000,

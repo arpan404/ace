@@ -208,12 +208,18 @@ it("every guide names only tools the server serves, in any family", async () => 
 });
 
 it("the agents guide quotes the batch limit the delegate schema enforces", async () => {
-  const { tools } = await served();
-  const delegate = tools.find((tool) => bareToolName(tool.name) === "delegate");
-  const limit = z
-    .object({ properties: z.object({ tasks: z.object({ maxItems: z.number() }) }) })
-    .parse(delegate?.inputSchema).properties.tasks.maxItems;
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
   const body = (await builtinGuides()).find((guide) => guide.name === "ace-agents")?.body ?? "";
-  expect(body).toContain(`up to ${limit} tasks`);
-  expect(delegate?.description).toContain(`1 to ${limit} tasks`);
+  const limit = Number(/up to (\d+) tasks/.exec(body)?.[1]);
+  expect(limit).toBeGreaterThan(1);
+  // The advertised schema leaves the bound out; one task past it is refused, naming it.
+  const tasks = Array.from({ length: limit + 1 }, (_, index) => ({
+    requestId: `batch-${index}`,
+    task: "Say hi",
+    role: `say-hi batch ${index}`,
+  }));
+  const over = await agent.call("delegate", { tasks });
+  expect(over.failed).toBe(true);
+  expect(over.text).toContain(`array <= ${limit} in length`);
 });
