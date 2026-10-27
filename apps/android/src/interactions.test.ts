@@ -1,15 +1,25 @@
 import { expect, it } from "vitest";
-import type { Question } from "@ace/protocol";
+import { AgentId, ItemId, type Item, type Question } from "@ace/protocol";
 import {
   canContinue,
   canResolveInteraction,
+  clearClosedResolution,
+  clearResolutionSending,
   completeAnswers,
   currentQuestionIndex,
   dismissedResolution,
   emptyQuestionDraft,
+  isResolutionLocked,
   isUnanswerable,
+  markResolutionRefused,
+  markResolutionSending,
+  markResolutionSent,
+  mayAct,
   questionResolution,
+  refusalMessage,
+  resolutionEntry,
   setOtherText,
+  shellCommandForApproval,
   togglePick,
   visibleQuestions,
 } from "./interactions.ts";
@@ -121,4 +131,107 @@ it("clamps the pager inside the visible questions", () => {
   expect(currentQuestionIndex(9, 3)).toBe(2);
   expect(currentQuestionIndex(1, 3)).toBe(1);
   expect(currentQuestionIndex(0, 0)).toBe(0);
+});
+
+it("fails closed when act permission is unknown", () => {
+  expect(mayAct(undefined)).toBe(false);
+  expect(mayAct(false)).toBe(false);
+  expect(mayAct(true)).toBe(true);
+  expect(canResolveInteraction("pending", false, mayAct(undefined))).toBe(false);
+  expect(canResolveInteraction("pending", false, mayAct(true))).toBe(true);
+});
+
+it("names daemon refusals instead of inviting a retry", () => {
+  expect(refusalMessage("already_resolved", "This approval could not be answered")).toBe(
+    "Already answered on another device.",
+  );
+  expect(refusalMessage("not_found", "These questions could not be answered")).toBe(
+    "This request no longer exists.",
+  );
+  expect(refusalMessage("bogus-code", "This approval could not be answered")).toBe(
+    "This approval could not be answered",
+  );
+  expect(refusalMessage(undefined, "These questions could not be answered")).toBe(
+    "These questions could not be answered",
+  );
+});
+
+function toolItem(
+  detail: { kind: "shell"; command: string } | { kind: "file.read"; path: string },
+  kind: "shell" | "file.read" = "shell",
+): Item {
+  return {
+    id: ItemId.parse("tool-1"),
+    agentId: AgentId.parse("agent-1"),
+    createdAt: 0,
+    complete: true,
+    type: "tool_call",
+    call: {
+      id: ItemId.parse("tool-1"),
+      agentId: AgentId.parse("agent-1"),
+      kind,
+      title: "Run it",
+      status: "running",
+      detail,
+      startedAt: 0,
+      raw: [],
+    },
+  };
+}
+
+it("reads the shell step's command behind an approval", () => {
+  expect(shellCommandForApproval(toolItem({ kind: "shell", command: "bun install" }))).toBe(
+    "bun install",
+  );
+  expect(
+    shellCommandForApproval(toolItem({ kind: "file.read", path: "src/a.ts" }, "file.read")),
+  ).toBeUndefined();
+  expect(shellCommandForApproval(undefined)).toBeUndefined();
+});
+
+it("locks an interaction across remounts until its answer settles", () => {
+  const id = "fix-review-lock-sending";
+  expect(isResolutionLocked(id)).toBe(false);
+  markResolutionSending(id);
+  expect(isResolutionLocked(id)).toBe(true);
+  expect(resolutionEntry(id)?.phase).toBe("sending");
+  expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(false);
+  markResolutionSending(id);
+  expect(resolutionEntry(id)?.phase).toBe("sending");
+  // Transport failure: the daemon never saw it, so the pending card may retry.
+  clearResolutionSending(id);
+  expect(isResolutionLocked(id)).toBe(false);
+  expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(true);
+});
+
+it("a daemon refusal stays shut instead of retrying", () => {
+  const id = "fix-review-lock-refused";
+  markResolutionSending(id);
+  markResolutionRefused(id, "Already answered on another device.");
+  expect(isResolutionLocked(id)).toBe(true);
+  expect(resolutionEntry(id)?.message).toBe("Already answered on another device.");
+  // Refusals never clear as retryable: the daemon's no is final.
+  clearResolutionSending(id);
+  expect(isResolutionLocked(id)).toBe(true);
+  expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(false);
+});
+
+it("an accepted answer stays shut while a closed card drops stale locks", () => {
+  const id = "fix-review-lock-sent";
+  markResolutionSending(id);
+  markResolutionSent(id);
+  clearResolutionSending(id);
+  expect(isResolutionLocked(id)).toBe(true);
+  clearClosedResolution(id);
+  expect(isResolutionLocked(id)).toBe(true);
+
+  const stale = "fix-review-lock-stale";
+  markResolutionSending(stale);
+  clearClosedResolution(stale);
+  expect(isResolutionLocked(stale)).toBe(false);
+
+  const refused = "fix-review-lock-stale-refused";
+  markResolutionRefused(refused, "Already answered on another device.");
+  clearClosedResolution(refused);
+  expect(isResolutionLocked(refused)).toBe(false);
 });

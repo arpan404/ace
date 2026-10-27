@@ -1,9 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ClientApi, ThreadSource } from "@ace/client";
 import { approvalCopy } from "@ace/ui-core";
 import { useSelection } from "./selection.ts";
 import { AceHost, tokens, useTheme } from "./theme.tsx";
-import { approvalResolution, canResolveInteraction } from "./interactions.ts";
+import {
+  approvalResolution,
+  canResolveInteraction,
+  clearClosedResolution,
+  clearResolutionSending,
+  isResolutionLocked,
+  markResolutionRefused,
+  markResolutionSending,
+  markResolutionSent,
+  mayAct,
+  refusalMessage,
+  shellCommandForApproval,
+  useResolutionEntry,
+} from "./interactions.ts";
 import {
   AceText,
   AceButton,
@@ -19,12 +32,13 @@ export function Approval({
   store,
   client,
   notify,
-  canAct = true,
+  canAct,
 }: {
   id: string;
   store: ThreadSource;
   client: ClientApi;
   notify(text: string): void;
+  /** This device may answer. Absent fails closed to view-only; never default true. */
   canAct?: boolean;
 }) {
   const theme = useTheme();
@@ -33,17 +47,34 @@ export function Approval({
     [store, id],
   );
   const interaction = useSelection(selection);
-  const [sending, setSending] = useState(false);
+  const toolCallSelection = useMemo(() => {
+    const toolCallId = interaction?.toolCallId ?? "";
+    return store.select([`item:${toolCallId}`], (r) => r.item(toolCallId));
+  }, [store, interaction?.toolCallId]);
+  const toolCall = useSelection(toolCallSelection);
+  const resolution = useResolutionEntry(id);
   const [details, setDetails] = useState(false);
-  if (!interaction || interaction.state !== "pending" || interaction.request.kind !== "approval")
-    return null;
+  const state = interaction?.state;
+  useEffect(() => {
+    if (interaction && state !== "pending") clearClosedResolution(interaction.id);
+  }, [interaction, state]);
+  if (!interaction || state !== "pending" || interaction.request.kind !== "approval") return null;
   const request = interaction.request;
-  const copy = approvalCopy(request);
-  const answerable = canResolveInteraction(interaction.state, sending, canAct);
+  const command = shellCommandForApproval(toolCall);
+  const copy = approvalCopy(request, command !== undefined ? { command } : {});
+  const acting = mayAct(canAct);
+  const locked = isResolutionLocked(interaction.id);
+  const answerable = canResolveInteraction(state, locked, acting);
+  const refusal = resolution?.phase === "refused" ? resolution.message : undefined;
+  const sending = resolution?.phase === "sending" || resolution?.phase === "sent";
   const hasDetails = copy.reason !== undefined || copy.others.length > 0;
   function resolve(optionId: string) {
-    if (!canResolveInteraction(interaction?.state ?? "", sending, canAct) || !interaction) return;
-    setSending(true);
+    if (
+      !interaction ||
+      !canResolveInteraction(interaction.state, isResolutionLocked(interaction.id), acting)
+    )
+      return;
+    markResolutionSending(interaction.id);
     if (client.state !== "ready") notify("Will apply when reconnected");
     void client
       .command({
@@ -52,16 +83,21 @@ export function Approval({
         resolution: approvalResolution(optionId),
       })
       .then((receipt) => {
+        if (!interaction) return;
         if (receipt.ok) {
+          markResolutionSent(interaction.id);
           notify("Answer accepted");
-          // Keep disabled until the daemon closes the interaction (first answer wins).
+          // Keep locked until the daemon closes the interaction (first answer wins).
         } else {
-          setSending(false);
-          notify("This approval could not be answered");
+          // A daemon refusal is final: stay shut instead of inviting a retry.
+          const message = refusalMessage(receipt.error, "This approval could not be answered");
+          markResolutionRefused(interaction.id, message);
+          notify(message);
         }
       })
       .catch(() => {
-        setSending(false);
+        if (!interaction) return;
+        clearResolutionSending(interaction.id);
         notify("Answer could not be saved");
       });
   }
@@ -98,11 +134,17 @@ export function Approval({
         ))}
         {copy.code ? <AceText role="code">{copy.code}</AceText> : null}
         {copy.files.length > 0 ? (
-          <AceText role="caption" colour={theme.colours.mutedForeground}>
-            {copy.files.length === 1 ? "1 file" : `${copy.files.length} files`} ·{" "}
-            {copy.files.slice(0, 3).join(", ")}
-            {copy.files.length > 3 ? "…" : ""}
-          </AceText>
+          <Column verticalArrangement={{ spacedBy: tokens.spacing.sm }}>
+            <AceText role="caption" colour={theme.colours.mutedForeground}>
+              {copy.files.length === 1 ? "1 file" : `${copy.files.length} files`} · every file needs
+              this approval
+            </AceText>
+            {copy.files.map((path) => (
+              <AceText key={path} role="code">
+                {path}
+              </AceText>
+            ))}
+          </Column>
         ) : null}
         <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>
           {hasDetails ? (
@@ -138,9 +180,14 @@ export function Approval({
               />
             ))
           : null}
-        {!canAct ? (
+        {!acting ? (
           <AceText role="caption" colour={theme.colours.mutedForeground}>
             View only. Pair with View and act to answer.
+          </AceText>
+        ) : null}
+        {refusal ? (
+          <AceText role="caption" colour={theme.statusText.failed}>
+            {refusal}
           </AceText>
         ) : null}
         {sending ? (

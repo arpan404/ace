@@ -1,5 +1,13 @@
-import type { Interaction, Question } from "@ace/protocol";
-import { answerOf, draftAnswers, isAnswered, otherAnswer, type QuestionDraft } from "@ace/ui-core";
+import { useSyncExternalStore } from "react";
+import type { Interaction, Item, Question } from "@ace/protocol";
+import {
+  answerOf,
+  displayCommand,
+  draftAnswers,
+  isAnswered,
+  otherAnswer,
+  type QuestionDraft,
+} from "@ace/ui-core";
 
 export const questionLimit = 8;
 export const optionLimit = 32;
@@ -13,6 +21,128 @@ export function canResolveInteraction(
   canAct: boolean,
 ): boolean {
   return state === "pending" && !inFlight && canAct;
+}
+
+/**
+ * Whether this device may answer. Unknown (absent) fails closed: the card reads view-only
+ * until a real pairing/act capability wires `canAct` through. Never default this to true.
+ */
+export function mayAct(canAct: boolean | undefined): boolean {
+  return canAct === true;
+}
+
+/** The shell step's command behind an approval, when its tool call is held. Pure. */
+export function shellCommandForApproval(item: Item | undefined): string | undefined {
+  if (item?.type !== "tool_call" || item.call.detail.kind !== "shell") return undefined;
+  return displayCommand(item.call.detail).command;
+}
+
+/** Daemon refusals in the daemon's own words; anything else stays a plain failure. */
+const refusalMessages: Record<string, string> = {
+  already_resolved: "Already answered on another device.",
+  not_found: "This request no longer exists.",
+  permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
+  read_only_mutation_denied: "Read only mode can't approve a change.",
+};
+
+/** A daemon refusal (`receipt.ok === false`) is final: name it, never retry it. */
+export function refusalMessage(error: string | undefined, fallback: string): string {
+  if (error !== undefined && refusalMessages[error] !== undefined)
+    return refusalMessages[error] as string;
+  return fallback;
+}
+
+export type ResolutionPhase = "sending" | "sent" | "refused";
+
+interface ResolutionEntry {
+  phase: ResolutionPhase;
+  /** The daemon's refusal, while it shuts the card. */
+  message?: string | undefined;
+}
+
+/**
+ * Remount-safe resolution records by interaction id. A card's local `sending` flag resets when
+ * the list remounts and invites a double send; this store survives it. First answer wins while
+ * one is on its way, an accepted answer stays shut, and a refused one never retries.
+ */
+const resolutions = new Map<string, ResolutionEntry>();
+const resolutionListeners = new Set<() => void>();
+const rememberedResolutions = 300;
+
+function emitResolutions(): void {
+  for (const listener of resolutionListeners) listener();
+}
+
+function rememberResolution(id: string, entry: ResolutionEntry): void {
+  resolutions.delete(id);
+  resolutions.set(id, entry);
+  while (resolutions.size > rememberedResolutions) {
+    const oldest = resolutions.keys().next();
+    if (oldest.done) break;
+    resolutions.delete(oldest.value);
+  }
+  emitResolutions();
+}
+
+function subscribeResolutions(listener: () => void): () => void {
+  resolutionListeners.add(listener);
+  return () => {
+    resolutionListeners.delete(listener);
+  };
+}
+
+/** The card's lock, if any: sending, accepted, or refused. Stable across renders. */
+export function resolutionEntry(id: string): ResolutionEntry | undefined {
+  return resolutions.get(id);
+}
+
+/** Locked while an answer is on its way, accepted, or refused: no second send. */
+export function isResolutionLocked(id: string): boolean {
+  return resolutions.has(id);
+}
+
+/** An answer is on its way. A second tap while locked is dropped: first answer wins. */
+export function markResolutionSending(id: string): void {
+  if (resolutions.has(id)) return;
+  rememberResolution(id, { phase: "sending" });
+}
+
+/** The daemon accepted the answer: the card stays shut even across a remount. */
+export function markResolutionSent(id: string): void {
+  rememberResolution(id, { phase: "sent" });
+}
+
+/** The daemon refused the answer: name it and stay shut instead of retrying. */
+export function markResolutionRefused(id: string, message: string): void {
+  rememberResolution(id, { phase: "refused", message });
+}
+
+/**
+ * Transport failure: the daemon never saw the answer, so the card may try again while its
+ * request is still pending. Daemon refusals never clear here.
+ */
+export function clearResolutionSending(id: string): void {
+  if (resolutions.get(id)?.phase !== "sending") return;
+  resolutions.delete(id);
+  emitResolutions();
+}
+
+/**
+ * A closed interaction drops its in-flight and refused locks: they belonged to the old
+ * request. An accepted answer stays shut (answering it again is at best redundant).
+ */
+export function clearClosedResolution(id: string): void {
+  if (resolutions.get(id)?.phase === "sent") return;
+  if (resolutions.delete(id)) emitResolutions();
+}
+
+/** This interaction's lock, followed across remounts. */
+export function useResolutionEntry(id: string): ResolutionEntry | undefined {
+  return useSyncExternalStore(
+    subscribeResolutions,
+    () => resolutions.get(id),
+    () => undefined,
+  );
 }
 
 /** Clamp a pager to the visible window. Pure. */
