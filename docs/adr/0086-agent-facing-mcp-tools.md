@@ -180,3 +180,48 @@ cost is that it also asks before a dispatched read. ace adds no gate of its own 
 under-declaring would let a destructive call through unasked. Clients that list tools
 individually keep per-tool annotations, which is why `tools_call` is offered only where the
 list is incomplete: a core client calls a found tool directly once its list reloads.
+
+## Addendum: a smaller always-on surface (2026-10-27)
+
+Measured with `mcp-agent-budget.process.test.ts` (characters / 4, browser and computer use on),
+Claude paid about 2,620 tokens of ace context on every request: guidance and session facts,
+the skill listing, five always-loaded schemas and the deferred names. It now pays about 1,540,
+and the whole catalogue a client pays when it loads every tool fell from 68,776 to about 57,000
+characters.
+
+**Claude loads only `context` and `delegate` upfront.** Claude Code and the Claude Agent SDK
+search deferred tools themselves and list ace's guides as skills, so three of the five
+always-loaded tools duplicated something Claude already has:
+
+- `tools_find` was a second search. Claude cannot call a tool it found that way until it loads
+  it with its own tool search, so the ace search added a step without making one unnecessary,
+  and its schemas in the result were never usable directly. Claude's own search ranks the same
+  names and descriptions; its guidance line now says to load ace tools "by task or exact name".
+- `guide` returned the same bodies as the skills Claude lists; Claude's guidance says to use the
+  skill wherever ace says `guide <topic>`. Offshift, which is not a skill, loads `guide` by name.
+- `wait` serves only a later collection: `delegate {waitSeconds}` waits in the same call.
+
+Each still loads by exact name in one step. Antigravity has neither a search nor skills, so its
+own key keeps all five. `anthropic/alwaysLoad` and `antigravity/alwaysLoad` are now separate
+sets (`registry.ts`).
+
+**Guide topics are listed once per channel.** The shared guidance names the five families; the
+`guide` tool's enum names every guide, and its description no longer repeats them. Skill
+descriptions say what each is for and when, in about half the words.
+
+**Compaction rules (`advertised-schema.ts`), for every client.** Each rule only removes keywords,
+so the advertised schema stays valid in the strict subsets Gemini and OpenAI models accept, and
+the registry keeps validating against the full Zod schema:
+
+- string `pattern`s and every string length;
+- a `minimum` of 0 or 1, a `maximum` of 1,000 or more;
+- `minItems: 1`, and a `maxItems` of 32 or more or at least the size of the item enum;
+- a `description` that only restates the field's default or enum values;
+- a union of one item or a list of the same item, advertised as the list (the bare item still
+  decodes as a bare item).
+
+`type` stays beside every `enum`: Gemini's schema subset (Antigravity, Gemini CLI, and OpenCode or
+Pi on Gemini models) refuses an enum without one, and no client tells ace which model it runs, so
+the saving is not worth a per-client branch. A call that breaks a dropped bound gets an
+`invalid_arguments` issue naming it (`array <= 64 in length`, `a string matching /^…$/`), so one
+retry fixes it.

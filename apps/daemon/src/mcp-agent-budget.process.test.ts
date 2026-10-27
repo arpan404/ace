@@ -282,3 +282,17 @@ it.runIf(process.platform === "win32")(
     }
   },
 );
+
+it("Claude's per-request ace context stays under 1,600 tokens", async () => {
+  const agents = await session();
+  const text = guidance("claude", agents.facts);
+  // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.
+  const always = [
+    text,
+    ...upfront("claude", agents).map(descriptor),
+    agents.full.tools.map((tool) => tool.name).join(" "),
+    await skillListing(),
+  ].join("\n");
+  expect(text).toContain("installed as skills");
+  expect(tokens(always)).toBeLessThanOrEqual(1_600);
+});
