@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import type { Agent, Item } from "@ace/protocol";
-import { agentName } from "./agents.ts";
+import { agentName, agentTreeWork } from "./agents.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 import type { StatusDisplay, StatusToken } from "./mobile-status.ts";
 import { readSubagentBranch } from "./subagent-group.ts";
@@ -45,7 +45,7 @@ export interface SubagentInspection {
   endedAt: number | null;
   /** Requests from it or anything under it that wait on the person, oldest first. */
   requests: string[];
-  /** Agents under it at any depth: Stop stops them too. */
+  /** Unsettled agents under it at any depth: Stop stops them too, and asks first when any. */
   descendants: number;
   /** A person may stop it: its branch still runs and its provider lets one subagent be stopped. */
   stoppable: boolean;
@@ -78,14 +78,21 @@ function promptOf(spawn: Item | undefined): { text: string; at: number } | null 
   return text ? { text, at: spawn.createdAt } : null;
 }
 
+/** Agents under it at any depth that are still unsettled: what a Stop would stop with it. */
 function descendantsOf(reader: SubagentReader, agentId: string): number {
+  const agents = reader.agentIds().flatMap((id) => reader.agent(id) ?? []);
+  const tasks = reader.taskIds().flatMap((id) => reader.task(id) ?? []);
+  const interactions = reader
+    .interactionIds()
+    .flatMap((id) => reader.interaction(id) ?? [])
+    .filter((interaction) => interaction.state === "pending");
+  const work = agentTreeWork(agents, tasks, interactions, reader.thread?.status);
   const children = new Map<string, string[]>();
-  for (const id of reader.agentIds()) {
-    const parent = reader.agent(id)?.parentId;
-    if (!parent) continue;
-    const list = children.get(parent) ?? [];
-    list.push(id);
-    children.set(parent, list);
+  for (const agent of agents) {
+    if (!agent.parentId) continue;
+    const list = children.get(agent.parentId) ?? [];
+    list.push(agent.id);
+    children.set(agent.parentId, list);
   }
   let count = 0;
   const seen = new Set([agentId]);
@@ -93,7 +100,7 @@ function descendantsOf(reader: SubagentReader, agentId: string): number {
   for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
     if (seen.has(next)) continue;
     seen.add(next);
-    count++;
+    if (work.running.has(next)) count++;
     stack.push(...(children.get(next) ?? []));
   }
   return count;

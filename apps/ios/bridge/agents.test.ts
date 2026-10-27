@@ -103,7 +103,8 @@ describe("Agents sheet", () => {
     expect(shaped.hidden).toEqual({ agents: 132, running: 0 });
     expect(shaped.rows.map((row) => row.name)).toContain("Still going");
     expect(shaped.rows[0]?.depth).toBe(0);
-    expect(shaped.rows[0]?.descendants).toBe(151);
+    // Stop names only what it would stop: the one subagent still at work, not the 150 that ended.
+    expect(shaped.rows[0]?.descendants).toBe(1);
     expect(shaped.totals.running).toBe(2);
     // Show more reads the next page; every agent is reachable on the phone, none left behind.
     follow.more("agents");
@@ -170,5 +171,92 @@ describe("Agents sheet", () => {
     await until(() => sink.puts > before, "a new agent reshapes");
     follow.stop();
     expect(sink.read("thread:agents")).toBeUndefined();
+  });
+
+  test("a failed subagent and a failed task are on the first page, however many others there are", async () => {
+    // Created first, so the newest-first tree would put them last.
+    const seed: Fact[] = [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "broken", "Broken", "spawn-broken"),
+      facts.turn("broken", "spawn"),
+      facts.endTurn("broken", "failed", { kind: "provider", message: "stream closed" }),
+      {
+        type: "background.started",
+        agent: "root",
+        task: "lint",
+        kind: "shell",
+        title: "bun run lint",
+        stoppable: true,
+      },
+      { type: "background.ended", task: "lint", status: "failed" },
+    ];
+    for (let index = 0; index < 40; index++)
+      seed.push(
+        facts.subagent("codex", `busy-${index}`, `Busy ${index}`, `spawn-${index}`),
+        facts.turn(`busy-${index}`, "spawn"),
+        {
+          type: "background.started",
+          agent: "root",
+          task: `done-${index}`,
+          kind: "shell",
+          title: `step ${index}`,
+          stoppable: true,
+        },
+        { type: "background.ended", task: `done-${index}`, status: "completed" },
+      );
+    const { store } = await opened("failures", seed);
+    const sink = new RecordingSink();
+    followAgents(store, "failures", 1, sink, plainPreview, { agents: 10, tasks: 5 });
+    await until(() => sheet(sink).totals.agents === 42, "whole tree");
+    const shaped = sheet(sink);
+    expect(shaped.rows.map((row) => row.name)).toContain("Broken");
+    expect(shaped.rows.find((row) => row.name === "Broken")?.status.token).toBe("failed");
+    expect(shaped.rows).toHaveLength(10);
+    expect(shaped.tasks[0]?.title).toBe("bun run lint");
+    expect(shaped.tasks[0]?.status.token).toBe("failed");
+  });
+
+  test("an agent waiting on the person is never pushed off the first page by working ones", async () => {
+    const seed: Fact[] = [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "asker", "Asker", "spawn-asker"),
+      facts.turn("asker", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: "ask",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "go",
+              text: "Go on?",
+              multiSelect: false,
+              allowOther: false,
+              secret: false,
+              options: [
+                { id: "yes", label: "Yes" },
+                { id: "no", label: "No" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    for (let index = 0; index < 40; index++)
+      seed.push(
+        facts.subagent("codex", `busy-${index}`, `Busy ${index}`, `spawn-${index}`),
+        facts.turn(`busy-${index}`, "spawn"),
+      );
+    const { store } = await opened("asking", seed);
+    const sink = new RecordingSink();
+    followAgents(store, "asking", 1, sink, plainPreview, { agents: 10, tasks: 5 });
+    await until(() => sheet(sink).totals.agents === 42, "whole tree");
+    const asker = sheet(sink).rows.find((row) => row.name === "Asker");
+    expect(asker?.needsYou).toBe(true);
+    expect(sheet(sink).rows).toHaveLength(10);
   });
 });

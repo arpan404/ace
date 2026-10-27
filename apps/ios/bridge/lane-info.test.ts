@@ -166,3 +166,22 @@ test("a subagent held by a usage limit reads Waiting, never working, and can't b
   expect(limited.endedAt).toBeNull();
   expect(limited.retry).toBeNull();
 });
+
+test("Stop counts only the subagents still at work under it, not the ones that ended", async () => {
+  const { agentId } = await laneOf("stopcount", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    spawn("spawn", "reviewer", "Review it."),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.subagent("codex", "early", "Early", "spawn-early", { parent: "reviewer" }),
+    facts.turn("early", "spawn"),
+    facts.endTurn("early"),
+    facts.subagent("codex", "late", "Late", "spawn-late", { parent: "reviewer" }),
+    facts.turn("late", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  const running = await until(() => info(agentId), "the lane's info");
+  expect(running.stoppable).toBe(true);
+  expect(running.descendants).toBe(1);
+});
