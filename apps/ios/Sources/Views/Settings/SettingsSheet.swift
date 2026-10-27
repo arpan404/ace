@@ -122,7 +122,7 @@ struct SettingsSheet: View {
         case .tool(let tool, let machine):
             if let client = inbox.client(machine) { tool.destination(client).modifier(automationLinks(client, machine)) }
         case .automation(let machine, let id):
-            if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).modifier(automationLinks(client, machine)) }
+            if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).id(id).modifier(automationLinks(client, machine)) }
         case .licences: LicencesView()
         }
     }
