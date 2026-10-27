@@ -212,6 +212,11 @@ export class LiveVideo {
       {
         ...this.page,
         codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
+        // Windows at device scale 1: VP9 takes odd sizes, so an odd page isn't stretched a pixel.
+        ...(process.platform === "win32" &&
+          this.page.scale === 1 && {
+            exactCodecs: this.codecs.filter((codec) => codec.startsWith("vp09.")),
+          }),
       },
       [...this.viewers].map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
