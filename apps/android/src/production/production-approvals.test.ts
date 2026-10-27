@@ -17,12 +17,15 @@ import {
   buildQuestionResolvePayload,
   canTapFreshProductionCard,
   canTapProductionCard,
+  consentLink,
+  consentLinkFailureCopy,
   currentProductionGrant,
   elicitationMode,
   elicitationResolution,
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
+  openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
@@ -847,4 +850,77 @@ it("refuses a view-only plan answer before touching the wire", async () => {
   } finally {
     await produced.disconnectAll();
   }
+});
+
+it("exposes only a safe consent address for the tappable link", () => {
+  expect(consentLink({ url: "https://example.com/consent" })).toBe("https://example.com/consent");
+  expect(consentLink({ url: undefined })).toBe(undefined);
+  expect(consentLink({ url: "javascript:alert(1)" })).toBe(undefined);
+  expect(consentLink({ url: "https://user:pass@example.com/" })).toBe(undefined);
+  expect(consentLink({ url: "not a url" })).toBe(undefined);
+});
+
+it("opens the consent page safely and fails visibly without throwing", async () => {
+  const opened: string[] = [];
+  const notices: string[] = [];
+  const notify = (text: string): void => {
+    notices.push(text);
+  };
+  // A safe address reaches the opener with no notice.
+  expect(
+    await openConsentPage(
+      { url: "https://example.com/consent" },
+      async (url) => {
+        opened.push(url);
+        return true;
+      },
+      notify,
+    ),
+  ).toBe(true);
+  expect(opened).toEqual(["https://example.com/consent"]);
+  expect(notices).toEqual([]);
+  // Unsafe addresses never reach the opener and stay silent: the card
+  // already tells the person to decline those.
+  const before = opened.length;
+  expect(await openConsentPage({ url: "javascript:alert(1)" }, async () => true, notify)).toBe(
+    false,
+  );
+  expect(opened.length).toBe(before);
+  expect(notices).toEqual([]);
+  // A refused open notifies instead of throwing.
+  expect(
+    await openConsentPage({ url: "https://example.com/consent" }, async () => false, notify),
+  ).toBe(false);
+  expect(notices).toEqual([consentLinkFailureCopy]);
+  // A throwing opener notifies too.
+  expect(
+    await openConsentPage(
+      { url: "https://example.com/consent" },
+      async () => {
+        throw new Error("no browser");
+      },
+      notify,
+    ),
+  ).toBe(false);
+  expect(notices).toEqual([consentLinkFailureCopy, consentLinkFailureCopy]);
+});
+
+it("an unsafe consent page still declines: decline and cancel always fit", () => {
+  const unsafe = {
+    kind: "elicitation",
+    server: "s",
+    message: "m",
+    mode: "url",
+    url: "javascript:alert(1)",
+  } as const;
+  expect(elicitationUnsupported(unsafe)).toBe(true);
+  expect(elicitationResolution(unsafe, "accept")).toBe(undefined);
+  expect(elicitationResolution(unsafe, "decline")).toEqual({
+    kind: "elicitation",
+    action: "decline",
+  });
+  expect(elicitationResolution(unsafe, "cancel")).toEqual({
+    kind: "elicitation",
+    action: "cancel",
+  });
 });

@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { TextInput } from "react-native";
+import { Text, TextInput } from "react-native";
 import type { Selection, ThreadSource } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
 import { approvalCopy, questionOptions, type QuestionDraft as Draft } from "@ace/ui-core";
-import { consentUrl, elicitationForm } from "@ace/ui-core";
+import { elicitationForm } from "@ace/ui-core";
 import { sameIds, useSelection } from "../selection.ts";
 import { AceHost, tokens, useTheme, textStyle } from "../theme.tsx";
+import { openWebLink } from "../transcript/links.ts";
 import {
   AceText,
   AceButton,
@@ -41,12 +42,14 @@ import {
 import {
   canTapFreshProductionCard,
   canTapProductionCard,
+  consentLink,
   currentProductionGrant,
   elicitationMode,
   elicitationResolution,
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
+  openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
@@ -671,6 +674,7 @@ export function ProductionElicitationCard({
   const request = interaction.request;
   const mode = elicitationMode(request);
   const unsupported = elicitationUnsupported(request);
+  const link = mode === "url" && !unsupported ? consentLink(request) : undefined;
   const form = mode === "form" ? elicitationForm(request.schema) : undefined;
   const fields = Object.entries(form?.properties ?? {}).map(([key, property]) => ({
     key,
@@ -758,10 +762,27 @@ export function ProductionElicitationCard({
               : "This form can't be filled in here. Decline or cancel it."}
           </AceText>
         ) : null}
-        {mode === "url" && !unsupported ? (
-          <AceText role="caption" colour={theme.colours.mutedForeground}>
-            {consentUrl(request.url) ?? ""}
-          </AceText>
+        {mode === "url" && !unsupported && link ? (
+          <Column verticalArrangement={{ spacedBy: tokens.spacing.xs }}>
+            <Text
+              accessibilityRole="link"
+              style={{
+                ...textStyle("label"),
+                color: theme.colours.accent,
+                textDecorationLine: "underline",
+              }}
+              onPress={() => {
+                // A read, never a resolution: no grant or lock check, so
+                // view-only phones open the page too, like the iOS link.
+                void openConsentPage(request, (url) => openWebLink(url), notify);
+              }}
+            >
+              Open consent page
+            </Text>
+            <AceText role="caption" colour={theme.colours.mutedForeground}>
+              {link}
+            </AceText>
+          </Column>
         ) : null}
         <Column verticalArrangement={{ spacedBy: tokens.spacing.sm }}>
           {fields.map((field) => {

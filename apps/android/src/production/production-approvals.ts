@@ -182,6 +182,44 @@ export function elicitationMode(request: Pick<ElicitationRequest, "mode" | "url"
   return request.mode ?? (request.url ? "url" : "form");
 }
 
+/**
+ * The tappable consent address for a url-mode elicitation, when it is safe
+ * to open: http(s) with no credentials (shared `consentUrl`, like the iOS
+ * card's link destination). Anything else stays undefined so the card never
+ * hands an unsafe address to the browser.
+ */
+export function consentLink(request: Pick<ElicitationRequest, "url">): string | undefined {
+  return consentUrl(request.url);
+}
+
+/** Screen copy when the consent page cannot be opened; opening never throws. */
+export const consentLinkFailureCopy = "That consent page could not be opened.";
+
+/**
+ * Open a url-mode elicitation's consent page through the transcript's
+ * web-link opener, failing visibly. Unsafe addresses never reach the opener
+ * (the card already tells the person to decline those); a refused open
+ * notifies instead of throwing. Opening is a read, never a resolution: it
+ * holds no lock and needs no grant, so view-only phones open it too. Pure
+ * apart from the injected opener/notify, so tests pin it without a browser.
+ */
+export async function openConsentPage(
+  request: Pick<ElicitationRequest, "url">,
+  open: (url: string) => Promise<boolean>,
+  notify: (text: string) => void,
+): Promise<boolean> {
+  const url = consentLink(request);
+  if (!url) return false;
+  try {
+    const opened = await open(url);
+    if (!opened) notify(consentLinkFailureCopy);
+    return opened;
+  } catch {
+    notify(consentLinkFailureCopy);
+    return false;
+  }
+}
+
 /** Whether the card can only decline/cancel: no drawable form, no safe page. */
 export function elicitationUnsupported(request: ElicitationRequest): boolean {
   const mode = elicitationMode(request);
