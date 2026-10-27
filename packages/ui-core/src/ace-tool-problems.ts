@@ -295,6 +295,10 @@ const shared: Record<string, Wording> = {
   invalid_image: () => ({ title: "That file isn't an image ace can show" }),
   image_unavailable: () => ({ title: "Couldn't read that image file" }),
   tool_unavailable: () => ({ title: "That ace tool isn't available in this thread" }),
+  call_directly: () => ({
+    title: "That action needs its own approval step",
+    hint: "The agent can retry it through the provider's approval flow.",
+  }),
   limit: () => ({ title: "That's more than ace takes at once" }),
   machine_offline: () => ({ title: "That machine is offline" }),
   machine_unavailable: () => ({ title: "That machine isn't available to agents" }),

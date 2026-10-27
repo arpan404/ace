@@ -100,6 +100,8 @@ export function claudeAceServer(input: AceMcpConnection, listing: ToolListing) {
     headers: {
       Authorization: `Bearer ${bearer}`,
       "X-Ace-Notifications": "stream",
+      // Claude may omit progress requests; finish blocking waits before its 300-second timeout.
+      [callBudgetHeader.name]: "240",
       ...(header ? { [header.name]: header.value } : {}),
     },
   };

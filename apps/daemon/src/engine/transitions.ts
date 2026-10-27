@@ -228,8 +228,9 @@ export class ThreadTransitions {
         late = lateHistory;
       }
     } else if (!crossProvider && actor.session?.configure) {
+      let reopen: boolean;
       try {
-        await actor.session.configure(selection);
+        reopen = (await actor.session.configure(selection)) === "reopen";
       } catch (error) {
         try {
           await actor.session.configure(current);
@@ -241,6 +242,7 @@ export class ThreadTransitions {
         }
         throw error;
       }
+      if (reopen) await this.sessions.close(actor, "idle");
     } else {
       await this.sessions.close(actor, "idle");
     }

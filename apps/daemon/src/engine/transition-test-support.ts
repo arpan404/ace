@@ -35,6 +35,7 @@ export function transitionHarness(
     prepareInput?: EngineOptions["prepareInput"];
     onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
+    reopenOnModelChange?: boolean;
     /** The providers advertise steering; false makes every follow-up queue. */
     steer?: boolean;
     /** When the providers' native steer reaches the model; omitted means immediately. */
@@ -180,6 +181,8 @@ export function transitionHarness(
             ? {}
             : {
                 configure: async (selection: ExecutionSelection) => {
+                  if (options.reopenOnModelChange && selection.model !== entry.selection.model)
+                    return "reopen" as const;
                   if (options.configureFails) throw new Error("Provider configuration failed");
                   entry.selection = selection;
                 },
