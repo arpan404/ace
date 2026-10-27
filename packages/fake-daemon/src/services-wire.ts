@@ -40,7 +40,7 @@ export interface ServicesSeed extends AutomationSeed {
   /** Database file bytes and the free pages compaction would release. */
   storageDatabase?: { bytes: number; reclaimable: number };
   /** What the desktop app last reported about its update; Unknown when never seeded. */
-  appUpdate?: import("@ace/protocol").AppUpdateReport;
+  appUpdate?: import("@ace/protocol").AppUpdateReport | null;
   promptFiles?: readonly PromptSeed[];
   /** Native skill folders for the Skills page (ADR 0103). */
   skills?: readonly SkillSeed[];
@@ -128,7 +128,7 @@ export class FakeServicesWire {
   seed(seed: ServicesSeed): void {
     if (seed.storageItems) this.storage.seed(seed.storageItems);
     if (seed.storageDatabase) this.storage.seedDatabase(seed.storageDatabase);
-    if (seed.appUpdate) this.appUpdate.set(seed.appUpdate);
+    if (seed.appUpdate !== undefined) this.appUpdate.set(seed.appUpdate, this.host.now());
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.skills) this.skills.seed(seed.skills);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);

@@ -6,11 +6,14 @@ import type { AppUpdate, AppUpdateReport, ServerMessage } from "@ace/protocol";
  */
 export class FakeAppUpdate {
   private report: AppUpdateReport | null = null;
+  private reportedAt: number | null = null;
   private readonly watchers = new Set<(message: ServerMessage) => void>();
   /** The desktop app reported, as it does over its loopback route. */
-  set(report: AppUpdateReport): void {
+  /** `null`: the app withdrew its report (it quit) or it expired. */
+  set(report: AppUpdateReport | null, at: number): void {
     if (JSON.stringify(report) === JSON.stringify(this.report)) return;
     this.report = report;
+    this.reportedAt = report ? at : null;
     for (const send of this.watchers) send({ type: "appUpdate.changed", update: this.current() });
   }
   session(emit: (message: ServerMessage) => void) {
@@ -25,6 +28,6 @@ export class FakeAppUpdate {
     };
   }
   private current(): AppUpdate {
-    return { report: this.report };
+    return { report: this.report, reportedAt: this.reportedAt };
   }
 }

@@ -1085,15 +1085,17 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| paused | yes | boolean |  |
+| holds | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
 | busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
-  "busy": 7,
-  "paused": true
+  "busy": 4,
+  "holds": [],
+  "waiting": 7
 }
 ```
 
@@ -1111,8 +1113,9 @@ Example:
 ```json
 {
   "admission": {
-    "busy": 7,
-    "paused": true
+    "busy": 3,
+    "holds": [],
+    "waiting": 7
   },
   "type": "admission.changed"
 }
@@ -3530,6 +3533,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
+| reportedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 
 Example:
 
@@ -3541,7 +3545,8 @@ Example:
     "releaseUrl": "https://example.invalid/",
     "restartRequired": false,
     "version": "example"
-  }
+  },
+  "reportedAt": null
 }
 ```
 
@@ -3566,7 +3571,8 @@ Example:
       "releaseUrl": "https://example.invalid/",
       "restartRequired": false,
       "version": "example"
-    }
+    },
+    "reportedAt": 1
   }
 }
 ```
@@ -3629,6 +3635,7 @@ Example:
 
 ```json
 {
+  "error": "forbidden",
   "ok": true,
   "requestId": "example",
   "type": "appUpdate.result",
@@ -3639,7 +3646,8 @@ Example:
       "releaseUrl": null,
       "restartRequired": true,
       "version": "example"
-    }
+    },
+    "reportedAt": null
   }
 }
 ```
@@ -17450,6 +17458,18 @@ Example:
 }
 ```
 
+## MaintenanceHold
+
+[JSON Schema](schema/MaintenanceHold.json), input validation.
+
+Type: ["user","update","kill","stop"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"update"
+```
+
 ## MaintenanceStatus
 
 [JSON Schema](schema/MaintenanceStatus.json), input validation.
@@ -17458,13 +17478,17 @@ Example:
 | --- | --- | --- | --- |
 | draining | yes | boolean |  |
 | blockers | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| waiting | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| holds | no | array | {"maxItems":4,"items":{"type":"string","enum":["user","update","kill","stop"]}} |
 
 Example:
 
 ```json
 {
   "blockers": 0,
-  "draining": false
+  "draining": false,
+  "holds": [],
+  "waiting": 9
 }
 ```
 

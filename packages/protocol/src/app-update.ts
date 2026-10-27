@@ -16,8 +16,14 @@ export const AppUpdateReport = z.object({
 });
 export type AppUpdateReport = z.infer<typeof AppUpdateReport>;
 
-/** What the daemon last heard; `report` is null when no desktop app has reported (headless). */
-export const AppUpdate = z.object({ report: AppUpdateReport.nullable() });
+/**
+ * What the daemon last heard. `report` is null when no desktop app has reported (headless), the
+ * app withdrew it on quit, or the app stopped checking in; `reportedAt` is when it last reported.
+ */
+export const AppUpdate = z.object({
+  report: AppUpdateReport.nullable(),
+  reportedAt: z.number().int().nonnegative().nullable(),
+});
 export type AppUpdate = z.infer<typeof AppUpdate>;
 
 /**

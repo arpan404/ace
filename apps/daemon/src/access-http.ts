@@ -113,7 +113,9 @@ export function accessHttp({
         result = auth.ticket(device);
       } else {
         auth.requireAdmin(actor());
-        if (path === "/v1/status" && request.method === "GET")
+        if (path === "/v1/status" && request.method === "GET") {
+          // The desktop app's health check: its update report is still current.
+          if (auth.local(token)) appUpdate?.seen();
           result = {
             running: true,
             ready: ready(),
@@ -124,22 +126,30 @@ export function accessHttp({
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
             ...(providerProcesses ? { providers: providerProcesses() } : {}),
           };
-        else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
+        } else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          maintenance?.enter();
+          maintenance?.enter("stop");
           result = shutdown.request();
           response.once("finish", () => shutdown.start());
-        } else if (path === "/v1/maintenance" && maintenance) {
+        } else if (
+          (path === "/v1/maintenance" || path === "/v1/maintenance/update") &&
+          maintenance
+        ) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          if (request.method === "POST") result = maintenance.enter();
-          else if (request.method === "DELETE") result = maintenance.leave();
+          // The tray's pause is the person's hold; an update's drain holds admission on its own.
+          const hold = path === "/v1/maintenance" ? "user" : "update";
+          if (request.method === "POST") result = maintenance.enter(hold);
+          else if (request.method === "DELETE") result = maintenance.leave(hold);
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
-        } else if (path === "/v1/app-update" && request.method === "PUT" && appUpdate) {
+        } else if (path === "/v1/app-update" && appUpdate) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
-          const report = AppUpdateReport.safeParse(await body(request));
-          if (!report.success) throw new AccessError(400, "Invalid update report");
-          result = appUpdate.set(report.data);
+          if (request.method === "PUT") {
+            const report = AppUpdateReport.safeParse(await body(request));
+            if (!report.success) throw new AccessError(400, "Invalid update report");
+            result = appUpdate.set(report.data);
+          } else if (request.method === "DELETE") result = appUpdate.clear();
+          else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {
           // Awaits come first: the address is read again right before the code is issued, since
           // remote access can change or turn off while they wait.

@@ -27,6 +27,8 @@ export function appUpdateReport(status: UpdateStatus): AppUpdateReport {
 export interface UpdateReportPorts {
   /** Sends one report to the daemon this app runs (`probe.ts` `reportAppUpdate`). */
   send(report: AppUpdateReport): Promise<void>;
+  /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
+  withdraw(): Promise<void>;
   log(message: string): void;
 }
 
@@ -40,6 +42,7 @@ export class UpdateReporter {
   #report: AppUpdateReport | undefined;
   #sent: string | undefined;
   #connected = false;
+  #withdrawn = false;
   #sending: Promise<void> = Promise.resolve();
   constructor(ports: UpdateReportPorts) {
     this.#ports = ports;
@@ -55,6 +58,23 @@ export class UpdateReporter {
     this.#sent = undefined;
     this.#push();
   }
+  /**
+   * The app is quitting or stopping its daemon: take the report back so no client keeps showing
+   * it, and send nothing more. Settles once the daemon was told, or could not be.
+   */
+  withdraw(): Promise<void> {
+    this.#withdrawn = true;
+    this.#sending = this.#sending.then(async () => {
+      if (!this.#connected || this.#sent === undefined) return;
+      try {
+        await this.#ports.withdraw();
+        this.#sent = undefined;
+      } catch (error) {
+        this.#ports.log(`Couldn't withdraw the app's update status: ${String(error)}`);
+      }
+    });
+    return this.#sending;
+  }
   /** Settles once every report asked for so far has been sent or has failed. */
   settled(): Promise<void> {
     return this.#sending;
@@ -62,7 +82,7 @@ export class UpdateReporter {
   #push(): void {
     this.#sending = this.#sending.then(async () => {
       const report = this.#report;
-      if (!report || !this.#connected) return;
+      if (!report || !this.#connected || this.#withdrawn) return;
       const key = JSON.stringify(report);
       if (key === this.#sent) return;
       try {

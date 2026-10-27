@@ -164,8 +164,9 @@ Example:
 ```json
 {
   "admission": {
-    "busy": 6,
-    "paused": true
+    "busy": 1,
+    "holds": [],
+    "waiting": 6
   },
   "type": "admission.changed"
 }
@@ -195,7 +196,8 @@ Example:
       "releaseUrl": "https://example.invalid/",
       "restartRequired": false,
       "version": "example"
-    }
+    },
+    "reportedAt": null
   }
 }
 ```
@@ -213,7 +215,8 @@ Example:
 {
   "type": "appUpdate.changed",
   "update": {
-    "report": null
+    "report": null,
+    "reportedAt": 7
   }
 }
 ```

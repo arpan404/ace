@@ -75,5 +75,11 @@ test("the machine page reads Unknown until the desktop app reports, then follows
     latest("machine.appUpdate")?.needsYou === true ? latest("machine.appUpdate") : undefined,
   );
   expect(restart?.line).toBe("Restart to finish updating");
+  // The app quit and took its report back: the page reads Unknown, not an old needs-you state.
+  fixture.seedServices({ appUpdate: null });
+  const gone = await until(() =>
+    latest("machine.appUpdate")?.version === "Unknown" ? latest("machine.appUpdate") : undefined,
+  );
+  expect(gone).toMatchObject({ line: null, needsYou: false });
   follower.dispose();
 });

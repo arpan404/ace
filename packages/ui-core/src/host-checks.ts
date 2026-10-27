@@ -66,16 +66,40 @@ export function queueRows(health: DiagnosticsHealth): { name: string; depth: num
   }));
 }
 
-/** "Pause new work": the words for where a machine stands and the one action that changes it. */
-export function admissionWords(admission: Admission): { line: string | null; action: string } {
-  if (!admission.paused) return { line: null, action: "Pause new work" };
-  const busy =
-    admission.busy === 0
-      ? "nothing is running"
-      : admission.busy === 1
-        ? "1 thread is finishing"
-        : `${admission.busy} threads are finishing`;
-  return { line: `New work paused · ${busy}`, action: "Resume new work" };
+const systemHolds = {
+  update: "Updating ace · new work resumes after",
+  kill: "Stopping all work · new work resumes after",
+  stop: "ace is shutting down",
+} as const;
+
+/** How much work is still running while admission is closed, waiting-on-you counted apart. */
+function stillRunning(admission: Admission): string {
+  const finishing = Math.max(0, admission.busy - admission.waiting);
+  const parts = [
+    ...(finishing === 1 ? ["1 thread is finishing"] : []),
+    ...(finishing > 1 ? [`${finishing} threads are finishing`] : []),
+    ...(admission.waiting > 0 ? [`${admission.waiting} waiting on you`] : []),
+  ];
+  return parts.length ? parts.join(" · ") : "nothing is running";
+}
+
+/**
+ * "Pause new work": where a machine stands and the one action that changes it. Pausing and
+ * resuming change only the person's own hold; while an update, kill-all or stop holds admission,
+ * the line says so and Resume can't be used (pausing still can).
+ */
+export function admissionWords(admission: Admission): {
+  paused: boolean;
+  line: string | null;
+  action: string;
+  canChange: boolean;
+} {
+  const paused = admission.holds.includes("user");
+  const system = admission.holds.find((hold): hold is keyof typeof systemHolds => hold !== "user");
+  const action = paused ? "Resume new work" : "Pause new work";
+  if (system) return { paused, line: systemHolds[system], action, canChange: !paused };
+  if (!paused) return { paused, line: null, action, canChange: true };
+  return { paused, line: `New work paused · ${stillRunning(admission)}`, action, canChange: true };
 }
 
 /**

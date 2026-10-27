@@ -107,6 +107,14 @@ export async function setMaintenance(daemon: LocalDaemon, on: boolean): Promise<
   );
   return result.blockers;
 }
+/** The update's own hold on admission (`/v1/maintenance/update`); the person's pause is apart. */
+export async function setUpdateHold(daemon: LocalDaemon, on: boolean): Promise<number> {
+  const { MaintenanceStatus } = await protocol();
+  const result = MaintenanceStatus.parse(
+    await request(daemon, "/v1/maintenance/update", { method: on ? "POST" : "DELETE" }),
+  );
+  return result.blockers;
+}
 export async function maintenanceBlockers(daemon: LocalDaemon): Promise<number> {
   const { MaintenanceStatus } = await protocol();
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance")).blockers;
@@ -121,6 +129,16 @@ export async function reportAppUpdate(
     method: "PUT",
     headers: { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" },
     body: JSON.stringify(report),
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+}
+
+/** Takes this app's update report back (host token only), as the app quits. */
+export async function withdrawAppUpdate(daemon: LocalDaemon): Promise<void> {
+  const response = await fetch(new URL("/v1/app-update", daemon.origin), {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${daemon.token}` },
     signal: AbortSignal.timeout(3_000),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);

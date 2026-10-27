@@ -2,26 +2,45 @@ import type { Admission, AdmissionRequest } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /**
- * Pause and resume new work on this machine over the socket (`admission.request`): the same
- * maintenance gate the desktop tray flips over HTTP (ADR 0041). Reading it needs read scope and
- * keeps this socket told of every later change; pausing or resuming needs operate scope.
+ * Pause and resume new work on this machine over the socket (`admission.request`). Pause and
+ * resume add and remove only the person's `user` hold on the maintenance gate (ADR 0041), so an
+ * update's drain, kill-all or a stop keeps admission closed whatever a client asks. Reading needs
+ * read scope and keeps this socket told of every later change, including, while admission is
+ * closed, how much work is still finishing; pausing or resuming needs operate scope.
  */
 export function createAdmissionSession({
   maintenance,
+  options,
   authorize,
   connected,
   send,
 }: SocketContext): SocketService {
   let stopWatching: (() => void) | undefined;
+  let last = "";
   const admission = (): Admission => {
     const status = maintenance.status();
-    return { paused: status.draining, busy: status.blockers };
+    return { holds: status.holds, busy: status.blockers, waiting: status.waiting };
+  };
+  /** Sends the state when it differs from what this socket last heard. */
+  const tell = () => {
+    if (!connected() || !authorize("read")) return;
+    const now = admission();
+    const key = JSON.stringify(now);
+    if (key === last) return;
+    last = key;
+    send({ type: "admission.changed", admission: now });
   };
   const watch = () => {
-    stopWatching ??= maintenance.onChange(() => {
-      if (connected() && authorize("read"))
-        send({ type: "admission.changed", admission: admission() });
+    if (stopWatching) return;
+    const stopGate = maintenance.onChange(tell);
+    // While paused, the count of threads still finishing moves as they settle; open, it isn't shown.
+    const stopStore = options.store.subscribe(() => {
+      if (!maintenance.admit()) queueMicrotask(tell);
     });
+    stopWatching = () => {
+      stopGate();
+      stopStore();
+    };
   };
   const reply = (request: AdmissionRequest, scope: "read" | "operate", change?: () => void) => {
     if (!authorize(scope)) {
@@ -35,12 +54,9 @@ export function createAdmissionSession({
     }
     watch();
     change?.();
-    send({
-      type: "admission.result",
-      requestId: request.requestId,
-      ok: true,
-      admission: admission(),
-    });
+    const now = admission();
+    last = JSON.stringify(now);
+    send({ type: "admission.result", requestId: request.requestId, ok: true, admission: now });
   };
   return {
     close() {
@@ -50,8 +66,9 @@ export function createAdmissionSession({
     handle(message) {
       if (message.type !== "admission.request") return false;
       if (message.operation === "status") reply(message, "read");
-      else if (message.operation === "pause") reply(message, "operate", () => maintenance.enter());
-      else reply(message, "operate", () => maintenance.leave());
+      else if (message.operation === "pause")
+        reply(message, "operate", () => maintenance.enter("user"));
+      else reply(message, "operate", () => maintenance.leave("user"));
       return true;
     },
   };

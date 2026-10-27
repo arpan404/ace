@@ -1,20 +1,31 @@
 import { z } from "zod";
 
 /**
+ * What holds admission closed: the person's pause (`user`), an app update draining work
+ * (`update`), kill-all's fence (`kill`) or a stop (`stop`). A client may add or remove only
+ * `user`; the others end on their own.
+ */
+export const MaintenanceHold = z.enum(["user", "update", "kill", "stop"]);
+export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
+
+/**
  * Whether a machine takes new work (ADR 0041's maintenance gate). Paused, new threads, turns
  * and messages wait; running turns, approvals and background tasks finish. The desktop tray's
- * "Pause new work" and a paired client's row both flip the same gate.
+ * "Pause new work" and a paired client's row both hold the same gate.
  */
 export const Admission = z.object({
-  paused: z.boolean(),
-  /** Threads still at work. */
+  /** Empty while the machine takes new work. */
+  holds: z.array(MaintenanceHold).max(4),
+  /** Threads still at work or waiting, `waiting` of them on a person. */
   busy: z.number().int().nonnegative(),
+  waiting: z.number().int().nonnegative(),
 });
 export type Admission = z.infer<typeof Admission>;
 
 /**
- * `status` reads (read scope) and keeps this socket told of changes with `admission.changed`;
- * `pause` and `resume` need operate scope. Only sockets that asked are sent changes, so clients
+ * `status` reads (read scope) and keeps this socket told of changes with `admission.changed`,
+ * including, while admission is closed, changes in how much work is still running. `pause` and
+ * `resume` add or remove only the `user` hold and need operate scope. Only sockets that asked are sent changes, so clients
  * that predate this message never receive it.
  */
 export const AdmissionRequest = z.object({
