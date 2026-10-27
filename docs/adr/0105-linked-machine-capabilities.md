@@ -150,16 +150,25 @@ device). Going to read stops only acting calls; going to off stops all of them:
 1. refuses the next call;
 2. aborts every in-flight call of that machine and capability at its next step: the call's
    signal fires, the background row ends as stopped, and the calling agent hears why;
-3. releases the device leases and screen sessions that machine's remote agents hold (stage 2,
-   through the guest session's end hook).
+3. ends background command jobs that need more than the new level, with every process they
+   started, and releases the device leases and screen sessions that machine's remote agents
+   hold, even when none of their calls is running. Lowering `remote.agentAccess` to read
+   covers every linked machine: read means nothing from another machine acts here, so every
+   job ends and every remote lease is released.
+
+Deleting a guest session (or the person's Stop on it) does the same for that session alone:
+its calls stop, its jobs end with their whole process tree and its leases are released.
 
 ### Bounded results
 
 - Results are MCP content, text and images (`MachineToolResult`), at most 16 parts. A reply is
   at most 8 MB on the wire; screenshots go as images, never as files to fetch.
-- Every op has a time bound: describe 4 s, the session 15 s, browser at most its tool's
-  timeout, devices and screen at most 120 s per call. Commands carry their own timeout, at most
-  10 minutes, with output capped at 1 MB and the rest summarized.
+- Every op has a time bound: describe 4 s, the session 15 s, browser and devices at most their
+  tool's own timeout less 5 s of slack (sim_start about 250 s for a cold boot, sim_act's
+  installs about 10 minutes, the rest 120 s). Commands carry their own timeout: a foreground
+  run at most 10 minutes (default 2), returning the last 64 KB of each stream; a background job
+  at most 24 hours, keeping the last 1 MB of each stream to page through. Calls that only start,
+  read or stop a job take at most 25 s.
 - A call cancelled on the calling side aborts on the target.
 
 ### Audit
