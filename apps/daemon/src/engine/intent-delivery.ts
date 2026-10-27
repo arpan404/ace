@@ -77,6 +77,7 @@ export class IntentDelivery {
         const binding = {
           provider: this.dependencies.repo.requireState(actor.id).config.provider,
           instanceId: this.dependencies.repo.session(actor.id).instanceId,
+          model: this.dependencies.repo.session(actor.id).model,
         };
         await this.dependencies.transitions.execute(actor, intent);
         if (intent.kind === "thread.switch") {
@@ -85,7 +86,8 @@ export class IntentDelivery {
           this.dependencies.invalidateContext(actor.id);
           if (
             binding.provider !== this.dependencies.repo.requireState(actor.id).config.provider ||
-            binding.instanceId !== this.dependencies.repo.session(actor.id).instanceId
+            binding.instanceId !== this.dependencies.repo.session(actor.id).instanceId ||
+            binding.model !== this.dependencies.repo.session(actor.id).model
           )
             this.dependencies.recovery.bindingChanged(actor.id);
         }

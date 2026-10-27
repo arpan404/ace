@@ -149,6 +149,18 @@ export class Recovery {
     return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
+    const held = this.repo.queue.get(id);
+    const state = this.repo.requireState(id);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // Older builds could install the child's quota hold on the parent's account. Retire that
+    // timer without sending anything or clearing the child's independent quota evidence.
+    if (
+      held.limited &&
+      !root?.limited &&
+      (held.reason === "limit" || held.reason === "snooze") &&
+      !this.repo.pending.recovering(id)
+    )
+      this.bindingChanged(id);
     const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
     if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision) {
@@ -357,7 +369,10 @@ export class Recovery {
       )
     )
       return;
-    const limited = Object.values(state.agents).filter((record) => record.limited);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // A child owns its own refusal. It must not install a timer or hold on the root's account.
+    const limited =
+      root?.limited && root.agent.native.provider === state.config.provider ? [root] : [];
     const queue = this.repo.queue.get(state.threadId);
     if (!limited.length) {
       if (!queue.limited) return;
@@ -615,7 +630,7 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, this.clock.now());
     this.sync(id);
@@ -660,7 +675,7 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, at);
     this.sync(id);
@@ -676,7 +691,7 @@ export class Recovery {
     this.repo.apply(
       id,
       Object.entries(state.agents)
-        .filter(([, record]) => record.limited)
+        .filter(([agent, record]) => agent === state.rootKey && record.limited)
         .map(([agent]) => ({ type: "limit.cleared", agent })),
       this.clock.now(),
     );

@@ -64,25 +64,7 @@ for (const scenario of ["offline", "cli_source", "busy", "no_lease", "cli_destin
         [
           {
             on: "send",
-            frames: [
-              frames.frame(
-                start,
-                {
-                  type: "turn.ended",
-                  agent: "root",
-                  outcome: "failed",
-                  error: { kind: "quota", message: "Quota" },
-                },
-                {
-                  // The limit says when it resets, so it holds what follows until then.
-                  type: "retry",
-                  agent: "root",
-                  on: "rate_limit",
-                  until: 1_000_000,
-                  message: "Quota",
-                },
-              ),
-            ],
+            frames: [frames.frame(start)],
           },
         ],
         frames,
@@ -174,11 +156,23 @@ for (const scenario of ["offline", "cli_source", "busy", "no_lease", "cli_destin
             (item) => item.type === "notice" && item.level === "error",
           ),
         ).toEqual([]);
-        expect(h.store.getThread(id)?.status.state).toBe("limited");
         expect(h.command({ type: "thread.send", threadId: id, input: text("following") }).ok).toBe(
           true,
         );
+        // Already queued inputs stay behind the quota failure; fresh sends now retry it.
+        h.contexts[0]?.onFrame(
+          frames.frame(
+            {
+              type: "turn.ended",
+              agent: "root",
+              outcome: "failed",
+              error: { kind: "quota", message: "Quota" },
+            },
+            { type: "retry", agent: "root", on: "rate_limit", until: 1_000_000, message: "Quota" },
+          ),
+        );
         await h.engine.flush();
+        expect(h.store.getThread(id)?.status.state).toBe("limited");
         expect(h.engine.queue(id).messages).toEqual([
           expect.objectContaining({ input: text("following") }),
         ]);

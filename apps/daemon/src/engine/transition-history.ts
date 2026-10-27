@@ -12,7 +12,7 @@ export function quiescent(state: ThreadState, agentsReady: boolean): boolean {
   if (
     Object.keys(state.indexes.liveTools).length ||
     Object.keys(state.indexes.pendingInteractions).length ||
-    Object.keys(state.indexes.runningTasks).length ||
+    Object.keys(state.indexes.runningTasks).some((key) => state.tasks[key]?.owner !== "ace") ||
     Object.keys(state.uncertainTasks ?? {}).length
   )
     return false;

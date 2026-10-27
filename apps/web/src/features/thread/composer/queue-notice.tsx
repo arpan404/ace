@@ -1,6 +1,7 @@
+import { useCallback } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import type { ThreadReader } from "@ace/client";
-import { useThread } from "@ace/client-react";
+import { useThread, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import {
   ArrowClockwiseIcon,
@@ -52,6 +53,16 @@ export function useHeldQueue(
   status: ThreadStatus | undefined,
   queue: QueueControls,
 ): HeldQueue | undefined {
+  const meta = useThreadMeta(threadId);
+  const rootId = meta?.rootAgentId ?? "";
+  const rootRead = useCallback((reader: ThreadReader) => reader.agent(rootId)?.status, [rootId]);
+  const root = useThread(threadId, [`agent:${rootId}`], rootRead);
+  const localStatus =
+    status?.state === "limited"
+      ? root?.state === "blocked" && root.on === "rate_limit"
+        ? { state: "limited" as const, until: root.until }
+        : undefined
+      : status;
   const live = useThread(threadId, ["queue"], holdOf);
   const now = useNow();
   // What accounts.list says about the account it ran out on: its reset, and where Move goes.
@@ -59,7 +70,7 @@ export function useHeldQueue(
   const context = account && accounts ? limitContext(accounts, account.id, now) : undefined;
   const { unavailable } = useThreadModelAvailability(threadId);
   const notice = queueNotice(
-    status,
+    localStatus,
     {
       ...(live ?? queue.page),
       pendingCount: live?.pendingCount ?? queue.page?.total ?? queue.messages.length,

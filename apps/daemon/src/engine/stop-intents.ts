@@ -13,28 +13,10 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
         repo.mark(intent, "failed", "Cancelled before delivery");
         continue;
       }
-      if (kind !== "thread.switch" && kind !== "thread.merge") continue;
+      // Stop ends execution, not the replacement provider the person already selected.
+      if (kind !== "thread.merge") continue;
       repo.mark(intent, "failed", "Cancelled before delivery");
       for (const thread of repo.transitions.releaseGuards(intent.commandId)) released.add(thread);
-      if (kind === "thread.switch") {
-        const pending = repo.store.getThread(id)?.switch;
-        if (pending)
-          repo.store.appendEvents(
-            id,
-            [
-              {
-                type: "thread.updated",
-                switch: {
-                  ...pending,
-                  state: "failed",
-                  error: "Cancelled before delivery",
-                  at: now,
-                },
-              },
-            ],
-            now,
-          );
-      }
     }
     // Fork intents belong to their new thread, never to the lineage source.
     for (const intent of repo.pending.headers(id)) {
@@ -87,7 +69,7 @@ export function cancelDelegatedInputs(repo: EngineRepository, id: ThreadId, now:
     repo.cancelPending(id, now);
     for (const intent of repo.pending.headers(id)) {
       if (
-        !["thread.send", "thread.create", "thread.fork"].includes(intent.kind) ||
+        !["thread.send", "thread.create", "thread.fork", "thread.switch"].includes(intent.kind) ||
         (!["pending", "queued", "running"].includes(intent.status) && !intent.awaiting)
       )
         continue;

@@ -61,8 +61,7 @@ function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null)
 type FakeQueuedHold = NonNullable<ThreadHost["queue"]["reason"]>;
 
 function limitedUntil(host: ThreadHost): number | undefined {
-  const status = host.view.thread.status;
-  return status.state === "limited" ? status.until : undefined;
+  return host.state.agents[host.state.rootKey ?? "root"]?.limited?.until;
 }
 
 export function queueCommand(
@@ -193,7 +192,8 @@ export function queueCommand(
 
 /** A rate limit holds the queue until the person chooses what to do. */
 export function holdOnLimit(host: ThreadHost): void {
-  if (host.view.thread.status.state === "limited" && !host.queue.paused) hold(host, "limit", null);
+  if (host.state.agents[host.state.rootKey ?? "root"]?.limited && !host.queue.paused)
+    hold(host, "limit", null);
 }
 
 /** One `queue.get` page: up to `limit` messages after `after`, oldest first. */

@@ -1,3 +1,4 @@
+import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
@@ -274,6 +275,10 @@ export class Engine {
         if (!this.repo.quiescent(this.repo.requireState(id)))
           throw new Error("Transition tree has unsettled work");
       },
+      (command) =>
+        this.repo.store.recordCommand(command.id, command.deviceId, () =>
+          this.internalHandler.handle(command, commandContext(this.repo.store)),
+        ),
     );
     this.delivery = new IntentDelivery({
       repo: this.repo,
@@ -1265,7 +1270,7 @@ export class Engine {
       (!guard || guard === change.commandId) &&
       !this.repo.pending.awaiting(actor.id) &&
       !this.repo.pending.recovering(actor.id) &&
-      this.repo.quiescent(this.repo.requireState(actor.id))
+      switchReady(this.repo, change)
     ) {
       await this.delivery.run(actor, change);
       this.wake(actor.id);

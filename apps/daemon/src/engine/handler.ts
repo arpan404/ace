@@ -482,6 +482,8 @@ export function engineHandler(
             {
               paused: true,
               reason: "stopped",
+              limited: false,
+              resetAt: null,
               resumeAt: null,
               timerAction: null,
               holdToken: queue.holdToken + 1,
@@ -489,6 +491,14 @@ export function engineHandler(
             now(),
           );
         }
+        if (threadStop)
+          repo.apply(
+            threadId,
+            Object.entries(repo.requireState(threadId).agents)
+              .filter(([, record]) => record.limited && !record.externalStatus)
+              .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
+            now(),
+          );
         repo.add(admitted, threadId, resolutionId);
         repo.acceptInput(admitted, threadId, now());
         queueSteerSelection(repo, threadId, steer, now());

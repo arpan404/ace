@@ -338,8 +338,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       (status.state === "starting" &&
         (state.hasRun ||
           record.agent.id !== lookup(state.agents, state.rootKey ?? "")?.agent.id)) ||
-      status.state === "working" ||
-      (status.state === "blocked" && status.on === "subagents")
+      status.state === "working"
     );
   });
   if (working.length > 0) return { state: "working", agents: working.length };
@@ -367,7 +366,13 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     )
   )
     return { state: "unresponsive" };
-  if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
+  if (
+    statuses.some(
+      (status) =>
+        status.state === "blocked" &&
+        (status.on === "background_task" || status.on === "subagents"),
+    )
+  ) {
     return { state: "waiting", on: "background_task" };
   }
   // A send or session start that failed keeps its input, held, for the person's Try again,
