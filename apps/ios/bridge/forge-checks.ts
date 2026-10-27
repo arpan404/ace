@@ -102,6 +102,8 @@ export interface LocalCheck {
   /** The one control, or null where the project has no check command. */
   action: { kind: "start" | "cancel"; label: string; disabled: boolean } | null;
   note: string | null;
+  /** The project has no check command yet: the place that sets one can be offered. */
+  needsCommand: boolean;
 }
 export interface ChecksReply {
   type: "forge.pull.checks";
@@ -203,6 +205,7 @@ async function localCheck(
       runId: null,
       action: null,
       note: "This project has no check command. Set one in the project's settings on your computer.",
+      needsCommand: true,
     };
   return {
     name: preview(`Local · ${run?.command ?? command ?? ""}`, 300),
@@ -211,6 +214,7 @@ async function localCheck(
     runId: run?.id ?? null,
     action: localCheckAction(run),
     note: null,
+    needsCommand: false,
   };
 }
 

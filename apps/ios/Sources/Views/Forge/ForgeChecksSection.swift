@@ -17,6 +17,7 @@ struct ForgeChecksSection: View {
     @State private var outcome: ForgeWorkOutcome?
     @State private var showingLog = false
     @State private var stopping = false
+    @Environment(\.setCheckCommand) private var setCheckCommand
 
     private var request: [String: Any] { ClientModel.forgeChecksRead(route) }
 
@@ -48,7 +49,8 @@ struct ForgeChecksSection: View {
         .sheet(isPresented: $showingLog) {
             if let runId = checks?.local?.runId, let name = checks?.local?.name {
                 NavigationStack {
-                    ScrollView { ForgeLogView(client: client, name: name, request: ["type": "forge.local.log", "runId": runId], total: nil, focus: nil) }
+                    ScrollView { ForgeLogView(client: client, name: name, request: ["type": "forge.local.log", "runId": runId], total: nil, focus: nil,
+                                              live: checks?.local?.action?.kind == "cancel") }
                         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showingLog = false } } }
                 }
@@ -116,7 +118,14 @@ struct ForgeChecksSection: View {
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .buttonStyle(.forgeWord)
-            if let note = local.note { Text(note).meta() }
+            if local.needsCommand == true, client.canOperate, let setCommand = setCheckCommand {
+                // Project defaults can set it from the phone: say so and go there.
+                Text("This project has no check command.").meta()
+                Button("Set check command") { setCommand(route.machineId, route.project) }
+                    .buttonStyle(.forgeWord)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .accessibilityIdentifier("forge.local.setCommand")
+            } else if let note = local.note { Text(note).meta() }
         }
         .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
         .accessibilityElement(children: .contain)
@@ -147,4 +156,10 @@ struct ForgeChecksSection: View {
         do { checks = try await client.forgeWorkRead(request, fresh: fresh, as: ForgeChecks.self) }
         catch {}
     }
+}
+
+extension EnvironmentValues {
+    /// Opens where a project's check command is set (Project defaults), for a machine and project.
+    /// The one place the PR page offers it: while nil, the page says to set it on the computer.
+    @Entry var setCheckCommand: ((_ machineId: String, _ projectId: String) -> Void)? = nil
 }
