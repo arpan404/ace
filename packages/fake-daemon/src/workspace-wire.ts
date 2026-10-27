@@ -41,6 +41,7 @@ export type FakeWorkspaceControls = Pick<
   | "setGitDiff"
   | "setEditors"
   | "opened"
+  | "setOwnerOnlyHostPaths"
   | "setForgeRead"
   | "holdForgeRead"
   | "failForgeRead"
