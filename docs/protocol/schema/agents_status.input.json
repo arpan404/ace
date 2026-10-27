@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "threadId": {
-      "description": "One child to read in full, with its result once settled.",
+      "description": "One child to read in full.",
       "minLength": 1,
       "type": "string"
     }

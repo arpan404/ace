@@ -59,6 +59,9 @@ const posixOnly = [
  */
 const x64Only = [
   "an ace-owned first-use headless browser preserves the public policy, ref, screenshot and log contract",
+  // ARM64's first use is the emulated x64 build, which ace doctor warns about instead
+  // ("Windows ARM64: with no Chrome or Edge to run, ace doctor warns...")
+  "says ace's Chrome downloads on first use before it has been downloaded",
 ];
 const escape = (name: string) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const excluded = [...posixOnly, ...(process.arch === "arm64" ? x64Only : [])];

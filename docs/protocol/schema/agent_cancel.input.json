@@ -4,14 +4,14 @@
   "additionalProperties": false,
   "properties": {
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "threadId": {
-      "description": "A child's threadId, from delegate or agents_status.",
+      "description": "From delegate or agents_status.",
       "minLength": 1,
       "type": "string"
     }

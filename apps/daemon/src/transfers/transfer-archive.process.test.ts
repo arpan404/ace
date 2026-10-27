@@ -14,9 +14,11 @@ async function put(path: string, text: string) {
 /** Every file under `root`, folder-relative, sorted. */
 async function files(root: string): Promise<string[]> {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  // Expected lists name files the way the archive does, with `/` on Windows too.
   return entries
     .filter((entry) => !entry.isDirectory())
     .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1))
+    .map((path) => (process.platform === "win32" ? path.replaceAll("\\", "/") : path))
     .toSorted();
 }
 

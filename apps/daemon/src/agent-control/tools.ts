@@ -248,6 +248,10 @@ export function createAgentControlPort(
         const { op: _op, ...input } = operation;
         return { ok: true, data: service.catalog(caller, input) };
       }
+      case "agents.models": {
+        const { op: _op, ...input } = operation;
+        return { ok: true, data: service.models(caller, input) };
+      }
       case "agent.status":
       case "agent.result": {
         const child = childTaskView(store, service.journal, operation.threadId);

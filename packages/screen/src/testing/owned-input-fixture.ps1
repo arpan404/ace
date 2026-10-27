@@ -1,3 +1,5 @@
+# State lines carry the form's Unicode text; the test reads UTF-8, whatever the console code page.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type @'

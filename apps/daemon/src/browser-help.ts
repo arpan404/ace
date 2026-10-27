@@ -19,7 +19,7 @@ export const BrowserHelpInput = z.strictObject({
     .string()
     .min(1)
     .max(1000)
-    .describe("One sentence for the person: what to do in the tab, such as which account."),
+    .describe("One sentence: what to do there, e.g. which account."),
   timeoutSeconds: z.number().int().min(5).max(240).default(240),
 });
 export type BrowserHelpInput = z.output<typeof BrowserHelpInput>;

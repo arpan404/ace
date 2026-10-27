@@ -29,6 +29,8 @@ let elicitationWaiting = false;
 let foreground: { tool: string; task: string } | undefined;
 const heldBehindTool: unknown[] = [];
 const configIndex = process.argv.indexOf("--mcp-config");
+// How many MCP set replacements report ace's server as failing to connect.
+let aceConnectFailures = Number(process.env["ACE_FAKE_CLAUDE_ACE_CONNECT_FAILURES"] ?? 0);
 let mcp: Record<string, unknown> =
   configIndex >= 0
     ? object(
@@ -180,7 +182,12 @@ for await (const line of lines) {
                     ? {
                         added: Object.keys(mcp),
                         removed: [],
-                        errors: "broken" in mcp ? { broken: "connection refused" } : {},
+                        errors:
+                          "broken" in mcp
+                            ? { broken: "connection refused" }
+                            : aceConnectFailures-- > 0
+                              ? { ace: "connection refused" }
+                              : {},
                         future: "retained",
                       }
                     : {},

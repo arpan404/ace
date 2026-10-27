@@ -4,33 +4,33 @@
   "additionalProperties": false,
   "properties": {
     "cursor": {
-      "description": "From the previous page's cursor.",
+      "description": "The previous page's cursor.",
       "maxLength": 2048,
       "minLength": 1,
       "type": "string"
     },
     "limit": {
       "default": 10,
-      "description": "Results per page, 1 to 20.",
+      "description": "Results per page.",
       "maximum": 20,
       "minimum": 1,
       "type": "integer"
     },
     "project": {
-      "description": "Another project's name, folder path or id, from projects_find. Default: this one.",
+      "description": "Another project's name, path or id, from projects_find.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
     },
     "query": {
       "default": "",
-      "description": "Words to match; empty lists recent threads.",
+      "description": "Words to match.",
       "maxLength": 256,
       "type": "string"
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json",
-      "description": "Search inside this thread's transcript instead."
+      "description": "Search this thread's transcript."
     }
   },
   "type": "object",

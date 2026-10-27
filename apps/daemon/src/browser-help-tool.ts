@@ -40,7 +40,7 @@ export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRout
         title: "Ask the person to act in a tab",
         riskClass: "thread-write",
         description:
-          "Ask the person to sign in, solve a CAPTCHA, enter a two-factor code or answer a dialog in a browser tab, when only they can (login, captcha, two_factor, dialog). ace shows the request, notifies them and opens the tab for them; it waits up to timeoutSeconds (at most 240). done: they finished, snapshot the tab and carry on. skipped: they won't, so work around it. pending: end your turn; their answer arrives as their next message. Never type credentials or codes yourself.",
+          "Ask the person to sign in, solve a CAPTCHA, enter a code or answer a dialog in a tab; never type credentials yourself. skipped: work around it. pending: end your turn; their answer comes as a message.",
         input: route
           ? BrowserHelpInput.extend({
               machine: z

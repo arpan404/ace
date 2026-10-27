@@ -10,6 +10,7 @@ import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
 import { Automation, AutomationRequest, AutomationSchedule } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
+import { AgentModelsInput } from "./agent-models.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 import { MachineName } from "./machine-calls.ts";
 import { MessageText } from "./message-limits.ts";
@@ -289,6 +290,8 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     options: AgentLaunchOptions.optional(),
   }),
   z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
+  /** The compact roster the `models` tool shows: current models, every account once. */
+  z.strictObject({ op: z.literal("agents.models"), ...AgentModelsInput.shape }),
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("machines") }),

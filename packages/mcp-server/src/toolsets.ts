@@ -4,7 +4,9 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
  * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
- *   or Antigravity's definition files), so every tool is listed and `tools_find` loads upfront.
+ *   or Antigravity's definition files), so every tool is listed and only a few load upfront
+ *   (`registry.ts`). A Claude Code session whose tool search is off gets `core`
+ *   (`claudeToolListing`).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
  *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
@@ -66,7 +68,8 @@ export function toolListingHeader(
  * - Gemini CLI (0.43, ace's floor for it) sends every tool upfront and reloads on
  *   `tools/list_changed`, so it starts with the core tools and grows.
  * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
- *   search and honours `anthropic/alwaysLoad`, as Claude Code does.
+ *   search and honours `anthropic/alwaysLoad`, as Claude Code does. The daemon narrows it to
+ *   core where its launch env or settings turn tool search off (`claudeToolListing`).
  * - Antigravity (checked live on 1.4.2) loads only tools marked `antigravity/alwaysLoad` in full;
  *   it writes every other tool's definition to a file its agent reads, then calls the tool
  *   through its own `call_mcp_tool`. So it lists every tool, as Claude does.

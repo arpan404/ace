@@ -67,18 +67,32 @@ export function codexInjection(input: Injected) {
     developerInstructions: developerInstructions("codex", input.session?.()),
   };
 }
-export function claudeInjection(input: Injected) {
+/**
+ * Claude Code defers MCP tools behind its tool search, so it lists every tool. Where tool search
+ * will be off (`claudeToolListing`), every listed tool costs its full definition on every
+ * request: the session gets the core listing and Claude Code reloads on `tools/list_changed`.
+ */
+export function claudeInjection(input: Injected & { listing?: ToolListing | undefined }) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const listing = input.listing ?? usualToolListing("claude");
   return {
     env: { MCP_TOOL_TIMEOUT: String(maxToolTimeoutMs) },
-    mcpServers: {
-      ace: {
-        type: "http" as const,
-        url,
-        headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
-      },
+    mcpServers: { ace: claudeAceServer({ url, bearer }, listing) },
+    developerInstructions: developerInstructions("claude", { ...input.session?.(), listing }),
+  };
+}
+/** ace's server entry for a Claude Code session with this listing. */
+export function claudeAceServer(input: AceMcpConnection, listing: ToolListing) {
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const header = toolListingHeader(listing);
+  return {
+    type: "http" as const,
+    url,
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      "X-Ace-Notifications": "stream",
+      ...(header ? { [header.name]: header.value } : {}),
     },
-    developerInstructions: developerInstructions("claude", input.session?.()),
   };
 }
 export function openCodeInjection(input: Injected) {

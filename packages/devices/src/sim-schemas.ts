@@ -10,9 +10,7 @@ import { perAction, uiReadShape } from "@ace/screen";
 import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { simRefPattern } from "./sim-refs.ts";
 
-const simId = AppDeviceId.describe(
-  "Simulator, emulator or Android device id from sim_list, e.g. ios:<UDID> or android:<name>.",
-);
+const simId = AppDeviceId.describe("From sim_list.");
 const point = z.number().int().min(0).max(16384);
 export const SimRef = z.string().regex(simRefPattern, "Expected an element ref like @e3");
 
@@ -36,24 +34,18 @@ const SimActFields = z.strictObject({
       "posture",
     ])
     .describe(
-      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting. posture: fold a foldable simulator or emulator (iPhone Duo, Pixel Fold) to posture.",
+      "Fields after ; are optional. ui: ref; uiAction, value, name. tap: ref | x,y. long_press: ref | x,y; durationMs. type: text; ref. swipe: x,y,toX,toY; durationMs. key: key. open_app: appId. open_url: url. install: path. clipboard_set: text. posture: posture (foldables).",
     ),
-  ref: SimRef.optional().describe(
-    "Element ref from sim_ui, e.g. @e3: required for ui; for tap, long_press and type, instead of x,y.",
-  ),
-  uiAction: ScreenUIAction.optional().describe("Accessibility action for ui. Default press."),
-  value: ScreenUIActOptions.shape.value.describe(
-    "setValue text or boolean, or {dx,dy} for scroll.",
-  ),
-  name: ScreenUIActOptions.shape.name.describe(
-    "Secondary action name, for performSecondaryAction.",
-  ),
-  x: point.optional().describe("Point in screen points (screenshot pixels divided by its scale)."),
-  y: point.optional().describe("Point in screen points, like x."),
-  toX: point.optional().describe("Swipe end point."),
-  toY: point.optional().describe("Swipe end point."),
-  durationMs: z.number().int().min(1).max(10_000).optional().describe("Gesture length in ms."),
-  text: z.string().max(4096).optional().describe("Text to type, or to put on the clipboard."),
+  ref: SimRef.optional().describe("From sim_ui; preferred to x,y."),
+  uiAction: ScreenUIAction.optional().describe("Default press."),
+  value: ScreenUIActOptions.shape.value.describe("For setValue or scroll."),
+  name: ScreenUIActOptions.shape.name.describe("For performSecondaryAction."),
+  x: point.optional().describe("Screen point: screenshot pixel / scale."),
+  y: point.optional(),
+  toX: point.optional(),
+  toY: point.optional(),
+  durationMs: z.number().int().min(1).max(10_000).optional(),
+  text: z.string().max(4096).optional(),
   key: z
     .enum([
       "home",
@@ -69,20 +61,11 @@ const SimActFields = z.strictObject({
       "keyboard",
     ])
     .optional()
-    .describe(
-      "Hardware or navigation key. recents is Android's app overview; action is the iPhone Action button (iPhone 15 Pro and later); side is Apple Watch's side button (home presses its Digital Crown); keyboard brings back the on-screen keyboard (iOS: toggles it; Android: Gboard's show keyboard).",
-    ),
-  appId: z.string().min(1).max(256).optional().describe("Bundle id or Android package to launch."),
-  url: z.string().min(1).max(4096).optional().describe("URL or deep link to open."),
-  path: z
-    .string()
-    .min(1)
-    .max(4096)
-    .optional()
-    .describe("Absolute path to a Simulator-built .app or an .apk."),
-  posture: DevicePosture.optional().describe(
-    "closed (cover screen), partiallyOpen (half open, like a book) or open (flat, inner screen). Only foldable simulators and emulators; sim_start reports their current posture.",
-  ),
+    .describe("keyboard: show the on-screen keyboard."),
+  appId: z.string().min(1).max(256).optional().describe("Bundle id or Android package."),
+  url: z.string().min(1).max(4096).optional(),
+  path: z.string().min(1).max(4096).optional().describe("Absolute path to a built .app or .apk."),
+  posture: DevicePosture.optional(),
 });
 // `machine` is only in the routed schemas (below); the local ones are strict and refuse it.
 const base = ["simId", "machine"] as const;
@@ -124,7 +107,7 @@ export const simSchemas = {
   sim_list: z.strictObject({}),
   sim_start: z.strictObject({
     simId,
-    boot: z.boolean().default(true).describe("Boot it first when it is shut down. Default true."),
+    boot: z.boolean().default(true),
   }),
   sim_stop: z.strictObject({ simId }),
   sim_ui: z.strictObject({ simId, ...uiReadShape }),
@@ -132,7 +115,7 @@ export const simSchemas = {
   sim_screenshot: z.strictObject({ simId }),
   sim_logs: z.strictObject({
     simId,
-    limit: z.number().int().min(1).max(256).default(100).describe("Most recent lines to return."),
+    limit: z.number().int().min(1).max(256).default(100),
   }),
 };
 export type SimToolName = keyof typeof simSchemas;
@@ -166,28 +149,27 @@ export const simToolMetadata: Record<
     title: "List simulators",
     riskClass: "read-only",
     timeoutMs: 120_000,
-    description:
-      "List the iOS simulators, Android emulators and Android phones or network devices ace can drive on this machine, with simIds and status. Not for paired machines (machines).",
+    description: "List the iOS simulators, Android emulators and Android devices on this machine.",
   },
   sim_start: {
     title: "Start simulator",
     riskClass: "external-effect",
     timeoutMs: 250_000,
     description:
-      "Take a simulator for this thread, boot it if needed and start capture so the person can watch in ace. Refused while a person or another agent holds it. Then sim_ui.",
+      "Take a simulator for this thread, booting it if needed, so the person can watch. Guide: ace-computer-use.",
   },
   sim_stop: {
     title: "Stop simulator",
     riskClass: "external-effect",
     timeoutMs: 120_000,
-    description: "Stop capture and release the simulator when you finish.",
+    description: "Release the simulator when you finish.",
   },
   sim_ui: {
     title: "Read simulator UI",
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "Read the simulator's accessibility tree, or pass role, name or text to find matching elements. Actionable elements carry refs like @e3 for sim_act.",
+      "Read the simulator's accessibility tree, or find elements by role, name or text; refs feed sim_act.",
   },
   sim_act: {
     title: "Act on simulator",
@@ -195,19 +177,19 @@ export const simToolMetadata: Record<
     // Typing paces each character; installs copy whole app bundles.
     timeoutMs: deviceInstallTimeoutMs + 30_000,
     description:
-      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, start/stop a recording, read/set the clipboard, or fold a foldable one (posture). A ref whose element has gone fails with stale_ref.",
+      "Tap, type, swipe, press keys, open apps or URLs, install, record, use the clipboard or fold the simulator. stale_ref: read sim_ui again.",
   },
   sim_screenshot: {
     title: "Screenshot simulator",
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "Visual check of the simulator screen, with or without the live view. Costs more tokens than sim_ui. Reports the scale between image pixels and input points.",
+      "Picture of the simulator screen; costlier than sim_ui. Reports its scale to input points.",
   },
   sim_logs: {
     title: "Read simulator logs",
     riskClass: "read-only",
     timeoutMs: 120_000,
-    description: "Read a bounded tail of the simulator's logs.",
+    description: "Read the tail of the simulator's logs.",
   },
 };

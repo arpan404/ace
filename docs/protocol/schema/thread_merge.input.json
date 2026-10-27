@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "itemIds": {
-      "description": "Fork transcript items the summary rests on, from thread_read. Default: its latest answer.",
+      "description": "Fork items it rests on, from thread_read.",
       "items": {
         "maxLength": 256,
         "minLength": 1,
@@ -15,20 +15,20 @@
       "type": "array"
     },
     "requestId": {
-      "description": "Any stable id; repeating a call with it runs once.",
+      "description": "Any stable id; a repeat with it runs once.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "summary": {
-      "description": "What the fork found or did, standing on its own for the other thread's agent.",
+      "description": "What the fork found or did, standing on its own.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
     "threadId": {
-      "description": "The fork, from thread_fork.",
+      "description": "From thread_fork.",
       "minLength": 1,
       "type": "string"
     }
