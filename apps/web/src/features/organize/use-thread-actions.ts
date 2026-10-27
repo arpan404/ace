@@ -6,7 +6,12 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
-import { deleteQuestion, runningWork, type OrganizePatch } from "@ace/ui-core";
+import {
+  deleteQuestion,
+  runningWork,
+  stopAndDeleteQuestion,
+  type OrganizePatch,
+} from "@ace/ui-core";
 import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
@@ -365,7 +370,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       if (!live.length) return;
       confirmation.open({
         title: only ? only.entry.title : count(live.length),
-        running: "Agents or terminals are still running. They will stop before deletion.",
+        running: stopAndDeleteQuestion(live.map((refusal) => refusal.entry.title)).running,
         confirm: () =>
           removeAll(
             live.map((refusal) => refusal.entry),

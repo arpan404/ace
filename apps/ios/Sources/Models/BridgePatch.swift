@@ -52,6 +52,11 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
     /// a pinned row keeps while it shows under Pinned.
     var group: String? = nil
+    /// Inbox rows only: false when the thread never settles by itself.
+    var autoSettle: Bool? = nil
+    /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
+    /// the words are the layout's `menuLabels`. Nil from older bridges.
+    var menu: [String]? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -66,6 +71,8 @@ struct RowLook: Codable, Sendable, Equatable {
     let since: Double?
     let settled: Bool
     let subagents: Int
+    /// A finished result not yet opened, or marked unread by hand; nil from older bridges.
+    var unread: Bool? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -191,6 +198,9 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// older bridges.
     var sortBy: String? = nil
     var sorts: [SortOption]? = nil
+    /// The words for each row's `menu` ids (`threadMenuLabels`).
+    var menuLabels: [String: String]? = nil
+    var menuSections: [String: String]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 

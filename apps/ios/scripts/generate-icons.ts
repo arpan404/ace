@@ -229,6 +229,10 @@ const extra = [
   "eye-slash",
   "bell-slash",
   "envelope-open",
+  // The thread menus' Mark unread, Mark read and auto-settle (`threadMenu`).
+  "envelope-simple",
+  "envelope-simple-open",
+  "clock-countdown",
   "lock-open",
   "flag",
   "play-circle",

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadStatus } from "@ace/protocol";
-import { deleteQuestion, runningWork, threadMenu, threadMenuLabels } from "./thread-menu.ts";
+import {
+  deleteQuestion,
+  runningWork,
+  stopAndDeleteQuestion,
+  threadMenu,
+  threadMenuLabels,
+} from "./thread-menu.ts";
 
 const done: ThreadStatus = { state: "done" };
 const working: ThreadStatus = { state: "working", agents: 3 };
@@ -53,6 +59,17 @@ describe("delete question", () => {
     expect(question).toMatchObject({ title: "Delete 3 threads?", confirm: "Stop and delete" });
     expect(question.force).toBe(true);
     expect(question.running).toBe("4 agents running. Running work will stop before deletion.");
+  });
+});
+
+describe("stop and delete", () => {
+  it("asks again to stop what still runs before deleting", () => {
+    expect(stopAndDeleteQuestion(["Fix login"])).toMatchObject({
+      title: "Delete thread?",
+      confirm: "Stop and delete",
+      force: true,
+    });
+    expect(stopAndDeleteQuestion(["A", "B"]).message).toMatch(/^2 threads will be permanently/);
   });
 });
 

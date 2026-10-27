@@ -6,7 +6,14 @@ import {
   type CommandResult,
   type ThreadListEntry,
 } from "@ace/protocol";
-import { deleteQuestion, isSettled, settleChoice, type OrganizePatch } from "@ace/ui-core";
+import {
+  deleteQuestion,
+  isSettled,
+  settleChoice,
+  stopAndDeleteQuestion,
+  type DeleteQuestion,
+  type OrganizePatch,
+} from "@ace/ui-core";
 import { actionErrorText } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
@@ -76,6 +83,8 @@ export interface BulkOutcome {
   running: string[];
   /** Threads saved but not yet answered (offline, or the daemon is slow). */
   waiting: string[];
+  /** The question to ask again for `running`, when there are any. */
+  retry?: DeleteQuestion;
 }
 
 function patchOf(action: ManageAction): { patch: OrganizePatch; payload: CommandPayload } {
@@ -197,10 +206,13 @@ export function runBulk(
 ): Promise<BulkOutcome> {
   const outcome: BulkOutcome = { saved: [], skipped: [], refused: [], running: [], waiting: [] };
   const top = clock.now();
-  const store = owner.threads().store;
+  // Titles as listed before the action, for asking again about deletes refused for running work.
+  const titles = new Map(
+    request.threadIds.map((id): [string, string] => [id, organizer.entry(id)?.title ?? ""]),
+  );
   type Step = { threadId: string; patch: OrganizePatch | undefined; payload: CommandPayload };
   const steps = request.threadIds.flatMap((threadId, index): Step[] => {
-    const entry = organizer.entry(threadId) ?? store.thread(threadId);
+    const entry = organizer.entry(threadId);
     // An archived thread is no longer in the list: restoring it needs only its command.
     if (!entry && request.action === "unarchive")
       return [{ threadId, patch: undefined, payload: unarchived(threadId) }];
@@ -234,6 +246,10 @@ export function runBulk(
       finished = true;
       cancel?.();
       outcome.waiting = outcome.saved.filter((id) => !answered.has(id));
+      if (outcome.running.length)
+        outcome.retry = stopAndDeleteQuestion(
+          outcome.running.map((id) => preview(titles.get(id) ?? "", 512)),
+        );
       resolve(outcome);
     };
     const settle = () => {

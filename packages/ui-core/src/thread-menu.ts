@@ -186,3 +186,19 @@ export function deleteQuestion(
     force: agents > 0,
   };
 }
+
+/**
+ * Ask again for threads whose delete the daemon refused only because their agents or terminals
+ * still run: Stop and delete stops that work first.
+ */
+export function stopAndDeleteQuestion(titles: readonly string[]): DeleteQuestion {
+  const only = titles.length === 1 ? titles[0] : undefined;
+  const running = "Agents or terminals are still running. They will stop before deletion.";
+  return {
+    title: only === undefined ? `Delete ${titles.length} threads?` : "Delete thread?",
+    message: `${only === undefined ? `${titles.length} threads` : `“${only}”`} will be permanently deleted. ${running}`,
+    running,
+    confirm: "Stop and delete",
+    force: true,
+  };
+}

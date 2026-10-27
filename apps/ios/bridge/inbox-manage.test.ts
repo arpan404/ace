@@ -141,6 +141,7 @@ test("deleting finished threads removes them, and one still working asks to stop
   })) as BulkOutcome;
   expect(plain.saved.toSorted()).toEqual(["a", "b", "live"]);
   expect(plain.running).toEqual(["live"]);
+  expect(plain.retry).toMatchObject({ confirm: "Stop and delete", force: true });
   expect(plain.refused).toEqual([]);
   // Refused, the working thread is back on the list; the others are gone.
   await until(() => ids(sink).join() === "live", "the deleted rows leaving");

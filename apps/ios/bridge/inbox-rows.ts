@@ -2,7 +2,9 @@ import {
   listOrderOf,
   threadMenu,
   threadMenuLabels,
+  threadMenuSection,
   type AccountView,
+  type ThreadMenuId,
   type HomeSort,
 } from "@ace/ui-core";
 import {
@@ -75,6 +77,10 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
   };
 }
 
+const menuSections = Object.fromEntries(
+  (Object.keys(threadMenuLabels) as ThreadMenuId[]).map((id) => [id, threadMenuSection(id)]),
+);
+
 /** The shared grouping as ordered sections, each row with its rank for merging machines. */
 export function inboxLayout(
   threads: readonly InboxThread[],
@@ -100,7 +106,8 @@ export function inboxLayout(
     // The machine's sort, so the menu checks the choice in force.
     sortBy: options.sortBy ?? "activity",
     sorts: inboxSortChoices,
-    /** The words for each row's `menu` ids. */
+    /** The words for each row's `menu` ids, and the block each belongs to. */
     menuLabels: threadMenuLabels,
+    menuSections: menuSections,
   };
 }
