@@ -59,6 +59,8 @@ struct ForgeCommitPicker: View {
     var truncated = false
     var current: ForgeRange?
     var all: (() -> Void)?
+    /// "Since your last review", offered beside All commits when there is something new.
+    var sinceReview: ForgeCommits.SinceReview?
     let pick: (ForgeRange) -> Void
     @State private var comparing = false
     /// The commit a span starts after, once picked.
@@ -71,6 +73,13 @@ struct ForgeCommitPicker: View {
             if let all, !comparing {
                 choiceRow(title: "All commits", line: commits.count == 1 ? "1 commit" : "\(commits.count) commits",
                           chosen: current == nil, identifier: "forge.commits.all", action: all)
+                if let sinceReview {
+                    let range = ForgeRange(commit: sinceReview.commit, since: sinceReview.since)
+                    choiceRow(title: "Since your last review",
+                              line: sinceReview.count == 1 ? "1 new commit" : "\(sinceReview.count) new commits",
+                              chosen: current == range, identifier: "forge.commits.since-review") { pick(range) }
+                        .transition(.opacity)
+                }
             }
             ForEach(Array(commits.enumerated()), id: \.element.id) { index, commit in
                 row(commit, index)

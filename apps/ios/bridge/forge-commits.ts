@@ -1,5 +1,5 @@
 import { ForgeRepository, type ForgeCommit } from "@ace/protocol";
-import { readCommitHistory } from "@ace/ui-core";
+import { readCommitHistory, sinceLastReview, type SinceLastReview } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { prDetail, scopeOf, type PrTarget } from "./forge-pr-reads.ts";
@@ -39,6 +39,8 @@ export interface CommitRow {
 export interface CommitsReply {
   type: "forge.pull.commits";
   headSha: string;
+  /** The commits after the signed-in reviewer's latest review, when there are any. */
+  sinceReview: SinceLastReview | null;
   /** Oldest first. */
   commits: CommitRow[];
   /** GitHub listed only the newest of a very long history. */
@@ -81,9 +83,15 @@ export async function readCommits(
   const detail = await prDetail(reads, request);
   const headSha = detail.status.headSha;
   const history = await prCommitHistory(reads, request, headSha);
+  // Who reviewed at which head is a nicety: the list still shows without it.
+  const reviewers = await reads
+    .read({ op: "forge.pr.reviewers", ...scopeOf(request) }, false)
+    .then((value) => (value.resource === "prReviewers" ? value.value : undefined))
+    .catch(() => undefined);
   return {
     type: "forge.pull.commits",
     headSha,
+    sinceReview: (reviewers && sinceLastReview(reviewers, history.commits, headSha)) ?? null,
     commits: history.commits.map((commit) => {
       const at = commit.date ? Date.parse(commit.date) : Number.NaN;
       return {

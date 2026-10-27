@@ -87,3 +87,37 @@ export function codeCaveats(facts: {
   if (facts.commitsTruncated) notes.push("Only the newest 10,000 commits are listed.");
   return notes;
 }
+
+/** "Changes since your last review": the commits after the head of the viewer's latest review. */
+export interface SinceLastReview {
+  /** The head the review was made at; the range starts after it. */
+  since: string;
+  /** The pull request's head now; the range ends there. */
+  commit: string;
+  /** How many commits came after it. */
+  count: number;
+}
+
+/**
+ * The range from the signed-in reviewer's latest review to the head, when there is one to show:
+ * they reviewed, the head moved since, and the reviewed head is still one of the PR's commits (a
+ * force-push can leave it out, and then there is no honest range to name).
+ */
+export function sinceLastReview(
+  reviewers: {
+    viewer?: string | null | undefined;
+    reviews: readonly { login: string; commitSha?: string | null | undefined }[];
+  },
+  commits: readonly { sha: string }[],
+  headSha: string,
+): SinceLastReview | undefined {
+  const viewer = reviewers.viewer?.toLowerCase();
+  if (!viewer) return undefined;
+  const reviewed = reviewers.reviews.find((review) => review.login.toLowerCase() === viewer);
+  const since = reviewed?.commitSha?.toLowerCase();
+  if (!since || since === headSha.toLowerCase()) return undefined;
+  const at = commits.findIndex((commit) => commit.sha.toLowerCase() === since);
+  const head = commits.findIndex((commit) => commit.sha.toLowerCase() === headSha.toLowerCase());
+  if (at < 0 || head <= at) return undefined;
+  return { since: commits[at]?.sha ?? since, commit: headSha, count: head - at };
+}

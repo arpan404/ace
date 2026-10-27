@@ -24,9 +24,12 @@ struct ForgeCommits: Decodable, Sendable, Equatable {
         let deletions: Int?
         var id: String { sha }
     }
+    /// The commits pushed after the signed-in reviewer's latest review.
+    struct SinceReview: Decodable, Sendable, Equatable, Hashable { let since: String; let commit: String; let count: Int }
     let headSha: String
     let commits: [Commit]
     let truncated: Bool
+    var sinceReview: SinceReview?
 }
 
 /// A changed file read whole on both sides (`forge.pull.file.sides`): its Markdown drawn as it

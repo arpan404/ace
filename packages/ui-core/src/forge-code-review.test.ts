@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { lineRangeAnchor, viewedMarks } from "./forge-code-review.ts";
+import { lineRangeAnchor, sinceLastReview, viewedMarks } from "./forge-code-review.ts";
 import { splitPairs } from "./diff.ts";
 
 const head = "a".repeat(40);
@@ -61,4 +61,34 @@ test("side by side, a change's removed and added lines share rows and other rows
     { left: 5, right: 5 },
     { left: null, right: 6 },
   ]);
+});
+
+const history = ["a", "b", "c", "d"].map((each) => ({ sha: each.repeat(40) }));
+const tip = "d".repeat(40);
+const at = (sha: string | null) => ({ viewer: "tg", reviews: [{ login: "tg", commitSha: sha }] });
+
+test("changes since your last review start after the head you reviewed and count what came since", () => {
+  const reviewers = {
+    viewer: "TG",
+    reviews: [
+      { login: "dana", commitSha: "a".repeat(40) },
+      { login: "tg", commitSha: "b".repeat(40) },
+    ],
+  };
+  expect(sinceLastReview(reviewers, history, tip)).toEqual({
+    since: "b".repeat(40),
+    commit: tip,
+    count: 2,
+  });
+});
+
+test("there is nothing since your last review when you reviewed the head, never reviewed, or it was force-pushed away", () => {
+  expect(sinceLastReview(at(tip), history, tip)).toBeUndefined();
+  expect(sinceLastReview({ viewer: "tg", reviews: [] }, history, tip)).toBeUndefined();
+  expect(sinceLastReview(at("e".repeat(40)), history, tip)).toBeUndefined();
+  expect(sinceLastReview(at(null), history, tip)).toBeUndefined();
+  // Without knowing who is signed in, no review is yours.
+  expect(
+    sinceLastReview({ reviews: [{ login: "tg", commitSha: "b".repeat(40) }] }, history, tip),
+  ).toBeUndefined();
 });

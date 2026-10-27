@@ -51,6 +51,20 @@ test("the Commits list names each commit oldest first, by its first line", async
   expect(reply.commits[0]).toMatchObject({ sha: first, short: "c111111", author: "you" });
 });
 
+test("the Commits list offers the commits pushed since your last review", async () => {
+  const { ask } = await connected();
+  const reply = (await ask({ type: "forge.pull.commits", ...pull })) as {
+    headSha: string;
+    sinceReview: { since: string; commit: string; count: number } | null;
+  };
+  // You reviewed at the second commit; two came after it.
+  expect(reply.sinceReview).toEqual({
+    since: "c2".padEnd(40, "2"),
+    commit: reply.headSha,
+    count: 2,
+  });
+});
+
 test("All commits shows each file's Viewed mark, a file pushed to since as changed", async () => {
   const { ask } = await connected();
   const reply = (await ask({ type: "forge.pull.files", ...pull })) as Files;

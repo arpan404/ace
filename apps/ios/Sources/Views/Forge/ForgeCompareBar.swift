@@ -50,7 +50,8 @@ struct ForgeRangeSheet: View {
         NavigationStack {
             ScrollView {
                 if let list {
-                    ForgeCommitPicker(commits: list.commits, truncated: list.truncated, current: current, all: { choose(nil) }) { choose($0) }
+                    ForgeCommitPicker(commits: list.commits, truncated: list.truncated, current: current, all: { choose(nil) },
+                                      sinceReview: list.sinceReview) { choose($0) }
                         .padding(.vertical, AceTheme.Spacing.md)
                         .transition(.opacity)
                 } else if let failure {

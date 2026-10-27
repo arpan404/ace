@@ -41,6 +41,19 @@ import XCTest
         screenshot("compare-files")
     }
 
+    func testChangesSinceYourLastReviewShowOnlyTheNewCommits() {
+        let app = openFiles()
+        app.buttons["forge.files.change"].tap()
+        let since = app.buttons["forge.commits.since-review"]
+        XCTAssertTrue(since.waitForExistence(timeout: 20))
+        screenshot("since-review-choice")
+        since.tap()
+        let range = element(app, "forge.files.range")
+        let label = expectation(for: NSPredicate(format: "label == '2 commits after c222222'"), evaluatedWith: range)
+        wait(for: [label], timeout: 20)
+        screenshot("since-review-files")
+    }
+
     func testAFilePushedToSinceItWasViewedSaysSoAndCanBeMarkedViewedAgain() {
         let app = openFiles()
         let mark = element(app, "forge.files.viewed.2")
