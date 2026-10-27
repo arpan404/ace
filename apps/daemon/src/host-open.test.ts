@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { hostLaunch, hostTarget, openOnHost, type HostLaunch } from "./host-open.ts";
+import { hostLaunch, hostTarget, openOnHost, spawnDetached, type HostLaunch } from "./host-open.ts";
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -73,7 +73,7 @@ describe("opening a project on the machine running ace", () => {
       args: [join(root, "src")],
     });
     expect(hostLaunch({ platform: "win32", app: { kind: "files" }, ...found })).toEqual({
-      command: "explorer.exe",
+      command: join("C:\\Windows", "explorer.exe"),
       args: [`/select,${found.target}`],
     });
   });
@@ -162,30 +162,15 @@ describe("an open that waits on the machine", () => {
   });
 });
 
-/** A Windows install: `<root>/bin/<id>.cmd` with `script`, and `<root>/Code.exe`. */
-async function install(script: string, id = "code") {
-  const parent = await realpath(await mkdtemp(join(tmpdir(), "ace-host-editor-")));
-  folders.push(parent);
-  const root = join(parent, "Microsoft VS Code");
-  await mkdir(join(root, "bin"), { recursive: true });
-  const launcher = join(root, "bin", `${id}.cmd`);
-  await writeFile(launcher, script);
-  await writeFile(join(root, "Code.exe"), "");
-  const outside = join(parent, "outside");
-  await mkdir(outside);
-  await writeFile(join(outside, "payload.exe"), "");
-  return { root, launcher, outside };
-}
-
-/** Open the project with the Windows launcher at `launcher`; what started, or the refusal. */
-async function openWith(launcher: string, id = "code") {
+/** Open the project with `editor` on Windows; what started, or the refusal. */
+async function openOnWindows(editor: { id: string; name: string; command: string }) {
   const root = await project();
   const started: HostLaunch[] = [];
   const opening = openOnHost({
     root,
-    app: { kind: "editor", editorId: id },
+    app: { kind: "editor", editorId: editor.id },
     platform: "win32",
-    editors: async () => [{ id, name: "Editor", command: launcher }],
+    editors: async () => [editor],
     spawn: async (launch) => {
       started.push(launch);
     },
@@ -195,69 +180,51 @@ async function openWith(launcher: string, id = "code") {
   return { root, started, opening };
 }
 
-const vscodeLauncher = [
-  "@echo off",
-  "setlocal",
-  "set VSCODE_DEV=",
-  "set ELECTRON_RUN_AS_NODE=1",
-  '"%~dp0..\\Code.exe" "%~dp0..\\resources\\app\\out\\cli.js" %*',
-  "IF %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%",
-  "endlocal",
-].join("\r\n");
-
 describe("opening an editor on Windows", () => {
-  test("VS Code's own launcher opens through Code.exe in its install, never a shell script", async () => {
-    const editor = await install(vscodeLauncher);
-    const { root, started, opening } = await openWith(editor.launcher);
+  test("an editor's own .exe starts directly, with the folder as its own argument", async () => {
+    const exe = join(await project(), "Code.exe");
+    await writeFile(exe, "");
+    const { root, started, opening } = await openOnWindows({
+      id: "code",
+      name: "Code",
+      command: exe,
+    });
     await opening;
-    expect(started).toEqual([{ command: join(editor.root, "Code.exe"), args: [root] }]);
+    expect(started).toEqual([{ command: exe, args: [root] }]);
   });
 
-  test("an executable named only in a comment is never the one started", async () => {
-    const editor = await install(
-      ['REM "%~dp0..\\Payload.exe"', ':: "%~dp0..\\Payload.exe"', vscodeLauncher].join("\r\n"),
-    );
-    await writeFile(join(editor.root, "Payload.exe"), "");
-    const { root, started, opening } = await openWith(editor.launcher);
-    await opening;
-    expect(started).toEqual([{ command: join(editor.root, "Code.exe"), args: [root] }]);
-    const commentOnly = await install('REM "%~dp0..\\Code.exe" %*');
-    const refused = await openWith(commentOnly.launcher);
-    await expect(refused.opening).rejects.toThrow("editor_launcher_unsupported");
-    expect(refused.started).toEqual([]);
-  });
-
-  test("an absolute executable path is refused and nothing starts", async () => {
-    const editor = await install("");
-    await writeFile(editor.launcher, `"${join(editor.outside, "payload.exe")}" %*`);
-    const windows = await install('"C:\\outside\\payload.exe" %*');
-    for (const launcher of [editor.launcher, windows.launcher]) {
-      const { started, opening } = await openWith(launcher);
-      await expect(opening).rejects.toThrow("editor_launcher_unsupported");
+  test("a .cmd or .bat launcher is never started, whatever discovery returned", async () => {
+    for (const command of ["C:\\tools\\code.cmd", "C:\\tools\\cursor.bat", "code"]) {
+      const { started, opening } = await openOnWindows({ id: "code", name: "Code", command });
+      await expect(opening).rejects.toThrow("editor_not_found");
       expect(started).toEqual([]);
     }
   });
 
-  test("a launcher climbing out of the editor's install is refused", async () => {
-    const editor = await install('"%~dp0..\\..\\outside\\payload.exe" %*');
-    const { started, opening } = await openWith(editor.launcher);
-    await expect(opening).rejects.toThrow("editor_launcher_unsupported");
-    expect(started).toEqual([]);
+  test("the file manager is always the system's own Explorer", async () => {
+    const root = await project();
+    const found = await inside(root, "src/queue.ts");
+    expect(
+      hostLaunch({
+        platform: "win32",
+        app: { kind: "files" },
+        ...found,
+        systemRoot: "D:\\Windows",
+      }),
+    ).toEqual({ command: join("D:\\Windows", "explorer.exe"), args: [`/select,${found.target}`] });
   });
+});
 
-  test("an executable that links out of the install is refused", async () => {
-    const editor = await install(vscodeLauncher);
-    await rm(join(editor.root, "Code.exe"));
-    await symlink(join(editor.outside, "payload.exe"), join(editor.root, "Code.exe"));
-    const { started, opening } = await openWith(editor.launcher);
-    await expect(opening).rejects.toThrow("editor_launcher_unsupported");
-    expect(started).toEqual([]);
-  });
-
-  test("an editor whose install layout ace doesn't know is refused rather than guessed", async () => {
-    const editor = await install(vscodeLauncher, "zed");
-    const { started, opening } = await openWith(editor.launcher, "zed");
-    await expect(opening).rejects.toThrow("editor_launcher_unsupported");
-    expect(started).toEqual([]);
+describe("the process ace starts", () => {
+  test("arguments are never read by a shell", async () => {
+    if (process.platform === "win32") return;
+    const root = await project();
+    const marker = join(root, "shell-ran");
+    await spawnDetached({
+      command: "/usr/bin/true",
+      args: [`; touch ${marker}`, `$(touch ${marker})`],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect(stat(marker)).rejects.toThrow();
   });
 });

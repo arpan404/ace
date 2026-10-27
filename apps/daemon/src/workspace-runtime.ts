@@ -44,7 +44,7 @@ import {
   type WorkspaceActionResult,
 } from "@ace/protocol";
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
-import { editorLocations, installedEditors } from "./installed-editors.ts";
+import { editorLocations, installedEditors, registryAppPath } from "./installed-editors.ts";
 import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
@@ -453,6 +453,21 @@ export class WorkspaceRuntime {
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
+  /**
+   * This machine's editors: on PATH and the usual launcher folders, or on Windows only each
+   * editor's own .exe from App Paths and its standard install folders.
+   */
+  #editors() {
+    const platform = this.options.platform ?? process.platform;
+    return installedEditors(
+      this.options.editorPath ?? process.env.PATH,
+      platform,
+      this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+      platform === "win32"
+        ? { env: process.env, appPath: registryAppPath(process.env) }
+        : { env: {} },
+    );
+  }
   async read(
     request: WorkspaceActionRequest,
     signal: AbortSignal = new AbortController().signal,
@@ -569,12 +584,7 @@ export class WorkspaceRuntime {
       return wrap({
         kind: "editors",
         fileManager: fileManagerName(this.options.platform ?? process.platform),
-        editors: await installedEditors(
-          this.options.editorPath ?? process.env.PATH,
-          this.options.platform ?? process.platform,
-          this.options.editorLocations ??
-            editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
-        ),
+        editors: await this.#editors(),
       });
     if (op.op === "host.open") {
       if ((op.threadId === undefined) === (op.workspaceId === undefined))
@@ -590,15 +600,9 @@ export class WorkspaceRuntime {
         line: op.line,
         app: op.app,
         platform,
-        editors:
-          this.options.hostEditors ??
-          (() =>
-            installedEditors(
-              this.options.editorPath ?? process.env.PATH,
-              platform,
-              this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
-            )),
+        editors: this.options.hostEditors ?? (() => this.#editors()),
         spawn: this.options.hostSpawn ?? spawnDetached,
+        systemRoot: process.env.SystemRoot,
         allowed: still ?? (() => true),
         signal,
       });
@@ -862,14 +866,7 @@ export class WorkspaceRuntime {
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {
-        const editor = (
-          await installedEditors(
-            this.options.editorPath ?? process.env.PATH,
-            this.options.platform ?? process.platform,
-            this.options.editorLocations ??
-              editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
-          )
-        ).find((entry) => entry.id === p.editorId);
+        const editor = (await this.#editors()).find((entry) => entry.id === p.editorId);
         if (!editor) throw new Error("editor_not_found");
         if (!allowed()) return { ok: false, error: "forbidden" };
         return { ok: true, editor: { editor, path: cwd } };

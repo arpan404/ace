@@ -61,3 +61,45 @@ test("Linux discovery follows XDG_DATA_HOME to the user's Flatpak exports", asyn
   const editors = await installedEditors("", "linux", userLocations({ XDG_DATA_HOME: data }));
   expect(editors).toEqual([{ id: "zed", name: "Zed", command: zed }]);
 });
+
+test("Windows discovery never takes a .cmd launcher from PATH", async () => {
+  const bin = join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(bin, "code.cmd"), '"C:\\outside\\payload.exe" %*');
+  await writeFile(join(bin, "cursor.cmd"), "@echo off");
+  expect(
+    await installedEditors(bin, "win32", [], { env: {}, appPath: async () => undefined }),
+  ).toEqual([]);
+});
+
+test("Windows discovery takes an editor's .exe from its App Paths registration", async () => {
+  const exe = join(root, "VS Code", "Code.exe");
+  await mkdir(join(root, "VS Code"), { recursive: true });
+  await writeFile(exe, "");
+  const editors = await installedEditors("", "win32", [], {
+    env: {},
+    appPath: async (name) => (name === "Code.exe" ? exe : undefined),
+  });
+  expect(editors).toEqual([{ id: "code", name: "Visual Studio Code", command: exe }]);
+});
+
+test("Windows discovery finds a per-user install where the installer puts it", async () => {
+  const exe = join(root, "Programs", "cursor", "Cursor.exe");
+  await mkdir(join(root, "Programs", "cursor"), { recursive: true });
+  await writeFile(exe, "");
+  const editors = await installedEditors("", "win32", [], {
+    env: { LOCALAPPDATA: root },
+    appPath: async () => undefined,
+  });
+  expect(editors).toEqual([{ id: "cursor", name: "Cursor", command: exe }]);
+});
+
+test("an App Paths registration naming another executable is ignored", async () => {
+  const payload = join(root, "payload.exe");
+  await writeFile(payload, "");
+  const editors = await installedEditors("", "win32", [], {
+    env: {},
+    appPath: async () => payload,
+  });
+  expect(editors).toEqual([]);
+});

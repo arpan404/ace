@@ -55,8 +55,23 @@ it (ADR 0062, "Turns are asks"). Older runs without it use their ordinal as thei
 
 A client on another device, such as a phone, has no editor of its own for the host's folders.
 `workspace.request` `host.open` opens a project's or thread's folder, or a file in it, on the
-machine running ace: in an editor `editors.list` found there, or the platform's file manager
-(`open`, `xdg-open`, `explorer.exe`). It needs `operate`. The launcher always comes from the
-host's own discovery, never from the client; the process starts detached without a shell; the
-target is resolved through symlinks and refused when it leaves the folder it names. The desktop
-app still opens editors on its own machine through the launch descriptor above.
+machine running ace: in an editor `editors.list` found there, or the platform's file manager.
+It needs `operate`, and the caller's connection, access and thread access are checked again
+immediately before anything starts, since discovery waits on I/O.
+
+What starts is decided on the host alone. The client never chooses the executable, its path or
+a launcher; it names only an editor id the host listed and a project-relative target. The
+process starts detached, without a shell, with the target as its own argument. The target is
+resolved through symlinks and refused when it leaves the folder it names.
+
+On Windows ace never reads or runs `.cmd` or `.bat` launchers, which only a shell runs.
+Discovery yields only each editor's own `.exe`, from its App Paths registration (HKCU, then
+HKLM) or its standard per-user and machine install folders; a PATH entry holding only a
+launcher is ignored, and `host.open` refuses any editor command that isn't an absolute `.exe`.
+The file manager is always the system's own `%SystemRoot%\explorer.exe` (`open` on macOS,
+`xdg-open` on Linux). When no editor's `.exe` is found, the client offers the file manager.
+
+Threat model: someone able to replace files in the person's editor install or on their PATH
+already runs code as that person, so a race between checking and starting the editor's own
+binary is out of scope. Containment applies to what the client can influence, the target path.
+The desktop app still opens editors on its own machine through the launch descriptor above.

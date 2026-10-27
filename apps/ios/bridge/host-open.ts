@@ -27,9 +27,8 @@ export const HostOpenRequest = z.discriminatedUnion("op", [
 export type HostOpenRequest = z.infer<typeof HostOpenRequest>;
 
 const problems: Record<string, string> = {
-  editor_not_found: "That editor isn't installed on the machine any more.",
-  editor_launcher_unsupported:
-    "ace can't start this editor's launcher on that computer safely. Open it there instead.",
+  editor_not_found:
+    "That editor isn't available to open from here on that computer. Show it in the file manager instead.",
   path_not_found: "That isn't on the machine any more.",
   workspace_not_found: "That project is gone.",
   forbidden: "This phone can only view this machine.",
