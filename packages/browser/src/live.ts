@@ -247,7 +247,6 @@ export class LiveCapture {
       height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
-    if (process.platform === "win32" && this.windowsStale(frame)) return;
     const privacy = this.privacy(),
       capturedAt = parsed.data.metadata.timestamp;
     // CDP timestamps identify capture time, not delivery time. Missing provenance after
@@ -331,28 +330,8 @@ export class LiveCapture {
       );
     return { viewport, dpr };
   }
-  /**
-   * Windows: a headless window takes a new size after the call that set it returns, and until
-   * then its screencast still draws the old window (a recording right after a resize to 900 × 700
-   * began with 1265 × 720 frames). After the screencast starts, frames whose own size is not the
-   * tab's (beyond a classic scrollbar's width) stay out of recordings, for at most a second.
-   */
-  private windowsSettleUntil = 0;
-  private windowsStale(frame: { width: number; height: number }): boolean {
-    if (this.windowsSettleUntil === 0) return false;
-    const viewport = this.viewport();
-    const fits =
-      Math.abs(frame.width - viewport.width) <= 24 &&
-      Math.abs(frame.height - viewport.height) <= 24;
-    if (fits || this.now() >= this.windowsSettleUntil) {
-      this.windowsSettleUntil = 0;
-      return false;
-    }
-    return true;
-  }
   private async begin(): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
-    if (process.platform === "win32") this.windowsSettleUntil = this.now() + 1_000;
     this.streaming = true;
     this.settings = this.screencast();
     const generation = this.generation;
