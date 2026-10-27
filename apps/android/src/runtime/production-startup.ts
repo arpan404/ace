@@ -1,5 +1,14 @@
 import { ClientError } from "@ace/client";
-import type { Intent, RequestOptions, Selection, Storage } from "@ace/client";
+import type {
+  ConnectionState,
+  Intent,
+  Lease,
+  RequestOptions,
+  Selection,
+  SidebarSource,
+  Storage,
+  ThreadSource,
+} from "@ace/client";
 import type { CommandPayload, CommandResult } from "@ace/protocol";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
@@ -22,6 +31,7 @@ import {
   type ProductionMachineRuntime,
   type ProductionMakeRuntime,
   type ProductionMutations,
+  type ProductionReads,
   type ProductionRuntimeDeps,
 } from "./production-runtime.ts";
 import type { MachineEntry } from "@ace/client/machines";
@@ -307,6 +317,36 @@ export interface MutationGate {
   /** The durable receipt for one admitted command; read-only, needs only liveness. */
   intent(id: string): Selection<Intent | undefined>;
 }
+/**
+ * A short-lived read-only handle for one machine's inbox and thread
+ * selections. Mirrors the iOS `ClientModel` read path: inbox rows and the
+ * open thread stay readable while `canOperate` is false, so no grant check
+ * runs here, only liveness plus the exact-owner pin below. Only synchronous
+ * selection leases, the connection selection and the receipt view are
+ * exposed: the raw SDK `Client` never escapes and no mutating or
+ * network-fetching call (`enqueue`, `command`, `submitNew`, `threadsWindow`,
+ * `loadOlder`, `markThreadRead`, …) is reachable through the handle.
+ */
+export interface ReadingHandle {
+  readonly hostId: string;
+  /** Re-resolve liveness and the exact-owner pin now; throws `not connected`. */
+  check(): void;
+  connectionState(): Selection<ConnectionState>;
+  readonly error: ClientError | undefined;
+  /** Lease the live sidebar; release when the view unmounts. */
+  threads(): Lease<SidebarSource>;
+  /** Lease one live thread; release when the view unmounts. */
+  thread(id: string): Lease<ThreadSource>;
+  /** The cached sidebar without taking a lease, if one is held. */
+  cachedThreads(): SidebarSource | undefined;
+  /** The cached thread without taking a lease, if one is held. */
+  cachedThread(id: string): ThreadSource | undefined;
+  /** The durable receipt for one command; read-only, needs only liveness. */
+  intent(id: string): Selection<Intent | undefined>;
+  reconnectNow(): void;
+  wake(): void;
+  networkOnline(online: boolean): void;
+}
 export interface ProductionStartup {
   readonly manager: MachinesRuntime;
   readonly directory: PairingMachines;
@@ -352,6 +392,19 @@ export interface ProductionStartup {
    * lifecycle is not a mutation.
    */
   runtimeForMutation(hostId: string): MutationGate;
+  /**
+   * A short-lived read-only handle bound to one machine: the single admission
+   * point for every future inbox/thread selection read. Each call returns a
+   * fresh handle (never the shared live runtime), and every handle method
+   * re-resolves the live runtime at call time with no grant check, so reads
+   * stay available while view-only and a cached handle still fails after
+   * disconnect, removal, or a same-host replacement or re-pair (epoch plus
+   * device and pin pin the handle to the exact owner observed at creation,
+   * so it never follows the new owner). The raw SDK client never escapes:
+   * only per-call bound selection leases do. `start`/`close` stay with the
+   * manager: lifecycle is not a mutation.
+   */
+  runtimeForReading(hostId: string): ReadingHandle;
   route(hostId: string): StartupRoute;
   pair(
     confirmed: ConfirmedPairing,
@@ -507,6 +560,67 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     };
     return gate;
   };
+  const runtimeForReading = (hostId: string): ReadingHandle => {
+    // Same exact-owner pin as the mutation gate (manager epoch plus device
+    // and pin), but with no grant check: inbox and thread rows stay readable
+    // while view-only. A same-host replacement or re-pair bumps the epoch
+    // and swaps the binding, so a cached handle fails instead of following
+    // the new owner; removal and disconnect already fail in the resolvers
+    // below, before this check.
+    const boundEpoch = manager.epochOf(hostId);
+    const boundDevice = manager.entry(hostId)?.deviceId;
+    const boundFingerprint = bindingFingerprint(manager.entry(hostId));
+    const assertHandleBinding = (): void => {
+      if (boundEpoch === undefined) throw mutationNotConnected();
+      if (manager.epochOf(hostId) !== boundEpoch) throw mutationNotConnected();
+      const current = manager.entry(hostId);
+      if (current?.deviceId !== boundDevice) throw mutationNotConnected();
+      if (bindingFingerprint(current) !== boundFingerprint) throw mutationNotConnected();
+    };
+    const resolveReads = (): ProductionReads => {
+      if (manager.client(hostId) === undefined) throw mutationNotConnected();
+      assertHandleBinding();
+      const reads = makeRuntime.readsFor(hostId);
+      if (reads === undefined) throw mutationNotConnected();
+      return reads;
+    };
+    const resolveRuntime = (): MachineRuntime => {
+      if (manager.client(hostId) === undefined) throw mutationNotConnected();
+      assertHandleBinding();
+      const runtime = manager.client(hostId);
+      if (runtime === undefined) throw mutationNotConnected();
+      return runtime;
+    };
+    // Fresh handle per call, no shared handle: every method re-resolves, so a
+    // handle cached past disconnect, removal or replacement fails at use. The
+    // raw SDK client never escapes: only per-call bound selection leases do.
+    resolveReads();
+    const handle: ReadingHandle = {
+      hostId,
+      check: () => {
+        resolveReads();
+      },
+      connectionState: () => resolveReads().connectionState(),
+      get error() {
+        return resolveReads().error;
+      },
+      threads: () => resolveReads().threads(),
+      thread: (id: string) => resolveReads().thread(id),
+      cachedThreads: () => resolveReads().cachedThreads(),
+      cachedThread: (id: string) => resolveReads().cachedThread(id),
+      intent: (id) => resolveReads().intent(id),
+      reconnectNow: () => {
+        resolveRuntime().reconnectNow();
+      },
+      wake: () => {
+        resolveRuntime().wake?.();
+      },
+      networkOnline: (online: boolean) => {
+        resolveRuntime().networkOnline(online);
+      },
+    };
+    return handle;
+  };
   const startup: ProductionStartup = {
     manager,
     directory,
@@ -515,6 +629,7 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     canOperate,
     assertCanOperateFor,
     runtimeForMutation,
+    runtimeForReading,
     async load() {
       await deps.database.ensureOutboxTables();
       await grants.load();
