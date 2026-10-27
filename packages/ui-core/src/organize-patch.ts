@@ -18,6 +18,8 @@ export interface OrganizePatch {
   listOrder?: number;
   unread?: boolean;
   settled?: boolean;
+  /** Taking a settle back (`thread.unsettle` with `undo`): only the settle goes. */
+  undoSettle?: boolean;
   /** Whether the thread may settle by itself (`thread.autoSettle`; unsettling turns it off). */
   autoSettle?: boolean;
   /** A wake time, or null to wake it now. */
@@ -50,6 +52,10 @@ export function patchEntry(
   if (patch.unread !== undefined) {
     next.unread = patch.unread;
     next.readAt = latest;
+  }
+  if (patch.undoSettle) {
+    delete next.settledAt;
+    delete next.settledReason;
   }
   if (patch.settled === true) {
     next.settledAt = at;

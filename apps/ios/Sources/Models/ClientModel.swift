@@ -62,6 +62,9 @@ import QuartzCore
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
+    /// Moves when a row's project changes, or a row joins or leaves: what search's project
+    /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
+    private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
@@ -113,6 +116,8 @@ import QuartzCore
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
     @ObservationIgnored let wordRequests = WordsRequests()
+    /// Bulk actions whose first answer left threads waiting, by ticket (`bulkFinal`).
+    @ObservationIgnored let bulkFinals = BulkFinals()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -129,7 +134,7 @@ import QuartzCore
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
@@ -215,7 +220,7 @@ import QuartzCore
     /// Patches the person is waiting on, which never wait for the batch.
     private static func urgent(_ patch: BridgePatch) -> Bool {
         switch patch {
-        case .receipt, .admission, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
+        case .receipt, .admission, .bulkFinal, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
         default: false
         }
     }
@@ -329,6 +334,7 @@ import QuartzCore
                     normalizeGenerations()
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
+                if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -358,6 +364,7 @@ import QuartzCore
             case .notification(let patch): notificationSink?(patch)
             case .words(let id, let ok, let text, let message, let revision):
                 wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
+            case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
             case .receipt(let id, let ok, let message) where receipts.tracks(id):
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
@@ -468,6 +475,7 @@ import QuartzCore
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
     /// longer confirmed: only its fresh copy may say it is current again.
     private func resetInbox(keeping ids: [String]?) {
+        projectsVersion &+= 1
         guard let ids else { inbox.removeAll(); return }
         let listed = Set(ids)
         for id in inbox.ids {
@@ -611,6 +619,7 @@ import QuartzCore
         admissions.cancel()
         receipts.cancel()
         wordRequests.cancel()
+        bulkFinals.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }

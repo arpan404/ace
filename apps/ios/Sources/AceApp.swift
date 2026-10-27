@@ -45,7 +45,7 @@ import QuartzCore
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
-            if started { InboxView(inbox: spikeInbox) }
+            if started || SpikeConfiguration.lateMachines { InboxView(inbox: spikeInbox) }
             else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
@@ -53,6 +53,7 @@ import QuartzCore
         .task {
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
+            if SpikeConfiguration.lateMachines { try? await Task.sleep(for: .seconds(4)) }
             // One runtime per fixture machine, as production runs one per paired computer.
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })

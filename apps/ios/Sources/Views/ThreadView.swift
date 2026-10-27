@@ -96,6 +96,9 @@ struct ThreadView: View {
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
+            // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
+            // own view, so the row it reads redraws only it, never the transcript.
+            .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)

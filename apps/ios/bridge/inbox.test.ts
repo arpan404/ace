@@ -263,6 +263,7 @@ describe("inbox attention", () => {
       since: null,
       settled: false,
       subagents: 0,
+      unread: false,
     });
     await until(() => look(sink, "busy")?.level === "active", "the working row");
     expect(look(sink, "busy")).toMatchObject({

@@ -484,13 +484,15 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"thread.unsettle"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| undo | no | `true` |  |
 
 Example:
 
 ```json
 {
   "threadId": "example",
-  "type": "thread.unsettle"
+  "type": "thread.unsettle",
+  "undo": true
 }
 ```
 

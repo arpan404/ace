@@ -40,6 +40,7 @@ import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import type { InboxRequests } from "./inbox-manage.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -102,6 +103,7 @@ export class NativeServices {
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
   readonly projects: ProjectManage | undefined;
+  readonly inbox: InboxRequests | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -111,6 +113,7 @@ export class NativeServices {
     forge?: ForgeService,
     reads?: NativeReads,
     projects?: ProjectManage,
+    inbox?: InboxRequests,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -121,6 +124,7 @@ export class NativeServices {
     this.forge = forge;
     this.reads = reads;
     this.projects = projects;
+    this.inbox = inbox;
   }
   /** The bridge is starting over: every request still waiting lets go. */
   dispose(): void {
@@ -193,6 +197,11 @@ export class NativeServices {
         } catch (error) {
           this.#reply(id, false, null, error instanceof Error ? error.message : "");
         }
+        return;
+      }
+      const organizing = this.inbox?.(raw, id);
+      if (organizing) {
+        this.#reply(id, true, await organizing, "");
         return;
       }
       const project = NativeProjectRequest.safeParse(raw);

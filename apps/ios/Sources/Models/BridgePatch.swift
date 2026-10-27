@@ -52,6 +52,11 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
     /// a pinned row keeps while it shows under Pinned.
     var group: String? = nil
+    /// Inbox rows only: false when the thread never settles by itself.
+    var autoSettle: Bool? = nil
+    /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
+    /// the words are the layout's `menuLabels`. Nil from older bridges.
+    var menu: [String]? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -66,6 +71,8 @@ struct RowLook: Codable, Sendable, Equatable {
     let since: Double?
     let settled: Bool
     let subagents: Int
+    /// A finished result not yet opened, or marked unread by hand; nil from older bridges.
+    var unread: Bool? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -195,6 +202,9 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// older bridges.
     var sortBy: String? = nil
     var sorts: [SortOption]? = nil
+    /// The words for each row's `menu` ids (`threadMenuLabels`).
+    var menuLabels: [String: String]? = nil
+    var menuSections: [String: String]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
@@ -223,6 +233,8 @@ enum BridgePatch: Decodable, Sendable {
     /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
     /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
     case words(String, Bool, String?, String, Int?)
+    /// The machine's last answer to a bulk action whose first answer left threads waiting.
+    case bulkFinal(String, BulkOutcome)
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
@@ -265,7 +277,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision, outcome }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -309,6 +321,7 @@ enum BridgePatch: Decodable, Sendable {
             self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
                           try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "inbox.bulk.final": self = .bulkFinal(try box.decode(String.self, forKey: .id), try box.decode(BulkOutcome.self, forKey: .outcome))
         case "thread.block":
             let (id, epoch) = try scope()
             self = .block(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(BlockRow.self, forKey: .row))

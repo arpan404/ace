@@ -292,6 +292,25 @@ maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), 
 presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
 
+Every thread action is a visible control: the open thread's ⋯ and Select mode's bar of words
+carry all of them, and a row's long press (a preview over the same menu) and swipes repeat them.
+Each row carries its action ids from the web's shared `threadMenu` (`@ace/ui-core`), with the
+words in the layout's `menuLabels`. Read, auto-settle and move go through the inbox action;
+delete and every action on several threads go through `inbox.bulk` (`bridge/inbox-manage.ts`),
+which waits a few seconds for the machine's answers so the phone can offer Stop and delete.
+`OrganizeUITests` drive these against the fixture.
+
+Search (the bar's magnifying glass, ⌘K or ⌘F) is search everything: before a query, recent
+searches and every command; with one, commands, settings, projects and threads of every paired
+machine, ranked by the web palette's `rankCommand` (`bridge/palette.ts`), then their messages,
+with kind, project and date filters. The Threads and Thread menus (iPad menu bar and the ⌘-hold
+overlay) carry the web's keys where iPadOS leaves them free.
+
+`ace://` links open the app (`CFBundleURLTypes`): `ace://thread/<id>[/item/<item>][?machine=<host>]`,
+`ace://settings[/<page>]` and `ace://new[?project=<id>]`, read by the shared `readAceLink`
+(`@ace/ui-core`), the desktop's reader too. Copy link writes the thread form. Universal links
+need a hosted domain, which ace doesn't have (ADR 0002).
+
 ## Pull requests and Issues
 
 The second tab (Pulls) holds the web's Pull requests and Issues pages for one machine and

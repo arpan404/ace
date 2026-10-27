@@ -13,6 +13,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     let empty: String
     /// This tab is the one showing; only it places the window's tab bar.
     let showing: Bool
+    /// The list is in Select mode: its action bar takes the tab bar's place.
+    var selecting = false
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -31,6 +33,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
     private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
     private var listWidth: CGFloat { ThreadDrawer.listWidth(window: width) }
+    private var tabBar: Bool { !selecting && ThreadColumns.showsTabBar(sizeClass, path: path) }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -47,10 +50,10 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                                ended: { release(velocity: $1) }))
         // As a stack, the tab bar hides once a page is open; beside the list the sidebar's foot
         // takes its place and there is no tab bar at all, nor room kept for one.
-        .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
+        .toolbarVisibility(tabBar ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
-            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
+            if showing { TabBarPlace(hidden: !tabBar).frame(width: 0, height: 0) }
         }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }

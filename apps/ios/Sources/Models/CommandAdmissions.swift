@@ -65,3 +65,25 @@ import Foundation
         for continuation in pending { continuation.resume(returning: Self.closed) }
     }
 }
+
+/// The last answer to a bulk action that went out with threads still waiting on the machine
+/// (`inbox.bulk.final`), by the phone's ticket. One that arrives before anyone waits is kept
+/// for them; closing the connection answers every waiter with nil, and they stay pending.
+@MainActor final class BulkFinals {
+    private var waiting: [String: CheckedContinuation<BulkOutcome?, Never>] = [:]
+    private var arrived: [String: BulkOutcome] = [:]
+    func wait(_ ticket: String) async -> BulkOutcome? {
+        if let outcome = arrived.removeValue(forKey: ticket) { return outcome }
+        return await withCheckedContinuation { waiting[ticket] = $0 }
+    }
+    func resolve(_ ticket: String, _ outcome: BulkOutcome) {
+        if let continuation = waiting.removeValue(forKey: ticket) { continuation.resume(returning: outcome) }
+        else { arrived[ticket] = outcome }
+    }
+    func cancel() {
+        let pending = waiting.values
+        waiting = [:]
+        arrived = [:]
+        for continuation in pending { continuation.resume(returning: nil) }
+    }
+}

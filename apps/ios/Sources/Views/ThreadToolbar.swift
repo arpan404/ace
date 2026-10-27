@@ -53,6 +53,18 @@ struct ThreadMenu: View {
     let problem: (String) -> Void
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
+    @Environment(\.threadOrganizer) private var organizer
+    /// The thread's inbox row, whose shared menu ids the organize actions follow.
+    private var row: ThreadRow? { model.inbox[thread.id] }
+    /// Snoozing or archiving the open thread takes the person back to the list.
+    private func leaving(_ organizer: ThreadOrganizer) -> ThreadOrganizer {
+        ThreadOrganizer(perform: { key, id in
+                            organizer.perform(key, id)
+                            if id == "archive" { leave() }
+                        },
+                        snooze: { key, preset in organizer.snooze(key, preset); leave() },
+                        wake: organizer.wake)
+    }
 
     var body: some View {
         Menu {
@@ -89,16 +101,24 @@ struct ThreadMenu: View {
                         catch { problem(error.localizedDescription) }
                     }
                 }
-                if model.canOperate, !model.inboxLayout.snooze.isEmpty {
-                    Menu {
-                        ForEach(model.inboxLayout.snooze) { option in
-                            Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { leave() } } }
-                        }
-                    } label: { Label("Snooze", ace: .bellSimpleZ) }
+                if organizer == nil || row == nil {
+                    if model.canOperate, !model.inboxLayout.snooze.isEmpty {
+                        Menu {
+                            ForEach(model.inboxLayout.snooze) { option in
+                                Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { leave() } } }
+                            }
+                        } label: { Label("Snooze", ace: .bellSimpleZ) }
+                    }
+                    if model.canOperate, !archived {
+                        Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
+                    }
                 }
-                if model.canOperate, !archived {
-                    Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
-                }
+            }
+            // Everything the thread's row offers, in the same words and order (`threadMenu`).
+            if let organizer, let row, let hostId = model.hostId, model.canOperate {
+                ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
+                                  labels: model.inboxLayout.menuLabels ?? [:], sections: model.inboxLayout.menuSections ?? [:],
+                                  snoozeOptions: model.inboxLayout.snooze, organizer: leaving(organizer))
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {

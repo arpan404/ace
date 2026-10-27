@@ -3013,12 +3013,12 @@ Example:
 
 ```json
 {
-  "seq": 2,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 2,
+    "seq": 0,
     "threads": {}
   }
 }

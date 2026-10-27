@@ -64,3 +64,22 @@ describe("ace:// links", () => {
     ]);
   });
 });
+
+it("message links keep item ids exactly as the desktop always read them", () => {
+  expect(parseDeepLink("ace://thread/t/item/a%2Fb")).toEqual({
+    kind: "thread",
+    threadId: "t",
+    itemId: "a/b",
+  });
+  expect(parseDeepLink("ace://thread/my%20thread/item/one%20two")).toEqual({
+    kind: "thread",
+    threadId: "my thread",
+    itemId: "one two",
+  });
+  const long = "x".repeat(300);
+  expect(parseDeepLink(`ace://thread/t/item/${long}`)).toEqual({
+    kind: "thread",
+    threadId: "t",
+    itemId: long,
+  });
+});

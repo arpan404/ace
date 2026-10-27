@@ -8,6 +8,7 @@ import { ProjectManage } from "./project-manage.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { LedgerShelf } from "./native-ledger.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
@@ -273,6 +274,7 @@ async function start(json: string): Promise<void> {
     ),
     reads,
     new ProjectManage(client, scheduler.set),
+    inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
