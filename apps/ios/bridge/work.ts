@@ -227,6 +227,8 @@ export class WorkSession implements WorkSubject {
         // A chat's folder is not a repository (ADR 0099): no branch, no pull request.
         chat: details?.workspace?.kind === "chat",
         project: text(details?.workspace?.name, 256),
+        /** The project's id, which the phone's pull request pages read through. */
+        workspaceId: this.#store.thread?.workspaceId ?? "",
         machine: text(details?.machine?.name, 256),
         path: text(details?.worktree ?? details?.workspace?.path, 1024),
         mode: checkout?.mode ?? null,
@@ -246,6 +248,7 @@ export class WorkSession implements WorkSubject {
           repo: text(`${pr.repo.owner}/${pr.repo.name}`, 256),
           owner: pr.repo.owner,
           name: pr.repo.name,
+          repository: pr.repo,
         })),
         morePrs: Math.max(0, (details?.linkedPrs?.length ?? 0) - 20),
         problem: problem

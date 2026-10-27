@@ -50,6 +50,17 @@ import XCTest
         screenshot("worktree")
     }
 
+    func testALinkedPullRequestOpensItsPageInTheApp() throws {
+        let app = try open("clean")
+        app.buttons["thread.subtitle"].tap()
+        let pull = app.buttons["work.pull.31"]
+        XCTAssertTrue(pull.waitForExistence(timeout: 15))
+        pull.tap()
+        XCTAssertTrue(app.navigationBars["#31"].waitForExistence(timeout: 15), "the pull request's own page is pushed, not GitHub")
+        XCTAssertFalse(app.buttons["work.branch"].exists, "Work closed on the way")
+        screenshot("pull-page")
+    }
+
     func testLinkingAndUnlinkingAPullRequest() throws {
         let app = try open("clean")
         app.buttons["thread.subtitle"].tap()

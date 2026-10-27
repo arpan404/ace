@@ -26,6 +26,8 @@ struct WorkSummary: Codable, Sendable, Equatable {
         let repo: String
         let owner: String
         let name: String
+        /// Where the phone's own pull request page reads it.
+        let repository: ForgeRepository?
     }
     struct Problem: Codable, Sendable, Equatable {
         let kind: String
@@ -42,6 +44,8 @@ struct WorkSummary: Codable, Sendable, Equatable {
     /// A chat's folder has no branch or pull requests.
     let chat: Bool
     let project: String
+    /// The project's id, for opening a linked pull request's page.
+    var workspaceId: String?
     let machine: String
     let path: String
     /// `local` or `worktree`; nil until the checkout is read.

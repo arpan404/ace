@@ -9,6 +9,7 @@ import SwiftUI
 struct WorkSheet: View {
     @Bindable var model: ClientModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openPullRequest) private var openPull
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var runner = WorkRunner()
     @State private var picking = false
@@ -90,7 +91,7 @@ struct WorkSheet: View {
         if !work.chat, work.state == "ready" {
             WorkSection(title: "Branch") {
                 Button { model.sheet(["kind": "work.branches"]); picking = true } label: {
-                    WorkRow(label: work.branch, value: work.baseBranch.isEmpty ? "" : "into \(work.baseBranch)", mono: true, disclosure: true)
+                    WorkRow(label: work.branch, value: work.baseBranch.isEmpty || work.baseBranch == work.branch ? "" : "into \(work.baseBranch)", mono: true, disclosure: true)
                 }
                 .buttonStyle(.plain)
                 .disabled(!model.canOperate)
@@ -130,7 +131,16 @@ struct WorkSheet: View {
         WorkSection(title: "Pull requests") {
             ForEach(work.prs) { pr in
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    if let url = URL(string: pr.url) {
+                    if let openPull, let project = work.workspaceId, !project.isEmpty {
+                        // The phone's own pull request page, pushed on the thread's stack.
+                        Button {
+                            dismiss()
+                            openPull(project, pr.number, pr.repository)
+                        } label: { WorkPullLine(pr: pr) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the pull request")
+                        .accessibilityIdentifier("work.pull.\(pr.number)")
+                    } else if let url = URL(string: pr.url) {
                         Link(destination: url) { WorkPullLine(pr: pr) }.buttonStyle(.plain)
                             .accessibilityHint("Opens on GitHub")
                     } else { WorkPullLine(pr: pr) }
