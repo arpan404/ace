@@ -41,16 +41,24 @@ function recorder() {
   };
 }
 
-/** The phone's temporary files, as `DownloadFiles.swift` keeps them. */
-function phoneFiles(gate?: Promise<void>) {
+/**
+ * The phone's temporary files, as `DownloadFiles.swift` keeps them. `gate` holds appends;
+ * `opening` holds `download.open` before its folder exists, as a slow host does.
+ */
+function phoneFiles(gate?: Promise<void>, opening?: Promise<void>) {
   const files = new Map<string, { name: string; bytes: Buffer }>();
+  const calls: string[] = [];
   const call = (async (
     operation: string,
     input: { id: string } & Record<string, unknown>,
     body?: string,
   ) => {
-    if (operation === "download.open")
+    calls.push(operation);
+    if (operation === "download.open") {
+      await opening;
       files.set(input.id, { name: String(input.name), bytes: Buffer.alloc(0) });
+      calls.push("opened");
+    }
     if (operation === "download.append") {
       await gate;
       const file = files.get(input.id);
@@ -62,7 +70,7 @@ function phoneFiles(gate?: Promise<void>) {
     return "";
   }) as unknown as HostRequest;
   let next = 0;
-  return { files, door: { call, uuid: () => `file-${++next}` } };
+  return { files, calls, door: { call, uuid: () => `file-${++next}` } };
 }
 
 /** Picks staged on the phone, read back a chunk at a time. */
@@ -243,6 +251,28 @@ test("stopping a download leaves no partial file on the phone", async () => {
   await until(() => sink.last("files.download", "stop")?.phase === "stopped");
   await until(() => phone.files.size === 0);
 });
+
+for (const action of ["files.download.done", "files.download.cancel"] as const)
+  test(`${action} while the phone is still opening the file leaves no folder behind`, async () => {
+    const { owner } = await connect();
+    const sink = recorder();
+    let open: () => void = idle;
+    const phone = phoneFiles(undefined, new Promise<void>((resolve) => (open = resolve)));
+    const downloads = new CheckoutDownloads(owner, sink, phone.door);
+    downloads.handle({
+      type: "files.download",
+      id: "late",
+      scope,
+      target: { kind: "file", path: "docs/plan.md" },
+    });
+    await until(() => phone.calls.includes("download.open"));
+    downloads.handle({ type: action, id: "late" });
+    open();
+    // Whatever the order the phone ran them in, the folder is gone once the transfer settles.
+    await until(() => phone.calls.includes("opened"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(phone.files.size).toBe(0);
+  });
 
 test("an expired archive preview says to choose the download again", async () => {
   const { owner } = await connect();

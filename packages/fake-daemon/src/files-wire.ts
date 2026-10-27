@@ -449,8 +449,8 @@ export class FakeFilesWire {
             return;
           }
           if (op.op === "upload.commit" || op.op === "upload.cancel") {
-            const receipt = op.op === "upload.commit" ? this.receipts.get(op.uploadId) : undefined;
-            if (receipt) {
+            const receipt = this.receipts.get(op.uploadId);
+            if (op.op === "upload.commit" && receipt) {
               if (receipt.device !== device || receipt.threadId !== threadId)
                 throw new Error("FORBIDDEN");
               if (receipt.sha256 !== op.sha256) throw new Error("HASH_MISMATCH");
