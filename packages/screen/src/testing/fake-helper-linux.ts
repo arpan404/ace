@@ -10,6 +10,10 @@ const socket = connect(endpoint.slice(5));
 socket.on("error", () => process.exit(1));
 let sessionId = "test";
 let seq = 0;
+// As the real helper: pictures are published only while someone watches, and a new watch
+// publishes the current one at once, stamped with its capture generation.
+let watching = true;
+let generation = 0;
 const capabilities = ScreenCapabilities.parse({
   version: 2,
   platform: process.env.FAKE_PLATFORM ?? "linux-wayland",
@@ -44,6 +48,26 @@ const node = () => ({
   actions: ["setValue", "focus"],
   children: [],
 });
+function publish(): void {
+  const payload = Buffer.from(`screen:${value}`);
+  socket.write(
+    framePacket(
+      {
+        version: 2,
+        sessionId,
+        seq: seq++,
+        ts: 1000,
+        width: 100,
+        height: 80,
+        scale: 1,
+        codec: "jpeg",
+        bytes: payload.length,
+        ...(generation ? { captureGeneration: generation } : {}),
+      },
+      payload,
+    ),
+  );
+}
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
   const r = ScreenHelperRequestV2.parse(JSON.parse(line));
@@ -65,7 +89,14 @@ input.on("line", (line) => {
     case "start":
       sessionId = r.sessionId;
       seq = 0;
+      watching = true;
+      generation = r.captureGeneration ?? 0;
       data = { capabilities };
+      break;
+    case "watch":
+      watching = r.active;
+      generation = r.captureGeneration ?? generation;
+      if (watching) publish();
       break;
     case "stop":
       if (process.env.FAIL_STOP === "1") error = { code: "internal", message: "Stop failed" };
@@ -83,31 +114,18 @@ input.on("line", (line) => {
       if (r.ref !== (nativeReplies?.tree.tree.ref ?? "stable-entry"))
         error = { code: "target_gone", message: "Unknown ref" };
       else {
-        if (r.action === "setValue" && typeof r.value === "string") value = r.value;
+        if (r.action === "setValue" && typeof r.value === "string") {
+          value = r.value;
+          // The screen changed; the picture waits while nobody watches.
+          if (watching) publish();
+        }
         data = { fallback: false, method: "atspi" };
       }
       break;
     case "action":
-    case "key.press": {
-      const payload = Buffer.from("fake-jpeg");
-      socket.write(
-        framePacket(
-          {
-            version: 2,
-            sessionId,
-            seq: seq++,
-            ts: 1000,
-            width: 100,
-            height: 80,
-            scale: 1,
-            codec: "jpeg",
-            bytes: payload.length,
-          },
-          payload,
-        ),
-      );
+    case "key.press":
+      if (watching) publish();
       break;
-    }
   }
   console.log(JSON.stringify({ version: 2, id: r.id, ok: !error, data, error }));
 });

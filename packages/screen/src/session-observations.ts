@@ -140,8 +140,7 @@ export class SessionObservations {
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
-      return this.screenshot(id);
+    if (!session.helper.capabilities) return this.screenshot(id);
     const lease = session.pixels.acquire();
     try {
       await lease.ready;

@@ -23,6 +23,7 @@ pub(crate) struct Capture {
     stop: Arc<AtomicBool>,
     wake: UnixStream,
     worker: Option<JoinHandle<()>>,
+    control: Arc<crate::pipewire::Control>,
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -57,6 +58,25 @@ impl Runtime {
         self.portal.stop().await?;
         Ok(json!({}))
     }
+    /// Whether anyone watches: nobody, and new pictures wait unencoded; someone again, and the
+    /// current picture is published at once under the new generation.
+    fn watch(&mut self, r: &Request) -> Result<Value> {
+        let active = r.active.ok_or_else(|| Fault::new("bounds", "Missing active"))?;
+        let capture = self
+            .capture
+            .as_mut()
+            .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
+        if let Some(generation) = r.capture_generation {
+            capture.control.generation.store(generation, Ordering::Release);
+        }
+        capture.control.watching.store(active, Ordering::Release);
+        if active {
+            capture.control.refresh.store(true, Ordering::Release);
+        }
+        // Wakes the capture loop, which may be waiting for the desktop's next buffer.
+        let _ = capture.wake.write_all(&[1]);
+        Ok(json!({}))
+    }
     async fn start(&mut self, r: &Request) -> Result<Value> {
         if self.capture.is_some() {
             return Err(Fault::new("busy", "Only one capture session can be active"));
@@ -71,6 +91,8 @@ impl Runtime {
             .filter(|s| valid_id(s))
             .ok_or_else(|| Fault::new("bounds", "Invalid session id"))?;
         let fps = r.fps.unwrap_or(10);
+        let control = Arc::new(crate::pipewire::Control::new(r.capture_generation.unwrap_or(0)));
+        let capture_control = control.clone();
         let (read, wake) = UnixStream::pair().map_err(internal)?;
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = stop.clone();
@@ -132,6 +154,7 @@ impl Runtime {
                     cancelled,
                     publisher,
                     shown,
+                    capture_control,
                 ) {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
@@ -143,6 +166,7 @@ impl Runtime {
             stop,
             wake,
             worker: Some(worker),
+            control,
         });
         let picked = self
             .portal
@@ -164,6 +188,7 @@ impl Runtime {
                 Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
             }
             "start" => self.start(r).await,
+            "watch" => self.watch(r),
             "stop" => self.stop().await,
             "ui.tree" => {
                 crate::policy::scoped_target(r.target.as_ref(), self.target.as_ref())?;

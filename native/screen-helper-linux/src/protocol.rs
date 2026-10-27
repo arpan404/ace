@@ -81,6 +81,10 @@ pub struct Request {
     /// The person at a live view sent this input, not an agent.
     #[serde(default)]
     pub person: bool,
+    /// `watch`: whether anyone is watching the capture now.
+    pub active: Option<bool>,
+    /// `start` and `watch`: the daemon's capture generation, stamped on each picture.
+    pub capture_generation: Option<u64>,
 }
 #[derive(Debug, Deserialize, Default)]
 pub struct Query {
