@@ -23,6 +23,11 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 }, 60_000);
 
+interface ComputerUse {
+  screen: import("@ace/screen").ScreenManager;
+  computer: import("@ace/screen").ComputerClient;
+}
+
 const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
 
 /**
@@ -37,11 +42,9 @@ export async function pairedMachines(
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
-    /** The target's computer use: its switch and the engine its agents drive. */
-    targetScreen?: {
-      screen: import("@ace/screen").ScreenManager;
-      computer: import("@ace/screen").ComputerClient;
-    };
+    /** Each machine's computer use: its switch and the engine its agents drive. */
+    targetScreen?: ComputerUse;
+    sourceScreen?: ComputerUse;
   } = {},
 ) {
   const target = await daemonFixture(
@@ -57,6 +60,7 @@ export async function pairedMachines(
   cleanup.push(() => target.daemon.close());
   const source = await daemonFixture(undefined, {
     browser: browser(),
+    ...options.sourceScreen,
     machines: {
       pollMs: 50,
       ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),

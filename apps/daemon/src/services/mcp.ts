@@ -251,7 +251,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { McpProviderRequest, ThreadId, type McpSources } from "@ace/protocol";
+import { McpProviderRequest, type McpSources } from "@ace/protocol";
 const mcpTypes = new Set<string>(
   McpProviderRequest.options.map((option) => option.shape.type.value),
 );
