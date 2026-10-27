@@ -20,12 +20,14 @@ import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
 import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
 import { settleSend } from "./send-recovery.ts";
+import { keepNoTakeBacks, type TakeBackLedger } from "./take-back-ledger.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
  * before the daemon confirms them, and the machine's sort.
  */
-export type InboxFollow = (() => void) & PlaceContext & { dismissed?: DismissedSends };
+export type InboxFollow = (() => void) &
+  PlaceContext & { dismissed?: DismissedSends; takeBacks?: TakeBackLedger };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -95,6 +97,8 @@ export function followInbox(
   lastSort?: HomeSort,
   /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
   dismissed: DismissedSends = keepNone,
+  /** Words on their way back to a composer (`take-back-ledger.ts`). */
+  takeBacks: TakeBackLedger = keepNoTakeBacks,
 ): InboxFollow {
   const store = owner.threads().store;
   const organizer = inboxOrganizer(owner, machineId, clock);
@@ -278,7 +282,7 @@ export function followInbox(
     checkpoint.stop();
     arm(undefined);
   };
-  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed });
+  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed, takeBacks });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -317,6 +321,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
   /** Edit: the send's full words back for the composer, once its dismissal is saved. */
   z.object({ kind: z.literal("takeBackSend"), commandId: z.string().min(1).max(256) }),
+  /** The phone has a take-back's words in its saved draft: the record can go. */
+  z.object({ kind: z.literal("takeBackAck"), id: z.string().min(1).max(128) }),
 ]);
 
 function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
@@ -351,7 +357,7 @@ export function inboxAction(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  inbox?: PlaceContext & { dismissed?: DismissedSends },
+  inbox?: PlaceContext & { dismissed?: DismissedSends; takeBacks?: TakeBackLedger },
 ): void {
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
@@ -374,7 +380,18 @@ export function inboxAction(
     action.kind === "restoreSend" ||
     action.kind === "takeBackSend"
   ) {
-    void settleSend(owner, action, requestId, pump, inbox?.dismissed);
+    void settleSend(
+      owner,
+      action,
+      requestId,
+      pump,
+      inbox?.dismissed,
+      inbox?.takeBacks ?? keepNoTakeBacks,
+    );
+    return;
+  }
+  if (action.kind === "takeBackAck") {
+    void (inbox?.takeBacks ?? keepNoTakeBacks).settle(action.id);
     return;
   }
   if (action.kind === "more") {

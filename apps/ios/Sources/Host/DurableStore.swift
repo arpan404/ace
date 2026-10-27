@@ -65,6 +65,14 @@ final class DurableStore {
             guard value.utf8.count <= 65_536 else { throw HostError.storage }
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('dismissedSends',?)", [value]) }
             return ""
+        // Words on their way back to a composer (`bridge/take-back-ledger.ts`): a plain replace,
+        // committed before the bridge removes the message they came from.
+        case "storage.takebacks.load": return try query("SELECT value FROM metadata WHERE id='takeBacks'").first ?? ""
+        case "storage.takebacks.save":
+            let value = try request.requireBody()
+            guard value.utf8.count <= 8 * 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('takeBacks',?)", [value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }

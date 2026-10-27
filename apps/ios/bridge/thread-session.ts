@@ -19,6 +19,7 @@ import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { readQueuedWords, takeBackQueued } from "./take-back.ts";
+import { keepNoTakeBacks, type TakeBackLedger } from "./take-back-ledger.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
@@ -76,6 +77,7 @@ export class ThreadSession {
   readonly #access: ThreadAccessFollower;
   /** The thread's catalog as the composer last read it, for a typed `/name`. */
   readonly #catalog: (threadId: string) => readonly CatalogEntry[] | undefined;
+  readonly #takeBacks: TakeBackLedger;
 
   constructor(
     client: ClientCore,
@@ -85,7 +87,9 @@ export class ThreadSession {
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
+    takeBacks: TakeBackLedger = keepNoTakeBacks,
   ) {
+    this.#takeBacks = takeBacks;
     this.#catalog = catalog;
     this.#client = client;
     this.#store = store;
@@ -293,8 +297,16 @@ export class ThreadSession {
         break;
       case "queueWords": {
         const id = action.requestId;
-        const run = action.takeBack ? takeBackQueued : readQueuedWords;
-        void run(this.#client, this.#threadId, action.messageId, this.#abort.signal).then((reply) =>
+        const reading = action.takeBack
+          ? takeBackQueued(
+              this.#client,
+              this.#threadId,
+              action.messageId,
+              this.#abort.signal,
+              this.#takeBacks,
+            )
+          : readQueuedWords(this.#client, this.#threadId, action.messageId, this.#abort.signal);
+        void reading.then((reply) =>
           this.#pump.put(`words:${id}`, () => ({ type: "words", id, ...reply })),
         );
         break;

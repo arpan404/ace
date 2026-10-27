@@ -20,6 +20,8 @@ export interface DismissedSends {
   dismiss(commandId: string): Promise<boolean>;
   /** Undo of a Discard: the failed send shows again. */
   restore(commandId: string): Promise<boolean>;
+  /** Resolves once the kept list has loaded (or failed to). */
+  loaded(): Promise<void>;
   /** Called with the command id each time one is dismissed or restored, and once the kept list loads. */
   observe(listener: (commandId: string | undefined) => void): () => void;
 }
@@ -44,13 +46,14 @@ export function followDismissed(native: {
     for (const listener of listeners) listener(commandId);
   };
   // Every change queues behind the load and the changes before it.
-  let turn: Promise<unknown> = native
+  const load: Promise<void> = native
     .load()
     .then((text) => {
       ids = parse(text);
       changed(undefined);
     })
     .catch(() => {});
+  let turn: Promise<unknown> = load;
   const change = (commandId: string, next: (current: readonly string[]) => readonly string[]) => {
     const run = turn.then(async () => {
       const updated = next(ids);
@@ -69,6 +72,7 @@ export function followDismissed(native: {
   };
   return {
     has: (commandId) => ids.includes(commandId),
+    loaded: () => load,
     dismiss: (commandId) =>
       change(commandId, (current) =>
         current.includes(commandId) ? current : [...current, commandId].slice(-limit),
@@ -87,6 +91,7 @@ export function followDismissed(native: {
 /** Nothing kept: a runtime without the store (tests, older hosts). */
 export const keepNone: DismissedSends = {
   has: () => false,
+  loaded: async () => {},
   dismiss: async () => false,
   restore: async () => false,
   observe: () => () => {},
