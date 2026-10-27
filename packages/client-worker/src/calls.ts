@@ -290,7 +290,14 @@ export function iterateArgs(
       z.tuple([
         TextSource,
         RequestOptions.extend({
-          offset: z.number().int().nonnegative().multipleOf(2).optional(),
+          // Not `.multipleOf(2)`: browser builds leave it out (apps/web/zod-methods.ts).
+          // Offsets are utf-16le bytes, so they must be even.
+          offset: z
+            .number()
+            .int()
+            .nonnegative()
+            .refine((value) => value % 2 === 0)
+            .optional(),
         }).optional(),
       ]),
       args,
