@@ -39,7 +39,9 @@ import XCTest
         screenshot("agent-installed")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch.tap()
+        let byCommand = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch
+        for _ in 0..<6 where !byCommand.isHittable { app.swipeDown() }
+        byCommand.tap()
         let name = app.textFields["Name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         name.tap(); name.typeText("My agent")
@@ -47,14 +49,16 @@ import XCTest
         command.tap(); command.typeText("npx my-agent")
         XCTAssertTrue(app.staticTexts["Use the agent's installed command, not a package runner like npx."].waitForExistence(timeout: 10))
         screenshot("manual-problem")
-        command.buttons["Clear text"].tap()
+        command.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20))
         command.typeText("fake-acp --acp")
-        let addAgent = app.buttons["Add agent"].firstMatch
+        let matches = app.buttons.matching(identifier: "Add agent")
+        let addAgent = matches.element(boundBy: max(matches.count - 1, 0))
         XCTAssertTrue(addAgent.waitForEnabled(timeout: 10))
         addAgent.tap()
         XCTAssertTrue(app.staticTexts["Add My agent?"].waitForExistence(timeout: 10))
         screenshot("manual-confirm")
-        app.buttons["Add agent"].firstMatch.tap()
+        let confirm = app.buttons.matching(identifier: "Add agent")
+        confirm.element(boundBy: confirm.count - 1).tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch.waitForExistence(timeout: 20))
     }
 
