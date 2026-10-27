@@ -159,6 +159,7 @@ export * from "./fork-point.ts";
 export * from "./continuation.ts";
 export * from "./edit-point.ts";
 export * from "./resend.ts";
+export * from "./tex-text.ts";
 export {
   composerInput,
   editComposerTokens,
