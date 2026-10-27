@@ -62,6 +62,7 @@ export class FakeStorageWire {
           reclaimableDatabaseBytes: this.database.reclaimable,
           measuredAt: this.host.now(),
           complete: true,
+          backups: [],
         },
       };
     else if (op.op === "cleanup.plan") {

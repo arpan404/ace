@@ -812,6 +812,40 @@
         {
           "properties": {
             "op": {
+              "const": "workspace.origin",
+              "type": "string"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "workspaces.match",
+              "type": "string"
+            },
+            "url": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
               "const": "thread.details",
               "type": "string"
             },

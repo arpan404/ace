@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
   worktreeMetadata,
@@ -432,6 +433,9 @@ export class GitService {
   }
   inspectWorktreeCleanup(repo: string, path: string) {
     return inspectWorktreeCleanup(this.repository, repo, path);
+  }
+  backupWorktree(repo: string, path: string, check: () => void = () => {}) {
+    return backupWorktree(this.repository, repo, path, check);
   }
   cleanupWorktree(input: WorktreeCleanupInput, beforeRemove?: () => void) {
     return cleanupWorktree(this.repository, input, beforeRemove);

@@ -106,6 +106,53 @@
         },
         {
           "properties": {
+            "kind": {
+              "const": "origin",
+              "type": "string"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "match",
+              "type": "string"
+            },
+            "workspaceId": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "details": {
               "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
             },

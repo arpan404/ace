@@ -6,6 +6,8 @@
     "within_retention",
     "archived_thread",
     "not_archived",
+    "not_settled",
+    "not_merged",
     "pinned",
     "active_tree",
     "pending_input",

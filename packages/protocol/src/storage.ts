@@ -30,6 +30,8 @@ export const StorageRetention = z.object({
   caches: days.default(7),
   /** Automatic data retention also removes idle threads that were never archived. */
   idleThreads: z.boolean().default(false),
+  /** Settled cleanup measures from settlement; all_settled is an explicit manual preview. */
+  worktreeMode: z.enum(["archived", "settled", "all_settled"]).optional(),
 });
 export type StorageRetention = z.infer<typeof StorageRetention>;
 export const StorageReason = z.enum([
@@ -37,6 +39,8 @@ export const StorageReason = z.enum([
   "within_retention",
   "archived_thread",
   "not_archived",
+  "not_settled",
+  "not_merged",
   "pinned",
   "active_tree",
   "pending_input",
@@ -96,6 +100,17 @@ export const StorageUsage = z.object({
   reclaimableDatabaseBytes: bytes,
   measuredAt: bytes,
   complete: z.boolean(),
+  backups: z
+    .array(
+      z.object({
+        path: z.string().max(4096),
+        state: z.enum(["complete", "failed"]),
+        updatedAt: bytes,
+        error: z.string().max(128).optional(),
+      }),
+    )
+    .max(256)
+    .default([]),
 });
 export type StorageUsage = z.infer<typeof StorageUsage>;
 export const StoragePlan = z.object({

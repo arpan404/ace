@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { textOutput } from "./cli.ts";
+import { decode, hashSchema } from "./decode.ts";
 import { ignoredPaths } from "./nested.ts";
 import { statusWithoutHidingFlags } from "./temporary-index.ts";
 import type { Repository } from "./repository.ts";
@@ -25,6 +26,7 @@ export interface WorktreeCleanupState {
   locked: boolean;
   dirty: boolean;
   unpushed: boolean;
+  mergedIntoMain: boolean;
 }
 const Input = z.object({
   repo: z.string().min(1).max(4096),
@@ -57,6 +59,7 @@ async function inspect(
   }
   let dirty = false;
   let unpushed = true;
+  let mergedIntoMain = false;
   let status: unknown;
   let ignored: string[] = [];
   if (!missing) {
@@ -78,6 +81,34 @@ async function inspect(
   // when a remote-tracking ref or another local branch has it; a repository with no remote
   // still keeps commits its other branches contain.
   if (tree.head) {
+    const main = await repository.cli.call(
+      root,
+      ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"],
+      { allowFailure: true },
+    );
+    if (main.exitCode === 0) {
+      const mainHead = textOutput(main);
+      const ancestor = await repository.cli.call(
+        root,
+        ["merge-base", "--is-ancestor", tree.head, mainHead],
+        { allowFailure: true },
+      );
+      mergedIntoMain = ancestor.exitCode === 0;
+      if (!mergedIntoMain) {
+        // A configured diff can hide tracked gitlink changes. Object IDs cover the full tree.
+        const commitTrees = await repository.cli.call(root, [
+          "rev-parse",
+          `${tree.head}^{tree}`,
+          `${mainHead}^{tree}`,
+        ]);
+        const [worktreeTree, mainTree] = decode(
+          z.tuple([hashSchema, hashSchema]),
+          textOutput(commitTrees).split("\n"),
+          "commit trees",
+        );
+        mergedIntoMain = worktreeTree === mainTree;
+      }
+    }
     const unpublished = await repository.cli.call(root, [
       "rev-list",
       "--count",
@@ -93,7 +124,9 @@ async function inspect(
     ? { bytes: 0, modifiedAt: 0, digest: "missing" }
     : await worktreeFootprint(path);
   const fingerprint = createHash("sha256")
-    .update(JSON.stringify({ tree, identity, status, ignored, unpushed, footprint }))
+    .update(
+      JSON.stringify({ tree, identity, status, ignored, unpushed, mergedIntoMain, footprint }),
+    )
     .digest("hex");
   return {
     bytes: footprint.bytes,
@@ -107,6 +140,7 @@ async function inspect(
     locked: tree.locked !== null,
     dirty,
     unpushed,
+    mergedIntoMain,
   };
 }
 
@@ -150,7 +184,7 @@ export function cleanupWorktree(
           throw new WorktreeRemovalRefused("main_worktree", "Main worktree is protected");
         if (state.locked)
           throw new WorktreeRemovalRefused("dirty_worktree", "Locked worktree is protected");
-        if (!value.force && (state.dirty || state.unpushed))
+        if (!value.force && (state.dirty || (state.unpushed && !state.mergedIntoMain)))
           throw new WorktreeRemovalRefused(
             "dirty_worktree",
             "Worktree contains uncommitted or unpublished work",

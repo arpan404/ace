@@ -225,6 +225,9 @@
         },
         "machine": {
           "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
             "machine": {
               "maxLength": 64,
               "minLength": 1,

@@ -84,3 +84,22 @@ test("automatic retention removes an idle unarchived thread past the window but 
       ).reasons,
     ).toEqual([reason]);
 });
+test("archived cleanup keeps a settled but unarchived thread's worktree; settled cleanup frees it", () => {
+  const settled: StorageCandidate = {
+    ...candidate,
+    settledAt: 0,
+    mergedIntoMain: true,
+    openThreads: true,
+  };
+  expect(planStorageItem(settled, retention, now, new Set())).toMatchObject({
+    disposition: "protect",
+    reasons: ["live_thread"],
+  });
+  expect(
+    planStorageItem(settled, StorageRetention.parse({ worktreeMode: "settled" }), now, new Set())
+      .disposition,
+  ).toBe("remove");
+  expect(
+    planStorageItem({ ...settled, openThreads: false }, retention, now, new Set()).disposition,
+  ).toBe("remove");
+});

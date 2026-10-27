@@ -16,6 +16,10 @@ const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "x
 export const SettingsValues = z.object({
   "storage.retention": StorageRetention,
   "storage.scheduledCleanup": z.boolean(),
+  /** Null disables automatic worktree removal. Age starts at the latest owner settlement. */
+  "storage.worktreeRetentionDays": RetentionDays.nullable(),
+  /** Commit non-ignored changes and push settled, unmerged worktrees to origin. */
+  "storage.backupWorktrees": z.boolean(),
   /** Automatic data retention window in days. Idle threads, unused attachments and logs older than it are removed. */
   "storage.retentionDays": RetentionDays,
   /** Disk cap in bytes for each log stream, rotated segments included. */

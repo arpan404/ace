@@ -13,6 +13,8 @@ export const storageReasons: Record<StorageReason, string> = {
   within_retention: "Still within retention",
   archived_thread: "Old archived thread",
   not_archived: "Thread is not archived",
+  not_settled: "Thread is not settled",
+  not_merged: "Branch has changes outside origin/main",
   pinned: "Pinned thread",
   active_tree: "Thread or task tree still has work",
   pending_input: "Queued, held or unacknowledged input",
@@ -43,3 +45,5 @@ export function storageBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
+
+export const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
