@@ -20,6 +20,7 @@ import {
   consentLink,
   consentLinkFailureCopy,
   currentProductionGrant,
+  elicitationInvalidCopy,
   elicitationMode,
   elicitationResolution,
   elicitationUnsupported,
@@ -923,4 +924,42 @@ it("an unsafe consent page still declines: decline and cancel always fit", () =>
     kind: "elicitation",
     action: "cancel",
   });
+});
+
+it("an invalid elicitation accept names the problem and never reaches the wire", async () => {
+  // Matches the iOS bridge refusal so the tap notifies instead of a silent no-op.
+  expect(elicitationInvalidCopy).toBe("That doesn't fit the request. Check what you entered.");
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const formId = seedElicitation(daemon);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    let request: ElicitationRequest | undefined;
+    try {
+      await until(() => lease.store.interaction(formId) !== undefined);
+      const row = lease.store.interaction(formId);
+      if (row?.request.kind !== "elicitation") throw new Error("Seeded form missing.");
+      request = row.request;
+    } finally {
+      lease.release();
+    }
+    if (!request || request.kind !== "elicitation") throw new Error("Seeded form missing.");
+    const before = sent.length;
+    await expect(
+      resolveProductionElicitation(produced, "host-1", formId, request, "accept", {
+        region: "xx",
+      }),
+    ).rejects.toThrow();
+    expect(sent.length).toBe(before);
+    const check = produced.runtimeForReading("host-1").thread(THREAD);
+    try {
+      await until(() => check.store.interaction(formId) !== undefined);
+      expect(check.store.interaction(formId)?.state).toBe("pending");
+    } finally {
+      check.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
 });

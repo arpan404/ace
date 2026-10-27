@@ -196,6 +196,15 @@ export function consentLink(request: Pick<ElicitationRequest, "url">): string | 
 export const consentLinkFailureCopy = "That consent page could not be opened.";
 
 /**
+ * Screen copy when an elicitation accept does not fit the request.
+ * Matches the iOS bridge refusal (`thread-session.ts` resolve case) so an
+ * invalid accept notifies instead of doing nothing. Invalid values never
+ * reach the wire: `elicitationResolution` stays undefined and
+ * `buildElicitationResolvePayload` throws.
+ */
+export const elicitationInvalidCopy = "That doesn't fit the request. Check what you entered.";
+
+/**
  * Open a url-mode elicitation's consent page through the transcript's
  * web-link opener, failing visibly. Unsafe addresses never reach the opener
  * (the card already tells the person to decline those); a refused open

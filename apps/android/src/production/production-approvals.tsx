@@ -44,6 +44,7 @@ import {
   canTapProductionCard,
   consentLink,
   currentProductionGrant,
+  elicitationInvalidCopy,
   elicitationMode,
   elicitationResolution,
   elicitationUnsupported,
@@ -709,7 +710,13 @@ export function ProductionElicitationCard({
     const current = Object.fromEntries(
       fields.map((field) => [field.key, values[field.key] ?? field.initial]),
     );
-    if (elicitationResolution(request, action, current) === undefined) return;
+    // Invalid accepts never reach the wire: notify like the iOS bridge
+    // ("That doesn't fit the request...") instead of a silent no-op.
+    // Decline and cancel always fit, so this only fires on invalid accept.
+    if (elicitationResolution(request, action, current) === undefined) {
+      notify(elicitationInvalidCopy);
+      return;
+    }
     const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
     const freshState = freshProductionInteractionState(store, interaction.id);
     if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
