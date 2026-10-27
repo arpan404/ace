@@ -7,7 +7,8 @@ import {
   type CatalogModel,
   type ProviderKind,
 } from "@ace/protocol";
-import { executionModelId, matchesModel, searchModels } from "@ace/models";
+import { compareVersions, executionModelId, matchesModel, searchModels } from "@ace/models";
+import { accountForName, type NamedAccount } from "./account-names.ts";
 
 /** One account as the catalog reports it, already checked against the caller's access. */
 export interface RosterAccount {
@@ -30,6 +31,8 @@ export interface RosterInput {
   accounts: readonly RosterAccount[];
   caller: { access: AccessMode | null; provider: ProviderKind; model?: string };
   query?: string | undefined;
+  /** The accounts `delegate` resolves a name against; `accounts` and their labels when absent. */
+  named?: readonly NamedAccount[] | undefined;
 }
 
 /** A provider lists at most this many models by default; the rest are one query away. */
@@ -44,6 +47,8 @@ interface Merged {
   accounts: string[];
   defaultOn: string[];
   legacy: boolean;
+  /** Some account calls it superseded, so a newer release of its line exists there. */
+  supersededSomewhere: boolean;
   pinned: boolean;
 }
 
@@ -83,12 +88,14 @@ function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merge
       accounts: [],
       defaultOn: [],
       legacy: isLegacy(model),
+      supersededSomewhere: false,
       pinned: false,
     };
     byModel.set(key, entry);
     if (!entry.accounts.includes(account)) entry.accounts.push(account);
     if (model.isDefault) entry.defaultOn.push(account);
     entry.legacy &&= isLegacy(model);
+    entry.supersededSomewhere ||= isLegacy(model);
     entry.pinned ||=
       model.favourite === true ||
       (model.isDefault && model.defaultSource === "user") ||
@@ -97,18 +104,34 @@ function merge(rows: readonly RosterRow[], caller: RosterInput["caller"]): Merge
   return [...byModel.values()];
 }
 
-/** Current models in catalog order; a long list keeps pinned and default ones plus one per line. */
+/** Whether `a` is a newer release of its line than `b`: by version, else not superseded anywhere. */
+function newer(a: Merged, b: Merged): boolean {
+  const versions =
+    a.first.version && b.first.version ? compareVersions(a.first.version, b.first.version) : 0;
+  if (versions) return versions > 0;
+  return !a.supersededSomewhere && b.supersededSomewhere;
+}
+
+/**
+ * Current models in catalog order. A long list keeps every pinned and default model, then the
+ * newest current release of each line across all accounts in catalog order, up to the cap. A
+ * pinned or default model never takes its line's place: the line's newest release still shows.
+ */
 function listed(models: readonly Merged[]): Merged[] {
   const keep = models.filter((model) => model.pinned || model.defaultOn.length || !model.legacy);
   if (keep.length <= defaultModelsPerProvider) return keep;
+  const newest = new Map<string, Merged>();
+  for (const model of keep) {
+    if (model.legacy) continue;
+    const family = familyOf(model.first);
+    const held = newest.get(family);
+    if (!held || newer(model, held)) newest.set(family, model);
+  }
   const chosen = new Set(keep.filter((model) => model.pinned || model.defaultOn.length));
-  const families = new Set([...chosen].map((model) => familyOf(model.first)));
+  const lines = new Set(newest.values());
   for (const model of keep) {
     if (chosen.size >= defaultModelsPerProvider) break;
-    const family = familyOf(model.first);
-    if (model.legacy || families.has(family)) continue;
-    families.add(family);
-    chosen.add(model);
+    if (lines.has(model)) chosen.add(model);
   }
   return keep.filter((model) => chosen.has(model));
 }
@@ -144,15 +167,14 @@ function accountEntry(
   };
 }
 
-/** How a set names an account: its label when no other account shares it, else its id. */
-function accountNames(accounts: readonly RosterAccount[]) {
-  const counts = new Map<string, number>();
-  const key = (account: RosterAccount) => account.accountLabel?.trim().toLowerCase() ?? "";
-  for (const account of accounts) counts.set(key(account), (counts.get(key(account)) ?? 0) + 1);
+/**
+ * How a set names an account: its label when `delegate` would resolve that label to this very
+ * account (no account has it as an id, and no other account shares it), else its id.
+ */
+function accountNames(accounts: readonly RosterAccount[], named: readonly NamedAccount[]) {
   return (id: string) => {
-    const account = accounts.find((entry) => entry.accountId === id);
-    const label = account?.accountLabel?.trim();
-    return account && label && counts.get(key(account)) === 1 ? label : id;
+    const label = accounts.find((entry) => entry.accountId === id)?.accountLabel?.trim();
+    return label && accountForName(named, undefined, label)?.id === id ? label : id;
   };
 }
 
@@ -160,15 +182,19 @@ function providerGroup(
   provider: ProviderKind,
   accounts: readonly RosterAccount[],
   shown: readonly Merged[],
+  all: readonly Merged[],
   omitted: number,
   context: { usual: string; nameOf: (id: string) => string },
 ): AgentModelsProvider {
   const ids = accounts.map((account) => account.accountId);
+  // Defaults come from the whole catalogue, so a query that finds one account's default never
+  // makes it the provider's.
   const defaults = new Map<string, string>();
-  for (const model of shown)
+  for (const model of all)
     for (const account of model.defaultOn)
       if (!defaults.has(account)) defaults.set(account, model.id);
-  const shared = new Set(defaults.values()).size === 1 ? [...defaults.values()][0] : undefined;
+  const agreed = new Set(ids.map((id) => defaults.get(id)));
+  const shared = agreed.size === 1 ? [...agreed][0] : undefined;
   const sets = new Map<string, AgentModelsSet>();
   for (const model of shown) {
     const efforts = effortsOf(model.first);
@@ -221,7 +247,17 @@ function sharedEfforts(groups: readonly AgentModelsProvider[]): string | undefin
 export function modelRoster(input: RosterInput): AgentModelRoster {
   const { caller } = input;
   const merged = merge(input.rows, caller);
-  const context = { usual: usualAccess(caller.access), nameOf: accountNames(input.accounts) };
+  const named =
+    input.named ??
+    input.accounts.map((account) => ({
+      id: account.accountId,
+      label: account.accountLabel ?? "",
+      provider: account.provider,
+    }));
+  const context = {
+    usual: usualAccess(caller.access),
+    nameOf: accountNames(input.accounts, named),
+  };
   const own = input.rows.find(({ model }) => callerModel(model, caller));
   const groups = (chosen: readonly Merged[], omitted: (provider: ProviderKind) => number) => {
     const providers = [
@@ -241,6 +277,7 @@ export function modelRoster(input: RosterInput): AgentModelRoster {
         provider,
         input.accounts.filter((account) => account.provider === provider),
         chosen.filter((model) => model.provider === provider),
+        merged.filter((model) => model.provider === provider),
         omitted(provider),
         context,
       ),
