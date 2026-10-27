@@ -38,6 +38,9 @@ struct DeviceMenu: View {
     let canOperate: Bool
     let canDrive: Bool
     let busy: Bool
+    /// This phone's viewing choices.
+    @Binding var screenOnly: Bool
+    @Binding var showStats: Bool
     let open: (DeviceSheet) -> Void
     let key: (String) -> Void
     let operate: ([String: Any]) -> Void
@@ -50,6 +53,12 @@ struct DeviceMenu: View {
             Section {
                 Button("Logs", ace: .fileMagnifyingGlass) { open(.logs) }
                 Button("UI tree", ace: .treeView) { open(.tree) }
+            }
+            Section {
+                Toggle(isOn: $screenOnly) { Label("Screen only", ace: .frameCorners) }
+                    .accessibilityIdentifier("devices.screenOnly")
+                Toggle(isOn: $showStats) { Label("Stream stats", ace: .gauge) }
+                    .accessibilityIdentifier("devices.streamStats")
             }
             if let info {
                 Section {
@@ -206,5 +215,29 @@ struct DeviceScreenshotSheet: View {
                 }
         }
         .presentationDetents([.large])
+    }
+}
+
+/// The live stream's stats over the stage, on glass: "H.264 · 59 fps", then what arrived and was
+/// drawn, the bit rate, the longest stall and the keyframes asked for. Never takes a touch.
+struct StreamStatsCard: View {
+    let stats: DeviceStreamStats?
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            Text(stats?.summary.isEmpty == false ? stats?.summary ?? "" : "H.264")
+                .aceFont(AceTheme.Typography.label, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.foreground)
+            ForEach(stats?.details ?? ["Waiting for the first picture"], id: \.self) { line in
+                Text(line).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption2)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
+        }
+        .monospacedDigit()
+        .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
+        .aceGlass(in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+        .padding(AceTheme.Spacing.md)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("devices.stats")
     }
 }

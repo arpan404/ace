@@ -11,6 +11,8 @@ struct BrowserMenu: View {
     @Binding var sheet: BrowserSheet?
     @Binding var finding: Bool
     @Binding var clearing: Bool
+    var split: Binding<String?>? = nil
+    var pip: () -> Void = {}
     let screenshot: (Bool) -> Void
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
@@ -93,6 +95,23 @@ struct BrowserMenu: View {
                         Button("Record the page", ace: .record) { model.browserRecord(true) }
                             .disabled(kept)
                             .accessibilityIdentifier("browser.menu.record")
+                    }
+                    if model.browser.canPictureInPicture {
+                        Button(model.browser.pictureInPicture ? "Exit Picture in Picture" : "Picture in Picture", ace: .pictureInPicture, action: pip)
+                            .disabled(!page)
+                            .accessibilityIdentifier("browser.menu.pip")
+                    }
+                    if let split {
+                        if split.wrappedValue != nil {
+                            Button("Close split view", ace: .squareSplitHorizontal) { split.wrappedValue = nil }
+                        } else {
+                            let others = (state?.tabs ?? []).filter { $0.id != tabId }
+                            Menu {
+                                ForEach(others) { other in Button(other.title) { split.wrappedValue = other.id } }
+                            } label: { Label("Open in split view", ace: .squareSplitHorizontal) }
+                            .disabled(others.isEmpty)
+                            .accessibilityIdentifier("browser.menu.split")
+                        }
                     }
                     Button("New tab", ace: .plusSquare) { model.browserNewTab() }
                     Button("Close tab", ace: .xSquare, role: .destructive) { model.browserCloseTab(tabId) }

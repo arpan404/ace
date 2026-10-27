@@ -65,7 +65,8 @@ targets:
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
-        UIBackgroundModes: [fetch]
+        # audio: Picture in Picture of the live browser page keeps playing in the background.
+        UIBackgroundModes: [fetch, audio]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
           # Paired daemons use self-signed keys at user-chosen IPs, including Tailscale.

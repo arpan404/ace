@@ -8,6 +8,9 @@ struct BrowserBar: View {
     @Binding var sheet: BrowserSheet?
     @Binding var finding: Bool
     @Binding var clearing: Bool
+    /// iPad: the tab beside the live one; nil where there's no room for a split.
+    var split: Binding<String?>? = nil
+    var pip: () -> Void = {}
     let screenshot: (Bool) -> Void
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
@@ -37,7 +40,7 @@ struct BrowserBar: View {
                 .accessibilityLabel("Tabs")
                 .accessibilityValue("\(state?.tabs.count ?? 0)")
                 .accessibilityIdentifier("browser.tabs")
-                BrowserMenu(model: model, sheet: $sheet, finding: $finding, clearing: $clearing, screenshot: screenshot)
+                BrowserMenu(model: model, sheet: $sheet, finding: $finding, clearing: $clearing, split: split, pip: pip, screenshot: screenshot)
             }
             .aceGlass(in: AceShape.capsule, interactive: true)
         }

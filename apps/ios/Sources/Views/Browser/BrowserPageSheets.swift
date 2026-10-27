@@ -172,12 +172,12 @@ struct BrowserSizesSheet: View {
             .animation(AceTheme.Motion.standardCurve, value: asked)
             .animation(AceTheme.Motion.standardCurve, value: model.browser.sizes)
             .background(AceTheme.Colours.background)
-            .navigationTitle("Screenshot at sizes").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Screenshots").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 SheetClose()
                 if !asked || model.browser.sizes?.images?.isEmpty == true {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Take screenshots") {
+                        Button("Take") {
                             asked = true
                             model.browserSizes(Self.sizes.map(\.id).filter { chosen.contains($0) })
                         }

@@ -33,6 +33,7 @@ import { phoneDeviceStorage } from "./browser-device.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks, Picked } from "./thread-attachments.ts";
 import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
+import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -103,6 +104,7 @@ let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
 let access: ComputerAccess | undefined;
 const pump = new PatchPump();
+const deviceStats = new DeviceStats(pump);
 /**
  * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
  * 4 Mi UTF-16 units go too, the oldest first.
@@ -294,6 +296,11 @@ function action(json: string): void {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
+      return;
+    }
+    const statsControl = DeviceStatsControl.safeParse(raw);
+    if (statsControl.success) {
+      deviceStats.handle(statsControl.data);
       return;
     }
     const accessControl = ComputerAccessControl.safeParse(raw);

@@ -35,6 +35,9 @@ struct DeviceScreen: View {
     @State private var seen: Int?
     @State private var autoStarted = false
     @State private var handle = DeviceSurfaceHandle()
+    /// This phone's viewing choices: the screen without its drawn hardware, and the stream's stats.
+    @AppStorage("ace.devices.screenOnly") private var screenOnly = false
+    @AppStorage("ace.devices.streamStats") private var showStats = false
     @FocusState private var fieldFocused: Bool
     private var devices: DevicesModel { model.devices }
     private var info: DeviceScreenInfo? { devices.view?.device.flatMap { $0.id == deviceId ? $0 : nil } }
@@ -54,6 +57,12 @@ struct DeviceScreen: View {
             .task(id: info?.live == true && scene == .active) {
                 if info?.live == true, scene == .active { await devices.watchPictures(model, deviceId: deviceId) }
             }
+            .task(id: showStats && info?.live == true && scene == .active) {
+                guard showStats, info?.live == true, scene == .active else { return }
+                await sampleStats()
+            }
+            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: screenOnly)
+            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: showStats)
             .onChange(of: info?.running == true && info?.live == false && info?.busy == false) { _, idle in autoStart(idle) }
             .onChange(of: info?.activity?.sequence) { _, _ in showActivity() }
             .onAppear { seen = info?.activity?.sequence }
@@ -82,11 +91,13 @@ struct DeviceScreen: View {
                 // picture's own rotation, else a landscape picture means turned to the right.
                 let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
                 Group {
-                    if info.framed == true {
+                    if info.framed == true || screenOnly {
                         // The picture wears the device's own bezel: one frame, not two.
                         stageScreen(info, size: size)
                             .aspectRatio(size, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: screenOnly && info.framed != true ? AceTheme.Radii.composer : 0, style: .continuous))
                             .frame(maxWidth: room.width, maxHeight: room.height)
+                            .transition(.opacity)
                     } else if let look = chromeLook(info, picture: size) {
                         DeviceChromeFrameView(look: look, turn: turn, room: room, enabled: canDrive, press: { key($0) }) {
                             stageScreen(info, size: size)
@@ -98,6 +109,9 @@ struct DeviceScreen: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    if showStats, info.live { StreamStatsCard(stats: devices.stats?.deviceId == deviceId ? devices.stats : nil).transition(.opacity) }
+                }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel("Loading \(name)")
             }
@@ -110,7 +124,8 @@ struct DeviceScreen: View {
             Color.black
             if info.live {
                 DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
+                              label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 },
+                              sampler: devices.live.sampler) { from, to in
                     devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
                 }
                 ripple(size)
@@ -290,9 +305,29 @@ struct DeviceScreen: View {
             }
             .disabled(!canDrive).accessibilityIdentifier("devices.type")
             DeviceMenu(info: info, canOperate: model.canOperate && model.connection == "ready", canDrive: canDrive, busy: devices.busy,
+                       screenOnly: $screenOnly, showStats: $showStats,
                        open: { sheet = $0 }, key: key, operate: { operate($0) }, boot: boot,
                        screenshot: { if let image = handle.snapshot() { sheet = .screenshot(image) } },
                        shutdown: { confirmShutdown = true })
+        }
+    }
+
+    /// While the stats show: about once a second, what the stream did goes to the bridge to be
+    /// worded; leaving stops the counting and forgets the stats.
+    private func sampleStats() async {
+        let sampler = devices.live.sampler
+        sampler.enabled = true
+        defer {
+            sampler.enabled = false
+            devices.stats = nil
+            model.action(["type": "native.devices.stats", "deviceId": deviceId, "stop": true, "now": Date().timeIntervalSince1970 * 1000])
+        }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(1))
+            if Task.isCancelled { return }
+            let (batch, now) = sampler.drain()
+            model.action(["type": "native.devices.stats", "deviceId": deviceId, "now": now,
+                          "drawn": batch.drawn, "received": batch.received, "keyframes": batch.keyframes])
         }
     }
 
