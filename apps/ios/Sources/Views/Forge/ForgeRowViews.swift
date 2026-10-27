@@ -15,152 +15,117 @@ struct ForgeRoute: Hashable {
     var repository: ForgeRepository?
 }
 
-/// One pull request (the web's list row, laid out for the phone): glyph, number, labels and its
-/// review, checks and comments; the title; then author, branches and thread, and on the right
-/// its next step (only the viewer's steps take the needs-you colour) or what it waits on, and
-/// its age.
+/// One pull request, in the thread row's shape (`InboxThreadRow`): its state glyph beside the
+/// title and its age, then one quiet line with the number, the author and its next step (only the
+/// viewer's steps take the needs-you colour), or what it waits on. Review and checks are two
+/// small marks at the end. Labels, comments, line counts and branches live on its page.
 struct ForgePullRowView: View {
     let row: ForgePullRow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: 15)
-                Text(verbatim: "#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                ForgeLabels(labels: row.labels, limit: 2)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if let review = row.review { ForgeStateMark(kind: .review, mark: review) }
-                if let checks = row.checks { ForgeStateMark(kind: .checks, mark: checks) }
-                ForgeComments(count: row.comments)
-                if let additions = row.additions, let deletions = row.deletions {
-                    ForgeDiffStat(additions: additions, deletions: deletions)
-                }
-            }
-            Text(row.title)
-                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                .openRowTitle()
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .lineLimit(2)
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Text(row.author).lineLimit(1)
-                if let branches = row.branches {
-                    Text(branches).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .lineLimit(1)
-                        .layoutPriority(-1)
-                }
-                if let thread = row.thread { ForgeThreadChip(thread: thread) }
-                Spacer(minLength: AceTheme.Spacing.sm)
-                ForgeRowStep(step: row.step, needsYou: row.stepNeedsYou, quiet: row.quiet, updatedAt: row.updatedAt)
-            }
-            .meta(AceTheme.Colours.subtleForeground)
+        ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
+            ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: 15)
+        } line: {
+            ForgeRowLine(number: row.number, author: row.author, step: row.step, needsYou: row.stepNeedsYou,
+                         quiet: row.quiet, thread: row.thread)
+        } marks: {
+            if let review = row.review { ForgeStateMark(kind: .review, mark: review) }
+            if let checks = row.checks { ForgeStateMark(kind: .checks, mark: checks) }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 }
 
-/// One issue: glyph, number, labels, comments and assignees; the title; then author, milestone
-/// and thread, and its age.
+/// One issue, in the same shape: glyph, title and age, then the number, the author and its
+/// milestone.
 struct ForgeIssueRowView: View {
     let row: ForgeIssueRow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                ForgeIssueGlyph(state: row.state, size: 15)
-                Text(verbatim: "#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                ForgeLabels(labels: row.labels, limit: 2)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                ForgeComments(count: row.comments)
-                if !row.assignees.isEmpty {
-                    HStack(spacing: AceTheme.Spacing.xxs) {
-                        AceIcon(.user, size: 13, relativeTo: .footnote)
-                        Text(row.assignees.count == 1 ? row.assignees[0] : row.assignees.count.formatted()).lineLimit(1)
-                    }
-                    .meta(AceTheme.Colours.subtleForeground)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Assigned to \(row.assignees.joined(separator: ", "))")
+        ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
+            ForgeIssueGlyph(state: row.state, size: 15)
+        } line: {
+            ForgeRowLine(number: row.number, author: row.author, step: nil, needsYou: false, quiet: row.milestone, thread: row.thread)
+        } marks: {
+            EmptyView()
+        }
+    }
+}
+
+/// A forge row laid out as a thread row: the glyph in the mark column, the title (heavier while
+/// open) with its age, and the line under it ending in its marks.
+private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
+    let title: String
+    let updatedAt: Double?
+    @ViewBuilder let glyph: () -> Glyph
+    @ViewBuilder let line: () -> Line
+    @ViewBuilder let marks: () -> Marks
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
+            glyph().alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                    Text(title)
+                        .aceFont(InboxRowType.title, relativeTo: .body)
+                        .openRowTitle()
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    if let updatedAt { ForgeRowAge(updatedAt: updatedAt) }
                 }
+                HStack(alignment: .center, spacing: AceTheme.Spacing.xs) {
+                    line()
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    HStack(spacing: AceTheme.Spacing.sm) { marks() }.fixedSize().layoutPriority(2)
+                }
+                .aceFont(InboxRowType.line, relativeTo: .subheadline)
             }
-            Text(row.title)
-                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                .openRowTitle()
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .lineLimit(2)
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Text(row.author).lineLimit(1)
-                if let milestone = row.milestone { Text(milestone).lineLimit(1) }
-                if let thread = row.thread { ForgeThreadChip(thread: thread) }
-                Spacer(minLength: AceTheme.Spacing.sm)
-                ForgeRowStep(step: nil, needsYou: false, quiet: nil, updatedAt: row.updatedAt)
-            }
-            .meta(AceTheme.Colours.subtleForeground)
         }
         .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+        .padding(.vertical, AceTheme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// The thread working on it, by name; a thread waiting on the person says so in its colour.
-struct ForgeThreadChip: View {
-    let thread: ForgeThreadLink
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.xxs) {
-            AceIcon(.chats, size: 12, relativeTo: .footnote)
-            Text(thread.title).lineLimit(1)
-        }
-        .foregroundStyle(thread.needsYou ? AceTone.needsYou.text : AceTheme.Colours.subtleForeground)
-        .layoutPriority(-2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(thread.needsYou ? "Thread \(thread.title), needs you" : "Thread \(thread.title)")
-    }
-}
-
-struct ForgeComments: View {
-    let count: Int
-    var body: some View {
-        if count > 0 {
-            HStack(spacing: AceTheme.Spacing.xxs) {
-                AceIcon(.chatCircle, size: 13, relativeTo: .footnote)
-                Text(count.formatted()).monospacedDigit()
-            }
-            .meta(AceTheme.Colours.subtleForeground)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(count) comments")
-        }
-    }
-}
-
-/// The row's trailing words: its step (the viewer's in the needs-you colour, others in muted
-/// ink), or what it waits on, then its age.
-struct ForgeRowStep: View {
+/// "#412 · arpan · Review requested": the number, the author, then the step (or what it waits
+/// on). A linked thread that needs the person says so in its place when nothing else does.
+private struct ForgeRowLine: View {
+    let number: Int
+    let author: String
     let step: String?
     let needsYou: Bool
     let quiet: String?
-    let updatedAt: Double?
+    let thread: ForgeThreadLink?
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            if let step {
-                Text(step).fontWeight(.medium)
-                    .foregroundStyle(needsYou ? AceTone.needsYou.text : AceTheme.Colours.mutedForeground)
-                    .lineLimit(1)
-            } else if let quiet {
-                Text(quiet).lineLimit(1)
-            }
-            if let updatedAt {
-                TimelineView(.everyMinute) { context in
-                    Text(ActivityTime.age(since: Date(timeIntervalSince1970: updatedAt / 1000), now: context.date))
-                        .monospacedDigit()
-                }
-            }
+        Text(verbatim: "#\(number)").monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize()
+        Text("· \(author)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).layoutPriority(-1)
+        if let step {
+            Text("· \(step)")
+                .fontWeight(needsYou ? .medium : .regular)
+                .foregroundStyle(needsYou ? AceTone.needsYou.text : AceTheme.Colours.mutedForeground)
+                .lineLimit(1).layoutPriority(1)
+        } else if let thread, thread.needsYou {
+            Text("· \(thread.title)").fontWeight(.medium).foregroundStyle(AceTone.needsYou.text).lineLimit(1)
+                .accessibilityLabel("Thread \(thread.title), needs you")
+        } else if let quiet, !quiet.isEmpty {
+            Text("· \(quiet)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
         }
-        .fixedSize()
+    }
+}
+
+/// The row's age, as the thread rows set theirs.
+private struct ForgeRowAge: View {
+    let updatedAt: Double
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            Text(ActivityTime.age(since: Date(timeIntervalSince1970: updatedAt / 1000), now: context.date))
+                .monospacedDigit()
+                .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .lineLimit(1).fixedSize()
+        }
     }
 }
