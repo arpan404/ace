@@ -90,7 +90,7 @@ test.runIf(process.platform === "win32")(
   async () => {
     const inside = await fixture();
     const outside = await fixture();
-    const names = Array.from({ length: 40 }, (_, index) => `f${index}.txt`);
+    const names = Array.from({ length: 200 }, (_, index) => `f${index}.txt`);
     for (const name of names) await inside.file(`moving/${name}`, "inside");
     const child = spawn(
       process.execPath,
@@ -118,7 +118,8 @@ test.runIf(process.platform === "win32")(
     while (!stopped) {
       await retry(() => renameSync(path, away));
       fill('OUTSIDE SECRET');
-      await new Promise(resolve => setImmediate(resolve));
+      // Stay outside long enough for a search to reach the folder's remaining files.
+      await new Promise(resolve => setTimeout(resolve, 5));
       fill('inside');
       await retry(() => renameSync(away, path));
       await new Promise(resolve => setImmediate(resolve));
@@ -137,7 +138,7 @@ test.runIf(process.platform === "win32")(
     child.stderr?.on("data", (chunk: Buffer) => errors.push(chunk.toString()));
     try {
       await once(child, "message");
-      for (let index = 0; index < 100; index++) {
+      for (let index = 0; index < 50; index++) {
         try {
           const result = await inside.service.search({ query: "SECRET", limit: 10 });
           expect(result.matches).toEqual([]);
