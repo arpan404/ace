@@ -25,7 +25,6 @@ struct InboxThreadRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                     Text(row.title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
-                        .openRowTitle()
                         .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer(minLength: AceTheme.Spacing.sm)

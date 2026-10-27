@@ -51,8 +51,8 @@ struct ForgeIssueRowView: View {
     }
 }
 
-/// A forge row laid out as a thread row: the glyph in the mark column, the title (heavier while
-/// open) with its age, and the line under it ending in its marks.
+/// A forge row laid out as a thread row: the glyph in the mark column, the title with its age,
+/// and the line under it ending in its marks.
 private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
     let title: String
     let updatedAt: Double?
@@ -68,7 +68,6 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                     Text(title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
-                        .openRowTitle()
                         .foregroundStyle(AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer(minLength: AceTheme.Spacing.sm)
