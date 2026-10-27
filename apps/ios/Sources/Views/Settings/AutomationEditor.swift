@@ -68,6 +68,15 @@ struct AutomationEditor: View {
         .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.accessibilityIdentifier("automation.cancel") }
+            // The instructions take several lines, so Return adds one: Done puts the keyboard away.
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("automation.keyboardDone")
+            }
         }
         .sensoryFeedback(.success, trigger: savedCount)
         .sheet(isPresented: $choosingModel) {

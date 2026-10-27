@@ -87,6 +87,9 @@ import XCTest
         let prompt = app.textViews["automation.prompt"].exists ? app.textViews["automation.prompt"] : app.textFields["automation.prompt"]
         prompt.tap()
         prompt.typeText("Triage the labelled issue")
+        // The keyboard's Done puts it away, so the rest of the form has the screen.
+        let done = app.buttons["automation.keyboardDone"]
+        if done.waitForExistence(timeout: 5) { done.tap() }
         choose(app, "automation.trigger", "On pull requests or issues")
         let repository = app.textFields["automation.repository"]
         reveal(app, repository)
