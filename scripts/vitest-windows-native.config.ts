@@ -278,6 +278,8 @@ export default defineConfig({
       "packages/adapter-pi/src/shim-session.process.test.ts",
       // Providers: no descendant outlives a stop, even without a job
       "packages/provider-kit/src/tree-stop.process.test.ts",
+      // Byte streams: a detached helper holding stdout ends with the stream's Job
+      "packages/provider-kit/src/process-bytes.process.test.ts",
       // Remote access, Fleet, automations, devices and doctor on Windows: Tailscale from PATH or
       // its install folder (a fake tailscale.exe), the OpenSSL-free TLS identity, pairing and
       // revocation, cross-machine delegation, schedules across sleep/restart, notifications,
