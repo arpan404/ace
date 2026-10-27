@@ -1,0 +1,70 @@
+---
+/* The agents ace runs, as a quiet strip of marks under the hero; /agents/ has the full list. */
+import { agentGuides } from "../content/agent-guides.ts";
+import BrandMark from "./BrandMark.astro";
+import Icon from "./Icon.astro";
+---
+
+<section class="page strip reveal" aria-label="Agents ace runs">
+  <p class="label">Runs the agents you already pay for, through their own CLIs</p>
+  <ul data-stagger>
+    {
+      agentGuides.map((guide) => (
+        <li>
+          <a href={`/agents/${guide.slug}/`}>
+            <BrandMark brand={guide.brand} size={20} />
+            {guide.label}
+          </a>
+        </li>
+      ))
+    }
+    <li>
+      <a href="/agents/" class="any">
+        and any ACP agent
+        <Icon name="arrow-right" size={14} />
+      </a>
+    </li>
+  </ul>
+</section>
+
+<style>
+  .strip {
+    display: grid;
+    justify-items: center;
+    gap: 22px;
+    padding-top: 96px;
+    text-align: center;
+  }
+
+  .label {
+    color: var(--subtle);
+    font-size: 14px;
+  }
+
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px 36px;
+  }
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 16px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover {
+    color: var(--foreground);
+  }
+
+  .any {
+    color: var(--subtle);
+    font-weight: 400;
+  }
+</style>

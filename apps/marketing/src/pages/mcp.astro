@@ -1,0 +1,144 @@
+---
+import Closing from "../components/Closing.astro";
+import Faq from "../components/Faq.astro";
+import PageIntro from "../components/site/PageIntro.astro";
+import { toolReference } from "../content/mcp.ts";
+import { faq } from "../content/product.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor } from "../seo/schema.ts";
+
+const path = "/mcp/";
+const questions = faq.filter((entry) => entry.question === "What are ace's MCP tools?");
+const slug = (family: string) => family.toLowerCase();
+---
+
+<Page
+  path={path}
+  title="MCP tools for Claude Code, Codex and Cursor: ace"
+  description="Every agent in ace gets one MCP toolset: delegate to other agents, drive a browser, use desktop apps and simulators, show pages and schedule automations."
+  schema={[faqPage(schemaFor(Astro.site), path, questions)]}
+>
+  <PageIntro
+    headline="One MCP toolset for every agent"
+    intro="ace runs an MCP server for each agent session. Whichever CLI runs the agent, it gets the same tools, and the CLI's own permission mode decides what runs. ace never adds approvals of its own."
+    secondary={{ href: "/features/", label: "See the features" }}
+  />
+
+  <div class="section page reference">
+    <nav class="toc" aria-label="Tool families">
+      <ul>
+        {
+          toolReference.map((family) => (
+            <li>
+              <a href={`#${slug(family.family)}`}>{family.family}</a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+    <div class="families">
+      {
+        toolReference.map((family) => (
+          <section id={slug(family.family)} class="family reveal">
+            <h2>{family.family}</h2>
+            <p class="purpose">{family.purpose}</p>
+            <dl>
+              {family.tools.map((tool) => (
+                <div>
+                  <dt>
+                    <code>{tool.name}</code>
+                  </dt>
+                  <dd>{tool.does}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))
+      }
+    </div>
+  </div>
+
+  <Faq items={questions} heading="Questions about MCP" moreHref="/faq/" />
+  <Closing />
+</Page>
+
+<style>
+  .reference {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+
+  .toc {
+    position: sticky;
+    top: 112px;
+  }
+
+  .toc ul {
+    display: grid;
+    gap: 10px;
+  }
+
+  .toc a {
+    color: var(--muted);
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  .toc a:hover {
+    color: var(--foreground);
+  }
+
+  .families {
+    display: grid;
+    gap: 64px;
+  }
+
+  h2 {
+    font-size: 26px;
+  }
+
+  .purpose {
+    margin-top: 8px;
+    color: var(--muted);
+  }
+
+  dl {
+    margin-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  dl div {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 20px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  dt code {
+    color: var(--foreground);
+    font-size: 13px;
+  }
+
+  dd {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+
+  @media (max-width: 860px) {
+    .reference {
+      grid-template-columns: 1fr;
+    }
+
+    .toc {
+      display: none;
+    }
+
+    dl div {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+  }
+</style>

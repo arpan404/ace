@@ -1,0 +1,248 @@
+---
+/*
+ * The home page's walk through ace: one step per feature on the left, one pinned stage on the
+ * right whose scene changes as each step reaches the middle of the screen (scripts/tour.ts), and
+ * plays that scene's story. On narrow screens each step carries its own scene instead.
+ */
+import { feature, type FeatureSlug } from "../content/features.ts";
+import Icon from "./Icon.astro";
+import Scene from "./panels/Scene.astro";
+import Stage from "./Stage.astro";
+
+const order: Exclude<FeatureSlug, "review">[] = [
+  "status",
+  "computer-use",
+  "browser",
+  "devices",
+  "fleet",
+  "mobile",
+  "accounts",
+];
+const steps = order.map((slug) => ({ slug, copy: feature(slug) }));
+---
+
+<section id="tour" class="section page tour" data-tour>
+  <div class="head reveal">
+    <h2 class="section-title">One window for every agent you run</h2>
+    <p class="lede">
+      What a terminal can't show you: which agent needs you, what it is looking at, and where its
+      work is running.
+    </p>
+  </div>
+
+  <div class="body">
+    <ol class="steps" style={`--count: ${steps.length}`}>
+      {
+        steps.map((step, index) => (
+          <li class="step" data-tour-step={index} aria-current={index === 0 ? "step" : undefined}>
+            <h3>{step.copy.headline}</h3>
+            <p>{step.copy.intro}</p>
+            <a class="more" href={`/features/${step.slug}/`}>
+              More on {step.copy.name.toLowerCase()}
+              <Icon name="arrow-right" size={14} />
+            </a>
+            <div class="inline-scene">
+              <Stage>
+                <Scene slug={step.slug} />
+              </Stage>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+
+    <div class="viewer" aria-hidden="true">
+      <div class="pin">
+        <Stage>
+          <div class="scenes">
+            {
+              steps.map((step, index) => (
+                <div class:list={["scene", { on: index === 0 }]} data-tour-scene={index}>
+                  <Scene slug={step.slug} />
+                </div>
+              ))
+            }
+          </div>
+        </Stage>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .head {
+    max-width: 40em;
+  }
+
+  .body {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 64px;
+    margin-top: 40px;
+  }
+
+  /* A rail beside the steps that fills as the tour goes on. */
+  .steps {
+    position: relative;
+    padding-left: 28px;
+  }
+
+  .steps::before,
+  .steps::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 100%;
+  }
+
+  .steps::before {
+    background: var(--border);
+  }
+
+  .steps::after {
+    background: var(--foreground);
+    transform-origin: top;
+    transform: scaleY(var(--progress, calc(1 / var(--count))));
+    transition: transform 700ms var(--ease-out-expo);
+  }
+
+  .step {
+    display: grid;
+    align-content: center;
+    gap: 14px;
+    min-height: 62vh;
+    opacity: 0.32;
+    transition: opacity 600ms var(--ease-out-quint);
+  }
+
+  .step[aria-current] {
+    opacity: 1;
+  }
+
+  h3 {
+    font-size: clamp(24px, 2.4vw, 32px);
+    line-height: 1.12;
+    letter-spacing: -0.035em;
+  }
+
+  .step p {
+    max-width: 30em;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    color: var(--foreground);
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  .more:hover {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .inline-scene {
+    display: none;
+  }
+
+  /* The stage stays in the middle of the screen while the steps scroll past. */
+  .pin {
+    position: sticky;
+    top: calc(50vh - 290px);
+  }
+
+  .pin :global(.stage-inner) {
+    min-height: 580px;
+    padding: 48px;
+  }
+
+  /* The pinned stage is large, so its panels get a little more room. */
+  .pin :global(.panel) {
+    max-width: 470px;
+  }
+
+  /* Scenes share one spot; the one for the current step shows. */
+  .scenes {
+    display: grid;
+    place-items: center;
+    width: 100%;
+  }
+
+  .scene {
+    grid-area: 1 / 1;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.98);
+    visibility: hidden;
+    transition:
+      opacity 500ms var(--ease-out-quint),
+      transform 900ms var(--ease-out-expo),
+      visibility 0s linear 500ms;
+  }
+
+  .scene.on {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+    transition:
+      opacity 600ms var(--ease-out-quint) 120ms,
+      transform 900ms var(--ease-out-expo) 120ms,
+      visibility 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scene,
+    .scene.on,
+    .step,
+    .steps::after {
+      transition: none;
+    }
+  }
+
+  /* Narrow screens: no pinned stage; each step shows its own scene. */
+  @media (max-width: 960px) {
+    .body {
+      grid-template-columns: 1fr;
+    }
+
+    .viewer {
+      display: none;
+    }
+
+    .steps {
+      display: grid;
+      gap: 72px;
+      padding-left: 0;
+    }
+
+    .steps::before,
+    .steps::after {
+      display: none;
+    }
+
+    .step {
+      min-height: 0;
+      opacity: 1;
+    }
+
+    .inline-scene {
+      display: block;
+      margin-top: 12px;
+    }
+
+    .inline-scene :global(.stage-inner) {
+      min-height: 0;
+      padding: 28px 16px;
+    }
+  }
+</style>

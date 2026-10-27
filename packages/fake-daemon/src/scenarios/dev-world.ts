@@ -83,6 +83,27 @@ export function devWorld(): WorldThread[] {
   ]);
 }
 
+/**
+ * A small, tidy world for product screenshots (`?fakeWorld=showcase`): seven threads, each in a
+ * different state, with the cold-start thread open and reporting live. None
+ * of the dev world's edge cases, so a capture reads at a glance.
+ */
+export function showcaseWorld(): WorldThread[] {
+  return withAccounts([
+    // The skills and read-state seeds in the fake boot point at this thread.
+    { scenario: multiDayDemo(), agoMs: 0 },
+    ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
+    {
+      scenario: flakyCheckout(),
+      agoMs: 3 * minute,
+      through: "approval-requested",
+      live: { speed: 1 },
+    },
+    { scenario: replayCursor(), agoMs: 4 * minute, live: { speed: 1 } },
+    { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
+  ]);
+}
+
 /** The accounts of the design (catalog/accounts.ts) each provider's threads run on, in turn. */
 const accountsByProvider: Partial<Record<ProviderKind, readonly string[]>> = {
   claude: ["claude-personal", "claude-work", "claude-personal"],

@@ -1,0 +1,55 @@
+---
+/* An agent driving ace's browser: the tab it holds, who is in control, and its recent steps. */
+const steps = [
+  { tool: "browser_open", detail: "localhost:5173/checkout" },
+  { tool: "browser_snapshot", detail: "42 elements" },
+  { tool: "browser_act", detail: 'click "Pay now"' },
+  { tool: "browser_logs", detail: "0 errors · 3 requests" },
+];
+---
+
+<div class="panel" data-story="browser">
+  <div class="panel-row tab">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="address panel-mono" data-type>localhost:5173/checkout</span>
+  </div>
+  <div class="panel-row" data-tone="working">
+    <span class="status-dot" aria-hidden="true"></span>
+    <span>Claude Code is using this tab</span>
+    <span class="panel-end"><span class="panel-action">Take over</span></span>
+  </div>
+  {
+    steps.map((step) => (
+      <div class="panel-row" data-step>
+        <span class="panel-mono">{step.tool}</span>
+        <span class="panel-end panel-quiet">{step.detail}</span>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .tab {
+    background: var(--raised);
+  }
+
+  .dots {
+    display: inline-flex;
+    gap: 6px;
+  }
+
+  .dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .address {
+    flex: 1;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--background);
+    color: var(--muted);
+  }
+</style>
