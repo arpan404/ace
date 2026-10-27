@@ -4,6 +4,8 @@ import {
   type ClientMessage,
   type FleetOperation,
   type FleetOutcome,
+  type MachineCapability,
+  type MachineGrants,
   type ServerMessage,
 } from "@ace/protocol";
 import type { FakeAccess } from "./access.ts";
@@ -26,6 +28,8 @@ function slug(name: string, taken: readonly string[]): string {
  */
 export class FakeFleet {
   private entries: FleetLink[] = [];
+  /** Levels set per paired device; the rest are this fake's fixed starting levels. */
+  private chosen = new Map<string, Partial<MachineGrants>>();
   private linked = 0;
   private access: FakeAccess;
   constructor(access: FakeAccess) {
@@ -105,7 +109,37 @@ export class FakeFleet {
           : { code: "not_found", message: "That device isn't paired anymore." };
       case "revokeOthers":
         return { kind: "revoked", count: this.access.revokeOthers(device) };
+      case "grant":
+        this.chosen.set(operation.deviceId, {
+          ...this.chosen.get(operation.deviceId),
+          [operation.capability]: operation.level,
+        });
+        return this.grants();
+      case "grants":
+        return this.grants();
     }
+  }
+  /** Every paired device's levels, as a machine that lets agents in answers `grants`. */
+  private grants(): FleetOutcome {
+    const start: MachineGrants = {
+      agents: "operate",
+      browser: "operate",
+      devices: "operate",
+      screen: "off",
+      commands: "off",
+    };
+    return {
+      kind: "grants",
+      master: "operate",
+      devices: this.access.list().map((entry) => {
+        const own = this.chosen.get(entry.id) ?? {};
+        return {
+          deviceId: entry.id,
+          grants: { ...start, ...own },
+          chosen: Object.keys(own).filter((key): key is MachineCapability => key in start),
+        };
+      }),
+    };
   }
   /** False when the message isn't `fleet.request`. */
   handle(message: ClientMessage, push: (message: ServerMessage) => void, device: string): boolean {

@@ -106,3 +106,11 @@ export const machineChildReach = `
   CREATE TRIGGER IF NOT EXISTS machine_message_rejections_revoked
     AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
     BEGIN DELETE FROM machine_message_rejections WHERE device_id = NEW.id; END;`;
+
+/**
+ * What each linked machine's agents may do here, per capability (ADR 0105). Sparse: a missing
+ * row is the capability's default, so existing pairings keep what `remote.agentAccess` gave.
+ */
+export const machineGrants = `CREATE TABLE IF NOT EXISTS machine_grants (
+  device_id TEXT NOT NULL, capability TEXT NOT NULL, level TEXT NOT NULL,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (device_id, capability));`;

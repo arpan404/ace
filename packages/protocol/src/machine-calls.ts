@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { HostId, InteractionId, ThreadId, WorkspaceId } from "./ids.ts";
+import { AgentId, HostId, InteractionId, ThreadId, WorkspaceId } from "./ids.ts";
+import { MachineGrants } from "./machine-grants.ts";
 import { InteractionRequest, InteractionResolution } from "./interactions.ts";
 import { ProviderKind } from "./provider.ts";
 import { ThreadStatus } from "./thread-status.ts";
@@ -19,9 +20,19 @@ export type MachineName = z.infer<typeof MachineName>;
 /** The target's opt-in for agents on other machines. `off` refuses every agent call. */
 export const MachineAgentAccess = z.enum(["off", "read", "operate"]);
 export type MachineAgentAccess = z.infer<typeof MachineAgentAccess>;
-/** Tool groups a machine offers to agents elsewhere. */
-export const MachineToolGroup = z.enum(["agents", "browser"]);
+/** Tool groups a machine offers to agents elsewhere: one per capability it grants (ADR 0105). */
+export const MachineToolGroup = z.enum(["agents", "browser", "devices", "screen", "commands"]);
 export type MachineToolGroup = z.infer<typeof MachineToolGroup>;
+/** Groups as a target lists them: ones this build doesn't know yet are left out, not fatal. */
+const OfferedGroups = z
+  .array(z.string().max(64))
+  .max(16)
+  .transform((names) =>
+    names.flatMap((name) => {
+      const group = MachineToolGroup.safeParse(name);
+      return group.success ? [group.data] : [];
+    }),
+  );
 export const MachineProject = z.object({ workspaceId: WorkspaceId, name: z.string().max(256) });
 export type MachineProject = z.infer<typeof MachineProject>;
 
@@ -31,8 +42,10 @@ export const MachineDescription = z.object({
   name: z.string().min(1).max(256),
   /** The lower of the pairing scope and the target's agent access. */
   access: z.enum(["read", "operate"]),
+  /** Each capability's effective level for this device (ADR 0105). */
+  grants: MachineGrants.optional(),
   projects: z.array(MachineProject).max(32),
-  tools: z.array(MachineToolGroup).max(8),
+  tools: OfferedGroups,
   providers: z.array(ProviderKind).max(16),
   /** This device may move projects and threads here (ADR 0101). */
   transfers: z.boolean().optional(),
@@ -45,6 +58,8 @@ export const MachineSummary = z.object({
   name: z.string().min(1).max(256),
   status: z.enum(["online", "offline"]),
   access: z.enum(["read", "operate"]).optional(),
+  /** Each capability's effective level for this machine's agents there (ADR 0105). */
+  grants: MachineGrants.optional(),
   projects: z.array(MachineProject).max(32).optional(),
   tools: z.array(MachineToolGroup).max(8).optional(),
   providers: z.array(ProviderKind).max(16).optional(),
@@ -61,6 +76,10 @@ export const MachineCallOrigin = z.object({
   hostName: z.string().min(1).max(256),
   threadId: ThreadId,
   threadTitle: z.string().max(256),
+  /** The calling agent, so each remote agent holds its own leases there (ADR 0105). */
+  agentId: AgentId.optional(),
+  /** The calling thread's ceiling: a read-only thread never acts there. Absent is operate. */
+  ceiling: z.enum(["read", "operate"]).optional(),
 });
 export type MachineCallOrigin = z.infer<typeof MachineCallOrigin>;
 
@@ -106,6 +125,24 @@ export const MachineCall = z.discriminatedUnion("op", [
     tool: z.string().regex(/^browser_[a-z_]{1,64}$/),
     args: z.record(z.string(), z.unknown()),
   }),
+  /** A simulator or emulator tool (`sim_*`) on that machine's devices (ADR 0105). */
+  z.strictObject({
+    op: z.literal("devices"),
+    tool: z.string().regex(/^sim_[a-z_]{1,64}$/),
+    args: z.record(z.string(), z.unknown()),
+  }),
+  /** A computer-use tool (`screen_*`) on that machine's screen (ADR 0105). */
+  z.strictObject({
+    op: z.literal("screen"),
+    tool: z.string().regex(/^screen_[a-z_]{1,64}$/),
+    args: z.record(z.string(), z.unknown()),
+  }),
+  /** A command tool, run in one of that machine's projects (ADR 0105). */
+  z.strictObject({
+    op: z.literal("commands"),
+    tool: z.string().regex(/^command_[a-z_]{1,64}$/),
+    args: z.record(z.string(), z.unknown()),
+  }),
 ]);
 export type MachineCall = z.infer<typeof MachineCall>;
 export const MachineCallRequest = z.object({ origin: MachineCallOrigin, call: MachineCall });
@@ -141,7 +178,7 @@ export const MachineDelegateResult = z.object({
 });
 export const MachineSessionResult = z.object({ threadId: ThreadId });
 export const MachineMessageResult = z.object({ arrival: MessageArrival });
-/** A browser tool's MCP result, as the target's own registry produced it. */
+/** A tool's MCP result (browser, devices, screen, commands), as the target's registry made it. */
 export const MachineToolResult = z.object({
   isError: z.boolean().optional(),
   content: z
@@ -165,6 +202,8 @@ export const MachineRefusal = z.object({
     "unavailable",
     /** A transfer cancel that came after the import's cutoff (ADR 0101). */
     "too_late",
+    /** Allowed, but this machine doesn't serve that capability yet (ADR 0105). */
+    "not_supported",
   ]),
   message: z.string().max(512).optional(),
   /**

@@ -49,6 +49,8 @@ export interface CallerDeps {
   mirror: RequestMirror;
   schedule(ms: number, run: () => void): () => void;
   pollMs: number;
+  /** The calling thread's ceiling, sent so the target applies it too (ADR 0105). */
+  ceiling(threadId: ThreadId): "read" | "operate";
 }
 
 /**
@@ -66,6 +68,7 @@ export class MachineCaller {
       hostName: clip((await this.deps.hostName()) || "ace", 256) || "ace",
       threadId,
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
+      ceiling: this.deps.ceiling(threadId),
     };
   }
   async list(caller: McpAttribution): Promise<AgentControlResult> {
@@ -284,7 +287,8 @@ export class MachineCaller {
     options: { timeoutMs: number; signal: AbortSignal },
   ) {
     const { directory } = this.deps;
-    const origin = await this.origin(caller.threadId);
+    // Each calling agent holds its own leases there (ADR 0105).
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
     let session: ThreadId;
     try {
       session = MachineSessionResult.parse(

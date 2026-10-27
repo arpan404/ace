@@ -27,6 +27,7 @@ import {
   ProjectsRequest,
   type Command,
   type CommandResult,
+  type Project,
   type ProjectsResult,
   type ThreadId,
   type WorkspaceChanged,
@@ -205,6 +206,11 @@ export class Projects {
   private check(allowed: () => boolean): void {
     if (this.closed) throw new ProjectError("projects_closed");
     if (!allowed()) throw new ProjectError("forbidden");
+  }
+  /** A fresh hidden chat project (ADR 0099); guest sessions live in one each (ADR 0105). */
+  async createChat(): Promise<Project> {
+    if (!this.chats) throw new ProjectError("projects_unavailable");
+    return this.chats.create();
   }
   async inspect(input: string, signal?: AbortSignal) {
     const directory = await ProjectDirectory.open(this.paths, input);

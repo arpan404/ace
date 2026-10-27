@@ -1,34 +1,22 @@
-import { createHash } from "node:crypto";
-import {
-  AgentId,
-  Command,
-  ProviderKind,
-  ThreadId,
-  type Device,
-  type MachineCallOrigin,
-  type MachineToolResult,
-} from "@ace/protocol";
+import type { Device, MachineCallOrigin, MachineToolResult, ThreadId } from "@ace/protocol";
 import type { BrowserService } from "@ace/browser";
 import { ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import type { Store } from "../store.ts";
-import type { Engine } from "../engine/index.ts";
-import { commandContext } from "../commands.ts";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { clip } from "../agent-control/watch-view.ts";
 import { TargetRefusal } from "./target-refusal.ts";
-import type { TargetThreads } from "./target-threads.ts";
+import type { GuestSessions } from "./guest-sessions.ts";
+import { toolResult } from "./tool-result.ts";
 
 export interface TargetBrowserDeps {
   store: Store;
-  engine(): Engine | undefined;
   browser(): BrowserService | undefined;
-  threads: TargetThreads;
+  guests: GuestSessions;
 }
 
 /**
  * Browser tools for agents on other machines run here, through this machine's own browser tool
- * registry, in a thread of this machine's that belongs to the calling thread. Its origin
- * consent, approvals and takeover are this machine's, exactly as for a local agent.
+ * registry, in the calling thread's guest session (ADR 0105). Its origin consent, approvals and
+ * takeover are this machine's, exactly as for a local agent; no provider needs to be installed.
  */
 export class TargetBrowser {
   private deps: TargetBrowserDeps;
@@ -55,46 +43,9 @@ export class TargetBrowser {
     if (!tools.names().includes(tool)) throw new TargetRefusal("invalid", "Unknown browser tool.");
     return tools.action(tool, args)?.riskClass === "read-only";
   }
-  /** One browser session per calling thread, held by an ordinary thread on this machine. */
-  session(device: Device, origin: MachineCallOrigin): ThreadId {
-    const { store } = this.deps;
-    const engine = this.deps.engine();
-    if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
-    const key = createHash("sha256")
-      .update(JSON.stringify([device.id, origin.hostId, origin.threadId]))
-      .digest("hex")
-      .slice(0, 32);
-    const threadId = ThreadId.parse(`machine-browser-${key}`);
-    if (store.getThread(threadId) && this.deps.threads.owner(threadId)?.device_id === device.id)
-      return threadId;
-    const provider = ProviderKind.options.find(
-      (kind) => engine.providerAvailability(kind).installed,
-    );
-    const [project] = this.deps.threads.projects();
-    if (!provider || !project)
-      throw new TargetRefusal("unavailable", "Add a project and an agent on this machine first.");
-    const command = Command.parse({
-      id: `machine-browser:${key}`,
-      deviceId: device.id,
-      payload: {
-        type: "thread.prepare",
-        threadId,
-        workspaceId: project.workspaceId,
-        provider,
-        mode: "local",
-        title: clip(`Browser for ${origin.hostName} · ${origin.threadTitle}`, 256),
-      },
-    });
-    const result = store.recordCommand(command.id, command.deviceId, () =>
-      engine.internalHandler.handle(command, commandContext(store)),
-    );
-    if (!result.ok)
-      throw new TargetRefusal(
-        "unavailable",
-        `This machine could not open a browser: ${result.error}`,
-      );
-    this.deps.threads.record(device, threadId, "browser", origin);
-    return threadId;
+  /** The calling thread's guest session, which holds its browser and consent requests. */
+  async session(device: Device, origin: MachineCallOrigin): Promise<ThreadId> {
+    return (await this.deps.guests.open(device, origin)).threadId;
   }
   async call(
     device: Device,
@@ -103,30 +54,30 @@ export class TargetBrowser {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<MachineToolResult> {
-    const threadId = this.session(device, origin);
-    const agentId = this.deps.engine()?.rootAgent(threadId);
-    if (!agentId) throw new TargetRefusal("unavailable", "The browser session is not ready.");
-    const result = await this.tools().call(
-      tool,
-      args,
-      {
-        scope: {
-          sessionId: `machine:${device.id}`,
-          threadId,
-          agentId: AgentId.parse(agentId),
-          capabilities: ["browser"],
-        },
-        signal,
-      },
+    const tools = this.tools();
+    const session = await this.deps.guests.open(device, origin);
+    const risk = this.readOnly(tool, args) ? "read" : "operate";
+    return this.deps.guests.run(
+      session,
+      { capability: "browser", risk, label: `${tool} from ${origin.hostName}` },
       signal,
+      async (stop) =>
+        toolResult(
+          await tools.call(
+            tool,
+            args,
+            {
+              scope: {
+                sessionId: `machine:${device.id}`,
+                threadId: session.threadId,
+                agentId: session.agentId,
+                capabilities: ["browser"],
+              },
+              signal: stop,
+            },
+            stop,
+          ),
+        ),
     );
-    const content: MachineToolResult["content"] = [];
-    for (const part of result.content) {
-      if (content.length >= 16) break;
-      if (part.type === "text") content.push({ type: "text", text: part.text });
-      else if (part.type === "image")
-        content.push({ type: "image", data: part.data, mimeType: part.mimeType });
-    }
-    return { ...(result.isError ? { isError: true } : {}), content };
   }
 }

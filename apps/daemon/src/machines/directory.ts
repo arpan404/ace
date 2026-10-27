@@ -72,6 +72,7 @@ export class MachineDirectory {
             tools: description.tools,
             providers: description.providers,
           };
+          if (description.grants) summary.grants = description.grants;
           if (description.transfers !== undefined) summary.transfers = description.transfers;
           this.seen.set(profile.name, summary);
           this.hosts.set(profile.name, description.hostId);
@@ -113,7 +114,7 @@ export class MachineDirectory {
     options: MachineTransportOptions,
   ): Promise<unknown> {
     const profile = this.deps.profiles().find((entry) => entry.name === machine);
-    const op = call.op === "browser" ? call.tool : call.op;
+    const op = "tool" in call ? call.tool : call.op;
     if (!profile) {
       this.deps.log("Machine call refused here", { machine, op, outcome: "unknown_machine" });
       throw new MachineFailure("refused", "unauthorized", `No paired machine named ${machine}.`);

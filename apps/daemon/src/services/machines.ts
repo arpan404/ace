@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
 import { HostId, MachineDescription, ThreadId } from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
@@ -6,8 +7,12 @@ import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { createMachineTarget } from "../machines/target.ts";
+import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
+import { GuestSessions } from "../machines/guest-sessions.ts";
+import { MachineGrantStore } from "../machines/grant-store.ts";
+import { unservedHost } from "../machines/capability-hosts.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
@@ -51,12 +56,40 @@ export function startMachines(context: ServiceContext): void {
   // A raised or cleared limit starts children other machines left waiting here at once.
   const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
   if (stopFollowing) resources.own(stopFollowing);
-  const browser = new TargetBrowser({
+  const guests = new GuestSessions({
     store,
     engine,
-    browser: () => services.browser,
     threads,
+    chat: async () => {
+      if (!services.projects)
+        throw new TargetRefusal("unavailable", "Projects are starting on this machine.");
+      const project = await services.projects.createChat();
+      return { id: project.id, path: project.path };
+    },
+    newId: randomUUID,
   });
+  void services.engine
+    ?.ready()
+    .then(() => guests.recover())
+    .catch((error: unknown) => log.log("warn", "Guest sessions not recovered", logError(error)));
+  const grants = new MachineGrantStore(store, now);
+  // Turning a capability down stops what it no longer allows at once (ADR 0105).
+  resources.own(
+    grants.onChange(({ deviceId, capability, level }) => {
+      if (level !== "operate") guests.revoke({ deviceId, capability, level });
+    }),
+  );
+  resources.own(store.devices.onRevoke((deviceId) => guests.revoke({ deviceId })));
+  void services.settings
+    ?.subscribe({ keys: ["remote.agentAccess"], scope: {} }, (event) => {
+      if (event.type !== "changed") return;
+      const entry = event.entries.find((candidate) => candidate.key === "remote.agentAccess");
+      if (entry?.value === "off") guests.revoke();
+    })
+    .then((release) => resources.own(release))
+    .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
+  services.engine?.bindExternalTaskStop("ace-guest:", (id) => guests.stop(id));
+  const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -64,6 +97,13 @@ export function startMachines(context: ServiceContext): void {
     engine,
     threads,
     browser,
+    guests,
+    grants,
+    hosts: {
+      devices: unservedHost(() => services.devices !== undefined),
+      screen: unservedHost(() => services.screen !== undefined),
+      commands: unservedHost(() => true),
+    },
     log: record("info"),
   });
 
@@ -93,6 +133,7 @@ export function startMachines(context: ServiceContext): void {
             hostName: ((await hostName()) || "ace").slice(0, 256),
             threadId: ThreadId.parse("settings"),
             threadTitle: "Settings",
+            ceiling: "operate",
           },
           { op: "describe" },
           { timeoutMs: 4000 },
@@ -167,6 +208,7 @@ export function startMachines(context: ServiceContext): void {
     mirror,
     schedule,
     pollMs,
+    ceiling: (threadId) => (services.engine?.access(threadId) === "read-only" ? "read" : "operate"),
   });
   const machines = caller;
   const cancel = (id: string) => {
@@ -189,6 +231,7 @@ export function startMachines(context: ServiceContext): void {
     // The person's Stop on a thread another machine delegated here cancels its waiting launch.
     delegations.onStopped = (thread) => {
       threads.launches.cancel(thread);
+      guests.stopThread(thread);
     };
   }
   services.machines = { caller, children };

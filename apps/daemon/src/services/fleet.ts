@@ -1,7 +1,9 @@
-import type { FleetOperation, FleetOutcome } from "@ace/protocol";
+import { MachineCapability, type FleetOperation, type FleetOutcome } from "@ace/protocol";
+import { activeDevice } from "../devices.ts";
 import { FleetError } from "../machines/fleet-links.ts";
 import { issuePairing } from "../pairing-issue.ts";
 import { AccessError } from "../remote-auth.ts";
+import { grantsFor } from "../machines/grant-rules.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 const fleetCodes: Record<FleetError["code"], string> = {
@@ -91,7 +93,50 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       return { kind: "revoked" };
     case "revokeOthers":
       return { kind: "revoked", count: auth.revokeOthers(callerDevice(context)) };
+    case "grants":
+    case "grant":
+      return grants(context, operation);
   }
+}
+
+/** Each paired device's levels here (ADR 0105); setting one applies to its next call. */
+async function grants(
+  context: SocketContext,
+  operation: Extract<FleetOperation, { op: "grants" | "grant" }>,
+): Promise<FleetOutcome> {
+  const store = context.options.machineCalls?.grants;
+  const auth = context.access?.auth;
+  if (!store || !auth)
+    throw new FleetError("refused", "Linked machines aren't ready on this machine yet.");
+  const at = (context.options.now ?? Date.now)();
+  // Local credentials (the desktop app, "Use my Chrome") never call as another machine.
+  const devices = auth
+    .list()
+    .filter(
+      (device) =>
+        activeDevice(device, at) &&
+        !device.scopes.includes("desktop") &&
+        !device.scopes.includes("user-browser"),
+    );
+  if (operation.op === "grant") {
+    if (!devices.some((device) => device.id === operation.deviceId))
+      throw new FleetError("not_found", "That machine isn't paired here anymore.");
+    store.set(operation.deviceId, operation.capability, operation.level);
+  }
+  const master = (await context.options.settings?.get("remote.agentAccess"))?.value ?? "off";
+  const chosen = store.all();
+  return {
+    kind: "grants",
+    master,
+    devices: devices.slice(0, 1000).map((device) => {
+      const own = chosen.get(device.id) ?? {};
+      return {
+        deviceId: device.id,
+        grants: grantsFor(master, own),
+        chosen: MachineCapability.options.filter((capability) => own[capability] !== undefined),
+      };
+    }),
+  };
 }
 
 /** The paired device this socket authenticated as; none for the daemon's own host credential. */

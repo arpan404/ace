@@ -95,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(21);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(22);
     } finally {
       after.close();
     }
