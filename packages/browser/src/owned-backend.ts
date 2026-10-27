@@ -135,15 +135,20 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
         )
           acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
             .catch(() =>
-              import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
-                acquireChromium({
+              import("./chromium-manifest.ts").then(({ chromiumArtifact }) => {
+                // Emulated x64 renderers crash under Chrome's renderer code integrity guard
+                // (2 to 4 crashes in 12 page loads on the ARM64 VM, none without it): its
+                // check of loaded code conflicts with Windows' x64 emulation. Only this
+                // fallback, used when no native Chrome or Edge exists, turns it off.
+                launch.args = [...launch.args, "--disable-features=RendererCodeIntegrity"];
+                return acquireChromium({
                   ...options.acquisition,
                   artifact: chromiumArtifact("win32", "x64"),
                   dataDir: options.dataDir,
                   signal,
                   progress,
-                }),
-              ),
+                });
+              }),
             )
             .catch((error: unknown) => {
               acquiring = undefined;
