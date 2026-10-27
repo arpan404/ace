@@ -387,7 +387,9 @@ function loadWindowsTreeApi() {
   try {
     return {
       kernel,
-      now: kernel.func("void __stdcall GetSystemTimeAsFileTime(void* time)"),
+      // Precise: the coarse clock lags by up to a tick, so a child created just before the
+      // snapshot would look created after it and be left out of the tree.
+      now: kernel.func("void __stdcall GetSystemTimePreciseAsFileTime(void* time)"),
       snapshot: kernel.func("intptr_t __stdcall CreateToolhelp32Snapshot(uint flags, uint pid)"),
       first: kernel.func("int __stdcall Process32FirstW(intptr_t snapshot, void* entry)"),
       next: kernel.func("int __stdcall Process32NextW(intptr_t snapshot, void* entry)"),
