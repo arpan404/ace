@@ -13,6 +13,7 @@ final class SnapshotStore {
     static let maxValue = 8 * 1024 * 1024
 
     private var db: OpaquePointer?
+    private let url: URL
     private let now: () -> Date
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -21,6 +22,7 @@ final class SnapshotStore {
     init(database: URL, now: @escaping () -> Date) throws {
         self.now = now
         let url = Self.url(database: database)
+        self.url = url
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
               sqlite3_exec(db, """
@@ -35,7 +37,7 @@ final class SnapshotStore {
     deinit { sqlite3_close(db) }
 
     /// `snapshot.get/set/clear` (whole records), `snapshot.thread.get/put` (threads as rows),
-    /// `snapshot.index` and `snapshot.drop`. Answers nil for any other operation.
+    /// `snapshot.index`, `snapshot.drop` and `snapshot.size` (bytes on disk). Answers nil for any other operation.
     func perform(_ request: HostRequest) throws -> String? {
         switch request.operation {
         case "snapshot.get":
@@ -78,7 +80,15 @@ final class SnapshotStore {
                 try run("DELETE FROM threads", [])
                 try run("DELETE FROM items", [])
             }
+            // Give the space back: the person cleared the cache to free it.
+            sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE); VACUUM;", nil, nil, nil)
             return ""
+        case "snapshot.size":
+            let files = [url.path, url.path + "-wal", url.path + "-shm"]
+            let bytes = files.reduce(0) { total, path in
+                total + ((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0)
+            }
+            return String(bytes)
         default: return nil
         }
     }

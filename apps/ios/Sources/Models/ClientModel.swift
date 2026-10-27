@@ -66,6 +66,8 @@ import QuartzCore
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
+    /// What the phone keeps of this machine's chats, once asked (`readCache`).
+    var cacheUsage: CacheUsage?
     var providers: MachineProvidersInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
@@ -130,7 +132,7 @@ import QuartzCore
         hostId = target.hostId
         inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
-        machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
+        machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
@@ -350,6 +352,7 @@ import QuartzCore
             case .problem(let notice): problem = notice
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
+            case .cacheUsage(let usage): cacheUsage = usage
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row
@@ -496,6 +499,29 @@ import QuartzCore
         thread = nil; sheets.reset()
         ThreadOpenTrace.shared.showing(false)
         browser.close(streams: runtime?.browserStreams)
+    }
+    /// Ask how many chats the phone keeps for this machine and their size (`cacheUsage`).
+    func readCache() { action(["type": "cache.read"]) }
+    /// Drop every chat the phone keeps for this machine. The open thread stays live; the outbox
+    /// and drafts are untouched (`bridge/chat-cache.ts`).
+    func clearCache() {
+        shelf.clear()
+        action(["type": "cache.clear"])
+    }
+    /// Drop the open thread's kept copy and read it again from the machine, in place.
+    func reloadFromMachine() {
+        guard let current = thread else { return }
+        flushFrames()
+        generation += 1
+        sheets.reset()
+        browser.close(streams: runtime?.browserStreams)
+        _ = shelf.take(current.id)
+        let fresh = ThreadModel(id: current.id)
+        fresh.epoch = generation
+        ThreadOpenTrace.shared.open(current.id, warm: false)
+        thread = fresh
+        // The bridge leaves the thread, forgets its copy and opens it again under this generation.
+        action(["type": "cache.reload", "threadId": current.id])
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
     var browserStreams: BrowserStreamHub? { runtime?.browserStreams }

@@ -97,6 +97,11 @@ struct ThreadMenu: View {
                     Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
                 }
             }
+            Section {
+                // Drops what the phone keeps of this thread and reads it again from the machine.
+                Button("Reload from machine", ace: .arrowClockwise) { model.reloadFromMachine() }
+                    .accessibilityIdentifier("thread.reload")
+            }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {
                     // Stop isn't destructive: it reads in ink, never red.
