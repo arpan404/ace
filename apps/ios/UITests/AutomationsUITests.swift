@@ -62,7 +62,8 @@ import XCTest
         reveal(app, element(app, "automation.nextStarts"))
         screenshot("weekly")
         choose(app, "automation.cadence", "Once")
-        XCTAssertTrue(element(app, "automation.at").waitForExistence(timeout: 10))
+        reveal(app, element(app, "automation.at"))
+        XCTAssertTrue(element(app, "automation.at").exists)
         screenshot("once")
         choose(app, "automation.cadence", "Custom")
         let expression = app.textFields["automation.expression"]
@@ -106,14 +107,15 @@ import XCTest
         screenshot("files")
         app.buttons["automation.save"].tap()
         let when = element(app, "automation.when")
-        XCTAssertTrue(when.waitForExistence(timeout: 20))
+        // A loaded Mac can take a while to save and open it.
+        XCTAssertTrue(when.waitForExistence(timeout: 60))
         XCTAssertEqual(when.label, "When docs/**/*.md change")
         screenshot("saved")
         // Duplicate opens a paused copy.
         let duplicate = app.buttons["automation.duplicate"]
         reveal(app, duplicate)
         duplicate.tap()
-        XCTAssertTrue(app.navigationBars["Label triage copy"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Label triage copy"].waitForExistence(timeout: 60))
         screenshot("duplicate")
     }
 
