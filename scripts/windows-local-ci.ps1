@@ -42,6 +42,12 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 $env:TEMP = $tmp; $env:TMP = $tmp; $env:TMPDIR = $tmp
 # GitHub sets CI=true; several native tests run only under it.
 $env:CI = "true"
+# GitHub's images have OpenSSL on PATH (the Tailscale HTTPS tests make certificates with it).
+# Elsewhere use the one Git for Windows ships, appended so Windows' own tools still come first.
+if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
+  $gitOpenssl = Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
+  if (Test-Path $gitOpenssl) { $env:Path = "$env:Path;$(Split-Path $gitOpenssl)" }
+}
 
 $arch = (node -p "process.arch").Trim()
 if ($arch -notin @("x64", "arm64")) { throw "Unsupported Node arch: $arch" }
@@ -240,12 +246,14 @@ foreach ($name in $selected) {
   $started = Get-Date
   Write-Host "=== $name (log: $log)"
   $status = "pass"; $detail = ""
+  # UTF-8, not Windows PowerShell's UTF-16 default, so the logs read anywhere.
+  $writer = New-Object System.IO.StreamWriter($log, $false, (New-Object System.Text.UTF8Encoding $false))
   try {
-    & $stages[$name] *>&1 | Tee-Object -FilePath $log | Out-Host
+    & $stages[$name] *>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine($line); $writer.Flush(); $line } | Out-Host
   } catch {
     $status = "fail"; $detail = $_.Exception.Message
-    Add-Content -Path $log -Value "STAGE FAILED: $detail"
-  }
+    $writer.WriteLine("STAGE FAILED: $detail")
+  } finally { $writer.Dispose() }
   $seconds = [int]((Get-Date) - $started).TotalSeconds
   $results[$name] = [ordered]@{ status = $status; seconds = $seconds; detail = $detail; log = $log }
   Write-Host "=== $name $status in ${seconds}s $detail"
