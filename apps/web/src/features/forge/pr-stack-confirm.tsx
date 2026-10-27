@@ -1,13 +1,14 @@
 import type { ForgeStackMovedLayer } from "@ace/protocol";
-import type { StackConfirmation } from "@ace/ui-core";
+import { stackConfirmationText, type StackConfirmation } from "@ace/ui-core";
 import type { StackPublishUpdate } from "@ace/forge/stack-publish";
 import { Button } from "@/components/ui/button.tsx";
 
 export type { StackConfirmation } from "@ace/ui-core";
 
-const numbered = (numbers: readonly number[]) => numbers.map((number) => `#${number}`).join(", ");
-
-/** The explicit review of a stack write: affected layers, method and old → new revisions. */
+/**
+ * The explicit review of a stack write: affected layers, method and old → new revisions. The
+ * words are `@ace/ui-core`'s (`stackConfirmationText`), the same the phone shows.
+ */
 export function StackConfirm(props: {
   confirmation: StackConfirmation;
   publishing: readonly StackPublishUpdate[];
@@ -19,46 +20,26 @@ export function StackConfirm(props: {
   onCancel(): void;
 }) {
   const { confirmation } = props;
+  const words = stackConfirmationText(confirmation, props.moved);
+  const listLabel =
+    confirmation.action === "push"
+      ? "Layers to publish"
+      : confirmation.action === "sync"
+        ? "Layers to bring in"
+        : undefined;
   return (
     <div
       role="group"
       aria-label="Confirm stack action"
       className="space-y-2 rounded-md border border-border p-3 text-ui"
     >
-      {confirmation.action === "push" ? (
-        <>
-          <p>Push to origin together, leased to the reviewed revisions:</p>
-          <ul aria-label="Layers to publish" className="font-mono text-sm">
-            {props.publishing.map((update) => (
-              <li key={update.number}>
-                #{update.number} {update.branch} {update.lease.slice(0, 7)} →{" "}
-                {update.target.slice(0, 7)}
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : confirmation.action === "sync" ? (
-        <>
-          <p>
-            Fetch GitHub's newer commits, replay them onto these local layers and restack the layers
-            above. Nothing is pushed until you publish, which then leases each layer to the head
-            GitHub reports now:
-          </p>
-          <ul aria-label="Layers to bring in" className="font-mono text-sm">
-            {props.moved.map((layer) => (
-              <li key={layer.number}>
-                #{layer.number} {layer.branch} {layer.reviewed.slice(0, 7)}..
-                {layer.current.slice(0, 7)}
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
-        <p>
-          {confirmation.action === "merge"
-            ? `Merge ${numbered(confirmation.numbers)} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
-            : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${numbered(confirmation.numbers)}. Nothing is pushed until you publish.`}
-        </p>
+      <p>{words.text}</p>
+      {listLabel && (
+        <ul aria-label={listLabel} className="font-mono text-sm">
+          {words.lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
       )}
       <div className="flex gap-2">
         <Button
@@ -66,17 +47,12 @@ export function StackConfirm(props: {
           variant="primary"
           disabled={
             props.disabled ||
-            (confirmation.action === "push" && !props.publishing.length) ||
-            (confirmation.action === "sync" && !props.moved.length)
+            !words.ready ||
+            (confirmation.action === "push" && !props.publishing.length)
           }
           onClick={props.onConfirm}
         >
-          Confirm{" "}
-          {confirmation.action === "merge"
-            ? "stack merge"
-            : confirmation.action === "push"
-              ? "push"
-              : "stack action"}
+          {words.confirm}
         </Button>
         <Button size="sm" disabled={props.pending} onClick={props.onCancel}>
           Cancel

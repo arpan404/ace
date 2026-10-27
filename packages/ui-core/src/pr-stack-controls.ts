@@ -174,7 +174,7 @@ const short = (sha: string) => sha.slice(0, 7);
  */
 export function stackConfirmationText(
   confirmation: StackConfirmation,
-  moved: ForgeStackWorkspace["movedLayers"],
+  moved: Readonly<ForgeStackWorkspace["movedLayers"]>,
 ): { text: string; lines: string[]; confirm: string; ready: boolean } {
   if (confirmation.action === "push") {
     const updates = stackPublishUpdates(confirmation.expected);
@@ -184,7 +184,7 @@ export function stackConfirmationText(
         (update) =>
           `#${update.number} ${update.branch} ${short(update.lease)} → ${short(update.target)}`,
       ),
-      confirm: "Confirm push",
+      confirm: "Push the stack",
       ready: updates.length > 0,
     };
   }
@@ -195,7 +195,7 @@ export function stackConfirmationText(
         (layer) =>
           `#${layer.number} ${layer.branch} ${short(layer.reviewed)}..${short(layer.current)}`,
       ),
-      confirm: "Confirm stack action",
+      confirm: "Bring in GitHub commits",
       ready: moved.length > 0,
     };
   return {
@@ -204,7 +204,13 @@ export function stackConfirmationText(
         ? `Merge ${numbered(confirmation.numbers)} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
         : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${numbered(confirmation.numbers)}. Nothing is pushed until you publish.`,
     lines: [],
-    confirm: confirmation.action === "merge" ? "Confirm stack merge" : "Confirm stack action",
+    // The button names what happens, as every confirming button does.
+    confirm:
+      confirmation.action === "merge"
+        ? "Merge the stack"
+        : confirmation.action === "abort"
+          ? "Restore local branches"
+          : "Rebase local branches",
     ready: true,
   };
 }
