@@ -194,6 +194,25 @@ it.runIf(windows)(
   },
 );
 
+it.runIf(windows)(
+  "Windows: folds member names the way NTFS does, so σ and ς collide but ß and ss don't",
+  async () => {
+    const t = await refuses([
+      { name: "σ.txt", content: "first" },
+      { name: "ς.txt", content: "second" },
+    ]);
+    expect(await readdir(t.destination)).toEqual(["σ.txt"]);
+    expect(await readFile(join(t.destination, "σ.txt"), "utf8")).toBe("first");
+    const both = await temp();
+    await craft(both.archive, [
+      { name: "ß.txt", content: "sharp" },
+      { name: "ss.txt", content: "double" },
+    ]);
+    await unpackArchive(both.archive, both.destination);
+    expect((await readdir(both.destination)).toSorted()).toEqual(["ss.txt", "ß.txt"]);
+  },
+);
+
 it.runIf(windows)("Windows: checks links inside the folder and then leaves them out", async () => {
   const t = await temp();
   await craft(t.archive, [

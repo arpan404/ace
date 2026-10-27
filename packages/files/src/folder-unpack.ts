@@ -168,9 +168,21 @@ async function writeFile(
  */
 function windowsMember(path: string, seen: Set<string>): void {
   if (/[\\:]/.test(path)) throw unsafe("Archive entry path is not allowed on Windows", path);
-  const folded = `\0${path.toLowerCase()}`;
+  const folded = `\0${windowsFold(path)}`;
   if (seen.has(folded)) throw unsafe("Archive entry appears twice", path);
   seen.add(folded);
+}
+/**
+ * NTFS compares names through its upcase table: one upper-case character per character (σ and ς
+ * are both Σ), never an expansion (ß stays ß, so ß.txt and ss.txt are two files).
+ */
+function windowsFold(path: string): string {
+  let folded = "";
+  for (const character of path) {
+    const upper = character.toUpperCase();
+    folded += [...upper].length === 1 ? upper : character;
+  }
+  return folded;
 }
 /** Windows: the pinned directory refused a name Windows can't hold (CON, `name.`, `a?b`). */
 function windowsNameRefused(error: unknown): boolean {
