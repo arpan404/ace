@@ -12,20 +12,32 @@ import {
 } from "../interactions.ts";
 import {
   buildApprovalResolvePayload,
+  buildElicitationResolvePayload,
+  buildPlanReviewResolvePayload,
   buildQuestionResolvePayload,
   canTapFreshProductionCard,
   canTapProductionCard,
   currentProductionGrant,
+  elicitationMode,
+  elicitationResolution,
+  elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
   pendingProductionInteractionIds,
+  planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionElicitationRefusalCopy,
   productionMayAct,
+  productionPlanRefusalCopy,
   productionQuestionRefusalCopy,
   resolveProductionApproval,
+  resolveProductionElicitation,
+  resolveProductionPlanReview,
   resolveProductionQuestion,
   shouldSuppressProductionReadOnly,
+  submittedElicitationValues,
+  type ElicitationRequest,
 } from "./production-approvals.ts";
 import {
   createProductionStartup,
@@ -394,21 +406,28 @@ it("a second tap while sending is dropped: first answer wins", () => {
   expect(canResolveInteraction("pending", isResolutionLocked(id), true)).toBe(false);
 });
 
-it("keeps only pending approval/question ids for the strip, in order and deduped", () => {
+it("keeps only pending cardable ids for the strip, in order and deduped", () => {
   expect(
     pendingProductionInteractionIds([
       { id: "a1", state: "pending", request: { kind: "approval" } },
       { id: "q1", state: "pending", request: { kind: "question" } },
+      { id: "p1", state: "pending", request: { kind: "plan_review" } },
+      { id: "f1", state: "pending", request: { kind: "elicitation" } },
       { id: "a1", state: "pending", request: { kind: "approval" } },
       { id: "done", state: "resolved", request: { kind: "approval" } },
-      { id: "plan", state: "pending", request: { kind: "plan_review" } },
       { id: "browser", state: "pending", request: { kind: "browser_help" } },
       undefined,
     ]),
-  ).toEqual(["a1", "q1"]);
+  ).toEqual(["a1", "q1", "p1", "f1"]);
   expect(isCardableProductionInteraction(undefined)).toBe(false);
   expect(
     isCardableProductionInteraction({ state: "pending", request: { kind: "elicitation" } }),
+  ).toBe(true);
+  expect(
+    isCardableProductionInteraction({ state: "pending", request: { kind: "plan_review" } }),
+  ).toBe(true);
+  expect(
+    isCardableProductionInteraction({ state: "pending", request: { kind: "browser_help" } }),
   ).toBe(false);
   expect(
     isCardableProductionInteraction({ state: "resolved", request: { kind: "approval" } }),
@@ -437,10 +456,22 @@ it("suppresses only the read-only copy the live strip already covers", () => {
   ).toBe(false);
   expect(
     shouldSuppressProductionReadOnly(
-      { id: "a1", state: "pending", request: { kind: "plan_review" } },
+      { id: "p9", state: "pending", request: { kind: "plan_review" } },
       covered,
     ),
   ).toBe(false);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "a1", state: "pending", request: { kind: "plan_review" } },
+      new Set(["a1"]),
+    ),
+  ).toBe(true);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "f1", state: "pending", request: { kind: "elicitation" } },
+      new Set(["f1"]),
+    ),
+  ).toBe(true);
   expect(shouldSuppressProductionReadOnly(undefined, covered)).toBe(false);
 });
 
@@ -566,16 +597,16 @@ it("a daemon close between render and tap refuses on fresh state with no lock si
   expect(canTapFreshProductionCard("expired", false, true)).toBe(false);
 });
 
-it("leaves plan_review, elicitation and browser_help as read-only: never carded, never suppressed", () => {
-  for (const kind of ["plan_review", "elicitation", "browser_help"] as const) {
-    expect(isCardableProductionInteraction({ state: "pending", request: { kind } })).toBe(false);
-    expect(
-      shouldSuppressProductionReadOnly(
-        { id: "x1", state: "pending", request: { kind } },
-        new Set(["x1"]),
-      ),
-    ).toBe(false);
-  }
+it("leaves browser_help as read-only: never carded, never suppressed", () => {
+  expect(
+    isCardableProductionInteraction({ state: "pending", request: { kind: "browser_help" } }),
+  ).toBe(false);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "x1", state: "pending", request: { kind: "browser_help" } },
+      new Set(["x1"]),
+    ),
+  ).toBe(false);
   expect(
     pendingProductionInteractionIds([
       { id: "plan", state: "pending", request: { kind: "plan_review" } },
@@ -583,7 +614,7 @@ it("leaves plan_review, elicitation and browser_help as read-only: never carded,
       { id: "help", state: "pending", request: { kind: "browser_help" } },
       { id: "a1", state: "pending", request: { kind: "approval" } },
     ]),
-  ).toEqual(["a1"]);
+  ).toEqual(["plan", "form", "a1"]);
 });
 
 it("a malformed interaction id fails before admission with nothing on the wire", async () => {
@@ -598,5 +629,222 @@ it("a malformed interaction id fails before admission with nothing on the wire",
   } as unknown as Parameters<typeof resolveProductionApproval>[0];
   await expect(resolveProductionApproval(stub, "host-1", "", "allow")).rejects.toThrow();
   await expect(resolveProductionQuestion(stub, "host-1", "", {})).rejects.toThrow();
+  await expect(resolveProductionPlanReview(stub, "host-1", "", "approve")).rejects.toThrow();
   expect(gates).toBe(0);
+});
+
+it("builds the existing interaction.resolve contract for plan reviews", () => {
+  expect(buildPlanReviewResolvePayload("plan-1", "approve")).toEqual({
+    type: "interaction.resolve",
+    interactionId: "plan-1",
+    resolution: { kind: "plan_review", decision: "approve" },
+  });
+  expect(buildPlanReviewResolvePayload("plan-1", "reject", " Keep PIDs out ")).toEqual({
+    type: "interaction.resolve",
+    interactionId: "plan-1",
+    resolution: { kind: "plan_review", decision: "reject", feedback: "Keep PIDs out" },
+  });
+  expect(planReviewResolution("reject", "  ")).toBe(undefined);
+  expect(planReviewResolution("reject")).toBe(undefined);
+  expect(() => buildPlanReviewResolvePayload("plan-1", "reject", "  ")).toThrow();
+  expect(productionPlanRefusalCopy("already_resolved")).toBe("Already answered on another device.");
+  expect(productionPlanRefusalCopy("bogus")).toBe("This plan could not be answered");
+});
+
+it("builds the existing interaction.resolve contract for elicitations", () => {
+  const form = {
+    kind: "elicitation",
+    server: "deploy",
+    message: "Where?",
+    mode: "form",
+    schema: {
+      type: "object",
+      properties: { region: { type: "string", enum: ["eu", "us"] } },
+      required: ["region"],
+    },
+  } as const;
+  expect(elicitationMode({ mode: undefined, url: "https://example.com/x" })).toBe("url");
+  expect(elicitationMode({ mode: undefined, url: undefined })).toBe("form");
+  expect(
+    elicitationUnsupported({
+      ...form,
+      schema: { type: "object", properties: { deep: { type: "object" } } },
+    }),
+  ).toBe(true);
+  expect(
+    elicitationUnsupported({ kind: "elicitation", server: "s", message: "m", mode: "url" }),
+  ).toBe(true);
+  expect(buildElicitationResolvePayload("form-1", form, "decline")).toEqual({
+    type: "interaction.resolve",
+    interactionId: "form-1",
+    resolution: { kind: "elicitation", action: "decline" },
+  });
+  expect(buildElicitationResolvePayload("form-1", form, "accept", { region: "eu" })).toEqual({
+    type: "interaction.resolve",
+    interactionId: "form-1",
+    resolution: { kind: "elicitation", action: "accept", content: { region: "eu" } },
+  });
+  // Reject before the wire: missing required, out-of-schema values, unknown keys.
+  expect(elicitationResolution(form, "accept", {})).toBe(undefined);
+  expect(elicitationResolution(form, "accept", { region: "xx" })).toBe(undefined);
+  expect(elicitationResolution(form, "accept", { region: "eu", other: "x" })).toBe(undefined);
+  expect(() => buildElicitationResolvePayload("form-1", form, "accept", {})).toThrow();
+  expect(submittedElicitationValues({ a: "  x  ", b: "   " })).toEqual({ a: "x" });
+  // Consent pages accept only with a safe address.
+  const page = {
+    kind: "elicitation",
+    server: "s",
+    message: "m",
+    mode: "url",
+    url: "https://example.com ok",
+  } as const;
+  expect(elicitationResolution({ ...page, url: "https://example.com/ok" }, "accept")).toEqual({
+    kind: "elicitation",
+    action: "accept",
+  });
+  expect(elicitationResolution(page, "accept")).toBe(undefined);
+  expect(productionElicitationRefusalCopy("not_found")).toBe("This request no longer exists.");
+  expect(productionElicitationRefusalCopy(undefined)).toBe("This request could not be answered");
+});
+
+function seedPlanReview(daemon: FakeDaemon): string {
+  daemon.apply(THREAD, [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "plan-1",
+      blocking: true,
+      request: { kind: "plan_review", title: "Ship it", markdown: "Do it" },
+    },
+  ]);
+  const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(THREAD) });
+  if (view?.kind !== "thread") throw new Error("Thread snapshot unavailable.");
+  const id = Object.values(view.interactions)[0]?.id;
+  if (typeof id !== "string" || id.length === 0) throw new Error("Seeded plan missing.");
+  return id;
+}
+
+function seedElicitation(daemon: FakeDaemon): string {
+  daemon.apply(THREAD, [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "form-1",
+      blocking: true,
+      request: {
+        kind: "elicitation",
+        server: "deploy",
+        message: "Where should it deploy?",
+        mode: "form",
+        schema: {
+          type: "object",
+          properties: { region: { type: "string", enum: ["eu", "us"] } },
+          required: ["region"],
+        },
+      },
+    },
+  ]);
+  const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(THREAD) });
+  if (view?.kind !== "thread") throw new Error("Thread snapshot unavailable.");
+  const id = Object.values(view.interactions)[0]?.id;
+  if (typeof id !== "string" || id.length === 0) throw new Error("Seeded form missing.");
+  return id;
+}
+
+it("admits a real plan review through a fresh gate and closes the daemon request", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const planId = seedPlanReview(daemon);
+    const receipt = await resolveProductionPlanReview(produced, "host-1", planId, "approve");
+    expect(receipt.ok).toBe(true);
+    expect(sent.some((text) => text.includes("interaction.resolve"))).toBe(true);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    try {
+      await until(() => lease.store.interaction(planId)?.state === "resolved");
+    } finally {
+      lease.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("a plan rejection without feedback fails before admission with nothing on the wire", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const planId = seedPlanReview(daemon);
+    const before = sent.length;
+    await expect(
+      resolveProductionPlanReview(produced, "host-1", planId, "reject", "   "),
+    ).rejects.toThrow();
+    expect(sent.length).toBe(before);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    try {
+      await until(() => lease.store.interaction(planId) !== undefined);
+      expect(lease.store.interaction(planId)?.state).toBe("pending");
+    } finally {
+      lease.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("admits a real elicitation answer through a fresh gate", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const formId = seedElicitation(daemon);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    let request: ElicitationRequest | undefined;
+    try {
+      await until(() => lease.store.interaction(formId) !== undefined);
+      const row = lease.store.interaction(formId);
+      if (row?.request.kind !== "elicitation") throw new Error("Seeded form missing.");
+      request = row.request;
+    } finally {
+      lease.release();
+    }
+    if (!request || request.kind !== "elicitation") throw new Error("Seeded form missing.");
+    const receipt = await resolveProductionElicitation(
+      produced,
+      "host-1",
+      formId,
+      request,
+      "accept",
+      {
+        region: "us",
+      },
+    );
+    expect(receipt.ok).toBe(true);
+    expect(sent.some((text) => text.includes("interaction.resolve"))).toBe(true);
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("refuses a view-only plan answer before touching the wire", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const planId = seedPlanReview(daemon);
+    await produced.grants.setScopes("device-1", ["read"]);
+    const before = sent.length;
+    await expect(
+      resolveProductionPlanReview(produced, "host-1", planId, "approve"),
+    ).rejects.toBeInstanceOf(ViewOnlyError);
+    expect(sent.length).toBe(before);
+  } finally {
+    await produced.disconnectAll();
+  }
 });

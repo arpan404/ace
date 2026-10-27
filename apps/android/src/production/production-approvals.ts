@@ -1,4 +1,5 @@
 import { InteractionId } from "@ace/protocol";
+import { consentUrl, elicitationContent, elicitationForm } from "@ace/ui-core";
 import { ViewOnlyError, type ProductionStartup } from "../runtime/production-startup.ts";
 import { canResolveInteraction, mayAct, refusalMessage } from "../interactions.ts";
 
@@ -108,6 +109,162 @@ export async function resolveProductionQuestion(
   return gate.command(payload);
 }
 
+/** Plan markdown/todo bounds, mirroring the iOS request bridge. */
+export const PLAN_MARKDOWN_LIMIT = 8192;
+export const PLAN_TODO_LIMIT = 32;
+
+export type PlanReviewDecision = "approve" | "reject" | "cancel";
+
+/**
+ * The canonical `plan_review` resolution for a card choice, or undefined
+ * when the choice does not fit the request: a rejection must say what
+ * should change (mirrors iOS `requestResolution`). Pure so the card can
+ * enable Send only when the daemon would accept it.
+ */
+export function planReviewResolution(
+  decision: PlanReviewDecision,
+  feedback?: string | undefined,
+): { kind: "plan_review"; decision: PlanReviewDecision; feedback?: string } | undefined {
+  if (decision !== "reject") return { kind: "plan_review", decision };
+  const trimmed = feedback?.trim() ?? "";
+  return trimmed ? { kind: "plan_review", decision, feedback: trimmed } : undefined;
+}
+
+/** The `interaction.resolve` payload that answers a plan review. */
+export function buildPlanReviewResolvePayload(
+  interactionId: string,
+  decision: PlanReviewDecision,
+  feedback?: string | undefined,
+): {
+  type: "interaction.resolve";
+  interactionId: ReturnType<typeof InteractionId.parse>;
+  resolution: { kind: "plan_review"; decision: PlanReviewDecision; feedback?: string };
+} {
+  const resolution = planReviewResolution(decision, feedback);
+  if (!resolution) throw new Error("Plan feedback must say what should change.");
+  return {
+    type: "interaction.resolve",
+    interactionId: InteractionId.parse(interactionId),
+    resolution,
+  };
+}
+
+/**
+ * Admit one plan-review answer through a freshly resolved gate. Same
+ * per-call admission as approvals: input validated before the gate is
+ * touched, so a choice the daemon would refuse never reaches the wire.
+ */
+export async function resolveProductionPlanReview(
+  startup: ProductionApprovalsStartup,
+  hostId: string,
+  interactionId: string,
+  decision: PlanReviewDecision,
+  feedback?: string | undefined,
+): Promise<{ ok: boolean; error?: string | undefined }> {
+  const payload = buildPlanReviewResolvePayload(interactionId, decision, feedback);
+  const gate = startup.runtimeForMutation(hostId);
+  return gate.command(payload);
+}
+
+export type ElicitationAction = "accept" | "decline" | "cancel";
+/** Elicitation request shape the cards answer; optionals admit `undefined` under exact optionals. */
+export interface ElicitationRequest {
+  kind: "elicitation";
+  server: string;
+  message: string;
+  url?: string | undefined;
+  schema?: unknown;
+  mode?: "form" | "url" | undefined;
+}
+
+/** Whether the elicitation draws its form or its consent page. */
+export function elicitationMode(request: Pick<ElicitationRequest, "mode" | "url">): "form" | "url" {
+  return request.mode ?? (request.url ? "url" : "form");
+}
+
+/** Whether the card can only decline/cancel: no drawable form, no safe page. */
+export function elicitationUnsupported(request: ElicitationRequest): boolean {
+  const mode = elicitationMode(request);
+  return mode === "url"
+    ? consentUrl(request.url) === undefined
+    : elicitationForm(request.schema) === undefined;
+}
+
+/** Trimmed non-empty values the card submits; mirrors the iOS card. */
+export function submittedElicitationValues(
+  values: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    const trimmed = value.trim();
+    if (trimmed) result[key] = trimmed;
+  }
+  return result;
+}
+
+/**
+ * The canonical `elicitation` resolution for a card choice, or undefined
+ * when the choice does not fit the request: accept needs values that pass
+ * the server's schema (form) or a safe consent address (url); decline and
+ * cancel always fit. Mirrors iOS `requestResolution`.
+ */
+export function elicitationResolution(
+  request: ElicitationRequest,
+  action: ElicitationAction,
+  values?: Readonly<Record<string, string>> | undefined,
+): { kind: "elicitation"; action: ElicitationAction; content?: unknown } | undefined {
+  if (action !== "accept") return { kind: "elicitation", action };
+  const mode = elicitationMode(request);
+  if (mode === "url") {
+    return consentUrl(request.url) ? { kind: "elicitation", action: "accept" } : undefined;
+  }
+  const form = elicitationForm(request.schema);
+  if (!form) return undefined;
+  const submitted = submittedElicitationValues(values ?? {});
+  if (Object.keys(submitted).some((key) => !(key in form.properties))) return undefined;
+  const result = elicitationContent(form, submitted);
+  return result.valid
+    ? { kind: "elicitation", action: "accept", content: result.content }
+    : undefined;
+}
+
+/** The `interaction.resolve` payload that answers an elicitation. */
+export function buildElicitationResolvePayload(
+  interactionId: string,
+  request: ElicitationRequest,
+  action: ElicitationAction,
+  values?: Readonly<Record<string, string>> | undefined,
+): {
+  type: "interaction.resolve";
+  interactionId: ReturnType<typeof InteractionId.parse>;
+  resolution: { kind: "elicitation"; action: ElicitationAction; content?: unknown };
+} {
+  const resolution = elicitationResolution(request, action, values);
+  if (!resolution) throw new Error("This form answer does not fit the request.");
+  return {
+    type: "interaction.resolve",
+    interactionId: InteractionId.parse(interactionId),
+    resolution,
+  };
+}
+
+/**
+ * Admit one elicitation answer through a freshly resolved gate. Same
+ * per-call admission as approvals: validated before the gate resolves.
+ */
+export async function resolveProductionElicitation(
+  startup: ProductionApprovalsStartup,
+  hostId: string,
+  interactionId: string,
+  request: ElicitationRequest,
+  action: ElicitationAction,
+  values?: Readonly<Record<string, string>> | undefined,
+): Promise<{ ok: boolean; error?: string | undefined }> {
+  const payload = buildElicitationResolvePayload(interactionId, request, action, values);
+  const gate = startup.runtimeForMutation(hostId);
+  return gate.command(payload);
+}
+
 /**
  * Whether this device may answer production cards now. Unknown or
  * view-only grants fail closed: the card reads view-only until a pairing
@@ -124,6 +281,16 @@ export function productionAnswerFailureCopy(error: unknown): string {
     return "This machine is not connected.";
   }
   return "Answer could not be saved.";
+}
+
+/** Name a daemon refusal for a plan-review answer; never invite a retry. */
+export function productionPlanRefusalCopy(error: string | undefined): string {
+  return refusalMessage(error, "This plan could not be answered");
+}
+
+/** Name a daemon refusal for an elicitation answer; never invite a retry. */
+export function productionElicitationRefusalCopy(error: string | undefined): string {
+  return refusalMessage(error, "This request could not be answered");
 }
 
 /** Name a daemon refusal for an approval answer; never invite a retry. */
@@ -144,23 +311,27 @@ export interface CardableInteraction {
 }
 
 /**
- * True when the strip owns this request: pending approval or question.
+ * True when the strip owns this request: pending approval, question,
+ * plan review or elicitation.
  *
- * Scope note: iOS `requestCard` also answers `plan_review` (approve/reject),
- * `elicitation` (accept/decline with schema content) and `browser_help`
- * (done/skipped in a browser tab). Those need dedicated cards plus their
- * resolution shapes and are out of scope here: Android leaves them as
- * read-only transcript rows (never suppressed, never answered) until a
- * matching card exists. Extending without the matching UI would risk
- * answering the wrong semantics, so the gap is pinned by tests, not papered
- * over.
+ * Scope note: iOS `requestCard` also answers `browser_help` (done/skipped
+ * in a browser tab). That needs a live browser surface plus its resolution
+ * shape and stays out of scope: Android leaves it as a read-only
+ * transcript row (never suppressed, never answered) until a matching card
+ * exists. Extending without the matching UI would risk answering the wrong
+ * semantics, so the gap stays pinned by tests.
  */
 export function isCardableProductionInteraction(
   interaction: Pick<CardableInteraction, "state" | "request"> | undefined,
 ): boolean {
   if (interaction === undefined) return false;
   if (interaction.state !== "pending") return false;
-  return interaction.request.kind === "approval" || interaction.request.kind === "question";
+  return (
+    interaction.request.kind === "approval" ||
+    interaction.request.kind === "question" ||
+    interaction.request.kind === "plan_review" ||
+    interaction.request.kind === "elicitation"
+  );
 }
 
 /**
@@ -184,9 +355,9 @@ export function pendingProductionInteractionIds(
 }
 
 /**
- * Whether the transcript's read-only question/approval row must stay hidden
- * because the live strip already shows the full card. Only pending
- * approval/question ids the strip covers suppress; resolved rows, other
+ * Whether the transcript's read-only question/approval/plan/form row must
+ * stay hidden because the live strip already shows the full card. Only
+ * pending cardable ids the strip covers suppress; resolved rows, other
  * request kinds and uncovered ids keep their historic read-only copy so
  * nothing vanishes.
  */

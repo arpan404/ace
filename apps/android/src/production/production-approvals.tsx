@@ -3,6 +3,7 @@ import { TextInput } from "react-native";
 import type { Selection, ThreadSource } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
 import { approvalCopy, questionOptions, type QuestionDraft as Draft } from "@ace/ui-core";
+import { consentUrl, elicitationForm } from "@ace/ui-core";
 import { sameIds, useSelection } from "../selection.ts";
 import { AceHost, tokens, useTheme, textStyle } from "../theme.tsx";
 import {
@@ -41,15 +42,28 @@ import {
   canTapFreshProductionCard,
   canTapProductionCard,
   currentProductionGrant,
+  elicitationMode,
+  elicitationResolution,
+  elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
   pendingProductionInteractionIds,
+  planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionElicitationRefusalCopy,
   productionMayAct,
+  productionPlanRefusalCopy,
   productionQuestionRefusalCopy,
   resolveProductionApproval,
+  resolveProductionElicitation,
+  resolveProductionPlanReview,
   resolveProductionQuestion,
+  submittedElicitationValues,
+  PLAN_MARKDOWN_LIMIT,
+  PLAN_TODO_LIMIT,
+  type ElicitationAction,
+  type PlanReviewDecision,
   type ProductionApprovalsStartup,
 } from "./production-approvals.ts";
 
@@ -449,8 +463,408 @@ export function ProductionQuestionCard({
 }
 
 /**
+ * Production plan-review card: approve as is, or send back with what should
+ * change. Same read/admission split as the approval card: the plan reads
+ * while view-only, every tap re-reads the grant plus the live interaction
+ * state and resolves through a fresh per-call gate.
+ */
+export function ProductionPlanReviewCard({
+  startup,
+  hostId,
+  store,
+  interactionId,
+  notify,
+}: {
+  startup: ProductionApprovalsStartup;
+  hostId: string;
+  /** Read-only thread view from the reading lease; never a mutating handle. */
+  store: ThreadSource;
+  interactionId: string;
+  notify(text: string): void;
+}) {
+  const theme = useTheme();
+  const selection = useMemo(
+    () => store.select([`interaction:${interactionId}`], (r) => r.interaction(interactionId)),
+    [store, interactionId],
+  );
+  const interaction = useSelection(selection);
+  const resolution = useResolutionEntry(interactionId);
+  const [revising, setRevising] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const state = interaction?.state;
+  useEffect(() => {
+    if (interaction && state !== "pending") clearClosedResolution(interaction.id);
+  }, [interaction, state]);
+  if (!interaction || state !== "pending" || interaction.request.kind !== "plan_review")
+    return null;
+  const request = interaction.request;
+  const markdown =
+    request.markdown.length > PLAN_MARKDOWN_LIMIT
+      ? request.markdown.slice(0, PLAN_MARKDOWN_LIMIT)
+      : request.markdown;
+  const truncated = request.markdown.length > PLAN_MARKDOWN_LIMIT;
+  const todos = (request.todos ?? []).slice(0, PLAN_TODO_LIMIT);
+  const acting = productionMayAct(startup.canOperate(hostId)) && mayAct(true);
+  const locked = isResolutionLocked(interaction.id);
+  const answerable = canResolveInteraction(state, locked, acting);
+  const refusal = resolution?.phase === "refused" ? resolution.message : undefined;
+  const sending = resolution?.phase === "sending" || resolution?.phase === "sent";
+  const words = feedback.trim();
+  function send(decision: PlanReviewDecision, text?: string) {
+    if (!interaction) return;
+    if (planReviewResolution(decision, text) === undefined) return;
+    const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    const freshState = freshProductionInteractionState(store, interaction.id);
+    if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    markResolutionSending(interaction.id);
+    void resolveProductionPlanReview(startup, hostId, interaction.id, decision, text)
+      .then((receipt) => {
+        if (!interaction) return;
+        if (receipt.ok) {
+          markResolutionSent(interaction.id);
+          notify(decision === "approve" ? "Plan approved" : "Feedback sent");
+        } else {
+          const message = productionPlanRefusalCopy(receipt.error);
+          markResolutionRefused(interaction.id, message);
+          notify(message);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!interaction) return;
+        clearResolutionSending(interaction.id);
+        notify(productionAnswerFailureCopy(error));
+      });
+  }
+  return (
+    <AceHost style={{ width: "100%" }}>
+      <Column
+        modifiers={[
+          fillMaxWidth(),
+          clip({ type: "roundedCorner", radius: tokens.radii.approval }),
+          background(theme.colours.card),
+          padding(tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg),
+        ]}
+        verticalArrangement={{ spacedBy: tokens.spacing.md }}
+      >
+        <AceText role="label" colour={theme.statusText.needsYou}>
+          Plan review
+        </AceText>
+        <AceText role="title">{request.title ?? "Review the plan"}</AceText>
+        {request.summary ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            {request.summary}
+          </AceText>
+        ) : null}
+        <AceText role="body">{markdown}</AceText>
+        {todos.map((todo) => (
+          <AceText
+            key={`${todo.status}:${todo.content}`}
+            role="caption"
+            colour={theme.colours.mutedForeground}
+          >
+            {todo.status === "completed" ? "✓ " : todo.status === "in_progress" ? "◐ " : "○ "}
+            {todo.content}
+          </AceText>
+        ))}
+        {truncated ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            The full plan is on your machine.
+          </AceText>
+        ) : null}
+        {revising ? (
+          <TextInput
+            accessibilityLabel="What should change?"
+            placeholder="What should change?"
+            editable={answerable}
+            value={feedback}
+            onChangeText={setFeedback}
+            multiline
+            style={{
+              ...textStyle("body"),
+              color: theme.colours.foreground,
+              backgroundColor: theme.colours.secondaryBackground,
+              borderRadius: tokens.radii.bubble,
+              padding: tokens.spacing.md,
+              minHeight: tokens.dimensions.touchTarget,
+            }}
+          />
+        ) : null}
+        <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>
+          <AceButton
+            label={revising ? "Cancel" : "Request changes"}
+            onPress={() => setRevising((open) => !open)}
+            enabled={answerable}
+            kind="secondary"
+          />
+          {revising ? (
+            <AceButton
+              label="Send feedback"
+              onPress={() => send("reject", words)}
+              enabled={answerable && words.length > 0}
+              kind="primary"
+            />
+          ) : (
+            <AceButton
+              label="Approve plan"
+              onPress={() => send("approve")}
+              enabled={answerable}
+              kind="primary"
+            />
+          )}
+        </Row>
+        {!acting ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            View only. Pair with View and act to answer.
+          </AceText>
+        ) : null}
+        {refusal ? (
+          <AceText role="caption" colour={theme.statusText.failed}>
+            {refusal}
+          </AceText>
+        ) : null}
+        {sending ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            Sending…
+          </AceText>
+        ) : null}
+      </Column>
+    </AceHost>
+  );
+}
+
+/**
+ * Production elicitation card: an MCP server's form, or its consent page.
+ * Values are typed as text; the shared schema rules decide whether accept
+ * fits before anything reaches the wire. Decline and cancel always fit.
+ */
+export function ProductionElicitationCard({
+  startup,
+  hostId,
+  store,
+  interactionId,
+  notify,
+}: {
+  startup: ProductionApprovalsStartup;
+  hostId: string;
+  /** Read-only thread view from the reading lease; never a mutating handle. */
+  store: ThreadSource;
+  interactionId: string;
+  notify(text: string): void;
+}) {
+  const theme = useTheme();
+  const selection = useMemo(
+    () => store.select([`interaction:${interactionId}`], (r) => r.interaction(interactionId)),
+    [store, interactionId],
+  );
+  const interaction = useSelection(selection);
+  const resolution = useResolutionEntry(interactionId);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const state = interaction?.state;
+  useEffect(() => {
+    if (interaction && state !== "pending") clearClosedResolution(interaction.id);
+  }, [interaction, state]);
+  if (!interaction || state !== "pending" || interaction.request.kind !== "elicitation")
+    return null;
+  const request = interaction.request;
+  const mode = elicitationMode(request);
+  const unsupported = elicitationUnsupported(request);
+  const form = mode === "form" ? elicitationForm(request.schema) : undefined;
+  const fields = Object.entries(form?.properties ?? {}).map(([key, property]) => ({
+    key,
+    title: property.title ?? key,
+    detail: property.description ?? "",
+    type: property.type,
+    required: form?.required.includes(key) ?? false,
+    initial: property.default === undefined ? "" : String(property.default),
+    choices:
+      property.enum?.map((entry, at) => ({
+        value: String(entry),
+        label: property.enumNames?.[at] ?? String(entry),
+      })) ??
+      (property.type === "boolean"
+        ? [
+            { value: "true", label: "Yes" },
+            { value: "false", label: "No" },
+          ]
+        : []),
+  }));
+  const submitted = submittedElicitationValues(
+    Object.fromEntries(fields.map((field) => [field.key, values[field.key] ?? field.initial])),
+  );
+  const filled = fields.every((field) => !field.required || submitted[field.key] !== undefined);
+  const acting = productionMayAct(startup.canOperate(hostId)) && mayAct(true);
+  const locked = isResolutionLocked(interaction.id);
+  const answerable = canResolveInteraction(state, locked, acting);
+  const refusal = resolution?.phase === "refused" ? resolution.message : undefined;
+  const sending = resolution?.phase === "sending" || resolution?.phase === "sent";
+  function send(action: ElicitationAction) {
+    if (!interaction) return;
+    const current = Object.fromEntries(
+      fields.map((field) => [field.key, values[field.key] ?? field.initial]),
+    );
+    if (elicitationResolution(request, action, current) === undefined) return;
+    const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    const freshState = freshProductionInteractionState(store, interaction.id);
+    if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    markResolutionSending(interaction.id);
+    void resolveProductionElicitation(startup, hostId, interaction.id, request, action, current)
+      .then((receipt) => {
+        if (!interaction) return;
+        if (receipt.ok) {
+          markResolutionSent(interaction.id);
+          notify(action === "accept" ? "Answer accepted" : "Request declined");
+        } else {
+          const message = productionElicitationRefusalCopy(receipt.error);
+          markResolutionRefused(interaction.id, message);
+          notify(message);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!interaction) return;
+        clearResolutionSending(interaction.id);
+        notify(productionAnswerFailureCopy(error));
+      });
+  }
+  return (
+    <AceHost style={{ width: "100%" }}>
+      <Column
+        modifiers={[
+          fillMaxWidth(),
+          clip({ type: "roundedCorner", radius: tokens.radii.approval }),
+          background(theme.colours.card),
+          padding(tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg),
+        ]}
+        verticalArrangement={{ spacedBy: tokens.spacing.md }}
+      >
+        <AceText role="label" colour={theme.statusText.needsYou}>
+          {request.server}
+        </AceText>
+        <AceText role="title">{request.title ?? request.message}</AceText>
+        {request.message !== (request.title ?? request.message) && request.message ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            {request.message}
+          </AceText>
+        ) : null}
+        {unsupported ? (
+          <AceText role="caption" colour={theme.statusText.failed}>
+            {mode === "url"
+              ? "This request has no safe consent page. Decline or cancel it."
+              : "This form can't be filled in here. Decline or cancel it."}
+          </AceText>
+        ) : null}
+        {mode === "url" && !unsupported ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            {consentUrl(request.url) ?? ""}
+          </AceText>
+        ) : null}
+        <Column verticalArrangement={{ spacedBy: tokens.spacing.sm }}>
+          {fields.map((field) => {
+            const value = values[field.key] ?? field.initial;
+            if (field.choices.length > 0) {
+              return (
+                <Column key={field.key} verticalArrangement={{ spacedBy: tokens.spacing.xs }}>
+                  <AceText role="caption" colour={theme.colours.mutedForeground}>
+                    {field.title}
+                    {field.required ? " (Required)" : ""}
+                  </AceText>
+                  <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>
+                    {field.choices.map((choice) => (
+                      <AceButton
+                        key={choice.value}
+                        label={`${value === choice.value ? "✓ " : ""}${choice.label}`}
+                        onPress={() =>
+                          setValues((prev) => ({ ...prev, [field.key]: choice.value }))
+                        }
+                        enabled={answerable && !unsupported}
+                        kind={value === choice.value ? "primary" : "secondary"}
+                      />
+                    ))}
+                  </Row>
+                </Column>
+              );
+            }
+            return (
+              <Column key={field.key} verticalArrangement={{ spacedBy: tokens.spacing.xs }}>
+                <AceText role="caption" colour={theme.colours.mutedForeground}>
+                  {field.title}
+                  {field.required ? " (Required)" : ""}
+                </AceText>
+                <TextInput
+                  accessibilityLabel={field.title}
+                  placeholder={field.detail || (field.required ? "Required" : "Optional")}
+                  editable={answerable && !unsupported}
+                  value={value}
+                  onChangeText={(text) => setValues((prev) => ({ ...prev, [field.key]: text }))}
+                  keyboardType={
+                    field.type === "integer"
+                      ? "number-pad"
+                      : field.type === "number"
+                        ? "decimal-pad"
+                        : "default"
+                  }
+                  multiline={field.type === "string"}
+                  style={{
+                    ...textStyle("body"),
+                    color: theme.colours.foreground,
+                    backgroundColor: theme.colours.secondaryBackground,
+                    borderRadius: tokens.radii.bubble,
+                    padding: tokens.spacing.md,
+                    minHeight: tokens.dimensions.touchTarget,
+                  }}
+                />
+              </Column>
+            );
+          })}
+        </Column>
+        {!acting ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            View only. Pair with View and act to answer.
+          </AceText>
+        ) : null}
+        {refusal ? (
+          <AceText role="caption" colour={theme.statusText.failed}>
+            {refusal}
+          </AceText>
+        ) : null}
+        <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>
+          <AceButton
+            label="Cancel"
+            onPress={() => send("cancel")}
+            enabled={answerable}
+            kind="secondary"
+          />
+          <AceButton
+            label="Decline"
+            onPress={() => send("decline")}
+            enabled={answerable}
+            kind="secondary"
+          />
+          <AceButton
+            label="Continue"
+            onPress={() => send("accept")}
+            enabled={answerable && !unsupported && filled}
+            kind="primary"
+          />
+        </Row>
+        {sending ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            Sending…
+          </AceText>
+        ) : null}
+      </Column>
+    </AceHost>
+  );
+}
+
+/**
  * Every pending production interaction above the composer, in ledger order:
- * one approval or question card per open request, mirroring the fixture
+ * one approval, question, plan or form card per open request, mirroring the fixture
  * thread's per-id strip and the iOS request strip above the composer. A
  * single pass over `interactionIds` keeps ledger order (`[q1,a1]` renders
  * `[q1,a1]`); each card returns null for the kind it does not own, so no
@@ -482,7 +896,7 @@ function emptyPendingInteractions(): Selection<readonly (Interaction | undefined
 }
 
 /**
- * Live pending approval/question ids for the strip, in ledger order.
+ * Live pending approval/question/plan/form ids for the strip, in ledger order.
  * Two selections (membership plus one N-key read) mirror `useOpenQuestionIds`
  * but keep only the kinds the strip can answer; any pin failure, dead lease
  * or non-cardable request fails closed to empty so the strip unmounts instead
@@ -618,6 +1032,20 @@ export function ProductionInteractionStrip({
             notify={notify}
           />
           <ProductionQuestionCard
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionId={id}
+            notify={notify}
+          />
+          <ProductionPlanReviewCard
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionId={id}
+            notify={notify}
+          />
+          <ProductionElicitationCard
             startup={startup}
             hostId={hostId}
             store={store}
