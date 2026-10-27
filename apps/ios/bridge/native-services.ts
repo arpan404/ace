@@ -40,8 +40,19 @@ import {
   readNativeThreadFiles,
   readNativeTurns,
 } from "./native-thread-index.ts";
-import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { SentPromptRequest, readSentPrompt } from "./sent-prompt.ts";
+import {
+  UsageAccountsRequest,
+  UsageLimitsCombineRequest,
+  UsageRefreshRequest,
+  UsageResetRequest,
+  combineLimits,
+  readUsageAccounts,
+  useBankedReset,
+} from "./usage-limits.ts";
+import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
+import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
+import { host } from "./host.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -272,9 +283,34 @@ export class NativeServices {
         );
         return;
       }
-      const limits = UsageLimitsRequest.safeParse(raw);
-      if (limits.success) {
-        this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
+      const accounts = UsageAccountsRequest.safeParse(raw);
+      if (accounts.success) {
+        this.#answer(id, raw, await readUsageAccounts(this.owner, false, controller.signal), read);
+        return;
+      }
+      if (UsageRefreshRequest.safeParse(raw).success) {
+        this.#reply(id, true, await readUsageAccounts(this.owner, true, controller.signal), "");
+        return;
+      }
+      const reset = UsageResetRequest.safeParse(raw);
+      if (reset.success) {
+        this.#reply(id, true, await useBankedReset(this.owner, reset.data, controller.signal), "");
+        return;
+      }
+      const part = UsagePartRequest.safeParse(raw);
+      if (part.success) {
+        this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      // Sums other machines' parts in shared code; nothing here reaches this machine.
+      const combine = UsageCombineRequest.safeParse(raw);
+      if (combine.success) {
+        this.#reply(id, true, combineUsage(combine.data), "");
+        return;
+      }
+      const combineAccounts = UsageLimitsCombineRequest.safeParse(raw);
+      if (combineAccounts.success) {
+        this.#reply(id, true, combineLimits(combineAccounts.data, host.now()), "");
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);

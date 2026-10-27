@@ -135,7 +135,7 @@ test("a daemon change event moves only its families' generations and puts their 
   const sink = new RecordingSink();
   const reads = new NativeReads(owner, sink, { now: () => 0, schedule: noSchedule });
   const projects = reads.key(projectsRead, "projects");
-  const usage = reads.key({ type: "usage.limits" }, "limits");
+  const usage = reads.key({ type: "usage.accounts" }, "limits");
   if (!projects || !usage) throw new Error("expected kept reads");
   reads.answered(projects, { result: { kind: "workspaces", workspaces: [] } });
   reads.answered(usage, { providers: [] });
@@ -152,7 +152,7 @@ test("coming back online puts every kept read out of date, as the web refetches 
   const { owner, connect } = fakeOwner();
   const sink = new RecordingSink();
   const reads = new NativeReads(owner, sink, { now: () => 0, schedule: noSchedule });
-  const usage = reads.key({ type: "usage.limits" }, "limits");
+  const usage = reads.key({ type: "usage.accounts" }, "limits");
   if (!usage) throw new Error("expected a kept read");
   reads.answered(usage, { providers: [] });
   connect("reconnecting");
@@ -270,7 +270,7 @@ test("an answer asked before its family went out of date is shown but never kept
 test("an answer asked before the connection came back is never kept as fresh", () => {
   const { owner, connect } = fakeOwner();
   const reads = new NativeReads(owner, new RecordingSink(), { now: () => 0, schedule: noSchedule });
-  const asked = reads.key({ type: "usage.limits" }, "limits");
+  const asked = reads.key({ type: "usage.accounts" }, "limits");
   if (!asked) throw new Error("expected a kept read");
   connect("reconnecting");
   connect("ready");
@@ -283,8 +283,8 @@ test("an older answer landing after a newer one never replaces it", () => {
     now: () => 0,
     schedule: noSchedule,
   });
-  const older = reads.key({ type: "usage.limits" }, "limits");
-  const newer = reads.key({ type: "usage.limits" }, "limits");
+  const older = reads.key({ type: "usage.accounts" }, "limits");
+  const newer = reads.key({ type: "usage.accounts" }, "limits");
   if (!older || !newer) throw new Error("expected kept reads");
   expect(reads.answered(newer, { providers: ["new"] })).toBe(true);
   expect(reads.answered(older, { providers: ["old"] })).toBe(false);
@@ -313,7 +313,7 @@ test("an answer the bridge stops keeping leaves Swift's copy too, even one still
     limit: 2,
   });
   for (const name of ["first", "second", "third"]) {
-    const read = reads.key({ type: "usage.limits" }, name);
+    const read = reads.key({ type: "usage.accounts" }, name);
     if (!read) throw new Error("expected a kept read");
     reads.answered(read, { providers: [name] });
   }
@@ -341,7 +341,7 @@ test("a kept answer seven days old is not restored at the next launch; a newer o
     storage,
   });
   const old = first.key(projectsRead, "projects");
-  const recent = first.key({ type: "usage.limits" }, "limits");
+  const recent = first.key({ type: "usage.accounts" }, "limits");
   if (!old || !recent) throw new Error("expected kept reads");
   first.answered(old, { result: { kind: "workspaces", workspaces: [] } });
   at = 2 * day;

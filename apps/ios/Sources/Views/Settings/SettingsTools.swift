@@ -41,11 +41,12 @@ enum SettingsTool: String, Hashable, CaseIterable {
         default: "library.\(rawValue)"
         }
     }
-    @MainActor @ViewBuilder func destination(_ model: ClientModel) -> some View {
+    /// Usage reads every machine, opening on `machine` when it is the only one.
+    @MainActor @ViewBuilder func destination(_ model: ClientModel, inbox: MachineInbox, machine: String) -> some View {
         switch self {
         case .projects: ProjectsView(model: model)
         case .automations: AutomationsView(model: model)
-        case .usage: UsageView(model: model)
+        case .usage: UsageView(inbox: inbox, machine: machine)
         case .skills: SkillsLibraryView(model: model)
         case .providers: ProviderSettingsView(model: model)
         case .sourceControl: SourceControlView(model: model)

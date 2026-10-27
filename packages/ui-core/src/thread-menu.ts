@@ -1,6 +1,7 @@
 import type { ThreadListEntry, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
 import { pluralCount } from "./counts.ts";
+import { joinNames } from "./join-names.ts";
 import type { ThreadRowFlags } from "./thread-card.ts";
 
 /**
@@ -141,8 +142,7 @@ export function runningWork(thread: {
       : undefined,
   ].filter((part) => part !== undefined);
   if (!parts.length) return "Its agent is still working.";
-  const last = parts.pop();
-  return `Still running: ${parts.length ? `${parts.join(", ")} and ${last}` : last}.`;
+  return `Still running: ${joinNames(parts)}.`;
 }
 
 /** The question asked before deleting a thread for good. */
