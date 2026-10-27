@@ -27,10 +27,10 @@ type Chosen = Pick<Machine, "id" | "name" | "primary">;
 const addProject = "\u0000add-project";
 
 /**
- * "New thread in…": the projects by name, then a chat with no project, then Add project…;
- * choosing a project or the chat opens a new thread draft there. While more than one machine is
- * online, a chip in the field names the machine whose projects are listed (the one New thread
- * used last, else this one) and lists the machines to choose another.
+ * "New thread in…": a chat with no project first, then the projects by name, then Add
+ * project…; choosing a project or the chat opens a new thread draft there. While more than one
+ * machine is online, a chip in the field names the machine whose projects are listed (the one
+ * New thread used last, else this one) and lists the machines to choose another.
  */
 export function NewThreadIn(props: { onBack: () => void; close(): void; onAddProject(): void }) {
   const machines = useMachines();
@@ -117,16 +117,17 @@ function MachineProjects(props: {
   const addProjectKeys = useKeys("addProject");
   const choices = useMemo(
     () => [
+      { id: chatChoice, label: "No project", icon: ChatCircleIcon },
       ...directory.projects.map((project): CommandChoice => ({
         id: project.id,
         label: project.name,
         icon: FolderSimpleIcon,
       })),
-      { id: chatChoice, label: "No project", icon: ChatCircleIcon },
       {
         id: addProject,
         label: "Add project",
         icon: FolderPlusIcon,
+        separatorBefore: true,
         aside: phone ? undefined : (
           <CommandShortcut>{describeKeys(addProjectKeys)}</CommandShortcut>
         ),

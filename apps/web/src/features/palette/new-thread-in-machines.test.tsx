@@ -32,7 +32,7 @@ const rows = async (step: HTMLElement) => {
     .getAllByRole("option")
     .map((option) => option.textContent ?? "");
 };
-/** The machine's projects: every row but the chat and Add project, which always follow them. */
+/** The machine's projects: every row but the chat first and Add project last. */
 const projectNames = async (step: HTMLElement) =>
   (await rows(step)).filter((row) => row !== "No project" && !row.startsWith("Add project"));
 
@@ -50,14 +50,14 @@ test("New thread in lists another machine's projects by keyboard and opens New t
   await within(step).findByRole("listbox", { name: "Machines" });
   await userEvent.keyboard("{ArrowDown}{Enter}");
   await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
-  // Another machine's step still ends with a chat there and Add project.
-  expect((await rows(step)).slice(-2)).toEqual([
-    "No project",
-    expect.stringMatching(/^Add project/),
-  ]);
+  // Another machine's step still starts with a chat there and ends with Add project.
+  const listed = await rows(step);
+  expect(listed[0]).toBe("No project");
+  expect(listed.at(-1)).toEqual(expect.stringMatching(/^Add project/));
   expect(within(step).getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
 
-  await userEvent.keyboard("{Enter}");
+  // No project leads, so step down to the project before opening it.
+  await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
 });
