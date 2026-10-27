@@ -90,10 +90,16 @@ import XCTest
 
     func testAProjectSkillOpensOnTheComputer() async throws {
         let app = launchIntoSkills()
-        let picker = app.descendants(matching: .any)["skills.project"].firstMatch
+        let picker = app.buttons["skills.project"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 15))
-        picker.tap()
-        app.buttons["skills-demo"].firstMatch.tap()
+        // The machine's projects arrive after the screen opens; the menu offers them then.
+        let project = app.buttons["skills-demo"].firstMatch
+        for _ in 0..<10 where !project.exists {
+            picker.tap()
+            if project.waitForExistence(timeout: 2) { break }
+            app.navigationBars.firstMatch.tap() // close the menu before trying again
+        }
+        project.tap()
         let row = app.buttons["skills.row.release-desktop"]
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         screenshot("library-project")

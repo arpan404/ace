@@ -50,14 +50,13 @@ struct SkillsLibraryView: View {
     var body: some View {
         List {
             Section {
-                if !projects.isEmpty {
-                    InsetRow(systemImage: "folder", title: "Project") {
-                        Picker("Project", selection: $projectId) {
-                            Text("None").tag("")
-                            ForEach(projects) { Text($0.name).tag($0.id) }
-                        }
-                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
+                // Always in place, so the rows below never move when the projects arrive.
+                InsetRow(systemImage: "folder", title: "Project") {
+                    Picker("Project", selection: $projectId) {
+                        Text("None").tag("")
+                        ForEach(projects) { Text($0.name).tag($0.id) }
                     }
+                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
                     .accessibilityIdentifier("skills.project")
                 }
                 if model.canOperate {
