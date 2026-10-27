@@ -53,6 +53,11 @@ export interface LivePillFacts {
   goal: ProviderGoal | null | undefined;
   /** A request card is in the composer's strip (an open request on this thread). */
   requestShown: boolean;
+  /**
+   * The strip already says what holds the turn (a usage limit, a stop, a paused queue): the pill
+   * keeps its counts but drops the status words that would say it twice.
+   */
+  holdShown?: boolean | undefined;
 }
 
 /** "Waiting on 2": the root does nothing itself while its subagents work. */
@@ -156,7 +161,7 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
  */
 export function livePill(facts: LivePillFacts): LivePill | undefined {
   if (facts.requestShown) return undefined;
-  const status = statusOf(facts.activity);
+  const status = facts.holdShown ? undefined : statusOf(facts.activity);
   const segments = segmentsOf(facts, status);
   return status || segments.length > 0 ? { status, segments } : undefined;
 }

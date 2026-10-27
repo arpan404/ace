@@ -101,7 +101,7 @@ export class ThreadSession {
       this.#threadId,
       signal,
       put,
-      (count) => this.#pill.queued(count),
+      (count, held) => this.#pill.queued(count, held),
       () => host.now(),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);

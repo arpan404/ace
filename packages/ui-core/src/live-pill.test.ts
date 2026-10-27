@@ -130,3 +130,22 @@ test("nothing live, queued or pursued: no pill", () => {
     livePill({ activity: undefined, queued: 0, goal: null, requestShown: false }),
   ).toBeUndefined();
 });
+
+test("while the strip says what holds the turn the pill keeps its counts but not the words", () => {
+  const activity = working();
+  expect(
+    livePill({ activity, queued: 2, goal: undefined, requestShown: false })?.status,
+  ).toBeDefined();
+  const held = livePill({
+    activity,
+    queued: 2,
+    goal: undefined,
+    requestShown: false,
+    holdShown: true,
+  });
+  expect(held?.status).toBeUndefined();
+  expect(held?.segments.map((segment) => segment.label)).toEqual(["2 queued"]);
+  expect(
+    livePill({ activity, queued: 0, goal: undefined, requestShown: false, holdShown: true }),
+  ).toBeUndefined();
+});

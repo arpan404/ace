@@ -29,7 +29,7 @@ export class QueueFollower {
   readonly #threadId: ThreadId;
   readonly #signal: AbortSignal;
   readonly #put: Put;
-  readonly #counted: (count: number) => void;
+  readonly #counted: (count: number, held: boolean) => void;
   readonly #now: () => number;
   #page: QueuePage | undefined;
   #reading: number | undefined;
@@ -41,7 +41,7 @@ export class QueueFollower {
     threadId: ThreadId,
     signal: AbortSignal,
     put: Put,
-    counted: (count: number) => void = () => {},
+    counted: (count: number, held: boolean) => void = () => {},
     now: () => number = () => 0,
   ) {
     this.#now = now;
@@ -158,7 +158,7 @@ export class QueueFollower {
     const hold = queueHold(this.#store, page, this.#now());
     // The message that wasn't sent is the transcript's, not queued work.
     const messages = (page?.messages ?? []).filter((message) => message.id !== hold.head);
-    this.#counted(messages.length);
+    this.#counted(messages.length, hold.strip !== null);
     this.#put("queue", () => {
       const thread = this.#store.thread;
       const root = thread?.rootAgentId ? this.#store.agent(thread.rootAgentId) : undefined;
