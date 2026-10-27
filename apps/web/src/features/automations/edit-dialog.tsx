@@ -12,7 +12,7 @@ import {
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useNow } from "@/lib/time.ts";
-import { AutomationForm, automationFromForm, formFromAutomation } from "./automation-values.ts";
+import { AutomationForm, automationFromForm, formFromAutomation } from "@ace/ui-core/automations";
 import { fieldErrors, WhenFields } from "./when-popover.tsx";
 
 /**

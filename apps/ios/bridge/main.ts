@@ -36,6 +36,8 @@ import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
+import { NativeAutomations } from "./automations.ts";
+import { localTimeZone } from "@ace/ui-core/automations";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -247,6 +249,18 @@ async function start(json: string): Promise<void> {
   );
   followFileChanges(client, pump);
   const forgeClient = client;
+  const newThread = compose.newThread;
+  const automations = new NativeAutomations({
+    owner: client,
+    // Whole milliseconds, as the daemon's clock reads them.
+    now: () => Math.floor(host.now()),
+    zone: localTimeZone,
+    agents: async () => {
+      if (!newThread.loadedAgents) await newThread.agents();
+      return newThread.loadedAgents;
+    },
+    threadState: (threadId) => owner.cachedThreads()?.thread(threadId)?.status.state,
+  });
   services = new NativeServices(
     client,
     pump,
@@ -263,6 +277,7 @@ async function start(json: string): Promise<void> {
     ),
     reads,
     () => host.now(),
+    automations,
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);

@@ -33,13 +33,15 @@
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
     "./skill-library": "./src/skill-library.ts",
-    "./forge-rich": "./src/forge-rich/index.ts"
+    "./forge-rich": "./src/forge-rich/index.ts",
+    "./automations": "./src/automations/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",

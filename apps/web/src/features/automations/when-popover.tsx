@@ -10,23 +10,26 @@ import { useNow } from "@/lib/time.ts";
 import { useProjectRepository } from "./project-repository.ts";
 import {
   AutomationForm,
+  cadencePatch,
+  cadences,
   chosenStart,
-  hourSteps,
-  minuteSteps,
-  scheduleFromForm,
-} from "./automation-values.ts";
-import { missedRunLabels } from "./labels.ts";
-import {
-  describeSchedule,
-  formatWhen,
-  onceInstant,
-  githubEventLabels,
+  dateIn,
+  githubEventChoices as events,
+  hourOptions,
   localTimeZone,
+  minuteOptions,
+  missedRunChoices as missed,
+  nextQuarter,
+  syntaxChoices as syntaxes,
   timeZones,
-  upcomingRuns,
-  weekdayName,
-  weekdays,
-} from "@/features/automation-schedule/index.ts";
+  triggerKinds as kinds,
+  triggerPatch,
+  upcomingLine,
+  upcomingStarts,
+  weekdayChoices as days,
+  whenSummary,
+  type FieldErrors,
+} from "@ace/ui-core/automations";
 import { dateLabel } from "@/components/ui/date-grid.ts";
 import { DateTimePicker, type DateTime } from "@/components/ui/date-time-picker.tsx";
 import { displayTime, TimePicker } from "@/components/ui/time-picker.tsx";
@@ -35,145 +38,16 @@ import { cityOf } from "@/components/ui/zone-search.tsx";
 /*
  * When an automation runs, as the strip's first control: a list of the four kinds, then the
  * chosen kind's fields: a schedule's repeat, time, zone and missed-run rule with its next three
- * starts; a GitHub repository and event; file globs. Validated by the form's own schema.
+ * starts; a GitHub repository and event; file globs. Validated by the form's own schema; the
+ * words and rules live in `@ace/ui-core/automations`, shared with the phone.
  */
 
-type Trigger = AutomationForm["trigger"];
-export type FieldErrors = Partial<Record<keyof AutomationForm, string>>;
+export { fieldErrors, whenFields, whenSummary, type FieldErrors } from "@ace/ui-core/automations";
 
-const kinds: { value: Trigger; label: string }[] = [
-  { value: "schedule", label: "On a schedule" },
-  { value: "github", label: "On pull requests or issues" },
-  { value: "file", label: "When files change" },
-  { value: "manual", label: "By hand" },
-];
-const cadences = [
-  { value: "minutes", label: "Minutes" },
-  { value: "hourly", label: "Hours" },
-  { value: "daily", label: "Every day" },
-  { value: "weekdays", label: "Weekdays" },
-  { value: "weekly", label: "Weekly" },
-  { value: "once", label: "Once" },
-  { value: "custom", label: "Custom" },
-] as const;
-const days = weekdays.map((value) => ({ value, label: weekdayName(value) }));
-const syntaxes = [
-  { value: "rrule", label: "RRULE" },
-  { value: "cron", label: "Cron" },
-] as const;
-const events = AutomationForm.shape.event.options.map((value) => ({
-  value,
-  label: `When ${githubEventLabels[value]}`,
-}));
-const missed = (["run_once", "skip"] as const).map((value) => ({
-  value,
-  label: missedRunLabels[value],
-}));
-const minutesLabel = (minutes: number) =>
-  minutes === 1 ? "Every minute" : `Every ${minutes} minutes`;
-function minuteOptions(current: number) {
-  const steps: number[] = minuteSteps.some((step) => step === current)
-    ? [...minuteSteps]
-    : [...minuteSteps, current].toSorted((a, b) => a - b);
-  return steps.map((minutes) => ({ value: String(minutes), label: minutesLabel(minutes) }));
-}
-const dateIn = (at: number, timezone: string) =>
-  new Date(at).toLocaleDateString("en-CA", { timeZone: timezone });
-/**
- * Where a one-off run starts out: the next time `time` comes round in the zone, today if it's
- * still ahead, else tomorrow, so a new one never opens on "No upcoming run".
- */
-function nextDateFor(time: string, now: number, timezone: string): string {
-  const today = dateIn(now, timezone);
-  const at = onceInstant({ date: today, time }, timezone);
-  return at !== undefined && at > now ? today : dateIn(now + 86_400_000, timezone);
-}
-/** The next quarter hour from `now` on the zone's clock, "14:15": where a new start time opens. */
-function nextQuarter(now: number, timezone: string): string {
-  const quarter = 15 * 60_000;
-  return new Date(Math.ceil((now + 60_000) / quarter) * quarter).toLocaleTimeString("en-GB", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-}
 /** "Oct 25, 9:30 AM", with the zone's city when it isn't this computer's. */
 function momentText(moment: { date: string; time: string }, today: string, timezone: string) {
   const zone = timezone === localTimeZone() ? "" : ` · ${cityOf(timezone)}`;
   return `${dateLabel(moment.date, today)}, ${displayTime(moment.time)}${zone}`;
-}
-const hoursLabel = (hours: number) => (hours === 1 ? "Every hour" : `Every ${hours} hours`);
-function hourOptions(current: number) {
-  const steps: number[] = hourSteps.includes(current as (typeof hourSteps)[number])
-    ? [...hourSteps]
-    : [...hourSteps, current].toSorted((a, b) => a - b);
-  return steps.map((hours) => ({ value: String(hours), label: hoursLabel(hours) }));
-}
-
-/** Each field's first problem, by the same schema the save uses. */
-export function fieldErrors(form: AutomationForm): FieldErrors {
-  const errors: FieldErrors = {};
-  for (const issue of AutomationForm.safeParse(form).error?.issues ?? []) {
-    const field = String(issue.path[0]) as keyof AutomationForm;
-    // Our own checks say what to do; a raw schema message ("expected string") never reaches people.
-    errors[field] ??= issue.code === "custom" ? issue.message : "Check this value.";
-  }
-  return errors;
-}
-
-/** Fields the When popover owns: a problem in one of these opens it. */
-export const whenFields = new Set<keyof AutomationForm>([
-  "time",
-  "every",
-  "minutes",
-  "date",
-  "startsAt",
-  "timezone",
-  "expression",
-  "repository",
-  "label",
-  "paths",
-]);
-
-const scheduleFields: (keyof AutomationForm)[] = [
-  "time",
-  "every",
-  "minutes",
-  "date",
-  "startsAt",
-  "expression",
-  "timezone",
-];
-
-/** The strip's words for the chosen trigger: "Every day at 09:00", "When files change". */
-export function whenSummary(form: AutomationForm, now: number): string {
-  switch (form.trigger) {
-    case "schedule": {
-      const errors = fieldErrors(form);
-      if (scheduleFields.some((field) => errors[field])) return "On a schedule";
-      const schedule = scheduleFromForm(form, now);
-      const text = describeSchedule(schedule);
-      if (form.cadence === "once" || schedule.startAt <= now) return text;
-      // A later start says so: "Every day at 9:00 AM from Oct 25", "Every hour from Sunday 9:00 AM".
-      const timed = ["daily", "weekdays", "weekly"].includes(form.cadence);
-      return `${text} from ${
-        timed
-          ? new Date(schedule.startAt).toLocaleDateString("en-US", {
-              timeZone: schedule.timezone,
-              month: "short",
-              day: "numeric",
-            })
-          : formatWhen(schedule.startAt, now, schedule.timezone)
-      }`;
-    }
-    case "github":
-      return `When ${githubEventLabels[form.event]}`;
-    case "file":
-      return "When files change";
-    case "manual":
-      return "Only when I run it";
-  }
 }
 
 export function WhenPopover(props: {
@@ -231,12 +105,8 @@ export function WhenFields(props: {
           value={form.trigger}
           options={kinds}
           onValueChange={(trigger) =>
-            props.onChange(
-              // A GitHub trigger starts from the project's own repository; the field stays editable.
-              trigger === "github" && !form.repository && suggested
-                ? { trigger, repository: suggested }
-                : { trigger },
-            )
+            // A GitHub trigger starts from the project's own repository; the field stays editable.
+            props.onChange(triggerPatch(form, trigger, suggested))
           }
           className="h-7 w-full min-w-0"
         />
@@ -336,12 +206,7 @@ function ScheduleFields(props: {
   const timed =
     form.cadence === "daily" || form.cadence === "weekdays" || form.cadence === "weekly";
   const today = dateIn(props.now, form.timezone);
-  const own = fieldErrors(form);
-  const next = scheduleFields.some((field) => own[field])
-    ? undefined
-    : upcomingRuns(scheduleFromForm(form, props.now), props.now).map((at) =>
-        formatWhen(at, props.now, form.timezone),
-      );
+  const next = upcomingStarts(form, props.now);
   return (
     <div className="flex flex-col">
       <Field label="Repeat">
@@ -349,16 +214,7 @@ function ScheduleFields(props: {
           label="Repeat"
           value={form.cadence}
           options={cadences}
-          onValueChange={(cadence) =>
-            onChange(
-              // Each kind starts from a usable value, whatever the form held before.
-              cadence === "once" && !form.date
-                ? { cadence, date: nextDateFor(form.time, props.now, form.timezone) }
-                : cadence === "minutes" && !Number.isInteger(form.minutes)
-                  ? { cadence, minutes: 15 }
-                  : { cadence },
-            )
-          }
+          onValueChange={(cadence) => onChange(cadencePatch(form, cadence, props.now))}
           className="h-7 w-full min-w-0"
         />
       </Field>
@@ -480,7 +336,7 @@ function ScheduleFields(props: {
         />
       </Field>
       <p aria-live="polite" className="px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
-        {next === undefined ? "" : next.length ? `Next: ${next.join(", ")}` : "No upcoming run"}
+        {upcomingLine(next)}
       </p>
     </div>
   );

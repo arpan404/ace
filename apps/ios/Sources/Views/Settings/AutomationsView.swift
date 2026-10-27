@@ -1,250 +1,160 @@
 import SwiftUI
 
-struct AutomationRow: Codable, Identifiable {
-    let id: String
-    var title: String
-    var enabled: Bool
-    var workspace: String
-    var provider: String
-    var prompt: String
-    var trigger: ServiceValue
-    var worktree: Bool
-    var missedRun: String
-    var concurrency: Int
-    var jitterMs: Int
-    var model: String?
-    var access: String?
-    var payload: [String: Any]? {
-        guard let data = try? JSONEncoder().encode(self) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }
-}
-struct AutomationReply: Decodable {
-    let ok: Bool
-    let error: String?
-    let automations: [AutomationRow]?
-    struct Inbox: Decodable {
-        struct Run: Decodable, Identifiable { let id: String; var title: String; let status: String; let result: String? }
-        let runs: [Run]
-    }
-    let inbox: Inbox?
-}
-
-/// Daemon automation error codes in people's words, matching the web client.
-/// Unknown messages pass through so daemon validation detail is never hidden.
-func friendlyAutomationError(_ raw: String?, fallback: String) -> String {
-    switch raw {
-    case "automation_unavailable":
-        return "Automations aren't available on this machine. Restart ace and try again."
-    case "Automation service is stopped":
-        return "Automations are turned off. Turn on Run automations in Settings › Agents to run one."
-    case "disabled_or_missing":
-        return "That automation is paused or no longer exists."
-    case "forbidden":
-        return "This device isn't allowed to change automations."
-    default:
-        guard let raw, !raw.isEmpty else { return fallback }
-        return raw
-    }
-}
-
-func automationString(_ value: ServiceValue?) -> String? {
-    if case .string(let text) = value { return text }
-    return nil
-}
-
-struct AutomationScheduleFields {
-    let kind: String
-    let expression: String
-    let timezone: String
-    let startAt: Double?
-}
-
-/// The saved schedule behind a trigger, if it is one. Used to prefill the
-/// editor and to keep the existing DTSTART anchor when a schedule is saved.
-func automationSchedule(_ trigger: ServiceValue) -> AutomationScheduleFields? {
-    guard case .object(let top) = trigger,
-        case .string(let kind) = top["kind"], kind == "schedule",
-        case .object(let schedule) = top["schedule"],
-        case .string(let scheduleKind) = schedule["kind"],
-        case .string(let expression) = schedule["expression"],
-        case .string(let timezone) = schedule["timezone"] else { return nil }
-    let startAt: Double? = {
-        if case .number(let instant) = schedule["startAt"] { return instant }
-        return nil
-    }()
-    return AutomationScheduleFields(kind: scheduleKind, expression: expression, timezone: timezone, startAt: startAt)
-}
-
-/// One-line trigger summary for the list and the editor's "keep" row.
-func describeAutomationTrigger(_ trigger: ServiceValue) -> String {
-    guard case .object(let top) = trigger, case .string(let kind) = top["kind"] else {
-        return "Configured trigger"
-    }
-    switch kind {
-    case "manual":
-        return "Only when run by hand"
-    case "schedule":
-        guard case .object(let schedule) = top["schedule"] else { return "On a schedule" }
-        let expression = automationString(schedule["expression"]) ?? ""
-        let timezone = automationString(schedule["timezone"]) ?? ""
-        let scheduleKind = automationString(schedule["kind"]) ?? ""
-        if expression.isEmpty {
-            return timezone.isEmpty ? "On a schedule" : "On a schedule (\(timezone))"
-        }
-        if scheduleKind == "cron" {
-            return timezone.isEmpty ? "Cron \(expression)" : "Cron \(expression) (\(timezone))"
-        }
-        return timezone.isEmpty ? expression : "\(expression) (\(timezone))"
-    case "github":
-        let repository = automationString(top["repository"]) ?? "a repository"
-        let event = automationString(top["event"]) ?? "an event"
-        let label = automationString(top["label"])
-        let when: String
-        switch event {
-        case "pr_changed": when = "a pull request opens or changes"
-        case "ci_failed": when = "CI fails"
-        case "review_comment": when = "a review comment arrives"
-        case "issue_labelled": when = "an issue is labelled"
-        default: when = event
-        }
-        if let label, !label.isEmpty {
-            return "When \(when) (\(label)) in \(repository)"
-        }
-        return "When \(when) in \(repository)"
-    case "file":
-        if case .array(let paths) = top["paths"] {
-            let names = paths.compactMap { automationString($0) }.filter { !$0.isEmpty }
-            if names.isEmpty { return "When files change" }
-            return "When \(names.joined(separator: ", ")) change"
-        }
-        return "When files change"
-    default:
-        return "Configured trigger"
-    }
-}
+/// Settings › Automations: every automation on this machine as a row (its name, when it next
+/// starts or what starts it, and a loud word only when it failed or needs the person), with New
+/// automation at the top. A row opens the automation: its schedule, actions and runs. Rows and
+/// words come ready-made from the bridge (`automations.page`).
 struct AutomationsView: View {
     let model: ClientModel
-    @State private var rows: [AutomationRow] = []
-    @State private var runs: [AutomationReply.Inbox.Run] = []
-    @State private var editing: AutomationRow?
-    @State private var removing: AutomationRow?
-    @State private var loading = true
-    @State private var busy = false
+    @State private var page: AutomationPage?
+    @State private var loading: Bool
     @State private var problem: String?
-    @State private var unavailable = false
-    private static let listRead: [String: Any] = ["type": "automation.list"]
-    private static let runsRead: [String: Any] = ["type": "automation.inbox", "limit": 20]
+    @State private var creating = false
+    @State private var made: String?
+    @Environment(\.automationLinks) private var links
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var zone: String { TimeZone.current.identifier }
+    private var request: [String: Any] { ["type": "automations.page", "zone": zone] }
 
-    /// Opens on the last automations and runs this phone saw, read again behind them.
+    /// Opens on the last list this phone saw, read again behind it.
     init(model: ClientModel) {
         self.model = model
-        let list = model.kept(Self.listRead, as: AutomationReply.self)
-        _rows = State(initialValue: list?.automations ?? [])
-        _runs = State(initialValue: model.kept(Self.runsRead, as: AutomationReply.self)?.inbox?.runs ?? [])
-        _loading = State(initialValue: list == nil)
+        let kept = model.kept(["type": "automations.page", "zone": TimeZone.current.identifier], as: AutomationPage.self)
+        _page = State(initialValue: kept?.ok == true ? kept : nil)
+        _loading = State(initialValue: kept == nil)
     }
+
+    private var person: [AutomationListRow] { page?.person ?? [] }
+    private var active: [AutomationListRow] { person.filter(\.enabled) }
+    private var paused: [AutomationListRow] { person.filter { !$0.enabled } }
+    private var threads: [AutomationListRow] { page?.threads ?? [] }
+    private var unavailable: Bool { page?.unavailable == true }
+
     var body: some View {
         List {
-            Group {
-                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading automations"); Spacer() } }
-                ServiceProblem(message: problem)
+            Section {
+                Button { creating = true } label: {
+                    Text("New automation").aceFont(InsetStyle.label, relativeTo: .body)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .disabled(!model.canOperate || unavailable)
+                .accessibilityIdentifier("automations.new")
                 if !model.canOperate {
                     ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
                 }
-                if !loading && rows.isEmpty && problem == nil { ContentUnavailableView("No automations", systemImage: "clock.arrow.circlepath") }
+                ServiceProblem(message: problem)
             }
-            .listRowBackground(Color.clear)
-            ForEach(rows) { row in
+            .insetRowBackground()
+            if loading && page == nil {
+                Section { ForEach(0..<3, id: \.self) { _ in AutomationRowPlaceholder() } }
+                    .insetRowBackground()
+                    .transition(.opacity)
+            } else if person.isEmpty && threads.isEmpty && problem == nil {
                 Section {
-                    Toggle("Enabled", isOn: Binding(get: { row.enabled }, set: { enabled in
-                        var changed = row; changed.enabled = enabled
-                        if let automation = changed.payload { perform(["type": "automation.put", "automation": automation]) }
-                    }))
-                    Text(describeAutomationTrigger(row.trigger))
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    Text("Automations run a task for you on a schedule, when a pull request or issue changes, or when files change. Each run opens its own thread.")
+                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    if !row.enabled {
-                        Text("Paused. Resume to schedule runs.")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }
-                    Text(row.prompt).lineLimit(4)
-                    LabeledContent("Provider", value: row.provider.capitalized)
-                    Text(row.workspace).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    Button("Edit", systemImage: "pencil") { editing = row }
-                    Button("Delete", role: .destructive) { removing = row }
-                    Button("Run now", systemImage: "play") {
-                        perform(["type": "automation.run", "id": row.id, "variables": [String: String]()])
-                    }
-                    .disabled(!row.enabled)
-                } header: {
-                    InsetHeader(row.title.isEmpty ? "Untitled automation" : row.title)
+                        .padding(.vertical, AceTheme.Spacing.sm)
                 }
                 .insetRowBackground()
-                .disabled(!model.canOperate || busy)
+                .transition(.opacity)
             }
-            if !runs.isEmpty {
-                Section {
-                    ForEach(runs) { run in
-                        VStack(alignment: .leading) {
-                            LabeledContent(run.title, value: run.status.capitalized)
-                            if let result = run.result { Text(result).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground) }
-                        }
-                    }
-                } header: { InsetHeader("Recent runs") }
-                .insetRowBackground()
-            }
+            group("Upcoming", active)
+            group("Paused", paused)
+            group("In threads", threads)
         }
         .insetGroupedList()
+        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: page?.person ?? [])
+        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: loading)
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New automation", systemImage: "plus") {
-                    editing = AutomationRow(id: UUID().uuidString, title: "", enabled: true, workspace: "", provider: model.providers?.providers.first?.provider ?? "codex", prompt: "", trigger: .object(["kind": .string("manual")]), worktree: false, missedRun: "skip", concurrency: 1, jitterMs: 0, model: nil, access: nil)
-                }.disabled(!model.canOperate || unavailable)
+        // The new automation opens once the editor has gone, so the push never races its dismissal.
+        .sheet(isPresented: $creating, onDismiss: {
+            if let made { links?.open(made) }
+            made = nil
+        }) {
+            NavigationStack {
+                AutomationEditor(model: model, editing: nil) { id in made = id }
             }
         }
-        .sheet(item: $editing) { row in
-            NavigationStack { AutomationEditor(model: model, initial: row) { Task { await read() } } }
-        }
-        .confirmationDialog("Delete automation?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { row in
-            Button("Delete \(row.title.isEmpty ? "automation" : row.title)", role: .destructive) {
-                removing = nil
-                perform(["type": "automation.remove", "id": row.id])
-            }
-        } message: { _ in
-            Text("Its run history stays on this machine.")
-        }
-        .task(id: model.readGeneration(Self.listRead)) { await read() }.refreshable { await read() }
+        .task(id: model.readGeneration(request)) { await read(fresh: false) }
+        .task { await poll() }
+        .refreshable { await read(fresh: true) }
     }
-    private func read() async {
+
+    @ViewBuilder private func group(_ title: String, _ rows: [AutomationListRow]) -> some View {
+        if !rows.isEmpty {
+            Section {
+                ForEach(rows) { row in
+                    Button { links?.open(row.id) } label: { AutomationListRowView(row: row) }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("automation.row.\(row.id)")
+                }
+            } header: { InsetHeader(title) }
+            .insetRowBackground()
+            .transition(.opacity)
+        }
+    }
+
+    private func read(fresh: Bool) async {
         defer { loading = false }
+        var payload = request
+        if fresh { payload["fresh"] = true }
         do {
-            let list = try await model.read(Self.listRead, as: AutomationReply.self)
-            guard list.ok else {
-                if list.error == "automation_unavailable" { unavailable = true }
-                throw ServiceFailure(message: friendlyAutomationError(list.error, fallback: "Couldn't read automations"))
-            }
-            unavailable = false
-            rows = list.automations ?? []; problem = nil
-            do {
-                let history = try await model.read(Self.runsRead, as: AutomationReply.self)
-                runs = history.ok ? (history.inbox?.runs ?? []) : []
-            } catch {
-                runs = []
-            }
+            let next = try await model.read(payload, as: AutomationPage.self)
+            if next.ok || next.unavailable == true { page = next }
+            problem = next.ok ? nil : next.error ?? "Couldn't read automations."
         } catch { problem = error.localizedDescription }
     }
-    private func perform(_ payload: [String: Any]) {
-        busy = true
-        Task {
-            defer { busy = false }
-            do {
-                let reply = try await model.service(payload, as: AutomationReply.self)
-                guard reply.ok else { throw ServiceFailure(message: friendlyAutomationError(reply.error, fallback: "Couldn't save or run this automation. Check its project and agent, then try again.")) }
-                await read()
-            } catch { problem = error.localizedDescription }
+
+    /// Runs and next starts move on their own: read again soon while one runs, else each minute.
+    private func poll() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(page?.pollMs ?? 60_000))
+            if Task.isCancelled { return }
+            await read(fresh: true)
         }
+    }
+}
+
+/// One automation: its name, then when it next starts or what starts it, and a status word only
+/// when there is one to act on.
+struct AutomationListRowView: View {
+    let row: AutomationListRow
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                Text(row.title).aceFont(InsetStyle.label, relativeTo: .body)
+                    .foregroundStyle(row.enabled ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                    .lineLimit(2)
+                Text(row.detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+            }
+            Spacer(minLength: AceTheme.Spacing.sm)
+            if let status = row.status {
+                StateLabel(status: status.status)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .transition(.opacity)
+            }
+            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
+                .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityHidden(true)
+        }
+        .padding(.vertical, AceTheme.Spacing.xs)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A row's shape while the first list loads, so nothing jumps when it arrives.
+struct AutomationRowPlaceholder: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            Capsule().fill(AceTheme.Colours.mutedForeground.opacity(0.18)).frame(width: 180, height: 12)
+            Capsule().fill(AceTheme.Colours.mutedForeground.opacity(0.12)).frame(width: 120, height: 10)
+        }
+        .padding(.vertical, AceTheme.Spacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .accessibilityLabel("Reading automations")
     }
 }

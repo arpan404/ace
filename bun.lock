@@ -135,7 +135,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.10",
+      "version": "0.0.11",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -903,6 +903,7 @@
       "name": "@ace/ui-core",
       "dependencies": {
         "@ace/accounts": "workspace:*",
+        "@ace/automations": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",

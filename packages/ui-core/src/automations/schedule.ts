@@ -1,4 +1,4 @@
-import { formatClock } from "@ace/ui-core";
+import { formatClock } from "../time.ts";
 import { civilStamp, zonedCalendar } from "@ace/automations/calendar";
 import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule, AutomationTrigger } from "@ace/protocol";
@@ -448,7 +448,8 @@ export function upcomingRuns(schedule: AutomationSchedule, after: number, count 
   const runs: number[] = [];
   try {
     const recurrence = compileSchedule(schedule);
-    let cursor = after;
+    // The engine seeks from whole milliseconds; a native clock can read a fraction of one.
+    let cursor = Math.floor(after);
     while (runs.length < count) {
       const next = recurrence.next(cursor);
       if (next === undefined) break;

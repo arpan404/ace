@@ -1,7 +1,6 @@
 import type { Automation } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { formatNextRun, localTimeZone } from "@/features/automation-schedule/index.ts";
-import { scheduleState, scheduleStateCopy } from "./trigger-health.ts";
+import { localTimeZone, nextRunText } from "@ace/ui-core/automations";
 
 /**
  * When it runs next. With automations off on the daemon's machine nothing runs, so it says so
@@ -29,23 +28,5 @@ export function NextRun(props: {
         </Link>
       </>
     );
-  if (nextRunAt !== undefined) {
-    const zone =
-      automation.trigger.kind === "schedule" ? automation.trigger.schedule.timezone : undefined;
-    const when = formatNextRun(nextRunAt, props.now, zone);
-    return zone && zone !== localTimeZone() ? `${when} (${zone})` : when;
-  }
-  switch (automation.trigger.kind) {
-    case "github":
-      return "On the next matching event";
-    case "file":
-      return "On the next change";
-    case "manual":
-      return "Only when you run it";
-    case "schedule": {
-      const state = scheduleState(automation.trigger.schedule, undefined, props.now);
-      if (state === "exhausted") return scheduleStateCopy(state);
-      return "Not scheduled yet";
-    }
-  }
+  return nextRunText(automation, nextRunAt, props.now, localTimeZone());
 }

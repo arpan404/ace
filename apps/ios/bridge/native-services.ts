@@ -39,6 +39,7 @@ import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
+import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -102,6 +103,7 @@ export class NativeServices {
   readonly reads: NativeReads | undefined;
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
+  readonly automations: NativeAutomations | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -111,6 +113,7 @@ export class NativeServices {
     forge?: ForgeService,
     reads?: NativeReads,
     now: () => number = () => 0,
+    automations?: NativeAutomations,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -122,6 +125,7 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
+    this.automations = automations;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -207,6 +211,12 @@ export class NativeServices {
           await readNativeMessage(this.owner, message.data, controller.signal),
           "",
         );
+        return;
+      }
+      const automation = NativeAutomationRequest.safeParse(raw);
+      if (automation.success && this.automations) {
+        const value = await this.automations.answer(automation.data, controller.signal);
+        this.#answer(id, raw, value, read);
         return;
       }
       const limits = UsageLimitsRequest.safeParse(raw);

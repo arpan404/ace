@@ -14,7 +14,7 @@ import {
   scheduleToPreset,
   weekdays,
   type SchedulePreset,
-} from "@/features/automation-schedule/index.ts";
+} from "./schedule.ts";
 import { customScheduleError } from "./schedule-validate.ts";
 
 /** "2026-10-24T09:30": a start on the schedule zone's wall clock. */
