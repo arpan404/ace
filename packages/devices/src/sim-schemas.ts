@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { AppDeviceId, DevicePosture } from "@ace/protocol/devices";
-import { ScreenUIAction, ScreenUIActOptions, type ApprovalTarget } from "@ace/protocol";
+import {
+  MachineName,
+  ScreenUIAction,
+  ScreenUIActOptions,
+  type ApprovalTarget,
+} from "@ace/protocol";
 import { perAction, uiReadShape } from "@ace/screen";
 import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { simRefPattern } from "./sim-refs.ts";
@@ -79,12 +84,12 @@ const SimActFields = z.strictObject({
     "closed (cover screen), partiallyOpen (half open, like a book) or open (flat, inner screen). Only foldable simulators and emulators; sim_start reports their current posture.",
   ),
 });
-const base = ["simId"] as const;
+// `machine` is only in the routed schemas (below); the local ones are strict and refuse it.
+const base = ["simId", "machine"] as const;
 const none = { required: [], allowed: base };
 type SimActInput = z.infer<typeof SimActFields>;
 const pointed = new Set(["tap", "long_press"]);
-export const SimActArgs = SimActFields.superRefine(
-  perAction<SimActInput>("action", {
+const simActRules = perAction<SimActInput>("action", {
     ui: { required: ["ref"], allowed: [...base, "ref", "uiAction", "value", "name"] },
     tap: { required: [], allowed: [...base, "x", "y", "ref"] },
     long_press: { required: [], allowed: [...base, "x", "y", "ref", "durationMs"] },
@@ -102,8 +107,8 @@ export const SimActArgs = SimActFields.superRefine(
     clipboard_get: none,
     clipboard_set: { required: ["text"], allowed: [...base, "text"] },
     posture: { required: ["posture"], allowed: [...base, "posture"] },
-  }),
-).superRefine((value, context) => {
+  });
+const simActPoint = (value: SimActInput, context: z.RefinementCtx) => {
   if (!pointed.has(value.action)) return;
   const located = value.x !== undefined || value.y !== undefined;
   if (value.ref !== undefined ? located : value.x === undefined || value.y === undefined)
@@ -112,7 +117,8 @@ export const SimActArgs = SimActFields.superRefine(
       path: ["ref"],
       message: `${value.action} needs either ref or both x and y`,
     });
-});
+};
+export const SimActArgs = SimActFields.superRefine(simActRules).superRefine(simActPoint);
 
 export const simSchemas = {
   sim_list: z.strictObject({}),
@@ -130,6 +136,22 @@ export const simSchemas = {
   }),
 };
 export type SimToolName = keyof typeof simSchemas;
+
+const machine = {
+  machine: MachineName.optional().describe(
+    "Another linked machine's simulators and emulators (machines); omit for this machine.",
+  ),
+};
+/** The sim_* inputs when a host can send them to another linked machine (ADR 0105). */
+export const routedSimSchemas = {
+  sim_list: simSchemas.sim_list.extend(machine),
+  sim_start: simSchemas.sim_start.extend(machine),
+  sim_stop: simSchemas.sim_stop.extend(machine),
+  sim_ui: simSchemas.sim_ui.extend(machine),
+  sim_act: SimActFields.extend(machine).superRefine(simActRules).superRefine(simActPoint),
+  sim_screenshot: simSchemas.sim_screenshot.extend(machine),
+  sim_logs: simSchemas.sim_logs.extend(machine),
+} satisfies Record<SimToolName, z.ZodType>;
 
 export const simToolMetadata: Record<
   SimToolName,

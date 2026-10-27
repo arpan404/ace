@@ -10,6 +10,7 @@ import { createMachineTarget } from "../machines/target.ts";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
+import { TargetDevices } from "../machines/target-devices.ts";
 import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
 import { unservedHost } from "../machines/capability-hosts.ts";
@@ -90,6 +91,11 @@ export function startMachines(context: ServiceContext): void {
     .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
   services.engine?.bindExternalTaskStop("ace-guest:", (id) => guests.stop(id));
   const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
+  const devices = new TargetDevices({
+    devices: () => services.devices,
+    guestMachine: (threadId) => store.getThread(ThreadId.parse(threadId))?.details?.guest?.name,
+  });
+  resources.own(devices.follow(guests));
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -100,7 +106,7 @@ export function startMachines(context: ServiceContext): void {
     guests,
     grants,
     hosts: {
-      devices: unservedHost(() => services.devices !== undefined),
+      devices,
       screen: unservedHost(() => services.screen !== undefined),
       commands: unservedHost(() => true),
     },
@@ -120,6 +126,8 @@ export function startMachines(context: ServiceContext): void {
     transfers: async (profile) =>
       new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
     log: record("info"),
+    // Sim tools are offered here while a linked machine lends its devices, even with ours off.
+    served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
   services.fleet = new FleetLinks({
