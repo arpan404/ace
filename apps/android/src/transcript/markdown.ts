@@ -251,15 +251,18 @@ function lineCount(text: string): number {
 /**
  * Streaming deltas re-render on every chunk. Past `STREAMING_FULL_PARSE_CHARS`
  * a full `markdownBlocks` parse per delta is O(n) each and O(n²) over the
- * stream, so the settled head is parsed once and only the tail re-parses.
+ * stream, so the settled head is cached and only a bounded tail re-parses.
  * The full text stays rendered: when a split is accepted, head blocks plus
  * tail blocks concatenate to exactly the full parse. Pure.
  *
- * Two inputs defeat the split and fall back to a full parse per delta, which
- * stays O(n) per delta: an unclosed fence in the head (the cut would sit
- * inside code), and blank lines so sparse the tail would exceed
- * `STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS`. Both fallbacks keep
- * blocks exact; only the per-delta cost is unbounded, never the output.
+ * Accepted splits cost O(tail + head-growth) per delta (bounded window cut,
+ * extension-only head parse, tail-only fingerprinting). Two inputs defeat
+ * the split and fall back to a full O(n) parse per delta: an unclosed fence
+ * in the head (the cut would sit inside code), and blank lines so sparse no
+ * cut fits the bounded window. Both fallbacks keep blocks exact; only the
+ * per-delta cost is unbounded, never the output. This is not O(delta):
+ * see the representative 200k streaming test, which asserts bounded tails
+ * and exact keys rather than wall time.
  */
 export const STREAMING_FULL_PARSE_CHARS = 16_000;
 /** Fresh tail re-parsed per delta while streaming a large message. */
@@ -268,16 +271,39 @@ export const STREAMING_TAIL_CHARS = 8_000;
 export const STREAMING_HEAD_GROWTH_CHARS = 4_000;
 
 /**
+ * Bounded cut search for streaming: the only splits worth accepting end in
+ * `[len - TAIL - GROWTH - 2, len - TAIL]`, a window of `GROWTH + 2`
+ * characters. Any earlier cut leaves a tail past `TAIL + GROWTH` and falls
+ * back to the full parse, so searching earlier is wasted work. Returns the
+ * cut index (the first `\n` of the `"\n\n"`) or -1. O(GROWTH) per call.
+ */
+function findStreamingCut(text: string): number {
+  if (text.length <= STREAMING_FULL_PARSE_CHARS) return -1;
+  const from = text.length - STREAMING_TAIL_CHARS;
+  const windowStart = Math.max(
+    0,
+    text.length - STREAMING_TAIL_CHARS - STREAMING_HEAD_GROWTH_CHARS - 2,
+  );
+  const window = text.slice(windowStart, from + 2);
+  const at = window.lastIndexOf("\n\n");
+  return at < 0 ? -1 : windowStart + at;
+}
+
+/**
  * Split streaming text into a settled head and a fresh tail at a blank-line
  * boundary, where every parser state (paragraph, quote, list, table) is
  * already flushed. Returns null when a full parse is cheaper or safer:
  * short text, no blank-line boundary in range, a tail that would stay
  * unbounded because blank lines are sparse, or an unclosed fence in the
  * head (a fence spanning the cut would parse differently split than whole).
+ *
+ * The cut search itself is bounded to `STREAMING_HEAD_GROWTH_CHARS + 2`
+ * characters; the fence check re-scans the head, so direct callers pay
+ * O(head) per call. `accumulateStreamingBlocks` avoids that rescan with its
+ * settled-head cache and does not call this per delta.
  */
 export function streamingSplit(text: string): { head: string; tail: string } | null {
-  if (text.length <= STREAMING_FULL_PARSE_CHARS) return null;
-  const cut = text.lastIndexOf("\n\n", text.length - STREAMING_TAIL_CHARS);
+  const cut = findStreamingCut(text);
   if (cut < 0) return null;
   if (text.length - (cut + 2) > STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS) return null;
   const head = text.slice(0, cut + 2);
@@ -295,36 +321,201 @@ export function isInOpenFence(text: string): boolean {
   return scanMarkdown(text).openFence !== null;
 }
 
-/** The settled head cache: parsed once, reused across deltas. */
+/** The settled head cache: parsed once, reused across deltas.
+ *
+ * `blocks` holds the head parse, `keys` its stable keys, and `counts` the
+ * base-fingerprint occurrence totals in the head so tail keys continue the
+ * same `#occurrence` numbering `withStableKeys` would assign to the full
+ * list. All three stay referentially stable while the head is unchanged, so
+ * settled rows keep state and no settled content is re-fingerprinted per
+ * delta. Missing `keys`/`counts` (e.g. a `{head, blocks}` literal from an
+ * older caller) is treated as empty and rebuilt once.
+ */
 export interface StreamingAccumulator {
   head: string;
   blocks: MarkdownBlock[];
+  keys?: string[];
+  counts?: Record<string, number>;
+}
+
+export interface KeyedBlock {
+  key: string;
+  value: MarkdownBlock;
+}
+
+function emptyCounts(): Record<string, number> {
+  return {};
+}
+
+function keyBlocksFrom(
+  blocks: MarkdownBlock[],
+  startCounts: Record<string, number>,
+): { keys: string[]; counts: Record<string, number>; keyed: KeyedBlock[] } {
+  const counts: Record<string, number> = { ...startCounts };
+  const seen = new Map<string, number>();
+  const keys: string[] = [];
+  const keyed: KeyedBlock[] = [];
+  for (const value of blocks) {
+    const base = blockFingerprint(value);
+    const prior = counts[base] ?? 0;
+    const within = seen.get(base) ?? 0;
+    const occurrence = prior + within + 1;
+    seen.set(base, within + 1);
+    const key = `${base}#${occurrence}`;
+    keys.push(key);
+    keyed.push({ key, value });
+  }
+  for (const [base, extra] of seen) counts[base] = (counts[base] ?? 0) + extra;
+  return { keys, counts, keyed };
+}
+
+function ensureHeadKeys(prev: StreamingAccumulator): {
+  keys: string[];
+  counts: Record<string, number>;
+} {
+  if (
+    prev.keys !== undefined &&
+    prev.counts !== undefined &&
+    prev.keys.length === prev.blocks.length
+  ) {
+    return { keys: prev.keys, counts: prev.counts };
+  }
+  const seen = new Map<string, number>();
+  const keys: string[] = [];
+  const counts: Record<string, number> = emptyCounts();
+  for (const value of prev.blocks) {
+    const base = blockFingerprint(value);
+    const occurrence = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occurrence);
+    keys.push(`${base}#${occurrence}`);
+  }
+  for (const [base, total] of seen) counts[base] = total;
+  return { keys, counts };
+}
+
+function fullKeyed(blocks: MarkdownBlock[]): {
+  keys: string[];
+  keyed: KeyedBlock[];
+  counts: Record<string, number>;
+} {
+  const { keys, keyed, counts } = keyBlocksFrom(blocks, emptyCounts());
+  return { keys, keyed, counts };
 }
 
 /**
- * One incremental step for a streaming message. Head blocks are referentially
- * stable while the head is unchanged, so settled rows keep their state; an
- * accepted split keeps the tail bounded by
- * `STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS`, and sparse text or
- * an open fence falls back to the full parse. Non-append edits reset the
- * head. `blocks` always equals `markdownBlocks(text)`: accepted splits join
- * head and tail parses exactly, and every other path parses whole. Pure.
+ * One incremental step for a streaming message. Accepted splits keep the
+ * tail parsed per delta bounded by
+ * `STREAMING_TAIL_CHARS + 2 * STREAMING_HEAD_GROWTH_CHARS`: the split
+ * candidate tail stays within `TAIL + GROWTH`, and a settled head lags the
+ * candidate by less than one growth chunk. The cut search scans a bounded
+ * window, an unchanged head reuses its blocks and keys with no head scan,
+ * and a head advance parses/fingerprints only the head extension plus the
+ * tail. The first accepted split still parses its head once (O(head)), and
+ * two inputs fall back to a full O(n) parse per delta while staying exact:
+ * an unclosed fence in the head, and blank lines so sparse no cut fits the
+ * bounded window. Non-append edits reset the head. `blocks` always equals
+ * `markdownBlocks(text)` and `keyed` always equals
+ * `withStableKeys(blocks, blockFingerprint)`; every other path parses whole.
+ * Pure. This is not O(delta) in general: fallbacks re-parse fully per delta.
  */
 export function accumulateStreamingBlocks(
   prev: StreamingAccumulator,
   text: string,
-): { state: StreamingAccumulator; blocks: MarkdownBlock[] } {
-  const split = streamingSplit(text);
-  if (split === null) return { state: { head: "", blocks: [] }, blocks: markdownBlocks(text) };
+): { state: StreamingAccumulator; blocks: MarkdownBlock[]; keyed: KeyedBlock[] } {
+  if (text.length <= STREAMING_FULL_PARSE_CHARS) {
+    const blocks = markdownBlocks(text);
+    const { keyed } = fullKeyed(blocks);
+    return { state: { head: "", blocks: [], keys: [], counts: emptyCounts() }, blocks, keyed };
+  }
   let head = prev.head;
   if (head !== "" && !text.startsWith(head)) head = "";
-  if (head === "" || split.head.length >= head.length + STREAMING_HEAD_GROWTH_CHARS) {
-    head = split.head;
-    const blocks = markdownBlocks(head);
-    const state = { head, blocks };
-    return { state, blocks: [...blocks, ...markdownBlocks(text.slice(head.length))] };
+  const basePrev: StreamingAccumulator =
+    head === "" ? { head: "", blocks: [], keys: [], counts: emptyCounts() } : prev;
+  const cut = findStreamingCut(text);
+  if (cut < 0) {
+    const blocks = markdownBlocks(text);
+    const { keyed } = fullKeyed(blocks);
+    return { state: { head: "", blocks: [], keys: [], counts: emptyCounts() }, blocks, keyed };
   }
-  return { state: prev, blocks: [...prev.blocks, ...markdownBlocks(text.slice(head.length))] };
+  const candidateHead = text.slice(0, cut + 2);
+  if (basePrev.head !== "") {
+    const { keys: headKeys, counts: headCounts } = ensureHeadKeys(basePrev);
+    const settled: StreamingAccumulator =
+      headKeys === basePrev.keys && headCounts === (basePrev.counts ?? headCounts)
+        ? basePrev
+        : { head: basePrev.head, blocks: basePrev.blocks, keys: headKeys, counts: headCounts };
+    const headKeyed: KeyedBlock[] = settled.blocks.map((value, i) => ({
+      key: headKeys[i]!,
+      value,
+    }));
+    if (candidateHead.length <= settled.head.length) {
+      // Candidate at or behind the settled head: keep the settled head. Both
+      // are prefixes of `text`, so the settled head stays a valid fence-closed
+      // blank boundary for the longer text.
+      const tailBlocks = markdownBlocks(text.slice(settled.head.length));
+      const { keyed: tailKeyed } = keyBlocksFrom(tailBlocks, headCounts);
+      return {
+        state: settled,
+        blocks: [...settled.blocks, ...tailBlocks],
+        keyed: [...headKeyed, ...tailKeyed],
+      };
+    }
+    if (!candidateHead.startsWith(settled.head)) {
+      const blocks = markdownBlocks(text);
+      const { keyed } = fullKeyed(blocks);
+      return { state: { head: "", blocks: [], keys: [], counts: emptyCounts() }, blocks, keyed };
+    }
+    if (candidateHead.length < settled.head.length + STREAMING_HEAD_GROWTH_CHARS) {
+      const tailBlocks = markdownBlocks(text.slice(settled.head.length));
+      const { keyed: tailKeyed } = keyBlocksFrom(tailBlocks, headCounts);
+      return {
+        state: settled,
+        blocks: [...settled.blocks, ...tailBlocks],
+        keyed: [...headKeyed, ...tailKeyed],
+      };
+    }
+    // Head advances: the settled head ends at a blank boundary with fences
+    // closed and every other parser state flushed, so the extension parses
+    // from a clean state exactly as the full head's suffix would. Scanning
+    // only the extension keeps this step bounded to the growth chunk.
+    const extension = candidateHead.slice(settled.head.length);
+    const extScan = scanMarkdown(extension);
+    if (extScan.openFence !== null) {
+      const blocks = markdownBlocks(text);
+      const { keyed } = fullKeyed(blocks);
+      return { state: { head: "", blocks: [], keys: [], counts: emptyCounts() }, blocks, keyed };
+    }
+    const {
+      keys: extKeys,
+      counts: extCounts,
+      keyed: extKeyed,
+    } = keyBlocksFrom(extScan.blocks, headCounts);
+    const newBlocks = [...settled.blocks, ...extScan.blocks];
+    const newKeys = [...headKeys, ...extKeys];
+    const newHeadKeyed = [...headKeyed, ...extKeyed];
+    const tailBlocks = markdownBlocks(text.slice(candidateHead.length));
+    const { keyed: tailKeyed } = keyBlocksFrom(tailBlocks, extCounts);
+    return {
+      state: { head: candidateHead, blocks: newBlocks, keys: newKeys, counts: extCounts },
+      blocks: [...newBlocks, ...tailBlocks],
+      keyed: [...newHeadKeyed, ...tailKeyed],
+    };
+  }
+  const headText = candidateHead;
+  const headScan = scanMarkdown(headText);
+  if (headScan.openFence !== null) {
+    const blocks = markdownBlocks(text);
+    const { keyed } = fullKeyed(blocks);
+    return { state: { head: "", blocks: [], keys: [], counts: emptyCounts() }, blocks, keyed };
+  }
+  const { keys, counts, keyed: headKeyed } = fullKeyed(headScan.blocks);
+  const tailBlocks = markdownBlocks(text.slice(headText.length));
+  const { keyed: tailKeyed } = keyBlocksFrom(tailBlocks, counts);
+  return {
+    state: { head: headText, blocks: headScan.blocks, keys, counts },
+    blocks: [...headScan.blocks, ...tailBlocks],
+    keyed: [...headKeyed, ...tailKeyed],
+  };
 }
 
 /** Inline spans for one run of prose. Malformed markup stays literal.

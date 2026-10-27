@@ -437,6 +437,98 @@ it("resets the settled head when streaming text is edited, not appended", () => 
   const edited = `Revised opener.\n\n${first.slice(first.indexOf("\n\n") + 2)}`;
   const two = accumulateStreamingBlocks(one.state, edited);
   expect(two.blocks).toEqual(markdownBlocks(edited));
+  expect(two.keyed).toEqual(withStableKeys(markdownBlocks(edited), blockFingerprint));
+});
+
+it("reuses settled head blocks and keys across small deltas", () => {
+  const first = largeDoc(60);
+  const one = accumulateStreamingBlocks({ head: "", blocks: [] }, first);
+  expect(one.state.head).not.toBe("");
+  expect(one.keyed).toEqual(withStableKeys(one.blocks, blockFingerprint));
+  const second = `${first}Tail sentence one more.\n`;
+  const two = accumulateStreamingBlocks(one.state, second);
+  expect(two.blocks).toEqual(markdownBlocks(second));
+  expect(two.keyed).toEqual(withStableKeys(two.blocks, blockFingerprint));
+  // A small delta does not advance the head: same state and head block refs.
+  expect(two.state).toBe(one.state);
+  expect(
+    two.blocks.slice(0, one.state.blocks.length).every((b, i) => b === one.state.blocks[i]),
+  ).toBe(true);
+  expect(two.keyed.slice(0, one.state.blocks.length).map((k) => k.key)).toEqual(one.state.keys);
+});
+
+it("advances the head incrementally and keeps duplicate keys exact", () => {
+  const first = largeDoc(60);
+  const one = accumulateStreamingBlocks({ head: "", blocks: [] }, first);
+  // Duplicate the opening paragraph in the tail: occurrence counting must
+  // continue from the settled head, matching a full withStableKeys pass.
+  const dupHead = markdownBlocks(first)[0];
+  const dupText = dupHead?.kind === "paragraph" ? dupHead.text : "Paragraph 1 streams in.";
+  const third = `${first}${"Another streamed line.\n\n".repeat(400)}${dupText}\n\nTail end.\n\n`;
+  const two = accumulateStreamingBlocks(one.state, third);
+  expect(two.blocks).toEqual(markdownBlocks(third));
+  expect(two.keyed).toEqual(withStableKeys(two.blocks, blockFingerprint));
+  expect(two.state.head.length).toBeGreaterThan(one.state.head.length);
+  expect(third.length - two.state.head.length).toBeLessThanOrEqual(
+    STREAMING_TAIL_CHARS + STREAMING_HEAD_GROWTH_CHARS,
+  );
+});
+
+it("keeps table-hidden fences exact when the extension opens a fence", () => {
+  const filler = "Padding filler sentence to grow the document past the split threshold. ".repeat(
+    30,
+  );
+  let pad = "";
+  while (pad.length <= STREAMING_FULL_PARSE_CHARS) pad += `${filler}\n\n`;
+  const base = `${pad}Settled opener.\n\n`;
+  const one = accumulateStreamingBlocks({ head: "", blocks: [] }, base);
+  expect(one.state.head).not.toBe("");
+  const middle = ["| H1 | H2 |", "| --- | --- |", "```x``` | v |", "~~~", "streaming code"].join(
+    "\n",
+  );
+  const open = `${base}${middle}\n`;
+  const two = accumulateStreamingBlocks(one.state, open);
+  // The extension opens a real fence (the ``` line is a table row), so no
+  // safe split exists: falls back to the full parse while staying exact.
+  expect(two.blocks).toEqual(markdownBlocks(open));
+  expect(two.keyed).toEqual(withStableKeys(two.blocks, blockFingerprint));
+  const closed = `${open}\`\`\`\n\ndone\n`;
+  const three = accumulateStreamingBlocks(two.state, closed);
+  expect(three.blocks).toEqual(markdownBlocks(closed));
+  expect(three.keyed).toEqual(withStableKeys(three.blocks, blockFingerprint));
+});
+
+it("streams a representative 200k document with bounded tails and exact keys", () => {
+  // Representative streaming shape: many settled sections plus tables, lists,
+  // quotes and fences, appended in ~2k chunks. Accepted splits keep the tail
+  // bounded by TAIL + GROWTH; sparse text or an open fence still falls back
+  // to a full O(n) parse per delta (exact output, unbounded cost). This test
+  // asserts the bounded shape, not wall time, and never claims O(delta).
+  const doc = largeDoc(700);
+  expect(doc.length).toBeGreaterThan(200_000);
+  let state: StreamingAccumulator = { head: "", blocks: [] };
+  let accepted = 0;
+  let advanced = 0;
+  const chunk = 2_000;
+  for (let end = chunk; end <= doc.length; end += chunk) {
+    const text = doc.slice(0, end);
+    const result = accumulateStreamingBlocks(state, text);
+    expect(result.blocks).toEqual(markdownBlocks(text));
+    expect(result.keyed).toEqual(withStableKeys(result.blocks, blockFingerprint));
+    if (result.state.head !== "") {
+      accepted += 1;
+      // Settled head lags the split candidate by under one growth chunk, so
+      // the parsed tail stays within TAIL + 2 * GROWTH (candidate tail plus
+      // the lag). Fallbacks reset the head to "" and re-parse fully.
+      expect(text.length - result.state.head.length).toBeLessThanOrEqual(
+        STREAMING_TAIL_CHARS + 2 * STREAMING_HEAD_GROWTH_CHARS,
+      );
+      if (result.state.head.length > state.head.length) advanced += 1;
+    }
+    state = result.state;
+  }
+  expect(accepted).toBeGreaterThan(0);
+  expect(advanced).toBeGreaterThan(0);
 });
 
 it("keeps the over-limit preview on character boundaries", () => {

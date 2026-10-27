@@ -36,21 +36,22 @@ import { copyCodeText } from "./clipboard.ts";
  * settled blocks, while a mid-stream structural change (fence closes,
  * `---` becomes a rule) remounts only what changed.
  */
-const NO_BLOCKS: MarkdownBlock[] = [];
 
 /**
  * Incremental blocks for a streaming message: settled head blocks are parsed
  * once and referentially stable across deltas, the tail re-parses bounded.
- * Falls back to the full parse for short text, un-splittable text, and once
- * the stream settles. All hooks run every render; callers keep early returns
- * below this hook.
+ * Keys for settled rows are cached in the accumulator, so per-delta
+ * fingerprinting covers only the head extension (on advance) plus the
+ * bounded tail. Falls back to the full parse for short text, un-splittable
+ * text, and once the stream settles. All hooks run every render; callers keep
+ * early returns below this hook.
  */
 function useStreamingBlocks(
   text: string,
   streaming: boolean | undefined,
   overLimit: boolean,
-): MarkdownBlock[] {
-  const settled = useRef<StreamingAccumulator>({ head: "", blocks: [] });
+): { key: string; value: MarkdownBlock }[] {
+  const settled = useRef<StreamingAccumulator>({ head: "", blocks: [], keys: [], counts: {} });
   return useMemo(
     // Render-phase memo cache: nextBlocks is a deterministic function of
     // text, so a repeated render recomputes identically; the cache only
@@ -66,14 +67,15 @@ function nextBlocks(
   text: string,
   streaming: boolean | undefined,
   overLimit: boolean,
-): MarkdownBlock[] {
+): { key: string; value: MarkdownBlock }[] {
   if (!streaming || overLimit) {
-    settled.current = { head: "", blocks: [] };
-    return overLimit ? NO_BLOCKS : markdownBlocks(text);
+    settled.current = { head: "", blocks: [], keys: [], counts: {} };
+    if (overLimit) return [];
+    return withStableKeys(markdownBlocks(text), blockFingerprint);
   }
   const result = accumulateStreamingBlocks(settled.current, text);
   settled.current = result.state;
-  return result.blocks;
+  return result.keyed;
 }
 export const Markdown = memo(function Markdown({
   text,
@@ -87,10 +89,9 @@ export const Markdown = memo(function Markdown({
   const theme = useTheme();
   const overLimit = isOverInlineLimit(text);
   const preview = useMemo(() => (overLimit ? longMessagePreview(text) : ""), [text, overLimit]);
-  const blocks = useStreamingBlocks(text, streaming, overLimit);
-  // Content keys: append-only deltas keep settled blocks; a structural
-  // change mid-stream remounts only what changed.
-  const keyedBlocks = useMemo(() => withStableKeys(blocks, blockFingerprint), [blocks]);
+  // Content keys come from the accumulator cache: append-only deltas keep
+  // settled keys; a structural change mid-stream remounts only what changed.
+  const keyedBlocks = useStreamingBlocks(text, streaming, overLimit);
   const [copyAll, setCopyAll] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
     if (copyAll === "idle") return undefined;
