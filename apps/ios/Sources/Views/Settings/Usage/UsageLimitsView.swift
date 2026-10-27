@@ -24,10 +24,13 @@ struct UsageLimitsView: View {
                     }
                 }
             }
-            if !limits.quiet.isEmpty {
-                Text("No limits reported · \(limits.quiet.joined(separator: ", "))")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+            if !limits.quiet.isEmpty || !limits.unsure.isEmpty {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                    if !limits.quiet.isEmpty { Text("No limits reported · \(limits.quiet.joined(separator: ", "))") }
+                    ForEach(limits.unsure, id: \.self) { Text($0) }
+                }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
             }
         }
     }
@@ -41,8 +44,11 @@ private struct UsageLimitAccount: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(account.label).aceFont(InsetStyle.label, relativeTo: .body)
                     .fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground)
-                if let plan = account.plan {
-                    Text(String(plan.prefix(1)).uppercased() + String(plan.dropFirst()))
+                // The plan beside the machine it was read on, as the web lists it: "Pro · Studio".
+                let plan = account.plan.map { String($0.prefix(1)).uppercased() + String($0.dropFirst()) }
+                let detail = [plan, account.machine].compactMap { $0 }
+                if !detail.isEmpty {
+                    Text(detail.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
@@ -162,7 +168,7 @@ private struct UsageBankedResets: View {
                         Button("Use reset") { Task { await use() } }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        Text("This spends one saved reset for \(account.label). Codex decides which limits it resets.")
+                        Text("This spends one saved reset for \(account.label)\(account.machine.map { " on \($0)" } ?? ""). Codex decides which limits it resets.")
                     }
             }
             if let notice {

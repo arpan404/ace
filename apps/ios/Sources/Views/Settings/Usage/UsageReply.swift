@@ -1,15 +1,23 @@
 import SwiftUI
 import UIKit
 
-/// `usage.report` (`bridge/usage-report.ts`): the web Usage page's Cost and Tokens views, every
-/// figure already compact text from `@ace/ui-core`, for Swift only to draw.
+/// `usage.combine` (`bridge/usage-report.ts`): the web Usage page's Cost and Tokens views over
+/// every machine in scope, summed and worded by `@ace/ui-core`, for Swift only to draw.
 struct UsageReportReply: Decodable, Sendable {
     struct Provider: Decodable, Sendable, Hashable { let id: String; let name: String }
     let from: String
     let to: String
     let providers: [Provider]
+    let coverage: UsageCoverage
     let tokens: UsageMetricView
     let cost: UsageMetricView
+}
+
+/// Which machines the figures count: "2 of 3 machines · Studio is offline"; null for one
+/// counted machine.
+struct UsageCoverage: Decodable, Sendable, Hashable {
+    let line: String?
+    let complete: Bool
 }
 
 struct UsageHue: Decodable, Sendable, Hashable {
@@ -90,7 +98,7 @@ struct UsageResetReply: Decodable, Sendable {
     let words: String
 }
 
-/// `usage.limits` (`bridge/usage-limits.ts`): the shared Usage-page limits, worded by
+/// `usage.combineLimits` (`bridge/usage-limits.ts`): the shared Usage-page limits, worded by
 /// `@ace/ui-core`, for Swift to draw beside the token use.
 struct UsageLimitsReply: Decodable, Sendable {
     struct Pace: Codable, Sendable, Hashable {
@@ -111,6 +119,10 @@ struct UsageLimitsReply: Decodable, Sendable {
     struct Account: Codable, Sendable, Hashable {
         let key: String
         let instanceId: String?
+        /// The machine a banked reset goes through.
+        let machineId: String?
+        /// "Studio", or "Mac and Studio" for one login on both; nil with a single machine.
+        let machine: String?
         let provider: String?
         let label: String
         let plan: String?
@@ -128,6 +140,9 @@ struct UsageLimitsReply: Decodable, Sendable {
     }
     let providers: [Provider]
     let quiet: [String]
+    /// Logins ace can't tell apart across machines, said once each.
+    let unsure: [String]
+    let coverage: UsageCoverage
 }
 
 /// A provider's hue on the Usage screen: its own light and dark colour, the theme's ink for

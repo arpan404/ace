@@ -35,7 +35,7 @@ const machine = (day: string, tokens: number, threads: string[]): EnvironmentUsa
   threadsTruncated: false,
 });
 
-test("two machines' usage sums per day, and a session both report counts once", () => {
+test("two machines' usage sums per day, and each machine's sessions count as its own", () => {
   const report = usageReport(
     [machine("2026-10-02", 1000, ["a", "b"]), machine("2026-10-02", 3000, ["b", "c"])],
     ["2026-10-01", "2026-10-02"],
@@ -43,8 +43,10 @@ test("two machines' usage sums per day, and a session both report counts once", 
   expect(report.tokens).toBe(4000);
   expect(report.usd).toBe(4);
   expect(report.days.map((day) => day.tokens)).toEqual([0, 4000]);
-  expect(report.sessions).toBe(3);
-  expect(report.providers[0]?.sessions).toBe(3);
+  // A thread continued on another machine gets a new id there, so the same id on two
+  // machines is two sessions, never one.
+  expect(report.sessions).toBe(4);
+  expect(report.providers[0]?.sessions).toBe(4);
 });
 
 test("an offline machine is named in the coverage line, never left out silently", () => {
@@ -68,6 +70,7 @@ test("coverage says each reason a machine is missing, and stays quiet for one co
     ]).line,
   ).toBe("1 of 4 machines · Mini and Air are offline · Studio couldn't be read");
   expect(usageCoverage([{ id: "mac", name: "Mac", reach: "counted" }]).line).toBeNull();
+  expect(usageCoverage([{ id: "mac", name: "Mac", reach: "offline" }]).line).toBe("Mac is offline");
   expect(
     usageCoverage([
       { id: "mac", name: "Mac", reach: "counted" },

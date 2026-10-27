@@ -119,7 +119,7 @@ struct SettingsSheet: View {
                 }
             }
         case .tool(let tool, let machine):
-            if let client = inbox.client(machine) { tool.destination(client) }
+            if let client = inbox.client(machine) { tool.destination(client, inbox: inbox, machine: machine) }
         case .licences: LicencesView()
         }
     }

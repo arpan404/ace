@@ -50,8 +50,9 @@ export function usageCoverage(machines: readonly UsageMachine[]): UsageCoverage 
     const [one, many] = reasons[reach];
     return [`${joinNames(these)} ${these.length === 1 ? one : many}`];
   });
-  const head = total === 1 ? "No machines counted" : `${counted} of ${total} machines`;
-  return { counted, total, complete, line: [head, ...said].join(" · "), missing };
+  // One machine needs no count: "Studio is offline" says it all.
+  const head = total === 1 ? [] : [`${counted} of ${total} machines`];
+  return { counted, total, complete, line: [...head, ...said].join(" · "), missing };
 }
 
 /** One machine's accounts as the Usage page lists them; undefined while they load. */

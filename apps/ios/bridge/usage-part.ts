@@ -124,7 +124,7 @@ export async function readUsagePart(
     const reported = row.dimensions.model ?? "";
     const model = canonical(provider, reported) ?? reported;
     named.set(`${provider}\0${model}`, { provider, model, name: name(provider, model) });
-    return { totals: row.totals, dimensions: { provider: row.dimensions.provider, model } };
+    return { totals: row.totals, dimensions: { provider, model } };
   });
   return {
     type: "usage.part",
