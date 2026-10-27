@@ -18,9 +18,12 @@ struct ForgeLogView: View {
     @State private var count: Int?
     @State private var asked: Set<Int> = []
     @State private var failure: String?
+    @State private var openedOnFocus = false
 
     private static let pageSize = 200
     private var lines: Int { count ?? total ?? 0 }
+    /// The page holding the failure has been read.
+    private var focusLoaded: Bool { focus.map { pages[$0 / Self.pageSize] != nil } ?? false }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -42,10 +45,11 @@ struct ForgeLogView: View {
                 want(line)
                 withAnimation(AceMotion.smooth) { proxy.scrollTo(line, anchor: .top) }
             }
-            .task(id: focus) {
-                // Opening on the failure: the lines around it are read first, then shown.
-                guard let focus, focus > 0 else { return }
-                try? await Task.sleep(for: .milliseconds(150))
+            // Opening on the failure: once the lines around it have arrived, and only once, so a
+            // person already reading elsewhere is never pulled back.
+            .onChange(of: focusLoaded, initial: true) { _, loaded in
+                guard loaded, !openedOnFocus, let focus, focus > 0 else { return }
+                openedOnFocus = true
                 proxy.scrollTo(focus, anchor: .top)
             }
         }
