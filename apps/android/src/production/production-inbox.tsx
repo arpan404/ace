@@ -45,6 +45,10 @@ import {
   useLivenessTick,
   useNowTick,
 } from "./production-inbox-common.tsx";
+import {
+  invalidateInboxActionUiForHost,
+  scopedInboxActionUi,
+} from "./production-inbox-actions-store.ts";
 import { ProductionThreadView } from "./production-thread-view.tsx";
 
 /**
@@ -185,6 +189,19 @@ export function ActiveMachineInbox({
   const showActions = canShowProductionInboxActions(canOperate);
   const now = useNowTick(gatedOpenId === null);
   const inboxActions = useProductionInboxActions(startup);
+  // Session/host teardown for the single view: once the route leaves `paired`
+  // (removed, revoked, pin mismatch) the host's Undo/failures/busy and
+  // receipt listeners must not survive into the next session. Transient
+  // offline keeps the route `paired`, so durable offers and receipts persist.
+  useEffect(() => {
+    if (!inboxVisible) invalidateInboxActionUiForHost(hostId);
+  }, [hostId, inboxVisible]);
+  // The module store is shared across hosts: only this host's offer renders
+  // here, so switching to another machine never shows a stale cross-host
+  // Undo. Anything hidden stays stored and resurfaces on switch-back.
+  const scoped = scopedInboxActionUi([hostId]);
+  const visibleUndo = inboxVisible ? (scoped.undo ?? null) : null;
+  const visibleFailed = inboxVisible ? (scoped.failed ?? null) : null;
 
   const resolved = useMemo(() => {
     if (!inboxVisible) return { lease: null, problem: null as string | null };
@@ -389,8 +406,8 @@ export function ActiveMachineInbox({
         }
       />
       <ProductionInboxActionBanner
-        undo={inboxActions.undo}
-        failed={inboxActions.failed}
+        undo={visibleUndo}
+        failed={visibleFailed}
         onUndo={() => void inboxActions.undoNow()}
         onRetry={() => void inboxActions.retryFailed()}
         onDismissFailed={inboxActions.dismissFailed}

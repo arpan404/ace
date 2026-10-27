@@ -50,6 +50,10 @@ import {
 } from "../inbox-actions.ts";
 import { currentProductionInboxGrant } from "./production-inbox-actions.ts";
 import {
+  pruneInboxActionUiToHosts,
+  scopedInboxActionUi,
+} from "./production-inbox-actions-store.ts";
+import {
   ProductionInboxActionBanner,
   ProductionInboxRowActions,
   useProductionInboxActions,
@@ -271,7 +275,10 @@ export function MergedMachineInbox({
     });
   }, []);
   // Drop reports for hosts that left `paired` (revoked, removed): their rows
-  // vanish with their lease instead of lingering as stale state.
+  // vanish with their lease instead of lingering as stale state. The shared
+  // inbox-action store prunes alongside: a departed host's Undo/failures,
+  // busy keys and receipt listeners never survive into the next session,
+  // while live hosts keep theirs through transient offline.
   useEffect(() => {
     setReports((prev) => {
       const next: Record<string, MachineThreadsReport> = {};
@@ -282,6 +289,7 @@ export function MergedMachineInbox({
       }
       return changed ? next : prev;
     });
+    pruneInboxActionUiToHosts(paired);
     // `paired` is re-derived per render; the stable key avoids effect churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairedKey]);
@@ -308,6 +316,10 @@ export function MergedMachineInbox({
   const inboxActions = useProductionInboxActions(startup, {
     hostLabel: showNames ? (hostId) => machineLabelFor(hostId, names) : undefined,
   });
+  // Shared store, per-host display: only paired hosts' offers render here.
+  const scoped = scopedInboxActionUi(paired);
+  const visibleUndo = scoped.undo ?? null;
+  const visibleFailed = scoped.failed ?? null;
   function retry(hostId: string): void {
     retryReading(startup, hostId);
     setRetryTicks((prev) => ({ ...prev, [hostId]: (prev[hostId] ?? 0) + 1 }));
@@ -442,8 +454,8 @@ export function MergedMachineInbox({
         />
       ))}
       <ProductionInboxActionBanner
-        undo={inboxActions.undo}
-        failed={inboxActions.failed}
+        undo={visibleUndo}
+        failed={visibleFailed}
         onUndo={() => void inboxActions.undoNow()}
         onRetry={() => void inboxActions.retryFailed()}
         onDismissFailed={inboxActions.dismissFailed}

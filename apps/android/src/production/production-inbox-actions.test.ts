@@ -19,10 +19,18 @@ import {
 } from "./production-inbox-actions.ts";
 import {
   armProductionInboxUndoForTests,
+  invalidateAllInboxActionUi,
+  invalidateInboxActionUiForHost,
   pendingProductionInboxFailuresForTests,
+  pruneInboxActionUiToHosts,
   reportProductionInboxFailureForTests,
   resetProductionInboxActionUiForTests,
+  scopedInboxActionUi,
+  setUiBusy,
   snapshotProductionInboxActionUiForTests,
+  trackedInboxActionReceiptsForTests,
+  trackInboxActionReceipt,
+  untrackInboxActionReceipt,
 } from "./production-inbox-actions-store.ts";
 
 afterEach(() => {
@@ -444,4 +452,220 @@ it("survives a remount: Undo and queued failures live in the module store", () =
   // A remount re-reads the same module snapshot; nothing is lost.
   expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-2");
   expect(pendingProductionInboxFailuresForTests()).toHaveLength(1);
+});
+
+it("invalidating one host drops only its Undo, failures, busy and receipts", () => {
+  const stopped: string[] = [];
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-a",
+    label: "Thread archived",
+  });
+  reportProductionInboxFailureForTests({
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    message: "Studio: This change could not be applied.",
+  });
+  setUiBusy("host-1:thread-1:archive", true);
+  setUiBusy("host-2:thread-1:settle", true);
+  trackInboxActionReceipt("host-1", "cmd-a", () => {
+    stopped.push("cmd-a");
+  });
+  trackInboxActionReceipt("host-2", "cmd-b", () => {
+    stopped.push("cmd-b");
+  });
+
+  invalidateInboxActionUiForHost("host-1");
+
+  // host-1 is gone: its Undo clears and promotes the queued live failure.
+  expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+  expect(snapshotProductionInboxActionUiForTests().failed?.hostId).toBe("host-2");
+  expect(snapshotProductionInboxActionUiForTests().busy["host-1:thread-1:archive"]).toBeUndefined();
+  expect(snapshotProductionInboxActionUiForTests().busy["host-2:thread-1:settle"]).toBe(true);
+  expect(stopped).toEqual(["cmd-a"]);
+  expect(trackedInboxActionReceiptsForTests()).toEqual([{ hostId: "host-2", commandId: "cmd-b" }]);
+  // The hidden host stays hidden: single-view scoping never shows host-2 in host-1.
+  expect(scopedInboxActionUi(["host-1"]).failed).toBeNull();
+  expect(scopedInboxActionUi(["host-2"]).failed?.hostId).toBe("host-2");
+});
+
+it("pruning to live hosts keeps offline offers and drops only departed listeners", () => {
+  const stopped: string[] = [];
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    commandId: "cmd-live",
+    label: "Thread settled",
+  });
+  trackInboxActionReceipt("host-1", "cmd-live", () => {
+    stopped.push("cmd-live");
+  });
+  trackInboxActionReceipt("host-2", "cmd-gone", () => {
+    stopped.push("cmd-gone");
+  });
+  setUiBusy("host-2:thread-1:archive", true);
+
+  // host-1 is still paired but offline: pruning to [host-1] keeps everything
+  // live and drops only the departed host-2 listener.
+  pruneInboxActionUiToHosts(["host-1"]);
+
+  expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-live");
+  expect(snapshotProductionInboxActionUiForTests().busy["host-2:thread-1:archive"]).toBeUndefined();
+  expect(stopped).toEqual(["cmd-gone"]);
+  expect(trackedInboxActionReceiptsForTests()).toEqual([
+    { hostId: "host-1", commandId: "cmd-live" },
+  ]);
+});
+
+it("untracking a terminal receipt forgets it without touching the offer", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-a",
+    label: "Thread archived",
+  });
+  trackInboxActionReceipt("host-1", "cmd-a", () => {});
+  untrackInboxActionReceipt("cmd-a");
+  expect(trackedInboxActionReceiptsForTests()).toEqual([]);
+  expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-a");
+  invalidateAllInboxActionUi();
+  expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+});
+
+it("removal clears that host's actions and the next tap fails closed", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    armProductionInboxUndoForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "archive",
+      commandId: "cmd-stale",
+      label: "Thread archived",
+    });
+    reportProductionInboxFailureForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "settle",
+      message: "This change could not be applied.",
+    });
+    setUiBusy("host-1:thread-1:archive", true);
+    let disposed = 0;
+    trackInboxActionReceipt("host-1", "cmd-stale", () => {
+      disposed += 1;
+    });
+
+    await produced.remove("host-1");
+
+    expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+    expect(snapshotProductionInboxActionUiForTests().failed).toBeNull();
+    expect(snapshotProductionInboxActionUiForTests().busy).toEqual({});
+    expect(disposed).toBe(1);
+    expect(trackedInboxActionReceiptsForTests()).toEqual([]);
+    // Fail closed on the removed host: nothing reaches the wire.
+    const before = sent.length;
+    const outcome = await runProductionInboxAction(produced, "host-1", "archive", THREAD, NOW);
+    expect(outcome.admitted).toBe(false);
+    expect(sent.length).toBe(before);
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("re-pairing the same host starts without stale actions and admits again", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    armProductionInboxUndoForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "archive",
+      commandId: "cmd-old",
+      label: "Thread archived",
+    });
+    await produced.remove("host-1");
+    expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+
+    await produced.pair(preparePairing(LINK), "My phone");
+    expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+    const outcome = await runProductionInboxAction(produced, "host-1", "archive", THREAD, NOW);
+    expect(outcome.admitted).toBe(true);
+    expect(typeof outcome.commandId).toBe("string");
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("disconnect-all clears every host without dropping the admitted command", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const outcome = await runProductionInboxAction(produced, "host-1", "archive", THREAD, NOW);
+    expect(outcome.admitted).toBe(true);
+    const commandId = outcome.commandId ?? "";
+    expect(commandId).not.toBe("");
+    // The admitted command is durable in the outbox; the UI receipt listener
+    // is what teardown drops.
+    let disposed = 0;
+    trackInboxActionReceipt("host-1", commandId, () => {
+      disposed += 1;
+    });
+    armProductionInboxUndoForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "archive",
+      commandId,
+      label: "Thread archived",
+    });
+
+    await produced.disconnectAll();
+
+    expect(disposed).toBe(1);
+    expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+    expect(snapshotProductionInboxActionUiForTests().busy).toEqual({});
+    expect(trackedInboxActionReceiptsForTests()).toEqual([]);
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("offline keeps offers and receipts; only teardown disposes them", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    armProductionInboxUndoForTests({
+      hostId: "host-1",
+      threadId: THREAD,
+      kind: "settle",
+      commandId: "cmd-offline",
+      label: "Thread settled",
+    });
+    let disposed = 0;
+    trackInboxActionReceipt("host-1", "cmd-offline", () => {
+      disposed += 1;
+    });
+
+    produced.setOnline(false);
+    expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-offline");
+    expect(trackedInboxActionReceiptsForTests()).toHaveLength(1);
+    expect(disposed).toBe(0);
+
+    produced.setOnline(true);
+    expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-offline");
+    expect(trackedInboxActionReceiptsForTests()).toHaveLength(1);
+    expect(disposed).toBe(0);
+  } finally {
+    await produced.disconnectAll();
+  }
+  // Teardown after the offline window disposes the listener it preserved.
+  expect(trackedInboxActionReceiptsForTests()).toEqual([]);
 });

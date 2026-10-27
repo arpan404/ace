@@ -38,6 +38,10 @@ import {
   type ProductionRuntimeDeps,
 } from "./production-runtime.ts";
 import type { MachineEntry } from "@ace/client/machines";
+import {
+  invalidateAllInboxActionUi,
+  invalidateInboxActionUiForHost,
+} from "../production/production-inbox-actions-store.ts";
 
 /**
  * Production startup: directory, per-machine runtimes, grants and pairing routing.
@@ -685,6 +689,10 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     async remove(hostId) {
       const known = manager.entry(hostId);
       await manager.remove(hostId);
+      // The inbox Undo/failure/busy offer and receipt listeners belong to
+      // the removed binding: drop them with the runtime so re-pairing the
+      // same host id starts clean and no stale cross-session action survives.
+      invalidateInboxActionUiForHost(hostId);
       // The trust report belongs to the removed binding: drop it with the
       // runtime so re-pairing the same host id starts clean.
       trusts.delete(hostId);
@@ -714,6 +722,7 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     },
     async disconnectAll() {
       await manager.disconnectAll();
+      invalidateAllInboxActionUi();
     },
   };
   return startup;

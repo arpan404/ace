@@ -21,6 +21,8 @@ import {
   reportUiFailed,
   setUiBusy,
   subscribeInboxActionUi,
+  trackInboxActionReceipt,
+  untrackInboxActionReceipt,
   type ProductionInboxActionUiOptions,
   type ProductionInboxFailed,
   type ProductionInboxUndo,
@@ -107,13 +109,17 @@ export function useProductionInboxActions(
           label: kind === "archive" ? "Thread archived" : "Thread settled",
         });
       }
-      watchProductionInboxReceipt(
+      const commandId = outcome.commandId;
+      let firedSynchronously = false;
+      const stop = watchProductionInboxReceipt(
         startup,
         hostId,
-        outcome.commandId,
+        commandId,
         (error) => {
+          firedSynchronously = true;
+          untrackInboxActionReceipt(commandId);
           const current = readInboxActionUi().undo;
-          if (current !== null && current.commandId === outcome.commandId) {
+          if (current !== null && current.commandId === commandId) {
             clearUiUndo();
           }
           reportUiFailed({
@@ -128,8 +134,20 @@ export function useProductionInboxActions(
             ),
           });
         },
-        () => {},
+        () => {
+          firedSynchronously = true;
+          untrackInboxActionReceipt(commandId);
+        },
       );
+      if (!firedSynchronously) {
+        trackInboxActionReceipt(hostId, commandId, stop);
+      } else {
+        try {
+          stop();
+        } catch {
+          /* terminal already cleaned */
+        }
+      }
       return null;
     } finally {
       setUiBusy(key, false);
