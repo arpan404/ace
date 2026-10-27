@@ -117,8 +117,11 @@ export function openCodeInjection(input: Injected) {
     oauth: false as const,
     protocol: "2026-07-28" as const,
     timeout: { execution: maxToolTimeoutMs },
-    // OpenCode lists every MCP tool upfront and reloads them on tools/list_changed (2.0.22,
-    // packages/core/src/tool/mcp.ts): ace offers its core tools and opens the rest on use.
+    // OpenCode (2.1.4) sends every direct MCP tool's schema on every request and reloads the list
+    // on tools/list_changed after a 100 ms debounce: ace offers its core tools and opens the rest
+    // on use. `codemode: false` keeps them direct; OpenCode's Code Mode would put ace's tools
+    // behind its `execute` script tool, with full TypeScript signatures in a catalog capped at
+    // about 2,000 tokens and nested calls the transcript sees only as one `execute` call.
     headers: {
       Authorization: `Bearer ${bearer}`,
       "X-Ace-Notifications": "stream",

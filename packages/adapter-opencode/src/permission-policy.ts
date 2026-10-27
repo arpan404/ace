@@ -24,7 +24,7 @@ const reads = ["read", "glob", "grep", "list", "lsp"].map((action): OpenCodeRule
 }));
 /**
  * ace's read-only tools (context, guide, wait, tools_find, ...) read like OpenCode's own reads,
- * so Ask lets them through; every ace tool that changes something still asks. OpenCode 2.0.22
+ * so Ask lets them through; every ace tool that changes something still asks. OpenCode (2.0.22 to 2.1.4)
  * checks an MCP tool under the action `<server>_<tool>`, which for ace is `ace_<tool>`.
  */
 const aceReads = readOnlyAceTools.map((tool): OpenCodeRule => ({
