@@ -19,6 +19,8 @@ struct AutomationEditor: View {
     /// Fields the person changed: their problems show as they type. All show after a Save.
     @State private var touched: Set<String> = []
     @State private var attempted = false
+    /// Fields changed since the bridge last checked the form: their old problem is stale.
+    @State private var unchecked: Set<String> = []
     @State private var saving = false
     @State private var problem: String?
     @State private var choosingModel = false
@@ -203,13 +205,13 @@ struct AutomationEditor: View {
 
     /// A field's binding that marks it changed, so its problem shows from then on.
     private func touching(_ value: Binding<String>, _ name: String) -> Binding<String> {
-        Binding(get: { value.wrappedValue }, set: { value.wrappedValue = $0; touched.insert(name) })
+        Binding(get: { value.wrappedValue }, set: { value.wrappedValue = $0; touched.insert(name); unchecked.insert(name) })
     }
 
     // MARK: Derived
 
     private func error(_ name: String) -> String? {
-        guard attempted || touched.contains(name) else { return nil }
+        guard attempted || touched.contains(name), !unchecked.contains(name) else { return nil }
         return view?.errors?[name]
     }
     private var shownProblem: String? {
@@ -245,6 +247,8 @@ struct AutomationEditor: View {
                 choices = reply.choices
                 pick = reply.pick
                 form = reply.form
+                // A new automation starts in the first project, whenever the projects arrived.
+                if form?.workspace.isEmpty == true, let first = model.compose.projects.first { form?.workspace = first.path }
             }
             sendChoice()
         } catch { problem = error.localizedDescription }
@@ -258,6 +262,7 @@ struct AutomationEditor: View {
         var request: [String: Any] = ["type": "automations.form.preview", "form": form.json]
         if let change { request["change"] = change }
         guard let reply = try? await model.service(request, as: AutomationFormView.self), reply.ok, mine == sequence else { return }
+        if reply.form == self.form || change != nil { unchecked = [] }
         withAnimation(motion) {
             view = reply
             if let next = reply.form, next != form, change != nil { self.form = next }

@@ -9,10 +9,14 @@ import XCTest
 
     func testTheListOpensAnAutomationWhoseRunsLeadToTheirThreads() throws {
         let app = launchIntoAutomations()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20))
         let nightly = app.buttons["automation.row.auto-nightly"]
-        XCTAssertTrue(nightly.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["automation.row.auto-prs"].label.contains("Not watching"))
+        reveal(app, nightly)
         screenshot("list")
+        let prs = app.buttons["automation.row.auto-prs"]
+        reveal(app, prs)
+        XCTAssertTrue(prs.label.contains("Not watching"))
+        reveal(app, nightly)
         nightly.tap()
         let when = element(app, "automation.when")
         XCTAssertTrue(when.waitForExistence(timeout: 10))
@@ -20,15 +24,15 @@ import XCTest
         screenshot("detail")
         // The run waiting on an approval says so; it never reads as working or done.
         let asking = element(app, "automation.run.run-nightly-4")
-        for _ in 0..<6 where !asking.isHittable { app.swipeUp() }
+        reveal(app, asking)
         XCTAssertTrue(asking.label.contains("Needs you"))
         let failed = element(app, "automation.run.run-nightly-2")
-        for _ in 0..<6 where !failed.isHittable { app.swipeUp() }
+        reveal(app, failed)
         XCTAssertTrue(failed.label.contains("Failed"))
         XCTAssertTrue(app.buttons["automation.run.again.run-nightly-2"].exists)
         screenshot("runs")
         let open = app.buttons["automation.run.open.run-nightly-3"]
-        for _ in 0..<6 where !open.isHittable { app.swipeUp() }
+        reveal(app, open)
         open.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Two packages are out of date")).firstMatch
             .waitForExistence(timeout: 20))
@@ -54,7 +58,7 @@ import XCTest
         let predicate = NSPredicate(format: "label BEGINSWITH %@", "Fridays at")
         expectation(for: predicate, evaluatedWith: summary)
         waitForExpectations(timeout: 10)
-        for _ in 0..<4 where !element(app, "automation.nextStarts").exists { app.swipeUp() }
+        reveal(app, element(app, "automation.nextStarts"))
         screenshot("weekly")
         choose(app, "automation.cadence", "Once")
         XCTAssertTrue(element(app, "automation.at").waitForExistence(timeout: 10))
@@ -83,7 +87,7 @@ import XCTest
         prompt.typeText("Triage the labelled issue")
         choose(app, "automation.trigger", "On pull requests or issues")
         let repository = app.textFields["automation.repository"]
-        for _ in 0..<4 where !repository.isHittable { app.swipeUp() }
+        reveal(app, repository)
         repository.tap()
         repository.typeText("arpan404/ace")
         choose(app, "automation.event", "When an issue is labelled")
@@ -105,7 +109,7 @@ import XCTest
         screenshot("saved")
         // Duplicate opens a paused copy.
         let duplicate = app.buttons["automation.duplicate"]
-        for _ in 0..<4 where !duplicate.isHittable { app.swipeUp() }
+        reveal(app, duplicate)
         duplicate.tap()
         XCTAssertTrue(app.navigationBars["Label triage copy"].waitForExistence(timeout: 20))
         screenshot("duplicate")
@@ -113,8 +117,9 @@ import XCTest
 
     func testTheEditorUsesTheSharedModelPicker() throws {
         let app = launchIntoAutomations()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20))
         let nightly = app.buttons["automation.row.auto-nightly"]
-        XCTAssertTrue(nightly.waitForExistence(timeout: 20))
+        reveal(app, nightly)
         nightly.tap()
         let edit = app.buttons["automation.edit"]
         XCTAssertTrue(edit.waitForExistence(timeout: 10))
@@ -138,13 +143,25 @@ import XCTest
     }
     /// Picks `label` in the menu picker `identifier`.
     private func choose(_ app: XCUIApplication, _ identifier: String, _ label: String) {
-        let picker = app.buttons[identifier].exists ? app.buttons[identifier] : element(app, identifier)
-        for _ in 0..<4 where !picker.isHittable { app.swipeUp() }
-        XCTAssertTrue(picker.waitForExistence(timeout: 10), "\(identifier) never showed")
+        let picker = element(app, identifier)
+        reveal(app, picker)
+        XCTAssertTrue(picker.exists, "\(identifier) never showed")
         picker.tap()
         let option = app.buttons[label].firstMatch
         XCTAssertTrue(option.waitForExistence(timeout: 5), "\(label) isn't offered in \(identifier)")
         option.tap()
+    }
+    /// Short slow drags, down the list then back up, until `target` shows clear of the bars.
+    private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
+        let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
+        for attempt in 0..<16 {
+            if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
+               target.frame.minY > top, target.frame.maxY < bottom { return }
+            let below = !target.exists ? attempt < 8 : target.frame.minY >= bottom
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.65 : 0.35))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.4 : 0.6))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func screenshot(_ name: String) {

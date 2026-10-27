@@ -118,13 +118,22 @@ export function cadencePatch(
   return { cadence };
 }
 
+/** What to do about a field the schema itself refuses (empty, too long), in words. */
+const fieldFixes: Partial<Record<keyof AutomationForm, string>> = {
+  title: "Give the automation a name, up to 256 characters.",
+  prompt: "Say what the agent should do.",
+  workspace: "Choose a project.",
+  label: "Keep the label to 256 characters.",
+};
+
 /** Each field's first problem, by the same schema the save uses. */
 export function fieldErrors(form: AutomationForm): FieldErrors {
   const errors: FieldErrors = {};
   for (const issue of AutomationForm.safeParse(form).error?.issues ?? []) {
     const field = String(issue.path[0]) as keyof AutomationForm;
     // Our own checks say what to do; a raw schema message ("expected string") never reaches people.
-    errors[field] ??= issue.code === "custom" ? issue.message : "Check this value.";
+    errors[field] ??=
+      issue.code === "custom" ? issue.message : (fieldFixes[field] ?? "Check this value.");
   }
   return errors;
 }
