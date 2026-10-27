@@ -44,8 +44,8 @@ struct InboxStack<Destination: View>: View {
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
-    /// The open thread's own commands, published by its page (`ThreadKeys`).
-    @FocusedValue(\.threadKeys) private var threadKeys
+    /// The open thread's own commands, left by its page (`ThreadKeysBox`).
+    @Environment(\.threadKeysBox) private var threadKeysBox
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -116,7 +116,7 @@ struct InboxStack<Destination: View>: View {
                         .allowsHitTesting(!searching)
                         .accessibilityHidden(searching)
                     if searching {
-                        InboxSearchList(inbox: inbox, query: $query, includes: includes, threadOpen: threadKeys != nil,
+                        InboxSearchList(inbox: inbox, query: $query, includes: includes, threadOpen: ThreadColumns.selection(path) != nil,
                                         actions: searchActions)
                             .transition(.opacity)
                     }
@@ -186,7 +186,7 @@ struct InboxStack<Destination: View>: View {
             else if id.hasPrefix("tool:"), let tool = SettingsTool(rawValue: String(id.dropFirst(5))), let operable {
                 searching = false; header.page([.tool(tool, machine: operable)])
             } else if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) {
-                searching = false; threadKeys?.open(destination)
+                searching = false; threadKeysBox?.keys?.open(destination)
             }
         }
     }
@@ -354,7 +354,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(listMotion) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
 }

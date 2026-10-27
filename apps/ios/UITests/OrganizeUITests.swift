@@ -84,6 +84,40 @@ import XCTest
         XCTAssertTrue(app.buttons["thread.ios-done"].waitForExistence(timeout: 15))
     }
 
+    func testSearchEverythingFindsCommandsThreadsAndMessages() throws {
+        let app = launch()
+        app.revealRow("thread.ios-done")
+        app.buttons["inbox.search"].tap()
+        // Before a query: the commands, ready to run.
+        XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["search.command.settings:appearance"].exists)
+        screenshot("search-start")
+        app.typeText("relay")
+        XCTAssertTrue(app.buttons["search.filter.kind"].waitForExistence(timeout: 10))
+        let hit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search.thread.' OR identifier BEGINSWITH 'search.hit.'")).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 15))
+        sleep(2)
+        screenshot("search-results")
+        hit.tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
+        // The query is remembered for next time.
+        app.terminate()
+        let again = launch()
+        again.revealRow("thread.ios-done")
+        again.buttons["inbox.search"].tap()
+        XCTAssertTrue(again.buttons["search.recent.relay"].waitForExistence(timeout: 10))
+        screenshot("search-recent")
+    }
+
+    func testAnAceLinkOpensItsThread() throws {
+        let app = launch()
+        app.revealRow("thread.ios-done")
+        app.open(URL(string: "ace://thread/ios-done")!)
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["thread.title"].exists || app.otherElements["thread.title"].exists)
+        screenshot("link-opened")
+    }
+
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)

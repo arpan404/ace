@@ -38,18 +38,23 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
         guard !Task.isCancelled, current == generation else { return }
         let sessions = inbox.sessions.filter { $0.client.connection == "ready" }
         let commander = sessions.first(where: { $0.client.canOperate })?.hostId ?? sessions.first?.hostId
-        let answers = await withTaskGroup(of: (String, PaletteAnswer?).self) { group in
-            for session in sessions {
-                let client = session.client
+        let canStart = inbox.canStartThreads
+        // Every machine answers at once, on this actor.
+        let asks = sessions.map { session in
+            let client = session.client, host = session.hostId
+            return Task { () -> (String, PaletteAnswer?) in
                 let request: [String: Any] = [
-                    "type": "palette.query", "query": text, "commands": session.hostId == commander,
-                    "context": ["canStart": inbox.canStartThreads, "threadOpen": threadOpen],
+                    "type": "palette.query", "query": text, "commands": host == commander,
+                    "context": ["canStart": canStart, "threadOpen": threadOpen],
                 ]
-                group.addTask { @MainActor in (session.hostId, try? await client.service(request, as: PaletteAnswer.self)) }
+                return (host, try? await client.service(request, as: PaletteAnswer.self))
             }
-            var all: [(String, PaletteAnswer)] = []
-            for await (host, answer) in group { if let answer { all.append((host, answer)) } }
-            return all
+        }
+        var answers: [(String, PaletteAnswer)] = []
+        await withTaskCancellationHandler {
+            for ask in asks { if case let (host, answer?) = await ask.value { answers.append((host, answer)) } }
+        } onCancel: {
+            for ask in asks { ask.cancel() }
         }
         guard !Task.isCancelled, current == generation else { return }
         commands = answers.flatMap(\.1.commands)

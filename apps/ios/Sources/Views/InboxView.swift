@@ -37,6 +37,8 @@ struct InboxView: View {
     @State private var organize = InboxOrganize()
     /// The project New thread from default branch starts in, over the list's own filter.
     @State private var composeProject: String?
+    /// The open thread's commands, for search everything (`ThreadKeysBox`).
+    @State private var threadKeysBox = ThreadKeysBox()
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
     @State private var reveal: InboxKey?
@@ -63,6 +65,7 @@ struct InboxView: View {
             // `ace://` links from other apps, Shortcuts and Copy link.
             .onOpenURL { url in Task { await openLink(url) } }
             .environment(\.threadOrganizer, organizer)
+            .environment(\.threadKeysBox, threadKeysBox)
             // A thread deleted for good closes where it was open.
             .onChange(of: organize.deleted) { _, deleted in
                 if let key = InboxRoute.threads(threadsPath).first, deleted.contains(key) { threadsPath = [] }

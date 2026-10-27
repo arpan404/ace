@@ -45,6 +45,17 @@ extension ThreadDestination {
     }
 }
 
+/// Where the open thread leaves its `ThreadKeys` for the list's search-everything commands. A
+/// plain holder, never observed: a view reading a focused value that holds closures would redraw
+/// whenever any window's commands are published again.
+@MainActor final class ThreadKeysBox {
+    var keys: ThreadKeys?
+}
+
+extension EnvironmentValues {
+    @Entry var threadKeysBox: ThreadKeysBox?
+}
+
 extension FocusedValues {
     @Entry var inboxCommands: InboxCommands?
     @Entry var threadKeys: ThreadKeys?
@@ -158,10 +169,15 @@ struct ThreadKeysPublisher: View {
     let open: (ThreadDestination) -> Void
     let leave: () -> Void
     @Environment(\.threadOrganizer) private var organizer
+    @Environment(\.threadKeysBox) private var box
 
     var body: some View {
+        let keys = keys
         Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             .focusedSceneValue(\.threadKeys, keys)
+            .onAppear { box?.keys = keys }
+            .onChange(of: (keys?.menu ?? []) + [keys?.stop == nil ? "" : "stop"]) { box?.keys = keys }
+            .onDisappear { if box?.keys?.key.id == thread.id { box?.keys = nil } }
     }
     private var keys: ThreadKeys? {
         guard let hostId = model.hostId else { return nil }
