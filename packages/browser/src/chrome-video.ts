@@ -39,8 +39,8 @@ export class ChromeVideo implements VideoHost {
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
   private ready: Promise<{ worker: BrowserCdp; document: BrowserCdp }> | undefined;
+  private workerTarget: string | undefined;
   private documentTarget: string | undefined;
-  private documentSession: string | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
@@ -102,8 +102,9 @@ export class ChromeVideo implements VideoHost {
    * Opens capture `id` of the tab shown in `windowId` and returns the document encoding it.
    * Each attempt takes a fresh stream id, since Chrome takes one only once. With the tab's sound
    * first; a capture that can't take it streams its picture alone. A failed attempt can leave
-   * the tab held by a capture Chrome started but never handed over, and nothing else frees it:
-   * then the document is restarted, which ends every capture it asked for, and tried once more.
+   * the tab held by a capture Chrome started but never handed over, which neither a new stream id
+   * nor a new document frees: then the extension is installed again, which ends every capture
+   * it asked for, and the tab is tried once more.
    */
   private async start(id: string, windowId: number, width: number, height: number) {
     // A capture still stopping holds its tab; asking for the tab before then is refused.
@@ -131,18 +132,19 @@ export class ChromeVideo implements VideoHost {
     } catch (error) {
       if (!heldTab(error)) throw error;
     }
-    ({ worker, document } = await this.restart(worker));
+    ({ worker, document } = await this.restart());
     await attempt(true).catch(() => attempt(false));
     return document;
   }
-  /** Closes the encoding document and opens a new one; its captures end, so viewers reopen them. */
-  private async restart(worker: BrowserCdp): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
-    const old = this.documentTarget;
-    await evaluate(worker, "aceVideo.reset", []);
-    if (this.documentSession) this.sessions.delete(this.documentSession);
+  /** Installs the extension again and attaches to it; its captures end, so viewers reopen them. */
+  private async restart(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+    const old = { worker: this.workerTarget, document: this.documentTarget };
+    // The old targets' sessions end with them; their detach must not end the new captures.
+    this.sessions.clear();
     for (const events of this.captures.values()) events.ended();
     this.captures.clear();
-    const opened = this.openDocument(worker, old).then((document) => ({ worker, document }));
+    await this.connection.send("Extensions.uninstall", { id: videoExtensionId });
+    const opened = this.install(old);
     this.ready = opened.catch((error: unknown) => {
       this.ready = undefined;
       throw error;
@@ -220,28 +222,35 @@ export class ChromeVideo implements VideoHost {
     });
     return this.ready;
   }
-  private async load(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+  private load(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+    return this.install({});
+  }
+  /** Loads the unpacked extension and attaches to its worker and document, never to `not`. */
+  private async install(not: {
+    worker?: string | undefined;
+    document?: string | undefined;
+  }): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     await writeVideoExtension(this.directory);
     const loaded = z
       .object({ id: z.string() })
       .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    const worker = (await this.attach(`${origin}worker.js`)).session;
-    if (process.platform === "win32") await this.untilExport(worker, "ready");
-    return { worker, document: await this.openDocument(worker) };
-  }
-  /** Has the worker open the encoding document and attaches to it; never to target `not`. */
-  private async openDocument(worker: BrowserCdp, not?: string): Promise<BrowserCdp> {
+    // An attached target may not have run its script yet: always so on Windows, and on any
+    // platform for an extension installed again over a running one.
+    const scriptsLag = process.platform === "win32" || not.worker !== undefined;
+    const attached = await this.attach(`${origin}worker.js`, not.worker);
+    this.workerTarget = attached.targetId;
+    const worker = attached.session;
+    if (scriptsLag) await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
-    const attached = await this.attach(`${origin}offscreen.html`, not);
-    this.documentTarget = attached.targetId;
-    this.documentSession = attached.sessionId;
-    const document = attached.session;
-    if (process.platform === "win32") await this.untilExport(document, "supported");
+    const opened = await this.attach(`${origin}offscreen.html`, not.document);
+    this.documentTarget = opened.targetId;
+    const document = opened.session;
+    if (scriptsLag) await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
-    return document;
+    return { worker, document };
   }
   /** Attaches to the extension target at `url` (never `not`), waiting a few seconds for it. */
   private async attach(
@@ -271,8 +280,8 @@ export class ChromeVideo implements VideoHost {
     throw new Error("The video extension did not start");
   }
   /**
-   * Windows: an attached extension target may not have run its script yet, so calling an
-   * `aceVideo` export would throw `ReferenceError`. Waits a few seconds for `aceVideo[method]`.
+   * An attached extension target may not have run its script yet, so calling an `aceVideo`
+   * export would throw `ReferenceError`. Waits a few seconds for `aceVideo[method]`.
    */
   private async untilExport(session: BrowserCdp, method: string): Promise<void> {
     await session.send("Runtime.runIfWaitingForDebugger", {});

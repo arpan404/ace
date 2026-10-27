@@ -15,12 +15,11 @@ type Globals = Record<string, unknown>;
 function driver(options: {
   workerGlobals: Globals;
   offscreenGlobals: Globals;
-  /** The encoding document's target now; it changes when the document is reopened. */
-  offscreenTarget?: () => string;
+  /** The extension's targets now; they change when it is installed again. */
+  targets?: () => { worker: string; offscreen: string };
+  uninstall?: () => void;
 }) {
-  const workerTargetId = "worker-target";
-  const workerSessionId = "worker-session";
-  const offscreenTarget = options.offscreenTarget ?? (() => "offscreen-target");
+  const targets = options.targets ?? (() => ({ worker: "worker", offscreen: "offscreen" }));
   const connection = new CdpConnection({
     write: () => {},
     schedule: (work, milliseconds) => {
@@ -31,28 +30,32 @@ function driver(options: {
     intercept: {
       send: () => async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
         if (method === "Extensions.loadUnpacked") return { id: videoExtensionId };
+        if (method === "Extensions.uninstall") {
+          options.uninstall?.();
+          return {};
+        }
         if (method === "Target.getTargets")
           return {
             targetInfos: [
-              { targetId: workerTargetId, type: "service_worker", url: workerUrl },
-              { targetId: offscreenTarget(), type: "page", url: offscreenUrl },
+              { targetId: targets().worker, type: "service_worker", url: workerUrl },
+              { targetId: targets().offscreen, type: "page", url: offscreenUrl },
             ],
           };
         if (method === "Target.attachToTarget") {
-          if (params?.["targetId"] === workerTargetId) return { sessionId: workerSessionId };
-          if (params?.["targetId"] === offscreenTarget())
-            return { sessionId: `${offscreenTarget()}-session` };
+          if (params?.["targetId"] === targets().worker)
+            return { sessionId: `${targets().worker}-worker` };
+          if (params?.["targetId"] === targets().offscreen)
+            return { sessionId: `${targets().offscreen}-document` };
           throw new Error("Unknown target");
         }
         if (method === "Runtime.runIfWaitingForDebugger") return {};
         if (method === "Runtime.addBinding") return {};
         if (method === "Runtime.evaluate") {
-          const globals =
-            sessionId === workerSessionId
-              ? options.workerGlobals
-              : sessionId?.endsWith("-session")
-                ? options.offscreenGlobals
-                : undefined;
+          const globals = sessionId?.endsWith("-worker")
+            ? options.workerGlobals
+            : sessionId?.endsWith("-document")
+              ? options.offscreenGlobals
+              : undefined;
           if (!globals) return {};
           const expression = String(params?.["expression"]);
           try {
@@ -143,11 +146,11 @@ test.runIf(process.platform === "win32")(
 /**
  * Chrome's tab capture as the video extension meets it, one tab per window: a stream id works
  * once; window 1's capture with sound fails `failWithSound` times, and the first `leaks` of those leave
- * their tab held until the document closes; a stop takes `stopMs` to release its tab.
+ * their tab held until the extension is uninstalled; a stop takes `stopMs` to release its tab.
  */
 function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs?: number } = {}) {
   let ids = 0;
-  let document = 1;
+  let loads = 1;
   const minted = new Map<string, number>();
   const used = new Set<string>();
   /** Window of each running capture, and windows a failed capture left held. */
@@ -164,11 +167,6 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
         const streamId = `stream-${++ids}`;
         minted.set(streamId, windowId);
         return { streamId };
-      },
-      reset: async () => {
-        held.clear();
-        live.clear();
-        document++;
       },
     },
   };
@@ -199,7 +197,16 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
       audio: () => {},
     },
   };
-  return { workerGlobals, offscreenGlobals, offscreenTarget: () => `offscreen-${document}` };
+  return {
+    workerGlobals,
+    offscreenGlobals,
+    uninstall: () => {
+      held.clear();
+      live.clear();
+      loads++;
+    },
+    targets: () => ({ worker: `worker-${loads}`, offscreen: `offscreen-${loads}` }),
+  };
 }
 
 /** The page shown in window `windowId`. */
@@ -231,14 +238,14 @@ test("a capture that can't take the tab's sound streams its picture on a fresh s
   await expect(v.open(page(1), 800, 600, viewer().events)).resolves.toBeDefined();
 });
 
-test("a failed capture that left its tab held is freed by reopening the encoder, and opens", async () => {
+test("a failed capture that left its tab held is freed by installing the encoder again, and opens", async () => {
   const v = await encoder(chromeCapture({ failWithSound: 2, leaks: 1 }));
-  // Another tab is watched too: reopening the encoder ends its capture, so its viewers reopen it.
+  // Another tab is watched too: installing the encoder again ends its capture, so its viewers reopen it.
   const other = viewer();
   await v.open(page(2), 800, 600, other.events);
   await expect(v.open(page(1), 800, 600, viewer().events)).resolves.toBeDefined();
   expect(other.seen.ended).toBe(1);
-  // The reopened encoder captures as before.
+  // The new encoder captures as before.
   await expect(v.open(page(3), 800, 600, viewer().events)).resolves.toBeDefined();
 });
 

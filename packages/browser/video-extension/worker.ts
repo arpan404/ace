@@ -12,7 +12,6 @@ interface VideoChrome {
   tabCapture: { getMediaStreamId(options: { targetTabId: number }): Promise<string> };
   offscreen: {
     hasDocument(): Promise<boolean>;
-    closeDocument(): Promise<void>;
     createDocument(options: {
       url: string;
       reasons: readonly string[];
@@ -49,13 +48,5 @@ Object.assign(globalThis, {
     },
     /** The offscreen document exists (to ask what it can encode). */
     ready: offscreenDocument,
-    /**
-     * Closes the offscreen document, if any. Chrome then ends every capture it asked for,
-     * including one it started but never handed to the document.
-     */
-    async reset(): Promise<void> {
-      await creating?.catch(() => {});
-      if (await chrome.offscreen.hasDocument()) await chrome.offscreen.closeDocument();
-    },
   },
 });
