@@ -143,11 +143,11 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            AceIcon(.dotsThree, size: AceTheme.Spacing.xl)
+            AceIcon(.dotsThree, size: AceTheme.Spacing.xxl)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
                 .contentShape(Rectangle())
         }
+        .buttonBorderShape(.circle)
         // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
         .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
