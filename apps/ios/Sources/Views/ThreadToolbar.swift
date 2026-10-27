@@ -43,6 +43,10 @@ struct ThreadToolbar: ToolbarContent {
     var newThread: (() -> Void)? = nil
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The bar centres the principal item in the free slot but sizes a Menu to
+    /// its ideal width, so the heading and the label each bind their own width.
+    private var headingWidth: CGFloat { sizeClass == .compact ? 200 : 320 }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
@@ -81,7 +85,11 @@ struct ThreadToolbar: ToolbarContent {
                 .accessibilityIdentifier("thread.subtitle")
             }
         }
-        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
+        // The bar proposes the principal item its ideal width, so `.infinity` never
+        // binds: the heading keeps the text's full width and centres it over both
+        // sides. Cap it to the free slot instead: ~44pt sidebar + ~96pt trailing
+        // capsule on a 402pt phone leaves ~230pt, so 200pt fits with margin.
+        .frame(maxWidth: headingWidth)
         .accessibilityElement(children: .contain)
     }
     @ViewBuilder private var titleRow: some View {
@@ -99,12 +107,15 @@ struct ThreadToolbar: ToolbarContent {
     private func titleText(chevron: Bool) -> some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
             Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.tail)
             if chevron {
                 Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                     .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
             }
         }
+        // A Menu sizes to its label's ideal width however narrow the bar's
+        // proposal is, so bind the label itself: the Text then truncates.
+        .frame(maxWidth: headingWidth)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(status?.label ?? "")
