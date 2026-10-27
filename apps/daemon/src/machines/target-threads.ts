@@ -51,7 +51,11 @@ export interface TargetThreadDeps {
   report(error: unknown): void;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
-const Owner = z.object({ device_id: z.string(), kind: z.enum(["delegate", "browser"]) });
+/** `browser` rows are browser threads from before guest sessions (ADR 0105). */
+const Owner = z.object({
+  device_id: z.string(),
+  kind: z.enum(["delegate", "browser", "guest"]),
+});
 
 /**
  * Threads a paired device's agents started on this machine. Ownership is per device: one
@@ -142,7 +146,7 @@ export class TargetThreads {
   record(
     device: Device,
     threadId: ThreadId,
-    kind: "delegate" | "browser",
+    kind: "delegate" | "guest",
     origin: MachineCallOrigin,
   ) {
     this.deps.store.atomic((db) =>

@@ -17,6 +17,8 @@ export type StatusReader = (caller: McpAttribution) => {
   project?: { id: string; name: string };
   /** False hides `ask`: the provider has its own ask tool and this is not a child thread. */
   askAvailable?: boolean;
+  /** Registered tools unavailable until their backing service is offered. */
+  unavailableTools?: readonly string[];
   disabled?: Partial<Record<McpCapability, string>>;
 };
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { CursorAuthEvent, ProjectIcon } from "@ace/protocol";
+import { CursorAuthEvent, ProjectIcon, MachineDescription } from "@ace/protocol";
 import * as fc from "fast-check";
 import {
   protocolCatalog,
@@ -304,4 +304,25 @@ it("a change to one schema leaves every other schema's example as it was", () =>
       .find((part) => part.startsWith("Widget"));
   expect(section(before)).toBeDefined();
   expect(section(after)).toBe(section(before));
+});
+
+it("machine discovery accepts older descriptions and future tool groups on the wire", () => {
+  const validate = jsonValidator(
+    convertSchemas([{ name: "MachineDescription", schema: MachineDescription }]),
+  ).getSchema(schemaId("MachineDescription"));
+  const older = {
+    hostId: "host",
+    name: "Studio",
+    access: "operate",
+    projects: [],
+    tools: ["agents", "browser"],
+    providers: [],
+  };
+  expect(validate?.(older)).toBe(true);
+  expect(MachineDescription.parse(older).tools).toEqual(["agents", "browser"]);
+  const future = { ...older, tools: ["devices", "future-tool", "commands"] };
+  expect(validate?.(future)).toBe(true);
+  expect(MachineDescription.parse(future).tools).toEqual(["devices", "commands"]);
+  expect(validate?.({ ...older, tools: [42] })).toBe(false);
+  expect(MachineDescription.safeParse({ ...older, tools: [42] }).success).toBe(false);
 });

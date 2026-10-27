@@ -5,6 +5,7 @@ import {
 } from "@ace/protocol";
 import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
+import { GuestThreads } from "./guest-threads.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
@@ -138,6 +139,8 @@ export class Engine {
   private admissions: CreationAdmissions;
   private selectInstance: EngineOptions["selectInstance"];
   private repo: EngineRepository;
+  /** Provider-less threads holding remote tool use from other machines (ADR 0105). */
+  readonly guests: GuestThreads;
   private registry: AdapterRegistry;
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
@@ -188,6 +191,11 @@ export class Engine {
       options.commandId,
       options.aceToolAction,
       () => this.clock.now(),
+    );
+    this.guests = new GuestThreads(
+      this.repo,
+      () => this.clock.now(),
+      (id) => this.wake(id),
     );
     if (options.onNamingPrompt) this.repo.onNamingPrompt = options.onNamingPrompt;
     this.repo.reclaim = (retiring) =>
@@ -716,10 +724,22 @@ export class Engine {
     transferId: string,
     hold: { title: string } | { status: "completed" | "failed" | "stopped" },
   ): void {
+    this.externalHold(threadId, agentId, `ace-transfer:${transferId}`, hold);
+  }
+  /**
+   * Work ace runs for an agent outside its provider (a transfer, a command job on another
+   * machine) holds its thread open as a stoppable background row until ace ends it. A stop is
+   * routed by `bindExternalTaskStop`.
+   */
+  externalHold(
+    threadId: ThreadId,
+    agentId: import("@ace/protocol").AgentId,
+    task: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
     const state = this.repo.requireState(threadId);
     const agent = state.indexes.agentKeysById[agentId];
-    if (!agent) throw new Error("Unknown transfer owner");
-    const task = `ace-transfer:${transferId}`;
+    if (!agent) throw new Error("Unknown background owner");
     this.repo.apply(
       threadId,
       [
@@ -807,7 +827,7 @@ export class Engine {
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
   /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
-  bindExternalTaskStop(prefix: string, stop: (id: string) => void): void {
+  bindExternalTaskStop(prefix: string, stop: (id: string, threadId: ThreadId) => void): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
@@ -817,7 +837,7 @@ export class Engine {
       const task = this.repo.state(owner)?.tasks[key];
       if (task?.status !== "running")
         return { commandId: command.id, ok: false, error: "task_not_stoppable" };
-      stop(key.slice(prefix.length));
+      stop(key.slice(prefix.length), owner);
       return { commandId: command.id, ok: true };
     });
   }
@@ -872,6 +892,17 @@ export class Engine {
     const interaction = this.repo.requireState(threadId).interactions[key];
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
+  }
+  /** A host operation failed after its command was accepted: show the error in the thread. */
+  hostError(threadId: ThreadId, key: string, text: string): void {
+    this.actor(threadId).apply([
+      {
+        type: "item.upsert",
+        agent: this.repo.requireState(threadId).rootKey ?? "root",
+        item: key,
+        draft: { type: "notice", level: "error", text, complete: true },
+      },
+    ]);
   }
   resolveHostApproval(
     threadId: ThreadId,

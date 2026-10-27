@@ -5,7 +5,7 @@ export { deviceChromeSources } from "./device-chrome-sources.ts";
 export { DeviceError } from "./sdk.ts";
 export { ControllerLease, type Actor } from "./lease.ts";
 export { connectDevices, type DevicePeer } from "./bridge.ts";
-export { devicesToolkit } from "./mcp.ts";
+export { devicesToolkit, type DevicesMachineRoute } from "./mcp.ts";
 export { DeviceLogs, type LogBatch } from "./logs.ts";
 export type { DeviceRuntime } from "./runtime.ts";
 

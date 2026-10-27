@@ -443,6 +443,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       warn: (message, fields) => log.log("warn", message, fields),
     };
     bindLiveServices(serverOptions, services);
+    // Late-bound: the lifecycle exists once the server below has started its transports.
+    services.threadDeletion = async (command) => {
+      const lifecycle = serverOptions.threadLifecycle;
+      if (!lifecycle) return { commandId: command.id, ok: false, error: "not_ready" };
+      return lifecycle.delete(command);
+    };
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();

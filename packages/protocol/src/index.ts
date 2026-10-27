@@ -89,6 +89,7 @@ export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
+export * from "./machine-grants.ts";
 export * from "./fleet.ts";
 export * from "./transfers.ts";
 export * from "./machine-transfers.ts";

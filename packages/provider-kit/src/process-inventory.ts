@@ -1,3 +1,4 @@
+import { childHasExited } from "./child-exit.ts";
 import { existsSync } from "node:fs";
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
@@ -28,6 +29,8 @@ export type ProcessEntry = z.infer<typeof Entry> | z.infer<typeof WindowsEntry>;
 export interface InventoryRuntime {
   identity(pid: number): ProcessIdentity | undefined;
   alive(group: number): boolean;
+  /** Non-consuming proof that an owned child has exited before Node has reaped it. */
+  childExited?(pid: number): boolean;
   kill(group: number): void;
   ownerPid: number;
   now(): number;
@@ -38,6 +41,7 @@ export interface InventoryRuntime {
 }
 export const inventoryRuntime: InventoryRuntime = {
   identity: processIdentity,
+  childExited: childHasExited,
   ownerPid: process.pid,
   now: Date.now,
   alive(group) {
@@ -77,7 +81,7 @@ export class ProcessInventory implements ProcessJournal {
     if (process.platform === "win32") return this.windowsAdd(pid, metadata);
     const identity = this.runtime.identity(pid);
     const owner = this.runtime.identity(this.runtime.ownerPid);
-    if (!identity && !this.runtime.alive(pid)) return;
+    if (!identity && (this.runtime.childExited?.(pid) || !this.runtime.alive(pid))) return;
     if (
       !identity ||
       !owner ||

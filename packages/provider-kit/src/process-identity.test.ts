@@ -102,7 +102,7 @@ function fakeApi(options: FakeOptions = {}): { api: WindowsProcessIdentityApi; f
   return { api, flags };
 }
 
-describe.runIf(process.platform === "win32")("Windows process identity", () => {
+describe("Windows process identity", () => {
   test("a live process binds its creation start and lossless owner SID, then releases all natives", () => {
     const { api, flags } = fakeApi({ creation: { low: 2, high: 1 } });
     expect(readWindowsProcessIdentity(4242, api)).toEqual({
@@ -177,3 +177,20 @@ describe.runIf(process.platform === "win32")("Windows process identity", () => {
     expect(flags.freedSid).toBe(true);
   });
 });
+
+for (const exited of [false, true])
+  test(`an identity read failure ${exited ? "reports absence after exit" : "still fails for a live Windows process"}`, () => {
+    const { api, flags } = fakeApi();
+    let ended = false;
+    api.exited = () => ended;
+    api.times = () => {
+      ended = exited;
+      return 0;
+    };
+    if (exited) expect(readWindowsProcessIdentity(4242, api)).toBeUndefined();
+    else
+      expect(() => readWindowsProcessIdentity(4242, api)).toThrow(
+        "Kernel process identity unavailable",
+      );
+    expect(flags.closedProcess).toBe(true);
+  });
