@@ -267,7 +267,9 @@ test("services replaced by a new runtime stop following installs and answer a wa
   await until(() => sink.read("service:plan"));
   ask("run", { type: "provider.install.act", provider: "codex", step: { kind: "run" } });
   await until(() => sink.read("service:run"));
-  const revision = (sink.read("service:run")?.value as InstallScreen).revision;
+  const ran = sink.read("service:run")?.value as InstallScreen | undefined;
+  if (!ran) throw new Error("expected the run's screen");
+  const revision = ran.revision;
   ask("waiting", { type: "provider.install.watch", provider: "codex", after: revision + 100 });
 
   services.dispose();
