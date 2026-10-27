@@ -99,7 +99,7 @@ export async function projectCommand(
     return result(args, response.result);
   }
   if (verb === "rename" || verb === "remove") {
-    validateArgs(args, ["idempotency-key", "archive-threads"], verb === "rename" ? 4 : 3);
+    validateArgs(args, ["idempotency-key", "stop-threads"], verb === "rename" ? 4 : 3);
     return mutationResult(
       args,
       await command(
@@ -113,7 +113,7 @@ export async function projectCommand(
           : {
               type: "workspace.remove",
               workspaceId: WorkspaceId.parse(args.words[2]),
-              archiveThreads: !!args.flags["archive-threads"],
+              stopRunning: !!args.flags["stop-threads"],
             },
         key(args),
         signal,

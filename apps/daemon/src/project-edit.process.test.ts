@@ -122,8 +122,10 @@ test("removing an edited project leaves its folder and files on disk", async () 
       defaults: { worktree: true },
     });
     expect(
-      await f.command({ type: "workspace.remove", workspaceId: project.id, archiveThreads: false }),
-    ).toMatchObject({ ok: true });
+      await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: true,
+    });
     expect(f.projects.catalog.page(undefined, 10).projects).toEqual([]);
     expect(await readFile(join(path, "notes.md"), "utf8")).toBe("keep me");
   } finally {

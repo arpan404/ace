@@ -20,6 +20,7 @@ import {
   type ProjectGitPolicy,
 } from "@ace/git";
 import {
+  CommandId,
   ProjectCommand,
   WorkspaceId,
   ProjectInspection,
@@ -94,6 +95,7 @@ export class Projects {
   private now: () => number;
   private noteId: () => string;
   private chats: ChatProjects | undefined;
+  private deleteThread: ((command: Command) => Promise<CommandResult>) | undefined;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
     this.now = now;
@@ -120,6 +122,7 @@ export class Projects {
       : undefined;
     this.ready = Promise.all([
       this.restoreIcons().catch(() => undefined),
+      this.deleteLeftoverThreads().catch(() => undefined),
       this.chats?.sweep().catch(() => undefined),
     ]).then(() => undefined);
   }
@@ -156,6 +159,16 @@ export class Projects {
           await directory?.close();
         }
       }
+    }
+  }
+  /** Once per daemon start: threads removed projects kept from before removal deleted them. */
+  private async deleteLeftoverThreads(): Promise<void> {
+    const hasOwnedWork = this.options.hasOwnedWork ?? (() => false);
+    let after: string | undefined = "";
+    while (after !== undefined && !this.closed) {
+      await this.store.writable();
+      if (this.closed) return;
+      after = this.catalog.deleteLeftoverThreads(after, hasOwnedWork);
     }
   }
   private async favicon(path: string): Promise<string | null | undefined> {
@@ -348,6 +361,43 @@ export class Projects {
     }
     return allowed(this.home);
   }
+  /**
+   * Thread deletion from the host's thread lifecycle, which stops a thread's agents, terminals
+   * and previews before marking it deleted. Returns the detach.
+   */
+  useThreadDeletion(deleteThread: (command: Command) => Promise<CommandResult>): () => void {
+    this.deleteThread = deleteThread;
+    return () => {
+      if (this.deleteThread === deleteThread) this.deleteThread = undefined;
+    };
+  }
+  /** Delete every thread in the project, then stop listing it. */
+  private async removeProject(
+    input: Command,
+    workspaceId: WorkspaceId,
+    stopRunning: boolean,
+    allowed: () => boolean,
+  ): Promise<void> {
+    const hasOwnedWork = this.options.hasOwnedWork ?? (() => false);
+    const threads = this.catalog.threadsToDelete(workspaceId, stopRunning, hasOwnedWork);
+    const deleteThread = this.deleteThread;
+    if (deleteThread)
+      for (const threadId of threads) {
+        this.check(allowed);
+        // One id per thread, derived from the removal's, so a retried removal reuses receipts.
+        const result = await deleteThread({
+          id: CommandId.parse(`${input.id}:delete:${threadId}`),
+          deviceId: input.deviceId,
+          payload: { type: "thread.delete", threadId, force: stopRunning },
+        });
+        if (!result.ok && result.error !== "thread_not_found")
+          throw new ProjectError(
+            result.error === "thread_busy" ? "workspace_threads_running" : "thread_delete_failed",
+          );
+      }
+    this.check(allowed);
+    this.catalog.remove(workspaceId, stopRunning, hasOwnedWork);
+  }
   execute(
     input: Command,
     allowed: () => boolean = () => true,
@@ -414,11 +464,7 @@ export class Projects {
           }
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
-          this.catalog.remove(
-            p.workspaceId,
-            p.archiveThreads,
-            this.options.hasOwnedWork ?? (() => false),
-          );
+          await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);
           return { ok: true };
         }
         if (p.type === "workspace.publish") {

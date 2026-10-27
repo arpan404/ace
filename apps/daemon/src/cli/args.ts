@@ -14,7 +14,7 @@ const switches = new Set([
   "include-threads",
   "follow",
   "f",
-  "archive-threads",
+  "stop-threads",
   "web",
   "dry-run",
   "yes",

@@ -21564,7 +21564,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"workspace.remove"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| archiveThreads | no | boolean | {"default":false} |
+| stopRunning | no | boolean | {"default":false} |
 
 Example:
 

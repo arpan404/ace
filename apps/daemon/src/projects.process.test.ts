@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, Project, ProjectsRequest, Thread, type WorkspaceChanged } from "@ace/protocol";
 import { projectFixture, projectServer, until } from "./projects-test-support.ts";
+import { ThreadLifecycle } from "./thread-lifecycle.ts";
+import { stubHandler } from "./commands.ts";
 
 // Mutation cases and all runtime assertions need run at merge. No tests executed during development.
 test("adding a folder twice through a symlink returns its canonical existing project id", async () => {
@@ -157,49 +159,94 @@ test("traversal missing files and symlinks outside project roots cannot register
   }
 });
 
-test("removing a live project requires explicit archive and preserves execution status and files", async () => {
+test("removing a project deletes its threads, asking first to stop running ones, and keeps its files", async () => {
   const f = await projectFixture();
+  const lifecycle = new ThreadLifecycle(
+    {
+      store: f.store,
+      handler: stubHandler(),
+      token: "0".repeat(64),
+      hostId: "host",
+      port: 0,
+      now: () => 1000,
+    },
+    () => () => {},
+  );
+  const detach = f.projects.useThreadDeletion((command) => lifecycle.delete(command));
   try {
     const path = join(f.root, "repo");
     await mkdir(path);
     await writeFile(join(path, "keep.txt"), "keep");
     const added = await f.command({ type: "workspace.add", path });
     const project = Project.parse(added.workspace);
-    const thread = Thread.parse({
-      id: "thread",
-      workspaceId: project.id,
-      title: "Live",
-      provider: "codex",
-      status: { state: "working", agents: 1 },
-      details: { workspace: project },
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+    const thread = (id: string, status: Thread["status"]) =>
+      Thread.parse({
+        id,
+        workspaceId: project.id,
+        title: id,
+        provider: "codex",
+        status,
+        details: { workspace: project },
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    const live = thread("live", { state: "working", agents: 1 });
+    const finished = thread("finished", { state: "done" });
+    for (const t of [live, finished])
+      f.store.appendEvents(t.id, [{ type: "thread.created", thread: t }]);
     expect(
-      await f.command({ type: "workspace.remove", workspaceId: project.id, archiveThreads: false }),
-    ).toMatchObject({ ok: false, error: "workspace_threads_running" });
+      await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: false,
+      error: "workspace_threads_running",
+    });
+    expect(f.store.getThread(finished.id)?.deletedAt).toBeUndefined();
+    expect(f.projects.catalog.recent(100)).toEqual([project]);
     const changes: WorkspaceChanged[] = [];
     const stop = f.projects.subscribe((change) => changes.push(change));
     expect(
-      await f.command({ type: "workspace.rename", workspaceId: project.id, name: "Renamed" }),
-    ).toMatchObject({ ok: true, workspace: { name: "Renamed" } });
-    expect(f.store.getThread(thread.id)?.details?.workspace?.name).toBe("Renamed");
-    expect(
-      await f.command({ type: "workspace.remove", workspaceId: project.id, archiveThreads: true }),
+      await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: true }),
     ).toMatchObject({ ok: true });
-    expect(f.store.getThread(thread.id)).toMatchObject({
-      archivedAt: 1000,
-      status: { state: "working", agents: 1 },
-    });
+    expect(f.store.getThread(live.id)?.deletedAt).toBe(1000);
+    expect(f.store.getThread(finished.id)?.deletedAt).toBe(1000);
     expect(f.projects.catalog.recent(100)).toEqual([]);
     expect(await readFile(join(path, "keep.txt"), "utf8")).toBe("keep");
-    expect(changes.map((change) => change.change)).toEqual(["renamed", "removed"]);
+    expect(changes.map((change) => change.change)).toEqual(["removed"]);
     stop();
     expect(await f.command({ type: "workspace.add", path })).toMatchObject({
       ok: true,
       workspace: { id: project.id },
     });
+  } finally {
+    detach();
+    await lifecycle.close();
+    await f.close();
+  }
+});
+
+test("removing a project with only finished threads deletes them without asking", async () => {
+  const f = await projectFixture();
+  try {
+    const path = join(f.root, "settled");
+    await mkdir(path);
+    const project = Project.parse((await f.command({ type: "workspace.add", path })).workspace);
+    const finished = Thread.parse({
+      id: "finished",
+      workspaceId: project.id,
+      title: "Finished",
+      provider: "codex",
+      status: { state: "done" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    f.store.appendEvents(finished.id, [{ type: "thread.created", thread: finished }]);
+    expect(
+      await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: true,
+    });
+    expect(f.store.getThread(finished.id)?.deletedAt).toBe(1000);
+    expect(f.projects.catalog.recent(100)).toEqual([]);
   } finally {
     await f.close();
   }
@@ -216,8 +263,10 @@ test("a project whose folder was deleted can still be renamed and unregistered",
       await f.command({ type: "workspace.rename", workspaceId: project.id, name: "Moved" }),
     ).toMatchObject({ ok: true, workspace: { id: project.id, name: "Moved" } });
     expect(
-      await f.command({ type: "workspace.remove", workspaceId: project.id, archiveThreads: false }),
-    ).toMatchObject({ ok: true });
+      await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: true,
+    });
     expect(f.projects.catalog.recent(100)).toEqual([]);
   } finally {
     await f.close();
@@ -303,7 +352,11 @@ test("workspace pushes reach other clients and removed projects disappear from t
       command: Command.parse({
         id: "remove",
         deviceId: "owner",
-        payload: { type: "workspace.remove", workspaceId: receipt.workspace.id },
+        payload: {
+          type: "workspace.remove",
+          workspaceId: receipt.workspace.id,
+          stopRunning: false,
+        },
       }),
     });
     expect(await until(two, (message) => message.type === "workspace.changed")).toMatchObject({
@@ -365,7 +418,7 @@ test("project receipts and unregister state survive restart and reject new threa
     const receipt = await f.command({ type: "workspace.add", path }, "persistent-add");
     const project = Project.parse(receipt.workspace);
     await f.command({ type: "workspace.rename", workspaceId: project.id, name: "Persisted name" });
-    await f.command({ type: "workspace.remove", workspaceId: project.id, archiveThreads: false });
+    await f.command({ type: "workspace.remove", workspaceId: project.id, stopRunning: false });
     await f.projects.close();
     await f.store.close();
     reopened = new Store(join(f.root, "events.sqlite"));
@@ -402,6 +455,44 @@ test("project receipts and unregister state survive restart and reject new threa
     });
     reopened.appendEvents(thread.id, [{ type: "thread.created", thread }]);
     expect(reopened.getThread(thread.id)?.workspaceId).toBe(project.id);
+  } finally {
+    await projects?.close();
+    await reopened?.close();
+    await f.close();
+  }
+});
+
+test("threads an earlier removal left in a removed project are deleted at the next start, unless still running", async () => {
+  const f = await projectFixture();
+  let reopened: Store | undefined;
+  let projects: Projects | undefined;
+  try {
+    const path = join(f.root, "removed-before");
+    await mkdir(path);
+    const project = Project.parse((await f.command({ type: "workspace.add", path })).workspace);
+    const thread = (id: string, status: Thread["status"]) =>
+      Thread.parse({
+        id,
+        workspaceId: project.id,
+        title: id,
+        provider: "codex",
+        status,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    const left = thread("left-behind", { state: "done" });
+    const live = thread("still-live", { state: "working", agents: 1 });
+    for (const t of [left, live])
+      f.store.appendEvents(t.id, [{ type: "thread.created", thread: t }]);
+    // How a removal used to end: the project unregistered, its threads kept.
+    f.store.statement("INSERT INTO workspace_unregistered VALUES (?,?)").run(project.id, 1);
+    await f.projects.close();
+    await f.store.close();
+    reopened = new Store(join(f.root, "events.sqlite"));
+    projects = new Projects(reopened, () => 2000, { home: f.root, roots: async () => [f.root] });
+    await projects.ready;
+    expect(reopened.getThread(left.id)?.deletedAt).toBe(2000);
+    expect(reopened.getThread(live.id)?.deletedAt).toBeUndefined();
   } finally {
     await projects?.close();
     await reopened?.close();

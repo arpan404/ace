@@ -150,8 +150,9 @@ export function useProjectCommandsOn() {
           const receipt = accepted(await reach().projects.update({ workspaceId, ...edit }));
           if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
         },
-        remove: async (workspaceId: string, archiveThreads: boolean) => {
-          accepted(await reach().projects.remove({ workspaceId, archiveThreads }));
+        /** Delete the project's threads and stop listing it; `stopRunning` stops running ones. */
+        remove: async (workspaceId: string, stopRunning: boolean) => {
+          accepted(await reach().projects.remove({ workspaceId, stopRunning }));
           if (!shared) return;
           forgetProject(queryClient, workspaceId);
           // Home stops filtering on a project that is gone.

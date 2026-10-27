@@ -55,7 +55,9 @@ const virtualAbove = 120;
  * recent project (or at `~/`). Typing lists the folders inside the typed folder that match what
  * follows the last slash. ↑ ↓ move; Enter, → or a click goes into the highlighted folder; ⌘Enter
  * adds it; Enter with nothing highlighted adds the typed folder. A folder that doesn't exist is
- * made only from its own "Create … and add" row.
+ * made only from its own "Create … and add" row. A row the pointer highlights stops being
+ * highlighted once the pointer leaves the list, so the Add button, reached past the rows, adds
+ * the folder the field names rather than whichever row the pointer last crossed.
  */
 export function LocalFolderStep(props: {
   machine: Machine;
@@ -67,6 +69,8 @@ export function LocalFolderStep(props: {
   const { machine } = props;
   const [typed, setTyped] = useState<string>();
   const [active, setActive] = useState<number>();
+  // Whether the highlight came from the pointer rather than the keys.
+  const [pointed, setPointed] = useState(false);
   const listId = useId();
   const virtual = useRef<VirtualRowsHandle>(null);
   // A refused attempt shows why, and the field starts in the folder it was in.
@@ -112,6 +116,14 @@ export function LocalFolderStep(props: {
     setTyped(next);
     setActive(undefined);
   };
+  const point = (at: number) => {
+    setActive(at);
+    setPointed(true);
+  };
+  const leaveList = () => {
+    if (pointed) setActive(undefined);
+    setPointed(false);
+  };
   const act = (intent: PathIntent) => {
     if (intent.kind === "browse") type(pathInput(intent.path, home?.path));
     else if (intent.kind === "add") added.add(intent.path);
@@ -125,9 +137,10 @@ export function LocalFolderStep(props: {
     if (stepFieldKey(event, { text, onBack: props.onBack, onClear: () => type("") })) return;
     const mod = applePlatform ? event.metaKey : event.ctrlKey;
     const atEnd = event.currentTarget.selectionStart === text.length;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp")
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       setActive(stepHighlight(current, event.key === "ArrowDown" ? 1 : -1, rows.length));
-    else if (event.key === "Enter") {
+      setPointed(false);
+    } else if (event.key === "Enter") {
       if (!added.adding) choose(highlighted, mod ? "add" : "open");
     } else if (event.key === "ArrowRight" && atEnd && highlighted && highlighted.kind !== "create")
       choose(highlighted, "open");
@@ -200,7 +213,13 @@ export function LocalFolderStep(props: {
       </CommandStepRow>
       <div className="h-[min(320px,46dvh)] overflow-y-auto overscroll-contain p-1">
         {state}
-        <div id={listId} role="listbox" aria-label="Folders" hidden={state !== null}>
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="Folders"
+          hidden={state !== null}
+          onPointerLeave={leaveList}
+        >
           <LongRows
             items={rows}
             rowKey={(row) => `${row.kind}\u0000${rowPath(row)}`}
@@ -213,7 +232,7 @@ export function LocalFolderStep(props: {
                 row={row}
                 home={home?.path}
                 active={at === current}
-                onPoint={() => setActive(at)}
+                onPoint={() => point(at)}
                 onPick={() => choose(row, "open")}
               />
             )}
