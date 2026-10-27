@@ -55,7 +55,7 @@ export interface RegistryRow {
   publisher: string;
   description: string;
   version: string;
-  /** "Installed", "Update available", why it can't install here; null when it can. */
+  /** "Installed", "Update available", "Unavailable"; null when it can install. */
   standing: string | null;
   tone: "needsYou" | "muted" | null;
   unavailable: boolean;
@@ -85,7 +85,7 @@ function row(agent: RegistryAgent, view: RegistryView): RegistryRow {
       standing.kind === "available"
         ? null
         : standing.kind === "unavailable"
-          ? standing.reason
+          ? "Unavailable"
           : standing.update
             ? "Update available"
             : "Installed",
@@ -163,7 +163,7 @@ export function registryAgentScreen(
     version: agent.version,
     homepage: agent.homepage ?? null,
     license: agent.license ?? null,
-    standing: row(agent, view).standing,
+    standing: standing.kind === "unavailable" ? standing.reason : row(agent, view).standing,
     action,
     actionLabel: action === "install" ? "Install" : action === "update" ? "Update" : null,
     installed: latestInstallation(agent.acpAgentId, view.installations)?.version ?? null,

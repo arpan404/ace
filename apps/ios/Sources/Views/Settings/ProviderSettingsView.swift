@@ -50,6 +50,10 @@ struct ProviderSettingsView: View {
                 if let absent = model.providers?.absent, !absent.isEmpty { Text("Not installed or disabled: \(absent.joined(separator: ", "))") }
             }
             .insetRowBackground()
+            Section {
+                NavigationLink { AcpRegistryView(model: model) } label: { InsetRow("Add agent", systemImage: "plus") }
+            }
+            .insetRowBackground()
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
         }
         .insetGroupedList()
@@ -72,8 +76,11 @@ struct ProviderSignInView: View {
         Form {
             Group {
                 Section {
-                    if instance == nil, ["claude", "codex", "opencode", "cursor", "pi"].contains(provider) {
+                    if instance == nil, ["claude", "codex", "opencode", "cursor", "pi", "antigravity"].contains(provider) {
                         NavigationLink("Accounts") { ProviderAccountsView(model: model, provider: provider, name: name) }
+                    }
+                    if instance == nil, ["claude", "codex", "opencode"].contains(provider) {
+                        NavigationLink("MCP servers") { ProviderMcpView(model: model, provider: provider, name: name) }
                     }
                     Text("Sign in to the coding agent installed on your paired machine.")
                     Button("Sign in") { request(["type": "provider.login.start", "provider": provider]) }

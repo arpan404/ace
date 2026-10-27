@@ -59,6 +59,19 @@ export const AccountsScreenRequest = z.discriminatedUnion("type", [
     instanceId: z.string().min(1).max(128),
     way,
   }),
+  z.object({
+    type: z.literal("accounts.screen.act"),
+    provider: ManagedAccountProvider,
+    instanceId: z.string().min(1).max(128),
+    action: z.enum(["setDefault", "remove", "removeWithFiles"]),
+  }),
+  z.object({
+    type: z.literal("accounts.screen.rename"),
+    provider: ManagedAccountProvider,
+    instanceId: z.string().min(1).max(128),
+    label: z.string().max(256),
+    ...badge,
+  }),
 ]);
 export type AccountsScreenRequest = z.infer<typeof AccountsScreenRequest>;
 type Provider = z.infer<typeof ManagedAccountProvider>;
@@ -300,6 +313,46 @@ export async function answerAccountsScreen(
       reauth: reauthWays(request.provider, reply.result.apiKey),
     };
     return { ok: true, screen };
+  }
+  if (request.type === "accounts.screen.act") {
+    const target = { provider: request.provider, instanceId: request.instanceId };
+    const reply = await owner.request(
+      request.action === "setDefault"
+        ? { type: "provider.accounts.setDefault", ...target }
+        : {
+            type: "provider.accounts.remove",
+            ...target,
+            confirm: true,
+            deleteHome: request.action === "removeWithFiles",
+          },
+      options,
+    );
+    return reply.result.ok ? { ok: true } : failure(reply.result.error);
+  }
+  if (request.type === "accounts.screen.rename") {
+    const label = request.label.trim();
+    if (!label) return { ok: false, problem: "Give the account a name, like Work." };
+    const preview = accountBadgePreview({
+      label,
+      shortLabel: request.shortLabel,
+      color: request.color,
+      icon: request.icon,
+    });
+    if (preview.problem) return { ok: false, problem: preview.problem };
+    const reply = await owner.request(
+      {
+        type: "provider.accounts.rename",
+        provider: request.provider,
+        instanceId: request.instanceId,
+        label,
+        ...(preview.save.shortLabel ? { shortLabel: preview.save.shortLabel } : {}),
+        badgeUsesInitial: preview.save.badgeUsesInitial,
+        badgeColor: preview.save.badgeColor,
+        badgeIcon: preview.save.badgeIcon,
+      },
+      options,
+    );
+    return reply.result.ok ? { ok: true } : failure(reply.result.error);
   }
   const picked = chosen(request.provider, request.way);
   if ("problem" in picked) return { ok: false, problem: picked.problem };

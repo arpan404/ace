@@ -111,3 +111,57 @@ test("the badge preview follows each edit and says when it can't be saved", asyn
     await ask({ type: "accounts.screen.badge", label: "Work", shortLabel: "😀", icon: "rocket" }),
   ).toMatchObject({ badge: { text: "?", icon: "rocket", problem: expect.any(String) } });
 });
+
+test("an account's name and badge are saved together, and a bad badge is refused first", async () => {
+  const { ask } = await open();
+  const before = (await ask({ type: "accounts.screen", provider: "codex" })).screen.accounts[0];
+  expect(
+    await ask({
+      type: "accounts.screen.rename",
+      provider: "codex",
+      instanceId: before.id,
+      label: "Work",
+      shortLabel: "",
+      color: "violet",
+      icon: "rocket",
+    }),
+  ).toEqual({ ok: true });
+  const after = (await ask({ type: "accounts.screen", provider: "codex" })).screen.accounts[0];
+  expect(after).toMatchObject({ label: "Work", badge: { icon: "rocket", color: "violet" } });
+  expect(
+    await ask({
+      type: "accounts.screen.rename",
+      provider: "codex",
+      instanceId: before.id,
+      label: "Work",
+      shortLabel: "ABC",
+    }),
+  ).toEqual({ ok: false, problem: "Use up to two letters, or pick an icon." });
+});
+
+test("removing with its files asks the daemon to delete the account's folder", async () => {
+  const { ask } = await open();
+  const screen = (await ask({ type: "accounts.screen", provider: "codex" })).screen;
+  const account = screen.accounts.find((row: { removable: boolean }) => row.removable);
+  expect(
+    await ask({
+      type: "accounts.screen.act",
+      provider: "codex",
+      instanceId: account.id,
+      action: "removeWithFiles",
+    }),
+  ).toEqual({ ok: true });
+  const left = (await ask({ type: "accounts.screen", provider: "codex" })).screen.accounts;
+  expect(left.map((row: { id: string }) => row.id)).not.toContain(account.id);
+  // OpenCode keeps its sign-in in the CLI, so there are no files of ace's to delete.
+  const opencode = (await ask({ type: "accounts.screen", provider: "opencode" })).screen;
+  const own = opencode.accounts.find((row: { removable: boolean }) => row.removable);
+  expect(
+    await ask({
+      type: "accounts.screen.act",
+      provider: "opencode",
+      instanceId: own.id,
+      action: "removeWithFiles",
+    }),
+  ).toEqual({ ok: false, problem: "This provider can't do that." });
+});
