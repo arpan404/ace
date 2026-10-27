@@ -36,8 +36,12 @@ struct LogsView: View {
                             .frame(maxWidth: .infinity, minHeight: 120)
                     }
                 }
-            } header: { filters }
+            }
             .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            .listSectionSeparator(.hidden)
+        }
+        .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+            filters.padding(.horizontal, AceTheme.Spacing.lg).background(AceTheme.Colours.background)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

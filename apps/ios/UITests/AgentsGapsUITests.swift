@@ -103,7 +103,8 @@ import XCTest
         app.threadMenuItem("thread.offshift").tap()
         let state = app.descendants(matching: .any)["offshift.state"]
         XCTAssertTrue(state.waitForExistence(timeout: 15))
-        XCTAssertTrue(state.label.contains("Waiting"), state.label)
+        // A subagent in the tree asks the person, which speaks before the run's blocker.
+        XCTAssertTrue(state.label.hasPrefix("Answer"), state.label)
         XCTAssertTrue(app.descendants(matching: .any)["offshift.blocker"].exists)
         screenshot("offshift-blocked")
         app.swipeUp(velocity: .slow)

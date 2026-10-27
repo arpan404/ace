@@ -26,16 +26,19 @@ struct OffshiftRunView: View {
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     .padding(.vertical, AceTheme.Spacing.xs)
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
                     if let blocker = run.blocker {
                         LabeledLine(title: "Blocked", text: blocker).accessibilityIdentifier("offshift.blocker")
                     } else if let next = run.next, !run.done {
                         LabeledLine(title: "Next", text: next).accessibilityIdentifier("offshift.next")
                     }
                 }
+                .listSectionSeparator(.hidden)
                 if !run.steps.isEmpty {
                     Section {
                         ForEach(run.steps) { step in RunStepLine(step: step) }
                     } header: { InsetHeader("Steps") }
+                    .listSectionSeparator(.hidden)
                 }
                 if !run.criteria.isEmpty {
                     Section {
@@ -44,22 +47,27 @@ struct OffshiftRunView: View {
                             Text("\(run.moreCriteria) more on the run's record")
                                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .listRowSeparator(.hidden).listRowBackground(Color.clear)
                         }
                     } header: {
                         InsetHeader(run.pending > 0 ? "Criteria · \(run.pending) \(run.pending == 1 ? "check" : "checks") open" : "Criteria")
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 Section {
                     Text("The agent records this run as it works. Ask it in the thread to change the plan or add a check.")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
+                .listSectionSeparator(.hidden)
             } else {
                 EmptyState(icon: .listChecks, title: "No Offshift run", line: "This thread isn't running one now.") { EmptyView() }
             }
         }
         .listStyle(.plain)
         .listRowSeparator(.hidden)
+        .listSectionSeparator(.hidden)
         .scrollContentBackground(.hidden)
         .background(AceTheme.Colours.background)
         .listRowBackground(Color.clear)
