@@ -10,7 +10,7 @@ import {
   skillAgents,
 } from "./library-model.ts";
 import { SkillRequestError, useCreateSkill } from "./library-source.ts";
-import { NewSkillForm, type NewSkill } from "./new-skill-form.tsx";
+import { NewSkillForm } from "./new-skill-form.tsx";
 import { SkillPageSkeleton } from "./skills-landing-screen.tsx";
 import { useSkillLibrary } from "./skills-library.tsx";
 
