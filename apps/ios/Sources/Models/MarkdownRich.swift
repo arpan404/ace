@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -17,35 +18,46 @@ import UIKit
         let math: [MathSpan]
     }
     private let model: ClientModel
-    private var prose: [String: Prose] = [:]
-    private var code: [String: Code] = [:]
-    private static let kept = 300
-    init(model: ClientModel) { self.model = model }
+    /// Kept by a digest of the text they were read for, costed in bytes, so a long thread's
+    /// answers never pile up and nothing is thrown away all at once.
+    private let prose = NSCache<NSString, Box<Prose>>()
+    private let code = NSCache<NSString, Box<Code>>()
+    private final class Box<Value> { let value: Value; init(_ value: Value) { self.value = value } }
+    init(model: ClientModel) {
+        self.model = model
+        prose.totalCostLimit = 4 * 1024 * 1024
+        code.totalCostLimit = 4 * 1024 * 1024
+    }
 
-    func knownProse(_ text: String) -> Prose? { prose[text] }
-    func knownCode(_ language: String, _ text: String) -> Code? { code[language + "\u{0}" + text] }
+    private static func digest(_ parts: String...) -> NSString {
+        var hash = SHA256()
+        for part in parts { hash.update(data: Data(part.utf8)); hash.update(data: Data([0])) }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined() as NSString
+    }
+
+    func knownProse(_ text: String) -> Prose? { prose.object(forKey: Self.digest(text))?.value }
+    func knownCode(_ language: String, _ text: String) -> Code? { code.object(forKey: Self.digest(language, text))?.value }
 
     /// The text with its formulas marked; nil when it holds none or the read fails.
     func prose(_ text: String) async -> Prose? {
-        if let known = prose[text] { return known }
+        let key = Self.digest(text)
+        if let known = prose.object(forKey: key) { return known.value }
         guard text.contains("$") || text.contains("\\(") || text.contains("\\[") else { return nil }
         guard let read = try? await model.service(["type": "native.rich", "kind": "prose", "text": text], as: Prose.self),
               !read.math.isEmpty else { return nil }
-        keep(&prose, text, read)
+        let bytes = read.text.utf8.count + read.math.reduce(0) { $0 + $1.tex.utf8.count + $1.text.utf8.count }
+        prose.setObject(Box(read), forKey: key, cost: bytes)
         return read
     }
     func code(_ language: String, _ text: String) async -> Code? {
-        let key = language + "\u{0}" + text
-        if let known = code[key] { return known }
+        let key = Self.digest(language, text)
+        if let known = code.object(forKey: key) { return known.value }
         guard !language.isEmpty, text.utf16.count <= 64 * 1024,
               let read = try? await model.service(["type": "native.rich", "kind": "code", "language": language, "text": text], as: Code.self)
         else { return nil }
-        keep(&code, key, read)
+        let bytes = read.runs.count * 8 + (read.diff ?? []).reduce(0) { $0 + $1.text.utf8.count + 16 }
+        code.setObject(Box(read), forKey: key, cost: bytes)
         return read
-    }
-    private func keep<Value>(_ store: inout [String: Value], _ key: String, _ value: Value) {
-        if store.count >= Self.kept { store.removeAll(keepingCapacity: true) }
-        store[key] = value
     }
 
     /// The code with its colours, in the appearance's own shade of each.

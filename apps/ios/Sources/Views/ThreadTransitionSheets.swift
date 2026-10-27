@@ -211,8 +211,8 @@ private struct MergeSheet: View {
                     Text("Includes uncommitted tracked changes only. Both threads must finish before code changes can be applied.")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    if screen.mergeDraft?.ready == false {
-                        Text("Wait for an answer in this fork before bringing results back.")
+                    if let waits = screen.mergeDraft?.waits, !waits.isEmpty {
+                        Text(waits)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
@@ -383,6 +383,8 @@ private struct ThreadFilesPage: Decodable {
         var id: String { ref }
     }
     let files: [File]
+    /// Why a file asked to be removed stays (the fork being written carries it); nil otherwise.
+    var refused: String? = nil
 }
 
 /// Files stored for the thread, from every message. Removing one frees its space and stops it
@@ -400,6 +402,8 @@ private struct ThreadFilesSheet: View {
     @State private var document: URL?
     @State private var opening: String?
     @State private var openProblem: String?
+    /// Why a file asked to be removed stays.
+    @State private var kept: String?
     var body: some View {
         NavigationStack {
             List {
@@ -472,6 +476,9 @@ private struct ThreadFilesSheet: View {
                 VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType)
             }
             .quickLookPreview($document)
+            .alert("The file stays", isPresented: Binding(get: { kept != nil }, set: { if !$0 { kept = nil } })) {
+                Button("OK") { kept = nil }
+            } message: { Text(kept ?? "") }
             .alert("Couldn't open the file", isPresented: Binding(get: { openProblem != nil }, set: { if !$0 { openProblem = nil } })) {
                 Button("OK") { openProblem = nil }
             } message: { Text(openProblem ?? "") }
@@ -518,8 +525,11 @@ private struct ThreadFilesSheet: View {
             defer { busy = nil }
             var payload: [String: Any] = ["type": "native.threadFiles", "threadId": threadId]
             if let release { payload["release"] = release }
-            do { files = try await model.service(payload, as: ThreadFilesPage.self).files }
-            catch { problem = error.localizedDescription }
+            do {
+                let page = try await model.service(payload, as: ThreadFilesPage.self)
+                files = page.files
+                if let refused = page.refused { kept = refused }
+            } catch { problem = error.localizedDescription }
         }
     }
 }

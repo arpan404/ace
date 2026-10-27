@@ -41,6 +41,8 @@ struct ForkDraftRow: Codable, Sendable, Equatable {
 /// Bring back to parent's summary as it starts out: the fork's newest own answer.
 struct MergeDraftRow: Codable, Sendable, Equatable {
     let ready: Bool
+    /// Why it can't go yet (`bringBackOf` in `@ace/ui-core`); empty once it can.
+    var waits: String? = nil
     let summary: String
 }
 

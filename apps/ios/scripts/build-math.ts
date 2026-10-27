@@ -44,6 +44,11 @@ html,body{margin:0;padding:0;background:transparent}
 #baseline{display:inline-block;width:0;height:0;vertical-align:baseline}
 </style></head><body><div id="math"></div>
 <script>${script}</script></body></html>`;
+// KaTeX ships under MIT: its licence goes with the app (Settings › Licences).
+await writeFile(
+  join(here, "..", "Resources", "Licences", "katex-license.txt"),
+  await readFile(join(katex, "..", "LICENSE"), "utf8"),
+);
 const target = join(here, "..", "Resources", "math.html");
 await writeFile(target, page);
 console.log(`Wrote the math page to ${target} (${Math.round(page.length / 1024)} KB)`);

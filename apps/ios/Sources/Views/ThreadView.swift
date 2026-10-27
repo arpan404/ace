@@ -120,12 +120,8 @@ struct ThreadView: View {
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
             .environment(\.markdownRich, rich)
-            .task {
-                if rich == nil { rich = MarkdownRich(model: model) }
-                // After the thread's first frames, never in their way.
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { MathRenderer.shared.warm() }
-            }
+            // The math page starts only when a formula arrives (`MathRenderer`), never on opening.
+            .task { if rich == nil { rich = MarkdownRich(model: model) } }
             .sensoryFeedback(.success, trigger: forksStarted)
             // A new thread started from this one (a fork, a continuation): a success tap as it opens.
             .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
