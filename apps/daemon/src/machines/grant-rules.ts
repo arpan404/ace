@@ -196,6 +196,8 @@ export function capabilityOf(
     case "screen":
     case "commands":
       return call.op;
+    case "command.jobs":
+      return "commands";
     default:
       return "agents";
   }

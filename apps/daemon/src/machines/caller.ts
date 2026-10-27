@@ -1,4 +1,5 @@
 import {
+  MachineCommandJobsResult,
   MachineDelegateResult,
   MachineMessageResult,
   MachineSessionResult,
@@ -13,6 +14,7 @@ import {
   type MachinePendingRequest,
   type MachineThreadView,
   type McpAttribution,
+  type AgentId,
   type ThreadId,
 } from "@ace/protocol";
 import { HostId } from "@ace/protocol";
@@ -23,6 +25,7 @@ import type { MachineDirectory } from "./directory.ts";
 import type { MachineChildren } from "./children.ts";
 import type { Answer, ResendAnswer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
+import type { RemoteJobs } from "./remote-jobs.ts";
 import { MachineFailure } from "./transport.ts";
 
 /**
@@ -52,6 +55,8 @@ export interface CallerDeps {
   pollMs: number;
   /** The calling thread's ceiling, sent so the target applies it too (ADR 0105). */
   ceiling(threadId: ThreadId): "read" | "operate";
+  /** Background command jobs started there, held in their calling thread here until they end. */
+  jobs(): RemoteJobs | undefined;
 }
 
 /**
@@ -302,8 +307,9 @@ export class MachineCaller {
         ),
       );
     const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
+    let result: MachineToolResult;
     try {
-      return MachineToolResult.parse(
+      result = MachineToolResult.parse(
         await directory.call(
           machine,
           origin,
@@ -315,6 +321,37 @@ export class MachineCaller {
       options.signal.throwIfAborted();
       throw directory.toolError(machine, error);
     }
+    const { job, ...shown } = result;
+    // A job started there holds this thread open until it ends, so it never reads done early.
+    if (tool === "command_run" && job)
+      this.deps.jobs()?.add({
+        machine,
+        jobId: job.id,
+        threadId: caller.threadId,
+        agentId: caller.agentId,
+        command: typeof args["command"] === "string" ? args["command"] : "command",
+        timeoutSeconds: job.timeoutSeconds,
+      });
+    return shown;
+  }
+  /** Whether this thread's command jobs on that machine still run (ADR 0105). */
+  async commandJobs(machine: string, threadId: ThreadId, jobIds: readonly string[]) {
+    const answer = await this.deps.directory.call(
+      machine,
+      await this.origin(threadId),
+      { op: "command.jobs", jobIds: [...jobIds] },
+      { timeoutMs: 10_000 },
+    );
+    return MachineCommandJobsResult.parse(answer).jobs;
+  }
+  /** Stops one of this thread's command jobs there, as the person's Stop on its row asks. */
+  async stopCommandJob(machine: string, threadId: ThreadId, agentId: AgentId, jobId: string) {
+    await this.deps.directory.call(
+      machine,
+      { ...(await this.origin(threadId)), agentId },
+      { op: "commands", tool: "command_stop", args: { jobId } },
+      { timeoutMs: 25_000 },
+    );
   }
   /**
    * A browser tool on another machine. While it runs, that machine's requests for this call

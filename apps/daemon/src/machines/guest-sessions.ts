@@ -152,8 +152,16 @@ export class GuestSessions {
       agent,
     };
   }
+  /** The calling thread's live session here, without making one. */
+  existing(device: Device, origin: MachineCallOrigin): ThreadId | undefined {
+    return this.latest(device, origin);
+  }
   /** The newest session this calling thread has here that the person hasn't deleted. */
   private find(device: Device, origin: MachineCallOrigin): Promise<ThreadId> | undefined {
+    const threadId = this.latest(device, origin);
+    return threadId === undefined ? undefined : Promise.resolve(threadId);
+  }
+  private latest(device: Device, origin: MachineCallOrigin): ThreadId | undefined {
     const row = this.deps.store
       .statement(
         `SELECT thread_id FROM machine_threads WHERE device_id=? AND origin_host=?
@@ -163,7 +171,7 @@ export class GuestSessions {
     if (!row) return undefined;
     const threadId = ThreadId.parse(Row.parse(row).thread_id);
     const thread = this.deps.store.getThread(threadId);
-    return thread && thread.deletedAt === undefined ? Promise.resolve(threadId) : undefined;
+    return thread && thread.deletedAt === undefined ? threadId : undefined;
   }
   private serialized(device: Device, origin: MachineCallOrigin, engine: Engine) {
     const before = this.making.get(device.id) ?? Promise.resolve();

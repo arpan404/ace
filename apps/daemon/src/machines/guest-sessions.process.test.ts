@@ -201,6 +201,13 @@ it("a command a previous process left running reads cancelled after recovery, an
   );
 });
 
+/** Another calling thread on the same machine. */
+const from = (threadId: string, threadTitle: string) => ({
+  ...origin,
+  threadId: ThreadId.parse(threadId),
+  threadTitle,
+});
+
 it("a calling device holds a bounded number of sessions: idle ones make room, busy ones refuse", async () => {
   const { h, guests, session } = await setup(2);
   const live = () =>
@@ -208,11 +215,6 @@ it("a calling device holds a bounded number of sessions: idle ones make room, bu
       .listThreads()
       .filter((thread) => thread.details?.guest && thread.deletedAt === undefined)
       .map((thread) => thread.title);
-  const from = (threadId: string, threadTitle: string) => ({
-    ...origin,
-    threadId: ThreadId.parse(threadId),
-    threadTitle,
-  });
   const second = await guests.open(device, from("second", "Second"));
   expect(live().toSorted()).toEqual(["Linux box · Fix the login flow", "Linux box · Second"]);
 

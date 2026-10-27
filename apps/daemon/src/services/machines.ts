@@ -21,6 +21,7 @@ import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
+import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { TransferClient, transferTransport } from "../transfers/client.ts";
 import type { ServiceContext } from "./types.ts";
@@ -161,6 +162,7 @@ export function startMachines(context: ServiceContext): void {
     browser,
     guests,
     grants,
+    commandJobs: (session, jobIds) => commands.states(session, jobIds),
     hosts: {
       devices,
       screen,
@@ -263,6 +265,28 @@ export function startMachines(context: ServiceContext): void {
   });
   resources.own(() => children.close());
   resources.onShutdown(() => children.close());
+  const jobs = new RemoteJobs({
+    store,
+    engine,
+    now,
+    schedule,
+    pollMs,
+    poll: async (machine, thread, ids) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      return caller.commandJobs(machine, thread, ids);
+    },
+    stop: async (machine, thread, agent, jobId) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      await caller.stopCommandJob(machine, thread, agent, jobId);
+    },
+    device: (machine) => directory.device(machine),
+    label: (machine) => directory.label(machine),
+    log: record("warn"),
+  });
+  resources.own(() => jobs.close());
+  resources.onShutdown(() => jobs.close());
+  // The person's Stop on a remote job's row stops it on its machine.
+  services.engine?.bindExternalTaskStop(remoteJobPrefix, (task) => jobs.stop(task));
   caller = new MachineCaller({
     store,
     hostId,
@@ -272,6 +296,7 @@ export function startMachines(context: ServiceContext): void {
     mirror,
     schedule,
     pollMs,
+    jobs: () => jobs,
     ceiling: (threadId) => (services.engine?.access(threadId) === "read-only" ? "read" : "operate"),
   });
   const machines = caller;

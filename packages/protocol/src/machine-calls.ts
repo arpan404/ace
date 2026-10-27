@@ -95,6 +95,8 @@ const MachineMessageFields = {
 };
 export const MachineMessage = z.strictObject(MachineMessageFields);
 export type MachineMessage = z.infer<typeof MachineMessage>;
+/** A background command job on another machine (ADR 0105). */
+export const CommandJobId = z.string().regex(/^job-[a-z0-9-]{1,64}$/);
 export const MachineCall = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("describe") }),
   z.strictObject({
@@ -150,6 +152,14 @@ export const MachineCall = z.discriminatedUnion("op", [
     tool: z.string().regex(/^command_[a-z_]{1,64}$/),
     args: z.record(z.string(), z.unknown()),
   }),
+  /**
+   * Whether the calling thread's background command jobs there still run, so the calling machine
+   * keeps its thread from reading done until they end (ADR 0105). Only reads; opens no session.
+   */
+  z.strictObject({
+    op: z.literal("command.jobs"),
+    jobIds: z.array(CommandJobId).min(1).max(16),
+  }),
 ]);
 export type MachineCall = z.infer<typeof MachineCall>;
 export const MachineCallRequest = z.object({ origin: MachineCallOrigin, call: MachineCall });
@@ -185,8 +195,19 @@ export const MachineDelegateResult = z.object({
 });
 export const MachineSessionResult = z.object({ threadId: ThreadId });
 export const MachineMessageResult = z.object({ arrival: MessageArrival });
+/** One background command job's state there; `unknown` once it no longer has it. */
+export const MachineCommandJobsResult = z.object({
+  jobs: z
+    .array(z.object({ jobId: CommandJobId, state: z.enum(["running", "ended", "unknown"]) }))
+    .max(16),
+});
+export type MachineCommandJobsResult = z.infer<typeof MachineCommandJobsResult>;
 /** A tool's MCP result (browser, devices, screen, commands), as the target's registry made it. */
 export const MachineToolResult = z.object({
+  /** A background command it started there: the calling machine holds its thread open for it. */
+  job: z
+    .object({ id: CommandJobId, timeoutSeconds: z.number().int().positive().max(86_400) })
+    .optional(),
   isError: z.boolean().optional(),
   content: z
     .array(

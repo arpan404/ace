@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { MachineToolResult } from "@ace/protocol";
+import type { MachineCommandJobsResult, MachineToolResult } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import { clip } from "../agent-control/watch-view.ts";
@@ -219,6 +219,7 @@ export class CommandHost implements CapabilityHost {
       this.finished(session, key, command, spec.cwd, started.run, outcome);
     });
     return {
+      job: { id, timeoutSeconds: Math.ceil(limits.timeoutMs / 1000) },
       content: [
         text(
           `Started ${id} in ${spec.cwd}. Read it with command_status and command_output; end it with command_stop.`,
@@ -272,6 +273,21 @@ export class CommandHost implements CapabilityHost {
     job.run.stop();
     const outcome = await job.run.done;
     return { content: [text(`${job.id}: ${outcomeLine(outcome)}`)] };
+  }
+  /**
+   * Whether a calling thread's jobs still run here, for the calling machine that holds its thread
+   * open meanwhile. A job this session doesn't have (ended and let go, or the session is gone)
+   * is `unknown`.
+   */
+  states(session: string | undefined, jobIds: readonly string[]): MachineCommandJobsResult {
+    return {
+      jobs: jobIds.map((jobId) => {
+        const job = this.jobs.get(jobId);
+        if (!job || session === undefined || job.session !== session)
+          return { jobId, state: "unknown" as const };
+        return { jobId, state: job.outcome ? ("ended" as const) : ("running" as const) };
+      }),
+    };
   }
   /**
    * The person deleted a session: its jobs are let go (running ones end with the session's

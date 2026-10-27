@@ -724,10 +724,22 @@ export class Engine {
     transferId: string,
     hold: { title: string } | { status: "completed" | "failed" | "stopped" },
   ): void {
+    this.externalHold(threadId, agentId, `ace-transfer:${transferId}`, hold);
+  }
+  /**
+   * Work ace runs for an agent outside its provider (a transfer, a command job on another
+   * machine) holds its thread open as a stoppable background row until ace ends it. A stop is
+   * routed by `bindExternalTaskStop`.
+   */
+  externalHold(
+    threadId: ThreadId,
+    agentId: import("@ace/protocol").AgentId,
+    task: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
     const state = this.repo.requireState(threadId);
     const agent = state.indexes.agentKeysById[agentId];
-    if (!agent) throw new Error("Unknown transfer owner");
-    const task = `ace-transfer:${transferId}`;
+    if (!agent) throw new Error("Unknown background owner");
     this.repo.apply(
       threadId,
       [

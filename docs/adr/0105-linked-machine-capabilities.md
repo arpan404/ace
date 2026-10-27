@@ -230,7 +230,23 @@ from a read-only thread before sending.
   at most 24 hours) or `command_stop`. A calling thread runs at most 8 jobs at once.
 - **Ownership.** A job belongs to the calling thread's guest session. It holds a background row
   there, so the session never reads done while it runs. Stopping the row or the session,
-  turning Commands down, closing the machine or revoking the device ends its whole tree.
+  turning Commands down, closing the machine or revoking the device ends its whole tree. A
+  closing daemon ends its jobs too, and the next start marks any shell call a crashed one left
+  running as cancelled. Finished jobs stay readable for 30 minutes, at most 8 per calling thread
+  and 32 in all; deleting the session lets go of its jobs at once.
+- **Held on the calling machine too.** `command_run` with `background: true` answers with the
+  job's id and timeout, and the calling machine holds a stoppable row in the calling thread for
+  it (`machine_jobs`, durable across its restarts), so that thread never reads done while the job
+  runs there. It reads the jobs with `command.jobs`, a read-only call that opens no session. The
+  row ends when the job ended or the target no longer has it (it restarted, or let go of it),
+  when the person stops the row (the job is stopped there first), when the target refuses
+  because Commands, the machine or the pairing closed to this machine (which ends its jobs
+  there), when the pairing is gone here or the calling thread is deleted, and at the latest ten
+  minutes past the job's own timeout. A machine that can't be reached keeps its rows held until
+  then.
+- **Session bound.** A calling device holds at most 64 live guest sessions here. At the bound a
+  new one replaces the least recently active idle session, deleted as the person's Delete does;
+  when every one is busy the new session is refused with a reason.
 - **Record.** Each command is a shell call in the session's transcript (command line, folder,
   exit code) and a log line with the device, calling machine and thread, folder, command, exit
   code and duration.

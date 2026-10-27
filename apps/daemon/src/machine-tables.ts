@@ -118,3 +118,13 @@ export const machineGrants = `CREATE TABLE IF NOT EXISTS machine_grants (
   CREATE TRIGGER IF NOT EXISTS machine_grants_revoked
     AFTER UPDATE OF revoked_at ON devices WHEN NEW.revoked_at IS NOT NULL
     BEGIN DELETE FROM machine_grants WHERE device_id = NEW.id; END;`;
+
+/**
+ * Background command jobs agents here started on other machines (ADR 0105). Each holds a row in
+ * its calling thread until the job ends there, is stopped, or can never be read again, so the
+ * thread never reads done while it runs. A row is deleted once its job is settled.
+ */
+export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
+  machine TEXT NOT NULL, job_id TEXT NOT NULL, thread_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+  deadline INTEGER NOT NULL, stopping INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+  PRIMARY KEY (machine, job_id));`;

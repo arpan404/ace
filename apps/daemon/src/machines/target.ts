@@ -6,6 +6,7 @@ import {
   type MachineAgentAccess,
   type MachineCall,
   type MachineCallOrigin,
+  type MachineCommandJobsResult,
   type MachineDescription,
   type MachineToolGroup,
   type ProviderKind,
@@ -41,6 +42,8 @@ export interface MachineTargetDeps {
   grants: MachineGrantStore;
   /** Devices, screen and commands, each when this machine has it (ADR 0105). */
   hosts: Partial<Record<HostedCapability, CapabilityHost>>;
+  /** Whether the calling thread's session (if it has one) still runs these command jobs. */
+  commandJobs(session: string | undefined, jobIds: readonly string[]): MachineCommandJobsResult;
   log(message: string, fields: Record<string, unknown>): void;
 }
 export interface MachineAnswer {
@@ -70,6 +73,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "describe":
       case "status":
       case "browser.session":
+      case "command.jobs":
         return "read";
       case "browser":
         return deps.browser.readOnly(call.tool, call.args) ? "read" : "operate";
@@ -212,6 +216,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "screen":
       case "commands":
         return hosted(device, origin, call, signal, ticket, known);
+      case "command.jobs":
+        return deps.commandJobs(deps.guests.existing(device, origin), call.jobIds);
     }
   }
   return {
