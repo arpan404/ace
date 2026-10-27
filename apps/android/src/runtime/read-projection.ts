@@ -43,7 +43,12 @@ function copyInner(value: unknown, seen: Map<object, unknown>): unknown {
     seen.set(obj, out);
     for (const entry of value) {
       const copied = copyInner(entry, seen);
-      out.push(copied === DROP ? undefined : copied);
+      // Drop exotic entries instead of inserting `undefined`: a string[]
+      // must never contain `undefined` (UI `key={id}` / `thread(id)` would
+      // crash). Real SDK arrays are JSON string arrays, so dropping only
+      // affects synthetic inputs and keeps the element type intact.
+      if (copied === DROP) continue;
+      out.push(copied);
     }
     return Object.freeze(out);
   }
@@ -91,6 +96,58 @@ function freezeError(error: ClientError | undefined): ClientError | undefined {
   return Object.freeze(new ClientError(error.code, error.message));
 }
 
+/**
+ * Shallow string-array equality for SDK membership lists (`agentIds()`,
+ * `children()`, …) which allocate a fresh array per call. Returning the
+ * cached frozen copy when contents match keeps `Object.is` stability for
+ * `useSyncExternalStore` without changing types.
+ */
+function sameStringArray(a: unknown, b: unknown): boolean {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+  return true;
+}
+
+/** Copy-once cache: return the frozen copy while the live value is identical. */
+function memoCopy<T>(getLive: () => T, copy: (value: T) => T): () => T {
+  let has = false;
+  let lastLive: unknown;
+  let lastFrozen: unknown;
+  return () => {
+    const live = getLive();
+    if (has && (Object.is(live, lastLive) || sameStringArray(live, lastLive)))
+      return lastFrozen as T;
+    const frozen = copy(live);
+    lastLive = live;
+    lastFrozen = frozen;
+    has = true;
+    return frozen;
+  };
+}
+
+function memoCopyArg<A, R>(fn: (arg: A) => R, copy: (value: R) => R): (arg: A) => R {
+  let has = false;
+  let lastArg: unknown;
+  let lastLive: unknown;
+  let lastFrozen: unknown;
+  return (arg: A) => {
+    const live = fn(arg);
+    if (
+      has &&
+      Object.is(arg, lastArg) &&
+      (Object.is(live, lastLive) || sameStringArray(live, lastLive))
+    )
+      return lastFrozen as R;
+    const frozen = copy(live);
+    lastArg = arg;
+    lastLive = live;
+    lastFrozen = frozen;
+    has = true;
+    return frozen;
+  };
+}
+
 function nullSealed<T extends object>(entries: Record<string | symbol, unknown>): T {
   const out = Object.create(null) as Record<string | symbol, unknown>;
   for (const [key, value] of Object.entries(entries)) out[key] = value;
@@ -116,8 +173,14 @@ function teardown(fn: (() => void) | undefined): void {
  * One projected selection. A pin failure detaches every subscriber of the
  * wrapper (not just the notified one) so no stale inner subscription stays
  * registered on the live store; every teardown path is idempotent and never
- * throws. Listener exceptions are left to the live store, whose delivery
+ * throws; Listener exceptions are left to the live store, whose delivery
  * already isolates observers, so a throwing view cannot break bookkeeping.
+ *
+ * `getSnapshot` caches on live identity: React's `useSyncExternalStore`
+ * requires `Object.is` stability while data is unchanged, so a fresh frozen
+ * copy is made only when the live snapshot reference changes. Copies stay
+ * isolated (frozen JSON clones), so mutating a returned snapshot can never
+ * reach the live store and vice versa.
  */
 function shellSelection<T>(
   check: ReadCheck,
@@ -125,11 +188,17 @@ function shellSelection<T>(
   track?: (release: () => void) => () => void,
 ): Selection<T> {
   let current: Selection<T> | undefined = inner;
+  let lastLive: unknown;
+  let lastFrozen: unknown;
+  let hasSnapshot = false;
   const actives = new Set<() => void>();
   const detachAll = (): void => {
     const pending = [...actives];
     actives.clear();
     current = undefined;
+    lastLive = undefined;
+    lastFrozen = undefined;
+    hasSnapshot = false;
     for (const detach of pending) teardown(detach);
   };
   const out = Object.create(null) as {
@@ -140,7 +209,13 @@ function shellSelection<T>(
     check();
     const live = current;
     if (live === undefined) throw notConnected();
-    return freezeCopy(live.getSnapshot());
+    const snap = live.getSnapshot();
+    if (hasSnapshot && Object.is(snap, lastLive)) return lastFrozen as T;
+    const frozen = freezeCopy(snap);
+    lastLive = snap;
+    lastFrozen = frozen;
+    hasSnapshot = true;
+    return frozen;
   };
   out.subscribe = (listener: () => void) => {
     check();
@@ -179,12 +254,34 @@ function shellSelection<T>(
       throw error;
     }
     unsub = created;
+    // A live store may notify synchronously during `subscribe` (or fail the
+    // pin inside that notification, running `detachAll`). `detachOne` then
+    // already ran with `unsub === undefined`; without this guard the fresh
+    // handle would be resurrected with nobody holding it.
+    if (stopped) {
+      teardown(unsub);
+      unsub = undefined;
+      return () => {
+        detachOne();
+      };
+    }
     if (track !== undefined) {
       try {
         untrack = track(detachOne);
       } catch (error) {
         detachOne();
         throw error;
+      }
+      if (stopped) {
+        const stop = unsub;
+        unsub = undefined;
+        teardown(stop);
+        const un = untrack;
+        untrack = undefined;
+        teardown(un);
+        return () => {
+          detachOne();
+        };
       }
     }
     return () => {
@@ -254,12 +351,32 @@ function observeShell(
     }
   });
   unsub = created;
+  // Same synchronous-notify guard as `shellSelection.subscribe`: a tap that
+  // fires during `subscribeLive` may already have detached.
+  if (stopped) {
+    teardown(unsub);
+    unsub = undefined;
+    return () => {
+      detach();
+    };
+  }
   if (track !== undefined) {
     try {
       untrack = track(detach);
     } catch (error) {
       detach();
       throw error;
+    }
+    if (stopped) {
+      const stop = unsub;
+      unsub = undefined;
+      teardown(stop);
+      const un = untrack;
+      untrack = undefined;
+      teardown(un);
+      return () => {
+        detach();
+      };
     }
   }
   return () => {
@@ -290,18 +407,41 @@ export function projectSidebar(
   };
   const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) =>
     observeShell(check, (forward) => live.observe(forward), tap, track);
+  // Stable getters: every access returns `Object.is`-equal frozen data while
+  // the live value is unchanged, satisfying `useSyncExternalStore`. Copies
+  // stay frozen JSON clones, so writes cannot reach the live store.
+  const getError = memoCopy(
+    () => live.error,
+    (value) => freezeError(value),
+  );
+  const getIds = memoCopy(
+    () => live.ids,
+    (value) => freezeCopy(value),
+  );
+  const getHomeWindow = memoCopy(
+    () => live.homeWindow,
+    (value) => freezeCopy(value),
+  );
+  const getWindow = memoCopy(
+    () => live.window,
+    (value) => freezeCopy(value),
+  );
+  const getThread = memoCopyArg(
+    (id: string) => live.thread(id),
+    (value) => freezeCopy(value),
+  );
   Object.defineProperties(view, {
-    error: { enumerable: true, get: () => (check(), freezeError(live.error)) },
+    error: { enumerable: true, get: () => (check(), getError()) },
     syncing: { enumerable: true, get: () => (check(), live.syncing) },
     unconfirmed: { enumerable: true, get: () => (check(), live.unconfirmed) },
     loaded: { enumerable: true, get: () => (check(), live.loaded) },
-    ids: { enumerable: true, get: () => (check(), freezeCopy(live.ids)) },
-    homeWindow: { enumerable: true, get: () => (check(), freezeCopy(live.homeWindow)) },
-    window: { enumerable: true, get: () => (check(), freezeCopy(live.window)) },
+    ids: { enumerable: true, get: () => (check(), getIds()) },
+    homeWindow: { enumerable: true, get: () => (check(), getHomeWindow()) },
+    window: { enumerable: true, get: () => (check(), getWindow()) },
   });
   view["thread"] = (id: string) => {
     check();
-    return freezeCopy(live.thread(id));
+    return getThread(id);
   };
   view["select"] = selectInner;
   view["observe"] = observeInner;
@@ -331,33 +471,109 @@ export function projectThread(
   };
   const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) =>
     observeShell(check, (forward) => live.observe(forward), tap, track);
+  const getError = memoCopy(
+    () => live.error,
+    (value) => freezeError(value),
+  );
+  const getThread = memoCopy(
+    () => live.thread,
+    (value) => freezeCopy(value),
+  );
+  const getQueue = memoCopy(
+    () => live.queue,
+    (value) => freezeCopy(value),
+  );
+  const getOffshift = memoCopy(
+    () => live.offshift,
+    (value) => freezeCopy(value),
+  );
+  const getContext = memoCopy(
+    () => live.context,
+    (value) => freezeCopy(value),
+  );
+  const getOrder = memoCopy(
+    () => live.order,
+    (value) => freezeCopy(value),
+  );
+  const getAgentIds = memoCopy(
+    () => live.agentIds(),
+    (value) => freezeCopy(value),
+  );
+  const getInteractionIds = memoCopy(
+    () => live.interactionIds(),
+    (value) => freezeCopy(value),
+  );
+  const getTaskIds = memoCopy(
+    () => live.taskIds(),
+    (value) => freezeCopy(value),
+  );
+  const getRunIds = memoCopy(
+    () => live.runIds?.(),
+    (value) => freezeCopy(value),
+  );
+  const getChildren = memoCopyArg(
+    (agentId: string) => live.children(agentId),
+    (value) => freezeCopy(value),
+  );
+  const getItem = memoCopyArg(
+    (id: string) => live.item(id),
+    (value) => freezeCopy(value),
+  );
+  const getAgent = memoCopyArg(
+    (id: string) => live.agent(id),
+    (value) => freezeCopy(value),
+  );
+  const getRun = memoCopyArg(
+    (id: string) => live.run(id),
+    (value) => freezeCopy(value),
+  );
+  const getInteraction = memoCopyArg(
+    (id: string) => live.interaction(id),
+    (value) => freezeCopy(value),
+  );
+  const getTask = memoCopyArg(
+    (id: string) => live.task(id),
+    (value) => freezeCopy(value),
+  );
+  const getUsage = memoCopyArg(
+    (id: string) => live.usage(id),
+    (value) => freezeCopy(value),
+  );
+  const getMeter = memoCopyArg(
+    (id: string) => live.contextMeter(id),
+    (value) => freezeCopy(value),
+  );
+  const getUsageSnapshot = memoCopyArg(
+    (key: string) => live.usageSnapshot(key),
+    (value) => freezeCopy(value),
+  );
   Object.defineProperties(view, {
-    error: { enumerable: true, get: () => (check(), freezeError(live.error)) },
+    error: { enumerable: true, get: () => (check(), getError()) },
     syncing: { enumerable: true, get: () => (check(), live.syncing) },
     unconfirmed: { enumerable: true, get: () => (check(), live.unconfirmed) },
-    thread: { enumerable: true, get: () => (check(), freezeCopy(live.thread)) },
-    queue: { enumerable: true, get: () => (check(), freezeCopy(live.queue)) },
-    offshift: { enumerable: true, get: () => (check(), freezeCopy(live.offshift)) },
-    context: { enumerable: true, get: () => (check(), freezeCopy(live.context)) },
-    order: { enumerable: true, get: () => (check(), freezeCopy(live.order)) },
+    thread: { enumerable: true, get: () => (check(), getThread()) },
+    queue: { enumerable: true, get: () => (check(), getQueue()) },
+    offshift: { enumerable: true, get: () => (check(), getOffshift()) },
+    context: { enumerable: true, get: () => (check(), getContext()) },
+    order: { enumerable: true, get: () => (check(), getOrder()) },
     cursor: { enumerable: true, get: () => (check(), live.cursor) },
     itemsBefore: { enumerable: true, get: () => (check(), live.itemsBefore) },
   });
-  view["agentIds"] = () => (check(), freezeCopy(live.agentIds()));
-  view["children"] = (agentId: string) => (check(), freezeCopy(live.children(agentId)));
-  view["interactionIds"] = () => (check(), freezeCopy(live.interactionIds()));
-  view["taskIds"] = () => (check(), freezeCopy(live.taskIds()));
-  view["item"] = (id: string) => (check(), freezeCopy(live.item(id)));
-  view["agent"] = (id: string) => (check(), freezeCopy(live.agent(id)));
-  view["run"] = (id: string) => (check(), freezeCopy(live.run(id)));
-  view["interaction"] = (id: string) => (check(), freezeCopy(live.interaction(id)));
-  view["task"] = (id: string) => (check(), freezeCopy(live.task(id)));
-  view["usage"] = (id: string) => (check(), freezeCopy(live.usage(id)));
-  view["contextMeter"] = (id: string) => (check(), freezeCopy(live.contextMeter(id)));
-  view["usageSnapshot"] = (key: string) => (check(), freezeCopy(live.usageSnapshot(key)));
+  view["agentIds"] = () => (check(), getAgentIds());
+  view["children"] = (agentId: string) => (check(), getChildren(agentId));
+  view["interactionIds"] = () => (check(), getInteractionIds());
+  view["taskIds"] = () => (check(), getTaskIds());
+  view["item"] = (id: string) => (check(), getItem(id));
+  view["agent"] = (id: string) => (check(), getAgent(id));
+  view["run"] = (id: string) => (check(), getRun(id));
+  view["interaction"] = (id: string) => (check(), getInteraction(id));
+  view["task"] = (id: string) => (check(), getTask(id));
+  view["usage"] = (id: string) => (check(), getUsage(id));
+  view["contextMeter"] = (id: string) => (check(), getMeter(id));
+  view["usageSnapshot"] = (key: string) => (check(), getUsageSnapshot(key));
   view["truncated"] = (id: string) => (check(), live.truncated(id));
   if (typeof live.runIds === "function")
-    view["runIds"] = () => (check(), freezeCopy(live.runIds?.()));
+    view["runIds"] = () => (check(), getRunIds() as readonly string[] | undefined);
   if (typeof live.itemSeq === "function")
     view["itemSeq"] = (id: string) => (check(), live.itemSeq?.(id));
   if (typeof live.deleted === "function")
@@ -372,9 +588,29 @@ export function projectThread(
   return Object.freeze(view) as unknown as ThreadSource;
 }
 
-function staticSelection<T>(read: () => T): Selection<T> {
+function staticSelection<T>(read: () => T, equal?: (a: T, b: T) => boolean): Selection<T> {
+  let has = false;
+  let lastRaw: unknown;
+  let lastFrozen: unknown;
   return nullSealed<Selection<T>>({
-    getSnapshot: () => freezeCopy(read()),
+    getSnapshot: () => {
+      const raw = read() as unknown;
+      if (has) {
+        if (Object.is(raw, lastRaw)) return lastFrozen as T;
+        if (equal !== undefined) {
+          try {
+            if (equal(lastRaw as T, raw as T)) return lastFrozen as T;
+          } catch {
+            /* A throwing comparator never stabilizes: copy below. */
+          }
+        } else if (sameStringArray(raw, lastRaw)) return lastFrozen as T;
+      }
+      const frozen = freezeCopy(raw) as unknown;
+      lastRaw = raw;
+      lastFrozen = frozen;
+      has = true;
+      return frozen as T;
+    },
     subscribe: () => () => {},
   });
 }
@@ -406,7 +642,12 @@ export function snapshotSidebar(live: SidebarSource): SidebarSource {
   snap["select"] = (
     _keys: readonly unknown[],
     read: (sidebar: SidebarSource) => unknown,
-  ): Selection<unknown> => staticSelection(() => read(snap as unknown as SidebarSource));
+    equal?: (a: never, b: never) => boolean,
+  ): Selection<unknown> =>
+    staticSelection(
+      () => read(snap as unknown as SidebarSource),
+      equal as ((a: unknown, b: unknown) => boolean) | undefined,
+    );
   snap["observe"] = (): (() => void) => () => {};
   return Object.freeze(snap) as unknown as SidebarSource;
 }
@@ -666,7 +907,12 @@ function buildThreadSnapshot(parts: {
   snap["select"] = (
     _keys: readonly unknown[],
     selector: (reader: unknown) => unknown,
-  ): Selection<unknown> => staticSelection(() => selector(snap as unknown as ThreadSource));
+    equal?: (a: never, b: never) => boolean,
+  ): Selection<unknown> =>
+    staticSelection(
+      () => selector(snap as unknown as ThreadSource),
+      equal as ((a: unknown, b: unknown) => boolean) | undefined,
+    );
   snap["observe"] = (): (() => void) => () => {};
   return Object.freeze(snap) as unknown as ThreadSource;
 }
@@ -693,15 +939,12 @@ export function projectSidebarLease(
   out.release = () => {
     if (released) return;
     released = true;
-    for (const release of active) {
-      try {
-        release();
-      } catch {
-        /* Release is best effort. */
-      }
-    }
+    const pending = [...active];
     active.clear();
-    inner.release();
+    for (const release of pending) teardown(release);
+    // A throwing inner lease must not strand this wrapper or throw to UI
+    // teardown: the projected store is already invalidated above.
+    teardown(() => inner.release());
   };
   return Object.freeze(out);
 }
@@ -728,15 +971,12 @@ export function projectThreadLease(
   out.release = () => {
     if (released) return;
     released = true;
-    for (const release of active) {
-      try {
-        release();
-      } catch {
-        /* Release is best effort. */
-      }
-    }
+    const pending = [...active];
     active.clear();
-    inner.release();
+    for (const release of pending) teardown(release);
+    // A throwing inner lease must not strand this wrapper or throw to UI
+    // teardown: the projected store is already invalidated above.
+    teardown(() => inner.release());
   };
   return Object.freeze(out);
 }
