@@ -1,0 +1,106 @@
+{
+ "cases": [
+  {
+   "name": "inserting characters shifts the rest right",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "abcdef\r\u001b[2C\u001b[2@XY"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "abXYcdef",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "deleting characters pulls the rest left",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "abcdef\r\u001b[1C\u001b[3P"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "aef",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "erasing characters leaves blanks",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "abcdef\r\u001b[2C\u001b[2X"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "ab  ef",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "repeat prints the last character again",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "ab\u001b[3b"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "abbbb",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "screen alignment fills every cell with E",
+   "columns": 5,
+   "rows": 3,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "x\u001b#8"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "EEEEE",
+     "EEEEE",
+     "EEEEE"
+    ],
+    "cursor": [
+     0,
+     0
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,175 @@
+{
+ "cases": [
+  {
+   "name": "wide characters take two cells and overwriting half clears the other",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "a漢b😀"
+    },
+    {
+     "feed": "\u001b[1;3Hx"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "a xb😀",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "a wide character never splits across rows",
+   "columns": 5,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "abcd漢"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "abcd",
+     "漢",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "wide characters are marked on both their cells",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "a漢b😀"
+    }
+   ],
+   "expect": {
+    "cells": [
+     {
+      "row": 0,
+      "column": 1,
+      "flags": [
+       "wide"
+      ]
+     },
+     {
+      "row": 0,
+      "column": 2,
+      "flags": [
+       "wideTrail"
+      ]
+     },
+     {
+      "row": 0,
+      "column": 3,
+      "char": "b"
+     },
+     {
+      "row": 0,
+      "column": 4,
+      "flags": [
+       "wide"
+      ]
+     }
+    ],
+    "cursor": [
+     0,
+     6
+    ]
+   }
+  },
+  {
+   "name": "combining marks join the character before them",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "éx"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "éx",
+     "",
+     "",
+     "",
+     ""
+    ],
+    "cursor": [
+     0,
+     2
+    ]
+   }
+  },
+  {
+   "name": "a flood of combining marks stays bounded",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "é́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́́done"
+    }
+   ],
+   "expect": {
+    "lineSuffix": {
+     "0": "done"
+    },
+    "lineMaxScalars": {
+     "0": 30
+    }
+   }
+  },
+  {
+   "name": "line drawing characters come from the graphics set",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b(0lqqk\u001b(B x"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "┌──┐ x",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "shift out selects the second character set",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b)0a\u000ex\u000fx"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "a│x",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  }
+ ]
+}

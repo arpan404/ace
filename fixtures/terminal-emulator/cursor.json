@@ -1,0 +1,134 @@
+{
+ "cases": [
+  {
+   "name": "cursor addressing and erasing draw a full-screen layout",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[2J\u001b[1;1Htop\u001b[3;5Hmid\u001b[5;18Hend\u001b[1;2H\u001b[K"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "t",
+     "",
+     "    mid",
+     "",
+     "                 end"
+    ],
+    "cursor": [
+     0,
+     1
+    ]
+   }
+  },
+  {
+   "name": "a full row holds the cursor at the edge until the next character wraps",
+   "columns": 5,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "abcde"
+    },
+    {
+     "feed": "\rX\u001b[1;5Hef"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "Xbcde",
+     "f",
+     "",
+     "",
+     ""
+    ],
+    "wrapped": [
+     0
+    ]
+   }
+  },
+  {
+   "name": "without autowrap the last column is overwritten",
+   "columns": 5,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[?7labcdefg"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "abcdg",
+     "",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "tab stops advance to the next eighth column and can be set",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "a\tb\r\n"
+    },
+    {
+     "feed": "\u001b[3G\u001bH\u001b[1G\tx"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "a       b",
+     "  x",
+     "",
+     "",
+     ""
+    ]
+   }
+  },
+  {
+   "name": "extreme parameters stay inside the screen",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "A\u001b[99999999999999CB\u001b[99999;99999HC\u001b[99999@"
+    }
+   ],
+   "expect": {
+    "cursor": [
+     4,
+     19
+    ],
+    "linePrefix": {
+     "0": "A"
+    },
+    "lineSuffix": {
+     "0": "B"
+    }
+   }
+  },
+  {
+   "name": "device reports answer with the cursor and the terminal kind",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "ab\r\nc\u001b[6n\u001b[c"
+    }
+   ],
+   "expect": {
+    "replies": "\u001b[2;2R\u001b[?62;22c"
+   }
+  }
+ ]
+}
