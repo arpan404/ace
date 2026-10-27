@@ -433,7 +433,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,
-      log: (error) => log.log("error", "WebSocket failure", logError(error)),
+      log: (error) => {
+        // Shutdown aborts socket work in flight: that cancellation is expected, not a failure.
+        if (lifetime.signal.aborted && error instanceof Error && error.name === "AbortError")
+          return;
+        log.log("error", "WebSocket failure", logError(error));
+      },
       warn: (message, fields) => log.log("warn", message, fields),
     };
     bindLiveServices(serverOptions, services);
