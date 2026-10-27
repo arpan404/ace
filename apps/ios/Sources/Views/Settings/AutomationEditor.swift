@@ -226,6 +226,7 @@ struct AutomationEditor: View {
     private var modelLabel: String {
         if let chosenModel { return chosenModel.label }
         if let stored = editing?.model { return stored }
+        if let agent = editing?.agent { return "\(agent) default" }
         return model.compose.agentsState == "ready" ? "Default" : "Reading…"
     }
     private var accessKey: String {
@@ -299,8 +300,8 @@ struct AutomationEditor: View {
             let reply = try await model.service(request, as: AutomationWrite.self)
             guard reply.ok, let id = reply.id else { problem = reply.error ?? "Couldn't save this automation. Try again."; return }
             savedCount += 1
-            dismiss()
             saved(id)
+            dismiss()
         } catch { problem = error.localizedDescription }
     }
 }

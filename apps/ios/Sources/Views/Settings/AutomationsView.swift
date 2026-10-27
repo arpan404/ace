@@ -10,6 +10,7 @@ struct AutomationsView: View {
     @State private var loading: Bool
     @State private var problem: String?
     @State private var creating = false
+    @State private var made: String?
     @Environment(\.automationLinks) private var links
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var zone: String { TimeZone.current.identifier }
@@ -67,9 +68,13 @@ struct AutomationsView: View {
         .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: page?.person ?? [])
         .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: loading)
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $creating) {
+        // The new automation opens once the editor has gone, so the push never races its dismissal.
+        .sheet(isPresented: $creating, onDismiss: {
+            if let made { links?.open(made) }
+            made = nil
+        }) {
             NavigationStack {
-                AutomationEditor(model: model, editing: nil) { id in links?.open(id) }
+                AutomationEditor(model: model, editing: nil) { id in made = id }
             }
         }
         .task(id: model.readGeneration(request)) { await read(fresh: false) }

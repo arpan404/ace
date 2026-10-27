@@ -20,7 +20,8 @@ import XCTest
         nightly.tap()
         let when = element(app, "automation.when")
         XCTAssertTrue(when.waitForExistence(timeout: 10))
-        XCTAssertEqual(when.label, "Every day at 2:00 AM")
+        // The schedule's zone shows when it isn't the phone's.
+        XCTAssertTrue(when.label.hasPrefix("Every day at 2:00 AM"), when.label)
         screenshot("detail")
         // The run waiting on an approval says so; it never reads as working or done.
         let asking = element(app, "automation.run.run-nightly-4")
@@ -128,7 +129,8 @@ import XCTest
         XCTAssertTrue(model.waitForExistence(timeout: 15))
         screenshot("edit")
         model.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'model.'")).firstMatch.waitForExistence(timeout: 20))
+        // New thread's own picker: its tabs and Close.
+        XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 20))
         screenshot("model-picker")
     }
 
