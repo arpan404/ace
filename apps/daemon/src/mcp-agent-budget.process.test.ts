@@ -254,3 +254,28 @@ it("a wrong guide topic or an unavailable tool tells the agent what to call next
   expect(next).toEqual(["tools_find", "context"]);
   for (const tool of next) expect(registered.has(tool), tool).toBe(true);
 });
+
+it.runIf(process.platform === "win32")(
+  "Windows: each provider's per-request ace context stays within its budget with the guidance the server serves",
+  async () => {
+    const agents = await session();
+    const skills = await skillListing();
+    // Windows' computer-use engine lists screen_open_app, so the server's guidance names it
+    // instead of macOS's screen_state; count the copy the server serves, once.
+    const served = agents.full.serverInstructions;
+    for (const provider of ProviderKind.options) {
+      const native = developerInstructions(provider, agents.facts);
+      // Providers that skip server instructions carry their own copy in the native channel.
+      const own = native.includes(served.split("\n")[0] ?? served);
+      const text = own ? native : `${served}\n${native}`;
+      const tools = upfront(provider, agents);
+      const always = [
+        text,
+        ...tools.map(descriptor),
+        deferring.has(provider) ? agents.full.tools.map((tool) => tool.name).join(" ") : "",
+        text.includes("installed as skills") ? skills : "",
+      ].join("\n");
+      expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
+    }
+  },
+);

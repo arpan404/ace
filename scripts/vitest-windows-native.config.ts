@@ -26,6 +26,10 @@ import { FailureDetailsReporter } from "./test-failure-reporter.ts";
 const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** POSIX-only cases inside files that otherwise run on Windows. */
 const posixOnly = [
+  // Prepends macOS's guidance wording to Windows' own (screen_state against screen_open_app),
+  // counting it twice; "Windows: each provider's per-request ace context stays within its
+  // budget with the guidance the server serves" runs instead.
+  "each provider's per-request ace context stays within its budget",
   // The data home's owner-only ACL protects the push secrets file on Windows.
   "stored push subscription secrets are accessible only to the local file owner",
   // Orders two same-expiry links by random id, so it fails half the time on every OS.
