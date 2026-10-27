@@ -64,7 +64,7 @@ struct ForgeCheckPageView: View {
         .task(id: client.readGeneration(request)) { await load(fresh: false) }
         .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
         .confirmationDialog("Cancel this run?", isPresented: $cancelling, titleVisibility: .visible) {
-            Button("Cancel run", role: .destructive) { write(["kind": "cancel", "runId": page?.workflow?.runId ?? 0], key: "cancel") }
+            Button("Cancel run", role: .destructive) { write(["kind": "cancel", "runId": page?.workflow?.runId ?? 0, "attempt": page?.workflow?.attempt ?? 0], key: "cancel") }
         } message: { Text("GitHub stops every job of the workflow run. You can re-run it later.") }
     }
 

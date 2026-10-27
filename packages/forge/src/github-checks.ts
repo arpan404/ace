@@ -237,17 +237,24 @@ export class GitHubChecks {
   }
 
   /**
-   * Cancel a workflow run that is still going. A run that has finished (an earlier cancel whose
-   * result was lost, or the run ending first) is left alone, and nothing is written.
+   * Cancel a workflow run that is still going, at the attempt the person saw. A run that has
+   * finished (an earlier cancel whose result was lost, or the run ending first) is left alone,
+   * and one re-run since is refused: a stale Cancel never stops the newer attempt.
    */
   async cancel(
-    input: { runId: number },
+    input: { runId: number; attempt: number },
     signal: AbortSignal,
     allowed: () => boolean,
     dispatch = new MutationDispatch(),
   ): Promise<void> {
     positive.parse(input.runId);
-    if (await this.runFinished(input.runId, signal)) return;
+    positive.parse(input.attempt);
+    const current = await this.#api.request(`${this.#root}/actions/runs/${input.runId}`, signal);
+    const run = RunBody.safeParse(current.body);
+    if (!run.success || run.data.id !== input.runId) throw new ForgeError("invalid_data");
+    if (run.data.status === "completed") return;
+    if (run.data.run_attempt !== input.attempt)
+      throw new ForgeError("run_attempt_moved", undefined, false);
     if (!allowed()) throw new ForgeError("cancelled", undefined, false);
     const response = await this.#api.request(
       `${this.#root}/actions/runs/${input.runId}/cancel`,

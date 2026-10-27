@@ -486,7 +486,9 @@ export class FakeWorkspaceWire {
     }
     if (payload.type === "forge.hosted.checks") {
       this.checkReruns.push(payload.action);
-      this.pullRequests.restateChecks(payload.pr.number, this.prWork.checks(payload).moved);
+      const { moved, error } = this.prWork.checks(payload);
+      if (error) return { ok: false, error };
+      this.pullRequests.restateChecks(payload.pr.number, moved);
       return { ok: true };
     }
     if (payload.type === "forge.pr.worktree") return this.checkOut(payload);

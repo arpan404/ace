@@ -264,7 +264,13 @@ export function PrCheckDetail(props: {
               variant="ghost"
               className="text-status-failed"
               disabled={rerun.pending || context.disabled}
-              onClick={() => void rerun.run({ kind: "cancel", runId: workflow.runId })}
+              onClick={() =>
+                void rerun.run({
+                  kind: "cancel",
+                  runId: workflow.runId,
+                  attempt: workflow.attempt,
+                })
+              }
             >
               Cancel run
             </Button>

@@ -93,8 +93,11 @@ export const ForgeCheckAction = z.discriminatedUnion("kind", [
     attempt: positive,
     jobs: z.enum(["failed", "all"]),
   }),
-  /** Stop a workflow run that is still going; one already finished is left as it is. */
-  z.object({ kind: z.literal("cancel"), runId: positive }),
+  /**
+   * Stop a workflow run that is still going; one already finished is left as it is. `attempt`
+   * is the one the person saw: once the run was re-run, the newer attempt is never cancelled.
+   */
+  z.object({ kind: z.literal("cancel"), runId: positive, attempt: positive }),
 ]);
 export type ForgeCheckAction = z.infer<typeof ForgeCheckAction>;
 export const ForgeHostedChecksCommand = z.object({

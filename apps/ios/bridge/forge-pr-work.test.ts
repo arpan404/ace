@@ -94,10 +94,38 @@ test("re-running failed jobs and cancelling a running one show in the checks rea
     project: "ace",
     number: 229,
     repository: ace,
-    action: { kind: "cancel", runId: running.workflow?.runId },
+    action: { kind: "cancel", ...running.workflow },
   });
   expect(word(await checks(ask, 229), "e2e (ios)")).toBe("Cancelled");
   expect(sent.filter((each) => each.type === "forge.hosted.checks")).toHaveLength(2);
+});
+
+test("a Cancel shown before a re-run never stops the newer attempt, and says why", async () => {
+  const { ask } = await work();
+  const before = await checks(ask, 229);
+  const failing = await check(
+    ask,
+    229,
+    before.checks.find((each) => each.name === "test (web)")?.id ?? "",
+  );
+  await ask({
+    type: "forge.checks.write",
+    project: "ace",
+    number: 229,
+    repository: ace,
+    action: { kind: "rerun", jobs: "failed", ...failing.workflow },
+  });
+  // The page still showing the first attempt asks to cancel it.
+  const stale = await ask({
+    type: "forge.checks.write",
+    project: "ace",
+    number: 229,
+    repository: ace,
+    action: { kind: "cancel", ...failing.workflow },
+  });
+  expect(stale).toMatchObject({ ok: false, uncertain: false });
+  expect((stale as { message: string }).message).toContain("re-run since you looked");
+  expect(word(await checks(ask, 229), "test (web)")).toBe("Running");
 });
 
 test("the local check of the head shown starts from the phone and can be stopped", async () => {

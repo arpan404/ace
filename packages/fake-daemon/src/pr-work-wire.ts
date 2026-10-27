@@ -48,8 +48,17 @@ export class FakePrWork {
   }
 
   /** A re-run or cancel of a seeded workflow run; the checks it moves come back to restate. */
-  checks(payload: ChecksCommand): { moved: Map<string, ForgeCheck["status"]> } {
+  checks(payload: ChecksCommand): { moved: Map<string, ForgeCheck["status"]>; error?: string } {
     const moved = new Map<string, ForgeCheck["status"]>();
+    // As GitHub would: a cancel shown for an earlier attempt never stops a newer one.
+    const stale = [...this.runs.values()].some(
+      (run) =>
+        payload.action.kind === "cancel" &&
+        run.status === "pending" &&
+        run.workflow?.runId === payload.action.runId &&
+        run.workflow.attempt !== payload.action.attempt,
+    );
+    if (stale) return { moved, error: "forge_run_attempt_moved" };
     for (const run of this.runs.values()) {
       if (run.workflow?.runId !== payload.action.runId) continue;
       const action = payload.action;
