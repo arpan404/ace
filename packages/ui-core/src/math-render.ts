@@ -9,8 +9,21 @@
 
 export type TexRenderer = (
   tex: string,
-  options: { displayMode: boolean; throwOnError: boolean; trust: boolean; strict: boolean },
+  options: {
+    displayMode: boolean;
+    throwOnError: boolean;
+    trust: boolean;
+    strict: boolean;
+    maxSize: number;
+    maxExpand: number;
+  },
 ) => string;
+
+/**
+ * How far an agent's TeX may go: no box taller or wider than 20 em (a `\rule` or `\kern` can't
+ * paint the page), and at most 1,000 macro expansions (a recursive `\def` can't hang a renderer).
+ */
+export const texLimits = { maxSize: 20, maxExpand: 1000 } as const;
 
 /**
  * `tex` as HTML, or `undefined` when it is not safe to show rendered: invalid
@@ -23,7 +36,13 @@ export function renderTex(
 ): string | undefined {
   let html: string;
   try {
-    html = render(tex, { displayMode, throwOnError: true, trust: false, strict: false });
+    html = render(tex, {
+      displayMode,
+      throwOnError: true,
+      trust: false,
+      strict: false,
+      ...texLimits,
+    });
   } catch {
     return undefined;
   }
