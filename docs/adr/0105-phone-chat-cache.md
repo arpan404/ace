@@ -66,8 +66,16 @@ of each write: the head plus the streaming tail, not the transcript.
 4. A 64 MiB safety net: past it, the least recently used go, settled threads first, then other
    records, then unsettled threads; the most recently used entry always stays.
 
-It runs once per launch and whenever a thread is first cached in a session. Swift no longer
-evicts anything itself.
+It runs once per launch, when a thread is kept (again, after a clear or a drop), when a kept
+thread settles or unsettles, and after every sixteenth of the byte cap written, one sweep at a
+time. Swift no longer evicts anything itself.
+
+Reads, writes and pruning race on one serial storage queue. A clear moves a global generation
+and every write, drop and delete moves a per-key one; a read or listing taken before either moved
+is discarded before it shows anything or changes what the adapter believes storage holds. A
+thread let go while its last checkpoint is still queued is discarded with it on clear or reload,
+so that checkpoint never lands after the drop. Reload from machine carries the message's staged
+files to the reopened thread.
 
 The bridge's kept service reads (`read-cache.ts`) drop their 120-answer limit for the same
 seven-day age, with a 500-answer and 1.5 M-character budget as the safety net.
