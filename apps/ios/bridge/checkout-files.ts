@@ -2,7 +2,11 @@ import { readFile, type ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
 import { GitStatusFile, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
 import {
+  ArchivePreview,
   CheckoutError,
+  archiveLeavesOut,
+  archiveName,
+  archiveSummary,
   checkoutEditLimit,
   checkoutError,
   checkoutViewLimit,
@@ -13,7 +17,9 @@ import {
   isMarkdownPath,
   isText,
   parentPath,
+  parseQuickOpen,
   pathParts,
+  quickOpenRows,
 } from "@ace/ui-core";
 import { checkoutLinkPath, localLinkLine, localLinkPath } from "@ace/ui-core/file-references";
 import { z } from "zod";
@@ -48,6 +54,9 @@ export type ProjectSearch = (
   limit: number,
 ) => Promise<string[]>;
 
+/** A scope's recent files, newest first (`CheckoutMemory.recent`). */
+export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
+
 /** The most Share or a linked file carries to the phone. */
 export const shareLimit = 16 * 1024 * 1024;
 const searchLimit = 50;
@@ -62,9 +71,15 @@ const failed = (error: unknown) => {
 export class CheckoutFiles {
   readonly #owner: FilesOwner;
   readonly #projectSearch: ProjectSearch;
-  constructor(owner: FilesOwner, projectSearch: ProjectSearch) {
+  readonly #recent: RecentFiles;
+  constructor(
+    owner: FilesOwner,
+    projectSearch: ProjectSearch,
+    recent: RecentFiles = async () => [],
+  ) {
     this.#owner = owner;
     this.#projectSearch = projectSearch;
+    this.#recent = recent;
   }
 
   /** One request's answer: `ok: true` with its fields, or `ok: false` with the sentence. */
@@ -79,6 +94,7 @@ export class CheckoutFiles {
   async #run(scope: Scope, op: Operation, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (op.op === "tree") return this.#tree(scope, signal);
     if (op.op === "search") return this.#search(scope, op.query, signal);
+    if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
     if (op.op === "download") {
       const bytes = await this.#bytes(scope, { op: "download", path: op.path, offset: 0 }, signal);
@@ -99,6 +115,23 @@ export class CheckoutFiles {
         return {
           name: pathParts(localLinkPath(op.reference) ?? op.reference).name,
           data: base64(bytes),
+        };
+      }
+      case "archive": {
+        const preview = ArchivePreview.parse(
+          await this.#files(
+            scope,
+            { op: "archive.preview", path: op.path, includeIgnored: op.includeIgnored },
+            signal,
+          ),
+        );
+        return {
+          previewId: preview.previewId,
+          entries: preview.entries,
+          bytes: preview.bytes,
+          name: archiveName(op.path),
+          summary: archiveSummary(preview),
+          leavesOut: archiveLeavesOut(op.includeIgnored),
         };
       }
       case "trash":
@@ -214,6 +247,42 @@ export class CheckoutFiles {
       paths = reply.result.paths;
     }
     return { query, rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)) };
+  }
+
+  /**
+   * Quick open's rows: the daemon's matches for what was typed, or with nothing typed the files
+   * opened recently and then the files changed since the last commit, each with its heading.
+   */
+  async #quick(scope: Scope, text: string, signal: AbortSignal) {
+    const { query, line } = parseQuickOpen(text);
+    const [found, recent, changed] = await Promise.all([
+      query ? this.#search(scope, query, signal).then((result) => result.rows) : [],
+      query ? [] : this.#recent(scope),
+      query || !("threadId" in scope) ? [] : this.#changed(scope.threadId, signal),
+    ]);
+    const paths = found.map((row) => row.path);
+    const rows = quickOpenRows(query, paths, recent, changed, "Changed in this checkout");
+    const named = new Map(found.map((row) => [row.path, row]));
+    return {
+      text,
+      query,
+      ...(line ? { line } : {}),
+      rows: rows.map(({ path, group }) =>
+        Object.assign({}, named.get(path) ?? searchRows("", [path])[0], { group }),
+      ),
+    };
+  }
+
+  /** The checkout's changed files still on disk, as git lists them; none when git can't. */
+  async #changed(threadId: string, signal: AbortSignal): Promise<string[]> {
+    const status = await this.#workspace(threadId, "git.status", signal).catch(() => undefined);
+    if (status?.kind !== "gitStatus") return [];
+    return z
+      .array(GitStatusFile)
+      .catch([])
+      .parse(status.files)
+      .filter((file) => file.status !== "deleted")
+      .map((file) => file.path);
   }
 
   async #stat(scope: Scope, path: string, signal: AbortSignal) {

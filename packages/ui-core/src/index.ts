@@ -132,6 +132,8 @@ export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./checkout-errors.ts";
+export * from "./checkout-quick-open.ts";
+export * from "./checkout-transfer-words.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";

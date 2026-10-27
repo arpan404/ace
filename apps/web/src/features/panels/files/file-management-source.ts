@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import { ArchivePreview } from "@ace/ui-core";
 import { z } from "zod";
 import { checkoutError, fromCode } from "./checkout-source.ts";
 
@@ -10,9 +11,8 @@ const trash = z.object({
   ),
   nextCursor: z.string().nullable(),
 });
-const preview = z.object({ previewId: z.string(), entries: z.number(), bytes: z.number() });
 export type TrashEntry = z.infer<typeof trash>["entries"][number];
-export type ArchivePreview = z.infer<typeof preview>;
+export type { ArchivePreview };
 export type FileMutation = Extract<
   FileOperation,
   { op: "write" | "create" | "mkdir" | "rename" | "move" | "delete" | "restore" }
@@ -58,7 +58,7 @@ export function fileManagement(client: ClientApi, threadId: string) {
     },
     async preview(path: string, includeIgnored: boolean, signal?: AbortSignal) {
       return decode(
-        preview,
+        ArchivePreview,
         await request({ op: "archive.preview", path, includeIgnored }, signal),
       );
     },

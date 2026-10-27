@@ -66,6 +66,16 @@ export class FakeFilesWire {
     this.checkout.apply(threadId, { op: "create", path, expected: null, text });
   }
   /**
+   * Put a file of raw bytes (and its folders) in a thread's checkout: images, or noise that
+   * doesn't compress, so a folder's archive comes out as big as its files.
+   */
+  seedBytes(threadId: string, path: string, bytes: Uint8Array): void {
+    this.seed(threadId, path, "");
+    const key = this.key(threadId, path);
+    const file = this.files.get(key);
+    if (file) this.files.set(key, { ...file, bytes, version: `seed-${++this.sequence}` });
+  }
+  /**
    * A file outside the checkout that one assistant message links to, served by `link.download`
    * only for that message and that exact link target, as the daemon does.
    */

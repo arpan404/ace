@@ -19,6 +19,10 @@ export type FilesScope = z.infer<typeof FilesScope>;
 export const FilesOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("tree") }),
   z.object({ op: z.literal("search"), query: z.string().max(128) }),
+  /** Quick open: what was typed ("app.ts:12"), or nothing for recent and changed files. */
+  z.object({ op: z.literal("quick"), text: z.string().max(256) }),
+  /** A folder's archive before downloading it ("" for the checkout's root). */
+  z.object({ op: z.literal("archive"), path: z.string().max(4096), includeIgnored: z.boolean() }),
   z.object({ op: z.literal("read"), path }),
   z.object({ op: z.literal("download"), path }),
   z.object({
