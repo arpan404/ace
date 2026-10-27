@@ -5,9 +5,11 @@ import {
   coreToolsHeader,
   staticToolsHeader,
   callBudgetHeader,
+  dispatches,
   toolListingHeader,
   type ToolListing,
 } from "./toolsets.ts";
+import { aceToolDispatch } from "./tool-names.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import {
@@ -40,8 +42,19 @@ export {
 } from "./session-guidance.ts";
 /** A lease plus, when the daemon has one, this session's guidance (read once at injection). */
 type Injected = AceMcpConnection & { session?: (() => SessionGuidance) | undefined };
-export function codexInjection(input: Injected) {
+/**
+ * Codex defers ace's tools where the turn's model supports its tool search; elsewhere it would
+ * load every listed tool upfront and never reload, so the adapter connects those sessions with
+ * the fixed list (`codexToolListing` in the Codex adapter).
+ */
+export function codexInjection(input: Injected & { listing?: ToolListing | undefined }) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  const listing = input.listing ?? usualToolListing("codex");
+  const header = toolListingHeader(listing);
+  // On the fixed list tools_call reaches the destructive tools too, so it keeps the prompt.
+  const prompted = dispatches(listing)
+    ? [...destructiveAceTools, aceToolDispatch]
+    : destructiveAceTools;
   return {
     config: {
       "mcp_servers.ace": {
@@ -50,21 +63,20 @@ export function codexInjection(input: Injected) {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
-          // Codex lists every tool, but its code-mode models never see a schema: guide and
-          // tools_find return schemas and the exec call form to it.
+          // Codex's code-mode models never see a schema: guide and tools_find return schemas
+          // and the exec call form to it.
           [codexClientHeader.name]: codexClientHeader.value,
+          ...(header ? { [header.name]: header.value } : {}),
         },
         tool_timeout_sec: maxToolTimeoutMs / 1000,
         // Codex otherwise gates every ace tool it can't prove read-only and never remembers
         // the answer. ace's tools are always allowed once called and ace never asks inside
         // them, so only the tools that overwrite work or commit spending keep Codex's prompt.
         default_tools_approval_mode: "approve",
-        tools: Object.fromEntries(
-          destructiveAceTools.map((tool) => [tool, { approval_mode: "prompt" }]),
-        ),
+        tools: Object.fromEntries(prompted.map((tool) => [tool, { approval_mode: "prompt" }])),
       },
     },
-    developerInstructions: developerInstructions("codex", input.session?.()),
+    developerInstructions: developerInstructions("codex", { ...input.session?.(), listing }),
   };
 }
 /**

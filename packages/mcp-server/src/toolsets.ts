@@ -6,7 +6,8 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
  * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
  *   or Antigravity's definition files), so every tool is listed and only a few load upfront
  *   (`registry.ts`). A Claude Code session whose tool search is off gets `core`
- *   (`claudeToolListing`).
+ *   (`claudeToolListing`); a Codex session whose model has no tool search gets `static`, since
+ *   Codex never reloads (`codexToolListing` in the Codex adapter).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
  *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search

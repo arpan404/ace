@@ -99,7 +99,7 @@ export function developerInstructions(
   return [
     readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups, session.tools),
     // Codex's recipe replaces the naming and reach lines: its models call ace from exec.
-    provider === "codex" ? codexPrefix(session.tools, skills) : naming[provider],
+    provider === "codex" ? codexPrefix(session.tools, skills, listing) : naming[provider],
     provider === "codex"
       ? undefined
       : listing === "all"
