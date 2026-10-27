@@ -36,6 +36,8 @@ struct InboxList: View {
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
     let compose: (() -> Void)?
+    /// Opens pairing while no computer is paired; nil while that isn't known yet.
+    var pair: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
@@ -144,7 +146,9 @@ struct InboxList: View {
     }
 
     @ViewBuilder private var emptyState: some View {
-        if !inbox.anyLoaded || !inbox.allReady {
+        if inbox.sessions.isEmpty, let pair {
+            NoComputerPaired(pair: pair).padding(.top, 120)
+        } else if !inbox.anyLoaded || !inbox.allReady {
             if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {

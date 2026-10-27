@@ -26,9 +26,6 @@ struct PairingView: View {
                         .privacySensitive().lineLimit(1...4)
                         .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                         .accessibilityIdentifier("pairing.link")
-                    PasteButton(payloadType: String.self) { values in
-                        Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
-                    }
                     Button("Continue") { accept(pasted) }
                         .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("pairing.continue")
