@@ -31,10 +31,12 @@ router handles it.
 
 ## Download links
 
-Every "Download for Mac" button points at the Apple-silicon `.dmg` of the latest published
-release, looked up from GitHub at build time (`src/content/release.ts`). Rebuild after each
-release so the site links the new version. If GitHub can't be reached, the build still succeeds and
-the buttons open the latest release page instead.
+Each "Download for <platform>" button points at that platform's installer in the latest published
+release, looked up from GitHub at build time (`src/content/release.ts`): the Apple-silicon `.dmg`
+for Mac, the x64 `-setup.exe` for Windows and the x64 `.AppImage` for Linux. The page shows the
+button for the visitor's system (Base.astro tags `<html data-os>` before paint; anything else sees
+Mac). A platform the release has no installer for, or a build that can't reach GitHub, links the
+release page instead. Rebuild after each release so the site links the new version.
 
 ## Content
 
@@ -46,5 +48,5 @@ disagree.
 ## Screenshots
 
 `src/assets/shots/` holds dark captures of the web app running against the fake daemon
-(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero), `review` and `fleet`. The site is
+(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero) and `review`. The site is
 dark only, so there are no light captures. `public/og.png` is the 1200×630 social card.

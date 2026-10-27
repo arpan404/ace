@@ -37,7 +37,6 @@ const board: {
 <section id="status" class="section page">
   <div class="split">
     <div class="copy reveal">
-      <p class="eyebrow">Status</p>
       <h2 class="section-title">Done means the whole tree is done.</h2>
       <p class="lede">
         A thread's status covers every subagent and background command it started. While a
@@ -90,16 +89,15 @@ const board: {
   }
 
   .states {
-    margin-top: 40px;
-    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 14px;
+    margin-top: 36px;
   }
 
   .state {
     display: grid;
-    grid-template-columns: 112px 1fr;
+    grid-template-columns: 104px 1fr;
     gap: 16px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--border);
     font-size: 14px;
   }
 

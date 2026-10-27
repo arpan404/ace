@@ -12,15 +12,15 @@ import Icon from "./Icon.astro";
       <span>ace</span>
     </a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#agents">Agents</a>
-      <a href="#status">Status</a>
-      <a href="#work">Features</a>
+      <a href="#platforms">Platforms</a>
+      <a href="#machine">Computer use</a>
+      <a href="#fleet">Fleet</a>
       <a href="#mcp">MCP</a>
       <a href="#faq">FAQ</a>
     </nav>
     <div class="nav-actions">
       <a class="icon-link" href={links.source} aria-label="ace on GitHub">
-        <Icon name="github-logo" size={19} />
+        <Icon name="github-logo" size={18} />
       </a>
       <DownloadButton small />
     </div>
@@ -35,6 +35,22 @@ import Icon from "./Icon.astro";
     background: color-mix(in srgb, var(--background) 78%, transparent);
     backdrop-filter: blur(14px) saturate(140%);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  /* The bottom edge appears once the page scrolls under the header. */
+  @supports (animation-timeline: scroll()) {
+    .nav {
+      border-bottom: 1px solid transparent;
+      animation: edge linear both;
+      animation-timeline: scroll();
+      animation-range: 0 96px;
+    }
+  }
+
+  @keyframes edge {
+    to {
+      border-bottom-color: var(--border);
+    }
   }
 
   .nav-inner {

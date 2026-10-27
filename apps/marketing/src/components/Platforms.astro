@@ -1,0 +1,125 @@
+---
+/*
+ * Where ace runs: the desktop app on three systems, each with its download, and the phone and
+ * tablet apps that pair with them.
+ */
+import { downloads, platformInfo, platforms, type Platform } from "../content/release.ts";
+import Icon, { type IconName } from "./Icon.astro";
+
+const desktopMarks: Record<Platform, IconName> = {
+  mac: "apple-logo",
+  windows: "windows-logo",
+  linux: "linux-logo",
+};
+
+const mobile: { name: string; mark: IconName; body: string }[] = [
+  { name: "iPhone", mark: "apple-logo", body: "Approve, answer and steer from anywhere." },
+  { name: "iPad", mark: "apple-logo", body: "Follow every thread side by side." },
+  { name: "Android", mark: "android-logo", body: "The same fleet, on your phone." },
+];
+---
+
+<section id="platforms" class="section page">
+  <div class="reveal">
+    <h2 class="section-title">On every machine. On every screen.</h2>
+    <p class="lede">
+      Agents run on your computers, whichever system they use. Your phone and tablet follow every
+      thread and answer the moment one needs you.
+    </p>
+  </div>
+
+  <div class="groups reveal">
+    <div class="group">
+      <h3>Desktop</h3>
+      <ul class="rule-grid cells">
+        {
+          platforms.map((platform) => (
+            <li>
+              <span class="tile">
+                <Icon name={desktopMarks[platform]} size={17} />
+              </span>
+              <span class="name">{platformInfo[platform].name}</span>
+              <a class="text-link get" href={downloads.byPlatform[platform].url}>
+                Download
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+    <div class="group">
+      <h3>Phone and tablet</h3>
+      <ul class="rule-grid cells">
+        {
+          mobile.map((app) => (
+            <li>
+              <span class="tile">
+                <Icon name={app.mark} size={17} />
+              </span>
+              <span class="name">
+                {app.name}
+                <small>{app.body}</small>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .groups {
+    display: grid;
+    gap: 32px;
+    margin-top: 56px;
+  }
+
+  .group h3 {
+    margin-bottom: 14px;
+    color: var(--subtle);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .cells {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .cells li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 84px;
+    padding: 18px 24px;
+  }
+
+  .name {
+    display: grid;
+    gap: 2px;
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  .name small {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .get {
+    margin-left: auto;
+    font-size: 14px;
+  }
+
+  @media (max-width: 760px) {
+    .cells {
+      grid-template-columns: 1fr;
+    }
+
+    .cells li {
+      min-height: 0;
+      padding: 16px 20px;
+    }
+  }
+</style>

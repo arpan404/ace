@@ -1,12 +1,12 @@
 import type { APIRoute } from "astro";
-import { download } from "../content/release.ts";
+import { downloads } from "../content/release.ts";
 
 /** The pages search engines should index. Absolute URLs need the site's address (SITE_URL). */
 const pages = ["/"];
 
 export const GET: APIRoute = ({ site }) => {
-  const lastmod = download.publishedAt
-    ? `<lastmod>${download.publishedAt.slice(0, 10)}</lastmod>`
+  const lastmod = downloads.publishedAt
+    ? `<lastmod>${downloads.publishedAt.slice(0, 10)}</lastmod>`
     : "";
   const urls = site
     ? pages.map((path) => `  <url><loc>${new URL(path, site).href}</loc>${lastmod}</url>`)

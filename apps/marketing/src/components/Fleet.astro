@@ -1,0 +1,73 @@
+---
+import { fleetPoints } from "../content/product.ts";
+import FleetPanel from "./panels/FleetPanel.astro";
+import Stage from "./Stage.astro";
+---
+
+<section id="fleet" class="section page">
+  <div class="head reveal">
+    <h2 class="section-title">Orchestrate agents across every machine you own.</h2>
+    <p class="lede">
+      Link your laptop, a Linux build server and a Windows workstation. An agent on one starts
+      threads, opens browsers and hands work to agents on another, and you approve it all from your
+      phone.
+    </p>
+  </div>
+
+  <div class="visual reveal">
+    <Stage mood="sand">
+      <FleetPanel />
+    </Stage>
+  </div>
+
+  <ul class="points reveal">
+    {
+      fleetPoints.map((point) => (
+        <li>
+          <h3>{point.title}</h3>
+          <p>{point.body}</p>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .head .section-title {
+    max-width: 16em;
+  }
+
+  .visual {
+    margin-top: 56px;
+  }
+
+  .visual :global(.stage-inner) {
+    min-height: 460px;
+    padding: 56px 40px;
+  }
+
+  .points {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px;
+    margin-top: 40px;
+  }
+
+  .points p {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  @media (max-width: 800px) {
+    .points {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    .visual :global(.stage-inner) {
+      padding: 24px 16px;
+    }
+  }
+</style>

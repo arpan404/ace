@@ -1,5 +1,5 @@
 ---
-/* A ruled grid of short points, each with an icon tile, a title and a sentence or two. */
+/* Short points in open columns, each with an icon, a title and a sentence or two. */
 import Icon, { type IconName } from "./Icon.astro";
 
 interface Props {
@@ -10,14 +10,14 @@ interface Props {
 const { items, columns } = Astro.props;
 ---
 
-<ul class="rule-grid icon-grid reveal" style={`--columns: ${columns}`}>
+<ul class="icon-grid reveal" style={`--columns: ${columns}`}>
   {
     items.map((item) => (
       <li>
-        <span class="tile">
-          <Icon name={item.icon} size={18} />
-        </span>
-        <h3>{item.title}</h3>
+        <h3>
+          <Icon name={item.icon} size={17} />
+          {item.title}
+        </h3>
         <p>{item.body}</p>
       </li>
     ))
@@ -25,23 +25,32 @@ const { items, columns } = Astro.props;
 </ul>
 
 <style>
+  /* Open columns, no boxes: a top hairline per item, generous gaps between. */
   .icon-grid {
-    margin-top: 56px;
+    display: grid;
     grid-template-columns: repeat(var(--columns), 1fr);
+    gap: 48px 40px;
+    margin-top: 56px;
   }
 
   li {
-    display: grid;
-    align-content: start;
-    gap: 10px;
-    padding: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
   }
 
   h3 {
-    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h3 :global(svg) {
+    flex-shrink: 0;
+    color: var(--muted);
   }
 
   p {
+    margin-top: 8px;
     color: var(--muted);
     font-size: 14px;
     line-height: 1.65;
@@ -56,10 +65,7 @@ const { items, columns } = Astro.props;
   @media (max-width: 600px) {
     .icon-grid {
       grid-template-columns: 1fr;
-    }
-
-    li {
-      padding: 22px 20px;
+      gap: 32px;
     }
   }
 </style>

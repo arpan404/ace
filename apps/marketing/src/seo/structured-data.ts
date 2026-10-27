@@ -1,6 +1,6 @@
 import { acpAgents, builtInAgents } from "../content/agents.ts";
 import { capabilities, faq, features, fleetPoints, product } from "../content/product.ts";
-import { download } from "../content/release.ts";
+import { downloads, platforms } from "../content/release.ts";
 import { links } from "../site.ts";
 
 /*
@@ -23,15 +23,12 @@ export function structuredData(site: URL | undefined) {
         description: product.about,
         applicationCategory: product.category,
         applicationSubCategory: "AI coding agent manager",
-        operatingSystem: "macOS",
-        processorRequirements: "Apple silicon (arm64)",
+        operatingSystem: product.operatingSystem,
         ...(site ? { url: site.href, image: at("/og.png"), screenshot: at("/og.png") } : {}),
-        downloadUrl: download.url,
-        installUrl: download.url,
-        ...(download.version ? { softwareVersion: download.version } : {}),
-        ...(download.bytes ? { fileSize: `${Math.round(download.bytes / 1_000_000)}MB` } : {}),
-        ...(download.publishedAt ? { datePublished: download.publishedAt } : {}),
-        releaseNotes: download.notesUrl,
+        downloadUrl: platforms.map((platform) => downloads.byPlatform[platform].url),
+        ...(downloads.version ? { softwareVersion: downloads.version } : {}),
+        ...(downloads.publishedAt ? { datePublished: downloads.publishedAt } : {}),
+        releaseNotes: downloads.notesUrl,
         license: links.license,
         isAccessibleForFree: true,
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },

@@ -1,35 +1,64 @@
 ---
-import { download, formatSize } from "../content/release.ts";
-import Icon from "./Icon.astro";
+/*
+ * "Download for <platform>": one link per desktop platform, of which only the visitor's shows.
+ * Base.astro tags <html data-os> before first paint, so the right one appears without a flash;
+ * anyone the tag doesn't match (phones, unknown systems, no script) sees the Mac link.
+ */
+import { downloads, formatSize, platformInfo, platforms, type Platform } from "../content/release.ts";
+import Icon, { type IconName } from "./Icon.astro";
 
 interface Props {
   small?: boolean;
-  /** Show the version, requirement and size under the button. */
+  /** Show the version, build and size under the button. */
   withNote?: boolean;
 }
 
 const { small = false, withNote = false } = Astro.props;
-const direct = download.version !== undefined;
-// The spoken name starts with the visible words, then adds what sighted readers get from the note.
-const label = direct
-  ? `Download for Mac (ace ${download.version}, Apple silicon${download.bytes ? `, ${formatSize(download.bytes)}` : ""})`
-  : "Download for Mac (latest release page)";
+const marks: Record<Platform, IconName> = {
+  mac: "apple-logo",
+  windows: "windows-logo",
+  linux: "linux-logo",
+};
+const version = downloads.version;
+
+/* "v0.0.11 for macOS on Apple silicon, 228 MB." */
+function note(platform: Platform): string {
+  const { build } = platformInfo[platform];
+  const { bytes } = downloads.byPlatform[platform];
+  return `${version ? `v${version} for ` : ""}${build}${bytes ? `, ${formatSize(bytes)}` : ""}. `;
+}
+
+/* The spoken name starts with the visible words, then adds what sighted readers get from the note. */
+function label(platform: Platform): string {
+  const { name, build } = platformInfo[platform];
+  const { bytes } = downloads.byPlatform[platform];
+  if (!bytes) return `Download for ${name} (latest release page)`;
+  return `Download for ${name} (ace ${version}, ${build}, ${formatSize(bytes)})`;
+}
 ---
 
-<a
-  class:list={["button", "button-primary", { "button-small": small }]}
-  href={download.url}
-  aria-label={label}
->
-  {!small && <Icon name="apple-logo" size={18} />}
-  Download for Mac
-</a>
+{
+  platforms.map((platform) => (
+    <a
+      class:list={["button", "button-primary", "for-os", { "button-small": small }]}
+      data-os-match={platform}
+      href={downloads.byPlatform[platform].url}
+      aria-label={label(platform)}
+    >
+      {!small && <Icon name={marks[platform]} size={16} />}
+      Download for {platformInfo[platform].name}
+    </a>
+  ))
+}
 {
   withNote && (
     <p class="download-note">
-      {direct ? `v${download.version} for macOS on Apple silicon` : "macOS on Apple silicon"}
-      {download.bytes ? `, ${formatSize(download.bytes)}. ` : ". "}
-      <a href={download.notesUrl}>Release notes</a>
+      {platforms.map((platform) => (
+        <span class="for-os" data-os-match={platform}>
+          {note(platform)}
+        </span>
+      ))}
+      <a href={downloads.notesUrl}>Release notes</a>
     </p>
   )
 }

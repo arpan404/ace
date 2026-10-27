@@ -64,6 +64,15 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <link rel="alternate" type="text/plain" title="ace for language models" href="/llms.txt" />
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
+    <!-- Tag the visitor's desktop OS before paint, so the matching download button shows. -->
+    <script is:inline>
+      (() => {
+        const ua = navigator.userAgent;
+        if (/Android|iPhone|iPad|iPod/.test(ua)) return;
+        if (/Windows/.test(ua)) document.documentElement.dataset.os = "windows";
+        else if (/Linux|X11|CrOS/.test(ua)) document.documentElement.dataset.os = "linux";
+      })();
+    </script>
     <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
     {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   </head>

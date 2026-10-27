@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /*
- * Which file "Download for Mac" points at, decided from GitHub's "latest release" answer. Pure,
- * so the rules are tested without the network; release.ts does the fetching.
+ * Which file each "Download" button points at, decided from GitHub's "latest release" answer.
+ * Pure, so the rules are tested without the network; release.ts does the fetching.
  */
 
 const releaseSchema = z.object({
@@ -20,44 +20,65 @@ const releaseSchema = z.object({
   ),
 });
 
-export interface Download {
-  /** Where "Download for Mac" points: the disk image itself, or the release page as a fallback. */
+export type Platform = "mac" | "windows" | "linux";
+
+export const platforms: readonly Platform[] = ["mac", "windows", "linux"];
+
+/** How each platform is named on a button, and which build the site offers for it. */
+export const platformInfo: Record<Platform, { name: string; build: string; file: RegExp }> = {
+  mac: { name: "Mac", build: "macOS on Apple silicon", file: /-arm64\.dmg$/ },
+  windows: { name: "Windows", build: "Windows on x64", file: /-x64-setup\.exe$/ },
+  linux: { name: "Linux", build: "Linux on x64 (AppImage)", file: /-x64\.AppImage$/ },
+};
+
+export interface PlatformDownload {
+  /** The installer itself, or the release page when this release has none for the platform. */
   url: string;
+  /** Installer size in bytes, when the installer was found. */
+  bytes: number | undefined;
+}
+
+export interface Downloads {
   /** "0.0.7", when the release was found. */
   version: string | undefined;
   /** The release page with its notes. */
   notesUrl: string;
-  /** Disk image size in bytes, when known. */
-  bytes: number | undefined;
   publishedAt: string | undefined;
+  byPlatform: Record<Platform, PlatformDownload>;
 }
 
-/** Every link opens the latest release page: used whenever the disk image can't be named. */
-export function releasePageDownload(latestReleasePage: string): Download {
+/** Every link opens the latest release page: used whenever the release can't be read. */
+export function releasePageDownloads(latestReleasePage: string): Downloads {
+  const page: PlatformDownload = { url: latestReleasePage, bytes: undefined };
   return {
-    url: latestReleasePage,
     version: undefined,
     notesUrl: latestReleasePage,
-    bytes: undefined,
     publishedAt: undefined,
+    byPlatform: { mac: page, windows: page, linux: page },
   };
 }
 
 /**
- * The Apple-silicon disk image of a published release. Throws with the reason when the answer
- * isn't a usable release, so the caller can fall back and say why.
+ * Each platform's installer from a published release. A platform the release has no installer
+ * for gets the release page. Throws with the reason when the answer isn't a usable release, so
+ * the caller can fall back and say why.
  */
-export function downloadFromRelease(body: unknown): Download {
+export function downloadsFromRelease(body: unknown): Downloads {
   const release = releaseSchema.parse(body);
   if (release.draft || release.prerelease) throw new Error(`${release.tag_name} isn't published`);
-  const dmg = release.assets.find((asset) => asset.name.endsWith("-arm64.dmg"));
-  if (!dmg) throw new Error(`${release.tag_name} has no Apple-silicon disk image`);
+  const pick = (platform: Platform): PlatformDownload => {
+    const asset = release.assets.find((candidate) =>
+      platformInfo[platform].file.test(candidate.name),
+    );
+    return asset
+      ? { url: asset.browser_download_url, bytes: asset.size }
+      : { url: release.html_url, bytes: undefined };
+  };
   return {
-    url: dmg.browser_download_url,
     version: release.tag_name.replace(/^v/, ""),
     notesUrl: release.html_url,
-    bytes: dmg.size,
     publishedAt: release.published_at ?? undefined,
+    byPlatform: { mac: pick("mac"), windows: pick("windows"), linux: pick("linux") },
   };
 }
 

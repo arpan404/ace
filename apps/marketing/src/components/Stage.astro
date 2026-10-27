@@ -4,7 +4,7 @@
  * it. `mood` picks the wash; `bleed` lets a screenshot run off the bottom-right edge.
  */
 interface Props {
-  mood?: "ember" | "dusk" | "moss" | "slate" | "clay";
+  mood?: "ember" | "plum" | "amber" | "rose" | "sand";
   bleed?: boolean;
 }
 
@@ -20,8 +20,9 @@ const { mood = "ember", bleed = false } = Astro.props;
     position: relative;
     overflow: hidden;
     border-radius: 16px;
-    border: 1px solid var(--border);
+    border: 1px solid rgb(255 255 255 / 0.06);
     background: var(--wash);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
     isolation: isolate;
   }
 
@@ -31,39 +32,40 @@ const { mood = "ember", bleed = false } = Astro.props;
     position: absolute;
     inset: 0;
     z-index: -1;
-    opacity: 0.22;
+    opacity: 0.3;
     mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
 
+  /* One warm family: each wash is a lit corner fading into the page's near-black. */
   .mood-ember {
     --wash:
-      radial-gradient(120% 90% at 85% 110%, #8a4b2a 0%, transparent 55%),
-      radial-gradient(90% 80% at 0% 0%, #3b2a20 0%, transparent 60%), #1a1512;
+      radial-gradient(90% 110% at 100% 100%, rgb(214 110 58 / 0.75) 0%, transparent 60%),
+      radial-gradient(70% 80% at 0% 0%, rgb(120 70 45 / 0.45) 0%, transparent 65%), #17110e;
   }
 
-  .mood-dusk {
+  .mood-plum {
     --wash:
-      radial-gradient(110% 90% at 10% 110%, #4a3a6e 0%, transparent 55%),
-      radial-gradient(80% 70% at 100% 0%, #2a3350 0%, transparent 60%), #141319;
+      radial-gradient(100% 110% at 0% 100%, rgb(150 82 120 / 0.6) 0%, transparent 60%),
+      radial-gradient(80% 80% at 100% 0%, rgb(90 60 110 / 0.45) 0%, transparent 65%), #151114;
   }
 
-  .mood-moss {
+  .mood-amber {
     --wash:
-      radial-gradient(120% 90% at 90% 0%, #3d5a3e 0%, transparent 55%),
-      radial-gradient(90% 80% at 0% 100%, #2a3a2a 0%, transparent 60%), #121512;
+      radial-gradient(100% 110% at 100% 0%, rgb(220 160 72 / 0.6) 0%, transparent 60%),
+      radial-gradient(80% 80% at 0% 100%, rgb(130 85 40 / 0.45) 0%, transparent 65%), #16120d;
   }
 
-  .mood-slate {
+  .mood-rose {
     --wash:
-      radial-gradient(120% 90% at 0% 0%, #2d4a63 0%, transparent 55%),
-      radial-gradient(90% 80% at 100% 100%, #23303d 0%, transparent 60%), #111417;
+      radial-gradient(70% 120% at 0% 0%, rgb(205 105 95 / 0.55) 0%, transparent 60%),
+      radial-gradient(70% 90% at 100% 100%, rgb(160 92 60 / 0.5) 0%, transparent 65%), #161010;
   }
 
-  .mood-clay {
+  .mood-sand {
     --wash:
-      radial-gradient(120% 90% at 100% 0%, #7a5a3a 0%, transparent 50%),
-      radial-gradient(90% 80% at 0% 100%, #4a2f2a 0%, transparent 60%), #171311;
+      radial-gradient(100% 110% at 0% 0%, rgb(200 170 130 / 0.45) 0%, transparent 60%),
+      radial-gradient(80% 80% at 100% 100%, rgb(150 100 70 / 0.45) 0%, transparent 65%), #15120f;
   }
 
   .stage-inner {

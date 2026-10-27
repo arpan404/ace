@@ -4,7 +4,6 @@ import { faq } from "../content/product.ts";
 
 <section id="faq" class="section page faq">
   <div class="reveal">
-    <p class="eyebrow">FAQ</p>
     <h2 class="section-title">Questions, answered.</h2>
   </div>
   <div class="list reveal">
@@ -24,12 +23,15 @@ import { faq } from "../content/product.ts";
 
 <style>
   .faq {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 64px;
+    max-width: calc(760px + var(--gutter) * 2);
+  }
+
+  .faq > div:first-child {
+    text-align: center;
   }
 
   .list {
+    margin-top: 48px;
     border-top: 1px solid var(--border);
   }
 
@@ -89,10 +91,4 @@ import { faq } from "../content/product.ts";
     line-height: 1.7;
   }
 
-  @media (max-width: 860px) {
-    .faq {
-      grid-template-columns: 1fr;
-      gap: 32px;
-    }
-  }
 </style>

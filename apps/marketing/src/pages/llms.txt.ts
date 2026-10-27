@@ -9,7 +9,7 @@ import {
   statuses,
   toolFamilies,
 } from "../content/product.ts";
-import { download } from "../content/release.ts";
+import { downloads, formatSize, platformInfo, platforms } from "../content/release.ts";
 import { links } from "../site.ts";
 
 /*
@@ -20,9 +20,14 @@ import { links } from "../site.ts";
 const names = (list: { label: string }[]) => list.map((agent) => agent.label).join(", ");
 
 export const GET: APIRoute = () => {
-  const release = download.version
-    ? `ace ${download.version} for macOS on Apple silicon`
-    : "the latest release for macOS on Apple silicon";
+  const downloadLinks = platforms.map((platform) => {
+    const { name, build } = platformInfo[platform];
+    const { url, bytes } = downloads.byPlatform[platform];
+    const what = bytes
+      ? `ace ${downloads.version} for ${build}, ${formatSize(bytes)}`
+      : `the latest release page, for ${build}`;
+    return `- [Download for ${name}](${url}): ${what}`;
+  });
 
   const text = [
     `# ${product.name}`,
@@ -33,8 +38,9 @@ export const GET: APIRoute = () => {
     "",
     "## Links",
     "",
-    `- [Download for Mac](${download.url}): ${release}`,
-    `- [Release notes](${download.notesUrl})`,
+    ...downloadLinks,
+    "- ace for iPhone, iPad and Android: pairs with your machines to follow and steer agents",
+    `- [Release notes](${downloads.notesUrl})`,
     `- [Source code on GitHub](${links.source}): Apache-2.0`,
     `- [All releases](${links.releases})`,
     "",
