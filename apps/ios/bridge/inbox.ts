@@ -19,6 +19,7 @@ import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
 import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
+import { settleSend } from "./send-recovery.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
@@ -314,6 +315,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
   z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
+  /** Edit: the send's full words back for the composer, once its dismissal is saved. */
+  z.object({ kind: z.literal("takeBackSend"), commandId: z.string().min(1).max(256) }),
 ]);
 
 function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
@@ -366,20 +369,12 @@ export function inboxAction(
     return;
   }
   const action = parsed.data;
-  if (action.kind === "dismissSend" || action.kind === "restoreSend") {
-    const kept = inbox?.dismissed;
-    // Only a send still failed can be dealt with: one on its way is never hidden.
-    const ok =
-      !!kept &&
-      (action.kind === "restoreSend" || owner.pendingSend(action.commandId)?.state === "failed");
-    if (ok && action.kind === "dismissSend") kept.dismiss(action.commandId);
-    if (ok && action.kind === "restoreSend") kept.restore(action.commandId);
-    pump.put(`admission:${requestId}`, () => ({
-      type: "admission",
-      id: requestId,
-      ok,
-      message: ok ? "" : "That message isn't waiting any more.",
-    }));
+  if (
+    action.kind === "dismissSend" ||
+    action.kind === "restoreSend" ||
+    action.kind === "takeBackSend"
+  ) {
+    void settleSend(owner, action, requestId, pump, inbox?.dismissed);
     return;
   }
   if (action.kind === "more") {

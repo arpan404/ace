@@ -6,6 +6,14 @@ import { followInbox, inboxAction } from "./inbox.ts";
 
 afterEach(reset);
 
+const clock = {
+  now: () => Date.now(),
+  set: (ms: number, run: () => void) => {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
 /** The machine's store, as Swift's DurableStore keeps one value. */
 function store(initial = "") {
   const kept = { value: initial };
@@ -102,5 +110,62 @@ test("a send still on its way can't be discarded", async () => {
   inboxAction(owner, { kind: "dismissSend", commandId: "not-failed" }, "d2", pump, inbox);
   await until(() => latest("admission", "d2"), "the answer");
   expect(latest("admission", "d2")?.ok).toBe(false);
+  inbox();
+});
+
+test("a discard made while the kept list still loads keeps what was kept before", async () => {
+  let finish: (text: string) => void = () => {};
+  const saves: string[] = [];
+  const kept = followDismissed({
+    load: () => new Promise<string>((resolve) => (finish = resolve)),
+    save: async (value) => {
+      saves.push(value);
+    },
+  });
+  const dismissing = kept.dismiss("new-send");
+  finish(JSON.stringify(["older-send"]));
+  expect(await dismissing).toBe(true);
+  expect(kept.has("older-send")).toBe(true);
+  expect(kept.has("new-send")).toBe(true);
+  expect(JSON.parse(saves.at(-1) ?? "[]")).toEqual(["older-send", "new-send"]);
+});
+
+test("a discard whose save fails is refused and the failed send stays", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "unsaved", workspaceId: "ace", title: "Unsaved", provider: "codex" });
+  fake.apply("unsaved", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  const owner = connect(fake);
+  const dismissed = followDismissed({
+    load: async () => "",
+    save: async () => {
+      throw new Error("disk full");
+    },
+  });
+  const inbox = followInbox(
+    owner,
+    "machine",
+    pump,
+    clock,
+    undefined,
+    undefined,
+    undefined,
+    dismissed,
+  );
+  const thread = open(owner, "unsaved");
+  await until(() => latest("thread.controls"), "composer controls");
+  thread.handle({ type: "send", text: "Refuse this once", opposite: false, requestId: "first" });
+  const id = await until(
+    () =>
+      owner
+        .pendingSends()
+        .getSnapshot()
+        .find((send) => send.state === "failed")?.commandId,
+    "the failed send",
+  );
+  inboxAction(owner, { kind: "dismissSend", commandId: id }, "d3", pump, inbox);
+  await until(() => latest("admission", "d3"), "the answer");
+  expect(latest("admission", "d3")?.ok).toBe(false);
+  expect(dismissed.has(id)).toBe(false);
+  expect((latest("pending", id)?.row as { state?: string } | null)?.state).toBe("failed");
   inbox();
 });
