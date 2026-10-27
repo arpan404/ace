@@ -30,7 +30,8 @@ struct ForgeChecksSection: View {
     }
 
     var body: some View {
-        Group {
+        // A container that is always there, so its reads run even before anything shows.
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let checks {
                 if !checks.checks.isEmpty || checks.local != nil || checks.stale { section(checks) }
             } else if !shown.isEmpty {
@@ -107,18 +108,18 @@ struct ForgeChecksSection: View {
                     Button(action.label) { action.kind == "cancel" ? (stopping = true) : localWrite(stop: false) }
                         .foregroundStyle(action.kind == "cancel" ? AceTone.failed.text : AceTheme.Colours.foreground)
                         .disabled(writing || action.disabled)
-                        .frame(minHeight: 44)
                         .accessibilityIdentifier("forge.local.action")
                 }
                 if local.runId != nil {
-                    Button("Log") { showingLog = true }.frame(minHeight: 44).accessibilityIdentifier("forge.local.log")
+                    Button("Log") { showingLog = true }.accessibilityIdentifier("forge.local.log")
                 }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .buttonStyle(.borderless)
+            .buttonStyle(.forgeWord)
             if let note = local.note { Text(note).meta() }
         }
         .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.local")
     }
 

@@ -17,6 +17,8 @@ struct ForgeWorkSection: View {
     @State private var stack: ForgeStackPage?
     @State private var writing: String?
     @State private var outcome: ForgeWorkOutcome?
+    /// Why the work couldn't be read; shown with Try again rather than leaving the section out.
+    @State private var failure: String?
 
     private var request: [String: Any] { ClientModel.forgeWorkRead(route) }
     private var stackRequest: [String: Any] { ClientModel.forgeStackRead(pushed(.stack), threadId: nil, method: "squash") }
@@ -34,10 +36,24 @@ struct ForgeWorkSection: View {
     }
 
     var body: some View {
-        Group {
+        // A container that is always there, so its reads run even before anything shows.
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let work, work.open { section(work) }
+            else if work == nil, let failure {
+                ForgeSection(title: "Work") {
+                    HStack(spacing: AceTheme.Spacing.sm) {
+                        Text(failure).meta(AceTone.failed.text).accessibilityIdentifier("forge.work.failure")
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Button("Try again") { Task { await load(fresh: true) } }.buttonStyle(.forgeWord)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    }
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.smooth, value: work)
+        .animation(.smooth, value: failure)
         .animation(.smooth, value: stack)
         .task(id: client.readGeneration(request)) { await load(fresh: false) }
         .task(id: client.readGeneration(stackRequest)) {
@@ -54,7 +70,7 @@ struct ForgeWorkSection: View {
                     Text("No thread is working on this pull request.").meta()
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if let startThread, client.canOperate {
-                        Button("Start a thread") { start(work) }.buttonStyle(.borderless)
+                        Button("Start a thread") { start(work) }.buttonStyle(.forgeWord)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .accessibilityIdentifier("forge.work.start")
                     }
@@ -89,7 +105,7 @@ struct ForgeWorkSection: View {
             Button("Open") { openThread(InboxKey(machineId: route.machineId, id: thread.id)) }
                 .accessibilityIdentifier("forge.work.open")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 52)
         .accessibilityIdentifier("forge.work.thread.\(thread.id)")
@@ -127,7 +143,8 @@ struct ForgeWorkSection: View {
     }
 
     private func load(fresh: Bool) async {
-        do { work = try await client.forgeWorkRead(request, fresh: fresh, as: ForgeWorkPage.self) }
-        catch {}
+        do { work = try await client.forgeWorkRead(request, fresh: fresh, as: ForgeWorkPage.self); failure = nil }
+        catch is CancellationError {}
+        catch { failure = error.localizedDescription }
     }
 }

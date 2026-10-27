@@ -110,7 +110,7 @@ struct ForgeConflictsPageView: View {
             .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
             .accessibilityIdentifier("forge.conflicts.ask.\(file.path)")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
     }
 
