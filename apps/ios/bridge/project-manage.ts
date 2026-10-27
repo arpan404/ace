@@ -116,7 +116,14 @@ export class ProjectManage {
     this.#scripts = new ProjectScripts(owner, (raw) => this.write(raw));
   }
 
-  async answer(request: NativeProjectRequest["request"]): Promise<unknown> {
+  /**
+   * `signal` is the native request's: a poll the phone stopped waiting on (timed out,
+   * cancelled) lets go at once, while the write's receipt stays kept for the next poll.
+   */
+  async answer(
+    request: NativeProjectRequest["request"],
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<unknown> {
     switch (request.op) {
       case "options":
         return this.#options(request.workspaceId, request.current);
@@ -150,7 +157,7 @@ export class ProjectManage {
       case "publish.cancel":
         return this.#repositories.answer(request);
       case "outcome":
-        return this.#outcome(request.writeId);
+        return this.#outcome(request.writeId, signal);
       case "scripts":
       case "runScript":
       case "previews":
@@ -230,16 +237,32 @@ export class ProjectManage {
   }
 
   /** A queued write's eventual receipt, once; unknown when this run never queued it. */
-  async #outcome(writeId: string): Promise<Settled> {
+  async #outcome(writeId: string, signal: AbortSignal): Promise<Settled> {
     const kept = this.#queued.get(writeId);
     if (!kept)
       return refused(
         "unknown",
         "This phone lost track of that change. Check the project on your computer.",
       );
-    const outcome = await kept;
-    this.#queued.delete(writeId);
-    return outcome;
+    signal.throwIfAborted();
+    let release: () => void = noop;
+    const abandoned = new Promise<never>((_, reject) => {
+      const stop = () => reject(signal.reason);
+      signal.addEventListener("abort", stop, { once: true });
+      release = () => signal.removeEventListener("abort", stop);
+    });
+    try {
+      const outcome = await Promise.race([kept, abandoned]);
+      this.#queued.delete(writeId);
+      return outcome;
+    } finally {
+      release();
+    }
+  }
+
+  /** The bridge is going away: forget kept receipts; their writes stay in the outbox. */
+  dispose(): void {
+    this.#queued.clear();
   }
 
   #keep(writeId: string, final: Promise<Settled>): void {

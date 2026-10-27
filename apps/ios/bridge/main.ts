@@ -248,6 +248,7 @@ async function start(json: string): Promise<void> {
   );
   followFileChanges(client, pump);
   const forgeClient = client;
+  services?.dispose();
   services = new NativeServices(
     client,
     pump,

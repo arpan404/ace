@@ -10,6 +10,7 @@ import type { Client } from "./socket-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
 const day = 24 * 60 * 60_000;
+const noop = () => {};
 const code: InstalledEditor = { id: "code", name: "Visual Studio Code", command: "/bin/code" };
 const folders: string[] = [];
 afterEach(async () => {
@@ -26,7 +27,7 @@ async function machine() {
   const project = await realpath(await mkdtemp(join(tmpdir(), "ace-host-open-project-")));
   folders.push(project);
   const started: HostLaunch[] = [];
-  let finish: (editors: InstalledEditor[]) => void = () => {};
+  let finish: (editors: InstalledEditor[]) => void = noop;
   const f = await setup({}, (store, home) => ({
     workspaceActions: new WorkspaceRuntime(store, join(home, "workspace"), () => 1000, {
       platform: "darwin",

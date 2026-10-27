@@ -121,6 +121,13 @@ export class NativeServices {
     this.reads = reads;
     this.projects = projects;
   }
+  /** The bridge is starting over: every request still waiting lets go. */
+  dispose(): void {
+    for (const controller of this.#pending.values()) controller.abort();
+    this.#pending.clear();
+    this.#keeping.clear();
+    this.projects?.dispose();
+  }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
       if (!this.#keeping.has(action.id)) this.#pending.get(action.id)?.abort();
@@ -189,7 +196,12 @@ export class NativeServices {
       }
       const project = NativeProjectRequest.safeParse(raw);
       if (project.success && this.projects) {
-        this.#reply(id, true, await this.projects.answer(project.data.request), "");
+        this.#reply(
+          id,
+          true,
+          await this.projects.answer(project.data.request, controller.signal),
+          "",
+        );
         return;
       }
       const fleet = NativeFleetRequest.safeParse(raw);

@@ -1,9 +1,11 @@
 import "./test-host.ts";
 import { afterEach, describe, expect, test } from "vitest";
+import { z } from "zod";
 import { facts } from "@ace/fake-daemon";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { ProjectManage, type ProjectManageOwner } from "./project-manage.ts";
-import { sheetFixture, until } from "./sheet-fixture.ts";
+import { NativeServices } from "./native-services.ts";
+import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 const web = WorkspaceId.parse("web");
 const closers: (() => Promise<void>)[] = [];
@@ -301,5 +303,50 @@ describe("a write the computer answers late", () => {
       message: "Threads in this project are still running.",
     });
     expect(daemon.projects.get("web")).toBeDefined();
+  });
+});
+
+describe("polling for a late write's answer", () => {
+  test("polls the phone stopped waiting on let go, so the request cap is never reached", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    daemon.createThread({ id: "t1", workspaceId: web, title: "Fix checkout", provider: "codex" });
+    daemon.apply("t1", [facts.rootAgent("codex"), facts.turn("root")]);
+    await client.start();
+    await until(() => client.connectionState().getSnapshot() === "ready", "connected");
+    const { owner, release } = late(client);
+    const sink = new RecordingSink();
+    const services = new NativeServices(
+      client,
+      sink,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new ProjectManage(owner, impatient),
+    );
+    const ask = async (id: string, request: Record<string, unknown>) => {
+      services.handle({ type: "service", id, request: { type: "native.project", request } });
+    };
+    const reply = (id: string) => sink.read(`service:${id}`);
+    await ask("remove", { op: "remove", workspaceId: web, stopRunning: false });
+    await until(() => reply("remove") !== undefined, "queued");
+    const queued = z.object({ writeId: z.string() }).parse(reply("remove")?.value);
+    const writeId = queued.writeId;
+    // The phone's native timeout cancels each poll; more of them than the bridge's 32 slots.
+    for (let poll = 0; poll < 40; poll++) {
+      const id = `poll-${poll}`;
+      await ask(id, { op: "outcome", writeId });
+      services.handle({ type: "service.cancel", id });
+      await until(() => reply(id) !== undefined, `poll ${poll} answered`);
+      expect(reply(id)?.message).not.toContain("Too many requests");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await ask("last", { op: "outcome", writeId });
+    await until(() => reply("last") !== undefined, "last poll answered");
+    expect(reply("last")?.value).toMatchObject({ ok: false, code: "workspace_threads_running" });
+    services.dispose();
   });
 });
