@@ -4,6 +4,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { FlashList } from "@shopify/flash-list";
 import type { ClientApi, ThreadSource } from "@ace/client";
+import type { Item } from "@ace/protocol";
 import { useSelection, sameIds } from "./selection.ts";
 import { isInstrumentedBuild } from "./native-mode.ts";
 import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
@@ -14,46 +15,208 @@ import { statusAppearance } from "./status.ts";
 import { draftKey } from "./thread-drafts.ts";
 import type { ThreadDraftStore } from "./thread-drafts.ts";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
+import { startedThreadOf } from "@ace/ui-core";
+import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { AgentsSheet } from "./sheets.tsx";
+import {
+  blockKey,
+  blockTestId,
+  endBlockText,
+  forkedBlockText,
+  startedBlockText,
+  useTranscriptBlocks,
+} from "./transcript.ts";
 
-const TranscriptRow = memo(function TranscriptRow({
+function itemText(item: Item | undefined): { text: string; detail: string; streaming: boolean } {
+  if (!item) return { text: "", detail: "", streaming: false };
+  const { text, detail } = transcriptRowContent(item);
+  return { text, detail, streaming: !item.complete };
+}
+
+const BlockItemText = memo(function BlockItemText({
   id,
   store,
+  quiet,
 }: {
   id: string;
   store: ThreadSource;
+  quiet?: boolean;
 }) {
   const theme = useTheme();
   const selection = useMemo(() => store.select([`item:${id}`], (r) => r.item(id)), [store, id]);
   const item = useSelection(selection);
-  if (!item) return null;
-  const { text, detail, user, quiet } = transcriptRowContent(item);
+  const { text, detail, streaming } = itemText(item);
+  if (!text && !detail) return null;
   return (
-    <View
-      style={{
-        marginHorizontal: tokens.spacing.lg,
-        marginVertical: tokens.spacing.sm,
-        alignSelf: user ? "flex-end" : "stretch",
-        maxWidth: user ? "85%" : "100%",
-        backgroundColor: user ? theme.colours.secondaryBackground : theme.colours.background,
-        borderRadius: tokens.radii.bubble,
-        padding: user ? tokens.spacing.md : 0,
-      }}
-    >
+    <View>
       <Text
         style={{
           ...textStyle(quiet ? "caption" : "body"),
-          color: theme.colours.foreground,
+          color: quiet ? theme.colours.mutedForeground : theme.colours.foreground,
         }}
       >
         {text}
-        {item.complete ? "" : " ▍"}
+        {streaming ? " ▍" : ""}
       </Text>
       {detail ? (
         <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
           {detail}
         </Text>
       ) : null}
+    </View>
+  );
+});
+
+const EndBlockRow = memo(function EndBlockRow({
+  block,
+  store,
+}: {
+  block: Extract<Block, { kind: "end" }>;
+  store: ThreadSource;
+}) {
+  const theme = useTheme();
+  const errorSelection = useMemo(
+    () =>
+      store.select(block.errorId ? [`item:${block.errorId}` as const] : [], (r) =>
+        block.errorId ? r.item(block.errorId) : undefined,
+      ),
+    [store, block.errorId],
+  );
+  const errorItem = useSelection(errorSelection);
+  const errorText = errorItem ? transcriptRowContent(errorItem).text : "";
+  const label = endBlockText(block);
+  return (
+    <View
+      style={{
+        marginHorizontal: tokens.spacing.lg,
+        marginVertical: tokens.spacing.sm,
+        alignItems: "center",
+      }}
+    >
+      <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        {errorText ? `${label} — ${errorText}` : label}
+      </Text>
+    </View>
+  );
+});
+
+const TranscriptBlockRow = memo(function TranscriptBlockRow({
+  block,
+  store,
+}: {
+  block: Block;
+  store: ThreadSource;
+}) {
+  const theme = useTheme();
+  const ids = useMemo(() => blockItems(block), [block]);
+  const firstSelection = useMemo(
+    () =>
+      store.select(
+        ids.map((id) => `item:${id}` as const),
+        (r) => ids.map((id) => r.item(id)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store, ids.join("\0")],
+  );
+  const firstItems = useSelection(firstSelection);
+  if (block.kind === "user") {
+    const item = firstItems[0];
+    const { text, streaming } = itemText(item);
+    if (!text) return null;
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          alignSelf: "flex-end",
+          maxWidth: "85%",
+          backgroundColor: theme.colours.secondaryBackground,
+          borderRadius: tokens.radii.bubble,
+          padding: tokens.spacing.md,
+        }}
+      >
+        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+          {text}
+          {streaming ? " ▍" : ""}
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "message") {
+    const item = firstItems[0];
+    const { text, detail, streaming } = itemText(item);
+    if (!text && !detail) return null;
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+          {text}
+          {streaming ? " ▍" : ""}
+        </Text>
+        {detail ? (
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            {detail}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+  if (block.kind === "event" || block.kind === "item") {
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        {ids.map((id) => (
+          <BlockItemText key={id} id={id} store={store} quiet />
+        ))}
+      </View>
+    );
+  }
+  if (block.kind === "end") {
+    return <EndBlockRow block={block} store={store} />;
+  }
+  if (block.kind === "forked") {
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {forkedBlockText(block.threadId)}
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "started") {
+    const item = firstItems[0];
+    const title = startedThreadOf(item)?.title;
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {startedBlockText(title)}
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "live") {
+    // iOS parity (TranscriptBlocks.swift renders live as EmptyView): the live
+    // state is the status pill over the composer, not a line in the transcript.
+    return null;
+  }
+  if (block.kind === "question") {
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          Waiting on your answer
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+      {ids.map((id) => (
+        <BlockItemText key={id} id={id} store={store} quiet />
+      ))}
     </View>
   );
 });
@@ -88,6 +251,7 @@ export function ThreadScreen({
   );
   const connection = useSelection(useMemo(() => client.connectionState(), [client]));
   const ids = useSelection(orderSelection);
+  const blocks = useTranscriptBlocks(lease.store);
   const thread = useSelection(threadSelection);
   const interactions = useSelection(interactionsSelection);
   const pending = useSelection(pendingSelection);
@@ -146,10 +310,10 @@ export function ThreadScreen({
       </View>
       <FlashList
         style={{ flex: 1 }}
-        data={ids}
-        keyExtractor={(item) => item}
-        renderItem={({ item }) => <TranscriptRow id={item} store={lease.store} />}
-        getItemType={(item) => lease.store.item(item)?.type ?? "unknown"}
+        data={blocks}
+        keyExtractor={(item) => blockKey(item)}
+        renderItem={({ item }) => <TranscriptBlockRow block={item} store={lease.store} />}
+        getItemType={(item) => `${item.kind}:${blockTestId(item)}`}
         maintainVisibleContentPosition={{
           autoscrollToBottomThreshold: 0.1,
           startRenderingFromBottom: true,
