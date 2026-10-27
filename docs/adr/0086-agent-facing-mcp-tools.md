@@ -168,7 +168,9 @@ session the core listing whenever tool search is off or only settled at run time
 works under tool search as well. A model switch is checked again and can only narrow the listing:
 ace's server is reconnected with the core header and every later MCP replacement keeps it. The
 narrowing counts only once Claude Code accepts the new MCP set; a failed reconnect is retried on
-the next model switch, turn or MCP replacement until one succeeds. The system prompt cannot
+the next model switch, turn or MCP replacement until one succeeds. Every replacement, a
+caller's or ace's reconnect, runs one at a time and is built when it runs from the latest intended
+set, so a reconnect never drops a server a caller has just added. The system prompt cannot
 change mid-session, so Claude's guidance line names both ways in: its tool search, or with none,
 `tools_call {name, arguments}`, which the core list offers.
 
