@@ -70,7 +70,12 @@ test("an edit whose save fails keeps the original words, on disk and on screen",
 test("only a send that failed can be edited, and only within its own thread", async () => {
   const { client, id } = await failedSend();
   await expect(
-    client.editFailedSend(id, { ...send("Elsewhere"), threadId: ThreadId.parse("other") }),
+    client.editFailedSend(id, {
+      type: "thread.send",
+      threadId: ThreadId.parse("other"),
+      input: [{ type: "text", text: "Elsewhere" }],
+      delivery: "queue",
+    }),
   ).rejects.toMatchObject({ code: "protocol" });
   await expect(client.editFailedSend("not-kept", send("x"))).rejects.toMatchObject({
     code: "protocol",
