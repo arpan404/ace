@@ -183,6 +183,8 @@ private struct NewThreadButton: View {
 }
 
 extension EnvironmentValues {
-    /// Starts a new thread from inside a thread; nil where no machine can start one.
-    @Entry var startNewThread: (() -> Void)? = nil
+    /// Presents New thread from the open thread. A binding keeps the environment stable across
+    /// toolbar layout passes; a newly captured callback here feeds back into toolbar resolution.
+    /// Nil where no machine can start a thread.
+    @Entry var newThreadPresentation: Binding<Bool>? = nil
 }

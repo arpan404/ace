@@ -4,6 +4,21 @@ import XCTest
 /// fresh fixture; `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class ThreadUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
+    func testThreadLoadsAndNewThreadOpensAfterBackgrounding() {
+        executionTimeAllowance = 60
+        let app = open("ios-stream")
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 20))
+        expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
+        waitForExpectations(timeout: 15)
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        let create = app.buttons["thread.newThread"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        create.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+    }
+
     func testWorkedTurnSubagentsChildThreadAndModelPicker() {
         let app = launch()
         reveal("thread.ios-agents", in: app)
