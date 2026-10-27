@@ -103,7 +103,7 @@ import XCTest
         app.buttons["select.archive"].tap()
         let undo = app.buttons["inbox.undoArchive"]
         XCTAssertTrue(undo.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Archived 2 threads"].exists)
+        XCTAssertEqual(app.staticTexts["inbox.toast"].label, "Archived 2 threads")
         screenshot("select-archived")
         undo.tap()
         // Both come back with one Undo.
