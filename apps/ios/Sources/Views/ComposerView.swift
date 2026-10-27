@@ -20,6 +20,14 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var mention: ComposerMention? = nil
     /// Words handed back (a message that wasn't sent, an earlier message recalled): after what is typed.
     var restore: ComposerRestore? = nil
+    /// Images, files and folders pasted or dropped onto the composer; nil takes only words.
+    var intake: (([NSItemProvider]) -> Void)? = nil
+    /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
+    var recall: ((Int) async -> String?)? = nil
+    /// The last message recalled and how far back it was, so picking again goes one further.
+    @State private var recalled: (older: Int, text: String)?
+    /// Something is being dragged over the composer.
+    @State private var dropping = false
     /// Files on the next message: with any, the message can go without words.
     var files = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
@@ -99,6 +107,20 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
             .aceContainerShape(AceShape.field)
             .composerGlass(in: AceShape.field)
+            // A file dragged over the composer: its edge brightens where it will land.
+            .overlay {
+                if dropping {
+                    AceShape.field.strokeBorder(AceTheme.Colours.foreground.opacity(0.35), lineWidth: AceTheme.Dimensions.border * 2)
+                        .allowsHitTesting(false).transition(.opacity)
+                }
+            }
+            .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
+                guard let intake else { return false }
+                intake(providers)
+                feedback += 1
+                return true
+            }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dropping)
             .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
         }
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
@@ -122,7 +144,26 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onDisappear { draft.flush() }
     }
     private func pick(_ row: SuggestionRow) {
+        if row.action == "recall" { recallPrevious(); return }
         suggester?.choose(row, text: $draft.text, place: $place, keep: { draft.add($0) }, notice: { notice = $0 }, run: run)
+    }
+    /// Previous message: into an empty composer, or one further back while the composer still
+    /// holds the last one recalled; otherwise after what is typed, so nothing typed is lost.
+    private func recallPrevious() {
+        guard let recall else { return }
+        let walking = recalled.map { $0.text == draft.text } ?? false
+        let older = walking ? (recalled?.older ?? -1) + 1 : 0
+        Task {
+            guard let text = await recall(older) else {
+                notice = older == 0 ? "No earlier message to use" : "That was the first message"
+                return
+            }
+            let typed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let next = walking || typed.isEmpty ? text : ComposerRestore(text: text).merged(into: draft.text)
+            draft.text = next
+            recalled = (older, next)
+            feedback += 1
+        }
     }
     private var plus: some View {
         leading(pick)
@@ -137,7 +178,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                             withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place)
+                        place: place, pasteFiles: intake)
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)

@@ -46,7 +46,7 @@ import {
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { sentText } from "./last-sent.ts";
+import { sentText } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";

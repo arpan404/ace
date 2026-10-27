@@ -93,6 +93,7 @@ export * from "./composer-reply.ts";
 export * from "./queue.ts";
 export * from "./queue-actions.ts";
 export * from "./retained-input.ts";
+export * from "./last-sent.ts";
 export * from "./queued-input.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";

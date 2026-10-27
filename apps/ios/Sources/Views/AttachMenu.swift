@@ -16,12 +16,16 @@ struct AttachMenu<Title: View>: View {
     /// The + list's builtins besides attaching, and what picking one does.
     var more: [SuggestionRow] = []
     var pickMore: (SuggestionRow) -> Void = { _ in }
+    /// Offers Previous message, which puts an earlier message back in the composer.
+    var recall = false
     /// Set from elsewhere ("Attach files" picked from the `/` list): offers the same three sources.
     var ask: Binding<Bool> = .constant(false)
     @ViewBuilder var title: () -> Title
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
+    /// Files picks a folder instead: the files inside it go (`ComposerIntake.folder`).
+    @State private var choosingFolder = false
     @State private var usingCamera = false
     var body: some View {
         Menu {
@@ -29,7 +33,12 @@ struct AttachMenu<Title: View>: View {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button("Take Photo", ace: .camera) { usingCamera = true }
             }
-            Button("Choose File", ace: .folder) { choosingFiles = true }
+            Button("Choose File", ace: .file) { choosingFolder = false; choosingFiles = true }
+            Button("Choose Folder", ace: .folder) { choosingFolder = true; choosingFiles = true }
+            if recall {
+                Button("Previous message", ace: .clockCounterClockwise) { pickMore(.recall) }
+                    .accessibilityIdentifier("composer.recall")
+            }
             ComposerAddRows(rows: more, pick: pickMore)
         } label: {
             title().frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
@@ -39,7 +48,8 @@ struct AttachMenu<Title: View>: View {
         .confirmationDialog("Attach files", isPresented: ask, titleVisibility: .hidden) {
             Button("Photo Library") { choosingPhotos = true }
             if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo") { usingCamera = true } }
-            Button("Choose File") { choosingFiles = true }
+            Button("Choose File") { choosingFolder = false; choosingFiles = true }
+            Button("Choose Folder") { choosingFolder = true; choosingFiles = true }
         }
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, picked in
@@ -47,9 +57,10 @@ struct AttachMenu<Title: View>: View {
             photos = []
             for item in picked { Task { await stagePhoto(item) } }
         }
-        .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $choosingFiles, allowedContentTypes: choosingFolder ? [.folder] : [.item], allowsMultipleSelection: !choosingFolder) { result in
             guard case .success(let urls) = result else { return }
-            for url in urls { Task { await stageFile(url) } }
+            if choosingFolder, let folder = urls.first { Task { await stageFolder(folder) } }
+            else { for url in urls { Task { await stageFile(url) } } }
         }
         .fullScreenCover(isPresented: $usingCamera) {
             CameraPicker { image in Task { await stageCamera(image) } }.ignoresSafeArea()
@@ -75,6 +86,11 @@ struct AttachMenu<Title: View>: View {
         let type = UTType(filenameExtension: url.pathExtension)
         await staged { [staging] in try staging.stage(copying: url, name: url.lastPathComponent, mimeType: type?.preferredMIMEType ?? "application/octet-stream") }
     }
+    private func stageFolder(_ url: URL) async {
+        let result = await Task.detached(priority: .userInitiated) { [staging] in ComposerIntake.folder(url, into: staging) }.value
+        problem = result.note
+        for file in result.files { stage(file) }
+    }
     /// Copies and hashes off the main actor; the bridge then decides whether it can go.
     private func staged(_ work: @escaping @Sendable () throws -> StagedAttachment) async {
         let file = await Task.detached(priority: .userInitiated) { try? work() }.value
@@ -87,8 +103,8 @@ struct AttachMenu<Title: View>: View {
 extension AttachMenu where Title == AceIcon {
     /// The composer's bare + button.
     init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach",
-         more: [SuggestionRow] = [], pickMore: @escaping (SuggestionRow) -> Void = { _ in }, ask: Binding<Bool> = .constant(false)) {
-        self.init(stage: stage, problem: problem, identifier: identifier, more: more, pickMore: pickMore, ask: ask) { AceIcon(.plus, size: 20) }
+         more: [SuggestionRow] = [], pickMore: @escaping (SuggestionRow) -> Void = { _ in }, recall: Bool = false, ask: Binding<Bool> = .constant(false)) {
+        self.init(stage: stage, problem: problem, identifier: identifier, more: more, pickMore: pickMore, recall: recall, ask: ask) { AceIcon(.plus, size: 20) }
     }
 }
 

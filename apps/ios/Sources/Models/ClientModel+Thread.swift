@@ -88,6 +88,11 @@ extension ClientModel {
         if let instance = choice.instanceId { action["instanceId"] = instance }
         return await admissions.wait(id: id) { threadAction(["type": "queueAct", "action": action, "requestId": id]) }
     }
+    /// A message the person sent in the thread, `older` 0 the latest (`bridge/sent-prompt.ts`).
+    func sentText(_ threadId: String, older: Int) async -> String? {
+        struct Reply: Decodable { let text: String? }
+        return try? await service(["type": "thread.sentText", "threadId": threadId, "older": older], as: Reply.self).text
+    }
     /// The queue's list shows its next page.
     func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the

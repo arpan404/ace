@@ -64,6 +64,10 @@ struct SuggestionRow: Decodable, Hashable, Identifiable, Sendable {
     let parameters: [SuggestionParameter]
     /// What a reference row inserts and points at, handed back on send.
     let reference: BridgeJSON?
+    /// The + menu's Previous message: the composer itself answers it, walking back one sent
+    /// message each time it is picked.
+    static let recall = SuggestionRow(id: "composer.recall", group: "", label: "Previous message", detail: nil, icon: "builtin",
+                                      pick: "action", notice: nil, action: "recall", parameters: [], reference: nil)
 }
 
 /// A list as the bridge last answered it, for the composer named by `scope`.

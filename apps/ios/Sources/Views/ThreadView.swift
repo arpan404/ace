@@ -226,13 +226,21 @@ struct ThreadView: View {
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention, restore: restored,
+                                 intake: { providers in
+                                     Task {
+                                         let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
+                                         attachProblem = result.note
+                                         for file in result.files { model.attach(file) }
+                                     }
+                                 },
+                                 recall: { older in await model.sentText(thread.id, older: older) },
                                  files: screen.attachments.count,
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
