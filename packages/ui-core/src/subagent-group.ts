@@ -220,15 +220,21 @@ function branchReader(reader: ThreadReader, facts: AgentFacts, roots: readonly s
     const agent = reader.agent(id);
     if (!agent || visiting.has(id)) return { state: "working" };
     visiting.add(id);
-    let state = subagentState(agent.status);
+    // Blocked only on its subagents, it isn't working itself: they say what the branch is
+    // doing (a child held by a usage limit makes the branch wait, never work).
+    const onChildren = agent.status.state === "blocked" && agent.status.on === "subagents";
+    let state: SubagentState | undefined = onChildren ? undefined : subagentState(agent.status);
     let end = agent.endedAt ?? facts.endedAt(id);
     const taskEnd = facts.taskEndedAt(id);
     if (taskEnd !== undefined) end = Math.max(end ?? taskEnd, taskEnd);
     for (const child of reader.children(id)) {
       const below = branch(child);
-      state = rollupSubagent(state, below.state);
+      state = state === undefined ? below.state : rollupSubagent(state, below.state);
       if (below.end !== undefined) end = Math.max(end ?? below.end, below.end);
     }
+    // Waiting on subagents not loaded here, or on ones that just ended: unsettled either way.
+    if (state === undefined) state = "waiting";
+    else if (onChildren && subagentTerminal(state)) state = "working";
     if (work.needsYou.has(id)) state = "human";
     else if (subagentTerminal(state) && work.running.has(id)) state = "working";
     visiting.delete(id);

@@ -67,6 +67,39 @@ function store(agents: Agent[], items: Item[], tasks: BackgroundTask[] = []) {
 const line = (reader: ThreadStore, ids = ["spawn-review"]) =>
   subagentStatusLine(readSubagentGroup(reader, ids).value.map((entry) => entry.state));
 
+test("a subagent blocked only on its children takes their word: a limit-held child makes it wait, never work", () => {
+  const blocked = (child: string): AgentStatus => ({
+    state: "blocked",
+    on: "subagents",
+    refs: [child],
+  });
+  const limited = store(
+    [
+      agent("review", blocked("nested")),
+      agent("nested", { state: "blocked", on: "rate_limit", refs: [] }, "review"),
+    ],
+    [spawn("review")],
+  );
+  expect(line(limited)).toBe("1 waiting");
+  const entry = readSubagentGroup(limited, ["spawn-review"]).value[0];
+  expect(entry && subagentTerminal(entry.state)).toBe(false);
+  // A child still at work makes the branch work.
+  const working = store(
+    [
+      agent("review", blocked("nested")),
+      agent("nested", { state: "working", activity: "tool" }, "review"),
+    ],
+    [spawn("review")],
+  );
+  expect(line(working)).toBe("1 working");
+  // Its children ended while it still waits on them: it resumes, so it is never done.
+  const ended = store(
+    [agent("review", blocked("nested")), agent("nested", { state: "idle" }, "review")],
+    [spawn("review")],
+  );
+  expect(line(ended)).toBe("1 working");
+});
+
 test.each(["running", "unknown", "completed"] as const)(
   "a loaded idle branch includes its descendant's %s background task in settlement",
   (status) => {
