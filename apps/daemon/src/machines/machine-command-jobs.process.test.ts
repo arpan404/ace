@@ -27,6 +27,8 @@ async function commandsAllowed() {
   const window = await fleetWindow(pair.target);
   await window.set(sourceProfile(pair).deviceId, "commands", "operate");
   await window.close();
+  // The command tools appear once this machine has seen one that serves commands.
+  await pair.source.call({ op: "machines" });
   return pair;
 }
 /** The calling agent starts a background command on the Mac, as its provider would over MCP. */
@@ -99,7 +101,7 @@ it("the calling thread waits while its job on another machine runs, and is done 
   // Its own agent finished, but the job there still runs: never done.
   expect(state(pair)).toMatchObject({ state: "waiting", on: "background_task" });
   expect(rows(pair)).toEqual([
-    expect.objectContaining({ status: "running", title: "sleep 2; echo built on studio" }),
+    expect.objectContaining({ status: "running", title: "sleep 2; echo built on Studio" }),
   ]);
   await vi.waitFor(() => expect(state(pair)?.state).toBe("done"), { timeout: 20_000 });
   expect(rows(pair).map((row) => row.status)).toEqual(["completed"]);
