@@ -27,19 +27,27 @@ import XCTest
         screenshot("fork-opened")
     }
 
-    func testEditForksFromBeforeTheMessageWithItsWords() {
+    func testEditForksFromBeforeTheMessageWithItsWordsAndImage() {
         let app = launch()
         open("ios-turns", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.edit.", in: app))
+        // The first message that can be edited carries a picture.
         let edit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.edit.")).element(boundBy: 0)
         app.bringToMiddle(edit)
         edit.tap()
         XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
         let input = app.textViews["composer.input"]
         XCTAssertTrue((input.value as? String)?.isEmpty == false, "the edited message's words start the fork")
+        // Its picture is on the fork's message, the same stored file, and can be taken off.
+        XCTAssertTrue(app.buttons["composer.media"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["composer.media.remove"].exists)
         screenshot("edit-composer")
-        app.buttons["composer.fork.cancel"].tap()
-        XCTAssertTrue(app.staticTexts["composer.fork"].waitForNonExistence(timeout: 10))
+        input.typeText(" with one fake clock")
+        app.buttons["composer.send"].tap()
+        XCTAssertTrue(app.staticTexts["composer.fork"].waitForNonExistence(timeout: 20))
+        // The fork opens with the picture on its first message.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "attachment.image.")).firstMatch.waitForExistence(timeout: 30))
+        screenshot("edit-fork-opened")
     }
 
     func testRenameTurnsAndAttachmentsFromTheHeader() {
@@ -73,7 +81,17 @@ import XCTest
         XCTAssertTrue(app.buttons["Attachments"].waitForExistence(timeout: 10))
         app.buttons["Attachments"].tap()
         XCTAssertTrue(app.navigationBars["Attachments"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["file.open.timings.txt"].waitForExistence(timeout: 15))
         screenshot("attachments-sheet")
+        // A picture opens full screen, with Share.
+        app.buttons["file.open.queue-timings.png"].tap()
+        XCTAssertTrue(app.buttons["media.share"].waitForExistence(timeout: 15))
+        screenshot("attachment-image")
+        app.buttons["media.close"].tap()
+        // A document opens in Quick Look, which shares it too.
+        app.buttons["file.open.timings.txt"].tap()
+        XCTAssertTrue(app.navigationBars["timings.txt"].waitForExistence(timeout: 20) || app.otherElements["QLPreviewControllerView"].waitForExistence(timeout: 5))
+        screenshot("attachment-document")
     }
 
     func testPiOffersRetryAndRewind() {

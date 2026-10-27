@@ -3,6 +3,7 @@ import {
   ItemId,
   ThreadId,
   maxMessageBytes,
+  type Attachment,
   type CommandPayload,
   type MessageContext,
 } from "@ace/protocol";
@@ -99,12 +100,21 @@ export class ThreadTransitions {
   readonly #changed: () => void;
   #draft: ForkDraft | undefined;
   #shown = "";
+  readonly #carry: ((itemId: string, files: readonly Attachment[]) => void) | undefined;
+  readonly #dropCarried: (() => void) | undefined;
 
   constructor(
     client: ClientCore,
     store: ThreadSource,
     threadId: ThreadId,
-    io: { put: Put; reading: () => ThreadSource | undefined; changed: () => void },
+    io: {
+      put: Put;
+      reading: () => ThreadSource | undefined;
+      changed: () => void;
+      /** The composer's files: an edited message's go on the fork's first message, and off again. */
+      carry?: (itemId: string, files: readonly Attachment[]) => void;
+      dropCarried?: () => void;
+    },
   ) {
     this.#client = client;
     this.#store = store;
@@ -112,6 +122,8 @@ export class ThreadTransitions {
     this.#put = io.put;
     this.#reading = io.reading;
     this.#changed = io.changed;
+    this.#carry = io.carry;
+    this.#dropCarried = io.dropCarried;
   }
 
   get draft(): ForkDraft | undefined {
@@ -147,6 +159,9 @@ export class ThreadTransitions {
     const reading = this.#reading();
     const start = forkStart(reading ? [this.#store, reading] : [this.#store], at);
     if ("refused" in start) return admit(id, false, start.refused);
+    // Another fork opened in its place takes its own files, never the last edit's.
+    this.#dropCarried?.();
+    if (start.carry) this.#carry?.(start.carry.itemId, start.carry.files);
     this.#draft = {
       ...start,
       key: `fork:${this.#threadId}:${pointKey(start)}`,
@@ -160,6 +175,7 @@ export class ThreadTransitions {
   cancel(): void {
     if (!this.#draft || this.#draft.sending) return;
     this.#draft = undefined;
+    this.#dropCarried?.();
     this.#publish();
   }
 

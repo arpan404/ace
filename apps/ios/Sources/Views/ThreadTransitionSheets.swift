@@ -366,6 +366,13 @@ private struct TurnsSheet: View {
     }
 }
 
+private struct ThreadFileVideo: Identifiable {
+    let name: String
+    let url: URL
+    let mimeType: String
+    var id: URL { url }
+}
+
 private struct ThreadFilesPage: Decodable {
     struct File: Decodable, Identifiable {
         let ref: String
@@ -388,6 +395,11 @@ private struct ThreadFilesSheet: View {
     @State private var problem: String?
     @State private var removing: ThreadFilesPage.File?
     @State private var busy: String?
+    @State private var picture: ThreadFilesPage.File?
+    @State private var video: ThreadFileVideo?
+    @State private var document: URL?
+    @State private var opening: String?
+    @State private var openProblem: String?
     var body: some View {
         NavigationStack {
             List {
@@ -404,13 +416,22 @@ private struct ThreadFilesSheet: View {
                     }
                     ForEach(files) { file in
                         HStack(spacing: AceTheme.Spacing.md) {
-                            AceIcon(file.kind == "image" ? .image : .fileText, size: 18).foregroundStyle(AceTheme.Colours.mutedForeground)
+                          Button { open(file) } label: {
+                           HStack(spacing: AceTheme.Spacing.md) {
+                            AceIcon(file.kind == "image" ? .image : file.mimeType.hasPrefix("video/") ? .playCircle : .fileText, size: 18).foregroundStyle(AceTheme.Colours.mutedForeground)
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                                 Text(file.name).lineLimit(1).truncationMode(.middle).foregroundStyle(AceTheme.Colours.foreground)
-                                Text(file.size).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                                Text(opening == file.ref ? "Opening…" : file.size).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                             }
                             Spacer(minLength: AceTheme.Spacing.sm)
+                           }
+                           .contentShape(Rectangle())
+                          }
+                          .buttonStyle(.plain)
+                          .disabled(opening != nil)
+                          .accessibilityHint("Opens it")
+                          .accessibilityIdentifier("file.open.\(file.name)")
                             if model.canOperate {
                                 Button(busy == file.ref ? "Removing…" : "Remove") { removing = file }
                                     .buttonStyle(.plain).foregroundStyle(AceTheme.StatusText.failed)
@@ -444,6 +465,16 @@ private struct ThreadFilesSheet: View {
                     Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
                 }
             }
+            .fullScreenCover(item: $picture) { file in
+                MediaViewer(title: file.name) { await original(file) }
+            }
+            .fullScreenCover(item: $video) { video in
+                VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType)
+            }
+            .quickLookPreview($document)
+            .alert("Couldn't open the file", isPresented: Binding(get: { openProblem != nil }, set: { if !$0 { openProblem = nil } })) {
+                Button("OK") { openProblem = nil }
+            } message: { Text(openProblem ?? "") }
             .alert("Remove \(removing?.name ?? "this file")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
                 Button("Cancel", role: .cancel) {}
                 Button("Remove", role: .destructive) { if let file = removing { load(release: file.ref) } }
@@ -454,6 +485,31 @@ private struct ThreadFilesSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .task { load() }
+    }
+    /// A picture in the full-screen viewer; a video in the player; anything else in Quick Look,
+    /// which shares it. Each read because the thread holds the file.
+    private func open(_ file: ThreadFilesPage.File) {
+        if file.kind == "image" { picture = file; return }
+        opening = file.ref
+        Task {
+            defer { opening = nil }
+            do {
+                let reply = try await model.service(originalRequest(file), as: AttachmentBytes.self)
+                guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
+                let url = try MessageAttachmentRoutes.keep(data, named: reply.name)
+                if file.mimeType.hasPrefix("video/") { video = ThreadFileVideo(name: file.name, url: url, mimeType: file.mimeType) }
+                else { document = url }
+            } catch {
+                openProblem = "\(file.name) couldn't be read. Check the connection and try again."
+            }
+        }
+    }
+    private func original(_ file: ThreadFilesPage.File) async -> UIImage? {
+        guard let reply = try? await model.service(originalRequest(file), as: AttachmentBytes.self) else { return nil }
+        return await MediaViewer.image(base64: reply.data)
+    }
+    private func originalRequest(_ file: ThreadFilesPage.File) -> [String: Any] {
+        ["type": "native.attachment", "threadId": threadId, "ref": file.ref, "variant": "original"]
     }
     private func load(release: String? = nil) {
         problem = nil

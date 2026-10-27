@@ -41,6 +41,7 @@ struct VideoViewer: View {
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             HStack {
+                MediaShareButton(item: url, title: title)
                 Spacer()
                 MediaDoneButton { dismiss() }
             }

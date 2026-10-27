@@ -103,6 +103,8 @@ export class ThreadSession {
         this.#controls();
         this.#sheet.forkChanged();
       },
+      carry: (itemId, files) => this.#tray.carry(itemId, files),
+      dropCarried: () => this.#tray.dropCarried(),
     });
     this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
       put,

@@ -24,6 +24,13 @@ struct MediaViewer: View {
             }
         }
         .overlay(alignment: .topTrailing) { MediaDoneButton { dismiss() } }
+        .overlay(alignment: .topLeading) {
+            if let image {
+                MediaShareButton(item: Image(uiImage: image), title: title)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.smooth, value: image != nil)
         .environment(\.colorScheme, .dark)
         // VoiceOver's scrub gesture closes it too.
         .accessibilityAction(.escape) { dismiss() }
@@ -43,6 +50,22 @@ struct MediaViewer: View {
         await Task.detached(priority: .userInitiated) {
             Data(base64Encoded: base64).flatMap(ImageDecoding.source).flatMap(ImageDecoding.viewed)
         }.value
+    }
+}
+
+/// Share in the top corner across from Done: the picture or video as it is, to any app.
+struct MediaShareButton<Item: Transferable>: View {
+    let item: Item
+    let title: String
+    var body: some View {
+        ShareLink(item: item, preview: SharePreview(title)) { Text("Share") }
+            .aceFont(AceTheme.Typography.label, relativeTo: .body)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceTheme.Spacing.lg)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .floatingGlass()
+            .padding(.leading, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
+            .accessibilityIdentifier("media.share")
     }
 }
 

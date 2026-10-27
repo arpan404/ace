@@ -1,5 +1,5 @@
 import type { ThreadSource } from "@ace/client";
-import { RunId, type ForkPoint, type Item } from "@ace/protocol";
+import { RunId, type Attachment, type ForkPoint, type Item } from "@ace/protocol";
 import {
   editPointOf,
   forkPointOf,
@@ -59,6 +59,8 @@ export interface ForkStart {
   from: string;
   /** The words the composer starts with: the person's message when it is edited. */
   prefill: string;
+  /** The edited message's stored files, carried onto the fork's first message by reference. */
+  carry?: { itemId: string; files: readonly Attachment[] } | undefined;
 }
 
 const words = (item: Item | undefined) =>
@@ -96,7 +98,13 @@ export function forkStart(
     const point = store && editPointOf(store, at.itemId, root);
     if (!point) return { refused: "There is no earlier answer to continue from." };
     const text = words(item);
-    return { point: point.fork, from: `before “${opening(text)}”`, prefill: text };
+    const files = item?.type === "message" ? (item.attachments ?? []) : [];
+    return {
+      point: point.fork,
+      from: `before “${opening(text)}”`,
+      prefill: text,
+      ...(files.length ? { carry: { itemId: at.itemId, files } } : {}),
+    };
   }
   const point = store
     ? forkPointOf(item, item?.runId === undefined ? undefined : store.run(item.runId))

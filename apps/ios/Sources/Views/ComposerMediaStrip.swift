@@ -12,14 +12,19 @@ struct ComposerMediaStrip: View {
     var inset: CGFloat = AceTheme.Spacing.none
     let remove: (String) -> Void
     @State private var viewing: StagedMedia?
+    @State private var carriedViewing: AttachmentFile?
+    @Environment(\.messageAttachments) private var stored
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             // Spaced and padded so each thumbnail's Remove target, which reaches past its corner,
             // stays inside the row and clear of the next file.
             HStack(spacing: ComposerMediaThumb.reach + AceTheme.Spacing.xxs) {
                 ForEach(files) { file in
-                    if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
-                        ComposerMediaThumb(file: file, url: url) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
+                    if let carried = file.carried, file.kind == "image", carried.thumbnail, stored != nil {
+                        ComposerMediaThumb(file: file, source: .carried(carried)) { carriedViewing = file } remove: { remove(file.id) }
+                            .transition(.opacity)
+                    } else if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
+                        ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
                         AttachmentChip(file: file) { remove(file.id) }
                     }
@@ -27,6 +32,12 @@ struct ComposerMediaStrip: View {
             }
             .padding(.horizontal, inset)
             .padding(.top, ComposerMediaThumb.reach).padding(.trailing, ComposerMediaThumb.reach)
+        }
+        .fullScreenCover(item: $carriedViewing) { file in
+            MediaViewer(title: file.name) {
+                guard let carried = file.carried else { return nil }
+                return await stored?.original(carried.itemId, carried.ref)
+            }
         }
         .fullScreenCover(item: $viewing) { media in
             if let video = media.video {
@@ -55,8 +66,10 @@ private struct StagedMedia: Identifiable {
 /// drawn (a picture one at a time, a video's first frame with its length). One the phone can't
 /// decode (SVG, PSD, a broken file) shows as a chip.
 private struct ComposerMediaThumb: View {
+    /// Where the picture comes from: a file staged on the phone, or one the thread already stores.
+    enum Source: Equatable { case staged(URL), carried(AttachmentFile.Carried) }
     let file: AttachmentFile
-    let url: URL
+    let source: Source
     let open: () -> Void
     let remove: () -> Void
     static let side: CGFloat = 56
@@ -65,6 +78,7 @@ private struct ComposerMediaThumb: View {
     static let target: CGFloat = 44
     static let reach: CGFloat = 20
     @Environment(\.displayScale) private var scale
+    @Environment(\.messageAttachments) private var stored
     @State private var image: UIImage?
     @State private var length: String?
     @State private var unreadable = false
@@ -119,7 +133,14 @@ private struct ComposerMediaThumb: View {
             .accessibilityLabel("Remove \(file.name)")
             .accessibilityIdentifier("composer.media.remove")
         }
-        .task(id: url) {
+        .task(id: source) {
+            guard case .staged(let url) = source else {
+                if case .carried(let carried) = source {
+                    image = await stored?.thumbnail(carried.itemId, carried.ref, Self.side * scale)
+                    unreadable = image == nil
+                }
+                return
+            }
             if video {
                 let frame = await VideoPreview.frame(url, mimeType: file.mimeType ?? "video/quicktime", pixels: Self.side * scale)
                 image = frame.image

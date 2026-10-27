@@ -77,6 +77,9 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let error: String
     /// The file's type, for drawing a video; absent from older bridges.
     var mimeType: String? = nil
+    /// A file the thread already stores, carried from an edited message: read through that message.
+    var carried: Carried? = nil
+    struct Carried: Codable, Sendable, Equatable { let itemId: String; let ref: String; let thumbnail: Bool }
 }
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it

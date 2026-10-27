@@ -1,5 +1,6 @@
 import type { Fact } from "@ace/core";
-import { facts, type FakeDaemon } from "@ace/fake-daemon";
+import { createHash } from "node:crypto";
+import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
 
 /*
  * Threads for the message actions on the spike daemon: "ios-turns", three finished turns to fork,
@@ -22,11 +23,41 @@ const answer = (item: string, text: string, nativeId?: string): Fact => ({
   },
 });
 
-/** One finished turn of its own: the person's ask, then the answer. */
-function turn(index: number, ask: string, reply: string, nativeId?: string): Fact[] {
+/** The picture the second ask of "ios-turns" carries, stored for the thread. */
+const screenshot = {
+  sha256: fixtureImage.sha256,
+  bytes: Buffer.from(fixtureImage.data, "base64").length,
+  mimeType: "image/png",
+  name: "queue-timings.png",
+  kind: "image" as const,
+  width: 120,
+  height: 80,
+  thumbnailAvailable: true,
+};
+const notes = "Queue timings\nbefore: 14 s\nafter: 1.2 s\n";
+
+/** One finished turn of its own: the person's ask (with any files), then the answer. */
+function turn(
+  index: number,
+  ask: string,
+  reply: string,
+  nativeId?: string,
+  attachments: (typeof screenshot)[] = [],
+): Fact[] {
   return [
     { type: "turn.started", agent: "root", nativeTurnId: `turn-${index}`, trigger: "user" },
-    facts.message("root", `ask-${index}`, "user", ask),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: `ask-${index}`,
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [{ type: "text", text: ask }],
+        ...(attachments.length ? { attachments } : {}),
+      },
+    },
     answer(`answer-${index}`, reply, nativeId),
     { type: "turn.ended", agent: "root", nativeTurnId: `turn-${index}`, outcome: "completed" },
   ];
@@ -74,9 +105,22 @@ export function seedTransitions(daemon: FakeDaemon, details: Details) {
       2,
       "Can we fake the clock instead?",
       "Yes. The queue takes its clock as an argument now.",
+      undefined,
+      [screenshot],
     ),
     ...turn(3, "Run the suite again", "The suite runs in 1.2 s, down from 14 s."),
   ]);
+  daemon.seedServices({
+    attachmentImages: [{ threadId: "ios-turns", name: screenshot.name }],
+    attachmentTexts: [
+      {
+        threadId: "ios-turns",
+        sha256: createHash("sha256").update(notes).digest("hex"),
+        text: notes,
+        name: "timings.txt",
+      },
+    ],
+  });
   daemon.createThread({
     hasSentMessage: true,
     id: "ios-pi",

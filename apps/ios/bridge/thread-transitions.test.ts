@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { facts, type FakeDaemon } from "@ace/fake-daemon";
+import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
 import { AgentId, ItemId, ThreadId, type ProviderKind } from "@ace/protocol";
 import {
   commands,
@@ -74,6 +74,12 @@ const draft = () =>
     prefill: string;
     model: string;
   } | null;
+const tray = () =>
+  (latest("thread.attachments")?.files ?? []) as {
+    id: string;
+    name: string;
+    carried: { ref: string } | null;
+  }[];
 const controls = () => latest("thread.controls")?.row as { continues: boolean } | undefined;
 
 async function opened(fake: FakeDaemon) {
@@ -262,4 +268,63 @@ test("a model picked while forking starts the fork there and leaves this thread 
     instanceId: "claude-personal",
   });
   expect(commands("thread.switch")).toHaveLength(0);
+});
+
+test("editing a message with an image forks with the same image, removable without touching the thread", async () => {
+  const image = {
+    sha256: fixtureImage.sha256,
+    bytes: 1024,
+    mimeType: "image/png",
+    name: "screen.png",
+    kind: "image" as const,
+    thumbnailAvailable: true,
+  };
+  const fake = twoTurns();
+  fake.apply("t", [
+    { type: "turn.started", agent: "root", nativeTurnId: "third", trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "ask-3",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [{ type: "text", text: "What is on screen?" }],
+        attachments: [image],
+      },
+    },
+    answer("answer-3", "A login form.", "entry-3"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "third", outcome: "completed" },
+  ]);
+  fake.seedServices({ attachmentImages: [{ threadId: "t", name: "screen.png" }] });
+  const thread = await opened(fake);
+  await until(() => item("A login form."), "the third answer");
+
+  const askId = String(item("What is on screen?")?.id);
+  thread.handle({ type: "fork.open", at: { kind: "edit", itemId: askId }, requestId: "e" });
+  await until(() => admission("e")?.ok, "the edit");
+  const carried = await until(() => tray()[0], "the image on the fork's message");
+  expect(carried).toMatchObject({ name: "screen.png", carried: { ref: fixtureImage.sha256 } });
+  thread.handle({
+    type: "send",
+    text: "What is on this screen now?",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
+  await until(() => commands("thread.fork").length === 1, "the fork on the wire");
+  expect(commands("thread.fork")[0]?.context).toMatchObject({
+    attachments: [{ sha256: fixtureImage.sha256 }],
+  });
+  // Nothing was uploaded again.
+  expect(sent.some((text) => text.includes('"upload.begin"'))).toBe(false);
+
+  // A second edit's image, removed before sending, stays the thread's.
+  thread.handle({ type: "fork.open", at: { kind: "edit", itemId: askId }, requestId: "e2" });
+  await until(() => admission("e2")?.ok && tray().length === 1, "the image again");
+  thread.handle({ type: "detach", localId: tray()[0]?.id ?? "" });
+  await until(() => tray().length === 0, "the image off the message");
+  thread.handle({ type: "fork.cancel" });
+  expect(sent.some((text) => text.includes('"attachment.release"'))).toBe(false);
 });
