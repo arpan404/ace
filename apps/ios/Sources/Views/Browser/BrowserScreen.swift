@@ -27,7 +27,6 @@ struct BrowserScreen: View {
     @State private var finding = false
     @State private var sheet: BrowserSheet?
     @State private var clearing = false
-    @State private var pipRequest = 0
     /// iPad: the tab shown beside the live one, as its last picture.
     @State private var splitTab: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -51,7 +50,7 @@ struct BrowserScreen: View {
                 if !finding {
                     strips
                     BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
-                               split: sizeClass == .regular ? $splitTab : nil, pip: { pipRequest += 1 },
+                               split: sizeClass == .regular ? $splitTab : nil,
                                screenshot: { model.browserScreenshot(fullPage: $0) })
                 }
             }
@@ -107,9 +106,7 @@ struct BrowserScreen: View {
         .alert("Browser", isPresented: Binding(get: { browser.problem != nil }, set: { if !$0 { browser.problem = nil } })) {
             Button("OK") { browser.problem = nil }
         } message: { Text(browser.problem?.message ?? "") }
-        // Floating in Picture in Picture, the page stays watched in the background.
-        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active || browser.pictureInPicture) }
-        .onChange(of: browser.pictureInPicture) { _, floating in browser.setVisible(scenePhase == .active || floating) }
+        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active) }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
         .onDisappear { model.closeBrowser() }
     }
@@ -145,7 +142,7 @@ struct BrowserScreen: View {
 
     /// The live page, and on an iPad's split the other tab's last picture beside it. The live
     /// page keeps one place in the layout either way, so opening or closing the split never
-    /// rebuilds it (its stream and Picture in Picture carry on).
+    /// rebuilds it (its stream carries on).
     private var page: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             livePage
@@ -171,7 +168,7 @@ struct BrowserScreen: View {
     private var livePage: some View {
         GeometryReader { proxy in
             ZStack {
-                BrowserSurface(model: model, keyboardRequest: keyboardRequest, annotating: annotate?.mode == "on", pipRequest: pipRequest)
+                BrowserSurface(model: model, keyboardRequest: keyboardRequest, annotating: annotate?.mode == "on")
                 if let geometry = browser.geometry(view: proxy.size) {
                     if let tooltip = browser.page?.tooltip {
                         let box = geometry.viewRect(PageRect(x: tooltip.x, y: tooltip.y, width: 0, height: 0))

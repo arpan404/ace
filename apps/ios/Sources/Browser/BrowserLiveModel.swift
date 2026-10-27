@@ -40,9 +40,6 @@ import UIKit
     private(set) var saving: [String: BrowserSaving] = [:]
     /// Bumped by the page's own Send in annotate mode: the screen goes to the message.
     private(set) var annotateSends = 0
-    /// The live page floats in Picture in Picture; the system offers it here.
-    var pictureInPicture = false
-    var canPictureInPicture = false
     /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
     private(set) var stills: [String: UIImage] = [:]
     /// The picture on screen now and the tab it came from.
@@ -82,7 +79,7 @@ import UIKit
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
         done = nil; source = nil; sizes = nil; extensions = nil
-        stills = [:]; stillOrder = []; pictureInPicture = false
+        stills = [:]; stillOrder = []
     }
     func clearSource() { source = nil }
     /// The picture on screen now, kept as the still of the tab it came from (never assumed to be

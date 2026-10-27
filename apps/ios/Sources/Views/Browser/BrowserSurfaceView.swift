@@ -56,9 +56,6 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     /// The picture last drawn and the tab it showed, for the still an iPad's split keeps of a
     /// tab once another shows.
     private(set) var lastPicture: (image: CVPixelBuffer, tabId: String)?
-    /// Picture in Picture of this layer; nil where the system has none.
-    private(set) lazy var pictureInPicture: BrowserPictureInPicture? =
-        BrowserPictureInPicture.supported ? BrowserPictureInPicture(layer: videoLayer) { [weak self] in self?.drawNewest() } : nil
     private var reported: (size: CGSize, scale: CGFloat, picture: CGSize?)?
     /// The page's focused field, kept so it follows the picture as it is zoomed and moved.
     private var field: PageRect?
@@ -262,8 +259,6 @@ struct BrowserSurface: UIViewRepresentable {
     let keyboardRequest: Int
     /// Annotate mode is on: the page's overlay takes clicks and drags.
     var annotating = false
-    /// Bumped by Picture in Picture in the menu: float the page, or bring it back.
-    var pipRequest = 0
 
     final class Coordinator {
         var lastTouch = Date.distantPast
@@ -271,7 +266,6 @@ struct BrowserSurface: UIViewRepresentable {
         var focusRect: PageRect?
         var restartedAt = Date.distantPast
         var keyboardRequest = 0
-        var pipRequest = 0
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -288,20 +282,13 @@ struct BrowserSurface: UIViewRepresentable {
         let coordinator = context.coordinator
         view.onTouch = { coordinator.lastTouch = Date() }
         coordinator.keyboardRequest = keyboardRequest
-        coordinator.pipRequest = pipRequest
-        view.pictureInPicture?.changed = { model.browser.pictureInPicture = $0 }
         model.browser.currentPicture = { [weak view] in view?.lastPicture }
-        model.browser.canPictureInPicture = view.pictureInPicture != nil
         return view
     }
     func updateUIView(_ view: BrowserSurfaceView, context: Context) {
         let coordinator = context.coordinator
         view.interactive = model.canOperate
         view.annotating = annotating
-        if coordinator.pipRequest != pipRequest {
-            coordinator.pipRequest = pipRequest
-            view.pictureInPicture?.toggle()
-        }
         _ = model.browser.pageSize // Redraw the field's place when the page's size changes.
         let focus = model.canOperate ? model.browser.page?.focus : nil
         view.place(field: focus?.rect)
@@ -338,6 +325,5 @@ struct BrowserSurface: UIViewRepresentable {
     }
     static func dismantleUIView(_ view: BrowserSurfaceView, coordinator: Coordinator) {
         view.textField.resignFirstResponder()
-        view.pictureInPicture?.stop()
     }
 }

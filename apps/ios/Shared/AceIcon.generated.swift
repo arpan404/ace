@@ -147,7 +147,6 @@ extension AceIcon {
         case pencilSimple = "pencil-simple"
         case pencilSimpleLine = "pencil-simple-line"
         case phone = "phone"
-        case pictureInPicture = "picture-in-picture"
         case play = "play"
         case playCircle = "play-circle"
         case plug = "plug"

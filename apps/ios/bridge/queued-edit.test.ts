@@ -23,6 +23,7 @@ afterEach(reset);
 
 interface Queue {
   notSent: { id: string; text: string; attachments: number } | null;
+  messages: { text: string }[];
 }
 const queue = () => latest("thread.queue") as Queue | undefined;
 const words = (id: string) =>
@@ -77,7 +78,7 @@ async function heldThread(id: string, first: string) {
   return { owner, thread, held };
 }
 
-test("editing a held message changes its words where it waits, nothing removed", async () => {
+test("editing a held message changes its words where it waits, nothing removed, and releases the hold", async () => {
   const { owner, thread, held } = await heldThread("edit-in-place", "Add retries to the handler");
   const before = await daemonQueue(owner, "edit-in-place");
   thread.handle({ type: "queueWords", messageId: held.id, requestId: "w1" });
@@ -102,6 +103,9 @@ test("editing a held message changes its words where it waits, nothing removed",
   );
   expect(edited?.context?.attachments).toEqual([{ sha256: fixtureImage.sha256 }]);
   expect(commands("queue.remove")).toEqual([]);
+  // The failure is gone with the old words: the edited message waits its turn as queued.
+  await until(() => queue()?.notSent === null, "the hold released");
+  expect(after.paused).toBe(false);
 });
 
 test("an edit the daemon refuses leaves the original queued as it was", async () => {
@@ -204,7 +208,11 @@ test("an edit read before another device's save never overwrites it, and shows t
     ...(first?.context ? { context: first.context } : {}),
   });
   expect(other.ok).toBe(true);
-  await until(() => queue()?.notSent?.text === "Version B", "the phone following B");
+  // B released the hold: the phone lists it as queued, no longer not sent.
+  await until(
+    () => queue()?.notSent === null && queue()?.messages[0]?.text === "Version B",
+    "the phone following B",
+  );
   // Save of the sheet's words, fenced to what they were read at: refused, B stays.
   thread.handle({
     type: "queue",
