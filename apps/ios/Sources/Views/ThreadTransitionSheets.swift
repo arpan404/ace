@@ -80,39 +80,100 @@ private struct RenameThread: ViewModifier {
     let threadId: String
     let title: String
     @Binding var isPresented: Bool
-    @State private var name = ""
-    @State private var problem: String?
     @State private var saved = 0
+    private static let offline = "This machine isn't connected."
     func body(content: Content) -> some View {
         content
             .sensoryFeedback(.success, trigger: saved)
-            .alert("Rename thread", isPresented: $isPresented) {
-                TextField("Name", text: $name).accessibilityIdentifier("rename.field")
-                Button("Save") {
-                    let typed = name, threadId = threadId
-                    Task {
-                        problem = await model?.rename(threadId, to: typed)
-                        if problem == nil { saved += 1 }
-                    }
-                }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("rename.save")
-                Button("Name from first message") {
-                    let threadId = threadId
-                    Task {
-                        problem = await model?.retitle(threadId)
-                        if problem == nil { saved += 1 }
-                    }
-                }
-                    .accessibilityIdentifier("rename.retitle")
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Or let ace name it again from the thread's first message.")
+            .sheet(isPresented: $isPresented) {
+                RenameSheet(title: title,
+                            save: { typed in
+                                guard let model else { return Self.offline }
+                                return await model.rename(threadId, to: typed)
+                            },
+                            retitle: {
+                                guard let model else { return Self.offline }
+                                return await model.retitle(threadId)
+                            },
+                            done: { saved += 1 })
             }
-            .onChange(of: isPresented) { _, shown in if shown { name = title } }
-            .alert("Couldn't rename", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK") { problem = nil }
-            } message: { Text(problem ?? "") }
+    }
+}
+
+/// The thread's name, selected so typing replaces it, with Save and a quiet "Name from first
+/// message" under it. Return saves. A refusal stays on the sheet in words.
+private struct RenameSheet: View {
+    let title: String
+    let save: (String) async -> String?
+    let retitle: () async -> String?
+    let done: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var selection: TextSelection?
+    @State private var problem: String?
+    @State private var sending = false
+    @FocusState private var focused: Bool
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                TextField("Name", text: $name, selection: $selection)
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .padding(.horizontal, AceTheme.Spacing.md)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .background(AceTheme.Colours.fill, in: AceShape.field)
+                    .focused($focused)
+                    .submitLabel(.done)
+                    .onSubmit { run { await save(name) } }
+                    .disabled(sending)
+                    .accessibilityIdentifier("rename.field")
+                if let problem {
+                    Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed)
+                        .transition(.opacity)
+                }
+                Button("Name from first message") { run(retitle) }
+                    .buttonStyle(StripTextButtonStyle())
+                    .disabled(sending)
+                    .accessibilityIdentifier("rename.retitle")
+                Spacer(minLength: AceTheme.Spacing.none)
+            }
+            .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
+            .animation(.smooth, value: problem)
+            .background(AceTheme.Colours.background)
+            .navigationTitle("Rename thread")
+            .navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(sending ? "Saving…" : "Save") { run { await save(name) } }
+                        .disabled(sending || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("rename.save")
+                }
+            }
+        }
+        .presentationDetents([.height(AceTheme.Dimensions.touchTarget * 4.5)])
+        .presentationDragIndicator(.visible)
+        .task {
+            name = title
+            focused = true
+            // The whole name selected once the field has the keyboard: typing replaces it, as the
+            // system's own rename does.
+            try? await Task.sleep(for: .milliseconds(80))
+            selection = TextSelection(range: name.startIndex..<name.endIndex)
+        }
+    }
+    private func run(_ action: @escaping () async -> String?) {
+        guard !sending else { return }
+        sending = true
+        problem = nil
+        Task {
+            let refused = await action()
+            sending = false
+            if let refused { problem = refused; return }
+            done()
+            dismiss()
+        }
     }
 }
 

@@ -82,13 +82,9 @@ struct ThreadMenu: View {
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
                 Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
                 Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
-                Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
-                Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
-                Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
-                Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
-                Button("Computer use", ace: .appWindow) { open(.computer) }
-                Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
+                Button("Turns", ace: .listBullets) { open(.turns) }.accessibilityIdentifier("thread.turns")
             }
+            // What can be done with the conversation itself.
             Section {
                 if model.canOperate, !archived {
                     Button("Rename…", ace: .pencilSimple) { open(.rename) }.accessibilityIdentifier("thread.menu.rename")
@@ -99,8 +95,15 @@ struct ThreadMenu: View {
                         Button("Bring back to parent…", ace: .gitMerge) { open(.merge) }.accessibilityIdentifier("thread.merge")
                     }
                 }
-                Button("Turns", ace: .listBullets) { open(.turns) }.accessibilityIdentifier("thread.turns")
                 Button("Attachments", ace: .paperclip) { open(.attachments) }.accessibilityIdentifier("thread.attachments")
+            }
+            Section {
+                Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
+                Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
+                Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
+                Button("Computer use", ace: .appWindow) { open(.computer) }
+                Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
             Section {
                 if model.canOperate, model.transfers.linked, !archived {

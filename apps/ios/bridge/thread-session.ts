@@ -152,8 +152,8 @@ export class ThreadSession {
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
       if (keys === "all") this.#ready();
-      if (
-        keys === "all" ||
+      if (keys === "all") this.#transitions.resend();
+      else if (
         keys.has("thread") ||
         keys.has("order") ||
         [...keys].some((key) => key.startsWith("run:") || key.startsWith("item:"))

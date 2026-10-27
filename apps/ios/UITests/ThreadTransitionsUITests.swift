@@ -49,25 +49,29 @@ import XCTest
         let title = app.buttons["thread.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 20))
         title.tap()
-        XCTAssertTrue(app.buttons["thread.rename"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Rename…"].waitForExistence(timeout: 10))
         screenshot("title-menu")
-        app.buttons["thread.rename"].tap()
+        app.buttons["Rename…"].tap()
         let field = app.textFields["rename.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        screenshot("rename-alert")
-        field.clearAndType("Fake the queue clock")
+        screenshot("rename-sheet")
+        // The whole name is selected: typing replaces it.
+        field.typeText("Fake the queue clock")
         app.buttons["rename.save"].tap()
+        sleep(2)
+        screenshot("renamed")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Fake the queue clock'")).firstMatch.waitForExistence(timeout: 15))
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["thread.turns"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Turns"].waitForExistence(timeout: 10))
         screenshot("thread-menu")
-        app.buttons["thread.turns"].tap()
+        app.buttons["Turns"].tap()
         XCTAssertTrue(app.buttons["turn.1"].waitForExistence(timeout: 15))
         screenshot("turns-sheet")
         app.buttons["turn.1"].tap()
         XCTAssertTrue(app.buttons["turn.1"].waitForNonExistence(timeout: 10))
         app.buttons["thread.menu"].tap()
-        app.buttons["thread.attachments"].tap()
+        XCTAssertTrue(app.buttons["Attachments"].waitForExistence(timeout: 10))
+        app.buttons["Attachments"].tap()
         XCTAssertTrue(app.navigationBars["Attachments"].waitForExistence(timeout: 15))
         screenshot("attachments-sheet")
     }
@@ -90,8 +94,9 @@ import XCTest
         open("ios-fork", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.copy.", in: app))
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["thread.merge"].waitForExistence(timeout: 15))
-        app.buttons["thread.merge"].tap()
+        XCTAssertTrue(app.buttons["Bring back to parent…"].waitForExistence(timeout: 15))
+        screenshot("fork-menu")
+        app.buttons["Bring back to parent…"].tap()
         XCTAssertTrue(app.textViews["merge.summary"].waitForExistence(timeout: 15))
         screenshot("bring-back")
     }
@@ -132,9 +137,10 @@ import XCTest
 
 private extension XCUIElement {
     func clearAndType(_ text: String) {
-        tap()
+        // The caret at the end, so every character before it can be deleted.
+        coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
         if let value = value as? String, !value.isEmpty {
-            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count + 4))
         }
         typeText(text)
     }

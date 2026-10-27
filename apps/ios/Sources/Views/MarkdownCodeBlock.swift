@@ -12,6 +12,8 @@ struct MarkdownCodeBlock: View {
     @State private var copied = false
     @State private var showAll = false
     @State private var loaded: MarkdownRich.Code?
+    /// The block's width, so a diff's tints reach its edge even where its lines are short.
+    @State private var width: CGFloat = 0
     private static let cappedAt = 20
     /// Colours or diff lines once read; a kept read shows on the first frame, so nothing pops.
     private var extras: MarkdownRich.Code? { loaded ?? rich?.knownCode(language.lowercased(), text) }
@@ -48,6 +50,7 @@ struct MarkdownCodeBlock: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 if let diff = extras?.diff {
                     DiffLines(lines: long && !showAll ? Array(diff.prefix(Self.cappedAt)) : diff)
+                        .frame(minWidth: width, alignment: .leading)
                         .padding(.top, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.md)
                 } else {
                     Group {
@@ -60,6 +63,7 @@ struct MarkdownCodeBlock: View {
                     .padding(.horizontal, AceTheme.Spacing.md).padding(.top, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.md)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // Colours arrive over the same glyphs: they fade in, the block never moves.
             .animation(reduceMotion ? nil : .smooth, value: loaded)
             if long {
@@ -103,7 +107,7 @@ private struct DiffLines: View {
                     .foregroundStyle(line.kind == "hunk" || line.kind == "meta" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, AceTheme.Spacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: AceTheme.Typography.code.lineHeight, alignment: .leading)
                     .background(tint(line.kind))
                     .overlay(alignment: .leading) { bar(line.kind).frame(width: 2) }
                     .accessibilityLabel(line.kind == "add" ? "Added: \(line.text)" : line.kind == "del" ? "Removed: \(line.text)" : line.text)

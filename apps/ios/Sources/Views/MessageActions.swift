@@ -4,7 +4,7 @@ import UIKit
 /// What a message's actions do on the open thread. The bridge says which apply to a row
 /// (`TranscriptRow.actions`, `TransitionsRow`); the thread screen supplies what they do. Nil where
 /// messages offer only Copy (a lane sheet, a pushed message, a view-only machine).
-struct MessageTransitions {
+struct MessageTransitions: Equatable {
     /// The thread's transitions: which answer Retry sits under, whether Pi can go back now.
     var row: TransitionsRow?
     let fork: (TranscriptRow) -> Void
@@ -22,6 +22,9 @@ struct MessageTransitions {
         if actions.rewind, self.row?.settled == true, self.row?.retry?.answerId != row.id { offered.append(.rewind) }
         return offered
     }
+    /// Equal when they offer the same: the closures act on the open thread whatever the render,
+    /// so a redraw of the screen never redraws every message row.
+    static func == (lhs: MessageTransitions, rhs: MessageTransitions) -> Bool { lhs.row == rhs.row }
     func run(_ action: MessageAction, _ row: TranscriptRow) {
         switch action {
         case .edit: edit(row)
@@ -137,9 +140,8 @@ private struct MessageActionButton: View {
 }
 
 extension EnvironmentValues {
-    /// The thread screen's namespace for the fork strip growing out of the button that opened it,
-    /// and the row whose button that was.
-    @Entry var forkMorph: (namespace: Namespace.ID, rowId: String?)? = nil
+    /// The thread screen's namespace for the fork strip growing out of the button that opened it.
+    @Entry var forkMorph: Namespace.ID? = nil
 }
 
 /// The Fork or Edit button the open fork strip grew out of: the strip takes its place in one motion.
@@ -149,7 +151,7 @@ private struct ForkSource: ViewModifier {
     @Environment(\.forkMorph) private var morph
     func body(content: Content) -> some View {
         if active, let morph {
-            content.matchedGeometryEffect(id: "fork.\(rowId)", in: morph.namespace, isSource: true)
+            content.matchedGeometryEffect(id: "fork.\(rowId)", in: morph, isSource: true)
         } else {
             content
         }

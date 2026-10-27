@@ -122,7 +122,7 @@ struct ThreadView: View {
             .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                forkFrom: { forkSource = $0 }, openThread: openThread)
-            .environment(\.forkMorph, (forkMorph, forkSource))
+            .environment(\.forkMorph, forkMorph)
             .environment(\.markdownRich, rich)
             .task { if rich == nil { rich = MarkdownRich(model: model) } }
             .sensoryFeedback(.success, trigger: forksStarted)

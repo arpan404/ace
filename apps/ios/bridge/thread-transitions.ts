@@ -118,6 +118,16 @@ export class ThreadTransitions {
     return this.#draft;
   }
 
+  /**
+   * A whole new pass over the thread (a snapshot, a reconnect): native dropped what it held for
+   * the thread, so the row and any open fork go again even though they haven't changed.
+   */
+  resend(): void {
+    this.#shown = "";
+    this.update();
+    if (this.#draft) this.#publish();
+  }
+
   /** The thread moved: what its menu and messages offer is worked out again, sent when it changed. */
   update(): void {
     const row = transitionsRow(this.#store);
