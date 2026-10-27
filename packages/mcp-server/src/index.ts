@@ -26,6 +26,7 @@ export {
   redactMcpCredential,
   codexInjection,
   claudeInjection,
+  claudeAceServer,
   openCodeInjection,
   acpInjection,
   cursorSdkInjection,
@@ -109,6 +110,14 @@ export {
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
 export { changesKey, resultReader, type ResultReader } from "./changes.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
+export {
+  claudeToolListing,
+  claudeToolListingAfter,
+  claudeToolSearch,
+  type ClaudeToolSearch,
+  type ClaudeToolSearchFacts,
+  type ClaudeToolSearchReason,
+} from "./claude-tool-search.ts";
 export {
   acpToolListing,
   codexClientHeader,

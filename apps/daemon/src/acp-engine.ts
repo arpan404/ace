@@ -4,7 +4,13 @@ import { acpModelInstanceId } from "./acp-model-instance.ts";
 import { acpAgentCli, type AgentRegistry } from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { AcpIdentity, type McpCapability } from "@ace/protocol";
-import { acpInjection, acpStdioInjection, acpToolListing } from "@ace/mcp-server";
+import {
+  acpInjection,
+  acpStdioInjection,
+  acpToolListing,
+  claudeToolListing,
+} from "@ace/mcp-server";
+import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
@@ -84,13 +90,30 @@ export function acpEngineOptions(input: {
         },
         signal,
       );
+      const cwd = input.store.atomic((db) =>
+        String(
+          db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(threadId)?.cwd ?? "",
+        ),
+      );
       // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
-      // Agent SDK and Antigravity defer, and the rest keep a fixed list.
+      // Agent SDK and Antigravity defer, and the rest keep a fixed list. claude-agent-acp runs
+      // Claude Code, which defers only while its tool search is on; the agent picks its model
+      // later, so the launch env and settings decide.
       const cli = acpAgentCli(identity.acpAgentId);
+      const listing =
+        cli === "claude-acp"
+          ? claudeToolListing(
+              await claudeToolSearchFacts({
+                env: plan.env,
+                cwd,
+                sources: ["user", "project", "local"],
+              }),
+            )
+          : acpToolListing(cli);
       const connection = {
         url: input.mcp.url,
         bearer: lease.bearer,
-        listing: acpToolListing(cli),
+        listing,
         session: lease.session,
       };
       const instance: InstanceInput = {
@@ -99,12 +122,7 @@ export function acpEngineOptions(input: {
         ...identity,
         loginRevision: account.loginRevision,
         executable: plan.command,
-        cwd: input.store.atomic((db) =>
-          String(
-            db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(threadId)?.cwd ??
-              "",
-          ),
-        ),
+        cwd,
         args: [...plan.args],
         // Generic ACP never uses catalog-driven process discovery. Keep the launch
         // environment only on its daemon-local plan, outside model metadata.
