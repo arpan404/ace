@@ -70,7 +70,10 @@ struct InboxView: View {
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
             .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady)) {
-                for url in links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady) { await openLink(url) }
+                // Taking them changes this task's id, which cancels it: they open in their own task.
+                let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady)
+                guard !urls.isEmpty else { return }
+                Task { for url in urls { await openLink(url) } }
             }
             .environment(\.threadOrganizer, organizer)
             .environment(\.threadKeysBox, threadKeysBox)

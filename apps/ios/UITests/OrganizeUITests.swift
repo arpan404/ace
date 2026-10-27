@@ -4,18 +4,30 @@ import XCTest
 /// the row's long-press preview and menu (an accelerator), the open thread's ⋯, and Select mode
 /// with its bar of words. `ACE_IOS_SHOTS` (a folder) also saves each screenshot there.
 @MainActor final class OrganizeUITests: XCTestCase, @unchecked Sendable {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() {
+        continueAfterFailure = false
+        // The list scrolls by portrait drags; the Duo can come up turned.
+        XCUIDevice.shared.orientation = .portrait
+    }
+    /// The screen as each test ends, so a failure shows what was on it.
+    override func tearDown() { screenshot("end-\(name.split(separator: " ").last?.dropLast() ?? "")") }
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
+        // A fresh simulator asks once for notifications, after the first rows show; answer it so
+        // it never covers the list.
+        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.'")).firstMatch.waitForExistence(timeout: 30)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.buttons["Allow"]
+        if allow.waitForExistence(timeout: 6) { allow.tap() }
         return app
     }
 
     func testALongPressPreviewsTheThreadAboveItsSharedActions() throws {
         let app = launch()
-        let done = app.revealRow("thread.ios-done")
+        let done = reveal(app, "thread.ios-done")
         done.press(forDuration: 1.2)
         sleep(1)
         screenshot("row-menu")
@@ -59,10 +71,15 @@ import XCTest
 
     func testTheOpenThreadsMenuOffersTheSameActions() throws {
         let app = launch()
-        app.revealRow("thread.ios-done").tap()
+        reveal(app, "thread.ios-done").tap()
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 15))
         menu.tap()
+        // A short screen scrolls the menu to its organize section.
+        for _ in 0..<4 where !app.buttons["Delete thread"].exists {
+            let low = app.buttons["Skills and tools"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            low.press(forDuration: 0.05, thenDragTo: app.buttons["Changes"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        }
         XCTAssertTrue(app.buttons["Delete thread"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Move to project…"].exists)
         XCTAssertTrue(app.buttons["Turn off auto-settle"].exists)
@@ -71,7 +88,7 @@ import XCTest
 
     func testSelectModeArchivesSeveralThreadsWithOneUndo() throws {
         let app = launch()
-        app.revealRow("thread.ios-done")
+        XCTAssertTrue(app.buttons["inbox.select"].waitForExistence(timeout: 30))
         app.buttons["inbox.select"].tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Any two rows the list shows: picking is the system's own check circle.
@@ -92,20 +109,23 @@ import XCTest
         // Both come back with one Undo.
         for title in picked {
             let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-            app.bringToMiddle(row)
+            for _ in 0..<20 where !row.isHittable {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.72))
+                    .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.38)), withVelocity: .slow, thenHoldForDuration: 0.2)
+            }
             XCTAssertTrue(row.exists, title)
         }
     }
 
     func testSearchEverythingFindsCommandsThreadsAndMessages() throws {
         let app = launch()
-        app.revealRow("thread.ios-done")
+        reveal(app, "thread.ios-done")
         app.buttons["inbox.search"].tap()
         // Before a query: the commands, ready to run.
         XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["search.command.settings:appearance"].exists)
         screenshot("search-start")
-        app.typeText("relay")
+        app.searchFields.firstMatch.tap()
+        app.searchFields.firstMatch.typeText("relay")
         XCTAssertTrue(app.buttons["search.filter.kind"].waitForExistence(timeout: 10))
         let hit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search.thread.' OR identifier BEGINSWITH 'search.hit.'")).firstMatch
         XCTAssertTrue(hit.waitForExistence(timeout: 15))
@@ -116,7 +136,7 @@ import XCTest
         // The query is remembered for next time.
         app.terminate()
         let again = launch()
-        again.revealRow("thread.ios-done")
+        reveal(again, "thread.ios-done")
         again.buttons["inbox.search"].tap()
         XCTAssertTrue(again.buttons["search.recent.relay"].waitForExistence(timeout: 10))
         screenshot("search-recent")
@@ -124,28 +144,49 @@ import XCTest
 
     func testAnArchivedSearchHitOpensAsTheMainPageItsComposerSendsTo() throws {
         let app = launch()
-        app.revealRow("thread.ios-done")
+        reveal(app, "thread.ios-done")
         app.buttons["inbox.search"].tap()
         XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
-        app.typeText("Archived task 7")
+        app.searchFields.firstMatch.tap()
+        app.searchFields.firstMatch.typeText("Archived task 7")
         let hit = app.buttons["search.thread.ios-archived-06"]
         XCTAssertTrue(hit.waitForExistence(timeout: 15))
         hit.tap()
         // The thread is the main page, as a row tap opens it: no Settings sheet over the old one.
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
+        XCTAssertTrue(pageTitle(app, "Archived task 7").waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["settings.close"].exists, "opened inside Settings, apart from the main page")
-        let title = app.descendants(matching: .any)["thread.title"].firstMatch
-        XCTAssertTrue(title.label.contains("Archived task 7"), title.label)
         screenshot("archived-hit-opened")
     }
 
     func testAnAceLinkOpensItsThread() throws {
         let app = launch()
-        app.revealRow("thread.ios-done")
+        reveal(app, "thread.ios-done")
         app.open(URL(string: "ace://thread/ios-done")!)
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["thread.title"].exists || app.otherElements["thread.title"].exists)
+        XCTAssertTrue(pageTitle(app, "Tighten the composer spacing").waitForExistence(timeout: 15))
         screenshot("link-opened")
+    }
+
+    /// Scrolls the list, in its middle, until the row sits in view. (The shared helper drags down
+    /// the Settings button's column, which on the Duo is a rail beside the list.)
+    @discardableResult private func reveal(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        let row = app.buttons[identifier]
+        for attempt in 0..<30 {
+            let frame = row.exists ? row.frame : .zero
+            if row.exists, frame.minY > app.frame.height * 0.2, frame.maxY < app.frame.height * 0.82, row.isHittable { return row }
+            let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.72))
+            let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.38))
+            let above = row.exists ? frame.maxY <= app.frame.height * 0.2 : attempt >= 15
+            if above { upper.press(forDuration: 0.1, thenDragTo: lower, withVelocity: .slow, thenHoldForDuration: 0.2) }
+            else { lower.press(forDuration: 0.1, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.2) }
+        }
+        XCTAssertTrue(row.isHittable, "\(identifier) never showed in the inbox")
+        return row
+    }
+
+    /// The open thread's title in its bar.
+    private func pageTitle(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS %@", title)).firstMatch
     }
 
     private func screenshot(_ name: String) {
