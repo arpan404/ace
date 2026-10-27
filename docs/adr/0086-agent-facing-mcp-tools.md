@@ -166,13 +166,19 @@ Settings `env` applies over the launch env. Claude Code refreshes its tool list 
 settings files it loads and the model (`claudeToolSearchFacts`), and `claudeToolListing` gives the
 session the core listing whenever tool search is off or only settled at run time; the core list
 works under tool search as well. A model switch is checked again and can only narrow the listing:
-ace's server is reconnected with the core header and every later MCP replacement keeps it.
+ace's server is reconnected with the core header and every later MCP replacement keeps it. The
+narrowing counts only once Claude Code accepts the new MCP set; a failed reconnect is retried on
+the next model switch, turn or MCP replacement until one succeeds. The system prompt cannot
+change mid-session, so Claude's guidance line names both ways in: its tool search, or with none,
+`tools_call {name, arguments}`, which the core list offers.
 
 claude-agent-acp (0.97.0) runs the same CLI through the Agent SDK, with the person's settings,
 its own `env` and, after `providers/set`, a gateway's base URL; it can also drop the built-in
 tools (`disableBuiltInTools`), which removes `ToolSearch`. It does not defer in every config, so
-the daemon decides its listing with the same rules from its launch env and settings. Its model
-is picked later over ACP, so a Claude 3 model chosen there is not seen.
+the daemon decides its listing with the same rules from its launch env, settings and the
+thread's model (`engine_sessions.model`, `acpClaudeToolListing`). ACP fixes a session's MCP
+servers when it opens, so a later model switch cannot narrow the list; a session with no model
+known at launch starts on core.
 
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every

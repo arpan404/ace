@@ -100,3 +100,25 @@ test("switching to a model without tool search reconnects ace with the core list
     await h.session.close("shutdown");
   }
 });
+
+test("a narrowing whose reconnect failed is retried on the next turn and ends on the core listing", async () => {
+  const h = await open({ ACE_FAKE_CLAUDE_ACE_CONNECT_FAILURES: "1" });
+  try {
+    await h.wait(isInitialize);
+    await expect(
+      h.session.configure?.({
+        provider: "claude",
+        model: "claude-3-5-haiku-20241022",
+        options: {},
+      }),
+    ).rejects.toThrow("connection refused");
+    await h.session.send([{ type: "text", text: "go on" }], "queue");
+    const retried = h.frames.filter(isSetServers);
+    expect(retried).toHaveLength(2);
+    expect(aceHeaders(object(object(retried[1]?.data)["request"])["servers"])["X-Ace-Tools"]).toBe(
+      "core",
+    );
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
