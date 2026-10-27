@@ -1,6 +1,6 @@
 ---
 name: offshift
-description: Own a multi-step coding outcome through verified delivery, keeping steps, criteria and evidence in a durable record. Use when the person asks for Offshift or end-to-end execution.
+description: Own a multi-step coding outcome to verified delivery in a durable record, when the person asks for Offshift.
 ---
 
 # Offshift

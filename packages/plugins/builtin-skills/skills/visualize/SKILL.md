@@ -1,6 +1,6 @@
 ---
 name: visualize
-description: Show an interactive or static HTML page inline in ace chat when seeing or trying something explains better than prose, such as explainers, quizzes, simulations, comparisons, diagrams, mockups and charts.
+description: Show an HTML page inline in chat (diagram, mockup, chart, explainer, quiz) when seeing beats prose.
 ---
 
 # Visualize in ace chat

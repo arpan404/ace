@@ -1,6 +1,6 @@
 ---
 name: prepare-pr
-description: Get this thread's work ready for a pull request and open or update it. Use when the person asks to open a PR, prepare changes for review, or ship the branch.
+description: Get this thread's work ready for a pull request and open or update it.
 ---
 
 # Prepare a pull request

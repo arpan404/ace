@@ -1,6 +1,6 @@
 ---
 name: ace-agents
-description: Hand work to other agents through ace and collect their results, on this machine or another paired one. Use before delegate, wait or agents_status.
+description: Delegate to child agents on any provider or paired machine and collect their results. Use before delegate, wait or agents_status.
 ---
 
 # Agents in ace

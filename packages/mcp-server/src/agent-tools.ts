@@ -38,38 +38,25 @@ const messagedThread = ThreadId.describe(
 const DelegateTask = z.strictObject({
   requestId: fields.requestId,
   task: MessageText.describe(
-    "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
+    "Goal, files, constraints, how to verify: the child sees none of your conversation.",
   ),
-  role: DelegationRole,
-  runRole: RunRole.optional().describe("Run as a role from your Roles line."),
-  provider: ProviderKind.optional().describe(
-    "Provider that runs the child. Default: yours, or the one serving `model`.",
+  role: DelegationRole.describe(
+    "Unique name saying what and where: 'Fix-869-toast', never 'Implementer'.",
   ),
-  model: z.string().min(1).max(256).optional().describe('Model id or name ("opus 5.5").'),
+  runRole: RunRole.optional().describe("A role from your Roles line."),
+  provider: ProviderKind.optional().describe("Default: yours, or the one serving model."),
+  model: z.string().min(1).max(256).optional().describe('Id or name, e.g. "opus 5.5".'),
   accountId: z.string().min(1).max(256).optional().describe("Account id or label."),
   effort: z
     .string()
     .min(1)
     .max(64)
     .optional()
-    .describe(
-      "Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.",
-    ),
-  access: AccessRequest.optional().describe(
-    "The child's access mode. Default inherit (yours); never broader than yours.",
-  ),
-  workspace: AgentWorkspace.optional().describe(
-    "Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.",
-  ),
-  machine: MachineName.optional().describe(
-    "Run on this paired machine (a name from `machines`). Requires project.",
-  ),
-  project: z
-    .string()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe("The project on that machine, as `machines` lists it."),
+    .describe("e.g. low, high, xhigh. Default: yours on the same model."),
+  access: AccessRequest.optional().describe("Default inherit; never above yours."),
+  workspace: AgentWorkspace.optional(),
+  machine: MachineName.optional().describe("From machines; needs project."),
+  project: z.string().min(1).max(256).optional().describe("Its project in machines."),
 });
 
 const delegate = controlTool({
@@ -79,19 +66,14 @@ const delegate = controlTool({
   riskClass: "agent-execution",
   capability: "agents",
   maxInputBytes: maxBatchInputBytes,
-  description: `Start child agents as their own threads, on any installed provider or a paired machine, for independent or parallel work (prefer this to your provider's built-in subagent tool). One call takes 1 to ${maxDelegateTasks} tasks and returns their threadIds at once. To use results this turn, set waitSeconds; otherwise end your turn and settled results arrive as a new turn. Never poll. Fields and examples: guide ace-agents.`,
+  description:
+    "Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.",
   input: z.strictObject({
-    tasks: z
-      .array(DelegateTask)
-      .min(1)
-      .max(maxDelegateTasks)
-      .describe("One entry per child. Roles must be unique among your live children."),
+    tasks: z.array(DelegateTask).min(1).max(maxDelegateTasks).describe("One per child."),
     waitSeconds: WaitTimeoutSeconds.optional().describe(
-      "Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once.",
+      "Wait for results, as wait does. Omit to return at once.",
     ),
-    waitFor: WaitMode.default("all").describe(
-      "With waitSeconds: return when all children settle (default) or when any does.",
-    ),
+    waitFor: WaitMode.default("all").describe("any returns on the first."),
   }),
   output: controlResult(
     z.looseObject({
@@ -119,15 +101,15 @@ const wait = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Wait for child agents or other threads to finish, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
+    "Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. timeout or interrupted: they keep working; wait again, never poll.",
   input: z.strictObject({
     threadIds: z
       .array(ThreadId)
       .min(1)
       .max(maxWaitThreads)
-      .describe("Threads to watch: children from delegate, or any thread you can read."),
-    mode: WaitMode.default("all").describe("all (default): every thread settles; any: the first."),
-    timeoutSeconds: WaitTimeoutSeconds.default(120).describe("Longest wait in seconds."),
+      .describe("From delegate, or any thread you can read."),
+    mode: WaitMode.default("all").describe("any returns on the first."),
+    timeoutSeconds: WaitTimeoutSeconds.default(120),
   }),
   output: controlResult(WaitResult),
   run: (input, control) =>
