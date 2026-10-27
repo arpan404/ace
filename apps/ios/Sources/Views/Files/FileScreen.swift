@@ -93,11 +93,7 @@ struct FileScreen: View {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                ContentUnavailableView {
-                    Label("Too large to show here", systemImage: "doc.text")
-                } description: {
-                    Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
-                } actions: { Button("Share") { shareFile() } }
+                LargeFileView(model: model, scope: scope, path: path, size: content.size)
             case "binary":
                 ContentUnavailableView {
                     Label("Binary file", systemImage: "doc")

@@ -81,6 +81,13 @@ function seedTransfers(daemon: FakeDaemon): void {
   daemon.checkouts.seed(thread, "uploads/notes.md", lines("# Notes", "", "Kept on the host."));
   daemon.checkouts.seedBytes(thread, "assets/recordings/soak-1.bin", noise(3 * 1024 * 1024, 7));
   daemon.checkouts.seedBytes(thread, "assets/recordings/soak-2.bin", noise(2 * 1024 * 1024, 11));
+  // About 3 MB of text: past the 2 MB a file shows whole, so the phone reads it in pages.
+  const log = Array.from(
+    { length: 48_000 },
+    (_, index) =>
+      `${String(index + 1).padStart(6, "0")} replay window=${index % 512} acked=${index * 3} dropped=0 ok`,
+  ).join("\n");
+  daemon.checkouts.seedBytes(thread, "logs/replay-soak.log", new TextEncoder().encode(`${log}\n`));
 }
 
 type Details = NonNullable<Parameters<FakeDaemon["createThread"]>[0]["details"]>;

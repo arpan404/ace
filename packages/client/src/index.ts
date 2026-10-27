@@ -88,6 +88,8 @@ export {
 } from "./files.ts";
 export {
   readFile,
+  readFileRange,
+  type FileRangeInput,
   type FileReadInput,
   type FileReadOutcome,
   type FileReader,

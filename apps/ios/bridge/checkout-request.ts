@@ -24,6 +24,13 @@ export const FilesOperation = z.discriminatedUnion("op", [
   /** A folder's archive before downloading it ("" for the checkout's root). */
   z.object({ op: z.literal("archive"), path: z.string().max(4096), includeIgnored: z.boolean() }),
   z.object({ op: z.literal("read"), path }),
+  /** A page of a file too large to show whole, from a byte offset (`checkout-pages.ts`). */
+  z.object({
+    op: z.literal("page"),
+    path,
+    offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    version: z.string().min(1).max(256).optional(),
+  }),
   z.object({ op: z.literal("download"), path }),
   z.object({
     op: z.literal("write"),

@@ -119,3 +119,39 @@ export async function readFile(
     return readOnce(client, input, options);
   }
 }
+
+export interface FileRangeInput {
+  threadId?: ThreadId;
+  workspaceId?: WorkspaceId;
+  path: string;
+  offset: number;
+  /** The version the first part was read at; a changed file refuses with CONFLICT. */
+  validator?: string | undefined;
+}
+
+/**
+ * One part of a file however big it is (at most 256 KiB from `offset`), for reading a file too
+ * large to show whole a page at a time.
+ */
+export async function readFileRange(
+  client: Reader,
+  input: FileRangeInput,
+  options: RequestOptions = {},
+): Promise<FileReadOutcome & { offset?: number; size?: number }> {
+  const { result, bytes } = await part(
+    client,
+    {
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      path: input.path,
+      maxSize: Number.MAX_SAFE_INTEGER,
+    },
+    input.offset,
+    input.validator,
+    options,
+  );
+  if (result.version === null) return { kind: "missing" };
+  if (result.type === "directory") return { kind: "folder" };
+  if (result.size === undefined || !bytes) throw new ClientError("protocol");
+  return { kind: "file", bytes, version: result.version, offset: input.offset, size: result.size };
+}

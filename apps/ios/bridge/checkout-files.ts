@@ -34,6 +34,7 @@ import {
   type NativeFilesRequest,
 } from "./checkout-request.ts";
 import { checkoutTree, searchRows } from "./checkout-tree.ts";
+import { readPage } from "./checkout-pages.ts";
 
 /*
  * The Files screen's requests (`native.files`), answered one at a time like the web's checkout
@@ -96,6 +97,7 @@ export class CheckoutFiles {
     if (op.op === "search") return this.#search(scope, op.query, signal);
     if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
+    if (op.op === "page") return readPage(this.#owner, scope, op, signal);
     if (op.op === "download") {
       const bytes = await this.#bytes(scope, { op: "download", path: op.path, offset: 0 }, signal);
       return { name: pathParts(op.path).name, data: base64(bytes) };

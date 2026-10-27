@@ -54,6 +54,7 @@ struct OpenFilesSheet: View {
                                     .frame(minHeight: 44)
                                     .accessibilityIdentifier("files.close.\(path)")
                             }
+                            .listRowSeparator(.hidden)
                             .swipeActions { Button("Close") { model.fileClosed(scope, path) } }
                             .contextMenu {
                                 Button("Close others", systemImage: "xmark.square") {
@@ -68,6 +69,7 @@ struct OpenFilesSheet: View {
                     Section("Recent") {
                         ForEach(recent, id: \.self) { path in
                             Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
+                                .listRowSeparator(.hidden)
                         }
                     }
                 }
