@@ -1,8 +1,10 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import type { MobileOffshift } from "@ace/ui-core/mobile";
 import { blockedCard, deliveredCard } from "../scripts/offshift-card.ts";
 import { connect, fixture, latest, open, reset, until } from "./thread-harness.ts";
+import { ThreadId } from "@ace/protocol";
+import { requestOffshift } from "./offshift.ts";
 
 /* The open thread's Offshift run over the real SDK and an in-process fake daemon. */
 
@@ -67,4 +69,21 @@ test("a delivered run whose tree only waits on a usage limit reads Waiting, not 
   const waiting = await until(() => run() ?? undefined, "the run");
   expect(waiting.word).toBe("Waiting");
   expect(waiting.done).toBe(false);
+});
+
+test("the phone's change sends the card's version so a newer write is refused, not overwritten", async () => {
+  const request = vi.fn().mockResolvedValue({ ok: true });
+  const threadId = ThreadId.parse("thread-1");
+  await requestOffshift(
+    { request } as never,
+    threadId,
+    { action: "advance", runId: "login", expectedVersion: 5, phase: "verify" },
+    "r1",
+  );
+  expect(request).toHaveBeenCalledWith({
+    type: "offshift.request",
+    requestId: "r1",
+    threadId,
+    op: { action: "advance", runId: "login", expectedVersion: 5, phase: "verify" },
+  });
 });
