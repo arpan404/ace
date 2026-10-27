@@ -25,7 +25,7 @@ struct ThreadFileRoutes: ViewModifier {
     let subtitle: String
     @Binding var showFiles: Bool
     /// Puts `@path` into the composer; nil when this phone can't send.
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     @State private var linked: FileTarget?
     @State private var preview: URL?
     @State private var opening: String?
@@ -58,12 +58,12 @@ struct ThreadFileRoutes: ViewModifier {
             } message: { Text(problem ?? "") }
     }
 
-    private var mentionAndReturn: ((String) -> Void)? {
+    private var mentionAndReturn: ((ComposerMention) -> Void)? {
         guard let mention else { return nil }
-        return { path in
+        return { picked in
             showFiles = false
             linked = nil
-            mention(path)
+            mention(picked)
         }
     }
 

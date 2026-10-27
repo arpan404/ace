@@ -91,6 +91,9 @@ export * from "./question-line.ts";
 export * from "./question-draft.ts";
 export * from "./composer-reply.ts";
 export * from "./queue.ts";
+export * from "./queue-actions.ts";
+export * from "./retained-input.ts";
+export * from "./last-sent.ts";
 export * from "./queued-input.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";
@@ -160,6 +163,7 @@ export * from "./continuation.ts";
 export {
   composerInput,
   editComposerTokens,
+  inputWithText,
   referenceContext,
   tokensFromInput,
   withTypedCommand,

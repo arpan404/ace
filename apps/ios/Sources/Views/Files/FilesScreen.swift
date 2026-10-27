@@ -18,7 +18,7 @@ struct FilesScreen: View {
     let scope: FilesScope
     let subtitle: String
     /// Puts `@path` into the message being written and goes back to it; nil where nothing is sent.
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     @State private var tree: FileTree?
     @State private var failure: String?
     @State private var open: Set<String> = []
@@ -30,7 +30,7 @@ struct FilesScreen: View {
     @State private var showTrash = false
     @State private var actions: FileActions
 
-    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((String) -> Void)?) {
+    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?) {
         self.model = model
         self.scope = scope
         self.subtitle = subtitle
@@ -219,7 +219,7 @@ struct FilesScreen: View {
             Button("New folder here", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: path)) }
         }
         if !folder, let mention {
-            Button("Mention in message", systemImage: "at") { mention(path) }
+            Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }
         }
         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
         if actions.canChange {

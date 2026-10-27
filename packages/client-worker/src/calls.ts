@@ -79,6 +79,7 @@ const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadS
 const schemas = {
   markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
+  editFailedSend: z.tuple([z.string().min(1).max(256), CommandPayload]),
   command: z.tuple([CommandPayload, Options, z.string().optional()]),
   submitNew: z.tuple([CommandPayload, Options]),
   registry: z.tuple([RegistryInput, Options]),
@@ -139,6 +140,12 @@ export async function callArgs(
       const sent = await client.enqueue(payload, id);
       const intent = client.intent(sent).getSnapshot();
       return { id: sent, intent, pending: intent && pendingSend(intent) };
+    }
+    case "editFailedSend": {
+      const [id, payload] = decode(schemas.editFailedSend, args);
+      await client.editFailedSend(id, payload);
+      const intent = client.intent(id).getSnapshot();
+      return { intent, pending: intent && pendingSend(intent) };
     }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);

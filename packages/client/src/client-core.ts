@@ -1,3 +1,4 @@
+import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
 import { AttachmentStreams } from "./attachment-channel.ts";
@@ -136,6 +137,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Read snapshots still being written by collections already closed. */
   #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps = new SendOps();
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();
@@ -440,6 +443,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {
     return CommandId.parse(this.options.id());
+  }
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Send it again with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    return this.#intents.rewrite(id, payload);
   }
   pendingSend(id: string): PendingSend | undefined {
     return this.#pendingSendEntries.get(id);

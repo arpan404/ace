@@ -23,6 +23,8 @@ export const refuseOnce = { text: "Refuse this once" };
 export const slowSettings = { ms: 0 };
 /** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
 export const forks = { refuse: false, hold: false, release: () => {} };
+/** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
+export const queueRefusals = { remove: false, edit: false };
 /** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
 export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
@@ -38,8 +40,10 @@ export async function reset(): Promise<void> {
   await client?.close();
   native.frames.length = 0;
   slowSettings.ms = 0;
+  refuseOnce.text = "Refuse this once";
   Object.assign(forks, { refuse: false, hold: false, release: () => {} });
   Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
+  Object.assign(queueRefusals, { remove: false, edit: false });
   native.calls.clear();
   sent.length = 0;
 }
@@ -65,6 +69,16 @@ function refusal(text: string): string | undefined {
     });
   }
   const command = message.type === "command" ? message.command : undefined;
+  if (
+    (command?.payload?.type === "queue.remove" && queueRefusals.remove) ||
+    (command?.payload?.type === "queue.edit" && queueRefusals.edit)
+  )
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "queue_conflict",
+    });
   if (command?.payload?.type === "thread.fork" && forks.refuse)
     return JSON.stringify({
       type: "commandResult",
@@ -97,7 +111,11 @@ export function connect(
     items,
     readSnapshots,
     held,
-  }: { items?: number; readSnapshots?: ReadSnapshotStorage; held?: Promise<void> } = {},
+  }: {
+    items?: number;
+    readSnapshots?: ReadSnapshotStorage;
+    held?: Promise<void>;
+  } = {},
 ): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({

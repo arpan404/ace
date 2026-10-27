@@ -33,6 +33,7 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { SentPromptRequest, readSentPrompt } from "./sent-prompt.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -190,6 +191,11 @@ export class NativeServices {
           await readNativeMessage(this.owner, message.data, controller.signal),
           "",
         );
+        return;
+      }
+      const sent = SentPromptRequest.safeParse(raw);
+      if (sent.success) {
+        this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
         return;
       }
       const limits = UsageLimitsRequest.safeParse(raw);

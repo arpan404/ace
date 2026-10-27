@@ -18,6 +18,14 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
     var mention: ComposerMention? = nil
+    /// Images, files and folders pasted or dropped onto the composer; nil takes only words.
+    var intake: (([NSItemProvider]) -> Void)? = nil
+    /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
+    var recall: ((Int) async -> String?)? = nil
+    /// Previous message's walk back through what was sent.
+    @State private var recaller = ComposerRecaller()
+    /// Something is being dragged over the composer.
+    @State private var dropping = false
     /// Files on the next message: with any, the message can go without words.
     var files = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
@@ -97,6 +105,20 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
             .aceContainerShape(AceShape.field)
             .composerGlass(in: AceShape.field)
+            // A file dragged over the composer: its edge brightens where it will land.
+            .overlay {
+                if dropping {
+                    AceShape.field.strokeBorder(AceTheme.Colours.foreground.opacity(0.35), lineWidth: AceTheme.Dimensions.border * 2)
+                        .allowsHitTesting(false).transition(.opacity)
+                }
+            }
+            .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
+                guard let intake else { return false }
+                intake(providers)
+                feedback += 1
+                return true
+            }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dropping)
             .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
         }
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
@@ -104,8 +126,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in
             guard let picked else { return }
-            draft.text = Mention.insert(picked.path, into: draft.text)
-            draft.add(.file(picked.path, endingAt: draft.text))
+            draft.text = Mention.insert(picked.written, into: draft.text)
+            draft.add(.file(picked.path, lines: picked.lines, endingAt: draft.text))
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
@@ -116,7 +138,21 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onDisappear { draft.flush() }
     }
     private func pick(_ row: SuggestionRow) {
+        if row.action == "recall" { recallPrevious(); return }
         suggester?.choose(row, text: $draft.text, place: $place, keep: { draft.add($0) }, notice: { notice = $0 }, run: run)
+    }
+    /// Previous message: into an empty composer, or one further back while the composer still
+    /// holds the last one recalled; otherwise after what is typed, so nothing typed is lost.
+    private func recallPrevious() {
+        guard let recall else { return }
+        let draft = draft
+        Task {
+            switch await recaller.recall(into: draft, fetch: recall) {
+            case .recalled: feedback += 1
+            case .none(let words): notice = words
+            case .skipped: break
+            }
+        }
     }
     private var plus: some View {
         leading(pick)
@@ -131,7 +167,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                             withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place)
+                        place: place, pasteFiles: intake)
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -179,5 +215,16 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                 return saved
             }
         }
+    }
+}
+
+/// Words handed back to the composer. They follow what is already typed after a blank line, as
+/// the web's returned draft does, so nothing typed is lost.
+struct ComposerRestore: Equatable {
+    let id = UUID()
+    let text: String
+    func merged(into current: String) -> String {
+        let typed = current.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        return typed.isEmpty ? text : "\(typed)\n\n\(text)"
     }
 }

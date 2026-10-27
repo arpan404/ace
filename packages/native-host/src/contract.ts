@@ -57,6 +57,9 @@ export interface HostOperations {
   /** The browser's device toolbar per tab (`@ace/ui-core/browser-device-settings`). */
   "storage.devices.load": { input: null; body: never };
   "storage.devices.save": { input: null; body: string };
+  /** Failed sends the person took back or discarded (`apps/ios/bridge/dismissed-sends.ts`). */
+  "storage.dismissed.load": { input: null; body: never };
+  "storage.dismissed.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */

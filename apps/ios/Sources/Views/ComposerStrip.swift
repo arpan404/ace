@@ -73,14 +73,23 @@ struct GroupedValue: View {
 }
 
 /// A small text action inside a request card: "Details". Ghost, a step brighter when pressed.
+/// `prominent` is the strip's way on that carries the work on ("Continue"): full ink, a step bolder.
 struct StripTextButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
-            .foregroundStyle(configuration.isPressed ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
+            .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            // 44pt: the smallest comfortable tap.
+            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.
+            .opacity(enabled ? 1 : 0.45)
+            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
             .contentShape(Rectangle())
     }
 }

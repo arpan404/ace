@@ -26,6 +26,8 @@ struct NativeTextInput: UIViewRepresentable {
     var onCaret: ((String, Int) -> Void)? = nil
     /// Where the caret goes after the composer changed the words itself; each value applies once.
     var place: CaretPlacement? = nil
+    /// Images and files pasted in; nil pastes only words.
+    var pasteFiles: (([NSItemProvider]) -> Void)? = nil
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -48,6 +50,7 @@ struct NativeTextInput: UIViewRepresentable {
     }
     func updateUIView(_ view: ComposerTextView, context: Context) {
         context.coordinator.parent = self
+        view.pasteFiles = pasteFiles
         if view.text != text { view.text = text; context.coordinator.measure(view) }
         if let place, place.id != context.coordinator.placed {
             context.coordinator.placed = place.id
@@ -148,6 +151,16 @@ struct CaretPlacement: Equatable {
 
 @MainActor final class ComposerTextView: UITextView {
     var inputBegan: () -> Void = {}
+    /// Images and files pasted into the message go along with it; words paste as words.
+    var pasteFiles: (([NSItemProvider]) -> Void)?
+    override func paste(_ sender: Any?) {
+        if let pasteFiles, ComposerIntake.pastesFiles() { pasteFiles(UIPasteboard.general.itemProviders); return }
+        super.paste(sender)
+    }
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)), pasteFiles != nil, ComposerIntake.pastesFiles() { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
     /// Esc from a hardware keyboard; without one, Esc drops the keyboard.
     var escape: (() -> Void)?
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

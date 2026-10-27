@@ -10,7 +10,7 @@ struct FileScreen: View {
     let model: ClientModel
     let scope: FilesScope
     let target: FileTarget
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     /// Where an Undo for this file goes once the screen closes after deleting it; without one
     /// the screen stays, saying the file is gone, with Undo.
     var deleted: ((FileStrip) -> Void)?
@@ -31,9 +31,13 @@ struct FileScreen: View {
     @State private var share: SharedFile?
     @State private var showChanges = false
     @State private var handle = SourceHandle()
+    /// Lines selected while reading: Mention lines puts them in the message.
+    @State private var selectedLines: ClosedRange<Int>?
+    @State private var mentioned = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var actions: FileActions
 
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((String) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
+    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
         self.deleted = deleted
         self.model = model
         self.scope = scope
@@ -67,6 +71,9 @@ struct FileScreen: View {
                 Button("Discard changes", role: .destructive) { stopEditing() }
                 Button("Keep editing", role: .cancel) {}
             }
+            .overlay(alignment: .bottom) { mentionLines }
+            .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth(duration: 0.25), value: selectedLines)
+            .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
     }
@@ -133,9 +140,37 @@ struct FileScreen: View {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
                                                     colours: content.colours ?? [], runs: content.runs ?? [],
                                                     marks: Dictionary((content.marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { a, _ in a })),
-                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 })
+                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
+                           selected: mention == nil ? nil : { selectedLines = $0 },
+                           mention: mention == nil ? nil : { mentionSelection($0) })
                 .ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    /// While lines are selected, one glass capsule over the text says what Mention puts in the
+    /// message: "Mention line 12" or "Mention lines 12–20".
+    @ViewBuilder private var mentionLines: some View {
+        if let lines = selectedLines, mention != nil, !editing {
+            Button { mentionSelection(lines) } label: {
+                Text(lines.count == 1 ? "Mention line \(lines.lowerBound)" : "Mention lines \(lines.lowerBound)–\(lines.upperBound)")
+                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .monospacedDigit()
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .contentShape(AceShape.capsule)
+            }
+            .buttonStyle(.plain)
+            .floatingGlass()
+            .padding(.bottom, AceTheme.Spacing.lg)
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier("preview.mentionLines")
+        }
+    }
+    private func mentionSelection(_ lines: ClosedRange<Int>) {
+        mentioned += 1
+        selectedLines = nil
+        mention?(ComposerMention(path: path, lines: lines))
     }
 
     // MARK: Toolbars
@@ -159,7 +194,7 @@ struct FileScreen: View {
             Button(source ? "View preview" : "View source", systemImage: source ? "eye" : "chevron.left.forwardslash.chevron.right") { source.toggle() }
         }
         if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", systemImage: "at") { mention(path) }.accessibilityIdentifier("preview.mention") }
+        if let mention { Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
         if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
         if actions.canChange, content?.kind != "missing" {

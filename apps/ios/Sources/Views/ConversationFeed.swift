@@ -74,6 +74,7 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Words taken back from a message that wasn't sent go into the composer.
     @State private var reading = TranscriptReading()
     @State private var following = true
     @State private var initialScroll = false
@@ -121,8 +122,19 @@ struct ConversationFeed: View {
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                        PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }
+                        PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
+                                       words: { await model.sendWords(row.id) },
+                                       saveWords: { await model.editFailedSend(row.id, text: $0) },
+                                       discard: { await model.dismissSend(row.id) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                    }
+                    if let held = thread.screen.queue?.notSent {
+                        HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
+                                    edit: { message, change in await model.editQueued(message, change: change) },
+                                    words: { await model.queuedWords(held.id) },
+                                    saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .transition(.opacity)
                     }
                 }
                 // Room for the composer, its strip and the keyboard, and under the last row so it
@@ -134,6 +146,8 @@ struct ConversationFeed: View {
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
             .padding(.top, AceTheme.Spacing.sm)
+            // A message that wasn't sent fades in and out where it was written.
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)

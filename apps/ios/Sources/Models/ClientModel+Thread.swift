@@ -79,6 +79,57 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
+    /// A queue-wide choice (Pause queue, Resume, Continue, a limit's choice): the bridge fences it
+    /// to the queue as the daemon has it now.
+    func actOnQueue(_ choice: QueueRow.Action) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        var action: [String: Any] = ["id": choice.id, "label": choice.label]
+        if let instance = choice.instanceId { action["instanceId"] = instance }
+        return await admissions.wait(id: id) { threadAction(["type": "queueAct", "action": action, "requestId": id]) }
+    }
+    /// A message the person sent in the thread, `older` 0 the latest (`bridge/sent-prompt.ts`).
+    func sentText(_ threadId: String, older: Int) async -> String? {
+        struct Reply: Decodable { let text: String? }
+        return try? await service(["type": "thread.sentText", "threadId": threadId, "older": older], as: Reply.self).text
+    }
+    /// A queued message's full words, read from the daemon's queue, for the edit sheet.
+    func queuedWords(_ messageId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) { threadAction(["type": "queueWords", "messageId": messageId, "requestId": id]) }
+    }
+    /// New words for a queued message, in place, fenced to the queue `revision` they were read at:
+    /// nil once the daemon took them, else why not (the message stays as it was).
+    func editQueuedWords(_ messageId: String, text: String, revision: Int?) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            var change: [String: Any] = ["kind": "words", "text": text]
+            if let revision { change["revision"] = revision }
+            return threadAction(["type": "queue", "messageId": messageId, "change": change, "requestId": id])
+        }
+    }
+    /// A failed send's full words, for the edit sheet.
+    func sendWords(_ commandId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "sendWords", "commandId": commandId], "requestId": id])
+        }
+    }
+    /// New words for a failed send, saved in place in the outbox: nil once saved, else why not (the
+    /// original stays). Retry then sends them.
+    func editFailedSend(_ commandId: String, text: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        let answer = await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "editSend", "commandId": commandId, "text": text], "requestId": id])
+        }
+        return answer.ok ? nil : answer.message
+    }
+    /// The queue's list shows its next page.
+    func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the
     /// sheet was opened on (`epoch`): a sheet left over from a thread the person has since left is
     /// refused by the bridge, never applied to the thread open now. Resolves once the daemon took

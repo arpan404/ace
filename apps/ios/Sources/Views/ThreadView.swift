@@ -124,7 +124,7 @@ struct ThreadView: View {
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
-                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
+                                       mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
                 ComposerSettingsSheet(screen: screen,
                                       openModel: { afterSettings = { showModels = true }; showSettings = false },
@@ -147,9 +147,11 @@ struct ThreadView: View {
             .sheet(isPresented: $showQueue) {
                 if let queue = screen.queue {
                     QueueSheet(queue: queue, canAct: model.canOperate,
-                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                        await model.editQueued(message, change: change)
-                    }
+                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer",
+                               edit: { message, change in await model.editQueued(message, change: change) },
+                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() },
+                               words: { await model.queuedWords($0) },
+                               saveWords: { await model.editQueuedWords($0, text: $1, revision: $2) })
                 }
             }
             // The next message continued this thread in a new one: open it once its row is here
@@ -202,10 +204,19 @@ struct ThreadView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
+                    else if let hold = screen.queue?.strip,
+                            HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
+                        QueueHoldStrip(strip: hold,
+                                       canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
+                                       act: { await model.actOnQueue($0) },
+                                       chooseModel: { showModels = true }, openQueue: { showQueue = true })
+                    }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
                 }
-                .transition(.opacity)
+                // A strip rises out of the composer and fades; with Reduce Motion it only fades.
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
@@ -218,13 +229,21 @@ struct ThreadView: View {
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                                 intake: { providers in
+                                     Task {
+                                         let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
+                                         attachProblem = result.note
+                                         for file in result.files { model.attach(file) }
+                                     }
+                                 },
+                                 recall: { older in await model.sentText(thread.id, older: older) },
                                  files: screen.attachments.count,
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
@@ -252,6 +271,7 @@ struct ThreadView: View {
             .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.

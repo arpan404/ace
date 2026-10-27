@@ -1,8 +1,8 @@
-import { useContext, useRef, useState } from "react";
+import { useContext, useRef, useState, useSyncExternalStore } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
-import { baseName, tokensFromInput } from "@ace/ui-core";
-import { retrySend } from "@ace/client";
+import { baseName, sendBusyReason, tokensFromInput } from "@ace/ui-core";
+import { retrySend, type SendOp } from "@ace/client";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -39,13 +39,16 @@ import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
 import { useDiscardSend } from "./use-discard-send.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { EditSendDialog } from "./edit-send-dialog.tsx";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
 /**
- * "Not sent · the reason", with Retry (sends it again), Edit (back into the composer), Discard
- * (drops it, with Undo), and Clear stale lock when Git's cleanup fence (`fenced`) stopped it. Without the message's
- * `payload` (its item isn't loaded) only the line shows.
+ * "Not sent · the reason", with Retry (sends it again), Edit (its words changed in place in the
+ * outbox, `EditSendDialog`), Discard (drops it, with Undo), and Clear stale lock when Git's
+ * cleanup fence (`fenced`) stopped it. Edit and Retry of one send run one at a time: each greys
+ * while the other runs. Without the message's `payload` (its item isn't loaded) only the line
+ * shows.
  */
 export function FailedSend(props: {
   threadId: string;
@@ -54,9 +57,11 @@ export function FailedSend(props: {
   reason: string | undefined;
   fenced?: boolean | undefined;
 }) {
-  const actions = useSendActions(props.threadId);
+  const actions = useSendActions();
   const discard = useDiscardSend();
   const { payload, commandId } = props;
+  const [editing, setEditing] = useState(false);
+  const running = useSendOp(commandId);
   return (
     <div role="alert" className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
       <NotSent reason={props.reason} />
@@ -66,7 +71,7 @@ export function FailedSend(props: {
           <Button
             size="xs"
             variant="ghost"
-            disabled={actions.retrying(commandId)}
+            disabled={actions.retrying(commandId) || running === "editing"}
             onClick={() => actions.retry(commandId, payload)}
           >
             <Icon icon={ArrowClockwiseIcon} size={12} />
@@ -75,8 +80,8 @@ export function FailedSend(props: {
           <Button
             size="xs"
             variant="ghost"
-            disabled={actions.retrying(commandId)}
-            onClick={() => actions.edit(commandId, payload)}
+            disabled={actions.retrying(commandId) || running === "retrying"}
+            onClick={() => setEditing(true)}
           >
             <Icon icon={PencilSimpleIcon} size={12} />
             Edit
@@ -91,15 +96,27 @@ export function FailedSend(props: {
           </Button>
         </span>
       )}
+      {editing && payload && (
+        <EditSendDialog commandId={commandId} payload={payload} onClose={() => setEditing(false)} />
+      )}
     </div>
   );
 }
 
+/** What runs on a failed send now (an edit being saved, a retry on its way), from `client.sendOps`. */
+function useSendOp(commandId: string): SendOp | undefined {
+  const client = useClient();
+  return useSyncExternalStore(
+    (changed) => client.sendOps.observe((id) => id === commandId && changed()),
+    () => client.sendOps.current(commandId),
+  );
+}
+
 /**
- * Retry releases the original retained message, or sends a refused command under a new id.
- * Edit hands it back to its composer.
+ * Retry releases the original retained message, or sends a refused command under a new id, with
+ * its words as they are when the retry is saved; never beside an edit of the same send.
  */
-export function useSendActions(threadId: string) {
+export function useSendActions() {
   const client = useClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -150,7 +167,15 @@ export function useSendActions(threadId: string) {
       if (inFlight.current.has(commandId)) return;
       inFlight.current.add(commandId);
       setPending(new Set(inFlight.current));
-      void retrySend(client, commandId, payload)
+      void client.sendOps
+        .run(commandId, "retrying", () =>
+          retrySend(client, commandId, () => client.pendingSend(commandId)?.payload ?? payload),
+        )
+        .then((ran) => {
+          if (ran.ran) return ran.value;
+          toast.error({ title: "Not sent again yet", description: sendBusyReason(ran.running) });
+          return undefined;
+        })
         .then((outcome) => {
           if (outcome !== "resent") return;
           dismissSend(storage, commandId);
@@ -174,17 +199,6 @@ export function useSendActions(threadId: string) {
         });
     },
     returnStart,
-    edit(commandId: string, payload: SendPayload) {
-      if (payload.type === "thread.create") return void returnStart(commandId, payload);
-      const draft = draftOf(payload);
-      const key = `thread:${threadId}`;
-      if (restoreReturnedDraft(storage, key, draft)) dismissSend(storage, commandId);
-      else
-        toast.error({
-          title: "Couldn't save the edit",
-          description: "Keep this editor open. The original message is still here.",
-        });
-    },
   };
 }
 

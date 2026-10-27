@@ -140,3 +140,15 @@ export function tokensFromInput(input: readonly ContentPart[]): {
   }
   return { text, tokens };
 }
+
+/**
+ * A sent or queued message's input with new words: its `@` mentions and catalog picks follow the
+ * edit as the composer's do, and its files and images stay. Pure.
+ */
+export function inputWithText(input: readonly ContentPart[], text: string): ContentPart[] {
+  const original = tokensFromInput(input);
+  return [
+    ...composerInput(text, editComposerTokens(original.text, text, original.tokens)),
+    ...input.filter((part) => part.type !== "text" && part.type !== "mention"),
+  ];
+}

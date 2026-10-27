@@ -1,4 +1,10 @@
-import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
+import {
+  retryOf,
+  retrySend,
+  type ChangeTap,
+  type ClientCore,
+  type ThreadSource,
+} from "@ace/client";
 import {
   FollowUpBehavior,
   InteractionId,
@@ -6,7 +12,13 @@ import {
   type CatalogEntry,
   type CommandPayload,
 } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
+import {
+  composerReply,
+  isBusy,
+  messageHasContent,
+  sendBusyReason,
+  type QueueAction,
+} from "@ace/ui-core";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -18,6 +30,7 @@ import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachm
 import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
+import { readQueuedWords } from "./queued-words.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
@@ -37,6 +50,14 @@ const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
 });
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+
+/** The parsed choice as the shared `QueueAction`, without an absent account. */
+function queueAction(action: Extract<ThreadAction, { type: "queueAct" }>["action"]): QueueAction {
+  if (action.id !== "migrate_now") return action;
+  return action.instanceId
+    ? { id: action.id, label: action.label, instanceId: action.instanceId }
+    : { id: action.id, label: action.label };
+}
 
 export class ThreadSession {
   readonly #client: ClientCore;
@@ -87,8 +108,14 @@ export class ThreadSession {
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
     this.#pill = new PillFollower(store, put);
-    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
-      this.#pill.queued(count),
+    this.#queue = new QueueFollower(
+      client,
+      store,
+      this.#threadId,
+      signal,
+      put,
+      (count, held) => this.#pill.queued(count, held),
+      () => host.now(),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
@@ -131,7 +158,15 @@ export class ThreadSession {
         this.#access.update();
       }
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
-      if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
+      // The root agent's limit failure and the kept message's notice say what holds the queue.
+      if (
+        keys === "all" ||
+        keys.has("queue") ||
+        keys.has("thread") ||
+        keys.has("agents") ||
+        keys.has("order") ||
+        [...keys].some((key) => key.startsWith("agent:"))
+      )
         this.#queue.update();
       if (keys === "all") this.#ready();
     });
@@ -261,6 +296,25 @@ export class ThreadSession {
           action.requestId,
           "That queued message has changed. Check the queue and try again.",
         );
+        break;
+      case "queueAct":
+        void this.#queue.act(queueAction(action.action)).then(
+          (payload) => this.#dispatch(payload, action.requestId),
+          () => this.#admission(action.requestId, false, "Couldn't reach the queue. Try again."),
+        );
+        break;
+      case "queueWords": {
+        const id = action.requestId;
+        void readQueuedWords(
+          this.#client,
+          this.#threadId,
+          action.messageId,
+          this.#abort.signal,
+        ).then((reply) => this.#pump.put(`words:${id}`, () => ({ type: "words", id, ...reply })));
+        break;
+      }
+      case "queueMore":
+        this.#queue.more();
         break;
       case "goal":
         this.#dispatch(
@@ -496,9 +550,16 @@ export class ThreadSession {
       this.#admission(id, false, "That message isn't waiting for a retry.");
       return;
     }
+    if (this.#client.pendingSend(retryOf(commandId))) {
+      this.#admission(id, false, "It was sent again already: act on the newer one.");
+      return;
+    }
     try {
-      await retrySend(this.#client, commandId, pending.payload);
-      this.#admission(id, true, "");
+      // The send's words as they are when the retry is saved, never as they were when asked.
+      const ran = await this.#client.sendOps.run(commandId, "retrying", () =>
+        retrySend(this.#client, commandId, () => this.#client.pendingSend(commandId)?.payload),
+      );
+      this.#admission(id, ran.ran, ran.ran ? "" : sendBusyReason(ran.running));
     } catch {
       this.#admission(id, false, "Couldn't send it again. It is still here.");
     }

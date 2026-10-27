@@ -32,6 +32,10 @@ struct SourceTextView: UIViewRepresentable {
     let handle: SourceHandle
     /// Called once the edited text first differs from what was loaded, and again if it returns.
     var dirty: ((Bool) -> Void)?
+    /// The lines (1-based) the person selected while reading, nil once nothing is; with `mention`,
+    /// the selection's edit menu also offers Mention in message.
+    var selected: ((ClosedRange<Int>?) -> Void)? = nil
+    var mention: ((ClosedRange<Int>) -> Void)? = nil
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
@@ -66,6 +70,25 @@ struct SourceTextView: UIViewRepresentable {
             (textView.superview?.superview as? SourceContainer)?.textChanged()
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard let selected = parent.selected else { return }
+            selected(lines(textView))
+        }
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let mention = parent.mention, !textView.isEditable, let lines = lines(textView) else { return nil }
+            let action = UIAction(title: "Mention in message", image: UIImage(systemName: "at")) { _ in mention(lines) }
+            return UIMenu(children: [action] + suggestedActions)
+        }
+        /// The 1-based lines a non-empty selection touches while reading.
+        private func lines(_ textView: UITextView) -> ClosedRange<Int>? {
+            let range = textView.selectedRange
+            guard range.length > 0, !textView.isEditable,
+                  let container = textView.superview?.superview as? SourceContainer else { return nil }
+            let first = container.line(at: range.location)
+            // A selection ending just after a line break stays on the line before it.
+            let last = container.line(at: max(range.location, range.location + range.length - 1))
+            return first...max(first, last)
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             (scrollView.superview?.superview as? SourceContainer)?.gutter.setNeedsDisplay()
@@ -124,6 +147,15 @@ final class SourceContainer: UIView {
     }
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
+    /// The 1-based line holding UTF-16 offset `offset`.
+    func line(at offset: Int) -> Int {
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
+        }
+        return low + 1
+    }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {

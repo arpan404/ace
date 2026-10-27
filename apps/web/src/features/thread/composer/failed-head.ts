@@ -35,11 +35,4 @@ export function withoutMessage(queue: QueueControls, id: string | undefined): Qu
   };
 }
 
-/** One short sentence for the "Not sent" line; the rest of a longer reason goes to Details. */
-export function shortReason(text: string | undefined): string | undefined {
-  const trimmed = text?.trim();
-  if (!trimmed) return undefined;
-  const end = trimmed.search(/[.!?](\s|$)/);
-  const sentence = end === -1 ? trimmed : trimmed.slice(0, end);
-  return sentence.length > 96 ? `${sentence.slice(0, 95).trimEnd()}…` : sentence;
-}
+export { shortReason } from "@ace/ui-core";

@@ -1,5 +1,5 @@
 import type { Item } from "@ace/protocol";
-import { mayBeSystemInput, messageText } from "@ace/ui-core";
+import { mayBeSystemInput, messageText } from "./system-input.ts";
 
 /**
  * A message the person sent in this transcript, for ↑ and ↓ in the composer: `older` 0 is the

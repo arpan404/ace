@@ -232,7 +232,7 @@ struct NewThreadSheet: View {
         if let client, let project = draft.projectId {
             NavigationStack {
                 FilesScreen(model: client, scope: .project(project), subtitle: self.project?.name ?? "",
-                            mention: { file in mentionFile(file); browsing = false })
+                            mention: { file in mentionFile(file.path); browsing = false })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button { browsing = false } label: { Image(systemName: "xmark") }
@@ -308,6 +308,10 @@ struct NewThreadSheet: View {
 struct ComposerMention: Equatable {
     let id = UUID()
     let path: String
+    /// Source lines picked in the file viewer (1-based, inclusive); nil mentions the whole file.
+    var lines: ClosedRange<Int>? = nil
+    /// The words the composer inserts after `@`, as the web labels it: `path` or `path:12-20`.
+    var written: String { lines.map { "\(path):\($0.lowerBound)-\($0.upperBound)" } ?? path }
 }
 
 /// `@path` as the web's composer inserts it, separated from the words around it.

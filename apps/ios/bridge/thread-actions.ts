@@ -81,11 +81,47 @@ export const ThreadAction = z.discriminatedUnion("type", [
     change: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("remove") }),
       z.object({ kind: z.literal("steer") }),
-      z.object({ kind: z.literal("words"), text: z.string().min(1) }),
+      z.object({
+        kind: z.literal("words"),
+        text: z.string().min(1),
+        /** The revision the edited words were read at: a newer queue refuses the edit. */
+        revision: z.number().int().nonnegative().optional(),
+      }),
       z.object({ kind: z.literal("move"), step: z.union([z.literal(-1), z.literal(1)]) }),
     ]),
     requestId,
   }),
+  /** A queue-wide choice: Pause, Resume, Continue or a limit's choice (`queueActionPayload`). */
+  z.object({
+    type: z.literal("queueAct"),
+    action: z.discriminatedUnion("id", [
+      z.object({
+        id: z.enum([
+          "resume_now",
+          "resume_at_reset",
+          "snooze_until_reset",
+          "resume",
+          "continue",
+          "hold",
+        ]),
+        label: z.string().max(128).default(""),
+      }),
+      z.object({
+        id: z.literal("migrate_now"),
+        label: z.string().max(128).default(""),
+        instanceId: z.string().min(1).max(128).optional(),
+      }),
+    ]),
+    requestId,
+  }),
+  /** A queued message's full words, for the edit sheet (`queued-words.ts`). */
+  z.object({
+    type: z.literal("queueWords"),
+    messageId: z.string().min(1).max(256),
+    requestId,
+  }),
+  /** The queue's list shows its next page. */
+  z.object({ type: z.literal("queueMore") }),
   /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
   z.object({
     type: z.literal("goal"),

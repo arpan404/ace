@@ -58,6 +58,13 @@ final class DurableStore {
             guard value.utf8.count <= 1_048_576 else { throw HostError.storage }
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('browserDevices',?)", [value]) }
             return ""
+        // Failed sends the person took back or discarded (`bridge/dismissed-sends.ts`): a plain replace.
+        case "storage.dismissed.load": return try query("SELECT value FROM metadata WHERE id='dismissedSends'").first ?? ""
+        case "storage.dismissed.save":
+            let value = try request.requireBody()
+            guard value.utf8.count <= 65_536 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('dismissedSends',?)", [value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }
