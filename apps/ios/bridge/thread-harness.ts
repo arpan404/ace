@@ -23,6 +23,8 @@ export const refuseOnce = { text: "Refuse this once" };
 export const slowSettings = { ms: 0 };
 /** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
 export const forks = { refuse: false, hold: false, release: () => {} };
+/** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
+export const queueRemoves = { conflict: false };
 /** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
 export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
@@ -40,6 +42,7 @@ export async function reset(): Promise<void> {
   slowSettings.ms = 0;
   Object.assign(forks, { refuse: false, hold: false, release: () => {} });
   Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
+  queueRemoves.conflict = false;
   native.calls.clear();
   sent.length = 0;
 }
@@ -65,6 +68,13 @@ function refusal(text: string): string | undefined {
     });
   }
   const command = message.type === "command" ? message.command : undefined;
+  if (command?.payload?.type === "queue.remove" && queueRemoves.conflict)
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "queue_conflict",
+    });
   if (command?.payload?.type === "thread.fork" && forks.refuse)
     return JSON.stringify({
       type: "commandResult",

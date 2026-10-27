@@ -13,6 +13,7 @@ import {
   type QueueAction,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { queuedFiles } from "./take-back.ts";
 
 /*
  * What holds the thread's queue, as the phone draws it (the web's held-turn strip, queue notice
@@ -143,7 +144,7 @@ function notSentRow(
   return {
     id: message.id,
     text: preview(textOf(message), 8192),
-    attachments: message.input.filter((part) => part.type !== "text").length,
+    attachments: queuedFiles(message),
     reason: preview(reason, 256),
     // Details repeats nothing the line already says.
     detail: detail && detail !== failure?.trim() ? preview(detail, 2048) : "",

@@ -18,6 +18,7 @@ import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachm
 import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
+import { readQueuedWords, takeBackQueued } from "./take-back.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
@@ -290,6 +291,14 @@ export class ThreadSession {
           () => this.#admission(action.requestId, false, "Couldn't reach the queue. Try again."),
         );
         break;
+      case "queueWords": {
+        const id = action.requestId;
+        const run = action.takeBack ? takeBackQueued : readQueuedWords;
+        void run(this.#client, this.#threadId, action.messageId, this.#abort.signal).then((reply) =>
+          this.#pump.put(`words:${id}`, () => ({ type: "words", id, ...reply })),
+        );
+        break;
+      }
       case "queueMore":
         this.#queue.more();
         break;

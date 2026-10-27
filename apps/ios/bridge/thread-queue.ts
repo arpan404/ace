@@ -8,6 +8,7 @@ import {
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 import { queueHold, textOf } from "./queue-hold.ts";
+import { queuedFiles } from "./take-back.ts";
 
 /*
  * Follow-ups waiting in the daemon's queue. A queued send joins the transcript only when it is
@@ -178,7 +179,7 @@ export class QueueFollower {
           text: preview(textOf(message), 512),
           delivery: message.delivery,
           state: message.state,
-          attachments: message.input.filter((part) => part.type !== "text").length,
+          attachments: queuedFiles(message),
         })),
         more: Math.max(0, messages.length - this.#shown),
         control: hold.control,

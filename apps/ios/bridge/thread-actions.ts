@@ -109,6 +109,16 @@ export const ThreadAction = z.discriminatedUnion("type", [
     ]),
     requestId,
   }),
+  /**
+   * A queued message's full words: `read` only reads them (to change them where it waits);
+   * `takeBack` removes it on the daemon and hands them back once the daemon confirmed.
+   */
+  z.object({
+    type: z.literal("queueWords"),
+    messageId: z.string().min(1).max(256),
+    takeBack: z.boolean(),
+    requestId,
+  }),
   /** The queue's list shows its next page. */
   z.object({ type: z.literal("queueMore") }),
   /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
