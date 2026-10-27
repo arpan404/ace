@@ -1,7 +1,7 @@
 import type { Automation } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
 import { formatNextRun, localTimeZone } from "@/features/automation-schedule/index.ts";
-import { scheduleState, scheduleStateCopy } from "./trigger-health.ts";
+import { scheduleState, scheduleStateCopy } from "@ace/ui-core/automations";
 
 /**
  * When it runs next. With automations off on the daemon's machine nothing runs, so it says so

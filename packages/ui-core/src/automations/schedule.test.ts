@@ -8,14 +8,14 @@ import {
   presetToSchedule,
   scheduleToPreset,
   upcomingRuns,
-} from "@/features/automation-schedule/index.ts";
+} from "./schedule.ts";
 import {
   AutomationForm,
   automationFromForm,
   blankForm,
   formFromAutomation,
   scheduleFromForm,
-} from "./automation-values.ts";
+} from "./form.ts";
 
 // 2026-10-02T14:45:00Z: a start instant whose wall clock differs by zone.
 const startAt = Date.UTC(2026, 9, 2, 14, 45);

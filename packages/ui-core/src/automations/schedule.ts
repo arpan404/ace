@@ -1,4 +1,4 @@
-import { formatClock } from "@ace/ui-core";
+import { formatClock } from "../time.ts";
 import { civilStamp, zonedCalendar } from "@ace/automations/calendar";
 import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule, AutomationTrigger } from "@ace/protocol";

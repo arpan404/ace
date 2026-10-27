@@ -21,7 +21,7 @@ import {
   automationFromForm,
   blankForm,
   titleFromPrompt,
-} from "./automation-values.ts";
+} from "@ace/ui-core/automations";
 import { ideas, type Idea } from "./ideas.ts";
 import { AutomationAccess, AutomationModelChip, useShownModel } from "./run-settings.tsx";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
