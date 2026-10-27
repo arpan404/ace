@@ -102,9 +102,9 @@ describe.skipIf(!executablePath)("an agent typing beside the person", () => {
     await f.service.input("thread", nudge, "person");
     await fill;
     expect(await read("document.getElementById('second').value")).toBe("two");
-    const { person, second } = z
+    const filled = z
       .object({ person: z.number(), second: z.number() })
       .parse(await read("filledAt"));
-    expect(second - person).toBeGreaterThanOrEqual(quietMs - 150);
+    expect(filled.second - filled.person).toBeGreaterThanOrEqual(quietMs - 150);
   }, 60_000);
 });
