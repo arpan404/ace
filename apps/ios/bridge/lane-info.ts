@@ -2,6 +2,7 @@ import type { ChangeTap, ThreadReader } from "@ace/client";
 import { subagentInspection } from "@ace/ui-core/mobile";
 import { touchesTree } from "./agents.ts";
 import { preview } from "./presentation.ts";
+import { textBubble } from "./thread-messages.ts";
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
 
@@ -19,12 +20,19 @@ export function followLaneInfo(
   const send = () =>
     put("laneInfo", () => {
       const info = subagentInspection(store, agentId, now());
-      if (info) {
-        info.name = preview(info.name, 256);
-        info.parent.name = preview(info.parent.name, 256);
-        if (info.prompt) info.prompt.text = preview(info.prompt.text, 16_384);
-      }
-      return { type: "thread.laneInfo", lane: agentId, info: info ?? null };
+      if (!info) return { type: "thread.laneInfo", lane: agentId, info: null };
+      const prompt = info.prompt && { at: info.prompt.at, bubble: textBubble(info.prompt.text) };
+      return {
+        type: "thread.laneInfo",
+        lane: agentId,
+        // The prompt is drawn as the person's bubble: its runs, bound and fold, not raw text.
+        info: {
+          ...info,
+          name: preview(info.name, 256),
+          parent: { ...info.parent, name: preview(info.parent.name, 256) },
+          prompt,
+        },
+      };
     });
   send();
   return (keys) => {

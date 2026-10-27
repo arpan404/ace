@@ -11,6 +11,7 @@ import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
+import { seedSubagents } from "./subagent-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -152,6 +153,23 @@ daemon.createThread({
   details: details("feat/process-owner"),
 });
 seedSheets(daemon);
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-subagents",
+  workspaceId: "ace",
+  title: "Harden process cleanup",
+  provider: "claude",
+  details: details("fix/process-cleanup"),
+});
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-big-tree",
+  workspaceId: "ace",
+  title: "Shard the test suite",
+  provider: "codex",
+  details: details("perf/shards"),
+});
+seedSubagents(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",

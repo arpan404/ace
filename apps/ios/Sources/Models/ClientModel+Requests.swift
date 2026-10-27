@@ -52,15 +52,23 @@ extension ClientModel {
     /// that thread, and its release must not close another generation's log.
     func closeSteps(ordinal: Int, epoch: Int? = nil) { releaseAction(["type": "steps.close", "ordinal": ordinal], epoch: epoch) }
     func moreSteps(ordinal: Int) { threadAction(["type": "steps.more", "ordinal": ordinal]) }
-    /// A native subagent's lane sheet opened or closed.
+    /// A native subagent's lane opened. Opening the lane already open keeps what it holds.
     func openLane(_ agentId: String) {
-        guard let thread else { return }
+        guard let thread, thread.screen.lane?.agentId != agentId else { return }
         thread.screen.lane = LaneModel(agentId: agentId)
         threadAction(["type": "lane.open", "agentId": agentId])
     }
-    func closeLane(epoch: Int? = nil) {
-        if epoch == nil || thread?.epoch == epoch { thread?.screen.lane = nil }
-        releaseAction(["type": "lane.close"], epoch: epoch)
+    /// A lane's view went away. Only that agent's lane closes: pushing a nested subagent opens
+    /// its lane before the one under it disappears.
+    func closeLane(_ agentId: String, epoch: Int? = nil) {
+        if epoch == nil || thread?.epoch == epoch, thread?.screen.lane?.agentId == agentId { thread?.screen.lane = nil }
+        releaseAction(["type": "lane.close", "agentId": agentId], epoch: epoch)
+    }
+    /// Ask the parent of a failed or stopped subagent to run it again: true once admitted.
+    func retrySubagent(_ agentId: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { threadAction(["type": "lane.retry", "agentId": agentId, "requestId": id]) }
     }
     /// Letting go of a read: with no runtime there is nothing to release, so it is never an error.
     private func releaseAction(_ value: [String: Any], epoch: Int?) { action(threadMessage(value, epoch: epoch)) }

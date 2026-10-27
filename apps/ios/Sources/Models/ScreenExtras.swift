@@ -15,6 +15,10 @@ import Observation
 /// A native subagent's own blocks, grouped as the transcript is, for its lane sheet.
 @MainActor @Observable final class LaneModel {
     let agentId: String
+    /// What the subagent is (`subagentInspection`); nil until the bridge has read it.
+    var info: SubagentInfo?
+    /// The bridge said this agent isn't in the loaded thread.
+    var missing = false
     var blocks: [String: BlockModel] = [:]
     var order: [String] = []
     @ObservationIgnored private var positions: [String: Int] = [:]
@@ -65,6 +69,10 @@ extension ThreadScreenModel {
             if lane?.agentId == agentId { lane?.apply(id, row: row) }
         case .laneBlockPosition(let agentId, let id, let index):
             if lane?.agentId == agentId { lane?.move(id, to: index) }
+        case .laneInfo(let agentId, let info):
+            guard let lane, lane.agentId == agentId else { return }
+            if lane.info != info { lane.info = info }
+            if lane.missing != (info == nil) { lane.missing = info == nil }
         }
     }
     private func turnSteps(_ ordinal: Int) -> TurnStepsModel {

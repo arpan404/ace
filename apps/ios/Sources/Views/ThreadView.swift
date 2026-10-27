@@ -267,23 +267,8 @@ struct ThreadView: View {
         default: break
         }
     }
-    @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
-        let submission = model.approvalSubmissions[request.id]
-        switch request.kind {
-        case "question":
-            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
-                model.answer(request, answers: $0, dismissed: $1)
-            }.id(request.id)
-        case "plan_review":
-            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "elicitation":
-            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "browser_help":
-            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
-        default:
-            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
-        }
+    private func requestCard(_ request: ApprovalRow) -> some View {
+        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { showBrowser = true })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {

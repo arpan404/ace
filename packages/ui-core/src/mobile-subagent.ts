@@ -98,7 +98,7 @@ function branchRequests(reader: SubagentReader, agentId: string): string[] {
   return reader.interactionIds().filter((id) => {
     const interaction = reader.interaction(id);
     if (interaction?.state !== "pending") return false;
-    let owner = interaction.agentId ?? null;
+    let owner: string | null = interaction.agentId ?? null;
     const seen = new Set<string>();
     while (owner && !seen.has(owner)) {
       if (owner === agentId) return true;

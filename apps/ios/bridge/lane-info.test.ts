@@ -19,10 +19,13 @@ const spawn = (item: string, child: string, prompt: string): Fact =>
     detail: { kind: "agent.spawn", description: "Review PID reuse", prompt, childAgent: child },
   });
 
+type Lane = Omit<SubagentInspection, "prompt"> & {
+  prompt: { at: number; bubble: { segments: { text: string }[]; long: boolean } } | null;
+};
 /** The lane info Swift holds for an agent, once the bridge has sent it. */
 const info = (agentId: string) => {
   const frame = latest("thread.laneInfo");
-  return frame?.lane === agentId ? (frame.info as SubagentInspection | null) : undefined;
+  return frame?.lane === agentId ? ((frame.info as Lane | null) ?? undefined) : undefined;
 };
 
 async function laneOf(threadId: string, seed: Fact[]) {
@@ -59,7 +62,10 @@ test("a failed subagent shows what it was asked and offers Ask parent to retry, 
     facts.endTurn("root"),
   ]);
   const failed = await until(() => info(agentId), "the lane's info");
-  expect(failed.prompt?.text).toBe("Check whether a reused PID can kill the wrong process.");
+  expect(failed.prompt?.bubble.segments.map((segment) => segment.text).join("")).toBe(
+    "Check whether a reused PID can kill the wrong process.",
+  );
+  expect(failed.prompt?.bubble.long).toBe(false);
   expect(failed.phase).toBe("failed");
   expect(failed.status.token).toBe("failed");
   expect(failed.stoppable).toBe(false);

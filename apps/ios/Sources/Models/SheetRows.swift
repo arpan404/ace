@@ -1,6 +1,31 @@
 import Foundation
 
 /// The Agents sheet as `@ace/ui-core/mobile` shaped it. Swift draws it; it never derives status.
+/// A native subagent as its lane inspects it (`subagentInspection` in ui-core): every word,
+/// state and control is the bridge's.
+struct SubagentInfo: Codable, Sendable, Equatable {
+    struct Parent: Codable, Sendable, Equatable { let agentId: String?; let name: String }
+    /// What the parent asked, drawn as the person's bubble.
+    struct Prompt: Codable, Sendable, Equatable { let bubble: BubbleLine; let at: Double }
+    struct Retry: Codable, Sendable, Equatable { let label: String }
+    let agentId: String
+    let name: String
+    let provider: String
+    let model: String
+    let parent: Parent
+    let prompt: Prompt?
+    /// running, human, stalled, done, failed or stopped.
+    let phase: String
+    let status: StatusDisplay
+    let startedAt: Double
+    let endedAt: Double?
+    let requests: [String]
+    let descendants: Int
+    let stoppable: Bool
+    let retry: Retry?
+    let parentBusy: Bool
+}
+
 struct AgentSheet: Codable, Sendable, Equatable {
     struct Row: Codable, Sendable, Equatable, Identifiable {
         let id: String

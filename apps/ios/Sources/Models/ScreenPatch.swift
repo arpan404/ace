@@ -153,14 +153,16 @@ enum ScreenPatch: Sendable {
     case attachments([AttachmentFile])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
+    /// What the open lane's subagent is: its prompt, branch state, requests and controls.
+    case laneInfo(lane: String, info: SubagentInfo?)
     case pill(PillRow?, GoalRow?)
     /// The next message started a new thread carrying this one's context: open it.
     case continued(String)
     /// A move sent without the question it needs (the rows were older than the thread): ask it.
     case switchAsk(SwitchAsk)
 
-    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened }
+    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened, info }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -174,6 +176,8 @@ enum ScreenPatch: Sendable {
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
         case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
+        case "thread.laneInfo":
+            self = .laneInfo(lane: try box.decode(String.self, forKey: .lane), info: try box.decodeIfPresent(SubagentInfo.self, forKey: .info))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:
