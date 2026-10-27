@@ -421,7 +421,12 @@ export function createAgentControlPort(
                 operation.text,
                 delivery,
               );
-        if (!result.ok) return { ok: false, code: "unavailable" };
+        if (!result.ok)
+          return {
+            ok: false,
+            code: "unavailable",
+            ...(result.detail ? { hint: result.detail } : {}),
+          };
         // Says whether the message went in now or waits, so the sender never assumes delivery.
         const reading = service.arrival(
           caller,
