@@ -1,9 +1,10 @@
 # Android measurement variant proposal
 
-Status: **PROPOSED A01.01 preparation**. Every implementation task below remains
-unimplemented. Current debug app and AndroidTest APK compilation has passed;
-the M01 measurement variant has not been built. M00 real UI send/admission and
-the full `bun run check` gate remain open. No M00/M01 completion is claimed.
+Status: **A01.01 boundary implemented at source level** (`09e49e018`, `fb8f01b95`;
+evidence [a01-01-boundary.md](../verification/android-measurement-variant/a01-01-boundary.md)).
+Unit tests, typecheck, lint, format, and prebuild pass. Gradle assemble, device
+positive/negative runs, the artifact verifier (task 9 below), and the full
+`bun run check` gate remain open. No M00/M01 completion is claimed.
 
 Plan: [M01 foundation](../plans/android-ios-parity.md#m01-prove-the-foundation-can-support-the-full-app).
 Track state in the [execution ledger](../plans/android-ios-parity-progress.md);
