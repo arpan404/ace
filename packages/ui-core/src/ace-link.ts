@@ -21,7 +21,12 @@ const idLimit = 256;
 /** An id: printable, no slashes or whitespace, at most 256 characters. */
 function id(value: string | undefined): string | undefined {
   if (value === undefined || value.length === 0 || value.length > idLimit) return undefined;
-  return /^[^\s/\\\u0000-\u001f\u007f]+$/u.test(value) ? value : undefined;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f || char === "/" || char === "\\" || /\s/u.test(char))
+      return undefined;
+  }
+  return value;
 }
 
 function decode(part: string): string | undefined {
