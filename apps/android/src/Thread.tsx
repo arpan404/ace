@@ -12,7 +12,7 @@ import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
 import { Approval } from "./Approval.tsx";
 import { Questions } from "./Questions.tsx";
 import { Composer } from "./Composer.tsx";
-import { canActInbox, runInboxAction } from "./inbox-actions.ts";
+import { canActInbox, runInboxAction, watchInboxReceipt } from "./inbox-actions.ts";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
 import { draftKey } from "./thread-drafts.ts";
@@ -333,14 +333,29 @@ function ArchivedNote({
   const operate = canActInbox(canAct);
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const receipt = useRef<(() => void) | null>(null);
+  useEffect(() => () => receipt.current?.(), []);
   async function unarchive() {
     if (working) return;
     setWorking(true);
     setProblem(null);
     try {
       const outcome = await runInboxAction(client, "unarchive", id, now(), undefined, operate);
-      if (!outcome.admitted) setProblem(outcome.error ?? "The request failed.");
-      else notify("Unarchived. The row returns once your machine confirms it.");
+      if (!outcome.admitted) {
+        setProblem(outcome.error ?? "The request failed.");
+        return;
+      }
+      if (outcome.commandId) {
+        receipt.current?.();
+        receipt.current = watchInboxReceipt(client, outcome.commandId, (error) => {
+          setProblem(
+            error !== undefined && error !== ""
+              ? `Your machine refused it (${error}).`
+              : "Your machine refused it.",
+          );
+        });
+      }
+      notify("Unarchived. The row returns once your machine confirms it.");
     } finally {
       setWorking(false);
     }

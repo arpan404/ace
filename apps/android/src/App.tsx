@@ -16,7 +16,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { SnackbarHost, Snackbar, type SnackbarHostRef } from "@expo/ui/jetpack-compose";
 import { fixtureRuntime, type Runtime } from "./runtime.ts";
-import { isFixtureMode } from "./execution-mode.ts";
+import { isFixtureMode, type ExecutionMode } from "./execution-mode.ts";
 import { readExecutionMode } from "./native-mode.ts";
 import { ThemeContext, tokens, useTheme, textStyle, AceHost } from "./theme.tsx";
 import { Inbox } from "./Inbox.tsx";
@@ -75,12 +75,18 @@ function Ready({
   phoneSettings,
   onSettingsChange,
   onLockChange,
+  canAct,
 }: {
   runtime: Runtime | null;
   failure: string | undefined;
   phoneSettings: { storage: SettingsKeyValue; state: SettingsState };
   onSettingsChange(next: SettingsState): void;
   onLockChange(locked: boolean, lockEnabled: boolean): void;
+  /**
+   * Genuine pairing grant. The fixture loopback is full-access by construction;
+   * production stays absent (fail closed) until pairing scopes wire through.
+   */
+  canAct?: boolean | undefined;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -235,9 +241,9 @@ function Ready({
                     machines={() => setMachines(true)}
                     settings={() => navigation.push("Settings")}
                     notify={notify}
-                    // The fixture loopback is an explicit full-access device; real
-                    // pairing leaves this absent (fail closed) until scopes say otherwise.
-                    canAct
+                    // Genuine grant only: fixture loopback is full-access, real
+                    // pairing stays absent (fail closed) until scopes say otherwise.
+                    canAct={canAct}
                     onSearch={() => navigation.push("Search", undefined)}
                     open={(id) =>
                       navigation.push("Thread", {
@@ -283,7 +289,7 @@ function Ready({
                     navigation.push("Files", { id: route.params.id, title: route.params.title })
                   }
                   returnSends={phoneSettings.state.returnSends}
-                  canAct
+                  canAct={canAct}
                 />
               )}
             </Stack.Screen>
@@ -339,9 +345,9 @@ function Ready({
                   client={runtime.client}
                   now={Date.now}
                   notify={notify}
-                  // Same grant as the inbox: the fixture loopback is full-access;
-                  // real pairing leaves this absent (fail closed) until scopes say otherwise.
-                  canAct
+                  // Same genuine grant as the inbox: fixture full-access, real
+                  // pairing absent (fail closed) until scopes say otherwise.
+                  canAct={canAct}
                   open={(id) => navigation.push("Thread", { id, title: "Thread" })}
                 />
               )}
@@ -477,19 +483,26 @@ export function App() {
   const [fonts, error] = useFonts({ Inter, "JetBrains Mono": Mono });
   const [runtime, setRuntime] = useState<Runtime>();
   const [failure, setFailure] = useState<string>();
+  // Genuine grant source: the validated native build mode. Fixture builds run
+  // the loopback, which is full-access by construction; production has no
+  // transport here yet and stays view-only (absent) until pairing scopes wire
+  // through. Unknown or unreadable mode fails closed.
+  const [mode, setMode] = useState<ExecutionMode | null>(null);
+  const canAct = mode !== null && isFixtureMode(mode) ? true : undefined;
   useEffect(() => {
     if (!connectArmed) return;
     let active = true;
     let owner: Runtime | undefined;
     void Promise.resolve()
       .then(() => readExecutionMode())
-      .then((mode) => {
+      .then((nextMode) => {
         if (!active) return undefined;
-        if (!isFixtureMode(mode)) {
+        setMode(nextMode);
+        if (!isFixtureMode(nextMode)) {
           setFailure("This build is not paired with a daemon yet.");
           return undefined;
         }
-        return fixtureRuntime(mode);
+        return fixtureRuntime(nextMode);
       })
       .then((value) => {
         if (value === undefined) return;
@@ -566,6 +579,7 @@ export function App() {
                 )
               }
               onLockChange={onLockChange}
+              canAct={canAct}
             />
           )}
         </KeyboardProvider>

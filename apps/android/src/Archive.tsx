@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import type { ClientApi, SidebarSource } from "@ace/client";
@@ -17,7 +17,7 @@ import {
 } from "./components.tsx";
 import { clickable } from "@expo/ui/jetpack-compose/modifiers";
 import { ArchivePaging, readArchiveList, type ArchiveListState } from "./archive.ts";
-import { canActInbox, runInboxAction } from "./inbox-actions.ts";
+import { canActInbox, runInboxAction, watchInboxReceipt } from "./inbox-actions.ts";
 import { displayAppearance } from "./status.ts";
 
 /*
@@ -152,17 +152,37 @@ export function ArchiveScreen({
   // The pager's loading/failed flags live outside the store snapshot, so an
   // epoch re-reads the list whenever a window call settles.
   const [epoch, setEpoch] = useState(0);
+  // One receipt listener per admitted unarchive, dropped at its terminal state.
+  const receipts = useRef(new Map<string, () => void>());
   useEffect(() => {
+    const pending = receipts.current;
+    return () => {
+      for (const stop of pending.values()) stop();
+      pending.clear();
+    };
+  }, []);
+  useEffect(() => {
+    const pending = receipts.current;
     let active = true;
-    void paging.openArchive(client).then(() => {
-      if (active) setEpoch((value) => value + 1);
+    void paging.openArchive(client).then((landed) => {
+      if (active && landed) setEpoch((value) => value + 1);
     });
     return () => {
       active = false;
-      paging.closeArchive(client);
-      lease.release();
+      // Repoint the shared store home before dropping this lease; a failed
+      // restore is surfaced instead of leaving the inbox on the archive window.
+      void paging
+        .closeArchive(client)
+        .then((restored) => {
+          if (!restored) notify?.("Could not return home. Reopen the archive to retry.");
+        })
+        .finally(() => {
+          for (const stop of pending.values()) stop();
+          pending.clear();
+          lease.release();
+        });
     };
-  }, [client, lease, paging]);
+  }, [client, lease, paging, notify]);
   const selection = useMemo(
     () =>
       lease.store.select(
@@ -200,8 +220,27 @@ export function ArchiveScreen({
       setProblem(null);
       try {
         const outcome = await runInboxAction(client, "unarchive", id, now(), undefined, operate);
-        if (!outcome.admitted) setProblem(outcome.error ?? "The request failed.");
-        else notify?.("Unarchived. The row returns once your machine confirms it.");
+        if (!outcome.admitted) {
+          setProblem(outcome.error ?? "The request failed.");
+          return;
+        }
+        if (outcome.commandId) {
+          const commandId = outcome.commandId;
+          receipts.current.get(commandId)?.();
+          receipts.current.delete(commandId);
+          receipts.current.set(
+            commandId,
+            watchInboxReceipt(client, commandId, (error) => {
+              receipts.current.delete(commandId);
+              setProblem(
+                error !== undefined && error !== ""
+                  ? `Your machine refused it (${error}).`
+                  : "Your machine refused it.",
+              );
+            }),
+          );
+        }
+        notify?.("Unarchived. The row returns once your machine confirms it.");
       } finally {
         setBusyId(null);
       }
