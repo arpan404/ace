@@ -650,3 +650,280 @@ it("view-only reads stay usable with no mutation wire", async () => {
     await produced.disconnectAll();
   }
 });
+
+it("intent snapshots are isolated copies; mutating them cannot touch the outbox", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    daemon.createThread({ id: THREAD2, workspaceId: "ace", title: "T2", provider: "codex" });
+    const archive2 = { type: "thread.archive", threadId: ThreadId.parse(THREAD2) } as const;
+    const gate = produced.runtimeForMutation("host-1");
+    const id = await gate.enqueue(archive2);
+    await until(() => reads.intent(id).getSnapshot()?.state === "acked");
+
+    const sel = reads.intent(id);
+    const snap = sel.getSnapshot();
+    expect(snap?.state).toBe("acked");
+    expect(Object.isFrozen(snap)).toBe(true);
+    try {
+      (snap as unknown as Record<string, unknown>)["state"] = "pending";
+    } catch {
+      /* Frozen: assignment throws in strict mode. */
+    }
+    try {
+      ((snap as unknown as Record<string, unknown>)["command"] as Record<string, unknown>)[
+        "payload"
+      ] = { type: "evil" };
+    } catch {
+      /* Nested frozen: mutation cannot reach the live record. */
+    }
+    expect(sel.getSnapshot()?.state).toBe("acked");
+    expect(gate.intent(id).getSnapshot()?.state).toBe("acked");
+
+    const inbox = reads.threads();
+    try {
+      await until(() => inbox.store.ids.includes(THREAD));
+      const row = inbox.store.thread(THREAD);
+      expect(Object.isFrozen(row)).toBe(true);
+      const before = row?.title;
+      try {
+        (row as unknown as Record<string, unknown>)["title"] = "evil";
+      } catch {
+        /* Frozen. */
+      }
+      expect(inbox.store.thread(THREAD)?.title).toBe(before);
+    } finally {
+      inbox.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("cached snapshots are point-in-time and stay readable after disconnect", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    {
+      const lease = reads.threads();
+      try {
+        await until(() => lease.store.ids.includes(THREAD));
+      } finally {
+        lease.release();
+      }
+    }
+    const snapBefore = reads.cachedThreads();
+    expect(snapBefore?.ids).toContain(THREAD);
+    const idsCopy = [...(snapBefore?.ids ?? [])];
+    (idsCopy as string[]).push("evil");
+    expect(snapBefore?.ids).not.toContain("evil");
+
+    daemon.createThread({ id: THREAD2, workspaceId: "ace", title: "T2", provider: "codex" });
+    {
+      const lease = reads.threads();
+      try {
+        await until(() => lease.store.ids.includes(THREAD2));
+      } finally {
+        lease.release();
+      }
+    }
+    expect(snapBefore?.ids).not.toContain(THREAD2);
+
+    {
+      const warm = reads.thread(THREAD);
+      try {
+        await until(() => warm.store.thread !== undefined);
+      } finally {
+        warm.release();
+      }
+    }
+    const threadSnap = reads.cachedThread(THREAD);
+    expect(threadSnap?.thread?.id).toBe(THREAD);
+    expect(Object.isFrozen(threadSnap)).toBe(true);
+
+    const liveLease = reads.thread(THREAD);
+    try {
+      await until(() => liveLease.store.thread !== undefined);
+      const retainedLive = liveLease.store;
+      const retainedSnap = threadSnap;
+      await produced.disconnectAll();
+      expect(() => retainedLive.thread).toThrow("not connected");
+      expect(retainedSnap?.thread?.id).toBe(THREAD);
+      expect(retainedSnap?.order).toBeDefined();
+      expect(
+        () => ((retainedSnap as unknown as Record<string, unknown>)["thread"] = null),
+      ).toThrow();
+      expect(retainedSnap?.thread?.id).toBe(THREAD);
+    } finally {
+      liveLease.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("observe forwards copies and subscriptions detach on release and pin failure", async () => {
+  const { projectSidebar, snapshotThread } = await import("./read-projection.ts");
+  let innerTap: ((keys: ReadonlySet<string> | "all") => void) | undefined;
+  let innerUnsubs = 0;
+  const liveSet = new Set<string>(["a"]);
+  const fakeLive = {
+    error: undefined,
+    syncing: false,
+    unconfirmed: false,
+    loaded: true,
+    ids: ["t1"],
+    homeWindow: undefined,
+    window: undefined,
+    thread: () => undefined,
+    select: () => {
+      throw new Error("unused");
+    },
+    observe: (tap: (keys: ReadonlySet<string> | "all") => void) => {
+      innerTap = tap;
+      return () => {
+        innerUnsubs += 1;
+      };
+    },
+  };
+  let pinFails = false;
+  const check = () => {
+    if (pinFails) throw new Error("This machine is not connected.");
+  };
+  const view = projectSidebar(check, fakeLive as never);
+  let seen: ReadonlySet<string> | "all" | undefined;
+  const stop = view.observe((keys) => {
+    seen = keys;
+  });
+  innerTap?.(liveSet);
+  expect(seen).not.toBe(liveSet);
+  expect([...(seen as ReadonlySet<string>)]).toEqual(["a"]);
+  (seen as Set<string>).add("evil");
+  expect(liveSet.has("evil")).toBe(false);
+  innerTap?.("all");
+  expect(seen).toBe("all");
+
+  pinFails = true;
+  const unsubsBefore = innerUnsubs;
+  innerTap?.(new Set(["b"]));
+  expect(innerUnsubs).toBe(unsubsBefore + 1);
+  stop();
+
+  const liveMap = new Map<string, { n: number }>([["k", { n: 1 }]]);
+  const liveBytes = new Uint8Array([1, 2, 3]);
+  const liveDate = new Date(1_700_000_000_000);
+  const fakeThread = {
+    error: undefined,
+    syncing: false,
+    unconfirmed: false,
+    thread: { id: THREAD, title: "T", nested: { count: 1 } },
+    queue: undefined,
+    offshift: undefined,
+    context: undefined,
+    order: ["i1"],
+    cursor: 1,
+    itemsBefore: null,
+    agentIds: () => ["a1"],
+    runIds: undefined,
+    interactionIds: () => [],
+    taskIds: () => [],
+    item: () => ({
+      id: "i1",
+      extra: { deep: [1, 2] },
+      map: liveMap,
+      set: liveSet,
+      bytes: liveBytes,
+      at: liveDate,
+    }),
+    agent: () => undefined,
+    run: () => undefined,
+    interaction: () => undefined,
+    task: () => undefined,
+    usage: () => undefined,
+    contextMeter: () => undefined,
+    usageSnapshot: () => undefined,
+    truncated: () => false,
+    select: () => {
+      throw new Error("unused");
+    },
+    observe: () => () => {},
+  };
+  const snap = snapshotThread(fakeThread as never);
+  const item = snap.item("i1") as unknown as {
+    extra: { deep: number[] };
+    map: Map<string, { n: number }>;
+    set: Set<string>;
+    bytes: Uint8Array;
+    at: Date;
+  };
+  expect(item.map).not.toBe(liveMap);
+  expect(item.set).not.toBe(liveSet);
+  expect(item.bytes).not.toBe(liveBytes);
+  expect([...item.bytes]).toEqual([1, 2, 3]);
+  expect(item.at).not.toBe(liveDate);
+  expect(item.at.getTime()).toBe(liveDate.getTime());
+  item.bytes[0] = 99;
+  expect(liveBytes[0]).toBe(1);
+  item.map.set("evil", { n: 2 });
+  expect(liveMap.has("evil")).toBe(false);
+  item.set.add("evil");
+  expect(liveSet.has("evil")).toBe(false);
+  const before = (snap.thread as unknown as { title: string }).title;
+  try {
+    ((item as unknown as Record<string, unknown>)["extra"] as { deep: number[] }).deep.push(3);
+  } catch {
+    /* Frozen nested array. */
+  }
+  expect((snap.item("i1") as unknown as { extra: { deep: number[] } }).extra.deep).toEqual([1, 2]);
+  expect((snap.thread as unknown as { title: string }).title).toBe(before);
+  expect(snap.truncated("i1")).toBe(false);
+  expect(snap.appended?.({} as never, {} as never)).toBe(false);
+});
+
+it("a released lease detaches its selections; stale connection selections detach", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const lease = reads.threads();
+    try {
+      await until(() => lease.store.ids.includes(THREAD));
+      let calls = 0;
+      const sel = lease.store.select(["ids"], (sidebar) => sidebar.ids);
+      const unsub = sel.subscribe(() => {
+        calls += 1;
+      });
+      lease.release();
+      expect(() => sel.getSnapshot()).toThrow("not connected");
+      unsub();
+      daemon.createThread({ id: THREAD2, workspaceId: "ace", title: "T2", provider: "codex" });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(calls).toBe(0);
+    } finally {
+      lease.release();
+    }
+
+    const conn = reads.connectionState();
+    let connCalls = 0;
+    const unsubConn = conn.subscribe(() => {
+      connCalls += 1;
+    });
+    expect(typeof conn.getSnapshot()).toBe("string");
+    const callsBeforeDisconnect = connCalls;
+    await produced.disconnectAll();
+    expect(() => conn.getSnapshot()).toThrow("not connected");
+    expect(() => conn.subscribe(() => {})).toThrow("not connected");
+    unsubConn();
+    const callsAfterDisconnect = connCalls;
+    expect(callsAfterDisconnect - callsBeforeDisconnect).toBeLessThanOrEqual(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(connCalls).toBe(callsAfterDisconnect);
+  } finally {
+    await produced.disconnectAll();
+  }
+});

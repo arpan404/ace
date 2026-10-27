@@ -270,13 +270,33 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
       limits: { items: 200 },
     });
     // Read-only readiness view: no mutation handle escapes to observers.
-    deps.observe?.(entry, {
-      connectionState: client.connectionState.bind(client),
-      get error() {
-        return client.error;
-      },
-    });
+    // Every signal re-checks the exact-owner pin and hands out frozen copies,
+    // so a cached observer cannot read past replacement or mutate the live store.
     live.set(entry.hostId, { client, entry, isCurrent });
+    {
+      const observedClient = client;
+      const checkObserverPin = (): void => {
+        if (!isCurrent()) throw notConnected();
+      };
+      const signals = Object.create(null) as {
+        connectionState: () => Selection<ConnectionState>;
+        error: ClientError | undefined;
+      };
+      Object.defineProperties(signals, {
+        error: {
+          enumerable: true,
+          get: () => {
+            checkObserverPin();
+            const failure = observedClient.error;
+            if (failure === undefined) return undefined;
+            return Object.freeze(new ClientError(failure.code, failure.message));
+          },
+        },
+      });
+      signals.connectionState = () =>
+        wrapSelection(checkObserverPin, observedClient.connectionState());
+      deps.observe?.(entry, Object.freeze(signals));
+    }
     return {
       bindEpoch(next: number) {
         epoch = next;
