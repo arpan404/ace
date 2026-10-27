@@ -29,9 +29,11 @@ import { copyCodeText } from "./clipboard.ts";
  * code and safe `http(s)` links. `ace://` stays literal; the Files screen
  * remains the only file route. Messages past `INLINE_MESSAGE_LIMIT` render a
  * bounded plain preview plus a Copy-full-answer action instead of parsing
- * unbounded text per delta. Large streaming messages parse the settled head
- * once and re-parse only a bounded tail per delta, falling back to a full
- * parse for sparse text or an open fence. Blocks are keyed by
+ * unbounded text per delta. Large streaming messages cache the settled head
+ * and re-parse only a bounded tail on steady deltas; the first accepted
+ * split parses the head once O(head), and sparse blank lines or an open
+ * fence fall back to a full O(n) parse per delta while the condition holds.
+ * Blocks are keyed by
  * full-content fingerprint with occurrence counting: append-only deltas keep
  * settled blocks, while a mid-stream structural change (fence closes,
  * `---` becomes a rule) remounts only what changed.
@@ -39,11 +41,12 @@ import { copyCodeText } from "./clipboard.ts";
 
 /**
  * Incremental blocks for a streaming message: settled head blocks are parsed
- * once and referentially stable across deltas, the tail re-parses bounded.
- * Keys for settled rows are cached in the accumulator, so per-delta
- * fingerprinting covers only the head extension (on advance) plus the
- * bounded tail. Falls back to the full parse for short text, un-splittable
- * text, and once the stream settles. All hooks run every render; callers keep
+ * once and referentially stable across deltas, the tail re-parses bounded on
+ * steady splits. Keys for settled rows are cached in the accumulator, so
+ * per-delta fingerprinting covers only the head extension (on advance) plus
+ * the bounded tail. Falls back to the full O(n) parse per delta for short
+ * text, un-splittable text (sparse blank lines, open fence), and once the
+ * stream settles. All hooks run every render; callers keep
  * early returns below this hook.
  */
 function useStreamingBlocks(

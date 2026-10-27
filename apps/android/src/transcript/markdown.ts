@@ -251,13 +251,16 @@ function lineCount(text: string): number {
 /**
  * Streaming deltas re-render on every chunk. Past `STREAMING_FULL_PARSE_CHARS`
  * a full `markdownBlocks` parse per delta is O(n) each and O(n²) over the
- * stream, so the settled head is cached and only a bounded tail re-parses.
- * The full text stays rendered: when a split is accepted, head blocks plus
- * tail blocks concatenate to exactly the full parse. Pure.
+ * stream, so the settled head is cached and steady deltas re-parse only a
+ * bounded tail. The full text stays rendered: when a split is accepted, head
+ * blocks plus tail blocks concatenate to exactly the full parse. Pure.
  *
- * Accepted splits cost O(tail + head-growth) per delta (bounded window cut,
- * extension-only head parse, tail-only fingerprinting). Two inputs defeat
- * the split and fall back to a full O(n) parse per delta: an unclosed fence
+ * Steady accepted splits cost O(tail chars + tail blocks) per delta (bounded
+ * window cut, tail-only parse and fingerprinting; settled head blocks are
+ * reused by reference, never re-parsed or re-fingerprinted). A head advance
+ * adds one O(growth) extension parse. The first accepted split still parses
+ * its head once (O(head)). Two inputs defeat the split and fall back to a
+ * full O(n) parse per delta while the condition holds: an unclosed fence
  * in the head (the cut would sit inside code), and blank lines so sparse no
  * cut fits the bounded window. Both fallbacks keep blocks exact; only the
  * per-delta cost is unbounded, never the output. This is not O(delta):
@@ -403,17 +406,18 @@ function fullKeyed(blocks: MarkdownBlock[]): {
 }
 
 /**
- * One incremental step for a streaming message. Accepted splits keep the
- * tail parsed per delta bounded by
+ * One incremental step for a streaming message. Steady accepted splits keep
+ * the tail parsed per delta bounded by
  * `STREAMING_TAIL_CHARS + 2 * STREAMING_HEAD_GROWTH_CHARS`: the split
  * candidate tail stays within `TAIL + GROWTH`, and a settled head lags the
  * candidate by less than one growth chunk. The cut search scans a bounded
  * window, an unchanged head reuses its blocks and keys with no head scan,
  * and a head advance parses/fingerprints only the head extension plus the
  * tail. The first accepted split still parses its head once (O(head)), and
- * two inputs fall back to a full O(n) parse per delta while staying exact:
- * an unclosed fence in the head, and blank lines so sparse no cut fits the
- * bounded window. Non-append edits reset the head. `blocks` always equals
+ * two inputs fall back to a full O(n) parse per delta while the condition
+ * holds, staying exact: an unclosed fence in the head, and blank lines so
+ * sparse no cut fits the bounded window. Non-append edits reset the head.
+ * `blocks` always equals
  * `markdownBlocks(text)` and `keyed` always equals
  * `withStableKeys(blocks, blockFingerprint)`; every other path parses whole.
  * Pure. This is not O(delta) in general: fallbacks re-parse fully per delta.
