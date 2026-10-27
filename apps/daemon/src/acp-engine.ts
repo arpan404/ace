@@ -7,8 +7,8 @@ import { AcpIdentity, type McpCapability } from "@ace/protocol";
 import {
   acpInjection,
   acpStdioInjection,
+  acpClaudeToolListing,
   acpToolListing,
-  claudeToolListing,
 } from "@ace/mcp-server";
 import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
@@ -90,23 +90,28 @@ export function acpEngineOptions(input: {
         },
         signal,
       );
-      const cwd = input.store.atomic((db) =>
-        String(
-          db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(threadId)?.cwd ?? "",
-        ),
-      );
+      const { cwd, model } = input.store.atomic((db) => {
+        const row = db
+          .prepare("SELECT cwd,model FROM engine_sessions WHERE thread_id=?")
+          .get(threadId);
+        return {
+          cwd: String(row?.cwd ?? ""),
+          model: typeof row?.model === "string" ? row.model : undefined,
+        };
+      });
       // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
       // Agent SDK and Antigravity defer, and the rest keep a fixed list. claude-agent-acp runs
-      // Claude Code, which defers only while its tool search is on; the agent picks its model
-      // later, so the launch env and settings decide.
+      // Claude Code, which defers only while its tool search is on: the thread's model, the
+      // launch env and settings decide.
       const cli = acpAgentCli(identity.acpAgentId);
       const listing =
         cli === "claude-acp"
-          ? claudeToolListing(
+          ? acpClaudeToolListing(
               await claudeToolSearchFacts({
                 env: plan.env,
                 cwd,
                 sources: ["user", "project", "local"],
+                model,
               }),
             )
           : acpToolListing(cli);

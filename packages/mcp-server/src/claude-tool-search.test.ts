@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  acpClaudeToolListing,
   claudeToolListing,
   claudeToolListingAfter,
   type ClaudeToolSearchFacts,
@@ -76,4 +77,14 @@ test("a session's listing narrows when a model switch turns tool search off, and
   const narrowed = claudeToolListingAfter(before, session({}, { model: "claude-3-5-haiku" }));
   expect([before, narrowed]).toEqual(["all", "core"]);
   expect(claudeToolListingAfter(narrowed, session({}, { model: "claude-opus-4-5" }))).toBe("core");
+});
+
+test("Claude over ACP with a Claude 3 model gets the core listing", () => {
+  expect(acpClaudeToolListing(session({}, { model: "claude-3-5-haiku-20241022" }))).toBe("core");
+});
+
+test("Claude over ACP lists every tool only when a model with tool search is known at launch", () => {
+  expect(acpClaudeToolListing(session({}, { model: "claude-opus-4-5" }))).toBe("all");
+  // The agent's later pick cannot narrow an ACP session, so an unknown model starts on core.
+  expect(acpClaudeToolListing(session())).toBe("core");
 });

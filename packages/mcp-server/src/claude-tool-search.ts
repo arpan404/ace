@@ -90,6 +90,15 @@ export function claudeToolListingAfter(
   return current === "all" ? claudeToolListing(facts) : current;
 }
 
+/**
+ * The listing for Claude Code run by claude-agent-acp. ACP fixes a session's MCP servers when it
+ * opens, so ace cannot narrow the list after a model switch. With no model known at launch, the
+ * agent's later pick may be one without tool search, so the session starts on core.
+ */
+export function acpClaudeToolListing(facts: ClaudeToolSearchFacts): ToolListing {
+  return facts.model ? claudeToolListing(facts) : "core";
+}
+
 /** `ENABLE_TOOL_SEARCH`, read as the CLI reads it: unset or unrecognised means on. */
 function searchMode(value: string | undefined): "on" | "off" | "auto" {
   if (!value) return "on";
