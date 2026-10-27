@@ -15,7 +15,7 @@ import {
 import { usePrCommits } from "./pr-commits.tsx";
 import { codeCaveats, hostedFileChanges, offDiffThreads } from "./pr-code-model.ts";
 import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
-import { hostedFileShow, renderedKind } from "./pr-file-kind.ts";
+import { hostedFileShow, renderedKind } from "@ace/ui-core";
 import { sideTexts, usePrFileSides } from "./pr-file-sides.ts";
 import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
 import type { PrDiffContext, PrWorkspaceContext } from "./pr-extensions.ts";

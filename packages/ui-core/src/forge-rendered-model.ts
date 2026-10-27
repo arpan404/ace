@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { diffTexts } from "@ace/ui-core";
+import { diffTexts } from "./diff.ts";
 
 /** One entry of a rendered diff: kept as it was, removed, or added. */
 export interface RenderedChange<T> {

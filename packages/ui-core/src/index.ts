@@ -277,3 +277,7 @@ export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
+export * from "./forge-code-review.ts";
+export * from "./forge-history-pages.ts";
+export * from "./forge-rendered-model.ts";
+export * from "./forge-file-kind.ts";
