@@ -45,9 +45,6 @@ const posixOnly = [
   "one batch keeps tracked ignored, re-included, symlinked and unusual names correct",
   "a file under an ignored folder whose name starts with a colon stays out of context",
   "a file named like pathspec magic reconciles without failing its batch",
-  // Windows still registers the session screen tools beside the computer-use engine's; the
-  // computer-use branch moves Windows to the engine, which brings this back under budget.
-  "each provider's per-request ace context stays within its budget",
   // POSIX mode bits and a chmod-refused folder; "Windows update apply puts the original back
   // when the lock can't be written" runs instead.
   "when the lock can't be written the original folder is put back and the lock is unchanged",
