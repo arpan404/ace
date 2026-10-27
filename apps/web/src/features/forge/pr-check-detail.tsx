@@ -257,6 +257,19 @@ export function PrCheckDetail(props: {
             </Button>
           </DisabledReason>
         )}
+        {workflow && controls.cancel && (
+          <DisabledReason reason={reason}>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="text-status-failed"
+              disabled={rerun.pending || context.disabled}
+              onClick={() => void rerun.run({ kind: "cancel", runId: workflow.runId })}
+            >
+              Cancel run
+            </Button>
+          </DisabledReason>
+        )}
         {controls.fix && (
           <Button
             size="xs"

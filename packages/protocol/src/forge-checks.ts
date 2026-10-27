@@ -4,7 +4,7 @@ import { WorkspaceId } from "./ids.ts";
 
 /*
  * One check run read on demand, when the PR panel opens it: its job log, steps, annotations
- * and summary, and the re-runs a GitHub Actions workflow run takes.
+ * and summary, and the re-runs and cancels a GitHub Actions workflow run takes.
  */
 
 const text = z.string().max(65_536);
@@ -93,6 +93,8 @@ export const ForgeCheckAction = z.discriminatedUnion("kind", [
     attempt: positive,
     jobs: z.enum(["failed", "all"]),
   }),
+  /** Stop a workflow run that is still going; one already finished is left as it is. */
+  z.object({ kind: z.literal("cancel"), runId: positive }),
 ]);
 export type ForgeCheckAction = z.infer<typeof ForgeCheckAction>;
 export const ForgeHostedChecksCommand = z.object({

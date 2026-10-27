@@ -58,7 +58,11 @@ const AnnotationsBody = z
     }),
   )
   .max(100);
-const RunBody = z.looseObject({ id: positive, run_attempt: positive });
+const RunBody = z.looseObject({
+  id: positive,
+  run_attempt: positive,
+  status: z.string().max(64).optional(),
+});
 
 const clip = (value: string | null | undefined) => (value ? value.slice(0, 65_536) : null);
 const lineNumber = (value: number | null | undefined) =>
@@ -216,6 +220,37 @@ export class GitHubChecks {
     const action = input.jobs === "failed" ? "rerun-failed-jobs" : "rerun";
     const response = await this.#api.request(
       `${this.#root}/actions/runs/${input.runId}/${action}`,
+      signal,
+      {},
+      "POST",
+      dispatch,
+    );
+    if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
+  }
+
+  /** Whether the workflow run has finished, by itself or by an accepted cancel. */
+  async runFinished(runId: number, signal: AbortSignal): Promise<boolean> {
+    const response = await this.#api.request(`${this.#root}/actions/runs/${runId}`, signal);
+    const run = RunBody.safeParse(response.body);
+    if (!run.success || run.data.id !== runId) throw new ForgeError("invalid_data");
+    return run.data.status === "completed";
+  }
+
+  /**
+   * Cancel a workflow run that is still going. A run that has finished (an earlier cancel whose
+   * result was lost, or the run ending first) is left alone, and nothing is written.
+   */
+  async cancel(
+    input: { runId: number },
+    signal: AbortSignal,
+    allowed: () => boolean,
+    dispatch = new MutationDispatch(),
+  ): Promise<void> {
+    positive.parse(input.runId);
+    if (await this.runFinished(input.runId, signal)) return;
+    if (!allowed()) throw new ForgeError("cancelled", undefined, false);
+    const response = await this.#api.request(
+      `${this.#root}/actions/runs/${input.runId}/cancel`,
       signal,
       {},
       "POST",

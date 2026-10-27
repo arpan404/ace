@@ -101,7 +101,14 @@ export function useCheckRerun(input: {
     } catch (error) {
       const failure = writeFailure(error);
       toast.error({
-        title: failure.uncertain ? "Couldn't confirm the re-run" : "Couldn't re-run the checks",
+        title:
+          action.kind === "cancel"
+            ? failure.uncertain
+              ? "Couldn't confirm the cancel"
+              : "Couldn't cancel the run"
+            : failure.uncertain
+              ? "Couldn't confirm the re-run"
+              : "Couldn't re-run the checks",
         description: failure.text,
       });
     } finally {
