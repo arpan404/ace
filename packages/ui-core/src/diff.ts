@@ -360,9 +360,12 @@ export function pairRows(rows: readonly DiffRow[]): SplitRow[] {
       const line = index === null ? undefined : rows[index];
       return line && line.kind !== "fold" ? line : undefined;
     };
+    const pair: SplitRow = { kind: "pair" };
     const l = at(left);
     const r = at(right);
-    return { kind: "pair", ...(l ? { left: l } : {}), ...(r ? { right: r } : {}) };
+    if (l) pair.left = l;
+    if (r) pair.right = r;
+    return pair;
   });
 }
 

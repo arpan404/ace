@@ -100,6 +100,13 @@ const sidesOf = (file: ForgeFile, shas: { baseSha: string; headSha: string }) =>
   head: file.status === "removed" ? undefined : { sha: shas.headSha, path: file.path },
 });
 
+/** A side read as text: an added or removed file has none. */
+const textOf = (content: ForgeFileContent) => {
+  if (content.kind === "text") return content.text;
+  if (content.kind === "missing") return "";
+  throw new ForgeRefusal("forge_unsupported");
+};
+
 export async function readFileSides(
   reads: ForgeReads,
   request: ForgeFileSidesRequest,
@@ -134,13 +141,12 @@ export async function readFileSides(
       after: shown(after),
     };
   }
-  const text = (content: ForgeFileContent) => {
-    if (content.kind === "text") return content.text;
-    if (content.kind === "missing") return "";
-    throw new ForgeRefusal("forge_unsupported");
-  };
   const repository = detail.status.ref.repository;
-  const changes = blockDiff(markdownBlocks(text(before)), markdownBlocks(text(after)), (b) => b);
+  const changes = blockDiff(
+    markdownBlocks(textOf(before)),
+    markdownBlocks(textOf(after)),
+    (b) => b,
+  );
   return {
     type: "forge.pull.file.sides",
     as: "rendered",

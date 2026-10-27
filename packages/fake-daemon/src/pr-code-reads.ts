@@ -65,9 +65,9 @@ export function contentRead(
     const order = [fixture.detail.baseSha, ...(fixture.commits ?? []).map((c) => c.commit.sha)];
     const at = order.indexOf(op.sha);
     if (at < 0) continue;
-    const version = known.versions
-      .filter((each) => order.indexOf(each.sha) <= at && order.includes(each.sha))
-      .at(-1);
+    const version = known.versions.findLast(
+      (each) => order.includes(each.sha) && order.indexOf(each.sha) <= at,
+    );
     return {
       resource: "fileContent",
       value: version?.content ?? { kind: "missing" },

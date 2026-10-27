@@ -93,6 +93,18 @@ const changed = (
   status = "modified",
 ) => ForgeFile.parse({ path, status, additions, deletions, patch, truncated: false });
 
+const text = (value: string): ForgeFileContent => ({
+  kind: "text",
+  text: value,
+  size: value.length,
+});
+const image = (data: string): ForgeFileContent => ({
+  kind: "image",
+  type: "image/png",
+  data,
+  size: Math.floor((data.length * 3) / 4),
+});
+
 export function withCodeReview(fixture: PullRequestFixture, now: number): PullRequestFixture {
   const number = fixture.detail.status.ref.number;
   const head = fixture.detail.status.headSha;
@@ -141,17 +153,6 @@ export function withCodeReview(fixture: PullRequestFixture, now: number): PullRe
       ],
     },
   ];
-  const text = (value: string): ForgeFileContent => ({
-    kind: "text",
-    text: value,
-    size: value.length,
-  });
-  const image = (data: string): ForgeFileContent => ({
-    kind: "image",
-    type: "image/png",
-    data,
-    size: Math.floor((data.length * 3) / 4),
-  });
   return {
     ...fixture,
     detail: { ...fixture.detail, commits: commits.length, changedFiles: files.length },
