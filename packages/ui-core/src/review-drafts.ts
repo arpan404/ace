@@ -169,8 +169,8 @@ export async function record(
     commentIds.push(commentId);
     // A refresh that ran while this comment was being recorded may already have added the
     // daemon's copy of it as a comment from elsewhere: this draft is that comment, so the copy goes.
-    store.set((drafts) =>
-      drafts.flatMap((d) =>
+    store.set((held) =>
+      held.flatMap((d) =>
         d.key === draft.key
           ? [{ ...d, commentId, sessionId, source: opened.session?.source }]
           : d.commentId === commentId
