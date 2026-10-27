@@ -21,15 +21,20 @@ extension XCUIApplication {
     }
     /// An item of the thread's ⋯ menu. iOS 27 drops a menu item's identifier and keeps its label,
     /// so the item is found by either.
-    func threadMenuItem(_ identifier: String) -> XCUIElement {
+    /// The menu is longer than the screen, so a lower item is scrolled to first.
+    @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
                       "thread.reload": "Reload from machine",
                       "thread.logs": "Logs", "thread.offshift": "Offshift run"]
         // A menu item with a second line reads both in its label: match its first words.
-        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
-                                            labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
+        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
+                                                labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
+        if item.waitForExistence(timeout: 2) && item.isHittable { return item }
+        let menu = collectionViews.firstMatch
+        for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
+        return item
     }
     /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window
     /// (iPad, an opened foldable), whichever the layout shows.
