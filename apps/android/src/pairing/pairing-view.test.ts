@@ -4,7 +4,6 @@ import {
   PAIRING_FAILED_MESSAGE,
   PAIRING_UNAVAILABLE_MESSAGE,
   SCAN_FAILED_MESSAGE,
-  SCAN_UNAVAILABLE_MESSAGE,
   acceptPairingText,
   canStartPairing,
   pairingFailureMessage,
@@ -62,7 +61,6 @@ it("gates the Pair action on a non-blank device name and no pair in flight", () 
 
 it("keeps fail-closed copy actionable without promising a send", () => {
   expect(PAIRING_UNAVAILABLE_MESSAGE).toContain("nothing was sent");
-  expect(SCAN_UNAVAILABLE_MESSAGE).toContain("Paste the pairing link instead");
 });
 
 it("shows mapped pairing copy and never raw scanner or transport text", () => {

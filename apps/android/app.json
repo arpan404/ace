@@ -14,6 +14,10 @@
     "plugins": [
       "expo-sqlite",
       "expo-font",
+      [
+        "expo-camera",
+        { "cameraPermission": "Allow ace to scan the pairing QR code on your computer." }
+      ],
       ["expo-secure-store", { "configureAndroidBackup": true }],
       "./plugins/with-ace-host.ts",
       "./plugins/with-ace-network.ts",

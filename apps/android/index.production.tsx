@@ -7,13 +7,13 @@ import { ThemeContext } from "./src/theme.tsx";
 
 /**
  * Fail-closed production entry. Release builds show the pairing flow but
- * have no pairing wiring yet (parity tasks A02.06 camera capture and A02.08
- * production startup with the ticket-authenticated identity read), so the
- * screen runs without `scan`/`pair`: entry and confirmation render, the
- * code can be checked against the computer's screen, and pairing stays
- * disabled with guidance. Nothing here imports the fixture runtime, the
- * replay probe, or input metrics, and the React Native default fetch or
- * WebSocket never carries pairing material.
+ * have no pairing wiring yet (parity task A02.08 production startup with the
+ * ticket-authenticated identity read), so the screen runs its entry,
+ * confirmation and built-in camera capture but pairing stays disabled with
+ * guidance: the code can be checked against the computer's screen, and
+ * nothing here imports the fixture runtime, the replay probe, or input
+ * metrics, and the React Native default fetch or WebSocket never carries
+ * pairing material.
  */
 function ProductionPairing() {
   const scheme = useColorScheme() === "dark" ? "dark" : "light";

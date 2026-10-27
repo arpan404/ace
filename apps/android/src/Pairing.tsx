@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import type { ConfirmedPairing } from "./pairing/pairing-flow.ts";
+import { PairingQrScanner } from "./pairing/QrScanner.tsx";
 import {
   PAIRING_UNAVAILABLE_MESSAGE,
   SCAN_FAILED_MESSAGE,
-  SCAN_UNAVAILABLE_MESSAGE,
   acceptPairingText,
   canStartPairing,
   pairingFailureMessage,
@@ -22,8 +22,10 @@ import { AceHost, tokens, useTheme, textStyle } from "./theme.tsx";
  * one-use code is redeemed exactly once, on the explicit Pair action, through
  * the injected `pair` callback over the pinned transport. Scanned QR text
  * takes the same parse path as pasted text, so there is no second redemption
- * path. When `pair` (or `scan`) is absent the corresponding action stays
- * disabled with guidance, and no secret or code can leave the phone: parsing
+ * path: the built-in scanner sheet (`./pairing/QrScanner.tsx`, mirroring the
+ * iOS `QRScannerView` sheet) hands its single decode to the same `accept`
+ * below, and an injected `scan` override — when provided — does the same.
+ * No secret or code can leave the phone before confirmation: parsing
  * performs no networking and the screen never touches a transport itself.
  *
  * Fail-closed lifecycle, mirroring iOS `interactiveDismissDisabled(pairing)`:
@@ -46,7 +48,7 @@ export function PairingScreen({
   onPaired,
 }: {
   defaultDeviceName?: string;
-  /** Camera capture returning decoded QR text, or null when cancelled. Absent until camera wiring lands. */
+  /** Camera capture override returning decoded QR text, or null when cancelled. When absent the built-in scanner sheet is used. */
   scan?: (() => Promise<string | null>) | undefined;
   /** Redeem a confirmed link exactly once over the pinned transport. Absent until production wiring lands. */
   pair?:
@@ -61,6 +63,7 @@ export function PairingScreen({
   const [pairing, setPairing] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const mounted = useRef(true);
   useEffect(
     () => () => {
@@ -120,8 +123,31 @@ export function PairingScreen({
       setEntryError(accepted.entryError);
     }
   };
-  const canContinue = pasted.trim() !== "" && !scanning;
-  const canScan = scan !== undefined && !scanning;
+  const canContinue = pasted.trim() !== "" && !scanning && !scannerVisible;
+  // The built-in scanner sheet is always available; an injected `scan`
+  // override (tests, embedders) takes precedence when provided.
+  const canScan = !scanning && !scannerVisible;
+  const startScan = () => {
+    const capture = scan;
+    if (capture !== undefined) {
+      if (scanning) return;
+      setScanning(true);
+      void capture()
+        .then((value) => {
+          if (!mounted.current) return;
+          if (value !== null) accept(value);
+        })
+        .catch(() => {
+          if (!mounted.current) return;
+          setEntryError(SCAN_FAILED_MESSAGE);
+        })
+        .finally(() => {
+          if (mounted.current) setScanning(false);
+        });
+      return;
+    }
+    setScannerVisible(true);
+  };
   return (
     <PairingLayout title="Pair a machine">
       <Text style={style.helper}>
@@ -132,26 +158,21 @@ export function PairingScreen({
         <AceButton
           label={scanning ? "Opening camera…" : "Scan pairing QR code"}
           enabled={canScan}
-          onPress={() => {
-            const capture = scan;
-            if (capture === undefined || scanning) return;
-            setScanning(true);
-            void capture()
-              .then((value) => {
-                if (!mounted.current) return;
-                if (value !== null) accept(value);
-              })
-              .catch(() => {
-                if (!mounted.current) return;
-                setEntryError(SCAN_FAILED_MESSAGE);
-              })
-              .finally(() => {
-                if (mounted.current) setScanning(false);
-              });
-          }}
+          onPress={startScan}
         />
       </AceHost>
-      {scan === undefined ? <Text style={style.helper}>{SCAN_UNAVAILABLE_MESSAGE}</Text> : null}
+      <PairingQrScanner
+        visible={scannerVisible}
+        onScanned={(value) => {
+          setScannerVisible(false);
+          accept(value);
+        }}
+        onCancel={() => setScannerVisible(false)}
+        onDenied={(message) => {
+          setScannerVisible(false);
+          setEntryError(message);
+        }}
+      />
       <Text style={style.sectionLabel}>Or paste the link</Text>
       <TextInput
         accessibilityLabel="pairing.link"

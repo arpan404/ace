@@ -43,12 +43,24 @@ contract and implies no security the native transport does not yet provide.
 - `../Pairing.tsx` — the entry/confirm screen mirroring iOS
   `PairingView`/`ConfirmPairingView` (paste field, scan affordance,
   address/grant/fingerprint confirmation, device name, Pair action).
-  `scan` and `pair` are injected; when absent the actions stay disabled
-  with guidance and the code can never leave the phone. The link field
-  opts out of autofill/autocorrect (the iOS `privacySensitive` equivalent),
-  and there is no cancel while pairing: Back stays disabled and unmounting
-  never claims to cancel the request, because the bridge cannot cancel an
-  in-flight redemption and the one-use code may already be burned.
+  The scan affordance opens the built-in `QrScanner.tsx` sheet (an injected
+  `scan` override takes precedence when provided); `pair` stays injected and
+  when absent the Pair action stays disabled with guidance, so the code can
+  never leave the phone. The link field opts out of autofill/autocorrect
+  (the iOS `privacySensitive` equivalent), and there is no cancel while
+  pairing: Back stays disabled and unmounting never claims to cancel the
+  request, because the bridge cannot cancel an in-flight redemption and the
+  one-use code may already be burned.
+- `qr-scan.ts` — single-delivery capture session mirroring the iOS
+  `ScannerController` `delivered` flag: the first non-empty decode wins and
+  every later decode is dropped, so one scan can never confirm twice.
+  Static denial/no-camera copy matching iOS; validation stays downstream
+  in `acceptPairingText`, never in the scanner.
+- `QrScanner.tsx` — the camera sheet (`expo-camera` `CameraView` restricted
+  to QR codes, `CameraView.isAvailableAsync` for the no-camera path):
+  permission request on open, denied view with Allow/Open Settings, Cancel,
+  and the first decode handed back once over the same `acceptPairingText`
+  path. Performs no networking, stores nothing, and never logs the code.
 - `credentials.ts` — device-token store contract (Keystore-backed in
   production, memory in tests), the SDK-shared `[hostId, deviceId]` key,
   and authority-first removal ordering. Tokens never enter SQLite, logs,
@@ -82,13 +94,12 @@ contract and implies no security the native transport does not yet provide.
 
 ## What is deliberately missing
 
-No QR capture (A02.06: the screen's scan affordance is injected and
-fail-closed until camera wiring lands), no app lock (A02.07) and no
+No app lock (A02.07) and no
 production startup or ticket-authenticated identity-socket wiring (A02.08:
 `readIdentity` has no production reader yet, so redeeming would burn the
 one-use code and the screen stays fail-closed). Until that wiring lands,
 nothing here may authorize a connection: the production entry point
-(`index.production.tsx`) renders the pairing screen without `scan`/`pair`,
+(`index.production.tsx`) renders the pairing screen without `pair`,
 the fixture runtime stays debug-only, and the React Native default fetch or
 WebSocket must never carry pairing material. Native in-flight cancellation
 is also missing: the transport honors the flow's signal fail-closed (a
@@ -129,20 +140,24 @@ the network.
    mutations are not yet routed through `runtimeForMutation`, so view-only
    enforcement is not demonstrable end to end and the production entry point
    (`index.production.tsx`) stays unwired.
-4. Camera capture for the screen's scan affordance (A02.06): grant/denial,
-   cancel and malformed QR must all funnel into the screen's single
-   `acceptPairingText` path without a second redemption path and without
-   logging the code.
+4. Camera capture for the screen's scan affordance (A02.06) is landed:
+   `qr-scan.ts` + `QrScanner.tsx` wired into `../Pairing.tsx`. Remaining:
+   exercise grant/denial/Settings, cancel, malformed QR and multi-QR frames
+   on a physical phone; after any Expo SDK bump confirm `expo-camera` still
+   resolves and `expo prebuild` still emits the `android.permission.CAMERA`
+   declaration.
 
 ## Verification limits (no emulator)
 
-- The pairing screen (`../Pairing.tsx`) has no renderer test: the unit
-  project runs logic tests only, so coverage is the view-model
-  (`pairing-view.test.ts`), the transport adapter end to end against the
-  real redemption flow (`pairing-transport.test.ts`), `tsc`, and review
-  against the iOS `PairingView`/`ConfirmPairingView` behavior above.
-  Exercise entry, confirm, error and fail-closed states on a physical phone
-  before shipping.
+- The pairing screen (`../Pairing.tsx`) and scanner sheet (`QrScanner.tsx`)
+  have no renderer test: the unit project runs logic tests only, so coverage
+  is the view-model (`pairing-view.test.ts`), the capture session
+  (`qr-scan.test.ts`), the transport adapter end to end against the real
+  redemption flow (`pairing-transport.test.ts`), `tsc`, and review against
+  the iOS `PairingView`/`ConfirmPairingView`/`QRScannerView` behavior above.
+  Exercise entry, confirm, error and fail-closed states — plus camera
+  grant/denial/Settings, cancel, malformed QR and multi-QR frames — on a
+  physical phone before shipping.
 - `backup.test.ts` pins the checked-in `app.json` flag that generates the
   backup exclusion, not the generated manifest. After any Expo SDK bump or
   `app.json` edit, run `expo prebuild --platform android` and confirm the

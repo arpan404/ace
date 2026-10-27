@@ -11,18 +11,15 @@ import { PairingFlowError, preparePairing, type ConfirmedPairing } from "./pairi
  * stores anything, or logs the link: entry errors are the link parser's
  * static actionable messages, which never contain link material.
  *
- * QR capture (parity task A02.06) feeds the same `acceptPairingText` path as
- * pasted text: a decoded QR string is just another link candidate, so there
- * is no second redemption path and a malformed QR cannot send anything.
+ * QR capture (`./qr-scan.ts` session plus `./QrScanner.tsx` sheet, mirroring
+ * the iOS `QRScannerView`) feeds the same `acceptPairingText` path as pasted
+ * text: a decoded QR string is just another link candidate, so there is no
+ * second redemption path and a malformed QR cannot send anything.
  */
 
 /** Shown while the native pairing wiring is missing; pairing stays disabled. */
 export const PAIRING_UNAVAILABLE_MESSAGE =
   "This build cannot pair yet. Production pairing arrives with production startup, so nothing was sent.";
-
-/** Shown when the camera capture wiring is missing; paste stays available. */
-export const SCAN_UNAVAILABLE_MESSAGE =
-  "Camera scanning isn't available in this build. Paste the pairing link instead.";
 
 /** Shown when camera capture itself fails; never echoes the scanned text. */
 export const SCAN_FAILED_MESSAGE = "Scanning didn't return a link. Paste the pairing link instead.";
