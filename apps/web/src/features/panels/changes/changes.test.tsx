@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test } from "vitest";
 import { codeText } from "@/test/code-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { coldStartUncommitted, showUncommitted } from "@/test/uncommitted.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -19,6 +20,19 @@ async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   return { app, script, panel };
+}
+/** Changes on Uncommitted, where lines take review comments: the checkout as turn 2 left it. */
+async function openUncommitted(storage = memoryKeyValue()) {
+  const app = harness({ storage });
+  app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.workspace.setGitDiff("thread-cold-start", coldStartUncommitted);
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await showUncommitted(panel);
+  return { app, panel };
 }
 const file = (panel: HTMLElement, path: string) =>
   within(panel).getByRole("region", { name: path });
@@ -82,7 +96,7 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
 });
 
 test("an untouched local diff stays quiet and saving a comment reveals review actions", async () => {
-  const { panel } = await openChanges();
+  const { panel } = await openUncommitted();
   expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
   expect(within(panel).queryByText(/No comments.*pick lines/)).toBeNull();
   const replay = file(panel, "apps/server/src/replay.ts");
@@ -178,7 +192,7 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
 });
 
 test("a line comment goes to the agent through review mode and lands in the thread", async () => {
-  const { app, panel } = await openChanges();
+  const { app, panel } = await openUncommitted();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   const line = within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack", headSeq/));
   await userEvent.hover(line);
@@ -207,7 +221,7 @@ test("a line comment goes to the agent through review mode and lands in the thre
 });
 
 test("a comment can be edited before it is sent, and discarded", async () => {
-  const { app, panel } = await openChanges();
+  const { app, panel } = await openUncommitted();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await userEvent.click(
     within(replay).getAllByRole("button", { name: /^Comment on old line \d+$/ })[0]!,
@@ -250,7 +264,7 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
 
 test("a line comment stays on its line when the diff switches between Unified and Split", async () => {
   panelWidth(1000);
-  const { panel } = await openChanges();
+  const { panel } = await openUncommitted();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   const line = within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack", headSeq/));
   await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
@@ -332,7 +346,7 @@ async function comment(panel: HTMLElement, path: string, line: RegExp, text: str
 }
 
 test("unsent comments are summed up, sent together, then resolved and reopened", async () => {
-  const { app, panel } = await openChanges();
+  const { app, panel } = await openUncommitted();
   await comment(
     panel,
     "apps/server/src/replay.ts",
@@ -380,7 +394,7 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
 });
 
 test("the review's comments list jumps to a comment's file", async () => {
-  const { panel } = await openChanges();
+  const { panel } = await openUncommitted();
   await comment(
     panel,
     "apps/web/src/relay/outbox.ts",
@@ -403,7 +417,7 @@ test("the review's comments list jumps to a comment's file", async () => {
 test("comments and the diff layout come back after the page reloads", async () => {
   panelWidth(1000);
   const storage = memoryKeyValue();
-  const first = await openChanges("turn-2", storage);
+  const first = await openUncommitted(storage);
   await comment(
     first.panel,
     "apps/server/src/replay.ts",
@@ -416,6 +430,7 @@ test("comments and the diff layout come back after the page reloads", async () =
   // The workspace remembered too: the thread opens with Changes showing.
   const app = harness({ storage });
   app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.workspace.setGitDiff("thread-cold-start", coldStartUncommitted);
   await app.open("/t/thread-cold-start");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
