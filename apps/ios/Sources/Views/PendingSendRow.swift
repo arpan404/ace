@@ -90,7 +90,7 @@ struct NotSentMessage: View {
     @State private var details = false
     @State private var confirming = false
     @State private var recovered = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
             if !text.isEmpty { UserBubble(text: text) }

@@ -121,6 +121,8 @@ extension ButtonStyle where Self == ForgeWordButtonStyle {
 /// a short ease with no overshoot, so things fade in place rather than travel.
 enum AceMotion {
     @MainActor static var smooth: Animation {
-        UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.2) : .smooth
+        // Reduce Motion as ace applies it: the system's, or ace's own (Settings › Appearance).
+        UIAccessibility.isReduceMotionEnabled || UserDefaults.standard.bool(forKey: PhoneLook.reduceMotionKey)
+            ? .easeInOut(duration: 0.2) : .smooth
     }
 }

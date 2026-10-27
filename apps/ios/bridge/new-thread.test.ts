@@ -591,3 +591,20 @@ test("a file picked while the new thread is being saved is refused on its row, n
     context: { attachments: [{ sha256: photoSha }] },
   });
 });
+
+test("a star the computer refuses says stars are changed there, not to reconnect", async () => {
+  const daemon = new FakeDaemon({
+    clock: Date.now,
+    hostId: "ios-test-host",
+    token: "ios-test-token",
+    deviceScopes: { "ios-compose-test": ["read", "operate"] },
+  });
+  const compose = await connect(daemon);
+  await readyAgents(compose);
+  compose.compose({ kind: "favorite", key: "claude\u0000sonnet" });
+  const agents = await until(() => {
+    const patch = latest("compose.agents");
+    return patch?.starProblem ? patch : undefined;
+  });
+  expect(agents.starProblem).toBe("Stars are changed in ace on the computer.");
+});

@@ -94,7 +94,7 @@ struct MachineRow: View {
 struct ConnectionDot: View {
     let token: String
     let trying: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
         Circle().fill(colour).frame(width: 8, height: 8)
@@ -122,6 +122,8 @@ struct ConnectionDot: View {
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
     let symbol: String
+    /// New work is paused there ("Pause new work").
+    let paused: Bool
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
@@ -135,6 +137,7 @@ struct ConnectionDot: View {
         readOnly = machines.map { $0.isReadOnly(hostId) }
         address = entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         symbol = Self.symbol(entry?.icon?.kind)
+        paused = client?.admission?.paused == true
     }
     var connected: Bool { connection.token == "done" }
     /// The address while connected; otherwise the connection word and when it was last seen.
@@ -145,6 +148,7 @@ struct ConnectionDot: View {
             parts.append(connection.label)
             if let lastSeen, let age = ActivityTime.elapsed(since: lastSeen, now: Date()) { parts.append(age) }
         }
+        if paused { parts.append("New work paused") }
         if readOnly == true { parts.append("View only") }
         return parts.joined(separator: " · ")
     }

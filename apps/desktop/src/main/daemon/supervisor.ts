@@ -11,7 +11,7 @@ import {
 import { drainForUpdate } from "./drain.ts";
 import { exitDecision, incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
 import type { LocalDaemon } from "./probe.ts";
-import { readAdmission, waitForDaemon } from "./readiness.ts";
+import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
 
@@ -380,7 +380,7 @@ export class DaemonSupervisor {
       state: "running",
       source,
       url: daemon.url,
-      paused: admission.draining,
+      paused: admission.paused,
     };
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);
@@ -397,7 +397,11 @@ export class DaemonSupervisor {
       failures: healthFailures,
       // The request itself may run past the check's own deadline, so a late answer still
       // counts as one; it ends before the next check could send another.
-      probe: () => this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs),
+      probe: async () => {
+        const ok = await this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs);
+        if (ok) void this.followAdmission(generation, daemon);
+        return ok;
+      },
       timers: this.ports.timers,
       log: (level, message, data) => {
         if (!this.stale(generation)) this.ports.log(level, message, data);
@@ -420,6 +424,31 @@ export class DaemonSupervisor {
         void this.start();
       },
     });
+  }
+
+  /**
+   * A paired client can pause or resume new work too (`admission.request`), so each health check
+   * reads admission again and the tray follows. A pause or drain of our own in flight wins.
+   */
+  private async followAdmission(generation: number, daemon: LocalDaemon): Promise<void> {
+    if (this.draining) return;
+    const revision = this.maintenanceRevision;
+    try {
+      const admission = await this.ports.maintenance(daemon);
+      // The tray's Pause is the person's own hold; an update or kill-all holds admission apart.
+      const paused = personPaused(admission);
+      if (
+        !this.stale(generation) &&
+        this.daemon === daemon &&
+        revision === this.maintenanceRevision &&
+        !this.draining &&
+        this.status.state === "running" &&
+        paused !== this.status.paused
+      )
+        this.update({ paused });
+    } catch {
+      // The next health check reads it again.
+    }
   }
 
   private stopPorts(): StopPorts {

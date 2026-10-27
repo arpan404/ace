@@ -13,7 +13,7 @@ struct GlassSwitch<Value: Hashable>: View {
     }
     @Binding var selection: Value
     let choices: [Choice]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
 
     var body: some View {

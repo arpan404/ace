@@ -21,7 +21,7 @@ struct UsageView: View {
     @State private var limitsLoading = false
     @State private var refreshing = false
     @State private var refreshed = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// Opens on every machine when there are several, else on `machine`, drawing the last
     /// answers this run saw while it reads again behind them.

@@ -5,7 +5,7 @@ import UIKit
 /// thread"), gone after a few seconds or a tap.
 struct BrowserDoneNote: View {
     @Bindable var model: ClientModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
             if let done = model.browser.done {

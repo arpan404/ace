@@ -7,7 +7,7 @@ struct ChangesTreeSheet: View {
     let reveal: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var folded: Set<String> = []
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {

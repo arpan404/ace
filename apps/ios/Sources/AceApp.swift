@@ -58,6 +58,8 @@ import QuartzCore
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
                 if SpikeConfiguration.viewOnly { model.canOperate = false }
+                // The fixture's host token is an administrator's.
+                model.canAdmin = true
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
                 await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)

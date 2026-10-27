@@ -4,7 +4,7 @@
 /*
  * The site wears the app's default theme ("ace"): a graphite neutral ramp, the ink as the
  * accent, and status hues as the only colour. Values come from the app's theme sources
- * (apps/web/src/theme/sources/ace.ts and status.ts); see docs/design/visual-language.md.
+ * (packages/themes/src/sources/ace.ts and status.ts); see docs/design/visual-language.md.
  */
 :root {
   color-scheme: light dark;

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppUpdateChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "type": {
+      "const": "appUpdate.changed",
+      "type": "string"
+    },
+    "update": {
+      "$ref": "https://ace.local/protocol/v1/AppUpdate.json"
+    }
+  },
+  "required": [
+    "type",
+    "update"
+  ],
+  "type": "object"
+}

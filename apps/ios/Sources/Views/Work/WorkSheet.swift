@@ -10,7 +10,7 @@ struct WorkSheet: View {
     @Bindable var model: ClientModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openPullRequest) private var openPull
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var runner = WorkRunner()
     @State private var picking = false
     @State private var linking = false

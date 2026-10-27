@@ -12,7 +12,7 @@ struct ChangesSheet: View {
     var initial: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var wrap = true
     @State private var selection: LineSelection?
     /// One layer at a time over the sheet: a comment being written, replies, the review, the tree.
@@ -277,7 +277,7 @@ struct ChangedFileHeader: View {
     let reviewed: Bool
     let toggle: () -> Void
     let review: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {

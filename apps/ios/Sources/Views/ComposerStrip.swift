@@ -76,7 +76,7 @@ struct GroupedValue: View {
 /// `prominent` is the strip's way on that carries the work on ("Continue"): full ink, a step bolder.
 struct StripTextButtonStyle: ButtonStyle {
     var prominent = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

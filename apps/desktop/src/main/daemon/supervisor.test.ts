@@ -27,7 +27,12 @@ function machine() {
     healthy: true,
     external: false,
     blockers: 0,
+    /** The person's pause (the tray's hold). */
     maintenance: false,
+    /** An update's own hold, apart from the person's pause. */
+    updateHold: false,
+    /** How many of the next update-hold requests land but lose their reply. */
+    holdReplyFails: 0,
     admissionAvailable: true,
     /** How long the daemon takes to answer a health check (a busy event loop). */
     healthDelayMs: 0,
@@ -88,10 +93,23 @@ function machine() {
       state.maintenance = on;
       return state.blockers;
     },
+    setUpdateHold: async (_daemon, on) => {
+      state.updateHold = on;
+      // The request landed, but its reply was lost (a timeout on a busy daemon).
+      if (on && state.holdReplyFails > 0) {
+        state.holdReplyFails--;
+        throw new Error("The request timed out");
+      }
+      return state.blockers;
+    },
     blockers: async () => state.blockers,
     maintenance: async () => {
       if (!state.admissionAvailable) throw new Error("Admission request timed out");
-      return { draining: state.maintenance };
+      const holds = [
+        ...(state.maintenance ? ["user"] : []),
+        ...(state.updateHold ? ["update"] : []),
+      ];
+      return { draining: holds.length > 0, holds };
     },
     timers: {
       set(delayMs, callback) {
@@ -209,11 +227,23 @@ describe("daemon supervisor", () => {
     const draining = supervisor.drain(5000);
     await m.advance(6000);
     expect(await draining).toBe(false);
+    // The drain lets go of its own hold; the person's pause was never touched.
+    expect(m.state.updateHold).toBe(false);
     expect(m.state.maintenance).toBe(true);
     expect(supervisor.current().paused).toBe(true);
     await supervisor.pause(false);
     expect(m.state.maintenance).toBe(false);
     expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("attaching to a daemon that an update holds doesn't show it as paused by the person", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.updateHold = true; // Started mid-update, or `ace update` is draining it.
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
   });
 
   it("discovers a surviving daemon's pause and lets the user resume it", async () => {
@@ -226,6 +256,32 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().paused).toBe(true);
     await supervisor.pause(false);
     expect(m.state.maintenance).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("a drain's hold never shows as the person's pause in the tray", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.updateHold = true; // `ace update` from a terminal holds admission for its drain.
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("follows a pause and resume made by a paired client on its next health checks", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
+    m.state.maintenance = true; // A phone paused new work over the socket.
+    await m.advance(1_000);
+    expect(supervisor.current().paused).toBe(true);
+    m.state.maintenance = false;
+    await m.advance(1_000);
     expect(supervisor.current().paused).toBe(false);
   });
 
@@ -749,6 +805,28 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().state).toBe("stopped");
   });
 
+  it.each([
+    ["the first request's reply is lost", 1],
+    ["a later poll fails", 0],
+  ])("a drain that fails because %s lets go of its hold", async (_name, firstFails) => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.blockers = 2;
+    m.state.holdReplyFails = firstFails;
+    const draining = supervisor.drain(5_000);
+    if (!firstFails) {
+      await m.advance(10);
+      m.state.holdReplyFails = 1;
+      await m.advance(1_000);
+    }
+    await expect(draining).rejects.toThrow("timed out");
+    expect(m.state.updateHold).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
   it("drains before an update and reopens admission when work is still running", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports);
@@ -760,12 +838,14 @@ describe("daemon supervisor", () => {
     const draining = supervisor.drain(5_000);
     await m.advance(6_000);
     expect(await draining).toBe(false);
-    expect(m.state.maintenance).toBe(false);
+    expect(m.state.updateHold).toBe(false);
 
     m.state.blockers = 0;
     const drained = supervisor.drain(5_000);
     await m.advance(1_000);
     expect(await drained).toBe(true);
-    expect(m.state.maintenance).toBe(true);
+    // The update keeps its hold until the daemon is replaced; the person's pause stays off.
+    expect(m.state.updateHold).toBe(true);
+    expect(m.state.maintenance).toBe(false);
   });
 });

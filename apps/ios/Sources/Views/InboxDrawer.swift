@@ -14,7 +14,7 @@ struct DrawerButton: View {
         }
         .accessibilityLabel("Open sidebar")
         .accessibilityIdentifier("thread.sidebar")
-        .keyboardShortcut("s", modifiers: [.command, .control])
+        .phoneShortcut("toggleSidebar")
     }
 }
 

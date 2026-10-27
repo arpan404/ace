@@ -914,6 +914,14 @@ export class Store {
       ).get(id) !== undefined
     );
   }
+  /** Of the update blockers, the threads waiting on a person (an approval or a question). */
+  waitingBlockers(): number {
+    return Number(
+      this.statement(
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') = 'needs_you'",
+      ).get()?.n,
+    );
+  }
   updateBlockers(): number {
     return Number(
       this.statement(

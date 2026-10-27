@@ -1079,6 +1079,90 @@ Example:
 }
 ```
 
+## Admission
+
+[JSON Schema](schema/Admission.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| holds | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
+| busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "busy": 4,
+  "holds": [],
+  "waiting": 7
+}
+```
+
+## AdmissionChanged
+
+[JSON Schema](schema/AdmissionChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.changed"` |  |
+| admission | yes | [Admission.json](schema/Admission.json) |  |
+
+Example:
+
+```json
+{
+  "admission": {
+    "busy": 3,
+    "holds": [],
+    "waiting": 7
+  },
+  "type": "admission.changed"
+}
+```
+
+## AdmissionRequest
+
+[JSON Schema](schema/AdmissionRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | ["status","pause","resume"] |  |
+
+Example:
+
+```json
+{
+  "operation": "status",
+  "requestId": "example",
+  "type": "admission.request"
+}
+```
+
+## AdmissionResult
+
+[JSON Schema](schema/AdmissionResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| ok | yes | boolean |  |
+| admission | no | [Admission.json](schema/Admission.json) |  |
+| error | no | ["forbidden","unavailable"] |  |
+
+Example:
+
+```json
+{
+  "ok": true,
+  "requestId": "example",
+  "type": "admission.result"
+}
+```
+
 ## Agent
 
 [JSON Schema](schema/Agent.json), input validation.
@@ -3440,6 +3524,132 @@ Example:
 
 ```json
 "foreground"
+```
+
+## AppUpdate
+
+[JSON Schema](schema/AppUpdate.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
+| reportedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "report": {
+    "available": null,
+    "downloaded": false,
+    "releaseUrl": "https://example.invalid/",
+    "restartRequired": false,
+    "version": "example"
+  },
+  "reportedAt": null
+}
+```
+
+## AppUpdateChanged
+
+[JSON Schema](schema/AppUpdateChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.changed"` |  |
+| update | yes | [AppUpdate.json](schema/AppUpdate.json) |  |
+
+Example:
+
+```json
+{
+  "type": "appUpdate.changed",
+  "update": {
+    "report": {
+      "available": null,
+      "downloaded": true,
+      "releaseUrl": "https://example.invalid/",
+      "restartRequired": false,
+      "version": "example"
+    },
+    "reportedAt": 1
+  }
+}
+```
+
+## AppUpdateReport
+
+[JSON Schema](schema/AppUpdateReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string | {"minLength":1,"maxLength":80} |
+| available | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":80},{"type":"null"}]} |
+| downloaded | yes | boolean |  |
+| restartRequired | yes | boolean |  |
+| releaseUrl | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":400,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "available": "example",
+  "downloaded": false,
+  "releaseUrl": null,
+  "restartRequired": false,
+  "version": "example"
+}
+```
+
+## AppUpdateRequest
+
+[JSON Schema](schema/AppUpdateRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "appUpdate.request"
+}
+```
+
+## AppUpdateResult
+
+[JSON Schema](schema/AppUpdateResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| ok | yes | boolean |  |
+| update | no | [AppUpdate.json](schema/AppUpdate.json) |  |
+| error | no | ["forbidden"] |  |
+
+Example:
+
+```json
+{
+  "error": "forbidden",
+  "ok": true,
+  "requestId": "example",
+  "type": "appUpdate.result",
+  "update": {
+    "report": {
+      "available": "example",
+      "downloaded": false,
+      "releaseUrl": null,
+      "restartRequired": true,
+      "version": "example"
+    },
+    "reportedAt": null
+  }
+}
 ```
 
 ## Attachment
@@ -17213,6 +17423,18 @@ Example:
 }
 ```
 
+## MaintenanceHold
+
+[JSON Schema](schema/MaintenanceHold.json), input validation.
+
+Type: ["user","update","kill","stop"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"update"
+```
+
 ## MaintenanceStatus
 
 [JSON Schema](schema/MaintenanceStatus.json), input validation.
@@ -17221,13 +17443,17 @@ Example:
 | --- | --- | --- | --- |
 | draining | yes | boolean |  |
 | blockers | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| waiting | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| holds | no | array | {"maxItems":4,"items":{"type":"string","enum":["user","update","kill","stop"]}} |
 
 Example:
 
 ```json
 {
   "blockers": 0,
-  "draining": false
+  "draining": false,
+  "holds": [],
+  "waiting": 9
 }
 ```
 
@@ -22670,6 +22896,26 @@ Example:
   "requestId": "example",
   "session": "example",
   "type": "provider.install.poll"
+}
+```
+
+### provider.install.active
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"provider.install.active"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| agent | no | [InstallAgent.json](schema/InstallAgent.json) |  |
+| acpAgentId | no | string | {"maxLength":256,"pattern":"^official:[a-z0-9-]+$"} |
+
+Example:
+
+```json
+{
+  "provider": "cursor",
+  "requestId": "example",
+  "type": "provider.install.active"
 }
 ```
 
@@ -28899,6 +29145,34 @@ Example:
 }
 ```
 
+### settings.setMany
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"settings.setMany"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| entries | yes | array | {"minItems":1,"maxItems":32,"items":{"type":"object","properties":{"key":{"type":"string","minLength":1,"maxLength":256},"value":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"required":["key","value"]}} |
+| layer | yes | [SettingsLayer.json](schema/SettingsLayer.json) |  |
+
+Example:
+
+```json
+{
+  "entries": [
+    {
+      "key": "example",
+      "value": 5
+    }
+  ],
+  "layer": {
+    "kind": "thread",
+    "threadId": "example"
+  },
+  "requestId": "example",
+  "type": "settings.setMany"
+}
+```
+
 ### settings.reset
 
 | Field | Required | Type | Constraints |
@@ -28930,10 +29204,12 @@ Example:
 ```json
 {
   "keys": [
-    "providers.verifier.tier"
+    "remote.agentTransfers"
   ],
   "requestId": "example",
-  "scope": {},
+  "scope": {
+    "workspaceId": "example"
+  },
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -29039,6 +29315,35 @@ Example:
   "requestId": "example",
   "type": "settings.set",
   "value": {}
+}
+```
+
+## SettingsSetMany
+
+[JSON Schema](schema/SettingsSetMany.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"settings.setMany"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| entries | yes | array | {"minItems":1,"maxItems":32,"items":{"type":"object","properties":{"key":{"type":"string","minLength":1,"maxLength":256},"value":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"required":["key","value"]}} |
+| layer | yes | [SettingsLayer.json](schema/SettingsLayer.json) |  |
+
+Example:
+
+```json
+{
+  "entries": [
+    {
+      "key": "example",
+      "value": {}
+    }
+  ],
+  "layer": {
+    "kind": "global"
+  },
+  "requestId": "example",
+  "type": "settings.setMany"
 }
 ```
 

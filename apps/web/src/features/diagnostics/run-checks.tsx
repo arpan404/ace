@@ -1,6 +1,7 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import type { ReadinessTone } from "@ace/ui-core";
+import { checkStatusWords, hostChecks, unknownCheck } from "@ace/ui-core/host-care";
 import { StatusLine } from "@/components/provider-tile.tsx";
 
 import { catalogKey } from "@/lib/model-catalog.ts";
@@ -13,33 +14,6 @@ import { Button } from "@/components/ui/button.tsx";
 
 /** Longer than the daemon's largest integrity budget, so the daemon reports first. */
 const CHECKS_TIMEOUT_MS = 16 * 60_000;
-
-const checks: Record<string, { label: string; fix: string }> = {
-  "home.permissions": {
-    label: "Data folder access",
-    fix: "Run safe repairs, or restore owner access to the ace data folder.",
-  },
-  "logs.directory": {
-    label: "Log folder",
-    fix: "Run safe repairs to create the log folder or restore owner access.",
-  },
-  node: { label: "App runtime", fix: "Update ace and restart it." },
-  git: { label: "Git", fix: "Install Git. On a Mac, install the Xcode Command Line Tools." },
-  "node-pty": { label: "Terminal", fix: "Reinstall ace, then try opening a terminal again." },
-  chromium: { label: "Browser", fix: "Install Chrome or Chromium to use the browser tools." },
-  disk: {
-    label: "Storage",
-    fix: "Free some disk space and check that ace can read and write its data folder.",
-  },
-  sqlite: {
-    label: "Saved conversations",
-    fix: "Quit ace and back up its data folder before restoring a known-good backup.",
-  },
-  "remote.openssl": {
-    label: "Secure connections",
-    fix: "Install OpenSSL to use secure remote connections.",
-  },
-};
 
 export function RunChecks(props: {
   providers: readonly {
@@ -113,28 +87,19 @@ export function RunChecks(props: {
           {report.checks
             .filter((check) => !check.id.startsWith("provider."))
             .map((check) => {
-              const info = checks[check.id];
+              const info = hostChecks[check.id] ?? unknownCheck;
               return (
                 <li key={check.id}>
                   <div className="flex h-8 items-center justify-between gap-2 text-sm">
-                    <span>{info?.label ?? "Additional check"}</span>
+                    <span>{info.label}</span>
                     <StatusLabel
                       tone={check.status === "ok" ? "done" : "failed"}
-                      label={
-                        check.status === "ok"
-                          ? "Passed"
-                          : check.status === "warn"
-                            ? "Needs attention"
-                            : "Needs a fix"
-                      }
+                      label={checkStatusWords[check.status]}
                     />
                   </div>
                   <p className="pb-2 text-sm text-muted-foreground">{check.message}</p>
                   {check.status !== "ok" && (
-                    <p className="pb-2 text-sm text-muted-foreground">
-                      {info?.fix ??
-                        "Update ace and run the checks again. If this continues, export a support bundle."}
-                    </p>
+                    <p className="pb-2 text-sm text-muted-foreground">{info.fix}</p>
                   )}
                 </li>
               );

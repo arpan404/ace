@@ -8,12 +8,24 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 
+/** What installing, updating or removing a CLI needs of the SDK client. */
+export type InstallClient = Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+
 export type InstallView =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "plan"; plan: ProviderInstallPlan }
   | { kind: "progress"; progress: ProviderInstallProgress }
   | { kind: "error"; message: string };
+
+/** Why the computer refused to plan or start an installer, in words for the person. */
+function refusal(error: string | undefined, starting: boolean): string {
+  if (error === "forbidden")
+    return "This device isn't allowed to install on this computer. Install from ace on the computer.";
+  return starting
+    ? "Couldn't start the installer. Another installation may be running. Try again."
+    : "Couldn't prepare the installer. Check your connection and try again.";
+}
 
 const done = (progress: ProviderInstallProgress) =>
   ["succeeded", "failed", "cancelled", "needs_admin"].includes(progress.state);
@@ -29,12 +41,12 @@ export class CliInstallController {
   private disposed = false;
   private planning: AbortController | undefined;
   private cancelStarting = false;
-  private client: ClientApi;
+  private client: InstallClient;
   private remember: (session: string | undefined) => void;
   private target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string };
 
   constructor(
-    client: ClientApi,
+    client: InstallClient,
     target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string },
     recovery: {
       session?: string | undefined;
@@ -58,14 +70,14 @@ export class CliInstallController {
       }),
       connection.subscribe(() => {
         const next = connection.getSnapshot() === "ready";
-        if (next && !ready && this.session) void this.poll();
+        if (next && !ready) void (this.session ? this.poll() : this.reattach());
         ready = next;
       }),
     ];
     if (this.session) {
       this.view = { kind: "loading" };
       if (ready) void this.poll();
-    }
+    } else if (ready) void this.reattach();
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -106,7 +118,7 @@ export class CliInstallController {
           ? { kind: "plan", plan: reply.result.plan }
           : {
               kind: "error",
-              message: "Couldn't prepare the installer. Check your connection and try again.",
+              message: refusal(reply.result.ok ? undefined : reply.result.error, false),
             },
       );
     } catch {
@@ -131,7 +143,7 @@ export class CliInstallController {
       if (!reply.result.ok || !("progress" in reply.result)) {
         this.set({
           kind: "error",
-          message: "Couldn't start the installer. Another installation may be running. Try again.",
+          message: refusal(reply.result.ok ? undefined : reply.result.error, true),
         });
         return;
       }
@@ -184,15 +196,29 @@ export class CliInstallController {
       });
       if (reply.result.ok && "progress" in reply.result) this.accept(reply.result.progress);
       else {
+        // The computer no longer knows the job (it finished long ago or restarted): show the
+        // provider as it is now, not a progress bar for a job that is gone.
         this.session = undefined;
         this.remember(undefined);
-        this.set({
-          kind: "error",
-          message: "This installation is no longer available. Check for updates or try again.",
-        });
+        this.set({ kind: "idle" });
       }
     } catch {
       this.fail();
+    }
+  }
+  /** Finds this device's installation still running for the target after the session id was lost. */
+  private async reattach(): Promise<void> {
+    if (this.session || this.starting) return;
+    try {
+      const reply = await this.client.request({ type: "provider.install.active", ...this.target });
+      if (this.session || this.starting || this.disposed) return;
+      if (!reply.result.ok || !("progress" in reply.result)) return;
+      if (this.view.kind !== "idle") return;
+      this.session = reply.result.progress.session;
+      this.remember(this.session);
+      this.accept(reply.result.progress);
+    } catch {
+      /* Nothing to reattach to; the page shows the provider's status. */
     }
   }
   private accept(progress: ProviderInstallProgress): void {

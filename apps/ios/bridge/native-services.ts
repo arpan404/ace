@@ -53,9 +53,15 @@ import {
 import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
 import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
 import { host } from "./host.ts";
+import { HostCareRequest, type HostCare } from "./host-care.ts";
+import { HostProblem } from "./host-problem.ts";
+import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
+import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
+import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
@@ -87,6 +93,11 @@ const Request = z.union([
   TerminalRequest,
   UsageSummary,
 ]);
+/**
+ * ADR 0002 lets a paired device hand over an API key only on the relay's encrypted
+ * `provider_auth` channel, which this bridge doesn't have, so a key never leaves the phone here.
+ */
+const ApiKeyHandOver = z.object({ type: z.literal("provider.login.apiKey") });
 const DeviceRequestType = z.object({
   type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
 });
@@ -127,6 +138,9 @@ export class NativeServices {
   readonly reads: NativeReads | undefined;
   readonly projects: ProjectManage | undefined;
   readonly inbox: InboxRequests | undefined;
+  readonly care: HostCare | undefined;
+  /** A provider's Settings page: its reads, edits and CLI installs (`provider-services.ts`). */
+  readonly providers: ProviderServices;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -137,6 +151,7 @@ export class NativeServices {
     reads?: NativeReads,
     projects?: ProjectManage,
     inbox?: InboxRequests,
+    care?: HostCare,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -148,13 +163,19 @@ export class NativeServices {
     this.reads = reads;
     this.projects = projects;
     this.inbox = inbox;
+    this.care = care;
+    this.providers = new ProviderServices(owner);
   }
-  /** The bridge is starting over: every request still waiting lets go. */
+  /**
+   * This runtime's services are stopping or being replaced: requests in flight are cancelled,
+   * the provider install controllers stop following the old client and kept work lets go.
+   */
   dispose(): void {
     for (const controller of this.#pending.values()) controller.abort();
     this.#pending.clear();
     this.#keeping.clear();
     this.projects?.dispose();
+    this.providers.dispose();
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -180,6 +201,7 @@ export class NativeServices {
     this.#pending.set(id, controller);
     if (read) this.#keeping.add(id);
     try {
+      if (ApiKeyHandOver.safeParse(raw).success) throw new Error("API keys stay off the phone");
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {
@@ -252,6 +274,22 @@ export class NativeServices {
         );
         return;
       }
+      const provider = await this.providers.answer(raw, controller.signal);
+      if (provider) {
+        this.#answer(id, raw, provider.value, read);
+        return;
+      }
+      const accent = CustomAccentRequest.safeParse(raw);
+      if (accent.success) {
+        const fitted = fitCustomAccent(accent.data);
+        this.#reply(
+          id,
+          fitted !== undefined,
+          fitted ?? null,
+          fitted ? "" : "That colour can't be used.",
+        );
+        return;
+      }
       const sent = SentPromptRequest.safeParse(raw);
       if (sent.success) {
         this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
@@ -311,6 +349,32 @@ export class NativeServices {
       const combineAccounts = UsageLimitsCombineRequest.safeParse(raw);
       if (combineAccounts.success) {
         this.#reply(id, true, combineLimits(combineAccounts.data, host.now()), "");
+        return;
+      }
+      const care = HostCareRequest.safeParse(raw);
+      if (care.success && this.care) {
+        try {
+          this.#answer(id, raw, await this.care.answer(care.data, controller.signal), read);
+        } catch (error) {
+          // Storage, diagnostics and pausing say what went wrong in the person's words.
+          if (!(error instanceof HostProblem)) throw error;
+          this.#reply(id, false, null, error.message);
+        }
+        return;
+      }
+      const page = settingsPageRequest(raw);
+      if (page) {
+        this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
+        return;
+      }
+      const manage = SettingsManageRequest.safeParse(raw);
+      if (manage.success) {
+        this.#reply(
+          id,
+          true,
+          await answerSettingsManage(this.owner, manage.data, controller.signal),
+          "",
+        );
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);

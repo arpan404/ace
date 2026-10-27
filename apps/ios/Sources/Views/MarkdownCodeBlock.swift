@@ -8,7 +8,7 @@ struct MarkdownCodeBlock: View {
     let text: String
     @Environment(\.markdownRich) private var rich
     @Environment(\.markdownSettled) private var settled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var copied = false
     @State private var showAll = false
     @State private var loaded: MarkdownRich.Code?
@@ -136,7 +136,7 @@ private struct DiffLines: View {
 struct MathBlock: View {
     let span: MathSpan
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var typeset: MathImage?
     var body: some View {
         let size = MathMarkers.size(typeSize)
@@ -186,7 +186,7 @@ struct MathProse: View {
     let text: String
     let math: [MathSpan]
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var typeset: [Int: MathImage] = [:]
     var body: some View {
         let size = MathMarkers.size(typeSize)

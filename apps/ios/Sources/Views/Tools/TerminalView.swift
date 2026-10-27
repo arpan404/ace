@@ -42,7 +42,7 @@ struct TerminalView: View {
     @State private var selecting = false
     @State private var namesVersion = 0
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private var output: TerminalScreenModel { model.terminal }
 
     var body: some View {

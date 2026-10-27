@@ -49,7 +49,7 @@ struct InboxStack<Destination: View>: View {
     /// The open thread's own commands, left by its page (`ThreadKeysBox`).
     @Environment(\.threadKeysBox) private var threadKeysBox
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {

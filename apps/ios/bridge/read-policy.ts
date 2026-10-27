@@ -11,13 +11,16 @@ import { z } from "zod";
 export type ReadFamily =
   | "projects"
   | "settings"
+  | "settings-page"
   | "source-control"
   | "automations"
   | "usage"
   | "plugins"
   | "prompts"
   | "catalog"
-  | "forge";
+  | "forge"
+  | "host"
+  | "providers";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -60,6 +63,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "projects";
     case "settings.get":
       return "settings";
+    case "settings.page":
+      return "settings-page";
     case "source-control.request":
       return operation(value) === "readiness" ? "source-control" : undefined;
     case "automation.list":
@@ -75,6 +80,13 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "list" ? "prompts" : undefined;
     case "catalog.list":
       return "catalog";
+    case "host.storage":
+    case "host.diagnostics":
+      return "host";
+    // A provider's Settings page and the off and missing providers (`provider-page.ts`).
+    case "provider.page":
+    case "providers.others":
+      return "providers";
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -107,8 +119,19 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "projects.request":
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
+    case "settings.setMany":
     case "settings.reset":
-      return ["settings", "source-control"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
+    case "host.storage.apply":
+    case "host.storage.compact":
+    case "host.storage.set":
+    case "host.worktreeTimeout":
+    case "host.reset":
+      return ["host", "settings", "settings-page", "providers"];
+    case "settings.page.set":
+      return ["settings", "settings-page", "source-control", "host", "providers"];
+    case "settings.models.star":
+      return ["settings", "settings-page", "providers"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
@@ -118,6 +141,10 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
     case "prompts.request":
       return ["prompts"];
+    case "provider.edit":
+      return ["providers", "settings", "catalog"];
+    case "provider.logout":
+      return ["providers", "catalog"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
@@ -144,16 +171,18 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "source-control"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
     case "usage.updated":
-    case "accounts.changed":
       return ["usage"];
+    case "accounts.changed":
+      return ["usage", "settings-page", "providers"];
     case "plugins.removed":
       return ["plugins", "catalog"];
     case "catalog.changed":
+      return ["catalog"];
     case "models.changed":
     case "providers.changed":
-      return ["catalog"];
+      return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
     default:

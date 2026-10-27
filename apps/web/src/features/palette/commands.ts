@@ -37,7 +37,7 @@ import {
   type WorkspaceCommand,
 } from "@/lib/workspace/index.ts";
 import { useLayout, type PalettePage } from "@/lib/layout.tsx";
-import { themeIds, themes } from "@/theme/palettes.ts";
+import { themeIds, themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useLiveCommands } from "./live-commands.ts";
 import { useThreadCommands } from "./thread-commands.ts";

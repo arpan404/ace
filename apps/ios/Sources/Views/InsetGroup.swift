@@ -8,7 +8,7 @@ extension View {
         self.listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
+            .modifier(InsetRowDensity())
             .listSectionSpacing(AceTheme.Spacing.sm)
     }
     /// Rows pass under the bottom search field behind a firm edge, so none reads through it.
@@ -112,5 +112,13 @@ struct InsetValue: View {
             Text(text).aceFont(InsetStyle.value, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
         }
+    }
+}
+
+/// A settings row's least height at the chosen density (Settings › Appearance).
+private struct InsetRowDensity: ViewModifier {
+    @Environment(\.aceDensityId) private var density
+    func body(content: Content) -> some View {
+        content.environment(\.defaultMinListRowHeight, AceTheme.density(density).settingsRowHeight)
     }
 }

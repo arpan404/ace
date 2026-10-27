@@ -34,7 +34,7 @@ struct FileScreen: View {
     /// Lines selected while reading: Mention lines puts them in the message.
     @State private var selectedLines: ClosedRange<Int>?
     @State private var mentioned = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var actions: FileActions
 
     init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
@@ -334,11 +334,14 @@ struct SharedFile: Identifiable {
     var id: URL { url }
 }
 
-/// The system share sheet for one file.
+/// The system share sheet for one file; `finished` runs once the person shares or cancels.
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var finished: (() -> Void)? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let finished { controller.completionWithItemsHandler = { _, _, _, _ in finished() } }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

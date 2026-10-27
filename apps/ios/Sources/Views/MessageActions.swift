@@ -75,7 +75,7 @@ struct MessageActions: View {
     let copy: String?
     let label: String
     @Environment(\.messageTransitions) private var transitions
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var copied = false
     var body: some View {
         let offered = transitions?.offered(for: row) ?? []

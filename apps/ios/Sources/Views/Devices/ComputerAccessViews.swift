@@ -124,9 +124,8 @@ struct UseMyChromeView: View {
                         } header: { InsetHeader("Connected browsers") }
                         Section {
                             NavigationLink {
-                                if let category = RemoteSettingsCategory.all.first(where: { $0.settings.contains { $0.key == "browser.userChrome.storageReads" } }) {
-                                    RemoteSettingsView(model: model, category: category)
-                                }
+                                // The Browser and computer page holds the Chrome storage switch.
+                                RemoteSettingsView(model: model, category: .browser)
                             } label: { InsetRow("Cookies and site storage", systemImage: nil) }
                             .insetRowBackground()
                             if model.canOperate, model.mayAdminister {

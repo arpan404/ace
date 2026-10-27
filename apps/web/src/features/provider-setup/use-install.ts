@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "@ace/ui-core";
+import { CliInstallController, readJson, writeJson } from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,6 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
-import { CliInstallController } from "./cli-install-controller.ts";
 
 export function useInstall(provider: ProviderKind, acpAgentId?: string) {
   const client = useClient();

@@ -14,6 +14,8 @@ enum NotificationKeys {
     static let deny = "denyOption"
     /// The machine that raised the alert, so a tap or an answer goes back to it.
     static let hostId = "hostId"
+    /// "0" when the alert should go to the list without a banner over the open app.
+    static let banner = "banner"
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
@@ -34,6 +36,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         info[NotificationKeys.approve] = alert.approveOption
         info[NotificationKeys.deny] = alert.denyOption
         info[NotificationKeys.hostId] = alert.hostId
+        info[NotificationKeys.banner] = alert.banner ? "1" : "0"
         content.userInfo = info
         // The stable daemon id, within its machine, is the request identifier, so a repeat
         // replaces rather than stacks, and another machine's equal id doesn't replace it.
@@ -61,6 +64,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
     func receive(_ alert: AlertNotification) async {
         guard ledger.admit(alert.id) else { return }
         store?.save(ledger)
+        guard alert.delivery?.post != false else { return }
         await center.post(AlertContent(alert, hostId: hostId))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
@@ -68,7 +72,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let fresh = entries.filter { ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
-        for alert in fresh { await center.post(AlertContent(alert, hostId: hostId)) }
+        for alert in fresh where alert.delivery?.post != false { await center.post(AlertContent(alert, hostId: hostId)) }
     }
     func withdraw(_ id: String) { center.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.

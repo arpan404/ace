@@ -6,7 +6,7 @@ struct ThreadView: View {
     @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel

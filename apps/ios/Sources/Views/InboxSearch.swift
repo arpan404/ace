@@ -77,7 +77,7 @@ struct InboxSearchList: View {
     @State private var scope = SearchScope()
     @State private var recent = RecentSearches.read(.standard)
     @Environment(\.onSidebarGlass) private var onGlass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 

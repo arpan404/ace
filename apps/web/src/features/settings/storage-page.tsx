@@ -12,7 +12,7 @@ import {
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
-import { itemCount, storageBytes, storageLabels } from "./storage-copy.ts";
+import { itemCount, storageBytes, storageLabels } from "@ace/ui-core/host-care";
 import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
 import { StorageRetention } from "@ace/protocol";
 

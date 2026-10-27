@@ -14,7 +14,7 @@ struct ForgeImageDiffView: View {
     @State private var failure: String?
     @State private var layout = Layout.side
     @State private var reveal = 0.5
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     enum Layout: String, CaseIterable { case side = "Side by side", swipe = "Swipe" }
     struct Side: Sendable { let image: UIImage?; let size: Int?; let note: String? }

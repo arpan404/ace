@@ -16,7 +16,7 @@ import {
   SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
-import { itemCount, storageBytes, storageReasons } from "./storage-copy.ts";
+import { itemCount, storageBytes, storageReasons } from "@ace/ui-core/host-care";
 
 export function StoragePlanPreview(props: {
   plan: StoragePlan;

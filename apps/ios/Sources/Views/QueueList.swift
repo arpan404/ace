@@ -19,7 +19,7 @@ struct QueueList: View {
     @State private var removing: QueueRow.Message?
     @State private var acting = false
     @State private var toggled = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var busy: String?
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {

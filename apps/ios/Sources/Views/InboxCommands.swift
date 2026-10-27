@@ -75,15 +75,15 @@ private struct InboxCommandKeys: View {
     let commands: InboxCommands
     var body: some View {
         ZStack {
-            if let newThread = commands.newThread { Button("New Thread", action: newThread).keyboardShortcut("n", modifiers: .command) }
-            Button("Search Everything", action: commands.search).keyboardShortcut("k", modifiers: .command)
-            Button("Search Threads", action: commands.search).keyboardShortcut("f", modifiers: .command)
-            Button("Settings", action: commands.settings).keyboardShortcut(",", modifiers: .command)
-            Button("Next Thread", action: commands.next).keyboardShortcut("]", modifiers: .command)
-            Button("Previous Thread", action: commands.previous).keyboardShortcut("[", modifiers: .command)
-            Button("Next Thread", action: commands.next).keyboardShortcut(.downArrow, modifiers: [.command, .option])
-            Button("Previous Thread", action: commands.previous).keyboardShortcut(.upArrow, modifiers: [.command, .option])
-            Button("Next Thread That Needs You", action: commands.nextNeedsYou).keyboardShortcut("j", modifiers: [.command, .option])
+            if let newThread = commands.newThread { Button("New Thread", action: newThread).phoneShortcut("newThread") }
+            Button("Search Everything", action: commands.search).phoneShortcut("searchEverything")
+            Button("Search Threads", action: commands.search).phoneShortcut("searchThreads")
+            Button("Settings", action: commands.settings).phoneShortcut("settings")
+            Button("Next Thread", action: commands.next).phoneShortcut("nextThread")
+            Button("Previous Thread", action: commands.previous).phoneShortcut("previousThread")
+            Button("Next Thread", action: commands.next).phoneShortcut("nextThreadByArrow")
+            Button("Previous Thread", action: commands.previous).phoneShortcut("previousThreadByArrow")
+            Button("Next Thread That Needs You", action: commands.nextNeedsYou).phoneShortcut("nextNeedsYou")
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -91,72 +91,80 @@ private struct InboxCommandKeys: View {
     }
 }
 
-/// The Threads and Thread menus: in the iPad menu bar and the overlay held ⌘ shows, with the
-/// web's keys (`keymap.ts`) where iPadOS leaves them free. Thread lists only what the open
-/// thread offers now. Send (⌘↩) belongs to the composer's button and Close (Esc) to each sheet's.
+/// The Threads and Thread menus: in the iPad menu bar and the overlay held ⌘ shows, with this
+/// phone's keys (Settings › Keyboard, `@ace/ui-core/phone-keymap`): some rebindable, the rest on
+/// the web's keys where iPadOS leaves them free. Thread lists only what the open thread offers
+/// now. Send belongs to the composer's button, the sidebar to its button and Close (Esc) to each
+/// sheet's; the overlay lists those while they show.
 struct ThreadCommands: Commands {
     @FocusedValue(\.inboxCommands) private var inbox
     @FocusedValue(\.threadKeys) private var thread
+    @FocusedValue(\.recordingShortcut) private var recording
+    @AppStorage(PhoneKeymap.storageKey) private var stored = ""
 
     var body: some Commands {
+        // While Settings › Keyboard records keys, a pressed shortcut is recorded, not run.
+        let keymap = PhoneKeymap(stored: stored)
+        let inbox = recording == true ? nil : inbox
+        let thread = recording == true ? nil : thread
         CommandMenu("Threads") {
             Button("New Thread") { inbox?.newThread?() }
-                .keyboardShortcut("n", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("newThread"))
                 .disabled(inbox?.newThread == nil)
             Button("Search Everything") { inbox?.search() }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("searchEverything"))
                 .disabled(inbox == nil)
-            // ⌘F searches the open thread; with none open, the list.
+            // Search searches the open thread; with none open, the list.
             Button(thread == nil ? "Search Threads" : "Search This Thread") {
                 if let thread { thread.open(.search) } else { inbox?.search() }
             }
-            .keyboardShortcut("f", modifiers: .command)
+            .keyboardShortcut(keymap.shortcut("searchThreads"))
             .disabled(inbox == nil && thread == nil)
             Button("Select Threads") { inbox?.select() }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .keyboardShortcut(keymap.shortcut("selectThreads"))
                 .disabled(inbox == nil)
             Divider()
             Button("Next Thread") { inbox?.next() }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keymap.shortcut("nextThreadByArrow"))
                 .disabled(inbox == nil)
             Button("Previous Thread") { inbox?.previous() }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keymap.shortcut("previousThreadByArrow"))
                 .disabled(inbox == nil)
             Button("Next Thread That Needs You") { inbox?.nextNeedsYou() }
-                .keyboardShortcut("j", modifiers: [.command, .option])
+                .keyboardShortcut(keymap.shortcut("nextNeedsYou"))
                 .disabled(inbox == nil)
             Button("Next Thread in List") { inbox?.next() }
-                .keyboardShortcut("]", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("nextThread"))
                 .disabled(inbox == nil)
             Button("Previous Thread in List") { inbox?.previous() }
-                .keyboardShortcut("[", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("previousThread"))
                 .disabled(inbox == nil)
             Divider()
             Button("Settings") { inbox?.settings() }
-                .keyboardShortcut(",", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("settings"))
                 .disabled(inbox == nil)
         }
         CommandMenu("Thread") {
-            Button("Show Changes") { thread?.open(.changes) }.keyboardShortcut("d", modifiers: [.command, .shift]).disabled(thread == nil)
-            Button("Agent Tree") { thread?.open(.agents) }.keyboardShortcut("a", modifiers: [.control, .shift]).disabled(thread == nil)
-            Button("Open a File") { thread?.open(.files) }.keyboardShortcut("p", modifiers: .command).disabled(thread == nil)
-            Button("Terminal") { thread?.open(.terminal) }.keyboardShortcut("`", modifiers: .control).disabled(thread == nil)
-            Button("Browser") { thread?.open(.browser) }.keyboardShortcut("b", modifiers: [.control, .shift]).disabled(thread == nil)
-            Button("Devices") { thread?.open(.devices) }.keyboardShortcut("m", modifiers: [.control, .shift]).disabled(thread == nil)
-            Button("Stop All Agents") { thread?.stop?() }.keyboardShortcut(".", modifiers: .command).disabled(thread?.stop == nil)
+            Button("Show Changes") { thread?.open(.changes) }.keyboardShortcut(keymap.shortcut("showChanges")).disabled(thread == nil)
+            Button("Agent Tree") { thread?.open(.agents) }.keyboardShortcut(keymap.shortcut("agentTree")).disabled(thread == nil)
+            Button("Open a File") { thread?.open(.files) }.keyboardShortcut(keymap.shortcut("openFile")).disabled(thread == nil)
+            Button("Terminal") { thread?.open(.terminal) }.keyboardShortcut(keymap.shortcut("terminal")).disabled(thread == nil)
+            Button("Browser") { thread?.open(.browser) }.keyboardShortcut(keymap.shortcut("browser")).disabled(thread == nil)
+            Button("Devices") { thread?.open(.devices) }.keyboardShortcut(keymap.shortcut("devices")).disabled(thread == nil)
+            Button("Stop All Agents") { thread?.stop?() }.keyboardShortcut(keymap.shortcut("stopAll")).disabled(thread?.stop == nil)
             Divider()
             Button(thread?.has("unpin") == true ? "Unpin" : "Pin") { if let thread { thread.run(thread.has("unpin") ? "unpin" : "pin") } }
-                .keyboardShortcut("p", modifiers: [.command, .option])
+                .keyboardShortcut(keymap.shortcut("pin"))
                 .disabled(!(thread?.has("pin") == true || thread?.has("unpin") == true))
             Button(thread?.has("read") == true ? "Mark Read" : "Mark Unread") { if let thread { thread.run(thread.has("read") ? "read" : "unread") } }
-                .keyboardShortcut("u", modifiers: [.command, .shift])
+                .keyboardShortcut(keymap.shortcut("markRead"))
                 .disabled(!(thread?.has("read") == true || thread?.has("unread") == true))
             Button(thread?.has("unsettle") == true ? "Unsettle" : "Settle") { if let thread { thread.run(thread.has("unsettle") ? "unsettle" : "settle") } }
-                .keyboardShortcut("s", modifiers: [.command, .option])
+                .keyboardShortcut(keymap.shortcut("settle"))
                 .disabled(!(thread?.has("settle") == true || thread?.has("unsettle") == true))
             Button("Move to Project…") { thread?.run("move") }.disabled(thread?.has("move") != true)
-            Button("Archive") { thread?.run("archive") }.keyboardShortcut("a", modifiers: [.command, .shift]).disabled(thread?.has("archive") != true)
-            Button("Delete Thread…") { thread?.run("delete") }.keyboardShortcut(.delete, modifiers: .command).disabled(thread?.has("delete") != true)
+            Button("Archive") { thread?.run("archive") }.keyboardShortcut(keymap.shortcut("archive")).disabled(thread?.has("archive") != true)
+            Button("Delete Thread…") { thread?.run("delete") }.keyboardShortcut(keymap.shortcut("deleteThread")).disabled(thread?.has("delete") != true)
         }
     }
 }

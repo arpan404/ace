@@ -12,7 +12,7 @@ extension View {
 
 private struct SmoothChange<V: Equatable>: ViewModifier {
     let value: V
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         content.animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.standard) : .smooth, value: value)
     }

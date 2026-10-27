@@ -6,11 +6,13 @@ import type {
   RegistryInstallProgress,
   RegistryResult,
 } from "@ace/protocol";
-import { registryFailure } from "@ace/ui-core/acp-registry";
+import { registryFailure } from "./acp-registry.ts";
+
+type RegistryClient = Pick<ClientApi, "registry">;
 
 /*
- * The daemon's ACP registry service (`Client.registry`): the cached index, a background refresh,
- * install plans, the separate install intent that executes one, its progress and cancel. Every
+ * The daemon's ACP registry service (`Client.registry`), read the same way by web and mobile:
+ * the cached index, a background refresh, install plans, the separate install intent that executes one, its progress and cancel. Every
  * failure leaves here as a RegistryError in fixed words, never the daemon's raw reason.
  */
 
@@ -51,7 +53,10 @@ function listing(reply: RegistryResult): Listing {
 }
 
 /** The whole cached index (50 entries a page, at most the daemon's 2,048), no network. */
-export async function readRegistry(client: ClientApi, signal?: AbortSignal): Promise<RegistryView> {
+export async function readRegistry(
+  client: RegistryClient,
+  signal?: AbortSignal,
+): Promise<RegistryView> {
   const options = signal ? { signal } : {};
   const agents: RegistryAgent[] = [];
   let page = listing(
@@ -75,7 +80,7 @@ export async function readRegistry(client: ClientApi, signal?: AbortSignal): Pro
 }
 
 /** Download the index again (one bounded flight on the daemon); the cache stays on failure. */
-export async function refreshRegistry(client: ClientApi): Promise<void> {
+export async function refreshRegistry(client: RegistryClient): Promise<void> {
   const reply = listing(await client.registry({ type: "registry.refresh" }));
   if (reply.error === "refresh_failed") throw new RegistryError("Refresh failed");
 }
@@ -85,7 +90,7 @@ export async function refreshRegistry(client: ClientApi): Promise<void> {
  * (a verified binary, else npm, else uv). When none can, the first refusal explains why.
  */
 export async function planInstall(
-  client: ClientApi,
+  client: RegistryClient,
   agent: RegistryAgent,
 ): Promise<RegistryInstallPlan> {
   let first: RegistryError | undefined;
@@ -106,7 +111,7 @@ const installWaitMs = 6 * 60_000;
 
 /** Execute an approved plan: the intent carries its digest and an idempotency id. */
 export async function installAgent(
-  client: ClientApi,
+  client: RegistryClient,
   plan: RegistryInstallPlan,
   intentId: string,
 ): Promise<RegistryInstallation> {
@@ -121,14 +126,14 @@ export async function installAgent(
 }
 
 /** Stop an install; false once it has started saving (it then completes). */
-export async function cancelInstall(client: ClientApi, intentId: string): Promise<boolean> {
+export async function cancelInstall(client: RegistryClient, intentId: string): Promise<boolean> {
   const reply = await client.registry({ type: "registry.install-cancel", intentId });
   return reply.result.ok && "cancelled" in reply.result && reply.result.cancelled;
 }
 
 /** The running install's phase and bytes, from one small page of the list. */
 export async function readInstallProgress(
-  client: ClientApi,
+  client: RegistryClient,
   signal?: AbortSignal,
 ): Promise<RegistryInstallProgress | null> {
   const page = listing(

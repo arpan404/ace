@@ -72,6 +72,10 @@ import QuartzCore
     /// What the phone keeps of this machine's chats, once asked (`readCache`).
     var cacheUsage: CacheUsage?
     var providers: MachineProvidersInfo?
+    /// Whether the machine takes new work (`bridge/machine-admission.ts`).
+    var admission: MachineAdmissionInfo?
+    /// The desktop app's update on this machine (`bridge/machine-app-update.ts`).
+    var appUpdate: MachineAppUpdateInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
     /// The mark this machine chose; nil until it says (rows then draw a laptop).
@@ -79,7 +83,8 @@ import QuartzCore
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
     /// The pairing grants admin (the machine's owner); nil when this phone doesn't know its
-    /// scopes, and the daemon's refusal says so instead.
+    /// scopes. Owner-only controls (Use my Chrome, locked use) stay offered until the daemon
+    /// refuses; admin-only settings, such as provider preferences, need it known (`== true`).
     var canAdmin: Bool?
     /// A thread a tapped notification asked to open.
     var deepLink: String?
@@ -144,7 +149,7 @@ import QuartzCore
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty
-        machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
+        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
@@ -368,6 +373,8 @@ import QuartzCore
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
             case .cacheUsage(let usage): cacheUsage = usage
+            case .machineAdmission(let info): admission = info
+            case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row

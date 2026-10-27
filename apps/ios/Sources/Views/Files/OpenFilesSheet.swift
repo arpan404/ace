@@ -38,7 +38,7 @@ struct OpenFilesSheet: View {
     let scope: FilesScope
     let pick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private var memory: FileMemory? { model.files.memory[scope.memoryKey] }
 
     var body: some View {

@@ -70,7 +70,7 @@ struct InboxList: View {
     var pair: (() -> Void)?
     /// The threads picked while the list is in its Select mode (nil outside it).
     var selection: Binding<Set<InboxKey>>? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     private static let shelved = ["snoozed", "settled"]

@@ -18,7 +18,7 @@ struct AnswerRow: View {
     @Environment(\.readMessage) private var readMessage
     @Environment(\.fileLinks) private var fileLinks
     @Environment(\.markdownRich) private var rich
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     /// The finished answer with its formulas marked, and the formulas (`MarkdownRich`).
     @State private var withMath: MarkdownRich.Prose?
     @State private var full: String?
@@ -91,7 +91,7 @@ struct AnswerRow: View {
 
 /// The caret after text still arriving: a soft pulse, still under Reduce Motion.
 struct StreamingCaret: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
         AceShape.capsule.fill(AceTheme.Colours.mutedForeground)

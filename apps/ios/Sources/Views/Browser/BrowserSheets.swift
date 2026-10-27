@@ -15,12 +15,10 @@ struct BrowserSheets: View {
         case .extensions: BrowserExtensionsSheet(model: model)
         case .settings:
             NavigationStack {
-                if let category = RemoteSettingsCategory.all.first(where: { $0.settings.contains { $0.key.hasPrefix("browser.") } }) {
-                    RemoteSettingsView(model: model, category: category)
-                        .navigationTitle("Browser settings")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { SheetClose() }
-                }
+                RemoteSettingsView(model: model, category: .browser)
+                    .navigationTitle("Browser settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { SheetClose() }
             }
             .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
@@ -134,7 +132,7 @@ struct BrowserTabsSheet: View {
 /// be saved onto this phone: Save copies it over, then Share offers it to Files or any app.
 struct BrowserDownloadsSheet: View {
     @Bindable var model: ClientModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private var downloads: [BrowserViewInfo.Download] { model.browser.view?.state?.downloads ?? [] }
     var body: some View {
         NavigationStack {

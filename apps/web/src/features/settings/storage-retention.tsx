@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { storageLabels } from "./storage-copy.ts";
+import { storageLabels } from "@ace/ui-core/host-care";
 
 export function StorageRetentionControls(props: { onSaved(): void }) {
   const client = useClient();

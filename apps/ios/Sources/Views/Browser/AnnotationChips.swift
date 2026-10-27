@@ -8,7 +8,7 @@ struct AnnotationChips: View {
     let remove: (String) -> Void
     let clear: () -> Void
     @Environment(\.openBrowser) private var openBrowser
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {

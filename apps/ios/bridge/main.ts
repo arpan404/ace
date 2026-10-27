@@ -16,6 +16,8 @@ import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { MachineFollowers } from "./machine-followers.ts";
+import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
@@ -98,6 +100,8 @@ let client: ClientCore | undefined;
 let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
 let machine: MachineProviders | undefined;
+/** Pause and update state of the machine; replaced on every start. */
+const followers = new MachineFollowers();
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
@@ -188,7 +192,16 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
   });
   const connection = client.connectionState();
-  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
+  notifications = new NotificationBridge(
+    client,
+    (key, read) => pump.put(key, read),
+    scheduler.set,
+    () => {
+      // The phone's own clock and time zone: quiet hours are local to the phone.
+      const now = new Date(host.now());
+      return now.getHours() * 60 + now.getMinutes();
+    },
+  );
   const owner = client;
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
@@ -220,6 +233,7 @@ async function start(json: string): Promise<void> {
   followMachine(client, pump, trust);
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
+  const admission = followers.replace(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {
     now: () => host.now(),
@@ -309,6 +323,7 @@ async function start(json: string): Promise<void> {
     reads,
     new ProjectManage(client, scheduler.set),
     inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
+    new HostCare(client, admission),
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   services.carried = (threadId) =>

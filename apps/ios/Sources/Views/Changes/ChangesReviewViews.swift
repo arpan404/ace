@@ -253,7 +253,7 @@ struct ReviewBar: View {
     @Binding var selection: LineSelection?
     let comment: () -> Void
     let list: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     private var review: ChangesReview? { model.sheets.review }
     @Environment(\.changesCommentable) private var commentable
