@@ -8,6 +8,9 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 
+/** What installing, updating or removing a CLI needs of the SDK client. */
+export type InstallClient = Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+
 export type InstallView =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -29,12 +32,12 @@ export class CliInstallController {
   private disposed = false;
   private planning: AbortController | undefined;
   private cancelStarting = false;
-  private client: ClientApi;
+  private client: InstallClient;
   private remember: (session: string | undefined) => void;
   private target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string };
 
   constructor(
-    client: ClientApi,
+    client: InstallClient,
     target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string },
     recovery: {
       session?: string | undefined;

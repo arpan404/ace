@@ -1,52 +1,11 @@
-import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
-import {
-  ProviderConfigurations,
-  type ProviderConfiguration,
-  type ProviderKind,
-} from "@ace/protocol";
-import { changeProvider } from "@ace/ui-core";
+import type { ProviderConfiguration, ProviderKind } from "@ace/protocol";
+import { changeProvider, editProviderConfiguration } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "./daemon-setting.ts";
 import { catalogKey } from "./model-catalog.ts";
-
-const writes = new WeakMap<ClientApi, Promise<void>>();
-/** Serialize this client's edits and reread first so fields edited elsewhere survive. */
-export function editProviderConfiguration(
-  client: ClientApi,
-  change: (rows: ProviderConfigurations) => ProviderConfigurations,
-): Promise<void> {
-  const next = (writes.get(client) ?? Promise.resolve())
-    .catch(() => {})
-    .then(async () => {
-      const reply = await client.request({
-        type: "settings.get",
-        key: "providers.configuration",
-        scope: {},
-      });
-      if (!reply.ok)
-        throw new Error("Couldn't read provider preferences. Reconnect and try again.");
-      const before = ProviderConfigurations.parse(reply.entries[0]?.value ?? []);
-      const value = ProviderConfigurations.parse(change(before));
-      const saved = await client.request({
-        type: "settings.set",
-        key: "providers.configuration",
-        value,
-        layer: { kind: "global" },
-      });
-      if (!saved.ok)
-        throw new Error("Couldn't save provider preferences. Check the values and try again.");
-    });
-  writes.set(client, next);
-  void next
-    .finally(() => {
-      if (writes.get(client) === next) writes.delete(client);
-    })
-    .catch(() => {});
-  return next;
-}
 
 export function useProviderConfiguration(provider: ProviderKind) {
   const client = useClient();

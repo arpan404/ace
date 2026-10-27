@@ -1,6 +1,9 @@
 import { pluralCount } from "@ace/ui-core";
-import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
+import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import {
+  customModelChange,
+  modelHidden,
+  modelVisibilityChange,
   modelKey,
   freeModelMarker,
   unavailableSelection,
@@ -190,11 +193,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
   const { model } = props;
   const label = modelName(model.provider, model.displayName, model.id);
   const preferences = useProviderConfiguration(model.provider);
-  const hidden =
-    preferences.value?.hiddenModels?.includes(model.id) === true ||
-    model.visibilityReason === "model_hidden" ||
-    model.visibilityReason === "deprecated" ||
-    model.visibilityReason === "provider_hidden";
+  const hidden = modelHidden(preferences.value, model);
   return (
     <li className="flex min-h-9 items-center gap-2 text-ui">
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -219,20 +218,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
         label={`${hidden ? "Show" : "Hide"} ${label}`}
         size="sm"
         disabled={preferences.disabled}
-        onClick={() =>
-          void preferences.update((row) => {
-            const ids = new Set([model.id, ...(model.aliases ?? [])]);
-            return {
-              ...row,
-              hiddenModels: hidden
-                ? (row.hiddenModels ?? []).filter((id) => !ids.has(id))
-                : [...new Set([...(row.hiddenModels ?? []), model.id])],
-              shownModels: hidden
-                ? [...new Set([...(row.shownModels ?? []), model.id])]
-                : (row.shownModels ?? []).filter((id) => !ids.has(id)),
-            };
-          })
-        }
+        onClick={() => void preferences.update(modelVisibilityChange(model, hidden))}
       />
     </li>
   );
@@ -242,31 +228,20 @@ function CustomModel(props: { provider: ProviderKind }) {
   const [open, setOpen] = useState(false);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
-  const valid =
-    ProviderConfiguration.shape.customModels
-      .unwrap()
-      .element.safeParse({ id: id.trim(), displayName: name.trim() }).success &&
-    !preferences.value?.customModels?.some((model) => model.id === id.trim());
+  const edit = customModelChange(preferences.value, id, name);
+  const valid = edit.ok;
   return open ? (
     <form
       className="grid gap-2 py-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!valid) return;
-        void preferences
-          .update((row) => ({
-            ...row,
-            customModels: [
-              ...(row.customModels ?? []),
-              { id: id.trim(), displayName: name.trim() },
-            ],
-          }))
-          .then((saved) => {
-            if (!saved) return;
-            setId("");
-            setName("");
-            setOpen(false);
-          });
+        if (!edit.ok) return;
+        void preferences.update(edit.change).then((saved) => {
+          if (!saved) return;
+          setId("");
+          setName("");
+          setOpen(false);
+        });
       }}
     >
       <label className="grid gap-1 text-sm">
