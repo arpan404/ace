@@ -86,6 +86,31 @@ export const ThreadAction = z.discriminatedUnion("type", [
     ]),
     requestId,
   }),
+  /** A queue-wide choice: Pause, Resume, Continue or a limit's choice (`queueActionPayload`). */
+  z.object({
+    type: z.literal("queueAct"),
+    action: z.discriminatedUnion("id", [
+      z.object({
+        id: z.enum([
+          "resume_now",
+          "resume_at_reset",
+          "snooze_until_reset",
+          "resume",
+          "continue",
+          "hold",
+        ]),
+        label: z.string().max(128).default(""),
+      }),
+      z.object({
+        id: z.literal("migrate_now"),
+        label: z.string().max(128).default(""),
+        instanceId: z.string().min(1).max(128).optional(),
+      }),
+    ]),
+    requestId,
+  }),
+  /** The queue's list shows its next page. */
+  z.object({ type: z.literal("queueMore") }),
   /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
   z.object({
     type: z.literal("goal"),

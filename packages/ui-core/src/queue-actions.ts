@@ -1,5 +1,5 @@
 import { continueMessage } from "@ace/core";
-import type { CommandPayload, QueueState, ThreadId } from "@ace/protocol";
+import type { CommandPayload, QueueSnapshot, ThreadId } from "@ace/protocol";
 import type { QueueAction } from "./queue.ts";
 
 /*
@@ -8,7 +8,7 @@ import type { QueueAction } from "./queue.ts";
  * fresh queue state. Pure.
  */
 
-export type QueueFence = Pick<QueueState, "revision" | "paused" | "reason">;
+export type QueueFence = Pick<QueueSnapshot, "revision" | "paused" | "reason">;
 
 /**
  * The command for `action`, fenced to the queue's revision; undefined for a choice the client
@@ -57,7 +57,7 @@ export function queueActionPayload(
  * a stop, a failed send) say their own way out, so this offers nothing then.
  */
 export function queuePauseControl(
-  queue: Pick<QueueState, "paused" | "reason"> | undefined,
+  queue: Pick<QueueSnapshot, "paused" | "reason"> | undefined,
   waiting: number,
 ): QueueAction | undefined {
   if (!queue || waiting === 0) return undefined;

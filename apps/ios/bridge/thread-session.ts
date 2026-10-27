@@ -6,7 +6,7 @@ import {
   type CatalogEntry,
   type CommandPayload,
 } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent } from "@ace/ui-core";
+import { composerReply, isBusy, messageHasContent, type QueueAction } from "@ace/ui-core";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -37,6 +37,14 @@ const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
 });
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+
+/** The parsed choice as the shared `QueueAction`, without an absent account. */
+function queueAction(action: Extract<ThreadAction, { type: "queueAct" }>["action"]): QueueAction {
+  if (action.id !== "migrate_now") return action;
+  return action.instanceId
+    ? { id: action.id, label: action.label, instanceId: action.instanceId }
+    : { id: action.id, label: action.label };
+}
 
 export class ThreadSession {
   readonly #client: ClientCore;
@@ -87,8 +95,14 @@ export class ThreadSession {
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
     this.#pill = new PillFollower(store, put);
-    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
-      this.#pill.queued(count),
+    this.#queue = new QueueFollower(
+      client,
+      store,
+      this.#threadId,
+      signal,
+      put,
+      (count) => this.#pill.queued(count),
+      () => host.now(),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#sheet = new ThreadModelSheet(client, store, this.#threadId, signal, {
@@ -131,7 +145,15 @@ export class ThreadSession {
         this.#access.update();
       }
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
-      if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
+      // The root agent's limit failure and the kept message's notice say what holds the queue.
+      if (
+        keys === "all" ||
+        keys.has("queue") ||
+        keys.has("thread") ||
+        keys.has("agents") ||
+        keys.has("order") ||
+        [...keys].some((key) => key.startsWith("agent:"))
+      )
         this.#queue.update();
       if (keys === "all") this.#ready();
     });
@@ -261,6 +283,15 @@ export class ThreadSession {
           action.requestId,
           "That queued message has changed. Check the queue and try again.",
         );
+        break;
+      case "queueAct":
+        void this.#queue.act(queueAction(action.action)).then(
+          (payload) => this.#dispatch(payload, action.requestId),
+          () => this.#admission(action.requestId, false, "Couldn't reach the queue. Try again."),
+        );
+        break;
+      case "queueMore":
+        this.#queue.more();
         break;
       case "goal":
         this.#dispatch(

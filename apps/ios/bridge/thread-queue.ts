@@ -1,23 +1,27 @@
 import { readServerQueue, type ClientCore, type ThreadSource } from "@ace/client";
 import { CommandId, type CommandPayload, type QueuePage, type ThreadId } from "@ace/protocol";
-import { queueMoveAfter, queuedInputLine } from "@ace/ui-core";
+import {
+  queueActionPayload,
+  queueMoveAfter,
+  queuedInputLine,
+  type QueueAction,
+} from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { queueHold, textOf } from "./queue-hold.ts";
 
 /*
  * Follow-ups waiting in the daemon's queue. A queued send joins the transcript only when it is
  * delivered, so the phone reads the queue itself (the web's `readServerQueue`) whenever the
  * reader's queue revision moves, and offers the daemon's own edits: change the words, send it
  * now as a steer, move it up or down, or remove it. Every edit is fenced to the revision the person saw.
+ * It also says what holds the queue (`queue-hold.ts`) and runs the queue-wide choices: Pause,
+ * Resume, a limit's Resume at reset, Continue. The list shows a page at a time; Show more lists
+ * the next (every message is already read, so each can be acted on).
  */
 
-const shown = 32;
+/** Messages listed at first, and how many more each Show more adds. */
+export const queueStep = 32;
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
-
-const textOf = (message: QueuePage["messages"][number]) =>
-  message.input
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n");
 
 export class QueueFollower {
   readonly #client: ClientCore;
@@ -26,8 +30,10 @@ export class QueueFollower {
   readonly #signal: AbortSignal;
   readonly #put: Put;
   readonly #counted: (count: number) => void;
+  readonly #now: () => number;
   #page: QueuePage | undefined;
   #reading: number | undefined;
+  #shown = queueStep;
 
   constructor(
     client: ClientCore,
@@ -36,7 +42,9 @@ export class QueueFollower {
     signal: AbortSignal,
     put: Put,
     counted: (count: number) => void = () => {},
+    now: () => number = () => 0,
   ) {
+    this.#now = now;
     this.#client = client;
     this.#store = store;
     this.#threadId = threadId;
@@ -95,6 +103,24 @@ export class QueueFollower {
     };
   }
 
+  /** List the next page of waiting messages. */
+  more(): void {
+    this.#shown += queueStep;
+    this.#emit();
+  }
+
+  /**
+   * The command for a queue-wide choice (Pause, Resume, Continue, a limit's choice), fenced to
+   * the queue as the daemon has it now, not as it was last read: another device may have moved it.
+   */
+  async act(action: QueueAction): Promise<CommandPayload | undefined> {
+    const { queue } = await this.#client.request(
+      { type: "queue.get", threadId: this.#threadId, limit: 1 },
+      { signal: this.#signal },
+    );
+    return queueActionPayload(action, this.#threadId, queue);
+  }
+
   async #read(revision: number): Promise<void> {
     this.#reading = revision;
     let failed = false;
@@ -128,9 +154,12 @@ export class QueueFollower {
   }
 
   #emit(): void {
-    this.#counted(this.#page?.messages.length ?? 0);
+    const page = this.#page;
+    const hold = queueHold(this.#store, page, this.#now());
+    // The message that wasn't sent is the transcript's, not queued work.
+    const messages = (page?.messages ?? []).filter((message) => message.id !== hold.head);
+    this.#counted(messages.length);
     this.#put("queue", () => {
-      const page = this.#page;
       const thread = this.#store.thread;
       const root = thread?.rootAgentId ? this.#store.agent(thread.rootAgentId) : undefined;
       const line = queuedInputLine({
@@ -139,20 +168,22 @@ export class QueueFollower {
         status: thread?.status,
         agentFailed: root?.status.state === "failed",
       });
-      const messages = page?.messages ?? [];
       return {
         type: "thread.queue",
         revision: page?.revision ?? 0,
         label: line?.label ?? "",
         when: line?.when ?? "",
-        messages: messages.slice(0, shown).map((message) => ({
+        messages: messages.slice(0, this.#shown).map((message) => ({
           id: message.id,
           text: preview(textOf(message), 512),
           delivery: message.delivery,
           state: message.state,
           attachments: message.input.filter((part) => part.type !== "text").length,
         })),
-        more: Math.max(0, messages.length - shown),
+        more: Math.max(0, messages.length - this.#shown),
+        control: hold.control,
+        strip: hold.strip,
+        notSent: hold.notSent,
       };
     });
   }
