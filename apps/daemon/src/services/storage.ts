@@ -3,6 +3,8 @@ import { ScheduledStorageCleanup, storageSchedule } from "../storage/schedule.ts
 import { DataRetention } from "../storage/data-retention.ts";
 import { WorktreeIO } from "../storage/worktree-io.ts";
 import { WorktreeMaintenance } from "../storage/worktree-maintenance.ts";
+import { SpaceReclaim } from "../storage/space-reclaim.ts";
+import { SPACE_RECLAIMER } from "../storage/space-reclaim-policy.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -32,10 +34,13 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;
   const worktreeDays = (await context.services.settings?.get("storage.worktreeRetentionDays"))
     ?.value;
+  // Automatic space reclaim resumes its own compaction later, so startup is not slowed.
   await storage.resume((reviewer) =>
     reviewer === "storage:worktrees"
       ? typeof worktreeDays === "number"
-      : reviewer !== "storage:scheduler" || scheduled,
+      : reviewer === SPACE_RECLAIMER
+        ? false
+        : reviewer !== "storage:scheduler" || scheduled,
   );
   context.services.storage = storage;
   const schedule = new ScheduledStorageCleanup(
@@ -63,6 +68,15 @@ export async function startStorage(context: ServiceContext): Promise<void> {
   );
   context.resources.own(() => worktreeMaintenance.close());
   await worktreeMaintenance.start();
+  const reclaim = new SpaceReclaim(
+    owner,
+    storage,
+    context.options.storageSchedule ?? storageSchedule,
+    context.options.spaceReclaimTiming,
+    backgroundFailure(context, "Database space reclaim failed"),
+  );
+  context.resources.own(() => reclaim.close());
+  await reclaim.start();
 }
 
 export function createStorageSession(context: SocketContext): SocketService {
