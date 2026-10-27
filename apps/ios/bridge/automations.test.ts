@@ -196,6 +196,12 @@ test("runs read as turns linked to their threads, and a run waiting on the perso
   });
   // A run still going is read again soon.
   expect(history.pollMs).toBe(5_000);
+  // The list's row says so too.
+  const page = await ask({ type: "automations.page", zone });
+  expect(rows(page).find((row) => row.id === "nightly")?.status).toEqual({
+    tone: "needs-you",
+    word: "Needs you",
+  });
 });
 
 test("a weekly schedule picked with friendly controls saves as an RRULE and opens as the same choices", async () => {

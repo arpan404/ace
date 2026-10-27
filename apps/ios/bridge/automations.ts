@@ -119,9 +119,21 @@ function attention(entry: AutomationEntry) {
   return null;
 }
 
-export function automationRow(entry: AutomationEntry, now: number, zone: string) {
+export function automationRow(
+  entry: AutomationEntry,
+  now: number,
+  zone: string,
+  threadState: AutomationsDeps["threadState"] = () => undefined,
+) {
   const { automation } = entry;
   const row = sidebarRow(entry, now, zone);
+  const run = entry.lastRun;
+  // A run waiting on the person is loud on its row, never a quiet "Running".
+  const asking =
+    automation.enabled &&
+    run?.status === "running" &&
+    !!run.threadId &&
+    threadState(run.threadId) === "needs_you";
   return {
     id: automation.id,
     title: automation.title,
@@ -130,7 +142,7 @@ export function automationRow(entry: AutomationEntry, now: number, zone: string)
     owner: entry.owner ?? null,
     revision: entry.revision ?? null,
     automation,
-    status: row.status ?? null,
+    status: asking ? { tone: "needs-you", word: "Needs you" } : (row.status ?? null),
     detail: row.detail,
     when: describeWhen(automation.trigger, zone),
     next: nextRunText(automation, entry.nextRunAt, now, zone),
@@ -217,8 +229,10 @@ export class NativeAutomations {
     const now = this.#deps.now();
     return {
       ok: true,
-      person: lists.person.map((entry) => automationRow(entry, now, zone)),
-      threads: lists.threads.map((entry) => automationRow(entry, now, zone)),
+      person: lists.person.map((entry) => automationRow(entry, now, zone, this.#deps.threadState)),
+      threads: lists.threads.map((entry) =>
+        automationRow(entry, now, zone, this.#deps.threadState),
+      ),
       pollMs: historyPollMs(
         [...lists.person, ...lists.threads].flatMap((entry) =>
           entry.lastRun ? [entry.lastRun] : [],

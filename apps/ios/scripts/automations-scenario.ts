@@ -96,7 +96,8 @@ export function seedAutomations(daemon: FakeDaemon, details: Details, now: numbe
     automation(
       "auto-monthly",
       "Monthly licence audit",
-      schedule("FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=10;BYMINUTE=0"),
+      // The first of each month: the daemon takes a day of the month in cron.
+      schedule("0 10 1 * *", "Europe/London", "cron"),
     ),
     automation(
       "auto-cron",
