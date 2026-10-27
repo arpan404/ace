@@ -111,9 +111,9 @@ import XCTest
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         app.openBrowseDestination("settings.machines")
         app.buttons["machines.row.ios-spike-host"].tap()
-        // The tab bar keeps its own Threads tab: scope the row to the pushed list.
-        for _ in 0..<6 where !app.collectionViews.buttons["Threads"].isHittable { app.swipeUp() }
-        app.collectionViews.buttons["Threads"].tap()
+        let agents = app.buttons["machine.settings.Agents"].firstMatch
+        for _ in 0..<6 where !agents.isHittable { app.swipeUp() }
+        agents.tap()
         XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
         capture("machine-settings")
     }

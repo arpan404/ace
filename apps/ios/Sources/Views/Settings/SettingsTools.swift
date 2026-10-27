@@ -3,10 +3,11 @@ import SwiftUI
 /// The tools each paired machine offers, reached from Settings › Tools on that machine's own
 /// connection.
 enum SettingsTool: String, Hashable, CaseIterable {
-    case projects, automations, usage, skills, providers, sourceControl, prompts, computer, devices
+    case agents, projects, automations, usage, skills, providers, sourceControl, prompts, computer, devices
 
     var title: String {
         switch self {
+        case .agents: "Agents"
         case .projects: "Projects"
         case .automations: "Automations"
         case .usage: "Usage"
@@ -20,6 +21,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
     }
     var symbol: String {
         switch self {
+        case .agents: "person.2"
         case .projects: "folder"
         case .automations: "clock.arrow.circlepath"
         case .usage: "chart.bar"
@@ -43,6 +45,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
     }
     @MainActor @ViewBuilder func destination(_ model: ClientModel) -> some View {
         switch self {
+        case .agents: SettingsPageView(model: model, page: "agents", title: "Agents")
         case .projects: ProjectsView(model: model)
         case .automations: AutomationsView(model: model)
         case .usage: UsageView(model: model)

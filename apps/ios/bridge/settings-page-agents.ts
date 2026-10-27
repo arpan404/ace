@@ -311,8 +311,8 @@ export function modelPick(value: unknown): ModelPick | undefined {
 // Utility model
 
 /** The agents a short generation can run on: ACP agents have no one-shot mode. */
+const allowed = (provider: ProviderKind) => utilityProviders.includes(provider);
 export function utilityAgents(agents: NewThreadAgents): NewThreadAgents {
-  const allowed = (provider: ProviderKind) => utilityProviders.includes(provider);
   return {
     providers: agents.providers.filter((row) => allowed(row.provider)),
     models: agents.models.filter((row) => allowed(row.provider)),
@@ -339,7 +339,7 @@ export function utilityRow(context: AgentsContext): PageRow {
   const accounts = context.agents.accounts.filter((account) => account.provider === provider);
   const instance = choice?.instance ?? resolved?.instance;
   const account =
-    accounts.length > 1 ? accounts.find((entry) => entry.id === instance)?.label : undefined;
+    accounts.length > 1 ? accounts.find((known) => known.id === instance)?.label : undefined;
   return {
     id: "generation.model",
     key: "generation.model",

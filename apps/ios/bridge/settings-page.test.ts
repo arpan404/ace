@@ -189,7 +189,7 @@ test("a setting an environment variable overrides is shown locked and can't be c
         const entries = (reply as { entries: { provenance: string }[] }).entries;
         return {
           ...reply,
-          entries: entries.map((entry) => ({ ...entry, provenance: "environment" })),
+          entries: entries.map((entry) => Object.assign({}, entry, { provenance: "environment" })),
         };
       }) as PagePorts["owner"]["request"],
     },
