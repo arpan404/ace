@@ -19,7 +19,8 @@ import type { Fleet } from "./data/use-fleet.ts";
 /**
  * What each linked machine's agents may do on this one (ADR 0105): one section per machine that
  * reaches it, with Agents, Browser, Simulators & emulators, Computer use and Commands each Off,
- * Read only or Read and act. A change applies to that machine's next call.
+ * Read only or Read and act. A change applies to that machine's next call. This machine's own
+ * "Agents from other machines" setting caps them all: at Read, nothing here acts.
  */
 export function LinkedMachineAccess(props: { machine: Machine; fleet: Fleet }) {
   const { machine, fleet } = props;

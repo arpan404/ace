@@ -40,17 +40,21 @@ Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
 
 - **Storage.** `machine_grants(device_id, capability, level, updated_at)` in the target's
   daemon database. Rows are sparse: a missing row is the default above. A row exists only once
-  the person chooses a level for that machine and capability.
+  the person chooses a level for that machine and capability. Revoking a pairing deletes its
+  rows, so a device paired later never inherits them.
 - **Migration.** Nothing is rewritten. Agents and Browser default to the current
-  `remote.agentAccess`, so every existing pairing behaves as it did. `remote.agentAccess` stays
-  as the machine-wide switch: `off` lets no agent from any other machine in, whatever the grants
-  say (the machine is not listed, as today). `read` or `operate` is the starting level of
-  Agents and Browser for a machine the person hasn't set apart.
+  `remote.agentAccess`, so every existing pairing behaves as it did.
+- **The machine-wide switch is a ceiling.** `remote.agentAccess` caps every capability for every
+  linked machine. `off` lets no agent from any other machine in, whatever the grants say (the
+  machine is not listed, as today). `read` makes every capability Read only at most, including
+  simulators, computer use and commands: nothing from another machine acts here. `operate`
+  lets each grant apply as set. It is also the starting level of Agents and Browser for a
+  machine the person hasn't set apart.
 - **Authority.** Each call is decided by one pure function
   (`apps/daemon/src/machines/grant-rules.ts`): the capability the op needs, the op's risk
   (read or act), the machine-wide switch, the grant, the calling device's pairing scope and
-  the calling thread's ceiling. The effective level is the lowest of grant, pairing scope and
-  ceiling. A read-only pairing never acts. A read-only thread on the calling machine never acts.
+  the calling thread's ceiling. The effective level is the lowest of switch, grant, pairing
+  scope and ceiling. A read-only pairing never acts. A read-only thread on the calling machine never acts.
   The calling machine sends its thread's ceiling in the call's origin, and it refuses writes
   from read-only threads before sending (ADR 0078). The target applies the ceiling as well, so
   it doesn't depend on the caller checking.
@@ -58,7 +62,9 @@ Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
   given device ids) and `grant` (one device, one capability, one level). Both need administrator
   access on that machine, like its links and devices.
 - **Revocation.** Grants are read on every call, so a change applies to the next call. Turning a
-  capability down also stops in-flight work for that machine and capability (below).
+  capability down also stops in-flight work for that machine and capability (below). Lowering
+  Agents refuses new delegations and messages; children already delegated keep running, and
+  the person stops them from their threads here.
 - **Risk per op.** Each capability names its read-only tools. Browser takes the registry's risk
   class, as it does today. Stage 2 gives `devices` and `screen` theirs (`sim_list`, `sim_ui`,
   `sim_logs`, `sim_screenshot`, `screen_apps`, `screen_state` read; the rest act). Commands
@@ -66,7 +72,9 @@ Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
 
 ### Discovery
 
-`describe` returns the effective level of every capability as `grants` and lists in `tools`
+`describe` returns the effective level of every capability as `grants`, and `access` as it meant
+before grants: `operate` only when Agents is Read and act, so older callers aren't told they can
+delegate when they can't. It lists in `tools`
 only the groups this device may use: `agents`, `browser`, `devices`, `screen`, `commands`. A
 group appears only when its effective level is at least read and this machine can serve it.
 `machines` on the caller passes both through, so an agent sees, for example, that the Mac lets
@@ -101,7 +109,9 @@ session** on the target. One exists per (calling device, calling host, calling t
   the engine without a provider adapter. It never runs a provider, so a machine with no CLI
   installed or signed in serves remote tools. Its recorded provider is a placeholder (the first
   installed one, else `claude`); nothing launches it. `ThreadDetails.guest` marks it, with the
-  calling machine's name and host id.
+  calling machine's name and host id. The engine refuses every command that would start or
+  carry on a turn there (a send from the person or a local agent, a resume, a queue resume):
+  "This thread holds work from <machine>; it has no agent here."
 - **Visible and attributable.** It is titled "<calling machine> · <calling thread title>", for
   example "Linux box · Fix the login flow", and shows in the target's task list like any thread.
   It is recorded in `machine_threads` with kind `guest` and the calling device, host and thread.
@@ -109,12 +119,19 @@ session** on the target. One exists per (calling device, calling host, calling t
   session (`ace-guest:<id>`, titled with the tool, such as "browser_open from Linux box"). While
   any is running the thread reads as waiting on background work, never done. A daemon restart
   ends rows left running, since their work ended with the process.
-- **Cancellable.** Stopping the row, or the thread, aborts that call. The calling agent gets an
-  error saying the person stopped it.
+- **Cancellable.** Stopping the row, or the thread, or deleting the thread, aborts that call. The
+  calling agent gets an error saying the person stopped it. A Stop or a lowered grant that lands
+  while a call is still starting (admitted, not yet running) wins: the call reads a ticket before
+  its grant is checked and is refused if either came after it. Stopping a row with no call
+  behind it ends the row. A call that finishes after its session was deleted still returns its
+  own result to the caller.
 - **Approvals.** Requests that wait for the person (a new site, an evaluate, a takeover) open in
   the guest session, so they show on the target. The calling machine polls the session's
   `status` and mirrors them into the originating thread's composer strip, as browser does
-  today (ADR 0078). Answering on either machine resolves both. Agents never answer them.
+  today (ADR 0078). Answering on either machine resolves both. Agents never answer them. An
+  answer from the calling machine needs the capability whose tool raised the request (the
+  browser's for a browser request, and so on); a request no capability raised can't be answered
+  from there.
 
 ### Human takeover beats remote agents
 
@@ -127,7 +144,8 @@ another agent asking, never a way around the person's per-app consent.
 
 ### Kill switch
 
-Turning a capability down for a machine (or `remote.agentAccess` off, or revoking the device):
+Turning a capability down for a machine (or lowering `remote.agentAccess`, or revoking the
+device). Going to read stops only acting calls; going to off stops all of them:
 
 1. refuses the next call;
 2. aborts every in-flight call of that machine and capability at its next step: the call's
