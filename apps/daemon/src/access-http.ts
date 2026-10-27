@@ -50,6 +50,8 @@ export interface AccessHttpOptions {
   maintenance?: MaintenanceGate;
   /** Where the desktop app reports its update status (host token only). */
   appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
+  /** The update's leased hold (`update-hold.ts`); without it the update route holds plainly. */
+  updateHold?: import("./update-hold.ts").UpdateHold;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Event-loop delay, so a watchdog can tell a busy daemon from a hung one. */
@@ -69,6 +71,7 @@ export function accessHttp({
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
   appUpdate,
+  updateHold,
   version = "development",
   serviceStatus,
   eventLoop,
@@ -137,9 +140,16 @@ export function accessHttp({
         ) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
           // The tray's pause is the person's hold; an update's drain holds admission on its own.
-          const hold = path === "/v1/maintenance" ? "user" : "update";
-          if (request.method === "POST") result = maintenance.enter(hold);
-          else if (request.method === "DELETE") result = maintenance.leave(hold);
+          // A drain renews its lease with each POST; one that stops renewing lets go on its own.
+          const update = path === "/v1/maintenance/update";
+          if (request.method === "POST")
+            result = update
+              ? (updateHold?.renew() ?? maintenance.enter("update"))
+              : maintenance.enter("user");
+          else if (request.method === "DELETE")
+            result = update
+              ? (updateHold?.release() ?? maintenance.leave("update"))
+              : maintenance.leave("user");
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/app-update" && appUpdate) {

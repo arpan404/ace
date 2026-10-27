@@ -25,28 +25,36 @@ export interface DrainRequest {
 }
 
 /**
- * Before an app update replaces the daemon: close admission and wait for running work to
- * finish naturally. True once nothing is running; false (with the update's hold removed) if work
- * remains at the deadline or the daemon stopped being current. The person's pause, if any, stays.
+ * Before an app update replaces the daemon: hold admission and wait for running work to finish
+ * naturally. True once nothing is running, with the update's hold kept for the install. On every
+ * other exit (the deadline, a failed request, or the daemon or app moving on) the hold is let go
+ * while it is still the same daemon; the daemon's own lease (`update-hold.ts`) covers the rest.
+ * Each poll renews that lease. The person's pause, if any, stays.
  */
 export async function drainForUpdate(
   ports: DrainPorts,
   daemon: LocalDaemon,
   request: DrainRequest,
 ): Promise<boolean> {
-  let blockers = await ports.setUpdateHold(daemon, true);
-  if (!request.current()) return false;
-  request.paused(true);
-  request.waiting?.(blockers);
-  const until = ports.now() + request.deadlineMs;
-  while (blockers > 0 && ports.now() < until) {
-    await new Promise<void>((resolve) => ports.timers.set(request.pollMs, resolve));
+  let drained = false;
+  try {
+    let blockers = await ports.setUpdateHold(daemon, true);
     if (!request.current()) return false;
-    blockers = await ports.blockers(daemon);
+    request.paused(true);
     request.waiting?.(blockers);
+    const until = ports.now() + request.deadlineMs;
+    while (blockers > 0 && ports.now() < until) {
+      await new Promise<void>((resolve) => ports.timers.set(request.pollMs, resolve));
+      if (!request.current()) return false;
+      blockers = await ports.setUpdateHold(daemon, true);
+      request.waiting?.(blockers);
+    }
+    drained = blockers === 0;
+    return drained && request.current();
+  } finally {
+    if (!drained && request.current()) {
+      await ports.setUpdateHold(daemon, false).catch(() => {});
+      request.paused(request.wasPaused);
+    }
   }
-  if (!request.current()) return false;
-  if (blockers > 0) await ports.setUpdateHold(daemon, false);
-  if (request.current()) request.paused(blockers === 0 || request.wasPaused);
-  return blockers === 0;
 }

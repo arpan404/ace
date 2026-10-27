@@ -11,7 +11,7 @@ import {
 import { drainForUpdate } from "./drain.ts";
 import { exitDecision, incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
 import type { LocalDaemon } from "./probe.ts";
-import { readAdmission, waitForDaemon } from "./readiness.ts";
+import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
 
@@ -380,7 +380,7 @@ export class DaemonSupervisor {
       state: "running",
       source,
       url: daemon.url,
-      paused: admission.draining,
+      paused: admission.paused,
     };
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);
@@ -436,7 +436,7 @@ export class DaemonSupervisor {
     try {
       const admission = await this.ports.maintenance(daemon);
       // The tray's Pause is the person's own hold; an update or kill-all holds admission apart.
-      const paused = admission.holds ? admission.holds.includes("user") : admission.draining;
+      const paused = personPaused(admission);
       if (
         !this.stale(generation) &&
         this.daemon === daemon &&

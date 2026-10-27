@@ -6,6 +6,7 @@ import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
 import { AppUpdateBoard } from "./app-update-board.ts";
+import { UpdateHold } from "./update-hold.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -95,7 +96,9 @@ export async function startServer(options: ServerOptions): Promise<{
   void options.ready?.then(() => {
     ready = true;
   });
-  if (options.maintenance) maintenance.enter("update");
+  const updateHold = new UpdateHold(maintenance, runtime);
+  // A daemon started in the middle of an update holds until recovery releases it.
+  if (options.maintenance || maintenance.held("update")) updateHold.persist();
   const appUpdate = options.appUpdate ?? new AppUpdateBoard(runtime);
   const access = {
     auth,
@@ -124,6 +127,7 @@ export async function startServer(options: ServerOptions): Promise<{
       : {}),
     ready: () => ready,
     appUpdate,
+    updateHold,
   };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote
@@ -517,6 +521,7 @@ export async function startServer(options: ServerOptions): Promise<{
     await transports?.close();
     await preview?.close();
     appUpdate.close();
+    updateHold.close();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);

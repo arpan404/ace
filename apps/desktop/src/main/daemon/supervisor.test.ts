@@ -31,6 +31,8 @@ function machine() {
     maintenance: false,
     /** An update's own hold, apart from the person's pause. */
     updateHold: false,
+    /** How many of the next update-hold requests land but lose their reply. */
+    holdReplyFails: 0,
     admissionAvailable: true,
     /** How long the daemon takes to answer a health check (a busy event loop). */
     healthDelayMs: 0,
@@ -93,6 +95,11 @@ function machine() {
     },
     setUpdateHold: async (_daemon, on) => {
       state.updateHold = on;
+      // The request landed, but its reply was lost (a timeout on a busy daemon).
+      if (on && state.holdReplyFails > 0) {
+        state.holdReplyFails--;
+        throw new Error("The request timed out");
+      }
       return state.blockers;
     },
     blockers: async () => state.blockers,
@@ -227,6 +234,16 @@ describe("daemon supervisor", () => {
     await supervisor.pause(false);
     expect(m.state.maintenance).toBe(false);
     expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("attaching to a daemon that an update holds doesn't show it as paused by the person", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.updateHold = true; // Started mid-update, or `ace update` is draining it.
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
   });
 
   it("discovers a surviving daemon's pause and lets the user resume it", async () => {
@@ -786,6 +803,28 @@ describe("daemon supervisor", () => {
     await m.advance(60_000);
     expect(m.children).toHaveLength(0);
     expect(supervisor.current().state).toBe("stopped");
+  });
+
+  it.each([
+    ["the first request's reply is lost", 1],
+    ["a later poll fails", 0],
+  ])("a drain that fails because %s lets go of its hold", async (_name, firstFails) => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.blockers = 2;
+    m.state.holdReplyFails = firstFails;
+    const draining = supervisor.drain(5_000);
+    if (!firstFails) {
+      await m.advance(10);
+      m.state.holdReplyFails = 1;
+      await m.advance(1_000);
+    }
+    await expect(draining).rejects.toThrow("timed out");
+    expect(m.state.updateHold).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
   });
 
   it("drains before an update and reopens admission when work is still running", async () => {
