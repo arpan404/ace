@@ -2,6 +2,7 @@
 import { builtInAgents } from "../content/agents.ts";
 import { toolFamilies } from "../content/product.ts";
 import BrandMark from "./BrandMark.astro";
+import MoreLink from "./site/MoreLink.astro";
 ---
 
 <section id="mcp" class="section page">
@@ -12,6 +13,7 @@ import BrandMark from "./BrandMark.astro";
         ace runs an MCP server for each agent session. Whichever CLI runs the agent, it gets the
         same tools, and your CLI's own permission mode decides what runs.
       </p>
+      <MoreLink href="/mcp/" label="Every tool, described" />
     </div>
     <ul class="marks" aria-label="Agents that get ace's tools">
       {

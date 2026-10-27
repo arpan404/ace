@@ -5,6 +5,7 @@
  */
 import { downloads, platformInfo, platforms, type Platform } from "../content/release.ts";
 import Icon, { type IconName } from "./Icon.astro";
+import MoreLink from "./site/MoreLink.astro";
 
 const desktopMarks: Record<Platform, IconName> = {
   mac: "apple-logo",
@@ -66,6 +67,7 @@ const mobile: { name: string; mark: IconName; body: string }[] = [
       </ul>
     </div>
   </div>
+  <MoreLink href="/download/" label="All downloads" />
 </section>
 
 <style>

@@ -3,6 +3,17 @@ import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
 import DownloadButton from "./DownloadButton.astro";
 import Icon from "./Icon.astro";
+
+const sections = [
+  { path: "/features/", name: "Features" },
+  { path: "/agents/", name: "Agents" },
+  { path: "/mcp/", name: "MCP" },
+  { path: "/download/", name: "Download" },
+  { path: "/faq/", name: "FAQ" },
+];
+/* The section the current page belongs to, so its link reads as current. */
+const here = Astro.url.pathname;
+const current = (path: string) => here === path || here.startsWith(path);
 ---
 
 <header class="nav">
@@ -11,12 +22,14 @@ import Icon from "./Icon.astro";
       <AceMark size={22} />
       <span>ace</span>
     </a>
-    <nav class="nav-links" aria-label="Sections">
-      <a href="#platforms">Platforms</a>
-      <a href="#machine">Computer use</a>
-      <a href="#fleet">Fleet</a>
-      <a href="#mcp">MCP</a>
-      <a href="#faq">FAQ</a>
+    <nav class="nav-links" aria-label="Main">
+      {
+        sections.map((section) => (
+          <a href={section.path} aria-current={current(section.path) ? "page" : undefined}>
+            {section.name}
+          </a>
+        ))
+      }
     </nav>
     <div class="nav-actions">
       <a class="icon-link" href={links.source} aria-label="ace on GitHub">
@@ -83,7 +96,8 @@ import Icon from "./Icon.astro";
     transition: color var(--motion-fast) var(--ease-out);
   }
 
-  .nav-links a:hover {
+  .nav-links a:hover,
+  .nav-links a[aria-current] {
     color: var(--foreground);
   }
 

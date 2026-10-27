@@ -1,15 +1,18 @@
 import type { APIRoute } from "astro";
+import { routes } from "../content/routes.ts";
 import { downloads } from "../content/release.ts";
 
-/** The pages search engines should index. Absolute URLs need the site's address (SITE_URL). */
-const pages = ["/"];
-
+/*
+ * Every indexable page (routes.ts). Absolute URLs need the site's address (SITE_URL). The latest
+ * release date stands in for lastmod: the site is rebuilt per release, and copy changes ship
+ * with one.
+ */
 export const GET: APIRoute = ({ site }) => {
   const lastmod = downloads.publishedAt
     ? `<lastmod>${downloads.publishedAt.slice(0, 10)}</lastmod>`
     : "";
   const urls = site
-    ? pages.map((path) => `  <url><loc>${new URL(path, site).href}</loc>${lastmod}</url>`)
+    ? routes.map((entry) => `  <url><loc>${new URL(entry.path, site).href}</loc>${lastmod}</url>`)
     : [];
   const body = [
     '<?xml version="1.0" encoding="UTF-8"?>',

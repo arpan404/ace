@@ -1,0 +1,30 @@
+---
+import Closing from "../components/Closing.astro";
+import Faq from "../components/Faq.astro";
+import PageIntro from "../components/site/PageIntro.astro";
+import { features } from "../content/features.ts";
+import { faq } from "../content/product.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor } from "../seo/schema.ts";
+
+const path = "/faq/";
+const groups = [
+  { heading: "About ace", items: faq },
+  ...features.map((feature) => ({ heading: feature.name, items: feature.questions })),
+];
+---
+
+<Page
+  path={path}
+  title="ace FAQ: coding agents, platforms, pricing and privacy"
+  description="Answers about ace: which coding agents it runs, which platforms it supports, whether it needs API keys, where your code goes, and how computer use and Fleet work."
+  schema={[faqPage(schemaFor(Astro.site), path, groups.flatMap((group) => group.items))]}
+>
+  <PageIntro
+    headline="Frequently asked questions"
+    intro="What people ask before trying ace. Something missing? Open a discussion or an issue on GitHub."
+    secondary={{ href: "/download/", label: "Download options" }}
+  />
+  {groups.map((group) => <Faq items={group.items} heading={group.heading} />)}
+  <Closing />
+</Page>

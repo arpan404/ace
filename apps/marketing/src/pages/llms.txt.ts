@@ -3,13 +3,14 @@ import { acpAgents, builtInAgents } from "../content/agents.ts";
 import {
   capabilities,
   faq,
-  features,
+  workbench,
   fleetPoints,
   product,
   statuses,
   toolFamilies,
 } from "../content/product.ts";
 import { downloads, formatSize, platformInfo, platforms } from "../content/release.ts";
+import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 
 /*
@@ -19,7 +20,8 @@ import { links } from "../site.ts";
  */
 const names = (list: { label: string }[]) => list.map((agent) => agent.label).join(", ");
 
-export const GET: APIRoute = () => {
+export const GET: APIRoute = ({ site }) => {
+  const href = (path: string) => (site ? new URL(path, site).href : path);
   const downloadLinks = platforms.map((platform) => {
     const { name, build } = platformInfo[platform];
     const { url, bytes } = downloads.byPlatform[platform];
@@ -43,6 +45,11 @@ export const GET: APIRoute = () => {
     `- [Release notes](${downloads.notesUrl})`,
     `- [Source code on GitHub](${links.source}): Apache-2.0`,
     `- [All releases](${links.releases})`,
+    `- [Everything on this site in one file](${href("/llms-full.txt")})`,
+    "",
+    "## Pages",
+    "",
+    ...routes.map((entry) => `- [${entry.name}](${href(entry.path)}): ${entry.summary}`),
     "",
     "## Supported agents",
     "",
@@ -78,7 +85,7 @@ export const GET: APIRoute = () => {
     "",
     "## More",
     "",
-    ...features.map((feature) => `- ${feature.title}: ${feature.body}`),
+    ...workbench.map((item) => `- ${item.title}: ${item.body}`),
     "",
     "## FAQ",
     "",

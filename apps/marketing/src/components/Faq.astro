@@ -1,14 +1,29 @@
 ---
-import { faq } from "../content/product.ts";
+/*
+ * Questions with answers that open in place. Answers stay in the HTML when closed, so search
+ * engines read them, and the page's FAQPage data (schema.ts) lists the same entries.
+ */
+import Icon from "./Icon.astro";
+
+interface Props {
+  items: { question: string; answer: string }[];
+  heading?: string;
+  /** A link to every question, when this shows only some. */
+  moreHref?: string;
+  /** An anchor id, for the one question list a page links to. */
+  id?: string;
+}
+
+const { items, heading = "Questions, answered.", moreHref, id } = Astro.props;
 ---
 
-<section id="faq" class="section page faq">
+<section id={id} class="section page faq">
   <div class="reveal">
-    <h2 class="section-title">Questions, answered.</h2>
+    <h2 class="section-title">{heading}</h2>
   </div>
   <div class="list reveal">
     {
-      faq.map((entry) => (
+      items.map((entry) => (
         <details>
           <summary>
             <h3>{entry.question}</h3>
@@ -19,6 +34,16 @@ import { faq } from "../content/product.ts";
       ))
     }
   </div>
+  {
+    moreHref && (
+      <p class="more">
+        <a class="text-link" href={moreHref}>
+          All questions
+        </a>
+        <Icon name="arrow-right" size={14} />
+      </p>
+    )
+  }
 </section>
 
 <style>
@@ -33,6 +58,16 @@ import { faq } from "../content/product.ts";
   .list {
     margin-top: 48px;
     border-top: 1px solid var(--border);
+  }
+
+  .more {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: 32px;
+    color: var(--muted);
+    font-size: 14px;
   }
 
   details {

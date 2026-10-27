@@ -5,7 +5,7 @@
 
 export const product = {
   name: "ace",
-  title: "ace: Claude Code, Codex and Cursor agents in one window",
+  title: "ace: one app for Claude Code, Codex, Cursor and every agent",
   headline: "All your coding agents, one window.",
   summary:
     "ace drives Claude Code, Codex, Cursor and the CLIs you already use, across all your machines, and tells you which one needs you.",
@@ -47,8 +47,8 @@ export type FeatureIcon =
   | "chart-bar"
   | "terminal-window";
 
-/** What else ace does, beyond the sections that have their own space on the page. */
-export const features: { icon: FeatureIcon; title: string; body: string }[] = [
+/** What else ace does, beyond the features with pages of their own. */
+export const workbench: { icon: FeatureIcon; title: string; body: string }[] = [
   {
     icon: "lock",
     title: "Runs on your machine",

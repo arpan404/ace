@@ -1,0 +1,40 @@
+---
+/*
+ * Every page's frame: the head (title, description, canonical, social cards, JSON-LD), the
+ * header, visible breadcrumbs on inner pages, and the footer. Pages pass their own extra
+ * schema.org nodes; the site, page and breadcrumb nodes are added here.
+ */
+import Breadcrumbs from "../components/site/Breadcrumbs.astro";
+import Footer from "../components/Footer.astro";
+import Nav from "../components/Nav.astro";
+import { breadcrumbs, graph, schemaFor, webPage, website, type Node } from "../seo/schema.ts";
+import Base from "./Base.astro";
+
+interface Props {
+  /** The page's path in routes.ts, such as "/features/fleet/". */
+  path: string;
+  title: string;
+  description: string;
+  /** schema.org type of the page itself: WebPage, CollectionPage, FAQPage's host page… */
+  pageType?: string;
+  schema?: (Node | undefined)[];
+}
+
+const { path, title, description, pageType, schema: extra = [] } = Astro.props;
+const schema = schemaFor(Astro.site);
+const data = graph([
+  website(schema),
+  webPage(schema, { path, title, description, type: pageType }),
+  breadcrumbs(schema, path),
+  ...extra,
+]);
+---
+
+<Base title={title} description={description} structuredData={data} ogType={path === "/" ? "website" : "article"}>
+  <Nav />
+  {path !== "/" && <Breadcrumbs path={path} />}
+  <main>
+    <slot />
+  </main>
+  <Footer />
+</Base>

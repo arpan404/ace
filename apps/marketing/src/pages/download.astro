@@ -1,0 +1,219 @@
+---
+import Faq from "../components/Faq.astro";
+import Icon, { type IconName } from "../components/Icon.astro";
+import { faq } from "../content/product.ts";
+import {
+  downloads,
+  formatSize,
+  platformInfo,
+  platforms,
+  type Platform,
+} from "../content/release.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor, softwareApplication, sourceCode } from "../seo/schema.ts";
+import { links } from "../site.ts";
+
+const path = "/download/";
+const schema = schemaFor(Astro.site);
+
+const desktop: Record<Platform, { mark: IconName; install: string }> = {
+  mac: { mark: "apple-logo", install: "Open the disk image and drag ace to Applications." },
+  windows: { mark: "windows-logo", install: "Run the installer and follow its steps." },
+  linux: {
+    mark: "linux-logo",
+    install: "Make the AppImage executable and run it. A .deb and a .tar.gz are on the release page.",
+  },
+};
+
+const mobile: { name: string; mark: IconName; body: string }[] = [
+  {
+    name: "iPhone",
+    mark: "apple-logo",
+    body: "Follow every thread, approve, answer and send follow-ups from anywhere.",
+  },
+  { name: "iPad", mark: "apple-logo", body: "Read threads and diffs side by side on a larger screen." },
+  {
+    name: "Android",
+    mark: "android-logo",
+    body: "The same fleet and the same approvals on your Android phone.",
+  },
+];
+
+const questions = faq.filter((entry) =>
+  ["Which platforms does ace run on?", "Is ace free?", "Does ace need my API keys or a new subscription?"].includes(
+    entry.question,
+  ),
+);
+---
+
+<Page
+  path={path}
+  title="Download ace for Mac, Windows, Linux, iPhone, iPad and Android"
+  description="Download ace, the free open-source app for Claude Code, Codex and Cursor, on Mac, Windows and Linux, with apps for iPhone, iPad and Android."
+  schema={[softwareApplication(schema), sourceCode(schema), faqPage(schema, path, questions)]}
+>
+  <header class="page intro">
+    <h1>Download ace</h1>
+    <p class="lead">
+      Free and open source. Install the desktop app on every computer you run agents on, then pair
+      your phone and tablet to follow them from anywhere.
+      {downloads.version && <> The latest release is ace {downloads.version}.</>}
+    </p>
+  </header>
+
+  <section class="section page" aria-labelledby="desktop">
+    <h2 id="desktop" class="group">Desktop</h2>
+    <ul class="cards">
+      {
+        platforms.map((platform) => {
+          const info = platformInfo[platform];
+          const file = downloads.byPlatform[platform];
+          return (
+            <li class="for-os-card" data-os-card={platform}>
+              <span class="tile">
+                <Icon name={desktop[platform].mark} size={20} />
+              </span>
+              <h3>{info.name}</h3>
+              <p class="build">
+                {info.build}
+                {file.bytes ? `, ${formatSize(file.bytes)}` : ""}
+              </p>
+              <p class="install">{desktop[platform].install}</p>
+              <a class="button button-primary" href={file.url}>
+                {file.bytes ? `Download for ${info.name}` : `Get ${info.name} builds`}
+              </a>
+            </li>
+          );
+        })
+      }
+    </ul>
+    <p class="aside">
+      ace updates itself. Every build, checksum and release note is on
+      <a class="text-link" href={links.releases}>GitHub releases</a>.
+    </p>
+  </section>
+
+  <section class="section page" aria-labelledby="mobile">
+    <h2 id="mobile" class="group">Phone and tablet</h2>
+    <ul class="cards">
+      {
+        mobile.map((app) => (
+          <li>
+            <span class="tile">
+              <Icon name={app.mark} size={20} />
+            </span>
+            <h3>ace for {app.name}</h3>
+            <p class="install">{app.body}</p>
+            <a class="text-link" href="/features/fleet/">
+              How pairing works
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section class="section page before" aria-labelledby="before">
+    <h2 id="before" class="section-title">Before you start</h2>
+    <p class="lede">
+      ace runs the coding-agent CLIs you already use. Install at least one, such as Claude Code,
+      Codex or Cursor, and sign in to it the usual way. ace picks it up from there.
+    </p>
+    <p class="more"><a class="text-link" href="/agents/">See every supported agent</a></p>
+  </section>
+
+  <Faq items={questions} heading="Questions before downloading" moreHref="/faq/" />
+</Page>
+
+<style>
+  .intro {
+    padding-top: 48px;
+  }
+
+  h1 {
+    font-size: clamp(40px, 5vw, 60px);
+    letter-spacing: -0.045em;
+  }
+
+  .lead {
+    margin-top: 20px;
+    max-width: 36em;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .section:first-of-type {
+    padding-top: 72px;
+  }
+
+  .group {
+    color: var(--subtle);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .cards li {
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    justify-items: start;
+    gap: 10px;
+    padding: 28px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: linear-gradient(to bottom, #181715, #131211);
+  }
+
+  /* The visitor's own platform stands out a little. */
+  html[data-os="windows"] [data-os-card="windows"],
+  html[data-os="linux"] [data-os-card="linux"],
+  html:not([data-os]) [data-os-card="mac"] {
+    border-color: var(--border-strong);
+  }
+
+  .cards h3 {
+    margin-top: 10px;
+    font-size: 19px;
+  }
+
+  .build {
+    color: var(--subtle);
+    font-size: 13.5px;
+  }
+
+  .install {
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+
+  .cards .button,
+  .cards .text-link {
+    margin-top: 10px;
+  }
+
+  .cards .text-link {
+    font-size: 14px;
+  }
+
+  .aside,
+  .more {
+    margin-top: 24px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  @media (max-width: 860px) {
+    .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

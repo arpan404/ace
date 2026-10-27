@@ -1,19 +1,62 @@
 ---
+/* The footer doubles as the site map: every page from routes.ts, grouped by section. */
+import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
+
+const under = (parent: string) => routes.filter((entry) => entry.parent === parent);
+const columns = [
+  { name: "Features", entries: under("/features/") },
+  { name: "Agents", entries: under("/agents/") },
+  {
+    name: "ace",
+    entries: ["/download/", "/mcp/", "/security/", "/faq/"].flatMap((path) =>
+      routes.filter((entry) => entry.path === path),
+    ),
+  },
+];
+const external = [
+  { href: links.source, name: "GitHub" },
+  { href: links.releases, name: "Releases" },
+  { href: "/llms.txt", name: "llms.txt" },
+  { href: links.license, name: "Apache-2.0 license" },
+];
 ---
 
 <footer class="footer">
   <div class="page inner">
-    <a class="brand" href="/" aria-label="ace home">
-      <AceMark size={20} />
-      <span>ace</span>
-    </a>
-    <nav aria-label="Footer">
-      <a href={links.source}>GitHub</a>
-      <a href={links.releases}>Releases</a>
-      <a href="/llms.txt">llms.txt</a>
-      <a href={links.license}>Apache-2.0</a>
+    <div class="about">
+      <a class="brand" href="/" aria-label="ace home">
+        <AceMark size={22} />
+        <span>ace</span>
+      </a>
+      <p>Run every coding agent on every machine, and steer them from any screen.</p>
+    </div>
+    {
+      columns.map((column) => (
+        <nav aria-label={column.name}>
+          <h2>{column.name}</h2>
+          <ul>
+            {column.entries.map((entry) => (
+              <li>
+                <a href={entry.path}>{entry.name}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ))
+    }
+    <nav aria-label="Elsewhere">
+      <h2>Elsewhere</h2>
+      <ul>
+        {
+          external.map((link) => (
+            <li>
+              <a href={link.href}>{link.name}</a>
+            </li>
+          ))
+        }
+      </ul>
     </nav>
   </div>
 </footer>
@@ -24,36 +67,59 @@ import AceMark from "./AceMark.astro";
   }
 
   .inner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding-block: 32px;
+    display: grid;
+    grid-template-columns: 1.4fr repeat(4, 1fr);
+    gap: 40px;
+    padding-block: 64px 72px;
   }
 
   .brand {
     display: inline-flex;
     align-items: center;
     gap: 10px;
+    font-size: 17px;
     font-weight: 600;
     text-decoration: none;
   }
 
-  nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 24px;
+  .about p {
+    margin-top: 14px;
+    max-width: 22em;
+    color: var(--subtle);
     font-size: 14px;
   }
 
-  nav a {
+  h2 {
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  ul {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  a {
     color: var(--subtle);
+    font-size: 14px;
     text-decoration: none;
     transition: color var(--motion-fast) var(--ease-out);
   }
 
-  nav a:hover {
+  a:hover {
     color: var(--foreground);
+  }
+
+  @media (max-width: 900px) {
+    .inner {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .about {
+      grid-column: 1 / -1;
+    }
   }
 </style>

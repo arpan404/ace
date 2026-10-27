@@ -3,6 +3,7 @@ import { capabilities } from "../content/product.ts";
 import BrowserPanel from "./panels/BrowserPanel.astro";
 import ComputerPanel from "./panels/ComputerPanel.astro";
 import DevicesPanel from "./panels/DevicesPanel.astro";
+import MoreLink from "./site/MoreLink.astro";
 import Stage from "./Stage.astro";
 
 const [browser, computer, devices] = capabilities;
@@ -25,6 +26,7 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
         <p>{computer.body}</p>
         <ul class="details">{computer.details.map((detail) => <li>{detail}</li>)}</ul>
         <p class="tools">{computer.tools.map((tool) => <code>{tool}</code>)}</p>
+        <MoreLink href="/features/computer-use/" label="More on computer use" />
       </div>
       <Stage mood="plum">
         <ComputerPanel />
@@ -39,6 +41,7 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
         <h3>A real browser they can drive</h3>
         <p>{browser.body}</p>
         <p class="tools">{browser.tools.map((tool) => <code>{tool}</code>)}</p>
+        <MoreLink href="/features/browser/" label="More on browser use" />
       </div>
     </article>
 
@@ -50,6 +53,7 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
         <h3>Simulators and emulators in one hub</h3>
         <p>{devices.body}</p>
         <p class="tools">{devices.tools.map((tool) => <code>{tool}</code>)}</p>
+        <MoreLink href="/features/devices/" label="More on devices" />
       </div>
     </article>
   </div>
@@ -124,12 +128,17 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
     font-size: 14px;
   }
 
+  .details li {
+    display: flex;
+    gap: 12px;
+  }
+
   .details li::before {
     content: "";
-    display: inline-block;
+    flex-shrink: 0;
     width: 5px;
     height: 5px;
-    margin: 0 12px 2px 0;
+    margin-top: 0.62em;
     border-radius: 50%;
     background: var(--faint);
   }

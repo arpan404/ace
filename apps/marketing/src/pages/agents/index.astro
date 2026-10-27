@@ -1,0 +1,39 @@
+---
+import Agents from "../../components/Agents.astro";
+import Closing from "../../components/Closing.astro";
+import Faq from "../../components/Faq.astro";
+import PageIntro from "../../components/site/PageIntro.astro";
+import { agentGuides } from "../../content/agent-guides.ts";
+import { faq } from "../../content/product.ts";
+import Page from "../../layouts/Page.astro";
+import { faqPage, itemList, schemaFor } from "../../seo/schema.ts";
+
+const path = "/agents/";
+const schema = schemaFor(Astro.site);
+const questions = faq.filter((entry) =>
+  ["Which coding agents does ace support?", "Does ace need my API keys or a new subscription?"].includes(
+    entry.question,
+  ),
+);
+const list = itemList(
+  schema,
+  agentGuides.map((guide) => ({ name: guide.label, path: `/agents/${guide.slug}/` })),
+);
+---
+
+<Page
+  path={path}
+  title="Claude Code, Codex, Cursor and every ACP agent in one app: ace"
+  description="ace runs Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any Agent Client Protocol agent side by side, through the CLIs you already have."
+  pageType="CollectionPage"
+  schema={[list, faqPage(schema, path, questions)]}
+>
+  <PageIntro
+    headline="Every coding agent you use, in one app"
+    intro="ace drives the agent CLIs you already have signed in. Six are built in, and any agent that speaks the Agent Client Protocol works too. Mix them freely: one thread per task, each with the agent that fits it."
+    secondary={{ href: "/features/", label: "What ace adds" }}
+  />
+  <Agents />
+  <Faq items={questions} heading="Questions about agents" moreHref="/faq/" />
+  <Closing />
+</Page>

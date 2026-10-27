@@ -1,0 +1,146 @@
+---
+import Closing from "../../components/Closing.astro";
+import Faq from "../../components/Faq.astro";
+import FeatureVisual from "../../components/site/FeatureVisual.astro";
+import LinkCards from "../../components/site/LinkCards.astro";
+import PageIntro from "../../components/site/PageIntro.astro";
+import { features, type Feature } from "../../content/features.ts";
+import Page from "../../layouts/Page.astro";
+import { faqPage, schemaFor } from "../../seo/schema.ts";
+
+export function getStaticPaths() {
+  return features.map((feature) => ({ params: { slug: feature.slug }, props: { feature } }));
+}
+
+interface Props {
+  feature: Feature;
+}
+
+const { feature } = Astro.props;
+const path = `/features/${feature.slug}/`;
+const others = features
+  .filter((entry) => entry.slug !== feature.slug)
+  .map((entry) => ({ href: `/features/${entry.slug}/`, title: entry.name, body: entry.intro }));
+---
+
+<Page
+  path={path}
+  title={feature.title}
+  description={feature.description}
+  schema={[faqPage(schemaFor(Astro.site), path, feature.questions)]}
+>
+  <PageIntro
+    headline={feature.headline}
+    intro={feature.intro}
+    points={feature.points}
+    secondary={{ href: "/features/", label: "All features" }}
+  />
+  <FeatureVisual slug={feature.slug} />
+
+  <div class="section page body">
+    <article class="prose">
+      {
+        feature.sections.map((section) => (
+          <section class="reveal">
+            <h2>{section.heading}</h2>
+            {section.body.map((paragraph) => (
+              <p>{paragraph}</p>
+            ))}
+          </section>
+        ))
+      }
+    </article>
+    {
+      feature.tools.length > 0 && (
+        <aside class="tools reveal" aria-label="MCP tools">
+          <h2>The tools behind it</h2>
+          <p>Every agent gets these MCP tools, in every CLI.</p>
+          <ul>
+            {feature.tools.map((tool) => (
+              <li>
+                <code>{tool}</code>
+              </li>
+            ))}
+          </ul>
+          <a class="text-link" href="/mcp/">
+            All MCP tools
+          </a>
+        </aside>
+      )
+    }
+  </div>
+
+  <Faq items={feature.questions} heading={`Questions about ${feature.name.toLowerCase()}`} />
+  <LinkCards heading="More of ace" cards={others} />
+  <Closing />
+</Page>
+
+<style>
+  .body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 80px;
+    align-items: start;
+  }
+
+  .prose {
+    display: grid;
+    gap: 56px;
+    max-width: 680px;
+  }
+
+  .prose h2 {
+    font-size: clamp(24px, 2.6vw, 30px);
+  }
+
+  .prose p {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 16.5px;
+    line-height: 1.75;
+  }
+
+  .tools {
+    position: sticky;
+    top: 112px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .tools h2 {
+    font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+
+  .tools p {
+    margin-top: 6px;
+    color: var(--subtle);
+    font-size: 13.5px;
+  }
+
+  .tools ul {
+    display: grid;
+    gap: 8px;
+    margin: 18px 0 20px;
+  }
+
+  .tools code {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .tools .text-link {
+    font-size: 14px;
+  }
+
+  @media (max-width: 900px) {
+    .body {
+      grid-template-columns: 1fr;
+      gap: 48px;
+    }
+
+    .tools {
+      position: static;
+    }
+  }
+</style>

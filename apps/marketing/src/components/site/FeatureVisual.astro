@@ -1,0 +1,104 @@
+---
+/* The picture for each feature page: the same panels and screenshots the home page uses. */
+import reviewDark from "../../assets/shots/review-dark.png";
+import type { FeatureSlug } from "../../content/features.ts";
+import BrowserPanel from "../panels/BrowserPanel.astro";
+import ComputerPanel from "../panels/ComputerPanel.astro";
+import DevicesPanel from "../panels/DevicesPanel.astro";
+import FleetPanel from "../panels/FleetPanel.astro";
+import StatusBoard from "../panels/StatusBoard.astro";
+import Shot from "../Shot.astro";
+import Stage from "../Stage.astro";
+
+interface Props {
+  slug: FeatureSlug;
+}
+
+const { slug } = Astro.props;
+---
+
+<div class="page visual reveal">
+  {
+    slug === "computer-use" && (
+      <Stage mood="plum">
+        <ComputerPanel />
+      </Stage>
+    )
+  }
+  {
+    slug === "fleet" && (
+      <Stage mood="sand">
+        <FleetPanel />
+      </Stage>
+    )
+  }
+  {
+    slug === "browser" && (
+      <Stage mood="ember">
+        <BrowserPanel />
+      </Stage>
+    )
+  }
+  {
+    slug === "devices" && (
+      <Stage mood="amber">
+        <DevicesPanel />
+      </Stage>
+    )
+  }
+  {
+    slug === "status" && (
+      <Stage mood="ember">
+        <div class="board">
+          <StatusBoard />
+        </div>
+      </Stage>
+    )
+  }
+  {
+    slug === "review" && (
+      <Stage mood="rose" bleed>
+        <div class="crop">
+          <Shot
+            image={reviewDark}
+            alt="A thread with its Changes panel open: a file tree with added and removed line counts, a diff, and a line comment ready to send to the agent."
+            sizes="(min-width: 1232px) 1430px, 125vw"
+            widths={[1440, 2880]}
+            eager
+          />
+        </div>
+      </Stage>
+    )
+  }
+</div>
+
+<style>
+  .visual {
+    margin-top: 64px;
+  }
+
+  .visual :global(.stage-inner) {
+    min-height: 440px;
+  }
+
+  .board {
+    width: 100%;
+    max-width: 560px;
+  }
+
+  .crop {
+    width: 100%;
+    max-height: 560px;
+    overflow: hidden;
+    border-top-left-radius: 10px;
+    border: 1px solid rgb(255 255 255 / 0.1);
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .crop :global(img) {
+    width: 124%;
+    max-width: none;
+    margin-left: -29%;
+  }
+</style>

@@ -1,0 +1,44 @@
+---
+import Boundary from "../components/Boundary.astro";
+import Closing from "../components/Closing.astro";
+import Faq from "../components/Faq.astro";
+import PageIntro from "../components/site/PageIntro.astro";
+import { faq } from "../content/product.ts";
+import Page from "../layouts/Page.astro";
+import { faqPage, schemaFor } from "../seo/schema.ts";
+
+const path = "/security/";
+const questions = [
+  ...faq.filter((entry) =>
+    ["Where does my code go?", "Does ace need my API keys or a new subscription?"].includes(
+      entry.question,
+    ),
+  ),
+  {
+    question: "Who decides what an agent may run?",
+    answer:
+      "The agent's own CLI, in the permission mode you chose for it. ace adds no approval layer of its own and never answers an approval for you.",
+  },
+  {
+    question: "Can another device control my agents?",
+    answer:
+      "Only devices you pair, with the access you choose: view only, or view and act, for as long as you set. Each machine also decides how much other linked machines may do on it.",
+  },
+];
+---
+
+<Page
+  path={path}
+  title="Security and privacy: where your code goes with ace"
+  description="ace runs on your machine, never hosted. Credentials stay with each agent CLI, devices join only when you pair them, and every line of ace is open source."
+  schema={[faqPage(schemaFor(Astro.site), path, questions)]}
+>
+  <PageIntro
+    headline="Your code, your machines, your keys"
+    intro="ace is an app you run, not a service you send code to. It sits around your agents, never between you and your providers."
+    secondary={{ href: "/features/fleet/", label: "How pairing works" }}
+  />
+  <Boundary />
+  <Faq items={questions} heading="Questions about security" moreHref="/faq/" />
+  <Closing />
+</Page>

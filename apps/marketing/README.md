@@ -1,7 +1,8 @@
 # ace marketing site
 
-A static Astro site: one page plus `llms.txt`, `robots.txt`, `sitemap.xml`, a web manifest and a
-404 page.
+A static Astro site: the home page, `/download/`, `/features/` with a page per feature,
+`/agents/` with a page per built-in agent, `/mcp/`, `/security/` and `/faq/`, plus `llms.txt`,
+`llms-full.txt`, `robots.txt`, `sitemap.xml`, a web manifest and a 404 page.
 
 ```sh
 bun run --filter @ace/marketing dev     # local preview
@@ -40,10 +41,26 @@ release page instead. Rebuild after each release so the site links the new versi
 
 ## Content
 
-Copy lives in `src/content/`: `product.ts` (headline, statuses, features, computer use, Fleet, MCP
-tools, FAQ) and `agents.ts` (read from `@ace/ui-core`, so the agent list matches the app). The page,
-its JSON-LD structured data (`src/seo/`) and `llms.txt` are all built from these files, so they never
-disagree.
+Copy lives in `src/content/`, never in components:
+
+| File              | What it holds                                                                    |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `product.ts`      | Headline, statuses, capabilities, Fleet points, MCP families, FAQ, boundaries    |
+| `features.ts`     | Every feature page: title, meta description, sections, tools, questions          |
+| `agent-guides.ts` | A page per built-in agent (the agent list itself comes from `@ace/ui-core`)      |
+| `mcp.ts`          | The full tool reference on `/mcp/`                                               |
+| `routes.ts`       | Every indexable page; nav, footer, breadcrumbs, sitemap and llms.txt all read it |
+
+A new page goes in `routes.ts` first; `trail()` refuses a path that isn't listed, so a page can't
+ship unlinked or missing from the sitemap.
+
+## SEO
+
+Every page goes through `layouts/Page.astro`, which writes its title, description, canonical URL,
+Open Graph and Twitter cards, and one JSON-LD graph: `WebSite`, the page, `BreadcrumbList` on inner
+pages, plus what the page adds (`SoftwareApplication` on home and download, `FAQPage` wherever
+questions are shown, `ItemList` on index pages). Node builders live in `src/seo/schema.ts`.
+`llms.txt` indexes every page; `llms-full.txt` carries all of their content in one file.
 
 ## Screenshots
 
