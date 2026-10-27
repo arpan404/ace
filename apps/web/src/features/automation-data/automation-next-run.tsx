@@ -1,6 +1,6 @@
 import type { Automation } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { localTimeZone, nextRunText } from "@ace/ui-core/automations";
+import { automationsOffText, localTimeZone, nextRunText } from "@ace/ui-core/automations";
 
 /**
  * When it runs next. With automations off on the daemon's machine nothing runs, so it says so
@@ -18,7 +18,7 @@ export function NextRun(props: {
   if (props.running === false)
     return (
       <>
-        Automations are off on this machine.{" "}
+        {automationsOffText}{" "}
         <Link
           to="/settings/agents"
           hash="automations.enabled"

@@ -26,6 +26,9 @@ struct AutomationEditor: View {
     @State private var choosingModel = false
     @State private var sequence = 0
     @State private var savedCount = 0
+    /// A new automation's id, made once when the editor opens: Save sent again after a lost
+    /// reply names the same automation, which the bridge counts as saved instead of a second.
+    @State private var newId = "auto-\(UUID().uuidString.lowercased())"
     private var zone: String { TimeZone.current.identifier }
     private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : .smooth }
 
@@ -141,8 +144,11 @@ struct AutomationEditor: View {
                 .padding(.vertical, AceTheme.Spacing.xs)
             }
             if let access = model.compose.access, access.provider == pick?.provider, !access.choices.isEmpty {
-                Picker("Access", selection: Binding(get: { form.wrappedValue.access ?? access.selected ?? "" },
-                                                    set: { form.wrappedValue.access = $0 })) {
+                // Unset follows the project's (else the machine's) default, as it is saved: the
+                // picker says "Default" for it rather than a mode that would never be stored.
+                Picker("Access", selection: Binding(get: { form.wrappedValue.access ?? "" },
+                                                    set: { form.wrappedValue.access = $0.isEmpty ? nil : $0 })) {
+                    Text(form.wrappedValue.access == nil ? "Default · \(defaultAccessLabel(access))" : "Default").tag("")
                     ForEach(access.choices) { choice in Text(choice.label).tag(choice.mode) }
                 }
                 .accessibilityIdentifier("automation.access")
@@ -229,6 +235,10 @@ struct AutomationEditor: View {
         if let agent = editing?.agent { return "\(agent) default" }
         return model.compose.agentsState == "ready" ? "Default" : "Reading…"
     }
+    /// The mode an unset access runs at, as the bridge worked it out for this project and model.
+    private func defaultAccessLabel(_ access: ComposeAccess) -> String {
+        access.label ?? access.choices.first { $0.mode == access.selected }?.label ?? "the project's"
+    }
     private var accessKey: String {
         [form?.workspace, pick?.provider, pick?.key, pick?.account, form?.access].map { $0 ?? "" }.joined(separator: "\u{0}")
     }
@@ -290,7 +300,7 @@ struct AutomationEditor: View {
         if view?.problem != nil { return }
         saving = true
         defer { saving = false }
-        var request: [String: Any] = ["type": "automations.save", "form": form.json, "id": "auto-\(UUID().uuidString.lowercased())"]
+        var request: [String: Any] = ["type": "automations.save", "form": form.json, "id": newId]
         if pickChanged, let pick { request["pick"] = pick.json }
         if let editing {
             request["previous"] = editing.automation.any

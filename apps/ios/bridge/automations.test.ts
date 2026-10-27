@@ -21,12 +21,22 @@ afterEach(async () => {
   close = undefined;
 });
 
+interface Options {
+  /** Whether the machine runs automations. */
+  running?: boolean;
+  /** Each automation.put whose reply never reaches the phone (by 1-based put number). */
+  lostPuts?: number[];
+  /** The project's GitHub repository, as its remotes say. */
+  repository?: string;
+}
+
 async function fixture(
   seed: { automations?: Automation[]; runs?: AutomationRun[] } = {},
   states: Record<string, ThreadStatus["state"]> = {},
+  options: Options = {},
 ) {
   const daemon = new FakeDaemon({ clock: () => now });
-  daemon.seedServices({ settings: { "automations.enabled": true }, ...seed });
+  daemon.seedServices({ settings: { "automations.enabled": options.running ?? true }, ...seed });
   let sequence = 0;
   const client = new Client({
     deviceId: DeviceId.parse("phone"),
@@ -49,8 +59,19 @@ async function fixture(
   await ready;
   close = () => client.close();
   const favorites = new ModelFavorites(client);
+  let puts = 0;
+  // The daemon gets every put; a lost one's reply never reaches the phone.
+  const owner: Pick<Client, "request"> = {
+    request: (async (request: Parameters<Client["request"]>[0], requestOptions?: object) => {
+      const reply = await client.request(request, requestOptions);
+      if (request.type === "automation.put" && options.lostPuts?.includes(++puts))
+        throw new Error("The connection dropped before the reply arrived.");
+      return reply;
+    }) as Client["request"],
+  };
   const automations = new NativeAutomations({
-    owner: client,
+    owner,
+    repository: async () => options.repository,
     now: () => now,
     zone: () => zone,
     agents: async () => (await readAgents(client, favorites, now)).agents,
@@ -438,4 +459,101 @@ test("Run now, Pause and Delete answer in people's words, and a paused automatio
     await ask({ type: "automations.write", request: { type: "automation.remove", id: "nightly" } }),
   ).toEqual({ ok: true });
   expect(rows(await ask({ type: "automations.page", zone }))).toEqual([]);
+});
+
+const save = (form: Record<string, unknown>, id: string) =>
+  ({ type: "automations.save", form: form as never, id }) as const;
+
+test("Save sent again after its reply was lost makes one automation and reports it saved", async () => {
+  const { ask } = await fixture({}, {}, { lostPuts: [1] });
+  const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });
+  const form = { ...(opened.form as Record<string, unknown>), title: "Nightly", prompt: "Check" };
+  await expect(ask(save(form, "auto-once"))).rejects.toThrow();
+  expect(await ask(save(form, "auto-once"))).toEqual({ ok: true, id: "auto-once" });
+  expect(rows(await ask({ type: "automations.page", zone })).map((row) => row.id)).toEqual([
+    "auto-once",
+  ]);
+});
+
+test("a retried create under an id that holds another automation is still refused", async () => {
+  const { ask } = await fixture({ automations: [base] });
+  const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });
+  const form = { ...(opened.form as Record<string, unknown>), title: "Other", prompt: "Else" };
+  expect(await ask(save(form, "nightly"))).toEqual({
+    ok: false,
+    error: "This automation was recreated elsewhere. Reload to see it, then try again.",
+  });
+});
+
+test("Duplicate pressed again after a lost reply makes one copy", async () => {
+  const { ask } = await fixture({ automations: [base] }, {}, { lostPuts: [1] });
+  const duplicate = {
+    type: "automations.duplicate",
+    automation: base,
+    id: "nightly-copy",
+  } as const;
+  await expect(ask(duplicate)).rejects.toThrow();
+  expect(await ask(duplicate)).toEqual({ ok: true, id: "nightly-copy" });
+  const titles = rows(await ask({ type: "automations.page", zone })).map((row) => row.title);
+  expect(titles.toSorted()).toEqual(["Nightly dependency check", "Nightly dependency check copy"]);
+});
+
+test("an opened automation saved unchanged keeps the access it showed, and none stays the default", async () => {
+  const pinned: Automation = { ...base, id: "pinned", access: "full-access" };
+  const plain: Automation = { ...base, id: "plain" };
+  const { ask } = await fixture({ automations: [pinned, plain] });
+  for (const stored of [pinned, plain]) {
+    const opened = await ask({ type: "automations.form.open", automation: stored, zone });
+    expect((opened.form as { access?: string }).access).toBe(stored.access);
+    const page = rows(await ask({ type: "automations.page", zone }));
+    const revision = page.find((row) => row.id === stored.id)?.revision as number;
+    await ask({ ...save(opened.form as Record<string, unknown>, "x"), previous: stored, revision });
+  }
+  const after = new Map(
+    rows(await ask({ type: "automations.page", zone })).map((row) => [row.id, row]),
+  );
+  expect(after.get("pinned")?.automation.access).toBe("full-access");
+  expect(after.get("plain")?.automation.access).toBeUndefined();
+});
+
+test("with automations off on the machine, no next start is promised", async () => {
+  const { ask } = await fixture({ automations: [base] }, {}, { running: false });
+  const page = await ask({ type: "automations.page", zone });
+  expect(page.off).toEqual({
+    text: "Automations are off on this machine.",
+    fix: "Turn on Run automations in Settings › Agents.",
+  });
+  expect(rows(page)[0]?.next).toBe("Automations are off on this machine.");
+});
+
+test("a GitHub trigger starts from the project's repository, and a typed one is kept", async () => {
+  const { ask } = await fixture({}, {}, { repository: "arpan404/ace" });
+  const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });
+  const github = await ask({
+    type: "automations.form.preview",
+    form: opened.form as never,
+    change: { trigger: "github" },
+  });
+  expect(github.form).toMatchObject({ trigger: "github", repository: "arpan404/ace" });
+  const typed = { ...(opened.form as Record<string, unknown>), repository: "acme/tools" };
+  const kept = await ask({
+    type: "automations.form.preview",
+    form: typed as never,
+    change: { trigger: "github" },
+  });
+  expect(kept.form).toMatchObject({ repository: "acme/tools" });
+});
+
+test("Undo after Delete brings the automation back under its own id", async () => {
+  const { ask } = await fixture({ automations: [base] });
+  await ask({ type: "automations.write", request: { type: "automation.remove", id: "nightly" } });
+  expect(rows(await ask({ type: "automations.page", zone }))).toEqual([]);
+  expect(await ask({ type: "automations.restore", automation: base })).toEqual({
+    ok: true,
+    id: "nightly",
+  });
+  expect(rows(await ask({ type: "automations.page", zone }))[0]).toMatchObject({
+    id: "nightly",
+    title: "Nightly dependency check",
+  });
 });

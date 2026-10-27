@@ -11,6 +11,7 @@ struct AutomationsView: View {
     @State private var problem: String?
     @State private var creating = false
     @State private var made: String?
+    @State private var restored = 0
     @Environment(\.automationLinks) private var links
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var zone: String { TimeZone.current.identifier }
@@ -44,6 +45,17 @@ struct AutomationsView: View {
                     ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
                 }
                 ServiceProblem(message: problem)
+                if let off = page?.off {
+                    // Nothing runs while the machine has automations off: said once, above the rows.
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text(off.text).foregroundStyle(AceTheme.Colours.foreground)
+                        Text(off.fix).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("automations.off")
+                    .transition(.opacity)
+                }
             }
             .insetRowBackground()
             if loading && page == nil {
@@ -65,6 +77,9 @@ struct AutomationsView: View {
             group("In threads", threads)
         }
         .insetGroupedList()
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { undoStrip }
+        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: links?.undo.deleted)
+        .sensoryFeedback(.success, trigger: restored)
         .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: page?.person ?? [])
         .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: loading)
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
@@ -94,6 +109,31 @@ struct AutomationsView: View {
             .insetRowBackground()
             .transition(.opacity)
         }
+    }
+
+    /// "Deleted Nightly." with Undo, for a few seconds after an automation's Delete.
+    @ViewBuilder private var undoStrip: some View {
+        if let deleted = links?.undo.deleted {
+            FilesStripView(message: "Deleted \(deleted.title).", action: ("Undo", { Task { await undo(deleted) } }),
+                           dismiss: { links?.undo.deleted = nil })
+                .accessibilityIdentifier("automations.undo")
+                .task(id: deleted) {
+                    try? await Task.sleep(for: .seconds(8))
+                    if !Task.isCancelled, links?.undo.deleted == deleted { links?.undo.deleted = nil }
+                }
+        }
+    }
+
+    /// Makes the deleted automation again from its definition, under its own id.
+    private func undo(_ deleted: AutomationUndo.Deleted) async {
+        links?.undo.deleted = nil
+        do {
+            let reply = try await model.service(["type": "automations.restore", "automation": deleted.automation.any],
+                                                as: AutomationWrite.self)
+            guard reply.ok else { problem = reply.error ?? "Couldn't bring it back. Try again."; return }
+            restored += 1
+            await read(fresh: true)
+        } catch { problem = error.localizedDescription }
     }
 
     private func read(fresh: Bool) async {

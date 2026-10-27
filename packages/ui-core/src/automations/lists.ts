@@ -87,3 +87,22 @@ export function automationErrorMessage(code: string | undefined): string {
       );
   }
 }
+
+/**
+ * The automation a lost create made, when its retry is refused with "Automation already exists":
+ * the stored one under the id the retry sent, with the same name, task, project and kind of
+ * trigger. Undefined when that id holds something else.
+ */
+export function savedBefore(
+  stored: readonly Automation[],
+  sent: Automation,
+): Automation | undefined {
+  return stored.find(
+    (entry) =>
+      entry.id === sent.id &&
+      entry.title === sent.title &&
+      entry.prompt === sent.prompt &&
+      entry.workspace === sent.workspace &&
+      entry.trigger.kind === sent.trigger.kind,
+  );
+}

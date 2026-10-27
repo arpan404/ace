@@ -8,8 +8,11 @@ import {
   duplicateAutomation,
   historyPollMs,
   nextRunText,
+  automationsOffFix,
+  automationsOffText,
   runSummary,
   runTurn,
+  savedBefore,
   sidebarRow,
   triggerErrorCopy,
   githubHint,
@@ -56,6 +59,11 @@ export const AutomationsDuplicateRequest = z.object({
   /** The copy's id, made on the phone. */
   id,
 });
+/** Undo a Delete: the automation as it was, made again under its own id. */
+export const AutomationsRestoreRequest = z.object({
+  type: z.literal("automations.restore"),
+  automation: Automation,
+});
 /** Run now (with a note), Pause or Resume, Retry a stopped trigger, Delete. */
 export const AutomationsWriteRequest = z.object({
   type: z.literal("automations.write"),
@@ -72,6 +80,7 @@ export const NativeAutomationRequest = z.union([
   AutomationsPageRequest,
   AutomationsHistoryRequest,
   AutomationsDuplicateRequest,
+  AutomationsRestoreRequest,
   FormOpen,
   FormPreview,
   FormSave,
@@ -87,6 +96,8 @@ export interface AutomationsDeps {
   agents(): Promise<NewThreadAgents | undefined>;
   /** A thread's whole-tree state as this phone's thread list holds it. */
   threadState(threadId: string): ThreadStatus["state"] | undefined;
+  /** The project's GitHub repository, "owner/name", for a GitHub trigger to start from. */
+  repository(workspace: string): Promise<string | undefined>;
 }
 
 type Reply = Record<string, unknown> & { ok: boolean };
@@ -124,6 +135,8 @@ export function automationRow(
   now: number,
   zone: string,
   threadState: AutomationsDeps["threadState"] = () => undefined,
+  /** Whether the machine runs automations; undefined while unknown. */
+  running?: boolean,
 ) {
   const { automation } = entry;
   const row = sidebarRow(entry, now, zone);
@@ -145,7 +158,7 @@ export function automationRow(
     status: asking ? { tone: "needs-you", word: "Needs you" } : (row.status ?? null),
     detail: row.detail,
     when: describeWhen(automation.trigger, zone),
-    next: nextRunText(automation, entry.nextRunAt, now, zone),
+    next: nextRunText(automation, entry.nextRunAt, now, zone, running),
     attention: attention(entry),
     lastRun: entry.lastRun
       ? { status: entry.lastRun.status, text: runSummary(entry.lastRun) }
@@ -198,6 +211,13 @@ export class NativeAutomations {
         return this.#history(request, request.zone ?? this.#deps.zone(), signal);
       case "automations.duplicate":
         return this.#duplicate(request, signal);
+      case "automations.restore": {
+        const reply = await this.#put(
+          { automation: request.automation, expectedRevision: null },
+          signal,
+        );
+        return reply.ok ? { ok: true, id: request.automation.id } : reply;
+      }
       case "automations.write": {
         const parsed = AutomationRequest.safeParse({ ...request.request, requestId: "native" });
         if (!parsed.success || !writes.has(parsed.data.type)) return refused(undefined);
@@ -212,27 +232,34 @@ export class NativeAutomations {
       case "automations.form.open":
         return formOpen(request, this.#deps);
       case "automations.form.preview":
-        return formPreview(request, this.#deps);
+        return await formPreview(request, this.#deps);
       case "automations.save":
         return formSave(request, this.#deps, (put) => this.#put(put, signal));
     }
   }
 
   async #page(zone: string, signal: AbortSignal): Promise<Reply> {
-    const reply = await this.#deps.owner.request(
-      { type: "automation.list", includeThreads: true },
-      { signal, ...timeout },
-    );
+    const [reply, running] = await Promise.all([
+      this.#deps.owner.request(
+        { type: "automation.list", includeThreads: true },
+        { signal, ...timeout },
+      ),
+      this.#running(signal),
+    ]);
     if (!reply.ok)
       return { ...refused(reply.error), unavailable: reply.error === "automation_unavailable" };
     const lists = automationLists(reply);
     const now = this.#deps.now();
     return {
       ok: true,
-      person: lists.person.map((entry) => automationRow(entry, now, zone, this.#deps.threadState)),
-      threads: lists.threads.map((entry) =>
-        automationRow(entry, now, zone, this.#deps.threadState),
+      person: lists.person.map((entry) =>
+        automationRow(entry, now, zone, this.#deps.threadState, running),
       ),
+      threads: lists.threads.map((entry) =>
+        automationRow(entry, now, zone, this.#deps.threadState, running),
+      ),
+      /** Off on the machine: the list says so above its rows, with where to turn them on. */
+      off: running === false ? { text: automationsOffText, fix: automationsOffFix } : null,
       pollMs: historyPollMs(
         [...lists.person, ...lists.threads].flatMap((entry) =>
           entry.lastRun ? [entry.lastRun] : [],
@@ -288,6 +315,28 @@ export class NativeAutomations {
       },
       { signal, ...timeout },
     );
-    return reply.ok ? { ok: true } : refused(reply.error);
+    if (reply.ok) return { ok: true };
+    // A create whose reply was lost, sent again under the same id: the first one landed.
+    if (reply.error === "Automation already exists" && put.expectedRevision === null) {
+      const listed = await this.#deps.owner
+        .request({ type: "automation.list" }, { signal, ...timeout })
+        .catch(() => undefined);
+      if (listed?.ok && savedBefore(listed.automations ?? [], put.automation)) return { ok: true };
+    }
+    return refused(reply.error);
+  }
+
+  /** Whether the machine runs automations (`automations.enabled`); undefined when unread. */
+  async #running(signal: AbortSignal): Promise<boolean | undefined> {
+    const reply = await this.#deps.owner
+      .request(
+        { type: "settings.get", key: "automations.enabled", scope: {} },
+        { signal, ...timeout },
+      )
+      .catch(() => undefined);
+    const value = Setting.safeParse(reply).data?.entries?.[0]?.value;
+    return typeof value === "boolean" ? value : undefined;
   }
 }
+
+const Setting = z.object({ entries: z.array(z.object({ value: z.unknown() })).optional() });
