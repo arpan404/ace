@@ -68,6 +68,10 @@ function Ready({ runtime }: { runtime: Runtime }) {
                   client={runtime.client}
                   now={Date.now}
                   machines={() => setMachines(true)}
+                  notify={notify}
+                  // The fixture loopback is an explicit full-access device; real
+                  // pairing leaves this absent (fail closed) until scopes say otherwise.
+                  canAct
                   open={(id) =>
                     navigation.push("Thread", {
                       id,
