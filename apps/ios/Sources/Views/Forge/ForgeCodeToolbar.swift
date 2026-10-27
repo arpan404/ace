@@ -18,6 +18,8 @@ struct ForgeCodeToolbar: View {
     let wide: Bool
     /// The file's mark (`viewed`, `changed`, `unviewed`); nil where the range has none.
     let viewed: String?
+    /// Lines of code show (a patch, or a source to read); an image has none to wrap.
+    var lines = true
     let canMark: Bool
     let marking: Bool
     let mark: () -> Void
@@ -28,7 +30,7 @@ struct ForgeCodeToolbar: View {
                 if let rendered {
                     toggle("Rendered", on: rendered.wrappedValue, identifier: "forge.code.rendered") { rendered.wrappedValue.toggle() }
                 }
-                if rendered?.wrappedValue != true {
+                if lines, rendered?.wrappedValue != true {
                     toggle("Wrap", on: wrap, identifier: "forge.code.wrap") { wrap.toggle() }
                     if wide { toggle("Side by side", on: split, identifier: "forge.code.split") { split.toggle() } }
                 }

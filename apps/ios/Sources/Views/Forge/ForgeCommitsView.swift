@@ -87,11 +87,15 @@ struct ForgeCommitPicker: View {
 
     private var compareBar: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            Text(comparing ? (after == nil ? "Pick the commit to start after" : "Now pick the last commit") : "Pick a commit to see its changes")
-                .meta()
-                .contentTransition(.opacity)
+            // Only while comparing does the line say which commit to pick next.
+            if comparing {
+                Text(after == nil ? "Pick the commit to start after" : "Now pick the last commit")
+                    .meta()
+                    .contentTransition(.opacity)
+                    .transition(.opacity)
+            }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Button(comparing ? "Cancel" : "Compare two commits") {
+            Button(comparing ? "Stop comparing" : "Compare two commits") {
                 comparing.toggle()
                 after = nil
             }

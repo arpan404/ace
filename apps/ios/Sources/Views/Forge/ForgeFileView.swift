@@ -95,7 +95,7 @@ struct ForgeFileView: View {
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.sm)
             ForgeCodeToolbar(wrap: $wrap, split: $split,
                              rendered: file.rendered ? $renderedOn.animation(.smooth) : nil,
-                             wide: wide && file.show == "patch", viewed: file.viewed,
+                             wide: wide && file.show == "patch", viewed: file.viewed, lines: file.show != "image",
                              canMark: client.canOperate, marking: !desk.ready) { markViewed(file, desk) }
             Divider().overlay(AceTheme.Colours.separator)
             if showsRendered {
