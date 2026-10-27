@@ -9,7 +9,9 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { z } from "zod";
+import type { KeyValueStorage } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
+import { DeviceAction, devicePresetRows, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
 import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
 import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
@@ -38,6 +40,8 @@ const Viewport = z.object({
   height: z.number().finite(),
   devicePixelRatio: z.number().finite(),
 });
+/** The picture's drawn size in the view (it fits the view's width, times the person's zoom). */
+const Picture = z.object({ width: z.number().finite(), height: z.number().finite() });
 const BrowserAction = z.discriminatedUnion("kind", [
   /** Whether the thread has a browser now (the agent may have opened one since it was opened). */
   z.object({
@@ -47,8 +51,8 @@ const BrowserAction = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("open"), threadId: ThreadId, viewport: Viewport }),
   z.object({ kind: z.literal("close") }),
-  /** The view's size changed (layout, rotation): the page takes it, as a touch screen. */
-  z.object({ kind: z.literal("viewport"), viewport: Viewport }),
+  /** The view's size changed (layout, rotation): the picture is sized for it; the page keeps its device. */
+  z.object({ kind: z.literal("viewport"), viewport: Viewport, picture: Picture.optional() }),
   z.object({ kind: z.literal("input"), input: z.unknown() }),
   /** Video chunks up to `sequence` are decoded (cumulative); `keyframe` after a decode error. */
   z.object({
@@ -69,6 +73,17 @@ export function captureViewport(viewport: z.infer<typeof Viewport>): BrowserCapt
   });
 }
 
+/**
+ * What the stream is encoded for: the picture as drawn (the page's width fits the view, so a page
+ * taller than the view is drawn taller than it), else the view itself.
+ */
+function captureFor(watch: Watch): BrowserCaptureViewport {
+  const picture = watch.picture;
+  return picture
+    ? captureViewport({ ...picture, devicePixelRatio: watch.viewport.devicePixelRatio })
+    : watch.viewport;
+}
+
 /** What the view reads from the open thread, beyond the browser itself. */
 export interface BrowserThreadContext {
   /** The agent's display name, for "Claude is using this page". */
@@ -77,6 +92,8 @@ export interface BrowserThreadContext {
   workspaceId(threadId: string): string | undefined;
   now(): number;
   read: ChunkReader;
+  /** Where the device toolbar's choices are kept on this phone, and when they have loaded. */
+  devices?: { storage: KeyValueStorage; ready: Promise<void> };
 }
 const noContext: BrowserThreadContext = {
   agentName: () => "An agent",
@@ -87,7 +104,10 @@ const noContext: BrowserThreadContext = {
 
 interface Watch {
   threadId: ThreadId;
+  /** The view's own size: "this phone" is laid out at it. */
   viewport: BrowserCaptureViewport;
+  /** The picture's drawn size, once Swift reports it: the stream is encoded for it. */
+  picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
   subscribed: boolean;
@@ -109,6 +129,7 @@ export class BrowserLive {
   #stops: (() => void)[] = [];
   #context: BrowserThreadContext;
   #tools: BrowserTools;
+  #devices: PhoneDevices;
   constructor(
     owner: BrowserOwner,
     sink: PatchSink,
@@ -121,6 +142,14 @@ export class BrowserLive {
     this.#preview = preview;
     this.#schedule = schedule;
     this.#context = context;
+    this.#devices = new PhoneDevices(
+      owner,
+      context.devices?.storage,
+      context.devices?.ready,
+      () => {
+        if (this.#watch) this.#putView(this.#watch);
+      },
+    );
     this.#tools = new BrowserTools({
       owner,
       sink,
@@ -160,7 +189,8 @@ export class BrowserLive {
         watch.subscribed = false;
         this.#restart(watch);
         if (!ready) return;
-        this.#resize(watch);
+        // A restarted daemon may have lost the tab's device: the next state chooses again.
+        this.#devices.reset();
         this.#subscribe(watch);
       }),
     );
@@ -200,6 +230,14 @@ export class BrowserLive {
   /** False when the action can't be read or needs an open view that isn't there. */
   action(raw: unknown): boolean {
     const parsed = BrowserAction.safeParse(raw);
+    const device = parsed.success ? undefined : DeviceAction.safeParse(raw);
+    if (device?.success) {
+      const watch = this.#watch;
+      if (!watch) return false;
+      this.#devices.handle(watch, device.data);
+      this.#putView(watch);
+      return true;
+    }
     if (!parsed.success) {
       const tool = BrowserToolAction.safeParse(raw);
       if (!tool.success || !this.#watch) return false;
@@ -216,6 +254,7 @@ export class BrowserLive {
       const watch: Watch = {
         threadId: action.threadId,
         viewport: captureViewport(action.viewport),
+        picture: undefined,
         generation: 0,
         subscribed: false,
         subscribing: false,
@@ -225,7 +264,11 @@ export class BrowserLive {
         retry: undefined,
       };
       this.#watch = watch;
-      this.#resize(watch);
+      this.#devices.reset();
+      this.#sink.put("browser:presets", () => ({
+        type: "browser.presets",
+        presets: devicePresetRows,
+      }));
       this.#subscribe(watch);
       return true;
     }
@@ -238,17 +281,25 @@ export class BrowserLive {
     switch (action.kind) {
       case "viewport": {
         const viewport = captureViewport(action.viewport);
-        if (
-          viewport.width === watch.viewport.width &&
-          viewport.height === watch.viewport.height &&
-          viewport.devicePixelRatio === watch.viewport.devicePixelRatio
-        )
-          return true;
+        const before = watch.viewport;
+        const picture = action.picture;
+        const sameView =
+          viewport.width === before.width &&
+          viewport.height === before.height &&
+          viewport.devicePixelRatio === before.devicePixelRatio;
+        const samePicture =
+          picture?.width === watch.picture?.width && picture?.height === watch.picture?.height;
+        if (sameView && samePicture) return true;
         watch.viewport = viewport;
-        this.#resize(watch);
+        watch.picture = picture;
+        if (!sameView) this.#devices.resized(watch, before);
         if (watch.subscribed)
           void this.#owner
-            .request({ type: "browser.capture", threadId: watch.threadId, viewport })
+            .request({
+              type: "browser.capture",
+              threadId: watch.threadId,
+              viewport: captureFor(watch),
+            })
             .catch(() => {});
         return true;
       }
@@ -290,6 +341,7 @@ export class BrowserLive {
     watch.retry?.();
     this.#tools.close();
     this.#sink.clear("browser:view");
+    this.#sink.clear("browser:presets");
     this.#sink.clear("browser:page");
     if (this.#owner.state !== "ready") return;
     void this.#owner
@@ -298,23 +350,6 @@ export class BrowserLive {
   }
   #requestId(): string {
     return `ios-browser-${++this.#requests}`;
-  }
-  /** The page lays out at the view's size, as a phone's page with touch events. */
-  #resize(watch: Watch): void {
-    if (this.#owner.state !== "ready") return;
-    void this.#owner
-      .request({
-        type: "browser.execute",
-        threadId: watch.threadId,
-        command: {
-          action: "resize",
-          width: watch.viewport.width,
-          height: watch.viewport.height,
-          touch: true,
-          devicePixelRatio: watch.viewport.devicePixelRatio,
-        },
-      })
-      .catch(() => {});
   }
   #subscribe(watch: Watch): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
@@ -332,7 +367,7 @@ export class BrowserLive {
         threadId: watch.threadId,
         subscriberId,
         binaryFrames: true,
-        viewport: watch.viewport,
+        viewport: captureFor(watch),
         video: { codecs: [...nativeVideoCodecs] },
       })
       .then(
@@ -372,6 +407,8 @@ export class BrowserLive {
       const previous = watch.state;
       watch.state = state;
       this.#tools.observe(state);
+      // A tab shown for the first time gets its device (`browser-device.ts`).
+      this.#devices.observe(watch);
       if (
         previous &&
         ((state.closed && !previous.closed) ||
@@ -382,12 +419,8 @@ export class BrowserLive {
       ) {
         watch.subscribed = false;
         this.#restart(watch);
-        // Another tab or engine shows now: it lays out at the phone's size too.
-        if (
-          !state.closed &&
-          (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId)
-        )
-          this.#resize(watch);
+        // Another engine has its own pages: their devices are chosen again.
+        if (previous.backend !== state.backend) this.#devices.reset();
         if (!state.closed) this.#subscribe(watch);
       } else this.#putView(watch);
       if (state.tabs) {
@@ -413,6 +446,7 @@ export class BrowserLive {
         threadId: watch.threadId,
         generation: watch.generation,
         error: watch.error ?? null,
+        device: this.#devices.view(watch),
         state: state
           ? browserViewState(state, {
               preview: this.#preview,

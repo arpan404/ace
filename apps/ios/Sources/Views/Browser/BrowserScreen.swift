@@ -99,8 +99,7 @@ struct BrowserScreen: View {
         GeometryReader { proxy in
             ZStack {
                 BrowserSurface(model: model, keyboardRequest: keyboardRequest)
-                if let size = browser.pageSize {
-                    let geometry = PageGeometry(view: proxy.size, page: size)
+                if let geometry = browser.geometry(view: proxy.size) {
                     if let tooltip = browser.page?.tooltip {
                         let box = geometry.viewRect(PageRect(x: tooltip.x, y: tooltip.y, width: 0, height: 0))
                         Text(tooltip.text)
@@ -155,6 +154,9 @@ struct BrowserScreen: View {
         }
         if let permission = state?.permission {
             BrowserStrip(sentence: permission) { EmptyView() }
+        }
+        if let device = browser.view?.device, device.toolbar, state?.activeTabId != nil, state?.closed == false {
+            BrowserDeviceBar(model: model, device: device)
         }
     }
 }

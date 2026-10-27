@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { latestForkPoint, sameForkPoint } from "./fork-point.ts";
+import { latestForkPoint, sameForkPoint } from "@ace/ui-core";
 
 const read = (reader: ThreadReader) => latestForkPoint(reader, reader.thread?.rootAgentId);
 

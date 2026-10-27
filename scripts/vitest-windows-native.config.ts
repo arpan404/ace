@@ -26,6 +26,10 @@ import { FailureDetailsReporter } from "./test-failure-reporter.ts";
 const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** POSIX-only cases inside files that otherwise run on Windows. */
 const posixOnly = [
+  // Swaps the link root for a directory symlink, which needs a privilege the person's account
+  // usually lacks; "Windows a skill link made while the skills folder is swapped for a
+  // junction never lands outside the link root" runs instead.
+  "adding an agent raced by a link-root swap links nothing outside the root",
   // Prepends macOS's guidance wording to Windows' own (screen_state against screen_open_app),
   // counting it twice; "Windows: each provider's per-request ace context stays within its
   // budget with the guidance the server serves" runs instead.

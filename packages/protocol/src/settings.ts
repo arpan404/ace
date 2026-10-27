@@ -16,6 +16,10 @@ const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "x
 export const SettingsValues = z.object({
   "storage.retention": StorageRetention,
   "storage.scheduledCleanup": z.boolean(),
+  /** Null disables automatic worktree removal. Age starts at the latest owner settlement. */
+  "storage.worktreeRetentionDays": RetentionDays.nullable(),
+  /** Commit non-ignored changes and push settled, unmerged worktrees to origin. */
+  "storage.backupWorktrees": z.boolean(),
   /** Automatic data retention window in days. Idle threads, unused attachments and logs older than it are removed. */
   "storage.retentionDays": RetentionDays,
   /** Disk cap in bytes for each log stream, rotated segments included. */
@@ -84,6 +88,13 @@ export const SettingsValues = z.object({
    * terminals, ace itself): bundle ids or app names, matched without regard to case. Global.
    */
   "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
+  /**
+   * Let agents work while this Mac is locked: the person's intent, not the Mac's state. When
+   * on and the signed authorization component is installed and verified, an approved turn may
+   * briefly operate apps behind opaque covers on a locked Mac. Off by default: locked input is
+   * refused. The live install state comes from `lockedUse.subscribe`. Global, admin only.
+   */
+  "computer.lockedUse": z.boolean(),
   /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.

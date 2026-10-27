@@ -22,6 +22,24 @@ export function pendingDialog(raw: unknown): ToolResult | undefined {
   });
 }
 
+/**
+ * The device a tab emulates, as an agent reads it (ADR 0104): a person on a phone, or another
+ * screen, may have set it, so the agent knows it works at a phone's viewport.
+ */
+export function tabDevice(emulation: BrowserTab["emulation"]) {
+  return emulation
+    ? {
+        device: {
+          width: emulation.width,
+          height: emulation.height,
+          mobile: emulation.mobile,
+          touch: emulation.touch,
+          setBy: emulation.by === "agent" ? "agent" : "person",
+        },
+      }
+    : {};
+}
+
 /** One tab as an agent reads it: who opened and works in it, and what waits on the person. */
 export function tabEntry(tab: BrowserTab & { current?: boolean | undefined }) {
   return {
@@ -39,6 +57,7 @@ export function tabEntry(tab: BrowserTab & { current?: boolean | undefined }) {
     ...(tab.lifecycle && tab.lifecycle !== "live" ? { lifecycle: tab.lifecycle } : {}),
     ...(tab.pageStateLost ? { pageStateLost: true } : {}),
     ...(tab.loading ? { loading: true } : {}),
+    ...(tab.private ? {} : tabDevice(tab.emulation)),
     ...(tab.pending_dialog ? { pending_dialog: tab.pending_dialog } : {}),
     ...(tab.pending_auth ? { pending_auth: tab.pending_auth } : {}),
     ...(tab.certificate_error ? { certificate_error: tab.certificate_error } : {}),
@@ -65,6 +84,7 @@ export function pageSummary(
     ...(viewed && state.loadError ? { loadError: state.loadError } : {}),
     ...(viewed && state.blocked ? { blocked: state.blocked } : {}),
     ...(viewed && state.pageStateLost ? { pageStateLost: true } : {}),
+    ...(entry && !entry.private ? tabDevice(entry.emulation) : {}),
     ...(entry?.pending_dialog ? { pending_dialog: entry.pending_dialog } : {}),
     // One tab is the common case; listing it again only costs tokens.
     ...(state.tabs && state.tabs.length > 1

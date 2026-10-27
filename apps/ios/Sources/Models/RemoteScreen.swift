@@ -40,7 +40,7 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     let awaitingChoice: Bool?
     /// Watch only: a whole display captured without a sharing dialog, or a desktop that shares without input.
     let viewOnly: Bool?
-    /// Why that desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway); empty otherwise.
+    /// Why that desktop lets the person watch but not control (Linux on KDE and Hyprland); empty otherwise.
     let watchOnlyReason: String?
     /// A screen shared in the machine's dialog: the person's to control, never an agent's.
     let personOnly: Bool?

@@ -1,5 +1,13 @@
 # Codex and ChatGPT locked computer use
 
+> **Status 2026-10-26.** ace now implements an opt-in locked computer use component:
+> authorization plug-in, session driver, independent relock guardian, root broker,
+> GUI-session service, and install/removal, all failing closed. Whether requesting
+> `system.login.screensaver` actually unlocks a logged-in locked session is still open; it
+> can only be settled by installing the component on a real Mac and testing it. See the
+> [ADR 0087 amendment](../adr/0087-background-computer-use-engine.md#amendment-2026-10-26-locked-computer-use).
+> No authorization policy was changed to write these docs.
+
 Investigated 2026-10-23 on macOS 26.2. This is a clean-room behavioral and interface
 investigation, not an implementation extracted from OpenAI's software. No proprietary
 implementation source or disassembly was read. No authorization policy, plug-in installation,

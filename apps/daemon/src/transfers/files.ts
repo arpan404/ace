@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
+import { constants, createReadStream, lstatSync, readdirSync } from "node:fs";
 import type { PinnedDirectory } from "@ace/workspace";
 import { lstat, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -128,7 +128,11 @@ export async function removeIfOwnedSettling(
     }
   }
 }
-export function removeIfOwned(parent: { handle: PinnedDirectory }, name: string, id: string) {
+export function removeIfOwned(
+  parent: { handle: PinnedDirectory; path?: string },
+  name: string,
+  id: string,
+) {
   let there;
   try {
     there = parent.handle.metadata(name);
@@ -142,22 +146,53 @@ export function removeIfOwned(parent: { handle: PinnedDirectory }, name: string,
 
 /**
  * Removes `name` and everything under it through descriptors from a held parent, never
- * following a link (a link is removed itself). Nothing is ever removed by path: a folder it
- * can't remove that way (one holding more than 10,000 entries can't be listed) fails, and the
- * caller keeps a record of it instead.
+ * following a link (a link is removed itself). Every removal goes through a descriptor. A
+ * folder too large to list through its descriptor is listed by path when the parent's `path` is
+ * known, and only while that path still leads to the held folder; otherwise the removal fails
+ * and the caller keeps a record of what was left.
  */
-export function removeUnder(parent: { handle: PinnedDirectory }, name: string): void {
-  removeTree(parent.handle, name);
+export function removeUnder(
+  parent: { handle: PinnedDirectory; path?: string },
+  name: string,
+): void {
+  removeTree(parent.handle, name, parent.path);
 }
 
-function removeTree(directory: PinnedDirectory, name: string): void {
+function tooMany(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "LIMIT_EXCEEDED";
+}
+
+/** The held folder's entry names, read by path while `path` is still that folder. */
+function namesByPath(directory: PinnedDirectory, path: string): string[] {
+  const held = directory.stat();
+  const same = () => {
+    const now = lstatSync(path);
+    return now.dev === held.dev && now.ino === held.ino;
+  };
+  if (!same()) throw new Error("The folder moved while it was being removed");
+  const names = readdirSync(path);
+  if (!same()) throw new Error("The folder moved while it was being removed");
+  return names;
+}
+
+function entries(directory: PinnedDirectory, path: string | undefined) {
+  try {
+    return directory.names();
+  } catch (error) {
+    if (path === undefined || !tooMany(error)) throw error;
+    return namesByPath(directory, path);
+  }
+}
+
+function removeTree(directory: PinnedDirectory, name: string, path: string | undefined): void {
   if ((directory.metadata(name).mode & constants.S_IFMT) !== constants.S_IFDIR) {
     directory.unlink(name);
     return;
   }
   const child = directory.child(name);
+  const childPath = path === undefined ? undefined : join(path, name);
   try {
-    for (const entry of child.names()) removeTree(child, entry);
+    for (const entry of entries(child, childPath)) removeTree(child, entry, childPath);
   } finally {
     child.closeSync();
   }

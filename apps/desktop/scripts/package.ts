@@ -234,7 +234,7 @@ const config: Configuration = {
     mimeTypes: ["inode/directory"],
     // electron-builder's defaults plus ALSA, which Electron links but the defaults omit: a
     // minimal Ubuntu install failed with "libasound.so.2: cannot open shared object file".
-    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is the older releases.
+    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is Debian 12.
     depends: [
       "libgtk-3-0",
       "libnotify4",

@@ -1,4 +1,5 @@
 import Foundation
+import CoreVideo
 
 /// One submitted sample plus one replaceable changed sample. Completion drains even on idle sources.
 enum VideoEncodeResult { case submitted, busy, unavailable }
@@ -15,7 +16,19 @@ final class LatestVideoFrames<Image> {
         }
     }
     func clear() { pending = nil }
+    /// A picture waits for the encoder.
+    var waiting: Bool { pending != nil }
 }
+
+/// What a re-encoding pipeline needs of its encoder; tests stand in for the hardware one.
+protocol VideoEncoding: AnyObject {
+    var busyNow: Bool { get }
+    func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, at: UInt64, quality: StreamQuality) -> VideoEncodeResult
+    func requestKeyframe()
+    func retune(bitrate: Int)
+    func close()
+}
+extension VideoEncoder: VideoEncoding {}
 
 /// Tracking is erased only after a successful release or confirmed original-target destruction.
 final class HeldPointer<Target> {

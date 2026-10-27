@@ -22,9 +22,18 @@ async function fleet(client: ClientApi, operation: Operation) {
 }
 
 /** A failure a machine reports, in words a person acts on. */
+/**
+ * A refusal's code: a daemon's own (`unavailable`, `forbidden`…), which the client carries as
+ * the message of its `daemon` error, else the client's (`offline`, `timeout`…).
+ */
+function refusalCode(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("code" in error)) return "";
+  const code = String(error.code);
+  return code === "daemon" && error instanceof Error ? error.message : code;
+}
+
 export function fleetProblem(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  const code = refusalCode(error);
   if (code === "forbidden")
     return "This window doesn't have administrator access to this machine. Pair it again as Administrator to manage it.";
   return error instanceof Error && error.message ? error.message : "That machine didn't answer.";
@@ -111,16 +120,44 @@ export type LinkAccess = "read" | "operate";
  * and `from` redeems it and keeps it as a link. Agents on `from` then reach `to`, up to the lower
  * of this grant and `to`'s own "Agents from other machines" setting.
  */
+/** Why `to` couldn't make a pairing link for `from`, in words the person acts on. */
+function pairingProblem(error: unknown, to: Machine): string {
+  const code = refusalCode(error);
+  if (code === "unavailable") return `Turn on remote access on ${to.name}.`;
+  if (code === "forbidden")
+    return `This window doesn't have administrator access to ${to.name}. Pair it again as Administrator.`;
+  if (code === "busy") return `${to.name} has too many pairing links open. Cancel one first.`;
+  return `${to.name} didn't make a pairing link.`;
+}
+
+/** Why `from` couldn't use `to`'s pairing link, in words the person acts on. */
+function redeemProblem(error: unknown, from: Machine, to: Machine): string {
+  const code = refusalCode(error);
+  if (code === "unavailable")
+    return `${from.name} couldn't reach ${to.name}. Check that both are on the same network (Tailscale or LAN) and that remote access is on.`;
+  if (code === "refused") return `${to.name} didn't accept ${from.name}. Try again.`;
+  if (code === "limit") return `${from.name} has 64 links already. Remove one first.`;
+  if (code === "forbidden")
+    return `This window doesn't have administrator access to ${from.name}. Pair it again as Administrator.`;
+  return `${from.name} didn't link to ${to.name}.`;
+}
+
 export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
-  const pairing = await createPairing(to.client, {
+  const toClient = to.client;
+  const fromClient = from.client;
+  const pairing = await createPairing(toClient, {
     scopes: access === "operate" ? ["read", "operate"] : ["read"],
+  }).catch((error: unknown) => {
+    throw new Error(pairingProblem(error, to));
   });
-  const result = await fleet(from.client, {
+  const result = await fleet(fromClient, {
     op: "link",
     pairingUrl: pairing.url,
     hostId: to.id,
     name: to.name,
+  }).catch((error: unknown) => {
+    throw new Error(redeemProblem(error, from, to));
   });
   if (result.kind !== "linked") throw new Error(`${from.name} didn't keep the link.`);
   return result.link;

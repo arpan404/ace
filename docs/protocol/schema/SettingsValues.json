@@ -80,6 +80,9 @@
       "maxItems": 200,
       "type": "array"
     },
+    "computer.lockedUse": {
+      "type": "boolean"
+    },
     "devices.emulatorWindow": {
       "type": "boolean"
     },
@@ -314,6 +317,9 @@
     "sourceControl.preferences": {
       "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
     },
+    "storage.backupWorktrees": {
+      "type": "boolean"
+    },
     "storage.retention": {
       "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
     },
@@ -322,6 +328,16 @@
     },
     "storage.scheduledCleanup": {
       "type": "boolean"
+    },
+    "storage.worktreeRetentionDays": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/RetentionDays.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "threads.autoSettleAfter": {
       "enum": [
@@ -385,6 +401,8 @@
   "required": [
     "storage.retention",
     "storage.scheduledCleanup",
+    "storage.worktreeRetentionDays",
+    "storage.backupWorktrees",
     "storage.retentionDays",
     "logs.maxBytes",
     "sourceControl.preferences",
@@ -420,6 +438,7 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "computer.lockedUse",
     "devices.emulatorWindow",
     "access.defaultMode",
     "access.nativeModes",

@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useScopedMachine, type Machine } from "@/lib/machines.ts";
 import { forgetProject, rememberProject } from "@/lib/project-cache.ts";
+import { machineCache } from "@/lib/machine-scope.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
 
 /** The daemon refused a project command or folder read; `code` is its error code. */
@@ -126,6 +127,9 @@ export function useProjectCommandsOn() {
       const reach = () => client ?? unreachable();
       const keep = (result: Added) => {
         if (shared) rememberProject(queryClient, result.project);
+        // Another machine's list lives in its own cache: New thread there opens it at once.
+        else if (machine?.client && !machine.primary)
+          rememberProject(machineCache(machine.client, queryClient), result.project);
         return result;
       };
       return {
@@ -146,8 +150,9 @@ export function useProjectCommandsOn() {
           const receipt = accepted(await reach().projects.update({ workspaceId, ...edit }));
           if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
         },
-        remove: async (workspaceId: string, archiveThreads: boolean) => {
-          accepted(await reach().projects.remove({ workspaceId, archiveThreads }));
+        /** Delete the project's threads and stop listing it; `stopRunning` stops running ones. */
+        remove: async (workspaceId: string, stopRunning: boolean) => {
+          accepted(await reach().projects.remove({ workspaceId, stopRunning }));
           if (!shared) return;
           forgetProject(queryClient, workspaceId);
           // Home stops filtering on a project that is gone.

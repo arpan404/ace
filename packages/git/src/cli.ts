@@ -331,12 +331,15 @@ export class GitCli {
     return result;
   }
   /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
-  fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+  fetch(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    protocols: readonly string[] = this.transportProtocols,
+  ): Promise<Output> {
     if (args[0] !== "fetch")
       return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
-    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
-      this.call(cwd, args, options),
-    );
+    return this.executionPolicy.run({ protocols }, () => this.call(cwd, args, options));
   }
   /**
    * Fetch from a bundle file ace wrote or received. Git reads bundles through its `file`

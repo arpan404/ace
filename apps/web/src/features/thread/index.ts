@@ -23,6 +23,8 @@ export { preloadPendingThread } from "./pending-thread-deferred.ts";
 export { readingColumn } from "./lib/column.ts";
 /** A provider's own subagent as the whole chat, at `/t/<thread>/agents/<agent>`. */
 export { SubagentView } from "./subagent/subagent-view.tsx";
+/** A thread ace delegated to another machine, as its parent's subagent, at the same route. */
+export { DelegatedElsewhereView } from "./subagent/delegated-elsewhere-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */

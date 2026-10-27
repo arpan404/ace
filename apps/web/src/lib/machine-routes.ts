@@ -16,11 +16,22 @@ export function threadOn(machine: string | undefined, threadId: string) {
   } as const;
 }
 
-/** Link or `navigate` options for New thread on a machine, in one of its projects. */
-export function newThreadOn(machine: string | undefined, project?: string | undefined) {
+/**
+ * Link or `navigate` options for New thread on a machine, in one of its projects. `from` names
+ * the machine the project is on when it isn't on this one yet: sending copies it here first.
+ */
+export function newThreadOn(
+  machine: string | undefined,
+  project?: string | undefined,
+  from?: string | undefined,
+) {
   return {
     to: "/new",
-    search: { ...(project ? { project } : {}), ...(machine ? { machine } : {}) },
+    search: {
+      ...(project ? { project } : {}),
+      ...(from ? { from } : {}),
+      ...(machine ? { machine } : {}),
+    },
   } as const;
 }
 

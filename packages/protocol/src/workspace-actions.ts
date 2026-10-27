@@ -69,6 +69,10 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("scripts.list"), threadId: ThreadId }),
     z.object({ op: z.literal("editors.list") }),
     z.object({ op: z.literal("branches.list"), workspaceId: WorkspaceId }),
+    /** The project's `origin` fetch URL, so another machine can find its own copy. */
+    z.object({ op: z.literal("workspace.origin"), workspaceId: WorkspaceId }),
+    /** The registered project whose `origin` is the same repository as `url`. */
+    z.object({ op: z.literal("workspaces.match"), url: z.string().min(1).max(4096) }),
     z.object({ op: z.literal("thread.details"), threadId: ThreadId }),
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
@@ -121,6 +125,10 @@ export const WorkspaceActionResult = z.object({
        */
       unbornHead: z.boolean().optional(),
     }),
+    /** `origin`'s fetch URL; null for a project with no origin or no repository. */
+    z.object({ kind: z.literal("origin"), url: z.string().max(4096).nullable() }),
+    /** The project here with the same origin; null when there is none. */
+    z.object({ kind: z.literal("match"), workspaceId: WorkspaceId.nullable() }),
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),
     z.object({

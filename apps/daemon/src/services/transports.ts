@@ -65,6 +65,9 @@ export async function startLocalTransports(options: ServerOptions) {
   const lifecycle = new ThreadLifecycle(options);
   options.threadLifecycle = lifecycle;
   resources.own(() => lifecycle.close());
+  // Removing a project deletes its threads the way deleting one thread does.
+  const detach = options.projects?.useThreadDeletion((command) => lifecycle.delete(command));
+  if (detach) resources.own(detach);
   try {
     await lifecycle.start();
   } catch (failure) {

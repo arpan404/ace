@@ -35,6 +35,7 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
   const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
@@ -70,6 +71,7 @@ export async function commitChanges(
     if (staging.length)
       await repository.cli.call(root, ["add", "--all", "--", ...staging], {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         captureBytes: 65536,
         env: literal,
@@ -79,6 +81,7 @@ export async function commitChanges(
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
       {
         write: true,
+        beforeSpawn: options.beforeCommit,
         timeoutMs: longWriteTimeoutMs,
         input: message,
         captureBytes: 65536,
@@ -134,7 +137,6 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
     const ref = `refs/heads/${destination}`;
-    options.beforePush?.();
     try {
       await repository.cli.push(
         root,
@@ -149,6 +151,7 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         ],
         {
           write: true,
+          beforeSpawn: options.beforePush,
           timeoutMs: 600_000,
           captureBytes: 65536,
           env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },

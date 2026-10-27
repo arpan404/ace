@@ -71,6 +71,14 @@
       ],
       "default": 90
     },
+    "worktreeMode": {
+      "enum": [
+        "archived",
+        "settled",
+        "all_settled"
+      ],
+      "type": "string"
+    },
     "worktrees": {
       "anyOf": [
         {

@@ -55,6 +55,13 @@ pub fn is_system_component(name: &str) -> bool {
         "swaybg",
         "swaylock",
         "swayidle",
+        // Omarchy 4's shell (bar, notifications, launcher, idle and lock) runs in Quickshell.
+        "quickshell",
+        "qs",
+        "omarchy-shell",
+        "elephant",
+        "hyprsunset",
+        "swayosd-server",
         "lxpolkit",
     ];
     const PREFIXES: &[&str] = &[
@@ -248,6 +255,8 @@ mod tests {
             "wofi",
             "rofi",
             "swaybg",
+            "quickshell",
+            "qs",
         ] {
             assert!(is_system_component(name), "{name}");
         }

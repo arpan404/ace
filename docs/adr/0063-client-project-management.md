@@ -42,9 +42,10 @@ Recheck clone cancellation at that commit boundary; cancellation after commit re
 delay shutdown until the operation timeout.
 
 Removal persists an unregistered marker rather than deleting workspace rows referenced by
-thread history. It never deletes files. Live whole-tree statuses refuse removal unless
-`archiveThreads` is supplied. Explicit archive preserves execution status and ongoing work.
-Re-adding restores registration with the same id. Rename updates thread workspace metadata.
+thread history. It never deletes files. It deletes the project's threads, through the same
+lifecycle as deleting one thread, so no thread keeps a removed project on screen. Live
+whole-tree statuses refuse removal unless `stopRunning` is supplied, which stops them first.
+Re-adding restores registration with the same id, with no threads. Rename updates thread workspace metadata.
 Workspace pushes invalidate project lists; thread events update existing sidebar subscriptions.
 
 Expose `ClientApi.projects` through both in-process and shared-worker clients using the existing

@@ -10,7 +10,8 @@ import {
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ComputerUsingThreads } from "../computer-using.ts";
@@ -40,9 +41,16 @@ export async function startScreen({ config, options, resources, services, store 
       : undefined);
   if (!manager) return;
   const settings = new ScreenSettings(store);
+  // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
+  // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
+  // only a helper that has connected to the accessibility bus turns it on.
+  let wakeAccessibility: (() => void) | undefined;
   manager.configureAccess({
     enabled: () => settings.enabled(),
-    enable: (enabled) => settings.enable(enabled),
+    enable: (enabled) => {
+      settings.enable(enabled);
+      if (enabled) wakeAccessibility?.();
+    },
     // Agent MCP notices are emitted by the result observer, covering pre-dispatch failures too.
     audit() {},
   });
@@ -88,8 +96,27 @@ export async function startScreen({ config, options, resources, services, store 
           })
         : undefined;
   if (!computer) return;
+  if (session) {
+    wakeAccessibility = () => {
+      // No session yet, or none at all: the first look tries again.
+      computer.request("hello", {}).catch(() => {});
+    };
+    if (settings.enabled()) wakeAccessibility();
+  }
   resources.own(() => computer.close());
   services.computer = computer;
+  if (process.platform === "darwin") {
+    // Started only when a gated call needs it: with locked use off it never runs.
+    const lockedUse = new LockedUseRuntime({
+      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+      socketPath: lockedUseSocketPath(config.dataDir),
+      nextId: randomUUID,
+      attemptId: () => randomBytes(32).toString("base64url"),
+      scheduler: { after: nodeScheduler.after },
+    });
+    resources.own(() => lockedUse.close());
+    services.lockedUseRuntime = lockedUse;
+  }
   services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
 }
 /**

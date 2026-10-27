@@ -8,7 +8,6 @@ pub struct DesktopApp {
     pub name: String,
     pub path: PathBuf,
     pub exec: Option<String>,
-    pub wm_class: Option<String>,
     /// Shown in menus: not NoDisplay or Hidden.
     pub listed: bool,
 }
@@ -20,17 +19,12 @@ impl DesktopApp {
         let program = argv.iter().find(|arg| !arg.contains('=') && *arg != "env")?;
         Path::new(program).file_name().map(|n| n.to_string_lossy().into_owned())
     }
-
-    /// The id's last dotted part, lowercased: `texteditor` for `org.gnome.TextEditor`.
-    pub fn short_id(&self) -> String {
-        self.id.rsplit('.').next().unwrap_or(&self.id).to_lowercase()
-    }
 }
 
 /// Reads the `[Desktop Entry]` group. None for anything that is not an application.
 pub fn parse(id: &str, path: &Path, text: &str) -> Option<DesktopApp> {
     let mut in_entry = false;
-    let (mut name, mut exec, mut wm_class, mut kind) = (None, None, None, None);
+    let (mut name, mut exec, mut kind) = (None, None, None);
     let mut listed = true;
     for line in text.lines() {
         let line = line.trim();
@@ -48,7 +42,6 @@ pub fn parse(id: &str, path: &Path, text: &str) -> Option<DesktopApp> {
         match key.trim() {
             "Name" => name = Some(value),
             "Exec" => exec = Some(value),
-            "StartupWMClass" => wm_class = Some(value),
             "Type" => kind = Some(value),
             "NoDisplay" | "Hidden" if value.eq_ignore_ascii_case("true") => listed = false,
             _ => {}
@@ -62,7 +55,6 @@ pub fn parse(id: &str, path: &Path, text: &str) -> Option<DesktopApp> {
         name: name.unwrap_or_else(|| id.to_owned()),
         path: path.to_owned(),
         exec,
-        wm_class,
         listed,
     })
 }

@@ -128,3 +128,32 @@ describe("telling a stuck encoder from a working one", () => {
     expect(new EncoderWatchdog().stalled(60_000)).toBe(false);
   });
 });
+
+describe("a skipped last frame on a page that goes still", () => {
+  it("is encoded once its slot comes, though no other frame arrives", () => {
+    const pacer = new EncodePacer(30);
+    expect(pacer.frame(0, false)).toBe("key");
+    // A keystroke's frame lands 10 ms later, before the next slot: skipped. The page is still
+    // after it.
+    expect(pacer.frame(10, false)).toBe("skip");
+    expect(pacer.catchUp(12, false)).toBe(false);
+    expect(pacer.catchUp(30, false)).toBe(true);
+    // Once sent, nothing more is owed.
+    expect(pacer.catchUp(90, false)).toBe(false);
+  });
+
+  it("waits while the encoder is busy, then goes", () => {
+    const pacer = new EncodePacer(30);
+    pacer.frame(0, false);
+    expect(pacer.frame(50, true)).toBe("skip");
+    expect(pacer.catchUp(60, true)).toBe(false);
+    expect(pacer.catchUp(70, false)).toBe(true);
+  });
+
+  it("is not owed when the frame that went was the newest", () => {
+    const pacer = new EncodePacer(30);
+    pacer.frame(0, false);
+    expect(pacer.frame(40, false)).toBe("delta");
+    expect(pacer.catchUp(200, false)).toBe(false);
+  });
+});

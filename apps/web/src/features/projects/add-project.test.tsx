@@ -151,6 +151,22 @@ test("Enter, → and a click go into a folder, .. goes up, and Enter with nothin
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
 
+test("the Add button adds the folder browsed, not a row the pointer crossed on the way to it", async () => {
+  const made = firstRun();
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/code/");
+  await userEvent.click(await option("mono"));
+  await waitFor(() => expect(input.value).toBe("~/code/mono/"));
+  // Down to the button past the folder inside and `..` above: each is hovered on the way.
+  await userEvent.hover(await option("packages"));
+  expect((await highlighted())?.textContent).toBe("packages");
+  await userEvent.hover(await option(".."));
+  await userEvent.unhover(await folders());
+  expect(await highlighted()).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(registered(made)).toEqual([`${home}/code/mono`]));
+});
+
 test("hidden folders show once the typed name starts with a dot", async () => {
   const made = firstRun();
   const input = await localFolder(made);

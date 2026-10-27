@@ -3,7 +3,8 @@ import SwiftUI
 /// How the Threads tab lays out its list and the open thread, decided from the window alone: its
 /// horizontal size class and width, never the device, the screen or its orientation. A phone, the
 /// folded iPhone Duo and a narrow iPad window are compact: the list and the thread stack. A wide
-/// iPad window and the unfolded Duo are regular: the list stays beside the thread.
+/// iPad window and the unfolded Duo are regular: the list stays beside the thread. In a compact
+/// window the list is a drawer over the open thread (`ThreadDrawer`).
 ///
 /// The open thread and its pushed pages are one path in every layout. The split shows its first
 /// page as the list's selection and the rest on the detail column's own stack, so a window that
@@ -25,19 +26,6 @@ enum ThreadColumns {
     /// alone once one is open (the list slides over it from the toolbar), the list until then.
     static func visibility(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat, open: Bool) -> NavigationSplitViewVisibility {
         sideBySide(sizeClass, width: width) || !open ? .all : .detailOnly
-    }
-
-    /// The column a compact window shows: the open thread, or the list when none is open.
-    static func compactColumn(_ path: [InboxRoute]) -> NavigationSplitViewColumn {
-        path.isEmpty ? .sidebar : .detail
-    }
-
-    /// Whether the list appearing means the person went back to it, closing the thread: in a
-    /// compact window, after the split view reported the list on top. The report alone comes
-    /// for any popped page (a browser over the thread too); the list alone appears as a window
-    /// changes shape.
-    static func backToList(_ sizeClass: UserInterfaceSizeClass?, reported: Bool) -> Bool {
-        sizeClass == .compact && reported
     }
 
     /// The thread the list shows as open.

@@ -4,15 +4,31 @@ import UIKit
 
 /// The live page: decoded video on a sample-buffer display layer, fingers forwarded as the page's
 /// touch points, and the hidden field that brings up the keyboard for the page's focused field.
+/// The picture fits the view's width (`PageGeometry`); one larger than the view (a desktop, or a
+/// phone taller than the view) is zoomed and moved with two fingers, and one finger still uses
+/// the page.
 /// While it is on screen a display link draws the newest decoded picture once per refresh, up to
 /// 60 times a second; the layer keeps the last one until a newer arrives.
-final class BrowserSurfaceView: UIView {
+final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     private let videoLayer = AVSampleBufferDisplayLayer()
     private var samples = DisplaySamples()
     private var link: CADisplayLink?
     let textField = RemoteTextField()
     /// The drawn picture's page size in CSS pixels; zero before the first.
     private(set) var pageSize: CGSize = .zero
+    /// The person's zoom and move of the picture; back to the fit when the page's size changes.
+    private var zoom: CGFloat = 1
+    private var offset: CGPoint = .zero
+    var geometry: PageGeometry { PageGeometry(view: bounds.size, page: pageSize, zoom: zoom, offset: offset) }
+    /// The picture was zoomed or moved (overlays drawn over the page follow it).
+    var onMove: (CGFloat, CGPoint) -> Void = { _, _ in }
+    private lazy var pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+    private lazy var pan: UIPanGestureRecognizer = {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 2
+        return pan
+    }()
     /// The newest picture decoded since the last refresh, if any.
     var nextPicture: () -> BrowserPicture? = { nil }
     /// While the person can use the page, a swipe here goes to the page, never to ace's back swipe.
@@ -21,12 +37,15 @@ final class BrowserSurfaceView: UIView {
     var onInput: ([RemoteInput]) -> Void = { _ in } {
         didSet { textField.onInput = onInput }
     }
-    /// The view settled at a new size or scale.
-    var onLayout: (CGSize, CGFloat) -> Void = { _, _ in }
+    /// The view settled at a new size or scale, or the picture at a new drawn size (nil before
+    /// the first picture): the stream is encoded for the picture as drawn.
+    var onLayout: (CGSize, CGFloat, CGSize?) -> Void = { _, _, _ in }
     /// A finger touched the page (the keyboard opens for a field the person just tapped).
     var onTouch: () -> Void = {}
     private var tracker = TouchTracker<ObjectIdentifier>()
-    private var reported: (size: CGSize, scale: CGFloat)?
+    private var reported: (size: CGSize, scale: CGFloat, picture: CGSize?)?
+    /// The page's focused field, kept so it follows the picture as it is zoomed and moved.
+    private var field: PageRect?
     private var settle: DispatchWorkItem?
 
     override init(frame: CGRect) {
@@ -37,10 +56,20 @@ final class BrowserSurfaceView: UIView {
         layer.addSublayer(videoLayer)
         addSubview(textField)
         claim.isEnabled = interactive
+        for recognizer in [pinch, pan] as [UIGestureRecognizer] {
+            recognizer.delegate = self
+            recognizer.isEnabled = false
+            addGestureRecognizer(recognizer)
+        }
         isAccessibilityElement = true
         accessibilityLabel = "Live browser page"
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.surface"
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Fit page width") { [weak self] _ in self?.zoomTo(1) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom in") { [weak self] _ in self?.zoomBy(1.5) ?? false },
+            UIAccessibilityCustomAction(name: "Zoom out") { [weak self] _ in self?.zoomBy(1 / 1.5) ?? false },
+        ]
     }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -48,8 +77,11 @@ final class BrowserSurfaceView: UIView {
         super.layoutSubviews()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        videoLayer.frame = bounds
+        videoLayer.frame = pageSize == .zero ? bounds : geometry.box
         CATransaction.commit()
+        let movable = geometry.movable
+        pinch.isEnabled = movable || pageSize.width > bounds.width
+        pan.isEnabled = movable
         report()
     }
     override func didMoveToWindow() {
@@ -65,8 +97,9 @@ final class BrowserSurfaceView: UIView {
     /// Places the hidden field over the page's focused field, so the system's text UI (the IME's
     /// candidates, dictation) appears next to it.
     func place(field rect: PageRect?) {
+        field = rect
         guard let rect else { textField.frame = CGRect(x: 0, y: 0, width: 1, height: 1); return }
-        let shown = PageGeometry(view: bounds.size, page: pageSize).viewRect(rect)
+        let shown = geometry.viewRect(rect)
         textField.frame = CGRect(x: shown.minX, y: shown.minY, width: max(1, shown.width), height: max(1, shown.height))
     }
 
@@ -76,26 +109,69 @@ final class BrowserSurfaceView: UIView {
         let renderer = videoLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
-        pageSize = picture.page
+        if pageSize != picture.page {
+            // Another device or size: the picture starts at the fit again.
+            pageSize = picture.page
+            zoom = 1
+            offset = .zero
+            moved()
+        }
+    }
+
+    private func moved() {
+        setNeedsLayout()
+        place(field: field)
+        onMove(zoom, offset)
+    }
+    private func zoomBy(_ factor: CGFloat) -> Bool {
+        guard pageSize != .zero else { return false }
+        let next = geometry.zoomed(by: factor, around: CGPoint(x: bounds.midX, y: bounds.midY))
+        zoom = next.zoom
+        offset = next.offset
+        moved()
+        return true
+    }
+    private func zoomTo(_ value: CGFloat) -> Bool { zoomBy(value / zoom) }
+    @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
+        guard recognizer.state == .changed || recognizer.state == .ended else { return }
+        let next = geometry.zoomed(by: recognizer.scale, around: recognizer.location(in: self))
+        recognizer.scale = 1
+        zoom = next.zoom
+        offset = next.offset
+        moved()
+    }
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        guard recognizer.state == .changed || recognizer.state == .ended else { return }
+        let next = geometry.panned(by: recognizer.translation(in: self))
+        recognizer.setTranslation(.zero, in: self)
+        offset = next.offset
+        moved()
+    }
+    /// Zoom and move together, as in a photo.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        (gestureRecognizer === pinch && other === pan) || (gestureRecognizer === pan && other === pinch)
     }
 
     /// Sends the size once now, then again only once a change settles (rotation, split view).
     private func report() {
         let size = bounds.size, scale = traitCollection.displayScale
         guard size.width > 0, size.height > 0 else { return }
-        if let reported, reported.size == size, reported.scale == scale { return }
+        let box = geometry.box
+        let picture = pageSize == .zero ? nil : CGSize(width: box.width.rounded(), height: box.height.rounded())
+        if let reported, reported.size == size, reported.scale == scale, reported.picture == picture { return }
         settle?.cancel()
         let send = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.reported = (size, scale)
-            self.onLayout(size, scale)
+            self.reported = (size, scale, picture)
+            self.onLayout(size, scale, picture)
         }
         settle = send
         if reported == nil { send.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: send) }
     }
 
     private func points(_ touches: Set<UITouch>) -> [(ObjectIdentifier, CGPoint)] {
-        let geometry = PageGeometry(view: bounds.size, page: pageSize)
+        let geometry = geometry
         return touches.map { (ObjectIdentifier($0), geometry.pagePoint($0.location(in: self))) }
     }
     private var accepting: Bool { interactive && pageSize.width > 0 && pageSize.height > 0 }
@@ -144,9 +220,10 @@ struct BrowserSurface: UIViewRepresentable {
         let model = model
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
         view.onInput = { model.browserInput($0) }
-        view.onLayout = { size, scale in
+        view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
+        view.onLayout = { size, scale, picture in
             if model.browser.threadId == nil { model.openBrowser(size: size, scale: scale) }
-            else { model.browserViewport(size: size, scale: scale) }
+            else { model.browserViewport(size: size, scale: scale, picture: picture) }
         }
         let coordinator = context.coordinator
         view.onTouch = { coordinator.lastTouch = Date() }

@@ -13,6 +13,10 @@ export interface StorageCandidate {
   eligibleReason: StorageReason;
   branch?: string | null;
   removeBranch?: boolean;
+  settledAt?: number;
+  mergedIntoMain?: boolean;
+  /** A worktree owner is neither archived nor deleted, even if settled. */
+  openThreads?: boolean;
 }
 
 const forceable = new Set<StorageReason>(["uncommitted", "unpushed"]);
@@ -34,9 +38,26 @@ export function planStorageItem(
       !(forced && forceable.has(reason)) &&
       !(retention.idleThreads && candidate.kind === "threads" && archival.has(reason)),
   );
+  const settled =
+    candidate.kind === "worktrees" &&
+    (retention.worktreeMode === "settled" || retention.worktreeMode === "all_settled");
+  // Archived mode keeps worktrees of open threads, settled or not.
+  if (candidate.kind === "worktrees" && !settled && candidate.openThreads)
+    protections.push("live_thread");
+  if (settled) {
+    if (candidate.settledAt === undefined) protections.push("not_settled");
+    if (retention.worktreeMode === "settled" && !candidate.mergedIntoMain)
+      protections.push("not_merged");
+  }
   const days = retention[candidate.kind];
-  if (days === null) protections.push("retention_disabled");
-  else if (candidate.modifiedAt > now - days * 86400000) protections.push("within_retention");
+  if (!(settled && retention.worktreeMode === "all_settled")) {
+    if (days === null) protections.push("retention_disabled");
+    else if (
+      (settled ? (candidate.settledAt ?? now) : candidate.modifiedAt) >
+      now - days * 86400000
+    )
+      protections.push("within_retention");
+  }
   return {
     id: candidate.id,
     kind: candidate.kind,

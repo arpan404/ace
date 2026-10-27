@@ -67,6 +67,7 @@ import {
   MachinesResult,
 } from "./machines.ts";
 import { FleetRequest, FleetResult } from "./fleet.ts";
+import { LockedUseRequest, LockedUseServerMessage } from "./locked-use.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
 import {
@@ -207,6 +208,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HostIdentityRequest,
   MachinesRequest,
   FleetRequest,
+  ...LockedUseRequest.options,
   TransfersRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
@@ -296,6 +298,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HostIdentityResult,
   MachinesResult,
   FleetResult,
+  ...LockedUseServerMessage.options,
   TransfersResult,
   TransferProgress,
   ProvidersResult,

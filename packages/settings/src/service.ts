@@ -16,6 +16,12 @@ import { SettingsError, validateValue } from "./document.ts";
 import { SettingsFile, freeze, type FileChange } from "./file.ts";
 import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
 
+/**
+ * Keys only the global layer may set: a value in a workspace or thread document (a repository's
+ * `.ace/settings.json`) is ignored, so a project can't turn them on for itself.
+ */
+const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>(["computer.lockedUse"]);
+
 export interface Scope {
   workspace?: string;
   thread?: string;
@@ -138,6 +144,7 @@ export class SettingsService {
       });
     for (let index = files.length - 1; index >= 0; index--) {
       const file = files[index];
+      if (file && file.layer !== "global" && globalOnlyKeys.has(key)) continue;
       if (file && Object.hasOwn(file.file.document.settings, key)) {
         // Every known document value has been validated by SettingsDocument.
         return freeze({
@@ -185,6 +192,8 @@ export class SettingsService {
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
     if (key === "computer.blockedApps" && layer.kind !== "global")
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
+    if (globalOnlyKeys.has(key) && layer.kind !== "global")
+      throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Roles are a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")

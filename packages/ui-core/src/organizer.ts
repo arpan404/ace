@@ -18,6 +18,8 @@ const Stored = z.object({
   baseline: z.number(),
   /** Home list project filter; null is every project. */
   project: z.string().nullable().catch(null),
+  /** Home list device filter; absent is every device. */
+  device: z.string().optional().catch(undefined),
   snoozedOpen: z.boolean().catch(false),
   settledOpen: z.boolean().catch(false),
 });
@@ -53,6 +55,10 @@ export class Organizer {
   setProject(project: string | null): void {
     this.set({ project });
   }
+  setDevice(device: string | undefined): void {
+    // Projects belong to a device, so a device switch clears the previous project's filter.
+    this.set({ device, project: null });
+  }
   setSnoozedOpen(snoozedOpen: boolean): void {
     this.set({ snoozedOpen });
   }
@@ -65,10 +71,11 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, snoozedOpen, settledOpen } = this.state;
+    const { baseline, project, device, snoozedOpen, settledOpen } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
+      device,
       snoozedOpen,
       settledOpen,
     } satisfies Stored);

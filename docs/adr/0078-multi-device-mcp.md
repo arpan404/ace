@@ -94,7 +94,12 @@ as they are. A tool is reachable elsewhere only when it was deliberately given `
 ### UI
 
 - A child on another machine shows "on Studio" on its subagent row, and its Summary background
-  entry reads "role · Studio". The row opens the Summary, not a local thread.
+  entry reads "role · Studio". When the window is paired with that machine too, the row opens
+  the child as the parent's subagent (`/t/<parent>/agents/<child>?on=<hostId>`): the child's
+  own thread, read live from that machine, under `parent / child` in the header. The parent's
+  row records the machine's host id when its daemon knows it; else the window finds the child
+  by its thread id among its paired machines' threads. A window not paired with that machine
+  opens the Summary instead.
 - Tool rows name the machine: "On studio, went to `example.com`".
 - Settings › Remote devices holds the opt-in switch and its scope.
 

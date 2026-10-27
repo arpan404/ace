@@ -185,9 +185,16 @@ export class FolderReader {
   }
 }
 
-/** Deterministic preorder of a whole folder. Links are read as text and never followed. */
-export async function walkFolder(root: string, signal?: AbortSignal): Promise<FolderWalk> {
-  const reader = new FolderReader(await realpath(root), signal);
+/**
+ * Deterministic preorder of a whole folder, without what `prune` keeps out. Links are read as
+ * text and never followed.
+ */
+export async function walkFolder(
+  root: string,
+  signal?: AbortSignal,
+  prune?: FolderPrune,
+): Promise<FolderWalk> {
+  const reader = new FolderReader(await realpath(root), signal, prune);
   async function* members(): AsyncGenerator<FolderMember> {
     const top = PinnedDirectory.open(reader.canonical);
     try {

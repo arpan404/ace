@@ -56,6 +56,21 @@ export function targetProjects(context: ServiceContext): TargetProjects {
           workspaceId: WorkspaceId.parse(row["id"]),
           path: String(row["path"]),
         })),
+    busy: (workspaceId) => {
+      // Threads that run in the project's own checkout, not in a worktree of their own.
+      const inCheckout = (threadId: ThreadId) => {
+        const thread = store.readThread(threadId);
+        return thread?.workspaceId === workspaceId && thread.details?.mode !== "worktree";
+      };
+      const unsettled = store
+        .statement(
+          "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND json_extract(status,'$.state') NOT IN ('done','new','failed') LIMIT 256",
+        )
+        .all(workspaceId)
+        .map((row) => ThreadId.parse(row["id"]));
+      if (unsettled.some(inCheckout)) return true;
+      return (services.workspaceActions?.terminalThreads() ?? []).some(inCheckout);
+    },
     parent: (requested) =>
       projects()
         .transferParent(requested)
@@ -88,7 +103,7 @@ export function targetProjects(context: ServiceContext): TargetProjects {
       await run(`transfer-remove:${workspaceId}:${context.id()}`, {
         type: "workspace.remove",
         workspaceId,
-        archiveThreads: true,
+        stopRunning: true,
       });
     },
   };

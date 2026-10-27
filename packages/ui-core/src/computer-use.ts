@@ -36,7 +36,7 @@ export interface ScreenSessionView {
    * or a desktop that shares without input (`watchOnlyReason`).
    */
   viewOnly: boolean;
-  /** Why this desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway). */
+  /** Why this desktop lets the person watch but not control (Linux on KDE and Hyprland). */
   watchOnlyReason: string | undefined;
   /** A screen the person shared in the machine's sharing dialog: theirs to control, never an agent's. */
   personOnly: boolean;
